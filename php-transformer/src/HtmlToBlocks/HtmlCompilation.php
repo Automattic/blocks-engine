@@ -249,6 +249,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     /** After-author content-box restatements collected while projecting the author stylesheet assets. */
     private string $authorStylesheetContentBoxCss = '';
 
+    /** Author CSS visible to the document, captured once per transform for element-dispatch checks. */
+    private string $documentAuthorCss = '';
+
     /**
      * Core blocks this transformer can produce, keyed by the contract that
      * verifies that producer. Runtime registration is intentionally not part of
@@ -1637,6 +1640,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->projectedSelectorBindings = array();
         $this->glyphColorUndecodable = array();
         $this->capturedGlyphColors = null;
+        $this->documentAuthorCss = '';
         $this->currentSourcePath = (string) ($options['source'] ?? 'html');
         $this->session->installSourcePath($this->currentSourcePath);
         $this->sharedStylesheetPaths = array();
@@ -1753,7 +1757,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // Remove wrapper-convention custom elements before author selectors are
         // prepared, so style projection and component promotion both observe the
         // content rather than the source's wrapping convention.
-        $this->unwrapRenderNeutralCustomElements($body, $this->authoredCssText($html, (string) ($options['static_css'] ?? '')));
+        $this->documentAuthorCss = $this->authoredCssText($html, (string) ($options['static_css'] ?? ''));
+        $this->unwrapRenderNeutralCustomElements($body, $this->documentAuthorCss);
         $timer->start('transform.author_selector_preparation');
         $this->prepareAuthorSelectorSemantics($html, (string) ($options['static_css'] ?? ''), $body, $options);
         $this->fallbackEmitter()->configure($this->transformationProvenance()->fallback(), $this->runtimeBehavior()->runtimeScriptMetadata(), $this->runtimeSelectors(), $this->authorSelectorProjections()->tagMarkers());
@@ -4512,6 +4517,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $customElementRuntime['block'];
         }
 
+        // Last disposition before the unsupported gate: a custom element whose
+        // whole subtree renders nothing is transport scaffolding, not lost
+        // content, so omit it without recording a fallback downstream importers
+        // would count as an unsupported reduction.
+        if ( $this->isEmptyRenderNeutralCustomElement($element) ) {
+            return null;
+        }
+
         if ( $captureUnsupported ) {
             return $this->unsupportedRecorder->record($element, $tagName, $fallbacks);
         }
@@ -4589,6 +4602,260 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return $this->commercePattern->isCheckoutRegion($element);
+    }
+
+    /** Subtree tags that render media, graphics, or accept interaction; any of them keeps the host on its existing disposition. */
+    private const SUBTREE_RENDERING_TAGS = array(
+        'a', 'audio', 'base', 'button', 'canvas', 'details', 'dialog', 'embed', 'fieldset', 'form',
+        'iframe', 'img', 'input', 'label', 'link', 'map', 'meta', 'meter', 'object', 'output',
+        'picture', 'progress', 'script', 'select', 'slot', 'source', 'style', 'svg', 'template',
+        'textarea', 'track', 'video',
+    );
+
+    /** URL-bearing attributes; a nonempty value means the subtree references rendered content elsewhere. */
+    private const SUBTREE_URL_ATTRIBUTES = array( 'src', 'srcset', 'href', 'data-src', 'data-url' );
+
+    /**
+     * A hyphenated custom element whose whole subtree renders nothing: no
+     * text, no media, graphics, or iframes, no form or interactive controls,
+     * no runtime or event metadata, no accessible role or name, no
+     * URL-bearing attributes, and authored presentation limited to `display`
+     * (stylesheet rules addressing the tag and inline styles alike). Author
+     * CSS reaching the subtree through a descendant's class, id, or
+     * hyphenated tag name must not paint or occupy space either: a child
+     * styled by `.rule-line{height:1px;background:#ccc}` is a visible
+     * divider, not an empty slot. The host itself carries no authored
+     * attributes beyond an anchor `id` and such geometry-neutral inline
+     * styles — a classed or configured host stays on its explicit diagnostic
+     * path. Nothing visible or interactive is lost by omitting such a slot,
+     * so it leaves no blocks and no unsupported-element fallback behind;
+     * identity attributes on its placeholder children (`class`, `id`,
+     * `data-hook`) are not runtime metadata and do not disqualify it.
+     *
+     * Every content-bearing disposition sits ahead of this check in the
+     * dispatch chain: proven runtimes and configuration-bearing hosts (the
+     * unproven finding), static graphics, background paint, and captured
+     * media have already been handled when an element reaches it.
+     */
+    private function isEmptyRenderNeutralCustomElement(DOMElement $element): bool
+    {
+        if ( ! str_contains(strtolower($element->tagName), '-')
+            || '' !== trim($element->textContent ?? '')
+            || SourceDom::hasRenderableMediaContent($element)
+            || ! $this->isSafeTransparentCustomElement($element)
+        ) {
+            return false;
+        }
+
+        // A host with authored attributes is a component instance, not an
+        // empty slot: its destination-less or labelled presentation keeps the
+        // explicit unsupported diagnostic.
+        foreach ( $element->attributes as $attribute ) {
+            $name = strtolower($attribute->name);
+            if ( 'id' === $name || 'style' === $name || '' === trim((string) $attribute->value) ) {
+                continue;
+            }
+            return false;
+        }
+
+        foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'))) as $candidate ) {
+            if ( ! $candidate instanceof DOMElement ) {
+                continue;
+            }
+            if ( in_array(strtolower($candidate->tagName), self::SUBTREE_RENDERING_TAGS, true)
+                || '' !== trim($this->attr($candidate, 'role'))
+                || '' !== trim($this->attr($candidate, 'aria-label'))
+                || '' !== trim($this->attr($candidate, 'aria-labelledby'))
+            ) {
+                return false;
+            }
+            foreach ( self::SUBTREE_URL_ATTRIBUTES as $attribute ) {
+                if ( '' !== trim($this->attr($candidate, $attribute)) ) {
+                    return false;
+                }
+            }
+            if ( ! $this->inlineStyleIsGeometryNeutral($candidate) ) {
+                return false;
+            }
+        }
+
+        return $this->authorCssLeavesSubtreeRenderEmpty($element);
+    }
+
+    /** Inline presentation beyond `display` (paint, typography, spacing) means the subtree is not render-empty. */
+    private function inlineStyleIsGeometryNeutral(DOMElement $candidate): bool
+    {
+        $style = trim(SourceDom::attr($candidate, 'style'));
+        if ( '' === $style ) {
+            return true;
+        }
+        foreach ( array_keys($this->styleResolver->cssDeclarations($style)) as $property ) {
+            if ( 'display' !== strtolower(trim((string) $property)) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** Token-boundary selector match, as the host-tag pattern already uses. */
+    private function cssTokenPattern(string $token): string
+    {
+        return '/(?<![\w-])' . preg_quote($token, '/') . '(?![\w-])/i';
+    }
+
+    /**
+     * Whether author CSS leaves this custom-element subtree render-empty.
+     * Rules addressing the host tag may declare only `display` — the box they
+     * generate paints nothing over empty content. Rules reaching the subtree
+     * through a class, id, or hyphenated tag name must not declare paint or
+     * size either: descendant CSS such as `.rule-line{height:1px;background:
+     * #ccc}` gives an otherwise-empty host visible presence. Token matching
+     * over-matches freely — a false positive only keeps the element on its
+     * existing unsupported-element diagnostic path.
+     */
+    private function authorCssLeavesSubtreeRenderEmpty(DOMElement $element): bool
+    {
+        $css = trim($this->documentAuthorCss);
+        if ( '' === $css ) {
+            return true;
+        }
+
+        $tagPattern = $this->cssTokenPattern(strtolower($element->tagName));
+        $tokens = $this->subtreeCssTokens($element);
+
+        foreach ( $this->cssRuleBlocks($css) as $rule ) {
+            if ( 1 === preg_match($tagPattern, $rule['selector']) ) {
+                // The host tag's own presentation stays display-only.
+                foreach ( array_keys($this->styleResolver->cssDeclarations($rule['declarations'])) as $property ) {
+                    if ( 'display' !== strtolower(trim((string) $property)) ) {
+                        return false;
+                    }
+                }
+                continue;
+            }
+            if ( ! $this->selectorMentionsSubtreeToken($rule['selector'], $tokens) ) {
+                continue;
+            }
+            if ( $this->cssDeclarationsPaintOrOccupySpace($rule['declarations']) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Class names, ids, and hyphenated tag names of every subtree element
+     * (host included): the selectors that can reach it. Non-hyphenated tags
+     * are left out — a bare `div` would match half the page's rules.
+     *
+     * @return array<int, string>
+     */
+    private function subtreeCssTokens(DOMElement $element): array
+    {
+        $tokens = array();
+        foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'))) as $candidate ) {
+            if ( ! $candidate instanceof DOMElement ) {
+                continue;
+            }
+            if ( str_contains(strtolower($candidate->tagName), '-') ) {
+                $tokens[] = strtolower($candidate->tagName);
+            }
+            foreach ( preg_split('/\s+/', trim($this->attr($candidate, 'class')), -1, PREG_SPLIT_NO_EMPTY) as $class ) {
+                $tokens[] = $class;
+            }
+            $id = trim($this->attr($candidate, 'id'));
+            if ( '' !== $id ) {
+                $tokens[] = $id;
+            }
+        }
+
+        return array_values(array_unique($tokens));
+    }
+
+    /** Whether a selector mentions any subtree token with a boundary match. */
+    private function selectorMentionsSubtreeToken(string $selector, array $tokens): bool
+    {
+        foreach ( $tokens as $token ) {
+            if ( 1 === preg_match($this->cssTokenPattern($token), $selector) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether a declaration block paints or occupies space with a non-zero,
+     * non-none value: any background, border, shadow, outline, size,
+     * spacing, mask, filter, clip, or generated pseudo-element content.
+     * `width` counts only alongside a height — a lone width wraps nothing
+     * visible in an empty subtree.
+     */
+    private function cssDeclarationsPaintOrOccupySpace(string $declarations): bool
+    {
+        $declared = array();
+        foreach ( $this->styleResolver->cssDeclarations($declarations) as $property => $value ) {
+            $declared[strtolower(trim((string) $property))] = trim((string) $value);
+        }
+
+        $hasHeight = ( isset($declared['height']) && $this->cssValueIsNonZero($declared['height']) )
+            || ( isset($declared['min-height']) && $this->cssValueIsNonZero($declared['min-height']) );
+
+        foreach ( $declared as $property => $value ) {
+            if ( ! $this->cssPropertyPaintsOrOccupiesSpace($property, $hasHeight) ) {
+                continue;
+            }
+            if ( $this->cssValueIsNonZero((string) $value) ) {
+                return true;
+            }
+            // A background paints with any other value — even all-zero
+            // colors like `#000`; only `none` stays quiet.
+            $value = strtolower(trim((string) $value));
+            if ( str_starts_with($property, 'background') && ! in_array($value, array( '', 'none' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** Whether the property name itself paints or occupies space at all. */
+    private function cssPropertyPaintsOrOccupiesSpace(string $property, bool $hasHeight): bool
+    {
+        foreach ( array( 'background', 'border', 'outline', 'padding', 'margin', 'mask' ) as $prefix ) {
+            if ( str_starts_with($property, $prefix) ) {
+                return true;
+            }
+        }
+
+        return in_array($property, array( 'aspect-ratio', 'box-shadow', 'clip-path', 'content', 'filter', 'flex-basis', 'height', 'min-height' ), true)
+            || ( in_array($property, array( 'width', 'min-width' ), true) && $hasHeight );
+    }
+
+    /**
+     * Whether a declaration value carries more than zero and `none`: any
+     * non-zero number (`1px`, `rgb(0,0,1)`), or a numberless value (`red`,
+     * `#ccc`, `thin`) — over-matching only keeps the existing diagnostic,
+     * so quiet values are just `none` and all-zero lists (`0`, `0 0 auto`).
+     */
+    private function cssValueIsNonZero(string $value): bool
+    {
+        $value = strtolower(trim($value));
+        if ( '' === $value || 'none' === $value ) {
+            return false;
+        }
+        if ( 0 === preg_match_all('/\d+(?:\.\d+)?/', $value, $numbers) ) {
+            return true;
+        }
+        foreach ( $numbers[0] as $number ) {
+            if ( 0.0 !== (float) $number ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** A `li` whose parent is not a list: invalid markup the list converter never reaches. */
