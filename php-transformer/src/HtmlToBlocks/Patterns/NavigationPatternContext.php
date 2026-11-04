@@ -637,7 +637,10 @@ final class NavigationPatternContext
             $current = $this->withoutCurrentItemPresentation($block);
             $targets = array();
             $collect($block['innerBlocks'] ?? array(), '');
-            if (array() === $targets && array() === $current) continue;
+            if (array() === $targets && array() === $current) {
+                $this->publishInheritedNavigationPresentation($block, $source->getNodePath() ?? '', '');
+                continue;
+            }
             // The instance names the resting menu: per-item link colours follow
             // the served route, and current-item presentation is lifted above.
             $resting = array_filter($targets, static fn(string $marker): bool => 1 !== preg_match('/^blocks-engine-navigation-(?:current-color|link-color(?:-states)?)-/', $marker), ARRAY_FILTER_USE_KEY);
@@ -648,6 +651,7 @@ final class NavigationPatternContext
             $this->recordCurrentItemPresentation($current, $scope, $source);
             $markup = (string) json_encode($block);
             $root = $source->getNodePath() ?? '';
+            $this->publishInheritedNavigationPresentation($block, $root, $scope);
             foreach ($this->pendingNavigationSubjects as $path => $subject) {
                 if ($path !== $root && !str_starts_with($path, $root . '/')) continue;
                 $marker = $subject['marker'];
@@ -1444,8 +1448,46 @@ final class NavigationPatternContext
             return;
         }
 
-        $selector = '.wp-block-navigation' . CssIdent::compoundClassSelector($authorClasses) . ' .wp-block-navigation-item__content';
-        $this->sourceTargetProjection->record(SourceDom::elementSelector($navigation), $selector, implode(';', $declarations));
+        // Equal author classes do not make equal menus: a captured dialog
+        // copy carries the inline menu's classes but not its cascade. The
+        // rule is published once the emitted block has its instance scope.
+        $this->pendingInheritedPresentations[] = array('path' => $navigation->getNodePath() ?? '', 'source' => SourceDom::elementSelector($navigation), 'classes' => $authorClasses, 'declarations' => implode(';', $declarations));
+    }
+
+    /** @var list<array{path: string, source: string, classes: array<int, string>, declarations: string}> */
+    private array $pendingInheritedPresentations = array();
+
+    /**
+     * Publish the presentation recovered from this source menu on the emitted
+     * block that carries its author classes, scoped to that block's instance
+     * when it has one, so another menu sharing the classes keeps its own type.
+     *
+     * A menu without item subjects has no instance scope yet; it gets one
+     * from the same allocator when it has presentation to publish.
+     *
+     * @param array<string, mixed> $block
+     */
+    private function publishInheritedNavigationPresentation(array &$block, string $root, string $scope): void
+    {
+        if (!$this->sourceTargetProjection instanceof SourceTargetProjectionState) return;
+        $classes = preg_split('/\s+/', trim((string) ($block['attrs']['className'] ?? ''))) ?: array();
+        foreach ($this->pendingInheritedPresentations as $index => $pending) {
+            if ($pending['path'] !== $root && !str_starts_with($pending['path'], $root . '/')) continue;
+            if (array() !== array_diff($pending['classes'], $classes)) continue;
+            if ('' === $scope && !$this->session instanceof HtmlTransformerSession) {
+                $this->sourceTargetProjection->record($pending['source'], '.wp-block-navigation' . CssIdent::compoundClassSelector($pending['classes']) . ' .wp-block-navigation-item__content', $pending['declarations']);
+                unset($this->pendingInheritedPresentations[$index]);
+                continue;
+            }
+            if ('' === $scope) {
+                // A header-only parse roots the same navigation at /body.
+                $identity = preg_replace('~^/body(?=/|$)~', '/html/body', $root) ?? '';
+                $scope = $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-instance', $identity . $pending['declarations']);
+                $block['attrs']['className'] = SourceDom::mergeClassNames($block['attrs']['className'] ?? '', $scope);
+            }
+            $this->sourceTargetProjection->record($pending['source'], '.wp-block-navigation.' . $scope . ' .wp-block-navigation-item__content', $pending['declarations']);
+            unset($this->pendingInheritedPresentations[$index]);
+        }
     }
 
     /** A retained item/wrapper owns its inherited presentation, including state and query changes. */
@@ -1456,7 +1498,12 @@ final class NavigationPatternContext
         if (str_starts_with($property, 'font-')) $properties[] = 'font';
         foreach ($anchors as $anchor) {
             for ($node = $anchor->parentNode; $node instanceof DOMElement && !$node->isSameNode($navigation); $node = $node->parentNode) {
-                if ('' === $this->session->authorSelectorProjectionState()->navigationSubject($node->getNodePath() ?? '')) continue;
+                // This runs while the menu is still being recognised, before its
+                // subjects are published, so the boxes this conversion retains
+                // are its pending subjects; published ones alone would depend on
+                // an earlier document having converted the same DOM path.
+                $path = $node->getNodePath() ?? '';
+                if (!isset($this->pendingNavigationSubjects[$path]) && '' === $this->session->authorSelectorProjectionState()->navigationSubject($path)) continue;
                 foreach ($this->styleResolver->cssDeclarations($node->getAttribute('style')) as $name => $value) {
                     if (in_array($name, $properties, true) && !in_array(strtolower(trim($value)), array('inherit', 'unset', 'revert', 'revert-layer'), true)) return true;
                 }
