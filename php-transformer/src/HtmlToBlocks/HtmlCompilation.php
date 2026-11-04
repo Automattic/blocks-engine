@@ -5035,9 +5035,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $anchor = 'a' === strtolower($sourceElement->tagName) ? $sourceElement : $sourceElement->getElementsByTagName('a')->item(0);
             if ($anchor instanceof DOMElement) $this->authorSelectorProjections()->markSocialAnchor($anchor);
         }
-        if ('core/social-link' === $name && $sourceElement instanceof DOMElement && str_contains((string) ($attrs['className'] ?? ''), 'blocks-engine-social-source-item')) {
+        if ('core/social-link' === $name && $sourceElement instanceof DOMElement) {
             $anchor = 'a' === strtolower($sourceElement->tagName) ? $sourceElement : $sourceElement->getElementsByTagName('a')->item(0);
-            if ($anchor instanceof DOMElement) $attrs = (new SocialSourceStyleProjector($this->styleResolver))->project($attrs, $anchor, $this->authorStyles(), $this->session->sourceTargetProjectionState());
+            if ($anchor instanceof DOMElement) $attrs = (new SocialSourceStyleProjector($this->styleResolver))->project($attrs, $anchor, $this->authorStyles(), $this->session->sourceTargetProjectionState(), !str_contains((string) ($attrs['className'] ?? ''), 'blocks-engine-social-source-item'));
         }
         if ( 'core/group' === $name && $sourceElement instanceof DOMElement && $this->preservesScriptStateWrapper($sourceElement) ) {
             return $this->layoutShellBlockForElements(array( $sourceElement ), $innerBlocks, $sourceElement);
