@@ -48,6 +48,7 @@ trait StagedTransport
         foreach ($normalized['files'] as &$file) if (isset($partition['canonical_provenance_hashes'][$file['path']])) $file['provenance']['hash'] = $partition['canonical_provenance_hashes'][$file['path']];
         unset($file);
         $sharedArtifact['files'] = $normalized['files'];
+        $this->retainSharedCssRuleTrees($normalized['files']);
 
         $plan = array(
             'schema' => self::SHARED_PLAN_SCHEMA,
@@ -225,11 +226,19 @@ trait StagedTransport
             if (!is_array($pagePlan) || !is_string($pagePlan['page_id'] ?? null) || isset($receipts[$pagePlan['page_id']])) {
                 throw new \InvalidArgumentException('Prepared page batches require unique page plans with string page ids.');
             }
-            $receipts[$pagePlan['page_id']] = $this->compilePreparedPageWithCompiler($sharedPlan, $pagePlan, $stageCompiler, $payloadReader, true);
+            $receipts[$pagePlan['page_id']] = $this->cssRuleTrees->runPage(fn () => $this->compilePreparedPageWithCompiler($sharedPlan, $pagePlan, $stageCompiler, $payloadReader, true));
         }
         $this->htmlTransformerAnalysisCache = $stageCompiler->htmlTransformerAnalysisCache;
         $this->stylesheetAssetDiscoveryCount = $stageCompiler->stylesheetAssetDiscoveryCount;
         return $receipts;
+    }
+
+    /** @param array<int, array<string, mixed>> $files */
+    private function retainSharedCssRuleTrees(array $files): void
+    {
+        foreach ($files as $file) {
+            if ('css' === ($file['kind'] ?? null)) $this->cssRuleTrees->retain((string) ($file['content'] ?? ''));
+        }
     }
 
     private function preparedPageCompiler(): self
@@ -257,6 +266,7 @@ trait StagedTransport
         $this->assertPagePlan($pagePlan, $sharedPlan);
         $stageCompiler->glyphColorByHash = array_replace($stageCompiler->glyphColorByHash, $sharedPlan['shared_reduction']['glyph_colors'] ?? array());
         $sharedArtifact = array_merge($sharedPlan['artifact'], array('files' => $this->sharedReductionFiles($sharedPlan, $payloadReader)));
+        $this->retainSharedCssRuleTrees($sharedArtifact['files']);
         $pageArtifact = $this->materializePlanArtifact($pagePlan['artifact'], $payloadReader);
         $pageLayoutGeometryProof = is_array($pagePlan['layout_geometry_proof'] ?? null) ? $pagePlan['layout_geometry_proof'] : array();
         foreach ($pageArtifact['files'] as &$pageFile) {
@@ -863,6 +873,7 @@ trait StagedTransport
             'compiler_options' => $this->receiptCompilerOptions(),
         );
         if ('shared' === $scope) {
+            $this->retainSharedCssRuleTrees($normalized['files']);
             $entryPath = (string) ($partition['entrypoints'][0] ?? '');
             $plan['analysis'] = array_merge($this->sharedAnalysis($normalized, array_keys($partition['pages'])), array(
                 'entry_path' => $entryPath,

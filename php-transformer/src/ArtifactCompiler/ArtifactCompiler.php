@@ -1778,6 +1778,11 @@ final class ArtifactCompiler
 
     private function compileHtmlDocumentBlocks(string $html, string $sourcePath, array $files, string $sourceScope, string $generatedBlockNamespace = '', bool $extractGlobalShell = false, array $runtimeDeclarations = array(), int $globalShellContextDepth = 0): array
     {
+        return $this->cssRuleTrees->runPage(fn () => $this->compileHtmlDocumentBlocksWithCssRuleTrees($html, $sourcePath, $files, $sourceScope, $generatedBlockNamespace, $extractGlobalShell, $runtimeDeclarations, $globalShellContextDepth));
+    }
+
+    private function compileHtmlDocumentBlocksWithCssRuleTrees(string $html, string $sourcePath, array $files, string $sourceScope, string $generatedBlockNamespace, bool $extractGlobalShell, array $runtimeDeclarations, int $globalShellContextDepth): array
+    {
         ++$this->htmlDocumentTransformCount;
         $preserveBlockMarkup = $this->isBlockMarkup($html);
         if ( $preserveBlockMarkup || '' === trim($html) ) {

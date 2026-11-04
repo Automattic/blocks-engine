@@ -16,8 +16,23 @@ final class CssRuleTree
         return $this->ends[$opening] ?? null;
     }
 
-    /** @var array<int, list<array{start:int, boundary:int, end:int}>> Rules by enclosing opening brace (-1 for the root). */
+    /** @var list<int> Packed start, boundary, end, next-index records. */
     private array $rules = array();
+
+    /** @var array<int, int> First record by enclosing brace (-1 for root). */
+    private array $heads = array();
+
+    /** @var array<int, int> Last record by enclosing brace. */
+    private array $tails = array();
+
+    private function append(int $scope, int $start, int $boundary, int $end): void
+    {
+        $index = count($this->rules);
+        if (isset($this->tails[$scope])) $this->rules[$this->tails[$scope] + 3] = $index;
+        else $this->heads[$scope] = $index;
+        $this->tails[$scope] = $index;
+        array_push($this->rules, $start, $boundary, $end, -1);
+    }
 
     public function __construct(public readonly string $source)
     {
@@ -42,15 +57,16 @@ final class CssRuleTree
                     if (!$stack) { $valid = false; break; }
                     [$scope, $start, $boundary] = array_pop($stack);
                     $this->ends[$boundary] = $offset;
-                    $this->rules[$scope][] = array('start' => $start, 'boundary' => $boundary, 'end' => $offset);
+                    $this->append($scope, $start, $boundary, $offset);
                     $start = $offset + 1;
                 } elseif (';' === $source[$offset]) {
-                    $this->rules[$scope][] = array('start' => $start, 'boundary' => $offset, 'end' => $offset);
+                    $this->append($scope, $start, $offset, $offset);
                     $start = $offset + 1;
                 }
             }
             $offset = $next;
         }
+        $this->tails = array();
         $this->wellFormed = $valid && !$stack && CssSyntaxScanner::isComplete($state);
     }
 
@@ -62,9 +78,11 @@ final class CssRuleTree
         return null;
     }
 
-    /** @return list<array{start:int, boundary:int, end:int}> */
-    public function rules(int $scope = -1): array
+    /** @return iterable<array{start:int, boundary:int, end:int}> Ephemeral visitor records, not retained nodes. */
+    public function rules(int $scope = -1): iterable
     {
-        return $this->rules[$scope] ?? array();
+        for ($index = $this->heads[$scope] ?? -1; -1 !== $index; $index = $this->rules[$index + 3]) {
+            yield array('start' => $this->rules[$index], 'boundary' => $this->rules[$index + 1], 'end' => $this->rules[$index + 2]);
+        }
     }
 }
