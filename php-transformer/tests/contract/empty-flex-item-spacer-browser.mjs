@@ -30,6 +30,26 @@ try {
     if (shrink) assert.ok(Math.abs(boxes.native[0].width - 22) < 1, 'The dummy shrinks as in the captured header');
     console.log(JSON.stringify(boxes));
     }
+    for (const width of [390, 1280]) {
+        await page.setViewportSize({ width, height: 844 });
+        const boxes = {};
+        for (const role of ['source', 'native']) {
+            await page.setContent(fixture.responsive[role]);
+            assert.equal(await page.locator('.dummy').count(), 1, `${role} retains the responsive spacer`);
+            boxes[role] = await page.locator('.dummy, .title, button').evaluateAll(nodes => nodes.map(node => {
+                const { x, width } = node.getBoundingClientRect();
+                return { x, width };
+            }));
+        }
+        for (let i = 0; i < 3; i++) {
+            for (const axis of ['x', 'width']) {
+                assert.ok(Math.abs(boxes.source[i][axis] - boxes.native[i][axis]) < 1,
+                    `Responsive ${width}px item ${i} ${axis}: ${JSON.stringify(boxes)}`);
+            }
+        }
+        if (width === 390) assert.ok(boxes.native[0].width > 0, 'The phone spacer reserves space');
+        else assert.equal(boxes.native[0].width, 0, 'The desktop row remains hidden');
+    }
 } finally {
     await browser.close();
 }
