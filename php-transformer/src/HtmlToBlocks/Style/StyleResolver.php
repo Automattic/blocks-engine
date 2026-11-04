@@ -4647,9 +4647,13 @@ final class StyleResolver implements ElementPresentationResolver
      * A later low-specificity rule cannot replace an earlier, stronger rule
      * when its declarations become rendered block attributes.
      */
-    public function specificityResolvedPresentationStyle(DOMElement $element): string
+    /**
+     * @param ?callable(string): bool $excludeSelector Rules whose selector it accepts do not apply.
+     * @param bool $inline Whether the element's own style attribute applies.
+     */
+    public function specificityResolvedPresentationStyle(DOMElement $element, ?callable $excludeSelector = null, bool $inline = true): string
     {
-        return $this->resolvedCascadeStyle($element, 'static');
+        return $this->resolvedCascadeStyle($element, 'static', self::DESKTOP_REFERENCE_WIDTH, $excludeSelector, $inline);
     }
     /**
      * Resolve the authored resting cascade across static AND media-conditional
@@ -4715,12 +4719,15 @@ final class StyleResolver implements ElementPresentationResolver
      * rules carry no conditions by construction, so it does not need to be a
      * parameter.
      */
-    private function resolvedCascadeStyle(DOMElement $element, string $collection, float $viewportWidth = self::DESKTOP_REFERENCE_WIDTH): string
+    /** @param ?callable(string): bool $excludeSelector Rules whose selector it accepts do not apply. */
+    private function resolvedCascadeStyle(DOMElement $element, string $collection, float $viewportWidth = self::DESKTOP_REFERENCE_WIDTH, ?callable $excludeSelector = null, bool $inline = true): string
     {
         $cascade = array();
         $sequence = 0;
         foreach ( $this->matchingStyleRules($element, $collection) as $rule ) {
-            if ( ! empty($rule['conditions']) && ! $this->conditionsApplyAtViewport($rule['conditions'], $viewportWidth) ) {
+            if ( ( ! empty($rule['conditions']) && ! $this->conditionsApplyAtViewport($rule['conditions'], $viewportWidth) )
+                || ( null !== $excludeSelector && $excludeSelector((string) $rule['selector']) )
+            ) {
                 continue;
             }
 
@@ -4730,7 +4737,7 @@ final class StyleResolver implements ElementPresentationResolver
             }
         }
 
-        foreach ( $this->cssDeclarations(SourceDom::attr($element, 'style')) as $property => $value ) {
+        foreach ( $this->cssDeclarations($inline ? SourceDom::attr($element, 'style') : '') as $property => $value ) {
             $this->applyMediaTextCascadeDeclaration($cascade, (string) $property, (string) $value, true, array( PHP_INT_MAX, PHP_INT_MAX, PHP_INT_MAX ), ++$sequence);
         }
 

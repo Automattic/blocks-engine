@@ -1851,6 +1851,7 @@ final class ArtifactCompiler
         }
 
         return array(
+            'step_timings'      => $result->metrics['step_timings'] ?? array(),
             'blocks'            => $result->blocks,
             'serialized_blocks' => $result->serializedBlocks,
             'diagnostics'       => $result->diagnostics,

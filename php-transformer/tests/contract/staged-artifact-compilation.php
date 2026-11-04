@@ -60,9 +60,9 @@ foreach ($pageIds as $pageId) $compiledPages[$pageId] = $compiler->compilePage($
 $assert(ArtifactCompiler::COMPACT_RECEIPT_SCHEMA === ($compiledPages['about.html']['receipt_schema'] ?? null) && 1 === ($compiledPages['about.html']['work']['compiled_document_count'] ?? null) && isset($compiledPages['about.html']['compiled_documents']['about.html']), 'A compiled page plan persists only its bounded page-owned document receipt.');
 $assert(!array_key_exists('files', $compiledPages['about.html']['terminal_reduction']) && !array_key_exists('entry_blocks', $compiledPages['index.html']['terminal_reduction']), 'Compact receipts reference canonical page files and compiled entry output instead of serializing duplicate terminal payloads.');
 $compiledBatch = $compiler->compilePreparedPages($shared, $pages);
-foreach ($compiledBatch as &$compiledBatchPage) unset($compiledBatchPage['work']['compile_duration_ms']);
+foreach ($compiledBatch as &$compiledBatchPage) unset($compiledBatchPage['work']['compile_duration_ms'], $compiledBatchPage['work']['step_timings']);
 unset($compiledBatchPage);
-foreach ($compiledPages as &$compiledPage) unset($compiledPage['work']['compile_duration_ms']);
+foreach ($compiledPages as &$compiledPage) unset($compiledPage['work']['compile_duration_ms'], $compiledPage['work']['step_timings']);
 unset($compiledPage);
 $assert($compiledPages === $compiledBatch, 'Worker-batch compilation reuses bounded analysis without changing independently compiled receipt content.');
 

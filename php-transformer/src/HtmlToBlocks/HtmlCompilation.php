@@ -10437,11 +10437,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $className .= ' ' . self::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . $scale;
             $position = CssValueInspector::carriableDeclarationValue((string) ($declarations['background-position'] ?? ''));
             if ( '' !== $position ) {
-                // core/image cannot save object-position itself. Carry the focal
-                // point onto its img in both the editor and frontend stylesheets.
-                $rule = '>img{object-position:' . $position . '}';
-                $carrier = $this->layoutGeometry()->allocateCarrier('background-image-position' . "\n" . $rule);
-                $this->layoutGeometry()->registerRule($carrier, '.' . $carrier . $rule);
+                // core/image cannot save object-position itself. The figure
+                // carries the focal point and its img inherits it, agreeing with
+                // the image projection bridge's own `object-position:inherit`
+                // (same specificity) whichever stylesheet loads last.
+                $carrier = $this->layoutGeometry()->allocateCarrier('background-image-position' . "\n" . $position);
+                $this->layoutGeometry()->registerRule($carrier, '.' . $carrier . '{object-position:' . $position . '}.' . $carrier . '>img{object-position:inherit}');
                 $className .= ' ' . $carrier;
             }
         }

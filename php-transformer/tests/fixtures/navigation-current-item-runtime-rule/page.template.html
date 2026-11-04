@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>{{title}}</title><style>
+.site-header .menu{display:flex;list-style:none;padding-left:0}
+.site-header .item.active{color:#cc0000;font-weight:700}
+.site-header .dropdown-menu{background:#ffffff}
+.site-header .dropdown-item{display:block;padding:4px 12px;color:#223344}
+.site-header .dropdown-item:hover,.site-header .dropdown-item:focus,.site-header .dropdown-item:active{color:#112233;background-color:#eeeeee}
+.site-header .dropdown-item.active{background-color:#ffeecc;padding:8px 16px;color:#cc0000}
+@media (min-width:1024px){.site-header .menu{flex-direction:row}}
+.crumbs li+li::before{content:"/"}
+.btn-group>.btn:first-child{margin-left:0}
+.list>li:last-child{border:0}
+</style></head><body>
+<header class="site-header"><nav><div class="nav-wrap"{{style}}><ul class="menu">
+<li class="item"><a class="link" href="/">Home</a></li>
+<li class="item{{about}}"><a class="link" href="/about/">About</a></li>
+<li class="item dropdown"><a class="link dropdown-toggle" href="/services/">Services</a><div class="dropdown-menu">
+<a class="dropdown-item" href="/services/design/">Design</a>
+<a class="dropdown-item{{build}}" href="/services/build/">Build</a>
+</div></li>
+<li class="item"><a class="link" href="/contact/">Contact</a></li>
+</ul></div></nav></header>
+{{crumbs}}<main><h1>{{title}}</h1><ul class="list"><li>One</li><li>Two</li></ul><div class="btn-group"><a class="btn" href="/a/">A</a><a class="btn" href="/b/">B</a></div></main>
+<footer><p>Footer</p></footer>
+</body></html>
