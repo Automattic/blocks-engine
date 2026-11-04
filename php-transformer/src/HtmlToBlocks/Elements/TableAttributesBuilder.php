@@ -92,6 +92,12 @@ final class TableAttributesBuilder
         $caption = $this->firstChildElement($table, 'caption');
         if ( $caption instanceof DOMElement ) {
             $attrs['caption'] = $this->innerHtml($caption);
+            // core/table saves only the caption's RichText, not its source
+            // element attributes. Keep visually hidden text inside that editable
+            // value rather than adding unsupported attributes to figcaption.
+            if ( 1 === preg_match('/(?:^|\s)(?:sr-only|screen-reader-only|screen-reader-text|visually-hidden)(?:\s|$)/i', $caption->getAttribute('class')) ) {
+                $attrs['caption'] = '<span class="screen-reader-text" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0">' . $attrs['caption'] . '</span>';
+            }
         }
 
         return $attrs;
