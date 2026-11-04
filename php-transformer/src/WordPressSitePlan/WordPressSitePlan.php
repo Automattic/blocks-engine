@@ -2599,6 +2599,8 @@ PHP;
                 // and all specificity shims remain exactly as projected.
                 $scope = ':where(:root:is(.' . implode(',.', array_keys($routes)) . '))';
                 $selector = preg_replace('/:where\(:root(?::(?:is|not)\((?:\.be-r-[a-f0-9]+,?)+\)|\.be-r(?::not\((?:\.be-r-[a-f0-9]+,?)+\))?)\)/', $scope, $selector) ?? $selector;
+                $root = substr($scope, strlen(':where('), -1);
+                $selector = preg_replace('/:where\((:root(?:\.be-rs-[a-f0-9]+|:not\(\.be-rs-[a-f0-9]+\))),\1 \*\)/', ':where(' . $root . ',' . $root . ' *)', $selector) ?? $selector;
             }
             return self::reanchoredDetachedContextSelector(trim($selector), $context, array_keys($detachedRoots));
         };
