@@ -2876,7 +2876,10 @@ final class ArtifactCompiler
             $timer?->start('compose.author_stylesheet_projections.route_variants');
             $routed = $transformer->scopeRouteVariants($sharedStylesheets, $pageProjections, $routeIdentities, preg_match('/@namespace\b/i', implode('', $preambles)) ? '@namespace' : null, $pageMarkup, $routeMatchIndex, $this->routeClasses, $sharedMarkup);
             // Recompact only at serialization, merging compatible marker arms.
-            $recompact = static fn (string $css): string => $timer?->measure('compose.compaction', static fn(): string => count($pageProjections) > 1 ? CssSelectorListCompactor::stylesheet($css, true) : $css) ?? (count($pageProjections) > 1 ? CssSelectorListCompactor::stylesheet($css, true) : $css);
+            $recompact = static function (string $css) use ($timer, $pageProjections): string {
+                $compact = static fn(): string => count($pageProjections) > 1 ? CssSelectorListCompactor::stylesheet($css, true) : $css;
+                return null === $timer ? $compact() : $timer->measure('compose.compaction', $compact);
+            };
             $timer?->start('compose.author_stylesheet_projections.route_budget');
             // A cached shared download replaces separate page-copy downloads.
             // Both costs are measured before compaction.
