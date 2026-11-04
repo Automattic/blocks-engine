@@ -1442,6 +1442,81 @@ final class SourceDom
         return false;
     }
 
+    /** Phrasing content a foreignObject-wrapped text label may hold. */
+    private const FIT_TEXT_PHRASING = array( 'a', 'abbr', 'b', 'bdi', 'bdo', 'br', 'cite', 'code', 'data', 'del', 'dfn', 'em', 'i', 'ins', 'kbd', 'mark', 'q', 's', 'samp', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'u', 'var', 'wbr' );
+
+    /** The native text tags a foreignObject-wrapped label may lower through. */
+    private const FIT_TEXT_TAGS = array( 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'span' );
+
+    /**
+     * The one text element an SVG holds inside a sole foreignObject, or null
+     * when the SVG is not that shape.
+     *
+     * The "fit text" technique renders a line of text at its measured width by
+     * wrapping it in an SVG sizing box: `<svg viewBox="..."><foreignObject
+     * width="100%" height="100%"><p>Label</p></foreignObject></svg>`. The SVG
+     * itself paints nothing; the text element's own phrasing content is the
+     * whole rendering. A matching SVG holds one foreignObject child whose only
+     * element is a p, h1-h6, or phrasing-only div/span with visible text — no
+     * stray content, no second element, no painted SVG content. Anything else
+     * (forms, several elements, nested SVG) keeps the inline-SVG fallback.
+     */
+    public static function foreignObjectSoleTextElement(DOMElement $svg): ?DOMElement
+    {
+        if ( 'svg' !== strtolower($svg->tagName) ) {
+            return null;
+        }
+        $object = null;
+        foreach ( $svg->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                if ( null !== $object || 'foreignobject' !== strtolower($child->tagName) ) {
+                    return null;
+                }
+                $object = $child;
+                continue;
+            }
+            if ( ( XML_TEXT_NODE === $child->nodeType && '' === trim((string) $child->textContent) ) || XML_COMMENT_NODE === $child->nodeType ) {
+                continue;
+            }
+            return null;
+        }
+        if ( null === $object ) {
+            return null;
+        }
+
+        $text = null;
+        foreach ( $object->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                if ( null !== $text || ! self::isFitTextElement($child) ) {
+                    return null;
+                }
+                $text = $child;
+                continue;
+            }
+            if ( ( XML_TEXT_NODE === $child->nodeType && '' === trim((string) $child->textContent) ) || XML_COMMENT_NODE === $child->nodeType ) {
+                continue;
+            }
+            return null;
+        }
+
+        return null !== $text && '' !== trim($text->textContent ?? '') ? $text : null;
+    }
+
+    /** Whether the element is a text tag whose content is phrasing-only. */
+    private static function isFitTextElement(DOMElement $element): bool
+    {
+        if ( ! in_array(strtolower($element->tagName), self::FIT_TEXT_TAGS, true) ) {
+            return false;
+        }
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( ! $descendant instanceof DOMElement || ! in_array(strtolower($descendant->tagName), self::FIT_TEXT_PHRASING, true) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /**
      * Whether a <use> element references an external sprite file rather than an
      * in-document fragment. An external reference is any href/xlink:href whose

@@ -620,7 +620,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                     'message' => 'Omitted SVG decoration proven to paint nothing in the captured state.',
                 ));
                 return true;
-            }
+            },
+            fn (DOMElement $element, array &$fallbacks): ?array => $this->foreignObjectFitTextBlock($element, $fallbacks)
         ), $this->svgMaterializer, new SvgTextRunLowering(
             $this->styleResolver,
             fn (string $value, DOMElement $element): string => $this->styleResolver->resolveCssVariablesInValue($value, $element),
@@ -8324,6 +8325,40 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return $this->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+    }
+
+    /**
+     * Lower a foreignObject-only "fit text" SVG to the native text block its
+     * inner element renders as (`<svg viewBox="..."><foreignObject width="100%"
+     * height="100%"><p>Label</p></foreignObject></svg>`). The SVG is a sizing
+     * box that paints nothing and survives sanitization as an empty graphic, so
+     * it used to fall back as metadata that rendered nothing. The inner p,
+     * heading, or phrasing-only div/span converts through the ordinary
+     * rich-text path instead; core's fit-text support (`fitText: true`, saved
+     * with the `has-fit-text` class) re-fits the line to its container, and the
+     * SVG's own class keeps sizing the line the box sized.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function foreignObjectFitTextBlock(DOMElement $svg, array &$fallbacks): ?array
+    {
+        $text = SourceDom::foreignObjectSoleTextElement($svg);
+        if ( null === $text ) {
+            return null;
+        }
+        $tag = strtolower($text->tagName);
+        $outcome = $this->richTextConverter->convert($text, in_array($tag, array( 'p', 'div', 'span' ), true) ? 'p' : $tag, $fallbacks);
+        $block = $outcome->block;
+        if ( null === $block || ! in_array($block['blockName'] ?? '', array( 'core/paragraph', 'core/heading' ), true) ) {
+            return null;
+        }
+
+        $attrs = $block['attrs'];
+        $attrs['fitText'] = true;
+        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), SourceDom::attr($svg, 'class'), 'has-fit-text');
+
+        return $this->blockFactory->rebuild($block, $attrs);
     }
 
     /**
