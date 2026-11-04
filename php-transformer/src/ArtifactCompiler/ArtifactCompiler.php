@@ -114,7 +114,8 @@ final class ArtifactCompiler
     public function __construct(
         private readonly bool $cacheHtmlAnalysis = true,
         private readonly int $stylesheetSelectorBudget = CssStylesheetChunker::MAX_SELECTOR_RECORDS,
-        private readonly ?\Closure $beforeDocumentTransform = null
+        private readonly ?\Closure $beforeDocumentTransform = null,
+        private readonly ?\Automattic\BlocksEngine\PhpTransformer\Contract\ValidationEvidencePolicy $validationEvidence = null
     )
     {
         $this->wordpressCompat = new WordPressCompatCss();
@@ -1778,6 +1779,7 @@ final class ArtifactCompiler
         $result = (new HtmlTransformer(analysisCache: $analysisCache))->transform($this->safeHtmlDocumentHtml($html, $sourcePath, $files), array(
             'source'                    => $sourcePath,
             'source_scope'              => $sourceScope,
+            'validation_evidence'       => $this->validationEvidence?->detail ?? \Automattic\BlocksEngine\PhpTransformer\Contract\ValidationEvidencePolicy::FULL,
             'native_document_context'   => true,
             'declarative_state_html'    => $html,
             'static_css'                => trim(implode("\n", array_column($stylesheetPayloads, 'content'))),

@@ -214,7 +214,7 @@ trait StagedTransport
 
     private function preparedPageCompiler(): self
     {
-        $compiler = new self(beforeDocumentTransform: $this->beforeDocumentTransform);
+        $compiler = new self(beforeDocumentTransform: $this->beforeDocumentTransform, validationEvidence: $this->validationEvidence);
         $compiler->htmlTransformerAnalysisCache = $this->htmlTransformerAnalysisCache ?? new HtmlTransformerAnalysisCache();
         $compiler->glyphColorByHash = &$this->glyphColorByHash;
         $compiler->glyphColorInspectionCount = &$this->glyphColorInspectionCount;

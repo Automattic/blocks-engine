@@ -896,7 +896,7 @@
       }
     },
     "src/Contract/ValidationEvidencePolicy.php": {
-      "InvalidArgumentException('validation_evidence must be \"full\" or \"compact\".')": {
+      "InvalidArgumentException('validation_evidence must be \"full\", \"compact\" or \"none\".')": {
         "class": "programmer",
         "count": 1
       }

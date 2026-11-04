@@ -7,8 +7,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 $root = $argv[1] ?? dirname(__DIR__, 3) . '/fixtures/websites';
 $evidence = $argv[2] ?? 'full';
-if (!in_array($evidence, array('full', 'compact'), true)) {
-    throw new InvalidArgumentException('Evidence must be full or compact.');
+if (!in_array($evidence, array('full', 'compact', 'none'), true)) {
+    throw new InvalidArgumentException('Evidence must be full, compact or none.');
 }
 
 $files = array();
@@ -42,9 +42,14 @@ $jsonReportBytes = 0;
 $jsonEncodableResults = 0;
 $jsonEncodableReports = 0;
 $serializedHash = hash_init('sha256');
+$pageTimings = array();
 foreach ($files as $file) {
-    $result = (new HtmlTransformer())->transform((string) file_get_contents($file), array('validation_evidence' => $evidence))->toArray();
+    $html = (string) file_get_contents($file);
+    $pageStarted = hrtime(true);
+    $compiled = (new HtmlTransformer())->transform($html, array('validation_evidence' => $evidence));
     $path = str_replace($root . '/', '', $file);
+    $pageTimings[$path] = (hrtime(true) - $pageStarted) / 1000000;
+    $result = $compiled->toArray();
     $result = $stripDuration($result);
     $serialized = serialize($result);
     $serializedBytes += strlen($serialized);
@@ -66,5 +71,7 @@ fwrite(STDOUT, json_encode(array(
     'json_encodable_reports' => $jsonEncodableReports,
     'serialized_sha256' => hash_final($serializedHash),
     'peak_memory_bytes' => memory_get_peak_usage(true),
+    'compile_ms_per_page' => $pageTimings,
+    'mean_compile_ms' => array_sum($pageTimings) / count($pageTimings),
     'duration_ms' => (hrtime(true) - $started) / 1000000,
 ), JSON_UNESCAPED_SLASHES) . PHP_EOL);

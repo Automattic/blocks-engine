@@ -253,6 +253,43 @@ $assert(
         && $defaultValidationEvidenceResult->blockCompilationOutput->validationOutcome == $compactValidationEvidenceResult->blockCompilationOutput->validationOutcome,
     'compact validation evidence omits only declared semantic inventories while preserving required validation facts'
 );
+// Table-driven report policy contract, including failing/fallback and empty input.
+foreach (array(
+    'landmarks' => $validationEvidenceHtml,
+    'media and styles' => '<main><style>.photo{color:red}.unused{color:blue}</style><h1>Photo</h1><img class="photo" src="photo.jpg" alt="Photo"></main>',
+    'fallback' => '<main><iframe src="https://example.com/embed"></iframe><script>window.example = 1;</script></main>',
+    'empty' => '',
+) as $case => $html) {
+    $on = (new HtmlTransformer())->transform($html, array('validation_evidence' => 'full'));
+    $off = (new HtmlTransformer())->transform($html, array('validation_evidence' => 'none'));
+    $onData = $on->toArray();
+    $offData = $off->toArray();
+    foreach (array('serialized_blocks', 'assets', 'status', 'diagnostics') as $key) {
+        $assert(serialize($onData[$key]) === serialize($offData[$key]), $case . ': reports do not change ' . $key);
+    }
+    $assert(serialize($on->blockCompilationOutput) === serialize($off->blockCompilationOutput), $case . ': reports do not change required compilation facts or validation outcome');
+    $compileArtifact = static fn (string $level): array => (new ArtifactCompiler(validationEvidence: \Automattic\BlocksEngine\PhpTransformer\Contract\ValidationEvidencePolicy::fromOptions(array('validation_evidence' => $level))))->compile(array(
+        'entrypoint' => 'index.html',
+        'files' => array('index.html' => $html),
+    ))->toArray();
+    $artifactOn = $compileArtifact('full');
+    $artifactOff = $compileArtifact('none');
+    foreach (array('serialized_blocks', 'assets', 'status', 'diagnostics') as $key) {
+        $assert(serialize($artifactOn[$key]) === serialize($artifactOff[$key]), $case . ': artifact acceptance preserves ' . $key);
+    }
+    if ('landmarks' === $case || 'media and styles' === $case) {
+        $assert(isset($artifactOn['source_reports']['wordpress_site_plan']), $case . ': plan comparison exercises a materialized canonical plan');
+    }
+    $assert(serialize($artifactOn['source_reports']['wordpress_site_plan'] ?? null) === serialize($artifactOff['source_reports']['wordpress_site_plan'] ?? null), $case . ': canonical plan identity is byte-identical');
+    if ('' !== $html) {
+        foreach (array('wp_block_validity', 'semantic_parity', 'content_round_trip', 'source_media_retention', 'dead_projected_selectors') as $key) {
+            $assert(isset($onData['source_reports'][$key]) && !array_key_exists($key, $offData['source_reports']), $case . ': none omits only requested report ' . $key);
+        }
+    }
+    $fragmentOn = (new ArtifactCompiler())->compileFragment($html, 'fixture:report-policy', 'html', array('validation_evidence' => 'full'));
+    $fragmentOff = (new ArtifactCompiler())->compileFragment($html, 'fixture:report-policy', 'html', array('validation_evidence' => 'none'));
+    $assert($fragmentOn->status === $fragmentOff->status && $fragmentOn->diagnostics === $fragmentOff->diagnostics, $case . ': fragment acceptance is unchanged');
+}
 $compactBridgeEvidence = (new FormatBridge())->convertResult($validationEvidenceHtml, 'html', 'blocks', array('validation_evidence' => 'compact'))->toArray();
 $assert(
     'compact' === ($compactBridgeEvidence['source_reports']['semantic_parity']['evidence']['detail'] ?? null),
@@ -267,7 +304,7 @@ try {
     (new HtmlTransformer())->transform('<main>Invalid option</main>', array('validation_evidence' => 'summary'));
     $invalidValidationEvidenceRejected = false;
 } catch (\InvalidArgumentException $exception) {
-    $invalidValidationEvidenceRejected = 'validation_evidence must be "full" or "compact".' === $exception->getMessage();
+    $invalidValidationEvidenceRejected = 'validation_evidence must be "full", "compact" or "none".' === $exception->getMessage();
 }
 $assert($invalidValidationEvidenceRejected, 'invalid validation evidence detail is rejected explicitly');
 foreach (array(null, false, 1, array('compact')) as $invalidValidationEvidence) {
@@ -275,7 +312,7 @@ foreach (array(null, false, 1, array('compact')) as $invalidValidationEvidence) 
         (new HtmlTransformer())->transform('<main>Invalid option</main>', array('validation_evidence' => $invalidValidationEvidence));
         $invalidValidationEvidenceRejected = false;
     } catch (\InvalidArgumentException $exception) {
-        $invalidValidationEvidenceRejected = 'validation_evidence must be "full" or "compact".' === $exception->getMessage();
+        $invalidValidationEvidenceRejected = 'validation_evidence must be "full", "compact" or "none".' === $exception->getMessage();
     }
     $assert($invalidValidationEvidenceRejected, 'null and non-string validation evidence details are rejected explicitly');
 }

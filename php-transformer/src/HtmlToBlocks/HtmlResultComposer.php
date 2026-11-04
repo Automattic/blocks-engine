@@ -222,7 +222,7 @@ final class HtmlResultComposer
             'semantic_parity' => $input['semantic_parity_report'],
             'content_round_trip' => $input['content_round_trip_report'],
             'source_media_retention' => $input['source_media_retention_report'],
-            'dead_projected_selectors' => $input['dead_projected_selectors_report'] ?? array(),
+            'dead_projected_selectors' => $input['dead_projected_selectors_report'],
             'editability_report' => $blockCompilationOutput->editabilityReport,
             'html' => array(
                 'presentation_signals' => $input['presentation_signals'],
@@ -240,6 +240,12 @@ final class HtmlResultComposer
                 'source_target_projections' => $input['source_target_projections'],
             ),
         );
+        // A null projection means explicitly unrequested, not a passing report.
+        foreach (array('wp_block_validity', 'semantic_parity', 'content_round_trip', 'source_media_retention', 'dead_projected_selectors') as $report) {
+            if (null === $sourceReports[$report]) {
+                unset($sourceReports[$report]);
+            }
+        }
         if (array() !== $blockCompilationOutput->authorStylesheetProjections) {
             $sourceReports['author_stylesheet_projections'] = $blockCompilationOutput->authorStylesheetProjections;
         }

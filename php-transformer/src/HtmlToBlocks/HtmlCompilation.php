@@ -1866,16 +1866,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->projectedSelectorBindings = $classIdentity->rewrite($this->projectedSelectorBindings, $classReplacements);
         $this->materializedAssets()->restore($classIdentity->rewrite($assets, $classReplacements));
         $blockValidityEvaluation = $this->runtime->evaluateBlockSerialization($blocks);
-        $blockValidityReport = $blockValidityEvaluation->report();
+        $blockValidityReport = $validationEvidence->includesReports() ? $blockValidityEvaluation->report() : null;
         $semanticParityEvaluation = $this->semanticParityReporter->evaluate($body, $blocks, $sourceProvenance, $html, (string) ($options['static_css'] ?? ''));
-        $semanticParityReport = $semanticParityEvaluation->report($validationEvidence);
+        $semanticParityReport = $validationEvidence->includesReports() ? $semanticParityEvaluation->report($validationEvidence) : null;
         $contentRoundTripEvaluation = $this->contentRoundTripReporter->evaluate($serializedBlocks, $html, $this->transformationEvidence()->formControlEchoTexts());
-        $contentRoundTripReport = $contentRoundTripEvaluation->report();
+        $contentRoundTripReport = $validationEvidence->includesReports() ? $contentRoundTripEvaluation->report() : null;
         // The round-trip check runs output ⊆ source to catch invented copy. This
         // runs the other way for media, which nothing did: an image demoted to
         // its own `alt` text is not absent, so every loss counter stayed at zero
         // while the page lost its pictures.
-        $sourceMediaRetentionReport = $this->sourceMediaRetentionReporter->evaluate(
+        $sourceMediaRetentionReport = $validationEvidence->includesReports() ? $this->sourceMediaRetentionReporter->evaluate(
             $html,
             $serializedBlocks,
             array_map(
@@ -1885,7 +1885,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                     static fn (mixed $asset): bool => is_array($asset) && 'css' === ( $asset['kind'] ?? '' )
                 )
             )
-        )->report();
+        )->report() : null;
         $deadProjectedSelectorHaystack = $serializedBlocks;
         foreach ( $shellArtifacts as $shellArtifact ) {
             $deadProjectedSelectorHaystack .= "\n" . (string) ( $shellArtifact['block_markup'] ?? '' );
@@ -1894,7 +1894,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->projectedSelectorBindings,
             array($this->currentSourcePath => $deadProjectedSelectorHaystack)
         );
-        $deadProjectedSelectorsReport = $deadProjectedSelectorEvaluation->report();
+        $deadProjectedSelectorsReport = $validationEvidence->includesReports() ? $deadProjectedSelectorEvaluation->report() : null;
         $validationOutcome = \Automattic\BlocksEngine\PhpTransformer\Contract\HtmlValidationOutcome::fromValidationFacts(
             $blockValidityEvaluation->status,
             $blockValidityEvaluation->findings,
