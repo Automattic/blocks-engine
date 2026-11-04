@@ -85,7 +85,7 @@ foreach ($plans as $id => $plan) {
     foreach (array('digest', 'shared_digest', 'shared_reduction_digest') as $key) {
         unset($receipt[$key], $expected[$key]);
     }
-    unset($receipt['work']['compile_duration_ms'], $expected['work']['compile_duration_ms']);
+    unset($receipt['work']['compile_duration_ms'], $expected['work']['compile_duration_ms'], $receipt['work']['step_timings'], $expected['work']['step_timings']);
     $assert($receipt === $expected, 'Glyph cache does not change receipt content: ' . $id);
 }
 $legacyMs = (hrtime(true) - $start) / 1e6;
