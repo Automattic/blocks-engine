@@ -487,12 +487,19 @@ final class NavigationPatternContext
     /** @var array<string, true> Source submenu toggles that paint their own indicator. */
     private array $submenuToggleIndicators = array();
 
+    /** @var array<string, true> Source submenu parents that paint no indicator of their own and carry no disclosure control. */
+    private array $unindicatedSubmenuParents = array();
+
     /**
-     * Record a submenu toggle whose own generated content (`::after`/`::before`)
-     * paints a visible indicator: text, a border (a CSS caret) or a background.
-     * That indicator is reproduced on core's content.
+     * Record the source element core's submenu toggle stands in for. When its
+     * own generated content (`::after`/`::before`) paints a visible indicator
+     * (text, a border (a CSS caret) or a background), that indicator is
+     * reproduced on core's content. A parent that paints nothing and carries
+     * no disclosure control (a button standing in for the label or opening
+     * the submenu beside it) leaves the submenu indicator-free: its submenu
+     * opens on hover/focus.
      */
-    public function recordSubmenuToggleIndicator(DOMElement $toggle): void
+    public function recordSubmenuToggle(DOMElement $toggle, bool $hasDisclosureControl): void
     {
         if ( ! $this->styleResolver instanceof StyleResolver || null === $this->session ) return;
         $targets = array( $toggle );
@@ -508,6 +515,9 @@ final class NavigationPatternContext
                 }
             }
         }
+        if ( ! $hasDisclosureControl ) {
+            $this->unindicatedSubmenuParents[$toggle->getNodePath() ?? ''] = true;
+        }
     }
 
     /** Whether a toggle under this source element paints its own indicator. */
@@ -516,6 +526,17 @@ final class NavigationPatternContext
         $root = $source->getNodePath() ?? '';
         if ( '' === $root ) return false;
         foreach ( $this->submenuToggleIndicators as $path => $_ ) {
+            if ( $path === $root || str_starts_with((string) $path, $root . '/') ) return true;
+        }
+        return false;
+    }
+
+    /** Whether a submenu parent under this source element paints no indicator and carries no disclosure control. */
+    public function hasUnindicatedSubmenuParentWithin(DOMElement $source): bool
+    {
+        $root = $source->getNodePath() ?? '';
+        if ( '' === $root ) return false;
+        foreach ( $this->unindicatedSubmenuParents as $path => $_ ) {
             if ( $path === $root || str_starts_with((string) $path, $root . '/') ) return true;
         }
         return false;
