@@ -641,8 +641,12 @@ final class ProjectedNavigationConverter implements ElementConverter
         // is the one the projection keeps around the navigation block; outer
         // wrappers never parent it directly.
         $panel = null;
-        for ( $i = count($chain) - 2; $i >= 0; --$i ) {
-            if ( $this->collapsePanelKeepsHost($chain[$i], $chain[$i + 1]) ) {
+        for ( $i = count($chain) - 1; $i >= 0; --$i ) {
+            // A landmark whose box stays apart from its list is kept as the
+            // carrier group around the navigation block even when the list is
+            // its only content, so its closed state hides Core's open button.
+            if ( ( isset($chain[$i + 1]) && $this->collapsePanelKeepsHost($chain[$i], $chain[$i + 1]) )
+                || $this->navigationToggleSuppressor->isNavigationCarrier($chain[$i]) ) {
                 $panel = $chain[$i];
                 break;
             }
@@ -668,7 +672,8 @@ final class ProjectedNavigationConverter implements ElementConverter
     /** Whether the collapsed cascade hides the panel with `display:none` at the reference viewport. */
     private function hiddenAtCollapsedViewport(DOMElement $panel): bool
     {
-        $display = strtolower(CssValueInspector::withoutImportant(trim((string) ( $this->styleResolver->collapsedViewportAuthorDeclarations($panel, array( 'display' ))['display'] ?? '' ))));
+        $display = CssValueInspector::withoutImportant(trim((string) ( $this->styleResolver->collapsedViewportAuthorDeclarations($panel, array( 'display' ))['display'] ?? '' )));
+        $display = strtolower(trim($this->styleResolver->resolveCssVariablesAtViewport($display, $panel, StyleResolver::MOBILE_REFERENCE_WIDTH)));
 
         return 'none' === $display;
     }

@@ -38,7 +38,12 @@ final class NavigationToggleSuppressor
      * so identity stays stable while node paths may shift — and cleared
      * whenever source markup mutates after selector analysis.
      *
-     * @var SplObjectStorage<DOMElement, bool>
+     * The stored value is the recognized outcome: `navigation` when the
+     * element itself becomes core/navigation, `carrier` when the element is a
+     * landmark the recognizer keeps as a wrapper around the one core/navigation
+     * that owns its list, and `` otherwise.
+     *
+     * @var SplObjectStorage<DOMElement, string>
      */
     private SplObjectStorage $coreNavigationRecognitions;
 
@@ -552,7 +557,7 @@ final class NavigationToggleSuppressor
             if ( ! $candidate instanceof DOMElement
                 || $candidate->isSameNode($control)
                 || ! $this->isAssociatedNavigationTarget($candidate)
-                || ! $this->convertsToCoreNavigation($candidate) ) {
+                || ! $this->ownsCoreNavigation($candidate) ) {
                 continue;
             }
             $toggle = $this->navigationToggleControl($candidate);
@@ -1585,7 +1590,7 @@ final class NavigationToggleSuppressor
     {
         $candidates = array();
         foreach ( $scope->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement || ! $this->convertsToCoreNavigation($candidate) ) {
+            if ( ! $candidate instanceof DOMElement || ! $this->ownsCoreNavigation($candidate) ) {
                 continue;
             }
 
@@ -1924,7 +1929,15 @@ final class NavigationToggleSuppressor
 
         $candidates = array();
         foreach ( array_merge(array_merge(array(), ...$menuPaths), $togglePath) as $element ) {
-            foreach ( $displayOf($element)->conditionStacks() as $stack ) {
+            // A display read through custom properties switches wherever the
+            // author switches those properties, not only where `display` is
+            // itself declared under a query.
+            $stacks = $displayOf($element)->conditionStacks();
+            $declared = implode(';', array_merge(array( $displayOf($element)->base() ), array_values($displayOf($element)->conditional())));
+            if ( str_contains($declared, 'var(') ) {
+                array_push($stacks, ...$this->styleResolver->customPropertyConditionStacks($declared));
+            }
+            foreach ( $stacks as $stack ) {
                 foreach ( $stack as $condition ) {
                     if ( 1 !== preg_match('/^@media\b/i', trim($condition)) ) {
                         continue;
@@ -1950,7 +1963,8 @@ final class NavigationToggleSuppressor
                 $value = $displayOf($element)->resolvedValueWhere(
                     fn (array $conditions): bool => $this->styleResolver->conditionsApplyAtViewport($conditions, $width)
                 );
-                if ( 'none' === strtolower(CssValueInspector::withoutImportant(trim($value))) ) {
+                $value = $this->styleResolver->resolveCssVariablesAtViewport(CssValueInspector::withoutImportant(trim($value)), $element, $width);
+                if ( 'none' === strtolower(trim($value)) ) {
                     return true;
                 }
             }
@@ -2046,7 +2060,7 @@ final class NavigationToggleSuppressor
                 break;
             }
             $declarations = $this->styleResolver->referenceViewportAuthorDeclarations($node, array('display', 'visibility', 'opacity'), true);
-            $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+            $display = CssValueInspector::comparable($this->styleResolver->resolveCssVariablesAtViewport((string) ($declarations['display'] ?? ''), $node, StyleResolver::DESKTOP_REFERENCE_WIDTH));
             $visibility = CssValueInspector::comparable((string) ($declarations['visibility'] ?? ''));
             $opacity = CssValueInspector::comparable((string) ($declarations['opacity'] ?? ''));
             if ( $this->sourceElementIsHiddenByMarkup($node, $display, true)
@@ -2142,6 +2156,30 @@ final class NavigationToggleSuppressor
 
     public function convertsToCoreNavigation(DOMElement $element): bool
     {
+        return 'navigation' === $this->coreNavigationRecognition($element);
+    }
+
+    /**
+     * Whether the element's menu is emitted as core/navigation, either by the
+     * element itself or, for a landmark whose box the recognizer keeps apart
+     * from its list (split landmark ownership), by the single core/navigation
+     * inside the landmark's carrier group. Either way that one navigation is
+     * the menu a sibling toggle opens, so toggle ownership counts the
+     * landmark as that navigation.
+     */
+    public function ownsCoreNavigation(DOMElement $element): bool
+    {
+        return '' !== $this->coreNavigationRecognition($element);
+    }
+
+    /** Whether the element is a landmark kept as the carrier group around its own core/navigation. */
+    public function isNavigationCarrier(DOMElement $element): bool
+    {
+        return 'carrier' === $this->coreNavigationRecognition($element);
+    }
+
+    private function coreNavigationRecognition(DOMElement $element): string
+    {
         if ( $this->coreNavigationRecognitions->offsetExists($element) ) {
             return $this->coreNavigationRecognitions[$element];
         }
@@ -2152,8 +2190,25 @@ final class NavigationToggleSuppressor
             $this->context->probePatternContext(),
             array( \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern::class )
         );
+        $block = null === $navigation ? array() : $navigation->block();
 
-        return $this->coreNavigationRecognitions[$element] = null !== $navigation && 'core/navigation' === ($navigation->block()['blockName'] ?? '');
+        return $this->coreNavigationRecognitions[$element] = match (true) {
+            'core/navigation' === ($block['blockName'] ?? '') => 'navigation',
+            $this->isLandmarkNavigationCarrier($element, $block) => 'carrier',
+            default => '',
+        };
+    }
+
+    /** @param array<string, mixed> $block */
+    private function isLandmarkNavigationCarrier(DOMElement $element, array $block): bool
+    {
+        $innerBlocks = is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array();
+
+        return $this->isNavigationLandmark($element)
+            && 'core/group' === ($block['blockName'] ?? '')
+            && strtolower($element->tagName) === strtolower((string) ($block['attrs']['tagName'] ?? ''))
+            && 1 === count($innerBlocks)
+            && 'core/navigation' === ($innerBlocks[0]['blockName'] ?? '');
     }
 
     private function elementWithId(DOMElement $context, string $id): ?DOMElement

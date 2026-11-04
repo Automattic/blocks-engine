@@ -36,7 +36,7 @@ final class StyleResolver implements ElementPresentationResolver
     /** @var array<string, array{rules: list<array<string, mixed>>, parsed: array<string, array<string, mixed>>, declaring: array<string, list<array<string, mixed>>>}> */
     private array $viewportAuthorRules = array();
     /** Viewport the desktop cascade is evaluated at: the capture's desktop reference. */
-    private const DESKTOP_REFERENCE_WIDTH = 1440.0;
+    public const DESKTOP_REFERENCE_WIDTH = 1440.0;
 
     /**
      * Viewport the collapsed (phone) cascade is evaluated at: the capture's
@@ -5449,6 +5449,14 @@ final class StyleResolver implements ElementPresentationResolver
                 if (!CssCascade::supportsConditionApplies((string) preg_replace('/^@supports\s*/i', '', $condition))) return false;
             } elseif (preg_match('/^@media\b/i', $condition)) {
                 if (!CssCascade::mediaConditionApplies((string) preg_replace('/^@media\s*/i', '', $condition), $viewportWidth)) return false;
+            } elseif (preg_match('/^@container\b/i', $condition)) {
+                // A style query on a viewport-switched custom property holds
+                // wherever the viewport sets the queried value.
+                $applies = $this->context->sourceStyles()->containerStyleQueries()->applies(
+                    $condition,
+                    fn (array $own): bool => $this->conditionsApplyAtViewport($own, $viewportWidth)
+                );
+                if (true !== $applies) return false;
             } else return false;
         }
         return true;
@@ -6301,6 +6309,65 @@ final class StyleResolver implements ElementPresentationResolver
             }
         }
         return $this->expandCssVariableReferences($value, $customProperties, $live);
+    }
+
+    /**
+     * Expand `var()` references the way they compute at one viewport width.
+     *
+     * Each custom property takes the author cascade winner at that width on
+     * the element or its nearest declaring ancestor, so a token a width query
+     * (or a style query keyed to one) switches resolves to that width's value
+     * rather than the reference viewport's. A reference without a value or
+     * fallback is invalid at computed-value time: '' is returned.
+     */
+    public function resolveCssVariablesAtViewport(string $value, DOMElement $element, float $viewportWidth): string
+    {
+        if ( ! str_contains($value, 'var(') ) {
+            return $value;
+        }
+        $resolve = function (string $name) use ($element, $viewportWidth): ?string {
+            for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
+                $declared = CssValueInspector::withoutImportant(trim((string) ($this->authorDeclarationsAtViewport($node, array( $name ), $viewportWidth)[$name] ?? '')));
+                if ( '' !== $declared ) {
+                    return in_array(strtolower($declared), array( 'unset', 'initial', 'inherit', 'revert', 'revert-layer' ), true) ? null : $declared;
+                }
+            }
+            $root = trim((string) ($this->context->sourceStyles()->customProperties()[$name] ?? ''));
+
+            return '' === $root ? null : $root;
+        };
+
+        return CssVariableExpander::expand($value, $resolve) ?? '';
+    }
+
+    /**
+     * Condition stacks of the author rules that declare any of the custom
+     * properties a value reads, with each container style query expanded to
+     * the conditions that switch the property it queries. These are the
+     * viewport queries under which the value's resolved `var()` can change.
+     *
+     * @return list<list<string>>
+     */
+    public function customPropertyConditionStacks(string $value): array
+    {
+        if ( ! preg_match_all('/var\(\s*(--[A-Za-z0-9_-]+)/', $value, $matches) ) {
+            return array();
+        }
+        $names = array_fill_keys($matches[1], true);
+        $queries = $this->context->sourceStyles()->containerStyleQueries();
+        $stacks = array();
+        foreach ( $this->context->authorStyles()->styleRules() as $rule ) {
+            $conditions = is_array($rule['conditions'] ?? null) ? array_values(array_map('strval', $rule['conditions'])) : array();
+            if ( array() === $conditions || array() === array_intersect_key(is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array(), $names) ) {
+                continue;
+            }
+            $stacks[] = $conditions;
+            foreach ( $conditions as $condition ) {
+                array_push($stacks, ...$queries->switchingConditions($condition));
+            }
+        }
+
+        return $stacks;
     }
 
     /**
