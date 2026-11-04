@@ -5252,6 +5252,7 @@ PHP;
                 $fields[$card['post']['source_path']][$key] = null === $row ? '' : ListingFieldProjection::content($row['paragraphs']);
             }
         }
+        $boundGroups += $this->listingLiteralFields($markup, $cards, $fields);
         $compact = !array_filter($cards, fn(array $card): bool => !$this->isExcerptListingCard($markup, $card));
         $sharedText = null;
         foreach ($cards as $card) {
@@ -5280,6 +5281,69 @@ PHP;
             $template .= $uniqueGaps[0];
         }
         return $template;
+    }
+
+    /**
+     * Bind short, plain paragraph literals only at corresponding structural slots.
+     * Empty labels are values too; they must not freeze the first card's label.
+     *
+     * @param list<array<string,mixed>> $cards
+     * @param array<string,array<string,string>> $fields
+     * @return array<int,string>
+     */
+    private function listingLiteralFields(string $markup, array $cards, array &$fields): array
+    {
+        $rows = array();
+        $structure = null;
+        foreach ($cards as $card) {
+            $row = array();
+            $shape = array();
+            $slice = substr($markup, $card['offset'], $card['length']);
+            foreach (self::blockRanges($slice) as $range) {
+                $leaf = substr($slice, $range['offset'], $range['length']);
+                $children = self::childBlockRanges($slice, $range);
+                // HTML lowering represents an empty source div as a group,
+                // but its text-bearing counterpart as a synthetic paragraph.
+                $attrs = self::listingBlockAttributes($leaf);
+                if (array() === $children && 'group' === self::listingBlockName($leaf) && str_contains((string) ($attrs['className'] ?? ''), 'blocks-engine-empty-visual-group') && '' === ListingExcerptProjection::text($leaf)) {
+                    $attrs['className'] = trim(str_replace('blocks-engine-empty-visual-group', 'blocks-engine-synthetic-paragraph blocks-engine-source-box-paragraph', $attrs['className']));
+                    $leaf = '<!-- wp:paragraph ' . BlockAttributes::encode($attrs) . ' --><p class="' . htmlspecialchars($attrs['className'], ENT_QUOTES, 'UTF-8') . '"></p><!-- /wp:paragraph -->';
+                }
+                $shape[] = array(self::listingBlockName($leaf), count($children));
+                if (array() !== $children) continue;
+                $row[] = array('markup' => $leaf, 'offset' => $card['offset'] + $range['offset']);
+            }
+            if (null !== $structure && $structure !== $shape) return array();
+            $structure = $shape;
+            $rows[] = $row;
+        }
+        $bound = array();
+        foreach ($rows[0] as $index => $first) {
+            $values = array();
+            $signature = null;
+            foreach ($rows as $cardIndex => $row) {
+                $leaf = $row[$index]['markup'];
+                if ('paragraph' !== self::listingBlockName($leaf) || !preg_match('~<p\\b([^>]*)>([^<]*)</p>~s', $leaf, $match)) continue 2;
+                $text = ListingExcerptProjection::text($leaf);
+                if (mb_strlen($text) > 160 || ListingExcerptProjection::matches($leaf, $cards[$cardIndex]['post'])) continue 2;
+                $kind = $this->classifyListingCardBlock($leaf, $cards[$cardIndex]['post'], $cards[$cardIndex]['route']);
+                if (!in_array($kind, array('unbound', 'chrome', 'body'), true)) continue 2;
+                // Do not turn an actual article paragraph into listing metadata.
+                foreach (self::blockRanges((string) ($cards[$cardIndex]['post']['canonical_block_markup'] ?? '')) as $bodyRange) {
+                    $body = substr((string) $cards[$cardIndex]['post']['canonical_block_markup'], $bodyRange['offset'], $bodyRange['length']);
+                    if ('' !== $text && $text === ListingExcerptProjection::text($body)) continue 3;
+                }
+                $shape = array(self::listingBlockAttributes($leaf), $match[1]);
+                if (null !== $signature && $signature !== $shape) continue 2;
+                $signature = $shape;
+                $values[] = $match[2];
+            }
+            if (count(array_unique($values)) < 2) continue;
+            $key = 'blocks_engine_listing_labels_' . substr(hash('sha256', $first['markup'] . ':' . $index), 0, 12);
+            $bound[$first['offset']] = ListingFieldProjection::paragraph($first['markup'], self::listingBlockAttributes($first['markup']), $key, $values[0]);
+            foreach ($cards as $cardIndex => $card) $fields[$card['post']['source_path']][$key] = $values[$cardIndex];
+        }
+        return $bound;
     }
 
     /** @param array<string,mixed> $card @return list<array{offset:int,markup:string,paragraphs:list<string>}> */
@@ -5476,6 +5540,11 @@ PHP;
             return 'title';
         }
         $timestamp = is_string($post['publication_timestamp'] ?? null) ? $post['publication_timestamp'] : null;
+        // The entire visible leaf matching this post's timestamp is sufficient
+        // evidence, even when the date class lives on a surrounding group.
+        if (null !== $timestamp && self::parseVisiblePublicationTimestamp(ListingExcerptProjection::text($slice)) === $timestamp) {
+            return 'date';
+        }
         foreach (HtmlMarkupParser::htmlMarkupNodes($slice) as $node) {
             if ('tag' !== ($node['kind'] ?? null) || !is_int($node['inner_offset'] ?? null)) {
                 continue;
