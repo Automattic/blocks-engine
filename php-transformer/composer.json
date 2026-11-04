@@ -300,6 +300,7 @@
       "php tests/unit/html-serialization-encoding-hint.php",
       "php tests/contract/render-equivalent-chrome.php",
       "php tests/contract/entry-chrome-wrapper.php",
+      "php tests/contract/wrapped-flex-header-shell.php",
       "php tests/contract/shell-frame-hoist.php",
       "php tests/contract/site-wide-chrome.php",
       "php tests/contract/generic-page-shell-frame.php",

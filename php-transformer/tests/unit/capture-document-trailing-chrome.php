@@ -40,8 +40,8 @@ foreach ($fixture['files'] as $key => &$file) {
     } else $file = $wrap($main, (string) $key);
 }
 unset($file);
-$fixture['files']['parts/header.html'] = $header;
-$fixture['files']['parts/footer.html'] = $footer;
+// Let the repeated document landmarks own the shared parts; explicit unbound
+// parts would reserve their slugs and prevent extracting the captured chrome.
 $result = (new ArtifactCompiler())->compile($fixture)->toArray();
 $plan = $result['source_reports']['wordpress_site_plan'] ?? array();
 $assert(array() !== $plan, 'The complete capture compiles to a site plan.');

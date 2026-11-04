@@ -2291,9 +2291,13 @@ final class ShellExtraction
             preg_match_all('/<!--\s*wp:template-part\s+\{[^}]*"slug":"([^"]+)"/', $generic['opening'] . $generic['closing'], $slugs);
             $frames['page'] = array('opening' => $generic['opening'], 'closing' => $generic['closing'], 'shells' => array_values(array_unique($slugs[1])));
         }
-        // Native query fallbacks use the entry route's cluster, independently
-        // of which population supplied the generic page or single frame.
+        // Use the shared cluster rather than entry-only wrappers or an
+        // incomplete entry frame. Preserve a distinct entry cluster (for
+        // example another language) when it owns different shared parts.
         $fallback = $frames['front-page'] ?? $frames['page'] ?? null;
+        if (isset($frames['page']) && array() === array_diff($fallback['shells'] ?? array(), $frames['page']['shells'])) {
+            $fallback = $frames['page'];
+        }
         if (null !== $fallback) {
             $hasCapturedPosts = (bool) array_filter($pages, static fn(array $page): bool => 'post' === ($page['post_type'] ?? null));
             foreach (array('single', 'index', 'archive', 'search', '404') as $slug) {
