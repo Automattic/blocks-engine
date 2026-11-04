@@ -1479,11 +1479,24 @@ final class ShellExtraction
             $applicable = array_filter($pages, static fn(array $page): bool => empty($page['synthetic']));
             if (array() === $applicable) continue;
             foreach ($applicable as $index => $page) if (!isset($unremovable[$area][$index])) foreach ($page['shell_candidates'] ?? array() as $candidate) if ($area === ($candidate['area'] ?? null)) $candidates[$index][] = $candidate;
+            // Clustering compares one route candidate per page. Builder sites
+            // number chrome ids per route (logo-container-75450 versus
+            // logo-container-236894), so the cluster key compares canonical
+            // identities: unreferenced ids that share a stem across the area's
+            // candidates collapse to that stem. Each candidate keeps its own
+            // markup for removal and for the emitted part.
+            $identityPages = array(); $identityInputs = array();
+            foreach ($candidates as $index => $rows) {
+                if (1 !== count($rows)) continue;
+                $identityPages[] = $index;
+                $identityInputs[] = (string) ($rows[0]['identity_markup'] ?? $rows[0]['markup']);
+            }
+            $clusterIdentities = array_combine($identityPages, self::canonicalizeRouteNumberedShellIds($identityInputs));
             foreach ($applicable as $index => $page) {
                 $rows = $candidates[$index] ?? array();
                 if (1 !== count($rows)) { $excluded[$index] = count($rows) > 1 ? 'multiple' : 'missing'; continue; }
                 $candidate = $rows[0];
-                $candidateIdentity = hash('sha256', $area . "\0" . ($candidate['identity_markup'] ?? $candidate['markup']));
+                $candidateIdentity = hash('sha256', $area . "\0" . $clusterIdentities[$index]);
                 if (!isset($clusters[$candidateIdentity]['candidate']) || (!empty($page['entrypoint']) && !empty($candidate['wordmark_route_state'])) || self::prefersScrollStateCarrier($candidate, $clusters[$candidateIdentity]['candidate'])) $clusters[$candidateIdentity]['candidate'] = $candidate;
                 $clusters[$candidateIdentity]['indexes'][] = $index;
             }
