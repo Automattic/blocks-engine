@@ -1039,10 +1039,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             readableFormControlBlock: fn (DOMElement $element): ?array => $this->readableFormControlBlockConverter->convert($element),
             cssAuthoredMarqueeBlock: fn (DOMElement $element): ?array => $this->authoredMarqueeRecognizer->cssAuthoredMarqueeBlock($element),
             authoredCarouselBlock: fn (DOMElement $element): ?array => $this->authoredCarouselGenerator->convert($element),
-            generatedComponentBlock: function (DOMElement $element): ?array {
-                $generated = $this->fallbackEmitter()->maybeGenerateCustomBlock($element, $this->generatedBlocks(), true, true);
-                return null !== $generated ? $this->generatedComponentBlock($generated, $element) : null;
-            },
+            generatedComponentBlock: fn (DOMElement $element, array &$fallbacks): ?array => $this->nativeOrGeneratedComponentBlock($element, $fallbacks),
             textFlowBlock: fn (DOMElement $element): ?array => $this->textFlowBlockFromElement($element),
             convertChildren: fn (DOMElement $element, array &$fallbacks): array => $this->convertChildren($element, $fallbacks, true),
             backgroundImageBlock: fn (DOMElement $element): ?array => $this->backgroundImageBlockFromElement($element),
@@ -2550,6 +2547,66 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $this->collectGeneratedComponentCandidates($child, $depth + 1);
             }
         }
+    }
+
+    /** @param array<int, array<string, mixed>> $fallbacks */
+    private function nativeOrGeneratedComponentBlock(DOMElement $element, array &$fallbacks): ?array
+    {
+        $nativeFallbacks = array();
+        $hasRuntimeTarget = false;
+        foreach (array_merge(array($element), SourceDom::descendantElements($element)) as $target) {
+            $hasRuntimeTarget = $hasRuntimeTarget || $this->runtimeIslands->isRuntimeDomTarget($target);
+        }
+        // A defining script or an exact runtime DOM contract cannot be proven
+        // editable just by inspecting the static children of its host.
+        $native = $hasRuntimeTarget || str_contains($element->tagName, '-')
+            ? null
+            : $this->authorLayoutBlockFromElement($element, $nativeFallbacks);
+        $reason = 'generated_component_non_native_items';
+        if (null !== $native && array() === $nativeFallbacks && $this->isEntirelyNativeComponent($native)) {
+            // Attribute-free wrappers already disappear in flow lowering. Count
+            // all other ancestors conservatively: native promotion must not
+            // reintroduce the editability-depth regression from #1311.
+            $depth = 0;
+            for ($parent = $element->parentNode; $parent instanceof DOMElement && 'body' !== strtolower($parent->tagName); $parent = $parent->parentNode) {
+                if ($parent->hasAttributes() || 1 !== SourceDom::childElementCount($parent) || ! $this->isRenderNeutralWrapper($parent)) {
+                    ++$depth;
+                }
+            }
+            if ($depth + $this->convertedBlockNestingDepth(array($native)) <= EditabilityPolicy::THRESHOLDS['max_nesting_depth']) {
+                return $native;
+            }
+            $reason = 'generated_component_depth_budget';
+        }
+        $generated = $this->fallbackEmitter()->maybeGenerateCustomBlock($element, $this->generatedBlocks(), true, true);
+        if (null === $generated) {
+            return null;
+        }
+        $fallbacks[] = FallbackDiagnostic::build(array(
+            'type' => 'generated_component',
+            'reason' => $reason,
+            'diagnostic_code' => $reason,
+            'message' => 'Repeated content retained as generated raw HTML: ' . $reason . '.',
+            'source_format' => 'html',
+            'tag' => strtolower($element->tagName),
+            'selector' => $this->elementSelector($element),
+        ), $this->transformationProvenance()->fallback());
+        return $this->generatedComponentBlock($generated, $element);
+    }
+
+    /** @param array<string, mixed> $block */
+    private function isEntirelyNativeComponent(array $block): bool
+    {
+        $name = (string) ($block['blockName'] ?? '');
+        if (! str_starts_with($name, 'core/') || in_array($name, array('core/html', 'core/freeform'), true)) {
+            return false;
+        }
+        foreach ($block['innerBlocks'] ?? array() as $child) {
+            if (! $this->isEntirelyNativeComponent($child)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private function isGeneratedComponentCandidate(DOMElement $element): bool
@@ -4286,9 +4343,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         if ( $this->isGeneratedComponentCandidate($element) ) {
-            $generated = $this->fallbackEmitter()->maybeGenerateCustomBlock($element, $this->generatedBlocks(), true, true);
-            if ( null !== $generated ) {
-                return $this->generatedComponentBlock($generated, $element);
+            $component = $this->nativeOrGeneratedComponentBlock($element, $fallbacks);
+            if ( null !== $component ) {
+                return $component;
             }
         }
 

@@ -98,20 +98,21 @@ $assert(1 === preg_match($coloredParagraph('First paragraph\.<br>\x{200B}<br>Sec
 $assert(1 === preg_match('/<!-- wp:list[^>]*-->.*Item one.*Item two.*<!-- \/wp:list -->/s', $mixedMarkup), 'The list materializes as a native list.');
 $assert(1 === preg_match($coloredParagraph('Closing sentence\.'), $mixedMarkup), 'The closing copy is a native paragraph keeping its color.');
 
-// 6. Genuine repeated units keep their generated component: content cards and
-// an image grid whose items share one shape.
+// 6. Native-expressible repeated cards stay editable; exact custom hosts
+// still freeze when native lowering needs a generated wrapper.
 $cards = $transform($deep('<div class="story-collection">'
     . '<article><h3>One</h3><p>First story</p></article>'
     . '<article><h3>Two</h3><p>Second story</p></article>'
     . '<article><h3>Three</h3><p>Third story</p></article>'
     . '</div>'));
-$assert(1 === count($components($cards)) && 1 === $count($cards, '<!-- wp:custom/collection-'), 'Repeated content cards keep one generated collection.');
+$assert(array() === $components($cards) && 3 === $count($cards, '<!-- wp:heading'), 'Native-expressible repeated cards stay editable.');
+$assert('pass' === ($cards['source_reports']['wp_block_validity']['status'] ?? ''), 'Native repeated cards remain valid.');
 
 $grid = $transform($deep('<image-grid class="tiles">'
     . '<div class="tile"><img src="/media/a.jpg" alt="A"></div>'
     . '<div class="tile"><img src="/media/b.jpg" alt="B"></div>'
     . '<div class="tile"><img src="/media/c.jpg" alt="C"></div>'
     . '</image-grid>'));
-$assert(1 === count($components($grid)) && 1 === $count($grid, '<!-- wp:custom/gallery-'), 'A repeated image grid keeps one generated gallery.');
+$assert(1 === count($components($grid)) && 1 === $count($grid, '<!-- wp:custom/gallery-'), 'A custom host that requires a generated wrapper keeps its gallery.');
 
 echo "document-flow generated-component boundary contract passed\n";
