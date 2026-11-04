@@ -669,6 +669,8 @@ PHP;
             $asset = self::withRewrittenTextContent($asset, $content);
         }
         unset($asset);
+        $assets = self::deviceStylesheetDeltas($assets, $pages, $emittedMarkup);
+        $tokens = $this->tokens($assets);
         // Asset payloads are the last canonicalization pass, so the placeholder
         // backing recovered media is declared once every reference is known.
         $assetWrites = $this->assetWrites($assets, $references);
@@ -6283,6 +6285,76 @@ PHP;
     // `/` separators.
     private static function encodedAssetUrlPath(string $path): string { return implode('/', array_map('rawurlencode', explode('/', $path))); }
 
+    /**
+     * Replace viewport-conditioned instance runs with cascade-aware deltas.
+     * Work on final CSS, after selector and preset projection, not capture bytes.
+     * Runtime device sets and authored repeated unconditional links stay intact.
+     *
+     * @param list<array<string,mixed>> $assets
+     * @param list<array<string,mixed>> $pages
+     * @return list<array<string,mixed>>
+     */
+    private static function deviceStylesheetDeltas(array $assets, array $pages, string $emittedMarkup): array
+    {
+        $indexes = array_flip(array_column($assets, 'target_path'));
+        $transformer = new CssStylesheetTransformer();
+        foreach ($pages as $page) {
+            $rows = array_values(array_filter(self::stylesheetEnqueues($assets, array($page)), static fn(array $row): bool => isset($row['route'])));
+            $present = $basePaths = array();
+            $variantEmitted = false;
+            for ($i = 0; $i < count($rows);) {
+                $row = $rows[$i];
+                if (in_array($row['media'], array('', 'all'), true) && !isset($row[CaptureEvidence::DEVICE_STYLE])) {
+                    if (StylesheetActivation::active($row['asset'])) {
+                        $present[] = $row['asset']['content'] ?? '';
+                        $basePaths[$row['asset']['target_path']] = true;
+                    }
+                    ++$i;
+                    continue;
+                }
+                // Runtime-selected device sets (media="not all") and alternate
+                // stylesheet sets are not viewport variants of the active base.
+                if ($variantEmitted || array() === $present || !str_contains($row['media'], '(') || isset($row[CaptureEvidence::DEVICE_STYLE]) || !StylesheetActivation::active($row['asset'])) { ++$i; continue; }
+                $run = array();
+                $directory = dirname($row['asset']['target_path']);
+                while ($i < count($rows) && $rows[$i]['media'] === $row['media'] && ($rows[$i]['asset']['stylesheet_target'] ?? 'both') === ($row['asset']['stylesheet_target'] ?? 'both') && !isset($rows[$i][CaptureEvidence::DEVICE_STYLE]) && StylesheetActivation::active($rows[$i]['asset']) && dirname($rows[$i]['asset']['target_path']) === $directory && is_string($rows[$i]['asset']['content'] ?? null)) $run[] = $rows[$i++];
+                if (array() === $run) { ++$i; continue; }
+                $sheets = array_column(array_column($run, 'asset'), 'content');
+                // Subtract the entire contiguous variant sequence at once. A
+                // later shared rule that overrides a variant-only rule must be
+                // replayed in the delta, not silently dropped or moved earlier.
+                $delta = $transformer->rulesAbsentFrom($sheets, $present, true);
+                // Separate directories cannot share a delta without rebasing
+                // URLs. Once a nonempty variant has loaded, leave subsequent
+                // runs intact: they may need to override that earlier delta.
+                $variantEmitted = '' !== trim($delta);
+                if ($delta === implode('', $sheets) && !array_intersect_key($basePaths, array_flip(array_column(array_column($run, 'asset'), 'target_path')))) continue;
+                foreach ($run as $entry) {
+                    $index = $indexes[$entry['asset']['target_path']];
+                    $assets[$index]['stylesheet_instance_only'] = true;
+                    $assets[$index]['stylesheet_instances'] = array_values(array_filter($assets[$index]['stylesheet_instances'], static fn(array $instance): bool => $instance['source_path'] !== $page['source_path'] || $instance['order'] !== $entry['order']));
+                }
+                if ('' === trim($delta)) continue;
+                $asset = self::withRewrittenTextContent($run[0]['asset'], $delta);
+                $identity = substr(hash('sha256', $page['source_path'] . "\0" . $row['media'] . "\0" . $row['order'] . "\0" . $delta), 0, 16);
+                // Stay in the source directory so relative url()/@import paths
+                // retain their meaning. Different directories split runs.
+                $asset['target_path'] = ('.' === $directory ? '' : $directory . '/') . 'device-delta-' . $identity . '.css';
+                $asset['source_path'] = $asset['target_path'];
+                $asset['token'] = 'asset-' . $identity;
+                $asset['reconciliation_identity'] = self::identity('asset', $asset['source_path'], $asset['target_path']);
+                $asset['scopes'] = array(self::stylesheetPageScope($page));
+                $asset['stylesheet_instances'] = array(array('source_path' => $page['source_path'], 'order' => $row['order'], 'media' => $row['media'], 'type' => ''));
+                unset($asset['stylesheet_parent'], $asset['inline_references'], $asset['frame_fallback']);
+                $assets[] = $asset;
+            }
+        }
+        // Keep resources still named by document links or CSS references, but
+        // do not write orphaned inline originals alongside their smaller delta.
+        $references = $emittedMarkup . json_encode($pages, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE) . implode('', array_column($assets, 'content'));
+        return array_values(array_filter($assets, static fn(array $asset): bool => empty($asset['stylesheet_instance_only']) || !empty($asset['stylesheet_instances']) || str_contains($references, self::TOKEN_PREFIX . $asset['token'] . '}}')));
+    }
+
     /** @return array<string,mixed> */
     private static function stylesheetDeviceAttributes(array $occurrence): array
     {
@@ -6308,6 +6380,7 @@ PHP;
         foreach ($assets as $index => $asset) {
             if ('css' !== ($asset['kind'] ?? null)) continue;
             $occurrences = $asset['stylesheet_instances'] ?? array();
+            if (!empty($asset['stylesheet_instance_only']) && array() === $occurrences) continue;
             $parent = $asset['stylesheet_parent'] ?? null;
             if (array() === $occurrences && is_string($parent)) $occurrences = $assetsBySource[$parent]['stylesheet_instances'] ?? array();
             foreach ($occurrences as $occurrence) {
