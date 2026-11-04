@@ -2102,8 +2102,11 @@ final class ShellExtraction
             if (count($cluster) < 2) continue;
             $links = array(); $values = array();
             foreach ($cluster as $index => $row) {
-                preg_match_all('/<a\\b[^>]*\\bhref="([^"]*)"/i', $row['markup'], $matches);
-                $links[$index] = $matches[1];
+                // Menu items count as links too: a header whose menu is a
+                // navigation block still has mostly stable links when only
+                // its language switch follows the route.
+                preg_match_all('/<a\\b[^>]*\\bhref="([^"]*)"|<!-- wp:navigation-(?:sub)?link (\\{.*?\\}) \\/?-->/', $row['markup'], $matches);
+                $links[$index] = array_map(static fn(string $href, string $attrs): string => '' !== $attrs ? (string) (json_decode($attrs, true)['url'] ?? '') : $href, $matches[1], $matches[2]);
             }
             $first = reset($links);
             if (array() === $first) continue;
@@ -2130,6 +2133,9 @@ final class ShellExtraction
         $markup = self::identityMarkup(self::withoutCurrentNavigationState($block, true));
         $markup = preg_replace('/\b(?:id|anchor)="[^"]*"/i', '', $markup) ?? $markup;
         $markup = preg_replace('/"anchor":"[^"]*"/', '', $markup) ?? $markup;
+        // A class list is a set: removing a route's current-state class can
+        // leave a repeated token on the selected item only.
+        $markup = preg_replace_callback('/("className"\s*:\s*"|\bclass=")([^"]*)"/', static fn(array $match): string => $match[1] . implode(' ', array_unique(preg_split('/\s+/', trim($match[2])) ?: array())) . '"', $markup) ?? $markup;
         return hash('sha256', preg_replace('/\s+/', ' ', trim($markup)) ?? trim($markup));
     }
 

@@ -57,7 +57,7 @@ final class WordPressSitePlan
     public const EDITOR_POST_TITLE_INTERACTION_CSS = ':root .editor-post-title{position:relative;z-index:100000;pointer-events:auto!important}';
     public const EDITOR_LINK_INTERACTION_CSS = ':root .editor-styles-wrapper a[href]{pointer-events:none!important}';
     public const LISTING_QUERY_CLASS = 'blocks-engine-listing-query';
-    public const LISTING_QUERY_CSS = '.wp-block-query.blocks-engine-listing-query,.wp-block-query.blocks-engine-listing-query .wp-block-post-template,.wp-block-query.blocks-engine-listing-query .wp-block-post,.wp-block-query.blocks-engine-listing-query .wp-block-post-content{display:contents;list-style:none;margin:0;padding:0}.blocks-engine-listing-query .blocks-engine-authored-excerpt>p{margin:0}.blocks-engine-listing-overlay{width:auto}';
+    public const LISTING_QUERY_CSS = '.wp-block-query.blocks-engine-listing-query,.wp-block-query.blocks-engine-listing-query .wp-block-post-template,.wp-block-query.blocks-engine-listing-query .wp-block-post,.wp-block-query.blocks-engine-listing-query .wp-block-post-content{display:contents;list-style:none;margin:0;padding:0}.blocks-engine-listing-query .blocks-engine-authored-excerpt>p{margin:0}.blocks-engine-listing-overlay{width:auto}.blocks-engine-listing-card{position:relative}.blocks-engine-listing-card>.blocks-engine-listing-overlay{position:absolute;inset:0;z-index:2}.blocks-engine-listing-card>.blocks-engine-listing-background{position:absolute;inset:0;margin:0;pointer-events:none;z-index:0}.blocks-engine-listing-background img{width:100%;height:100%;object-fit:cover}.blocks-engine-listing-card>:not(.blocks-engine-listing-background):not(.blocks-engine-listing-overlay){position:relative;z-index:1}';
     /**
      * A generated theme reproduces captured text, so WordPress typographic
      * rewriting stays off while it is active. Static block content survives
@@ -626,6 +626,7 @@ PHP;
         unset($asset);
         // Shell extraction needed the archive documents, but route overrides
         // belong only to documents that actually materialize in WordPress.
+        foreach (TaxonomyProjection::sections($pages, $taxonomyProjection['entities'], $this->sourceOrigin) as $entity) if (!isset($entity['archive'])) $taxonomyProjection['entities'][] = $entity;
         $templates = $this->templates($pages, $parts, $surfaces, $tokens, $references, $routeMap, $singleContent, $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome['chrome'], $blockThemeChrome['templates']);
         foreach ($templates as &$template) {
             $chrome = $blockThemeChrome['templates'][$template['slug']] ?? null;
@@ -650,7 +651,7 @@ PHP;
             $registeredTemplates[$page['route_template']] = true;
             $themeProjection['theme']['customTemplates'][] = array('name' => $page['route_template'], 'title' => $sharedTemplateTitles[$page['route_template']] ?? $page['title'], 'postTypes' => array($page['post_type']));
         }
-        foreach ($taxonomyProjection['entities'] as &$taxonomyEntity) foreach ($templates as $template) if (self::archiveTemplateSlug($taxonomyEntity) === ($template['slug'] ?? null)) {
+        foreach ($taxonomyProjection['entities'] as &$taxonomyEntity) foreach ($templates as $template) if (isset($taxonomyEntity['archive']) && self::archiveTemplateSlug($taxonomyEntity) === ($template['slug'] ?? null)) {
             $taxonomyEntity['archive']['presentation_markup'] = $template['canonical_block_markup'];
             continue 2;
         }
@@ -974,6 +975,7 @@ PHP;
         foreach ($plan['pages'] as $page) if (!empty($page['synthetic']) && !isset($pageParents[$page['source_path']])) throw new InvalidArgumentException('WordPress site plan synthetic parent must have a materialized child.');
         $archiveDocuments = array();
         foreach (array_merge($plan['taxonomy_entities'], $plan['author_entities']) as $entity) {
+            if (!array_key_exists('archive', $entity)) continue;
             $source = $entity['archive']['source_path'] ?? '';
             $route = $entity['archive']['source_route'] ?? '';
             if (!isset($sourceCatalog[$source]) || isset($pagesBySource[$source])) throw new InvalidArgumentException('WordPress site plan native archive must name a captured source without a materialized page.');
@@ -1021,6 +1023,7 @@ PHP;
             self::assertNoLocalBrowserReferences($template['canonical_block_markup']);
         }
         foreach (array_merge($plan['taxonomy_entities'], $plan['author_entities']) as $entity) {
+            if (!isset($entity['archive'])) continue;
             $templateSlug = self::archiveTemplateSlug($entity);
             $archiveTemplates = array_values(array_filter($plan['templates'], static fn(array $template): bool => $templateSlug === ($template['slug'] ?? null)));
             if (!array_key_exists('presentation_markup', $entity['archive'])) {
@@ -1056,11 +1059,12 @@ PHP;
             $boundTemplates = in_array($part['placement']['kind'] ?? null, array('entry_shell', 'shared_shell'), true) ? $part['placement']['template_slugs'] : array();
             if (in_array($part['placement']['kind'] ?? null, array('entry_shell', 'shared_shell'), true)) foreach (array_keys($overrideTemplateSlugs) as $slug) if (self::shellPartAppliesToOverride($part, $slug)) $boundTemplates[] = $slug;
             if (in_array('archive', $part['placement']['template_slugs'] ?? array(), true)) foreach (array_merge($plan['taxonomy_entities'], $plan['author_entities']) as $entity) {
+                if (!isset($entity['archive'])) continue;
                 $boundTemplates[] = self::archiveTemplateSlug($entity);
                 if ('author' === $entity['kind']) $boundTemplates[] = 'author';
             }
             if ('inline_shared_shell' === ($part['placement']['kind'] ?? null)) foreach ($plan['templates'] as $template) if (in_array($part['slug'], $template['shell_frame'] ?? array(), true)) $boundTemplates[] = $template['slug'];
-            if ('inline_shared_shell' === ($part['placement']['kind'] ?? null)) foreach (array_merge($plan['taxonomy_entities'], $plan['author_entities']) as $entity) if (in_array($entity['archive']['source_path'], $part['placement']['source_paths'] ?? array(), true)) foreach ($plan['templates'] as $template) if ((self::archiveTemplateSlug($entity) === ($template['slug'] ?? null) || ('author' === $entity['kind'] && 'author' === ($template['slug'] ?? null) && $template['source_path'] === $entity['archive']['source_path'])) && str_contains($template['canonical_block_markup'], '"slug":"' . $part['slug'] . '"')) $boundTemplates[] = $template['slug'];
+            if ('inline_shared_shell' === ($part['placement']['kind'] ?? null)) foreach (array_merge($plan['taxonomy_entities'], $plan['author_entities']) as $entity) if (isset($entity['archive']) && in_array($entity['archive']['source_path'], $part['placement']['source_paths'] ?? array(), true)) foreach ($plan['templates'] as $template) if ((self::archiveTemplateSlug($entity) === ($template['slug'] ?? null) || ('author' === $entity['kind'] && 'author' === ($template['slug'] ?? null) && $template['source_path'] === $entity['archive']['source_path'])) && str_contains($template['canonical_block_markup'], '"slug":"' . $part['slug'] . '"')) $boundTemplates[] = $template['slug'];
             foreach ( $plan['templates'] as $template ) {
                 $references = substr_count($template['canonical_block_markup'], '"slug":"' . $part['slug'] . '"');
                 // An inline shell is bound where it sits, so a template that
@@ -4340,7 +4344,7 @@ PHP;
              $templates[] = array('slug' => $slug, 'target_path' => $target, 'canonical_block_markup' => $content, 'source_path' => $surface['source_path'], 'template_surface' => $declaration, 'provenance' => $surface['provenance'] ?? array(), 'reconciliation_identity' => self::identity('template', $surface['source_path'], $target), 'content_hash' => self::contentHash($content));
          }
          foreach ($taxonomyEntities as $entity) {
-             if (!array_key_exists('presentation_markup', $entity['archive'])) continue;
+             if (!isset($entity['archive']) || !array_key_exists('presentation_markup', $entity['archive'])) continue;
              $slug = self::archiveTemplateSlug($entity);
              $target = 'templates/' . $slug . '.html';
              if (array_filter($templates, static fn(array $template): bool => $template['slug'] === $slug)) throw new InvalidArgumentException('A native archive template collides with a declared template.');
@@ -4999,18 +5003,41 @@ PHP;
             $postsByParent[self::parentRoutePath($page['route']['path'])][] = $page;
         }
         $pagesBySource = array_column($pages, null, 'source_path');
-        foreach ($taxonomyEntities as $entity) foreach ($entity['membership_source_paths'] as $sourcePath) if (isset($pagesBySource[$sourcePath])) $postsByArchive[$entity['archive']['source_path']][] = $pagesBySource[$sourcePath];
-        foreach ($pages as &$page) {
+        $sections = TaxonomyProjection::sections($pages, $taxonomyEntities, $this->sourceOrigin);
+        foreach ($taxonomyEntities as $entity) if (isset($entity['archive'])) foreach ($entity['membership_source_paths'] as $sourcePath) if (isset($pagesBySource[$sourcePath])) $postsByArchive[$entity['archive']['source_path']][] = $pagesBySource[$sourcePath];
+        $candidates = array();
+        foreach ($pages as $index => $page) {
+            if (isset($postsByArchive[$page['source_path']]) || count($postsByParent) < 2) $candidates[] = array($index, null);
+            else foreach ($sections as $route => $entity) $candidates[] = array($index, $route);
+        }
+        foreach ($candidates as [$index, $sectionRoute]) {
+            $page = &$pages[$index];
             if ('page' !== ($page['post_type'] ?? null) || !empty($page['synthetic']) || !is_string($page['route']['path'] ?? null)) {
                 continue;
             }
-            $posts = $postsByArchive[$page['source_path']] ?? ($postsByParent[$page['route']['path']] ?? array());
-            if (count($posts) < (isset($postsByArchive[$page['source_path']]) ? 1 : 2) || !is_string($page['canonical_block_markup'] ?? null) || str_contains($page['canonical_block_markup'], '<!-- wp:query')) {
+            $posts = $postsByArchive[$page['source_path']] ?? ($postsByParent[$sectionRoute ?? $page['route']['path']] ?? array());
+            if (count($posts) < (isset($postsByArchive[$page['source_path']]) ? 1 : 2) || !is_string($page['canonical_block_markup'] ?? null) || (null === $sectionRoute && str_contains($page['canonical_block_markup'], '<!-- wp:query'))) {
                 continue;
             }
             $sourceListingMarkup = $page['canonical_block_markup'];
             $fields = array();
-            $replaced = $this->replaceListingMarkup($sourceListingMarkup, $posts, $fields, isset($postsByArchive[$page['source_path']]));
+            if (null !== $sectionRoute) {
+                $cards = $this->listingCardRanges(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($sourceListingMarkup), $posts);
+                if (null === $cards || count($cards) !== count($posts)) continue;
+                $previous = null;
+                foreach ($cards as $cardIndex => $card) {
+                    if ($cardIndex > 0) {
+                        $last = $cards[$cardIndex - 1];
+                        $gap = substr($sourceListingMarkup, $last['offset'] + $last['length'], $card['offset'] - $last['offset'] - $last['length']);
+                        // Do not consume an interleaved curated card or other live content.
+                        foreach ((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($gap))->topLevel() as $range) if (!in_array(self::listingBlockName(substr($gap, $range['offset'], $range['length'])), array('separator', 'spacer'), true)) continue 3;
+                    }
+                    $date = $card['post']['publication_timestamp'] ?? null;
+                    if (!is_string($date) || (null !== $previous && $date > $previous)) continue 2;
+                    $previous = $date;
+                }
+            }
+            $replaced = $this->replaceListingMarkup($sourceListingMarkup, $posts, $fields, isset($postsByArchive[$page['source_path']]), null !== $sectionRoute ? $sections[$sectionRoute]['slug'] : null);
             if (null === $replaced || $replaced === $page['canonical_block_markup']) {
                 continue;
             }
@@ -5042,6 +5069,15 @@ PHP;
             foreach ($cards as $card) {
                 $cardMarkup = substr($sourceListingMarkup, $card['offset'], $card['length']);
                 $cardIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($cardMarkup);
+                if (str_contains($replaced, 'blocks-engine-listing-background')) {
+                    foreach ((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($card['post']['canonical_block_markup']))->ranges() as $leadRange) {
+                        $lead = substr($card['post']['canonical_block_markup'], $leadRange['offset'], $leadRange['length']);
+                        if ('image' !== self::listingBlockName($lead)) continue;
+                        $image = self::listingCardImage($lead);
+                        if (null !== $image) $featuredImages[$card['post']['source_path']] = $image;
+                        break;
+                    }
+                }
                 if (str_contains($replaced, '<!-- wp:post-featured-image')) {
                     $postIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($card['post']['canonical_block_markup']);
                     foreach ($cardIndex->ranges() as $leaf) {
@@ -5122,7 +5158,7 @@ PHP;
         return $pages;
     }
     /** @param array<int,array<string,mixed>> $posts */
-    private function replaceListingMarkup(string $markup, array $posts, array &$fields = array(), bool $inheritQuery = false): ?string
+    private function replaceListingMarkup(string $markup, array $posts, array &$fields = array(), bool $inheritQuery = false, ?string $sectionSlug = null): ?string
     {
         $documentIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
         $cards = $this->listingCardRanges($documentIndex, $posts, $inheritQuery ? 1 : 2);
@@ -5135,7 +5171,7 @@ PHP;
         }
         $start = $cards[0]['offset'];
         $end = $cards[count($cards) - 1]['offset'] + $cards[count($cards) - 1]['length'];
-        $query = self::listingQueryMarkup(count($cards), $template, $inheritQuery);
+        $query = self::listingQueryMarkup(count($cards), $template, $inheritQuery, $sectionSlug);
         $parent = $documentIndex->parent($cards[0]);
         if (is_array($parent) && 'columns' === self::listingBlockName(substr($markup, $parent['offset'], $parent['length']))) {
             $query = '<!-- wp:column --><div class="wp-block-column">' . $query . '</div><!-- /wp:column -->';
@@ -5207,7 +5243,23 @@ PHP;
     private function listingCardTemplate(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $documentIndex, array $cards, array &$fields): ?string
     {
         $markup = $documentIndex->markup;
-        $first = $cards[0];
+        // A hidden empty binding may have been dropped during lowering. Use
+        // the fullest card as the template so its optional slot still exists.
+        $blocks = static fn(array $card): int => count(array_filter($documentIndex->ranges(), static fn(array $range): bool => $range['offset'] >= $card['offset'] && $range['offset'] + $range['length'] <= $card['offset'] + $card['length']));
+        $templateCards = $cards;
+        usort($templateCards, static fn(array $a, array $b): int => $blocks($b) <=> $blocks($a));
+        $first = $templateCards[0];
+        // Backgrounds are per-post only with evidence from every card, not
+        // merely because the template card happens to use its lead image.
+        foreach ($cards as $card) {
+            $cardMarkup = substr($markup, $card['offset'], $card['length']);
+            foreach ((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($cardMarkup))->ranges() as $range) {
+                foreach (self::listingBlockAttributes(substr($cardMarkup, $range['offset'], $range['length']))['wrappers'] ?? array() as $wrapper) {
+                    $image = self::listingBackgroundImage($wrapper);
+                    if (null !== $image && !self::listingPostHasLeadImage($card['post'], $image)) return null;
+                }
+            }
+        }
         $groups = $this->listingLinkedMetadataGroups($documentIndex, $first);
         $boundGroups = array();
         foreach ($groups as $index => $group) {
@@ -5225,6 +5277,9 @@ PHP;
                 $fields[$card['post']['source_path']][$key] = null === $row ? '' : ListingFieldProjection::content($row['paragraphs']);
             }
         }
+        $literalFields = $this->listingLiteralFields($markup, $templateCards, $fields);
+        if (null === $literalFields) return null;
+        $boundGroups += $literalFields;
         $compact = !array_filter($cards, fn(array $card): bool => !$this->isExcerptListingCard($markup, $card));
         $sharedText = null;
         foreach ($cards as $card) {
@@ -5253,6 +5308,114 @@ PHP;
             $template .= $uniqueGaps[0];
         }
         return $template;
+    }
+
+    /**
+     * Bind short, plain paragraph literals only at corresponding structural slots.
+     * Empty labels are values too; they must not freeze the first card's label.
+     *
+     * @param list<array<string,mixed>> $cards
+     * @param array<string,array<string,string>> $fields
+     * @return array<int,string>|null Null when rows cannot be safely aligned.
+     */
+    private function listingLiteralFields(string $markup, array $cards, array &$fields): ?array
+    {
+        $rows = array();
+        $trees = array();
+        foreach ($cards as $card) {
+            $row = array();
+            $slice = substr($markup, $card['offset'], $card['length']);
+            $sliceIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($slice);
+            foreach ($sliceIndex->ranges() as $range) {
+                $leaf = substr($slice, $range['offset'], $range['length']);
+                $children = $sliceIndex->children($range);
+                // HTML lowering represents an empty source div as a group,
+                // but its text-bearing counterpart as a synthetic paragraph.
+                $attrs = self::listingBlockAttributes($leaf);
+                if (array() === $children && 'group' === self::listingBlockName($leaf) && str_contains((string) ($attrs['className'] ?? ''), 'blocks-engine-empty-visual-group') && '' === ListingExcerptProjection::text($leaf)) {
+                    $attrs['className'] = trim(str_replace('blocks-engine-empty-visual-group', 'blocks-engine-synthetic-paragraph blocks-engine-source-box-paragraph', $attrs['className']));
+                    $leaf = '<!-- wp:paragraph ' . BlockAttributes::encode($attrs) . ' --><p class="' . htmlspecialchars($attrs['className'], ENT_QUOTES, 'UTF-8') . '"></p><!-- /wp:paragraph -->';
+                }
+                $row[$range['offset']] = array('markup' => $leaf, 'offset' => $card['offset'] + $range['offset'], 'children' => array_column($children, 'offset'));
+            }
+            $trees[] = $row;
+        }
+        // Align siblings, never a flat leaf sequence: an omitted label must
+        // occupy the same position under the same corresponding parent.
+        $align = function (array $expected, array $actual, array $template, array $tree) use (&$align): ?array {
+            if (array() === $expected) return array() === $actual ? array() : null;
+            $node = $template[$expected[0]];
+            $matches = array();
+            if (array() !== $actual) {
+                $other = $tree[$actual[0]];
+                if (self::listingBlockName($node['markup']) === self::listingBlockName($other['markup']) && (array() === $node['children']) === (array() === $other['children'])) {
+                    $children = $align($node['children'], $other['children'], $template, $tree);
+                    $rest = $align(array_slice($expected, 1), array_slice($actual, 1), $template, $tree);
+                    if (null !== $children && null !== $rest) {
+                        $matches[] = array_merge(array() === $node['children'] ? array($other) : $children, $rest);
+                    }
+                }
+            }
+            if (array() === $node['children'] && 'paragraph' === self::listingBlockName($node['markup']) && preg_match('~<p\\b[^>]*>[^<]*</p>~s', $node['markup']) && mb_strlen(ListingExcerptProjection::text($node['markup'])) <= 160) {
+                $rest = $align(array_slice($expected, 1), $actual, $template, $tree);
+                if (null !== $rest) $matches[] = array_merge(array(null), $rest);
+            }
+            // Ambiguous omissions are not evidence of a corresponding slot.
+            return 1 === count($matches) ? $matches[0] : null;
+        };
+        foreach ($trees as $tree) {
+            $row = $align(array(array_key_first($trees[0])), array(array_key_first($tree)), $trees[0], $tree);
+            if (null === $row) return null;
+            $rows[] = $row;
+        }
+        $bound = array();
+        foreach ($rows[0] as $index => $first) {
+            $optional = in_array(null, array_column($rows, $index), true);
+            $values = array();
+            $signature = null;
+            foreach ($rows as $cardIndex => $row) {
+                if (null === $row[$index]) {
+                    $values[] = '';
+                    continue;
+                }
+                $leaf = $row[$index]['markup'];
+                if ('paragraph' !== self::listingBlockName($leaf) || !preg_match('~<p\\b([^>]*)>([^<]*)</p>~s', $leaf, $match)) {
+                    if ($optional) return null;
+                    continue 2;
+                }
+                $text = ListingExcerptProjection::text($leaf);
+                if (mb_strlen($text) > 160 || ListingExcerptProjection::matches($leaf, $cards[$cardIndex]['post'])) {
+                    if ($optional) return null;
+                    continue 2;
+                }
+                $postIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex((string) ($cards[$cardIndex]['post']['canonical_block_markup'] ?? ''));
+                $kind = $this->classifyListingCardBlock($leaf, $cards[$cardIndex]['post'], $cards[$cardIndex]['route'], $postIndex);
+                if (!in_array($kind, array('unbound', 'chrome', 'body'), true)) {
+                    if ($optional) return null;
+                    continue 2;
+                }
+                // Do not turn an actual article paragraph into listing metadata.
+                foreach ($postIndex->ranges() as $bodyRange) {
+                    $body = substr($postIndex->markup, $bodyRange['offset'], $bodyRange['length']);
+                    if ('' !== $text && $text === ListingExcerptProjection::text($body)) {
+                        if ($optional) return null;
+                        continue 3;
+                    }
+                }
+                $shape = array(self::listingBlockAttributes($leaf), $match[1]);
+                if (null !== $signature && $signature !== $shape) {
+                    if ($optional) return null;
+                    continue 2;
+                }
+                $signature = $shape;
+                $values[] = $match[2];
+            }
+            if (count(array_unique($values)) < 2) continue;
+            $key = 'blocks_engine_listing_labels_' . substr(hash('sha256', $first['markup'] . ':' . $index), 0, 12);
+            $bound[$first['offset']] = ListingFieldProjection::paragraph($first['markup'], self::listingBlockAttributes($first['markup']), $key, $values[0]);
+            foreach ($cards as $cardIndex => $card) $fields[$card['post']['source_path']][$key] = $values[$cardIndex];
+        }
+        return $bound;
     }
 
     /** @param array<string,mixed> $card @return list<array{offset:int,markup:string,paragraphs:list<string>}> */
@@ -5394,8 +5557,10 @@ PHP;
         $attrs = self::listingBlockAttributes($slice);
         if (isset($attrs['wrappers'])) {
             $changed = false;
-            foreach ($attrs['wrappers'] as &$wrapper) {
+            $linkedWrappers = array();
+            foreach ($attrs['wrappers'] as $index => &$wrapper) {
                 if ('a' === ($wrapper['tagName'] ?? '') && self::hrefMatchesListingRoute((string) ($wrapper['attributes']['href'] ?? ''), $route)) {
+                    $linkedWrappers[$index] = true;
                     $wrapper['tagName'] = 'div';
                     unset($wrapper['attributes']['href'], $wrapper['attributes']['target'], $wrapper['attributes']['rel']);
                     $changed = true;
@@ -5403,14 +5568,54 @@ PHP;
             }
             unset($wrapper);
             if ($changed) {
-                $slice = preg_replace_callback('/^(<!--\\s*wp:[^\\s]+)\\s+\\{.*?\\}\\s*-->/', static fn(array $match): string => $match[1] . ' ' . BlockAttributes::encode($attrs) . ' -->', $slice, 1) ?? $slice;
-                $slice = preg_replace('/(<a)\\b[^>]*>/', '<div' . self::listingWrapperAttributes($attrs) . '>', $slice, 1) ?? $slice;
-                $position = strrpos($slice, '</a>');
-                if (false !== $position) $slice = substr_replace($slice, '</div>', $position, 4);
+                // Rebuild from the declared wrappers and transformed children.
+                // Replacing the first <a> with wrapper[0] duplicates outer boxes.
+                $sliceIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($slice);
+                $ranges = $sliceIndex->ranges();
+                $inner = '';
+                foreach ($sliceIndex->children($ranges[0]) as $child) $inner .= substr($slice, $child['offset'], $child['length']);
+                preg_match('/^<!-- wp:([^ ]+)/', $slice, $name);
+                foreach (array_reverse($attrs['wrappers'], true) as $index => $wrapper) {
+                    $image = self::listingBackgroundImage($wrapper);
+                    if (null !== $image && self::listingPostHasLeadImage($post, $image)) {
+                        // Keep the authored box/styles on a shell. Core Cover's
+                        // flex layout and minimum height would change this box.
+                        // A native featured-image slot is positioned as its background.
+                        $wrapper['attributes']['style'] = trim(preg_replace('/background-image\\s*:\\s*url\\(.*?\\)\\s*;?/i', '', $wrapper['attributes']['style']) ?? '');
+                        $inner = '<!-- wp:post-featured-image {"className":"blocks-engine-listing-background"} /-->' . $inner;
+                    }
+                    if (isset($linkedWrappers[$index])) $wrapper['attributes']['class'] = trim((string) ($wrapper['attributes']['class'] ?? '') . ' blocks-engine-listing-card');
+                    if (isset($linkedWrappers[$index])) $inner .= '<!-- wp:read-more {"className":"blocks-engine-listing-overlay","content":"<span aria-hidden=\\"true\\"></span>"} /-->';
+                    $tag = $wrapper['tagName'];
+                    $inner = '<!-- wp:' . $name[1] . ' ' . BlockAttributes::encode(array('wrappers' => array($wrapper))) . ' --><' . $tag . self::listingWrapperAttributes(array('wrappers' => array($wrapper))) . '>' . $inner . '</' . $tag . '><!-- /wp:' . $name[1] . ' -->';
+                }
+                $slice = $inner;
             }
         }
         return array('markup' => $slice, 'title' => $foundTitle, 'content' => $emittedContent && !$foundTitle);
     }
+    /** @param array<string,mixed> $wrapper */
+    private static function listingBackgroundImage(array $wrapper): ?string
+    {
+        $style = (string) ($wrapper['attributes']['style'] ?? '');
+        if (!preg_match('/background-image\\s*:\\s*url\\(\\s*["\' ]?([^"\')]+)["\' ]?\\s*\\)/i', $style, $match)) return null;
+        return trim($match[1]);
+    }
+
+    /** @param array<string,mixed> $post */
+    private static function listingPostHasLeadImage(array $post, string $image): bool
+    {
+        $featured = $post['metadata']['featured_image']['asset_token'] ?? null;
+        if (is_string($featured) && self::TOKEN_PREFIX . $featured . '}}' === $image) return true;
+        foreach ((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex((string) ($post['canonical_block_markup'] ?? '')))->ranges() as $range) {
+            $slice = substr($post['canonical_block_markup'], $range['offset'], $range['length']);
+            if ('image' !== self::listingBlockName($slice)) continue;
+            $lead = self::listingCardImage($slice);
+            return null !== $lead && self::TOKEN_PREFIX . $lead['asset_token'] . '}}' === $image;
+        }
+        return false;
+    }
+
     /** Visible text identifies a card leaf; a textless leaf is identified by its markup. */
     private static function listingLeafIdentity(string $leaf): string
     {
@@ -5449,6 +5654,11 @@ PHP;
             return 'title';
         }
         $timestamp = is_string($post['publication_timestamp'] ?? null) ? $post['publication_timestamp'] : null;
+        // The entire visible leaf matching this post's timestamp is sufficient
+        // evidence, even when the date class lives on a surrounding group.
+        if (null !== $timestamp && self::parseVisiblePublicationTimestamp(ListingExcerptProjection::text($slice)) === $timestamp) {
+            return 'date';
+        }
         foreach (HtmlMarkupParser::htmlMarkupNodes($slice) as $node) {
             if ('tag' !== ($node['kind'] ?? null) || !is_int($node['inner_offset'] ?? null)) {
                 continue;
@@ -5518,7 +5728,7 @@ PHP;
         if (array() !== $classes) $attrs['className'] = implode(' ', $classes);
         return '<!-- wp:post-featured-image ' . BlockAttributes::encode($attrs) . ' /-->';
     }
-    private static function listingQueryMarkup(int $perPage, string $template, bool $inherit = false): string
+    private static function listingQueryMarkup(int $perPage, string $template, bool $inherit = false, ?string $sectionSlug = null): string
     {
         $attrs = array(
             'queryId' => 1,
@@ -5537,6 +5747,7 @@ PHP;
             ),
             'className' => self::LISTING_QUERY_CLASS,
         );
+        if (null !== $sectionSlug) $attrs['query']['taxQuery'] = array('category' => array('{{wordpress-site-plan:term:category:' . $sectionSlug . '}}'));
         $encoded = BlockAttributes::encode($attrs);
         $pagination = $inherit
             ? '<!-- wp:query-pagination {"paginationArrow":"arrow","layout":{"type":"flex","justifyContent":"space-between"}} --><!-- wp:query-pagination-previous /--><!-- wp:query-pagination-next /--><!-- /wp:query-pagination --><!-- wp:query-no-results --><!-- wp:paragraph --><p>No posts found.</p><!-- /wp:paragraph --><!-- /wp:query-no-results -->'
@@ -7564,6 +7775,7 @@ PHP;
             if (!is_array($entity) || 'taxonomy_term' !== ($entity['kind'] ?? null) || !in_array($entity['taxonomy'] ?? null, array('category', 'post_tag'), true) || !is_string($entity['slug'] ?? null) || !preg_match('/^[a-z0-9][a-z0-9-]{0,199}$/', $entity['slug']) || !is_string($entity['name'] ?? null) || '' === trim($entity['name'])) throw new InvalidArgumentException('WordPress site plan taxonomy entity is structurally invalid.');
             self::unique($seen, $entity['taxonomy'] . ':' . $entity['slug'], 'taxonomy term');
             $archive = $entity['archive'] ?? null;
+            if (array_key_exists('archive', $entity)) {
             if (!is_array($archive) || !self::safePath($archive['source_path'] ?? null) || !is_string($archive['source_route'] ?? null) || !preg_match('~^/[a-z0-9-]+(?:/[a-z0-9-]+)*$~', $archive['source_route']) || !self::validArchivePresentation($archive) || ($archive['query'] ?? null) !== array('post_type' => 'post', 'taxonomy' => $entity['taxonomy'], 'term' => $entity['slug'])) throw new InvalidArgumentException('WordPress site plan taxonomy archive is structurally invalid.');
             if (basename($archive['source_route']) !== $entity['slug']) throw new InvalidArgumentException('WordPress site plan taxonomy slug does not match its archive route.');
             if (array_key_exists('parent', $entity)) {
@@ -7574,6 +7786,9 @@ PHP;
             } elseif ('category' === $entity['taxonomy'] && preg_match('~(?:^|/)category/[^/]+/[^/]+~', $archive['source_route'])) {
                 throw new InvalidArgumentException('WordPress site plan hierarchical category lacks its parent.');
             }
+            } elseif ('category' !== $entity['taxonomy'] || isset($entity['parent'])) {
+                throw new InvalidArgumentException('WordPress site plan section must be an unparented category.');
+            }
             $members = $entity['membership_source_paths'] ?? null;
             if (!is_array($members) || !array_is_list($members) || array() === $members || count($members) > 10000) throw new InvalidArgumentException('WordPress site plan taxonomy membership list is structurally invalid.');
             $memberSet = array();
@@ -7581,7 +7796,9 @@ PHP;
                 if (!is_string($sourcePath) || !isset($pagesBySource[$sourcePath]) || 'post' !== ($pagesBySource[$sourcePath]['post_type'] ?? null)) throw new InvalidArgumentException('WordPress site plan taxonomy membership does not name a canonical post.');
                 self::unique($memberSet, $sourcePath, 'taxonomy membership');
             }
-            if (($entity['evidence'] ?? null) !== array('membership' => true, 'name' => true, 'archive' => true)) throw new InvalidArgumentException('WordPress site plan taxonomy evidence is incomplete.');
+            $evidence = array('membership' => true, 'name' => true);
+            if (array_key_exists('archive', $entity)) $evidence['archive'] = true;
+            if (($entity['evidence'] ?? null) !== $evidence) throw new InvalidArgumentException('WordPress site plan taxonomy evidence is incomplete.');
         }
     }
     private static function assertRows(array $rows, string $kind, array $fields, array $optional = array()): void { foreach ($rows as $row) { if (!is_array($row)) throw new InvalidArgumentException("WordPress site plan {$kind} must be an array."); foreach ($fields as $field) if (!array_key_exists($field, $row) || (!is_string($row[$field]) && !is_int($row[$field]))) throw new InvalidArgumentException("WordPress site plan {$kind} lacks {$field}."); foreach ($optional as $field) if (array_key_exists($field, $row) && !is_string($row[$field])) throw new InvalidArgumentException("WordPress site plan {$kind} has invalid {$field}."); } }

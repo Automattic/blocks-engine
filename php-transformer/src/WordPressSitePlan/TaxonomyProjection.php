@@ -155,6 +155,40 @@ final class TaxonomyProjection
         return array('entities' => $entities, 'diagnostics' => $diagnostics, 'pagination_source_paths_by_archive' => $paginationSourcesByArchive);
     }
 
+    /** Parent-route sections share the archive term contract, without claiming an archive. */
+    public static function sections(array $pages, array $entities, string $sourceOrigin = ''): array
+    {
+        $sections = array();
+        foreach ($pages as $page) {
+            if ('post' !== ($page['post_type'] ?? null) || !empty($page['synthetic'])) continue;
+            $parent = dirname($page['route']['path']);
+            $sections[$parent][] = $page['source_path'];
+        }
+        if (count($sections) < 2) return array();
+        $result = array();
+        foreach ($sections as $route => $members) {
+            sort($members, SORT_STRING);
+            foreach ($entities as $entity) {
+                $existing = $entity['membership_source_paths'];
+                sort($existing, SORT_STRING);
+                if ('category' === ($entity['taxonomy'] ?? null) && $existing === $members) {
+                    $result[$route] = $entity;
+                    continue 2;
+                }
+            }
+            $slug = basename($route);
+            if (!preg_match('/^[a-z0-9][a-z0-9-]{0,199}$/', $slug)) continue;
+            // Never give a different membership the identity of an existing term.
+            foreach (array_merge($entities, array_values($result)) as $entity) if ('category' === ($entity['taxonomy'] ?? null) && $slug === $entity['slug']) continue 2;
+            $name = '';
+            foreach ($pages as $page) if ($route === ($page['route']['path'] ?? null)) $name = ReciprocalArchiveProof::heading((string) ($page['canonical_block_markup'] ?? ''));
+            if ('' === $name) foreach ($pages as $page) foreach (ReciprocalArchiveProof::links((string) ($page['canonical_block_markup'] ?? ''), $sourceOrigin) as $link) if (rtrim($link['href'], '/') === $route && '' !== $link['label']) { $name = $link['label']; break 2; }
+            if ('' === $name) $name = ucwords(str_replace('-', ' ', $slug));
+            $result[$route] = array('kind' => 'taxonomy_term', 'taxonomy' => 'category', 'slug' => $slug, 'name' => $name, 'membership_source_paths' => $members, 'evidence' => array('membership' => true, 'name' => true));
+        }
+        return $result;
+    }
+
     /** Only explicit CollectionPage names can corroborate a descriptive heading. */
     private static function collectionNames(string $html): array
     {

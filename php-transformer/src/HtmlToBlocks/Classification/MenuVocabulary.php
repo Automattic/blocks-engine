@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
+use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use DOMElement;
 
 /**
@@ -155,16 +156,44 @@ final class MenuVocabulary
     /**
      * A current-page declaration identifies a short, listless internal menu at
      * the document's leading edge. Keep the signal structural, not vocabulary-
-     * based, and require every sibling to be one simple label link.
+     * based. Link-bearing children must each be one simple label link; controls
+     * and separators without links may accompany the run.
      */
     public static function isCurrentPageLinkRun(DOMElement $element): bool
+    {
+        if (!self::hasCurrentPageLinkRunShape($element, !$element->hasAttribute('data-blocks-engine-navigation-run'))) return false;
+        return self::isAtLeadingEdge($element);
+    }
+
+    /**
+     * Ordered destinations and labels identify a run independently of route state.
+     * Resolve relative destinations against the capture, preserving query/fragment.
+     */
+    public static function linkRunSignature(DOMElement $element, string $sourcePath): ?string
+    {
+        if (!self::hasCurrentPageLinkRunShape($element, false)) return null;
+        $items = array();
+        foreach ($element->childNodes as $child) {
+            if (!$child instanceof DOMElement || 'a' !== strtolower($child->tagName)) continue;
+            $href = trim($child->getAttribute('href'));
+            $path = ArtifactPath::stripQueryAndFragment($href);
+            $target = ArtifactPath::resolveRelativePath(ltrim($path, '/'), str_starts_with($path, '/') ? '' : $sourcePath);
+            $items[] = array($target . substr($href, strlen($path)), trim(preg_replace('/\s+/u', ' ', $child->textContent) ?? ''));
+        }
+        return (string) json_encode($items, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    }
+
+    private static function hasCurrentPageLinkRunShape(DOMElement $element, bool $requireCurrent = true): bool
     {
         $count = 0;
         $current = false;
         foreach ($element->childNodes as $child) {
             if (XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent)) return false;
             if (!$child instanceof DOMElement) continue;
-            if ('a' !== strtolower($child->tagName)) return false;
+            if ('a' !== strtolower($child->tagName)) {
+                if (0 !== $child->getElementsByTagName('a')->length) return false;
+                continue;
+            }
             $href = trim($child->getAttribute('href'));
             if ('' === $href || str_starts_with($href, '#') || str_starts_with($href, '//') || preg_match('~^[a-z][a-z0-9+.-]*:~i', $href)) return false;
             $label = trim(preg_replace('/\s+/u', ' ', $child->textContent) ?? '');
@@ -181,15 +210,51 @@ final class MenuVocabulary
             $current = $current || 'page' === strtolower(trim($child->getAttribute('aria-current')));
             ++$count;
         }
-        if ($count < 3 || !$current) return false;
-        for ($node = $element; $node instanceof DOMElement; $node = $node->parentNode) {
+        return $count >= 3 && (!$requireCurrent || $current);
+    }
+
+    private static function isAtLeadingEdge(DOMElement $element): bool
+    {
+        // A header row can have a brand or another responsive copy before the
+        // run. Bound the leading-edge check at the row before main content,
+        // rather than treating its own chrome as preceding page content.
+        $edge = $element;
+        for ($ancestor = $element; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
+            if (self::isHeaderLandmark($ancestor)) return true;
+            if (in_array(strtolower($ancestor->tagName), array('main', 'article', 'section', 'aside', 'footer', 'nav', 'body'), true)) break;
+            for ($next = $ancestor->nextSibling; null !== $next; $next = $next->nextSibling) {
+                if ($next instanceof DOMElement && ('main' === strtolower($next->tagName) || 'main' === strtolower($next->getAttribute('role')))) {
+                    $edge = $ancestor;
+                    break 2;
+                }
+                if (self::hasVisibleContent($next)) break;
+            }
+        }
+        for ($node = $edge; $node instanceof DOMElement; $node = $node->parentNode) {
             if (self::isHeaderLandmark($node)) return true;
             if (in_array(strtolower($node->tagName), array('main', 'article', 'section', 'aside', 'footer', 'nav'), true)) return false;
             if ('body' === strtolower($node->tagName)) return true;
+            // Linked media or text before the run (a brand link) and a responsive
+            // copy of the run are header chrome; unlinked text or media is content.
             for ($sibling = $node->previousSibling; null !== $sibling; $sibling = $sibling->previousSibling) {
-                if ($sibling instanceof DOMElement && !in_array(strtolower($sibling->tagName), array('style', 'script', 'link', 'meta', 'title', 'head'), true)) return false;
-                if (XML_TEXT_NODE === $sibling->nodeType && '' !== trim($sibling->textContent)) return false;
+                if ($sibling instanceof DOMElement && self::hasCurrentPageLinkRunShape($sibling, !$sibling->hasAttribute('data-blocks-engine-navigation-run'))) continue;
+                if (self::hasVisibleContent($sibling, true)) return false;
             }
+        }
+        return false;
+    }
+
+    /** Resource-only embeds and empty wrappers do not displace the leading edge. */
+    private static function hasVisibleContent(\DOMNode $node, bool $ignoreLinks = false): bool
+    {
+        if (XML_TEXT_NODE === $node->nodeType) return '' !== trim($node->textContent);
+        if (!$node instanceof DOMElement) return false;
+        $tag = strtolower($node->tagName);
+        if ($ignoreLinks && 'a' === $tag) return false;
+        if (in_array($tag, array('style', 'script', 'link', 'meta', 'title', 'head'), true)) return false;
+        if (in_array($tag, array('img', 'svg', 'picture', 'video', 'audio', 'canvas', 'iframe', 'object', 'embed', 'input', 'button', 'select', 'textarea', 'hr'), true)) return true;
+        foreach ($node->childNodes as $child) {
+            if (self::hasVisibleContent($child, $ignoreLinks)) return true;
         }
         return false;
     }

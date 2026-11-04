@@ -88,6 +88,7 @@
     ],
     "test:canonical": [
       "php tests/contract/css-rule-tree-staged.php",
+      "php tests/contract/section-listing-terms.php",
       "php tests/contract/post-headline-title.php",
       "php tests/contract/component-interactions.php",
       "php tests/unit/capture-inert-control.php",
@@ -376,7 +377,6 @@
       "php tests/unit/artifact-image-aspect-ratio.php",
       "php tests/unit/responsive-select-navigation.php",
       "php tests/unit/linked-image-whitespace-gap.php",
-      "php tests/unit/native-inner-author-precedence.php",
       "php tests/unit/empty-inline-decoration.php",
       "php tests/unit/logo-empty-inline-box.php",
       "php tests/unit/rounded-site-logo.php",

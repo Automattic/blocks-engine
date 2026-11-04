@@ -386,12 +386,16 @@ final class AuthorStylesheetProjector
         if (!isset($declarations['display'])) return '';
         $targets = array();
         foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
-            if (!preg_match('/^\.((?:\\\\.|[A-Za-z0-9_-])+)$/', trim($selector), $match)) continue;
+            // Class compounds only (`.menus`, `.menus.res`): every lifted rule
+            // gains the same prefix, so their relative specificity holds.
+            if (!preg_match('/^(?:\.(?:\\\\.|[A-Za-z0-9_-])+)+$/', trim($selector), $match)) continue;
             $parsed = $context->sourceStyles->parsedSelector($selector);
             if (!$parsed['supported']) continue;
             foreach ($this->matchingSourceElements($selector, $parsed, $context) as $element) {
-                if ('nav' === strtolower($element->tagName) && 0 === $element->getElementsByTagName('ul')->length && 0 === $element->getElementsByTagName('ol')->length) {
-                    $targets[] = ':root .wp-block-navigation.' . $match[1];
+                // A current-page link run lowers to core/navigation whatever its tag.
+                if (('nav' === strtolower($element->tagName) && 0 === $element->getElementsByTagName('ul')->length && 0 === $element->getElementsByTagName('ol')->length)
+                    || \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary::isCurrentPageLinkRun($element)) {
+                    $targets[] = ':root .wp-block-navigation' . $match[0];
                     break;
                 }
             }
