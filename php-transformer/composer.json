@@ -688,6 +688,7 @@
       "php tests/unit/admin-bar-comment-selectors.php",
       "php tests/contract/template-part-sticky-containment.php",
       "php tests/unit/editor-canvas-body-background.php",
+      "php tests/unit/editor-canvas-fixed-position.php",
       "php tests/unit/author-cascade-layer-order.php",
       "php tests/unit/navigation-anchor-conditional-replay.php",
       "php tests/unit/navigation-source-correspondence.php",
