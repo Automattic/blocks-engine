@@ -1386,7 +1386,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 }
                 return $block;
             },
-            fn (DOMElement $element): ?array => $this->decorativeTextSvgBlock($element)
+            fn (DOMElement $element): ?array => $this->decorativeTextSvgBlock($element),
+            function (DOMElement $element, array &$fallbacks): ?array {
+                return $this->mediaBlockFromTextlessHeading($element, $fallbacks);
+            }
         );
     }
 
@@ -10885,9 +10888,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      *
      * @return array<string, mixed>|null
      */
-    private function unwrappedParagraphImageBlock(DOMElement $paragraph): ?array
+    private function unwrappedParagraphImageBlock(DOMElement $paragraph, bool $ignoreLineBreaks = false): ?array
     {
-        $block = $this->imageBlockFromParagraph($paragraph);
+        $block = $this->imageBlockFromParagraph($paragraph, $ignoreLineBreaks);
         if ( null === $block ) {
             return null;
         }
@@ -10898,7 +10901,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             (string) ( $attrs['className'] ?? '' ),
             ...$projections->semanticCarrierClasses($projections->ensureSemanticMarker($path), $path)
         );
-        if ( $this->paragraphImageSetsLineBox($paragraph) ) {
+        if ( $this->paragraphImageSetsLineBox($paragraph, $ignoreLineBreaks) ) {
             $attrs['className'] = $this->mergeClassNames((string) $attrs['className'], SourceBlockAttributeProjector::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS);
         }
 
@@ -10911,9 +10914,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * its siblings. A blockified image would let that margin collapse through
      * the figure, so the figure keeps the image on a line instead.
      */
-    private function paragraphImageSetsLineBox(DOMElement $paragraph): bool
+    private function paragraphImageSetsLineBox(DOMElement $paragraph, bool $ignoreLineBreaks = false): bool
     {
-        $child = $this->paragraphImageChild($paragraph);
+        $child = $this->paragraphImageChild($paragraph, $ignoreLineBreaks);
         $image = $child instanceof DOMElement && 'img' === strtolower($child->tagName) ? $child : $child?->getElementsByTagName('img')->item(0);
         if ( ! $image instanceof DOMElement
             || ! in_array($this->resolvedDeclaration($image, 'display'), array( '', 'inline', 'inline-block' ), true)
@@ -10960,9 +10963,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      *
      * @return array<string, mixed>|null
      */
-    private function imageBlockFromParagraph(DOMElement $paragraph): ?array
+    private function imageBlockFromParagraph(DOMElement $paragraph, bool $ignoreLineBreaks = false): ?array
     {
-        $child = $this->paragraphImageChild($paragraph);
+        $child = $this->paragraphImageChild($paragraph, $ignoreLineBreaks);
         if ( ! $child instanceof DOMElement ) {
             return null;
         }
@@ -10984,15 +10987,76 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     }
 
     /**
+     * A heading with no text carries no heading semantics, so its one media
+     * element lowers as the media block it visually is (#4303): an iframe
+     * (or custom iframe element) takes the standalone embed route, and an
+     * image, picture or image-only link takes the paragraph image route,
+     * keeping the heading's selector identity the way a text-less paragraph
+     * keeps its own. `<br>` line breaks and whitespace are not text; any
+     * other text keeps the heading's RichText image behavior (#3496).
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function mediaBlockFromTextlessHeading(DOMElement $heading, array &$fallbacks): ?array
+    {
+        $media = $this->soleElementBesideLineBreaks($heading);
+        if ( null === $media || '' !== trim($this->textBesideLineBreaks($heading)) ) {
+            return null;
+        }
+
+        $tagName = strtolower($media->tagName);
+        if ( 'iframe' === $tagName || ( str_contains($tagName, '-') && 1 === preg_match('/(?:^|-)iframe(?:-|$)/', $tagName) ) ) {
+            return $this->visualIframeGenerator->convert($media, $fallbacks);
+        }
+
+        return $this->unwrappedParagraphImageBlock($heading, true);
+    }
+
+    /** The element's text content, ignoring `<br>` line breaks and whitespace. */
+    private function textBesideLineBreaks(DOMElement $element): string
+    {
+        $text = '';
+        foreach ( $element->childNodes as $node ) {
+            if ( $node instanceof DOMElement && 'br' === strtolower($node->tagName) ) {
+                continue;
+            }
+            $text .= $node->textContent ?? '';
+        }
+
+        return trim($text);
+    }
+
+    /** The one non-`<br>` element child, or null when there is none or several. */
+    private function soleElementBesideLineBreaks(DOMElement $element): ?DOMElement
+    {
+        $sole = null;
+        foreach ( $element->childNodes as $node ) {
+            if ( ! $node instanceof DOMElement || 'br' === strtolower($node->tagName) ) {
+                continue;
+            }
+            if ( null !== $sole ) {
+                return null;
+            }
+            $sole = $node;
+        }
+
+        return $sole;
+    }
+
+    /**
      * The image, picture or image-only anchor a paragraph wraps on its own
      * (through passive inline marks), which unwraps the paragraph into a
      * core/image block instead of a paragraph.
      */
-    private function paragraphImageChild(DOMElement $paragraph): ?DOMElement
+    private function paragraphImageChild(DOMElement $paragraph, bool $ignoreLineBreaks = false): ?DOMElement
     {
         $child = null;
         foreach ( $paragraph->childNodes as $node ) {
             if ( $node instanceof DOMElement ) {
+                if ( $ignoreLineBreaks && 'br' === strtolower($node->tagName) ) {
+                    continue;
+                }
                 if ( $child instanceof DOMElement ) {
                     return null;
                 }
@@ -11008,7 +11072,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return null;
         }
         if ( SourceDom::isInlineImageMark($child) ) {
-            return $this->paragraphImageChild($child);
+            return $this->paragraphImageChild($child, $ignoreLineBreaks);
         }
         $tagName = strtolower($child->tagName);
         if ( in_array($tagName, array( 'img', 'picture' ), true) || ( 'a' === $tagName && $this->isImageOnlyAnchor($child) ) ) {
