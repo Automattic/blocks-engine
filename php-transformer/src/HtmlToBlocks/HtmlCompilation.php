@@ -5327,7 +5327,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                         }
                     }
                 }
-                return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($sourceElement), $children, $sourceElement, $logicalSourceElement);
+                $containerAttrs = $this->styleResolver->presentationAttributes($sourceElement);
+                if ('core/heading' === $name) {
+                    // Keep baked/responsive heading typography, not just the
+                    // generic presentation, when RichText becomes a container.
+                    $containerAttrs = $attrs;
+                    unset($containerAttrs['content'], $containerAttrs['level']);
+                    $containerAttrs = $this->styleResolver->headingContainerAttributes($sourceElement, $containerAttrs);
+                }
+                return $this->createBlock('core/group', $containerAttrs, $children, $sourceElement, $logicalSourceElement);
             }
         }
 
