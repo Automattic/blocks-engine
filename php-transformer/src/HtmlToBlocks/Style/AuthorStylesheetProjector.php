@@ -1360,6 +1360,13 @@ final class AuthorStylesheetProjector
             if ( $this->isCollapsedButtonKeywordWidth($name, $value) ) {
                 continue;
             }
+            if ( 'min-width' === $name && $this->percentageResolvesAgainstButtonWrapper($value, $controls) ) {
+                // The wrapper resolves the percentage against the source
+                // container; the link then fills at least that wrapper.
+                $geometry[] = $declaration;
+                $inner[] = self::wrapperFillingMinimumWidth($value);
+                continue;
+            }
             $places = '' !== $name && false !== $colon && $this->declarationPlacesTheButton($name, $placementVars);
             $owned = '' !== $name && false !== $colon && in_array($name, $wrapperOwned, true)
                 && ! $this->isButtonControlBoxSize($name, $value, $controls);
@@ -1542,7 +1549,37 @@ final class AuthorStylesheetProjector
         }
         // Auto must compete with intrinsic widths on the same link; the
         // minimum constrains that box rather than only its outer carrier.
-        return 'min-width' === $property || 'auto' === CssValueInspector::comparable($value);
+        if ( 'auto' === CssValueInspector::comparable($value) ) {
+            return true;
+        }
+        return 'min-width' === $property && ! $this->percentageResolvesAgainstButtonWrapper($value, $controls);
+    }
+
+    private static function wrapperFillingMinimumWidth(string $value): string
+    {
+        return 'min-width:100%' . ( CssValueInspector::isImportant($value) ? '!important' : '' );
+    }
+
+    /**
+     * A percentage resolves against the containing block. When the outer
+     * wrapper stays the participating box, the link's containing block is
+     * that shrink-wrapped wrapper rather than the source flex or grid
+     * container, so the percentage belongs on the wrapper chain.
+     *
+     * @param list<DOMElement> $controls
+     */
+    private function percentageResolvesAgainstButtonWrapper(string $value, array $controls): bool
+    {
+        foreach ( $controls as $control ) {
+            $resolved = $this->styleResolver->resolveCssVariablesInValue($value, $control);
+            if ( ! str_contains($resolved, '%') ) {
+                continue;
+            }
+            if ( LayoutParticipation::BOX_LINK !== LayoutParticipation::resolve($control, $this->styleResolver)->participatingBox() ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** @param list<DOMElement> $controls */
