@@ -94,17 +94,17 @@ final class AuthorSelectorProjectionState
     /** @var array<string, list<string>> */
     private array $attributeStateMarkers = array();
 
-    /** @var array<string, array<string, string>> Author selector => ancestor attribute condition text => state class. */
-    private array $ancestorAttributeStateConditions = array();
+    /** @var array<string, array<string, string>> Author selector => dropped attribute condition text => state class. */
+    private array $attributeStateProjectionConditions = array();
 
-    /** @var array<string, list<string>> Source path => class-only ancestor attribute-state markers. */
-    private array $ancestorAttributeStateMarkers = array();
+    /** @var array<string, list<string>> Source path => class-only dropped-attribute state markers. */
+    private array $attributeStateProjectionMarkers = array();
 
     /** @var array<string, array<string, true>> Holder key => visited source paths. */
-    private array $ancestorAttributeStateVisits = array();
+    private array $attributeStateProjectionVisits = array();
 
     /** @var array<string, true> Holder keys with at least one marked holder. */
-    private array $ancestorAttributeStateHolders = array();
+    private array $attributeStateProjectionHolders = array();
 
     /** @var array<string, bool> */
     private array $scriptWrittenAttributes = array();
@@ -848,25 +848,25 @@ final class AuthorSelectorProjectionState
     }
 
     /** @param array<string, string> $conditions Condition text => state class; empty records a decision not to project. */
-    public function installAncestorAttributeStateConditions(string $selector, array $conditions): void
+    public function installAttributeStateProjectionConditions(string $selector, array $conditions): void
     {
-        $this->ancestorAttributeStateConditions[$selector] = $conditions;
+        $this->attributeStateProjectionConditions[$selector] = $conditions;
     }
 
-    public function hasAncestorAttributeStateDecision(string $selector): bool
+    public function hasAttributeStateProjectionDecision(string $selector): bool
     {
-        return isset($this->ancestorAttributeStateConditions[$selector]);
+        return isset($this->attributeStateProjectionConditions[$selector]);
     }
 
     /** @return array<string, string> */
-    public function ancestorAttributeStateConditions(string $selector): array
+    public function attributeStateProjectionConditions(string $selector): array
     {
-        return $this->ancestorAttributeStateConditions[$selector] ?? array();
+        return $this->attributeStateProjectionConditions[$selector] ?? array();
     }
 
-    public function hasAncestorAttributeStateConditions(): bool
+    public function hasAttributeStateProjectionConditions(): bool
     {
-        foreach ( $this->ancestorAttributeStateConditions as $conditions ) {
+        foreach ( $this->attributeStateProjectionConditions as $conditions ) {
             if ( array() !== $conditions ) {
                 return true;
             }
@@ -875,37 +875,37 @@ final class AuthorSelectorProjectionState
     }
 
     /** Records a visit; false when `$path` was already walked for this holder key. */
-    public function visitAncestorAttributeStatePath(string $holderKey, string $path): bool
+    public function visitAttributeStateProjectionPath(string $holderKey, string $path): bool
     {
-        if ( isset($this->ancestorAttributeStateVisits[$holderKey][$path]) ) {
+        if ( isset($this->attributeStateProjectionVisits[$holderKey][$path]) ) {
             return false;
         }
-        $this->ancestorAttributeStateVisits[$holderKey][$path] = true;
+        $this->attributeStateProjectionVisits[$holderKey][$path] = true;
         return true;
     }
 
-    public function addAncestorAttributeStateMarker(string $path, string $marker, string $holderKey): void
+    public function addAttributeStateProjectionMarker(string $path, string $marker, string $holderKey): void
     {
-        $this->ancestorAttributeStateHolders[$holderKey] = true;
-        if ( ! in_array($marker, $this->ancestorAttributeStateMarkers[$path] ?? array(), true) ) {
-            $this->ancestorAttributeStateMarkers[$path][] = $marker;
+        $this->attributeStateProjectionHolders[$holderKey] = true;
+        if ( ! in_array($marker, $this->attributeStateProjectionMarkers[$path] ?? array(), true) ) {
+            $this->attributeStateProjectionMarkers[$path][] = $marker;
         }
     }
 
-    public function hasAncestorAttributeStateHolder(string $holderKey): bool
+    public function hasAttributeStateProjectionHolder(string $holderKey): bool
     {
-        return isset($this->ancestorAttributeStateHolders[$holderKey]);
+        return isset($this->attributeStateProjectionHolders[$holderKey]);
     }
 
     /**
-     * Class-only markers: emitted on the block's className, never consulted
-     * for wrapper preservation or layout ownership.
+     * Class-only markers: emitted on the rendered element's className, never
+     * consulted for wrapper preservation or layout ownership.
      *
      * @return list<string>
      */
-    public function ancestorAttributeStateMarkers(string $path): array
+    public function attributeStateProjectionMarkers(string $path): array
     {
-        return $this->ancestorAttributeStateMarkers[$path] ?? array();
+        return $this->attributeStateProjectionMarkers[$path] ?? array();
     }
 
     /** @param \Closure(): bool $resolve */
@@ -969,6 +969,21 @@ final class AuthorSelectorProjectionState
             $this->attributeStateMarkers($path),
             array($this->rootChildMarker($path))
         ), static fn (string $marker): bool => '' !== $marker));
+    }
+
+    /**
+     * All projection classes written onto a source element in emitted markup.
+     * Keep this separate from semanticMarkersForPath(): attribute-state classes
+     * must not affect wrapper preservation or layout ownership decisions.
+     *
+     * @return list<string>
+     */
+    public function sourceProjectionMarkersForPath(string $path): array
+    {
+        return array_values(array_unique(array_filter(array_merge(
+            $this->semanticMarkersForPath($path),
+            $this->attributeStateProjectionMarkers($path)
+        ))));
     }
 
     /**

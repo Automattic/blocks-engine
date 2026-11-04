@@ -31,30 +31,56 @@ final class NavigationOpenerPresentation
         return !preg_match('/^[\x{2630}\x{2261}]+$/u', $glyphs);
     }
 
+    /** Select the single icon visible in the source's resting mobile state. */
+    public function icon(DOMElement $control): ?DOMElement
+    {
+        $icon = null;
+        foreach ($control->childNodes as $child) {
+            if (!$child instanceof DOMElement) {
+                if ('' !== trim($child->textContent ?? '')) return null;
+                continue;
+            }
+            $display = $this->styles->collapsedViewportAuthorDeclarations($child, array('display'));
+            if ('none' === CssValueInspector::withoutImportant($display['display'] ?? '')) continue;
+            if ('svg' !== strtolower($child->tagName) || null !== $icon) return null;
+            $icon = $child;
+        }
+        return $icon;
+    }
+
     /** @return array{artwork:string,button:array<string,array<string,string>>,icon:array<string,array<string,string>>}|null */
     public function source(DOMElement $control): ?array
     {
-        // A single passive SVG is a proven intrinsic-size visual control.
-        // Mixed labels, multiple icons or document-dependent artwork cannot
-        // justify replacing the complete native button content.
-        if (null === $this->svgMarkup || '' !== trim($control->textContent ?? '')) return null;
-        $children = array_values(array_filter(iterator_to_array($control->childNodes), static fn($child): bool => $child instanceof DOMElement));
-        if (1 !== count($children) || 'svg' !== strtolower($children[0]->tagName)) return null;
-        $svg = $children[0];
+        // One visible passive SVG is a proven visual control. Accessible
+        // titles and a hidden alternate state icon do not make it mixed
+        // content; visible labels or document-dependent artwork still do.
+        if (null === $this->svgMarkup) return null;
+        $svg = $this->icon($control);
+        if (!$svg instanceof DOMElement) return null;
         if (!SvgMaterializer::isPassiveSvgMarkup($svg) || !SourceDom::svgHasDrawableContent($svg)) return null;
         foreach ($svg->getElementsByTagName('*') as $node) {
-            if (!in_array(strtolower($node->tagName), array('g', 'path', 'circle', 'ellipse', 'rect', 'line', 'polyline', 'polygon'), true)) return null;
+            if (!in_array(strtolower($node->tagName), array('title', 'desc', 'g', 'path', 'circle', 'ellipse', 'rect', 'line', 'polyline', 'polygon'), true)) return null;
         }
         $markup = ($this->svgMarkup)($svg);
         if ('' === $markup || !SourceDom::isSafeSvgContent($markup)) return null;
-        $box = array('box-sizing', 'width', 'height', 'min-width', 'min-height', 'max-width', 'max-height', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'margin-inline', 'margin-inline-start', 'margin-inline-end', 'border', 'border-width', 'border-style', 'border-color', 'border-radius', 'background-color', 'color', 'display', 'align-items', 'justify-content', 'transform', 'transform-origin', 'translate', 'rotate', 'scale');
+        $box = array('box-sizing', 'width', 'height', 'min-width', 'min-height', 'max-width', 'max-height', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'margin-inline', 'margin-inline-start', 'margin-inline-end', 'border', 'border-width', 'border-style', 'border-color', 'border-radius', 'background', 'background-color', 'color', 'display', 'align-items', 'justify-content', 'transform', 'transform-origin', 'translate', 'rotate', 'scale');
         $button = $this->styles->authoredControlPresentation($control, $box);
         $paint = array('fill', 'fill-opacity', 'stroke', 'stroke-width', 'stroke-opacity', 'stroke-linecap', 'stroke-linejoin');
         $icon = $this->styles->authoredControlPresentation($svg, array_merge($box, $paint));
         $icon[''] ??= array();
+        // An unsized SVG in a definite-width control fills the control's
+        // content box and takes its height from the viewBox ratio.
+        $declared = fn (string $property): bool => isset($icon[''][$property]) || '' !== trim($svg->getAttribute($property))
+            || isset($this->styles->collapsedViewportAuthorDeclarations($svg, array($property))[$property]);
+        $definiteControl = array_filter($button, static fn (array $values): bool => (bool) preg_match('/^\d+(?:\.\d+)?(?:px|em|rem)$/D', CssValueInspector::withoutImportant($values['width'] ?? '')));
+        if (!$declared('width') && !$declared('height') && '' !== trim($svg->getAttribute('viewBox') ?: $svg->getAttribute('viewbox')) && array() !== $definiteControl) {
+            $icon['']['width'] = '100%';
+            $icon['']['height'] = 'auto';
+        }
         foreach (array('width', 'height') as $property) {
             if (!isset($icon[''][$property])) {
-                $value = trim($svg->getAttribute($property));
+                $collapsed = $this->styles->collapsedViewportAuthorDeclarations($svg, array($property));
+                $value = CssValueInspector::withoutImportant(trim($collapsed[$property] ?? $svg->getAttribute($property)));
                 if (is_numeric($value)) $value .= 'px';
                 if (!preg_match('/^\d+(?:\.\d+)?(?:px|em|rem)$/D', $value)) return null;
                 $icon[''][$property] = $value;

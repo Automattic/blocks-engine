@@ -387,7 +387,8 @@ final class InlineGeometry
         array $forcedProperties = array(),
         array $forcedDeclarations = array(),
         bool $carrierOwnsInlineGeometry = false,
-        bool $imageLeaf = false
+        bool $imageLeaf = false,
+        bool $buttonLinkShadow = false
     ): string {
         $declarations = $carrierOwnsInlineGeometry
             ? $this->mediaTextInlineCascadeDeclarations(SourceDom::attr($element, 'style'))
@@ -546,6 +547,7 @@ final class InlineGeometry
         $normalPriorityDeclarations = array();
         $normalPriorityOverrides = array();
         $importantDeclarations = array();
+        $linkShadowDeclarations = array();
         $forcedPropertyLookup = array_fill_keys($forcedProperties, true);
         $inlineLayoutPropertyLookup = array_fill_keys($this->layoutCarrierProperties(), true);
         $inlineListMarkerPropertyLookup = array_fill_keys($this->listMarkerCarrierProperties(), true);
@@ -558,6 +560,12 @@ final class InlineGeometry
         }
         $overridePropertyLookup = array_fill_keys(array_keys($overrideDeclarations), true);
         foreach ($geometry as $property => $value) {
+            // core/button's carrier sits on the wrapper, but the link paints
+            // the background that would cover a wrapper-owned inset shadow.
+            if ( $buttonLinkShadow && 'box-shadow' === $property ) {
+                $linkShadowDeclarations[] = $property . ':' . $value . ' !important';
+                continue;
+            }
             if ( ('iframe' === strtolower($element->tagName) && ! CssValueInspector::isImportant((string) ($declarations[$property] ?? '')))
                 || isset($inlineListMarkerPropertyLookup[$property])
                 || isset($overridePropertyLookup[$property])
@@ -576,7 +584,8 @@ final class InlineGeometry
             // rules retain their normal cascade priority through specificity.
             $importantDeclarations[] = $property . ':' . $value . ' !important';
         }
-        $signature = implode(';', array_merge($normalPriorityDeclarations, $importantDeclarations));
+        $signature = implode(';', array_merge($normalPriorityDeclarations, $importantDeclarations, $linkShadowDeclarations));
+        if ( array() !== $linkShadowDeclarations ) $signature .= "\nbutton-link-shadow";
         $className = $this->context->layoutGeometry()->allocateCarrier(($this->geometryStructuralPath)($element) . "\n" . $signature . ($imageLeaf ? "\nimage-leaf" : ''));
         $rules = array();
         if ( array() !== $normalPriorityDeclarations ) {
@@ -587,6 +596,9 @@ final class InlineGeometry
         if ( array() !== $importantDeclarations ) {
             $selector = $imageLeaf ? NativeImageLeafPresentation::selectors('.wp-block-image.' . $className) : '.' . $className;
             $rules[] = $selector . '{' . implode(';', $importantDeclarations) . '}';
+        }
+        if ( array() !== $linkShadowDeclarations ) {
+            $rules[] = '.' . $className . '>.wp-block-button__link{' . implode(';', $linkShadowDeclarations) . '}';
         }
         if ('video' === strtolower($element->tagName) && isset($geometry['object-fit'], $geometry['width'], $geometry['height'])) {
             // core/video places the source box carrier on a new figure. Its

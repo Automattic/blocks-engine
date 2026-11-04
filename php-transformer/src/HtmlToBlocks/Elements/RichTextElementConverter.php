@@ -47,6 +47,15 @@ final class RichTextElementConverter implements ElementConverter
     public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
     {
         if ( preg_match(self::HEADING_PATTERN, $tagName, $matches) ) {
+            $button = SourceDom::onlyChildElement($element, 'button');
+            $capturedChoice = null !== $button && $button->hasAttribute('data-blocks-engine-collection-choice');
+            for ($owner = $element->parentNode; !$capturedChoice && $owner instanceof DOMElement; $owner = $owner->parentNode) {
+                $capturedChoice = 'true' === $owner->getAttribute('data-blocks-engine-choice-group');
+            }
+            if (null !== $button && $capturedChoice) {
+                $children = $this->context->convertChildren($element, $fallbacks);
+                return ConversionOutcome::handled($this->context->createBlock('core/group', array_merge($this->context->presentationAttributes($element), array('tagName' => $tagName)), $children, $element));
+            }
             return ConversionOutcome::handled($this->convertHeading($element, (int) $matches[1]));
         }
 

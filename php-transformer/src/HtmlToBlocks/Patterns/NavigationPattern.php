@@ -90,7 +90,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             return true;
         }
 
-        return $this->hasHeaderLinkCluster($element) || $this->hasRepeatedLinkItems($element) || $this->hasButtonDropdownChild($element);
+        return MenuVocabulary::isCurrentPageLinkRun($element) || $this->hasHeaderLinkCluster($element) || $this->hasRepeatedLinkItems($element) || $this->hasButtonDropdownChild($element);
     }
 
     /**
@@ -717,8 +717,13 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( '' === $path ) {
             return $rooted ? '/' : null;
         }
+        // Directory-index normalization: the index names its directory, so
+        // `/about/index.html` and `/about/` address one route, and the site
+        // root's own `index.html` addresses the root route itself.
         if ( str_ends_with($path, '/index.html') ) {
             $path = substr($path, 0, -strlen('/index.html'));
+        } elseif ( 'index.html' === $path ) {
+            $path = '';
         } elseif ( str_ends_with($path, '.html') ) {
             $path = substr($path, 0, -strlen('.html'));
         } else {
@@ -2370,7 +2375,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     /** @param array<int, array<string, mixed>> $links */
     private function defaultNavigationTextColorClass(array $links): string
     {
-        return $this->strictMajorityNavigationLinkString($links, static function (array $attrs): ?string {
+        $restingColorClass = static function (array $attrs): ?string {
             foreach ( preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $className ) {
                 if ( str_starts_with($className, self::LINK_COLOR_CLASS_PREFIX)
                     && ! str_starts_with($className, self::LINK_COLOR_STATE_CLASS_PREFIX)
@@ -2380,7 +2385,18 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
 
             return null;
-        }) ?? '';
+        };
+        // A route-current item that carries only its state colour says nothing
+        // about the resting colour, and exists on some routes only. Leaving it
+        // out of the vote keeps the shared menu's default route-independent.
+        $links = array_values(array_filter($links, static function (array $link) use ($restingColorClass): bool {
+            $attrs = is_array($link['attrs'] ?? null) ? $link['attrs'] : array();
+
+            return null !== $restingColorClass($attrs)
+                || ! str_contains((string) ($attrs['className'] ?? ''), self::CURRENT_COLOR_CLASS_PREFIX);
+        }));
+
+        return $this->strictMajorityNavigationLinkString($links, $restingColorClass) ?? '';
     }
 
     /** @param array<int, array<string, mixed>> $links */
@@ -3189,20 +3205,43 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     /**
      * core/navigation draws its own submenu indicator (showSubmenuIcon
-     * defaults true) after each submenu's content. When a source submenu
-     * toggle already paints its indicator (a generated caret on the toggle),
-     * the import reproduces that indicator on core's content, and core's icon
-     * becomes a second one that wraps beside, or below, the toggle's box.
+     * defaults true) after each submenu's content, and the source decides
+     * whether one belongs. When a source submenu toggle paints its own
+     * indicator (a generated caret on the toggle), the import reproduces that
+     * indicator on core's content, and core's icon becomes a second one that
+     * wraps beside, or below, the toggle's box. A parent that paints no
+     * indicator at all and carries no disclosure control — its submenu opens
+     * on hover/focus — gives core's icon nothing to stand in for, so the
+     * default would draw a chevron the source never had.
      *
      * @param array<string, mixed> $attrs
      * @return array<string, mixed>
      */
     private function withSourceSubmenuIndicator(array $attrs, DOMElement $source, ?NavigationPatternContext $navigationContext): array
     {
-        if ( true === ($navigationContext?->hasSubmenuToggleIndicatorWithin($source) ?? false) ) {
+        if ( null !== $navigationContext
+            && ( $navigationContext->hasSubmenuToggleIndicatorWithin($source)
+                || $navigationContext->hasUnindicatedSubmenuParentWithin($source) ) ) {
             $attrs['showSubmenuIcon'] = false;
         }
         return $attrs;
+    }
+
+    /**
+     * Whether the source item has a button that stands in for its label or
+     * opens the submenu beside it.
+     */
+    private function hasSubmenuDisclosureControl(DOMElement $item, DOMElement $anchor, ?DOMElement $submenuContainer): bool
+    {
+        if ( 'button' === strtolower($anchor->tagName) ) return true;
+        foreach ( $item->getElementsByTagName('button') as $button ) {
+            if ( ! $button instanceof DOMElement ) continue;
+            for ( $node = $button; $node instanceof DOMElement; $node = $node->parentNode ) {
+                if ( null !== $submenuContainer && $node->isSameNode($submenuContainer) ) continue 2;
+            }
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -3242,8 +3281,16 @@ final class NavigationPattern implements PatternRecognizerInterface
             $iconMarker = $navigationContext?->submenuIconGeometryMarker($item, $anchor, $submenuContainer) ?? '';
             $itemAttrs = $this->withClassName($itemAttrs, $iconMarker);
             // A separate source glyph is what core's icon stands in for. Without
-            // one, a toggle that paints its own indicator keeps it as its only one.
-            if ( '' === $iconMarker && ! $item->isSameNode($anchor) ) $navigationContext?->recordSubmenuToggleIndicator($anchor);
+            // one, the toggle decides whether an indicator belongs: its own
+            // painted caret is reproduced on core's content, while a parent
+            // that paints nothing and carries no disclosure control is
+            // indicator-free.
+            if ( '' === $iconMarker && ! $item->isSameNode($anchor) ) {
+                $navigationContext?->recordSubmenuToggle(
+                    $anchor,
+                    $this->hasSubmenuDisclosureControl($item, $anchor, $submenuContainer)
+                );
+            }
         }
         $submenuAttrs = $submenuContainer instanceof DOMElement ? $this->withoutCoreNavigationClasses($presentationAttributes($submenuContainer)) : array();
         $sourceAnchor = '' === $subjectMarker ? trim($anchor->getAttribute('id')) : '';
@@ -4899,7 +4946,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             return true;
         }
 
-        if ( $this->hasHeaderLinkCluster($element) || $this->hasRepeatedLinkItems($element) || $this->isMenuPanelContent($element) || $this->hasButtonDropdownChild($element) ) {
+        if ( MenuVocabulary::isCurrentPageLinkRun($element) || $this->hasHeaderLinkCluster($element) || $this->hasRepeatedLinkItems($element) || $this->isMenuPanelContent($element) || $this->hasButtonDropdownChild($element) ) {
             return true;
         }
 

@@ -119,10 +119,16 @@ final class GeneratedBlockStyleProjector
             }
         }
         if ( preg_match('/(?:^|\s)be-inline-geometry-[^\s]+/', (string) ($attrs['className'] ?? '')) ) {
+            // The source geometry carrier preserves declaration priority and
+            // custom-property case. Do not add a lossy mapped duplicate.
             foreach ( $this->styleResolver->inlineGeometryProperties() as $property ) {
                 unset($fallbackDeclarations[$property]);
             }
-            unset($fallbackDeclarations['box-shadow']);
+            // `box-shadow` stays: the geometry carrier deliberately excludes it
+            // whenever a resolved shadow claimed the block's shadow support
+            // (core/button skips shadow serialization, which is exactly when
+            // this fallback holds the value), so the fallback declaration is
+            // the only candidate left carrying it — never a duplicate.
         }
         if ( array() === $fallbackDeclarations ) {
             return $attrs;
@@ -131,7 +137,9 @@ final class GeneratedBlockStyleProjector
             $sourceElement,
             array_diff($this->styleResolver->inlineGeometryProperties(), array_keys($fallbackDeclarations)),
             array_keys($fallbackDeclarations),
-            $fallbackDeclarations
+            $fallbackDeclarations,
+            false,
+            'core/button' === $name
         );
         if ( '' !== $carrier ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $carrier);

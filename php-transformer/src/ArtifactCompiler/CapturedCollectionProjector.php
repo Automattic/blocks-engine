@@ -41,7 +41,7 @@ final class CapturedCollectionProjector
         $diagnostics = array();
         $retired = array();
         $consumed = array();
-        foreach (array_slice($report['pages'] ?? array(), 0, 128) as $page) {
+        foreach (($report['pages'] ?? array()) as $page) {
             if (!is_array($page) || !is_string($page['sourceUrl'] ?? null) || !is_array($page['components'] ?? null)) continue;
             $index = $indices[$routes[CaptureReceiptRoutes::normalizedUrl($page['sourceUrl'])] ?? ''] ?? null;
             if (!is_int($index) || !is_string($files[$index]['content'] ?? null)) continue;

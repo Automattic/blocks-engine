@@ -1500,6 +1500,19 @@ final class NavigationStyleProjector
                     $declarations = preg_replace('/(?:^|;)(?:font-size|line-height|color):[^;]*/', '', $declarations) ?? $declarations;
                     $rules[$class . ':label'] = $content . '>.wp-block-navigation-item__label{font-size:0;line-height:0}';
                 }
+                // Replacement artwork occupies a new rendering surface, not
+                // the authored anchor's background/box. Like inline geometry
+                // carriers, keep its normal declarations above projected author
+                // selectors without entering the importance tier. Use the whole
+                // author sheet so shared route rules receive the same budget.
+                $ids = 0;
+                foreach ($this->context->authorStyles()->styleRules() as $rule) {
+                    $weight = CssSelectorMatcher::specificityCounts(
+                        CssSelectorMatcher::parse((string) ($rule['selector'] ?? ''))
+                    );
+                    $ids = max($ids, $weight['ids']);
+                }
+                $content .= str_repeat(':not(#' . $this->context->authorStyles()->idSpecificityShim() . ')', $ids + 1);
                 $rules[$class] = $content . '{' . $declarations . '}'
                     . $this->context->generatedSupportStyles()->navigationIconBoxRules($class, $content);
             }

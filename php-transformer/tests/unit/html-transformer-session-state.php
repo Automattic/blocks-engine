@@ -15,7 +15,7 @@ $assert = static function (bool $condition, string $message): void {
 
 $withoutDurations = static function (array $value) use (&$withoutDurations): array {
     foreach ( $value as $key => &$item ) {
-        if ( 'transform_duration_ms' === $key ) {
+        if ( 'transform_duration_ms' === $key || 'step_timings' === $key ) {
             unset($value[$key]);
         } elseif ( is_array($item) ) {
             $item = $withoutDurations($item);

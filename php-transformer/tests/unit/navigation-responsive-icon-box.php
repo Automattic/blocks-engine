@@ -20,8 +20,8 @@ $result = (new HtmlTransformer())->transform($html)->toArray();
 $blocks = $result['serialized_blocks'] ?? '';
 $css = implode("\n", array_column(array_filter($result['assets'] ?? array(), static fn(array $asset): bool => 'editor' !== ($asset['stylesheet_target'] ?? 'both')), 'content'));
 if (!str_contains($blocks, 'blocksEngineNavigationAnchor')
-    || !preg_match('/\.wp-block-navigation-item\.[^{}]+ \.wp-block-navigation-item__content\{display:inline-block;width:calc\(2 \* 1vw\);height:calc\(2 \* 1vw\);background-image:/', $css)
-    || !preg_match('/@media \(max-width:1023px\)\{[^{}]+__content\{width:calc\(6 \* 1vw\);height:calc\(6 \* 1vw\)\}/', $css)) {
+    || !preg_match('/\.wp-block-navigation-item\.[^{}]+ \.wp-block-navigation-item__content(?::not\(#[a-zA-Z0-9_-]+\))+\{display:inline-block;width:calc\(2 \* 1vw\);height:calc\(2 \* 1vw\);background-image:/', $css)
+    || !preg_match('/@media \(max-width:1023px\)\{[^{}]+__content(?::not\(#[a-zA-Z0-9_-]+\))+\{width:calc\(6 \* 1vw\);height:calc\(6 \* 1vw\)\}/', $css)) {
     throw new RuntimeException('Native navigation must retain a paintable, responsive source icon box.');
 }
 if (str_contains($css, 'body:not(.fluid)')) {

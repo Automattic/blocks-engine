@@ -46,7 +46,28 @@ for (const [name, markup, placement] of [['in-place', fixture.inPlace, 'static']
   const opened = await state(page);
   check([opened.open, opened.modal, opened.expanded, opened.closeButtons], [true, false, 'true', 0], `${name}: the trigger opens a non-modal dropdown without a generated Close control`);
   check([opened.headerClass.includes('bg-dark'), opened.headerBackground], [true, 'rgb(2, 6, 23)'], `${name}: the recorded header open state is replayed`);
-  check([opened.inHeader, opened.position], [name === 'in-place', placement], `${name}: the dropdown keeps its evidence-derived placement`);
+  if (name === 'in-place') {
+    check([opened.inHeader, opened.position], [true, placement], `${name}: the dropdown keeps its evidence-derived placement`);
+  } else {
+    // The dialog travels with the shared header part. DOM containment does not
+    // determine placement: fixed positioning must still resolve to the viewport,
+    // not a containing block introduced by a transformed/contained ancestor.
+    check(opened.position, placement, `${name}: the dropdown keeps fixed placement`);
+    const checkGeometry = async () => {
+      const geometry = await page.evaluate(() => {
+        const panel = document.querySelector('dialog[data-blocks-engine-triggers]').getBoundingClientRect();
+        const header = document.querySelector('header').getBoundingClientRect();
+        return { left: panel.left, top: panel.top, width: panel.width, headerBottom: header.bottom, viewportWidth: innerWidth };
+      });
+      check(Math.abs(geometry.left) <= 1 && Math.abs(geometry.top - geometry.headerBottom) <= 1 && Math.abs(geometry.width - geometry.viewportWidth) <= 1, true, `${name}: the panel sits directly under the header at viewport width (${JSON.stringify(geometry)})`);
+    };
+    await checkGeometry();
+    await page.setViewportSize({ width: 768, height: 600 });
+    await checkGeometry();
+    await page.evaluate(() => window.scrollTo(0, 200));
+    await checkGeometry();
+    await page.setViewportSize({ width: 390, height: 844 });
+  }
   await page.locator('#behind').click({ timeout: 2000 });
   check(await page.evaluate(() => document.getElementById('behind').dataset.clicked), 'yes', `${name}: the page behind an open dropdown stays interactive`);
   check((await state(page)).open, true, `${name}: no outside-click dismissal is invented`);
