@@ -449,7 +449,7 @@ final class AuthorStyleRuleProjector
                 if (in_array(strtolower((string) ($compound['type'] ?? '')), array('html', 'body'), true)
                     && (array() !== ($compound['classes'] ?? array()) || array() !== ($compound['ids'] ?? array())
                         || array() !== ($compound['attributes'] ?? array()) || array() !== ($compound['not'] ?? array())
-                        || array() !== ($compound['any'] ?? array()))) return $body;
+                        || array() !== ($compound['any'] ?? array()) || array() !== ($compound['has'] ?? array()))) return $body;
             }
             $matches = $this->semanticPreparer->matchingSourceElements($authorStyles, $selector, $parsed);
             if ( array() === $matches ) {

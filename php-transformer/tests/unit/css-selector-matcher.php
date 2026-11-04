@@ -83,6 +83,19 @@ $assert(10 === CssSelectorMatcher::specificity(CssSelectorMatcher::parse(':is(p,
 $assert(10 === CssSelectorMatcher::specificity(CssSelectorMatcher::parse('.a:where(#one, .b)')), 'weighs a where() selector list as zero');
 $assert(array( 'ids' => 1, 'classes' => 0, 'types' => 0 ) === CssSelectorMatcher::selectorListArgumentSpecificity(CssSelectorMatcher::parse(':is(.a, #one)')['compounds'][0]), 'splits an is() selector list weight into simple-selector counts');
 
+// `:has()` reads the element's relationships: a descendant, child, or
+// sibling named by its relative argument, weighed as the most specific one.
+$section = $dom->getElementsByTagName('section')->item(0);
+$assert($match('section:has(#one)', $section)['matches'] && ! $match('section:has(.missing)', $section)['matches'], 'matches a has() descendant argument');
+$assert($match('section:has(> input + span)', $section)['matches'] && ! $match('section:has(> span + input)', $section)['matches'], 'matches a has() child argument without leaving its anchor');
+$assert($match('p#one:has(+ p)', $byId('one'))['matches'] && ! $match('p#two:has(+ p)', $byId('two'))['matches'], 'matches a has() next-sibling argument');
+$assert($match('input:has(~ span)', $byId('control'))['matches'] && ! $match('span:has(~ input)', $byId('target'))['matches'], 'matches a has() subsequent-sibling argument');
+$assert($match('section:has(.item):has(#two)', $section)['matches'], 'conjoins has() relationships');
+$assert(101 === CssSelectorMatcher::specificity(CssSelectorMatcher::parse('section:has(#one, .item)')), 'weighs a has() selector list as its most specific argument');
+foreach ( array( ':has(:hover)', ':has(.x)::before', ':has()', 'a:has(>)', ':has(.x, :unknown)' ) as $selector ) {
+    $assert(! CssSelectorMatcher::parse($selector)['supported'], "rejects a has() argument the matcher cannot read {$selector}");
+}
+
 // Both structural pseudo-classes use An+B; interleaved tags distinguish their indices.
 $nthDom = new DOMDocument();
 $nthDom->loadHTML('<ul><li></li><!-- comment --><span></span><li></li><li></li><li></li><li></li><li></li></ul>');
@@ -108,7 +121,7 @@ foreach ( array('nth-child', 'nth-of-type') as $pseudo ) {
     }
 }
 
-foreach ( array( ':disabled', ':is(.x,:has(.y))', ':where(.x,)', ':is(.x,.y:hover)', ':has(.x)', ':nth-child()', 'p::before', 'svg|a', '.a||.b', '.a, .b', '.a[', '.a >', '-', '.-', '#-', '.10', '\\', ".a\\\n", ".a\\\r", ".a\\\r\n", "[data-value=\"a\nb\"]", "[data-value=\"a\\\nb\"]", "[data-value=\"a\\\r\nb\"]", "[data-value=\"a\\\"]" ) as $selector ) {
+foreach ( array( ':disabled', ':where(.x,)', ':is(.x,.y:hover)', ':nth-child()', 'p::before', 'svg|a', '.a||.b', '.a, .b', '.a[', '.a >', '-', '.-', '#-', '.10', '\\', ".a\\\n", ".a\\\r", ".a\\\r\n", "[data-value=\"a\nb\"]", "[data-value=\"a\\\nb\"]", "[data-value=\"a\\\r\nb\"]", "[data-value=\"a\\\"]" ) as $selector ) {
     $assert(! CssSelectorMatcher::parse($selector)['supported'], "rejects unsupported or malformed {$selector}");
 }
 
