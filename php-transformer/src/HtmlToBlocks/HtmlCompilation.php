@@ -12760,6 +12760,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return true;
         }
 
+        // An inline-block link is a line-level box around an inline image.
+        // Blockifying the image would leave the link with no line box, so its
+        // baseline moves to the margin edge and the strut adds descent below.
+        if ($parent instanceof DOMElement && 'a' === strtolower($parent->tagName)
+            && 'inline-block' === $this->resolvedDeclaration($parent, 'display')) {
+            return true;
+        }
+
         // A link that is a flex or grid item is the item itself. Its in-flow
         // image still sits on the link's own line, so the strut sizes the link.
         if ($parent instanceof DOMElement && 'a' === strtolower($parent->tagName) && $this->styleResolver->imageIsFlexOrGridItem($parent)

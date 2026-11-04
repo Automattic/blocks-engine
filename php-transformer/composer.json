@@ -328,6 +328,7 @@
       "php tests/contract/inline-run-line-breaks.php",
       "php tests/contract/empty-layer-conditional-custom-property-paint.php",
       "php tests/contract/linked-image-inline-custom-properties.php",
+      "php tests/contract/inline-block-link-inline-image.php",
       "php tests/contract/linked-flex-images.php",
       "php tests/contract/layout-geometry-proof.php",
       "php tests/contract/core-code-save-supports.php",
