@@ -4831,9 +4831,12 @@ PHP;
             return $empty;
         }
         $identity = ShellExtraction::identityMarkup($slice);
-        // Shared markup is not proof of chrome ownership for media, including
-        // serialized responsive media inside a shared wrapper.
-        if ('' !== $identity && isset($shared[$identity]) && !preg_match('/<(?:img|video|picture|audio)\b/i', str_replace('\\u003c', '<', $slice))) {
+        // Shared markup is not proof of chrome ownership for media alone,
+        // including serialized responsive media inside a shared wrapper: each
+        // post may render the same image. A shared section that also carries
+        // its own text or controls is chrome, media included.
+        $mediaOnly = preg_match('/<(?:img|video|picture|audio)\b/i', str_replace('\\u003c', '<', $slice)) && '' === ListingExcerptProjection::text($slice);
+        if ('' !== $identity && isset($shared[$identity]) && !$mediaOnly) {
             return array('template' => $slice, 'body' => '', 'title' => false, 'date' => false, 'shared' => true, 'content' => false, 'retained' => array());
         }
         // A closed dialog opens on demand, so it can neither host the post
