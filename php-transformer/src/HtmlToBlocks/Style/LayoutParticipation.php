@@ -54,7 +54,9 @@ final class LayoutParticipation
             // Synthesized wrappers must preserve item participation even when
             // the parent only establishes that context at another breakpoint.
             foreach ( $styleResolver->conditionalDisplayRules($parent) as $display ) {
-                $parentDisplays[] = CssValueInspector::comparable($display);
+                $parentDisplays[] = CssValueInspector::comparable(
+                    $styleResolver->resolveCssVariablesInValue($display, $parent)
+                );
             }
         }
         $sourceDisplay = self::resolvedDisplay($element, $styleResolver);
@@ -279,13 +281,21 @@ final class LayoutParticipation
     private static function resolvedDisplay(DOMElement $element, StyleResolver $styleResolver): string
     {
         $declarations = $styleResolver->cssDeclarations($styleResolver->controlSurfaceResolvedStyle($element));
-        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+        // A declared `var(--d)` (Wix states container display this way) classifies
+        // only after expansion against the element's cascaded custom properties;
+        // the raw reference matches neither flex nor grid.
+        $display = CssValueInspector::comparable(
+            $styleResolver->resolveCssVariablesInValue((string) ($declarations['display'] ?? ''), $element)
+        );
         if ( '' !== $display ) {
             return $display;
         }
 
         return CssValueInspector::comparable(
-            (string) ($styleResolver->structuralPresentationDeclarations($element)['display'] ?? '')
+            $styleResolver->resolveCssVariablesInValue(
+                (string) ($styleResolver->structuralPresentationDeclarations($element)['display'] ?? ''),
+                $element
+            )
         );
     }
 }
