@@ -148,8 +148,9 @@ final class CssSelectorMatcher
     /**
      * Type tokens inside selector-taking functions, measured against the source.
      * Keep these separate from type_spans: its consumers use outer compound
-     * indexes to identify the selector's subject. This lexical walk also works
-     * for :has() and relative selectors outside the static matcher's subset.
+     * indexes to identify the selector's subject. This lexical walk also reads
+     * type tokens the parsed selector does not record, such as `:has()`
+     * arguments, including for selectors outside the static matcher's subset.
      *
      * @return list<array{start:int,end:int,name:string,negated:bool}>
      */
@@ -271,6 +272,14 @@ final class CssSelectorMatcher
                 foreach (self::compoundSpecificityCounts($negatedCompound) as $kind => $count) $weight[$kind] += $count;
             }
         }
+        foreach ( $compound['has'] ?? array() as $group ) {
+            // `:has()` weighs as its most specific argument, like `:is()`.
+            $largest = array('ids' => 0, 'classes' => 0, 'types' => 0);
+            foreach ($group['alternatives'] as $alternative) {
+                $largest = max($largest, self::specificityCounts(array('supported' => true, 'compounds' => $alternative['compounds'])));
+            }
+            foreach ($largest as $kind => $count) $weight[$kind] += $count;
+        }
         foreach (self::selectorListArgumentSpecificity($compound) as $kind => $count) $weight[$kind] += $count;
         return $weight;
     }
@@ -327,6 +336,50 @@ final class CssSelectorMatcher
             if ( ! $zeroSpecificity ) {
                 $group['specificity'] = max($group['specificity'], self::specificity($parsed));
             }
+        }
+
+        return $group;
+    }
+
+    /**
+     * Parse the relative selector list inside `:has()`.
+     *
+     * A relative selector is anchored at the element the pseudo-class is
+     * tested against: an alternative may lead with a child or sibling
+     * combinator, and a bare one implies a descendant relationship. The
+     * parsed form records that leading relationship as the alternative's
+     * `anchor` so matching can enumerate the right candidates. An argument
+     * this matcher cannot read keeps the whole selector unsupported rather
+     * than matching on the alternatives it can read.
+     *
+     * @return array{alternatives: list<array{compounds: list<array<string, mixed>>, combinators: list<string>, anchor: string}>, specificity: int}|null
+     */
+    private static function parseRelativeSelectorListArgument(string $argument): ?array
+    {
+        $alternatives = CssStylesheetTransformer::splitSelectorList($argument);
+        if ( null === $alternatives ) {
+            return null;
+        }
+        $group = array( 'alternatives' => array(), 'specificity' => 0 );
+        foreach ( $alternatives as $alternative ) {
+            $alternative = trim($alternative);
+            if ( '' === $alternative ) {
+                return null;
+            }
+            $anchor = ' ';
+            if ( 1 === preg_match('/^[>+~]\s*/', $alternative, $lead) ) {
+                $anchor = rtrim($lead[0]);
+                $alternative = ltrim(substr($alternative, strlen($lead[0])));
+                if ( '' === $alternative ) {
+                    return null;
+                }
+            }
+            $parsed = self::parseUncached($alternative);
+            if ( ! ($parsed['supported'] ?? false) || null !== ($parsed['pseudo_state_suffix_span'] ?? null) ) {
+                return null;
+            }
+            $group['alternatives'][] = array( 'compounds' => $parsed['compounds'], 'combinators' => $parsed['combinators'], 'anchor' => $anchor );
+            $group['specificity'] = max($group['specificity'], self::specificity($parsed));
         }
 
         return $group;
@@ -549,7 +602,7 @@ final class CssSelectorMatcher
                         // A neutral native target can be a complete descendant
                         // path, or contain nested shims. Flattening it into one
                         // compound changes both its match and its specificity.
-                        if (($argument['supported'] ?? false) && (count($argument['compounds']) > 1 || !empty($leaf['root']) || !empty($leaf['not']) || !empty($leaf['any']) || !empty($leaf['first_child']) || !empty($leaf['last_child']) || null !== ($leaf['nth_child'] ?? null) || null !== ($leaf['nth_type'] ?? null))) {
+                        if (($argument['supported'] ?? false) && (count($argument['compounds']) > 1 || !empty($leaf['root']) || !empty($leaf['not']) || !empty($leaf['any']) || !empty($leaf['has']) || !empty($leaf['first_child']) || !empty($leaf['last_child']) || null !== ($leaf['nth_child'] ?? null) || null !== ($leaf['nth_type'] ?? null))) {
                             $group = self::parseSelectorListArgument($alternatives, 'where' === $lowerName);
                             if (null === $group) return null;
                             $compound['any'][] = $group;
@@ -563,7 +616,7 @@ final class CssSelectorMatcher
                         return null;
                     }
                     $selected = self::parseCompound(trim(substr($source, $offset + 1, $closing - $offset - 1)), 0, false);
-                    if ( null === $selected || null !== $selected['suffix'] || array() !== $selected['compound']['not'] || array() !== $selected['compound']['any'] || null !== $selected['compound']['nth_child'] || null !== ($selected['compound']['nth_type'] ?? null) || $selected['compound']['first_child'] || $selected['compound']['last_child'] ) {
+                    if ( null === $selected || null !== $selected['suffix'] || array() !== $selected['compound']['not'] || array() !== $selected['compound']['any'] || array() !== ($selected['compound']['has'] ?? array()) || null !== $selected['compound']['nth_child'] || null !== ($selected['compound']['nth_type'] ?? null) || $selected['compound']['first_child'] || $selected['compound']['last_child'] ) {
                         return null;
                     }
                     $selectedCompound = $selected['compound'];
@@ -620,6 +673,28 @@ final class CssSelectorMatcher
                     }
                     $compound['not'][] = array( 'compounds' => $negated['compounds'], 'combinators' => $negated['combinators'] );
                     $offset = $closing + 1;
+                    $hasSimple = true;
+                    continue;
+                }
+                // `:has()` tests relationships the element has to other elements:
+                // a descendant, child, or sibling standing in its argument. A rule
+                // such as `section:not(.plain, :has(.section))` paints the
+                // section's own box through that relationship, so the matcher
+                // must read it or the engine drops the section as an unstyled
+                // wrapper. The argument is a relative selector list: each
+                // alternative may lead with a combinator, and a bare one implies
+                // a descendant relationship to the element under test.
+                if ( 'has' === $lowerName && '(' === ($source[ $offset ] ?? '') ) {
+                    $listClosing = self::matchingParenthesis($source, $offset);
+                    if ( null === $listClosing ) {
+                        return null;
+                    }
+                    $group = self::parseRelativeSelectorListArgument(substr($source, $offset + 1, $listClosing - $offset - 1));
+                    if ( null === $group ) {
+                        return null;
+                    }
+                    $compound['has'][] = $group;
+                    $offset = $listClosing + 1;
                     $hasSimple = true;
                     continue;
                 }
@@ -1015,6 +1090,11 @@ final class CssSelectorMatcher
                 return false;
             }
         }
+        foreach ( $compound['has'] ?? array() as $group ) {
+            if ( ! self::matchesHasGroup($element, $group, $cache) ) {
+                return false;
+            }
+        }
         $childIndex = null;
         if ( null !== $compound['nth_child'] || $compound['first_child'] || $compound['last_child'] ) {
             $childIndex = 1;
@@ -1052,6 +1132,127 @@ final class CssSelectorMatcher
             }
         }
         return false;
+    }
+
+    /**
+     * Whether one of the element's `:has()` relationships holds.
+     *
+     * The argument names other elements — a descendant, child, or sibling —
+     * and may constrain a whole chain between them, so each alternative is
+     * matched outward from the element: its leading relationship nominates
+     * the candidates, and the rest of the chain is walked rightward from
+     * them. That direction matters because a relative selector scopes its
+     * leftmost compound to the element under test; walking the chain
+     * leftward from a rightmost candidate, as negations do, could satisfy
+     * `:has(.a .b)` through an `.a` above the element.
+     *
+     * @param array{alternatives: list<array{compounds: list<array<string, mixed>>, combinators: list<string>, anchor: string}>, specificity: int} $group
+     */
+    private static function matchesHasGroup(DOMElement $element, array $group, ?CssSelectorMatchCache $cache): bool
+    {
+        foreach ( $group['alternatives'] as $alternative ) {
+            $compounds = $alternative['compounds'];
+            $combinators = $alternative['combinators'];
+            $anchor = $alternative['anchor'];
+            if ( '+' === $anchor ) {
+                $next = self::nextElementSibling($element);
+                if ( null !== $next && self::matchesRelativeFrom($next, $compounds, $combinators, 0, $cache) ) {
+                    return true;
+                }
+                continue;
+            }
+            if ( '~' === $anchor ) {
+                for ( $next = self::nextElementSibling($element); null !== $next; $next = self::nextElementSibling($next) ) {
+                    if ( self::matchesRelativeFrom($next, $compounds, $combinators, 0, $cache) ) {
+                        return true;
+                    }
+                }
+                continue;
+            }
+            $candidates = '>' === $anchor ? self::childElements($element) : self::descendantElements($element);
+            foreach ( $candidates as $candidate ) {
+                if ( self::matchesRelativeFrom($candidate, $compounds, $combinators, 0, $cache) ) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Match one compound of a `:has()` argument and continue rightward
+     * through the argument's own combinators, away from the anchor element.
+     *
+     * @param list<array<string, mixed>> $compounds @param list<string> $combinators
+     */
+    private static function matchesRelativeFrom(DOMElement $element, array $compounds, array $combinators, int $index, ?CssSelectorMatchCache $cache): bool
+    {
+        if ( ! self::matchesCompound($element, $compounds[ $index ], $cache) ) {
+            return false;
+        }
+        if ( count($compounds) - 1 === $index ) {
+            return true;
+        }
+        $combinator = $combinators[ $index ];
+        if ( '>' === $combinator ) {
+            foreach ( self::childElements($element) as $child ) {
+                if ( self::matchesRelativeFrom($child, $compounds, $combinators, $index + 1, $cache) ) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if ( '+' === $combinator ) {
+            $next = self::nextElementSibling($element);
+            return null !== $next && self::matchesRelativeFrom($next, $compounds, $combinators, $index + 1, $cache);
+        }
+        if ( '~' === $combinator ) {
+            for ( $next = self::nextElementSibling($element); null !== $next; $next = self::nextElementSibling($next) ) {
+                if ( self::matchesRelativeFrom($next, $compounds, $combinators, $index + 1, $cache) ) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        foreach ( self::descendantElements($element) as $descendant ) {
+            if ( self::matchesRelativeFrom($descendant, $compounds, $combinators, $index + 1, $cache) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @return list<DOMElement> */
+    private static function childElements(DOMElement $element): array
+    {
+        $children = array();
+        for ( $child = $element->firstChild; null !== $child; $child = $child->nextSibling ) {
+            if ( $child instanceof DOMElement ) {
+                $children[] = $child;
+            }
+        }
+        return $children;
+    }
+
+    /** @return list<DOMElement> */
+    private static function descendantElements(DOMElement $element): array
+    {
+        $descendants = array();
+        foreach ( self::childElements($element) as $child ) {
+            $descendants[] = $child;
+            array_push($descendants, ...self::descendantElements($child));
+        }
+        return $descendants;
+    }
+
+    private static function nextElementSibling(DOMElement $element): ?DOMElement
+    {
+        for ( $next = $element->nextSibling; null !== $next; $next = $next->nextSibling ) {
+            if ( $next instanceof DOMElement ) {
+                return $next;
+            }
+        }
+        return null;
     }
 
     /** @param array{name: string, operator: string|null, value: string|null, flag: string|null} $attribute */

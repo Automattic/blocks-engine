@@ -6172,6 +6172,11 @@ final class StyleResolver implements ElementPresentationResolver
                     foreach ( $compound['not'] ?? array() as $negated ) {
                         array_push($parts, ...($negated['compounds'] ?? array()));
                     }
+                    foreach ( $compound['has'] ?? array() as $group ) {
+                        foreach ( $group['alternatives'] ?? array() as $alternative ) {
+                            array_push($parts, ...($alternative['compounds'] ?? array()));
+                        }
+                    }
                     foreach ( $parts as $part ) {
                         if ( in_array($className, $part['classes'] ?? array(), true) ) {
                             return true;
