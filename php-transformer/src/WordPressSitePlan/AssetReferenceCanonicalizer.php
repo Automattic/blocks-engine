@@ -117,12 +117,12 @@ final class AssetReferenceCanonicalizer
             $content = self::replaceRegex('~(\bstyle\s*=\s*\\\\")((?:\\\\/|[^"\\\\])*)(\\\\")~is', static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => self::css($value, $replace)) . $match[3], $content);
         }
         if (str_contains($content, '\\u0022')) {
-            $content = self::replaceWhenChanged('~(\b(?:src|href|poster)\s*=\s*\\\\u0022)(.*?)(\\\\u0022)~is', $content, static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => $replace($value, '', self::attributeName($match[1]))) . $match[3]);
-            $content = self::replaceWhenChanged('~(\bsrcset\s*=\s*\\\\u0022)(.*?)(\\\\u0022)~is', $content, static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => self::srcset($value, static fn(string $reference): string => $replace($reference, '', 'srcset'))) . $match[3]);
-            $content = self::replaceWhenChanged('~(\bstyle\s*=\s*\\\\u0022)(.*?)(\\\\u0022)~is', $content, static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => self::css($value, $replace)) . $match[3]);
+            $content = self::replaceDelimited('~(\b(?:src|href|poster)\s*=\s*\\\\u0022)~i', '\\u0022', $content, static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => $replace($value, '', self::attributeName($match[1]))) . $match[3]);
+            $content = self::replaceDelimited('~(\bsrcset\s*=\s*\\\\u0022)~i', '\\u0022', $content, static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => self::srcset($value, static fn(string $reference): string => $replace($reference, '', 'srcset'))) . $match[3]);
+            $content = self::replaceDelimited('~(\bstyle\s*=\s*\\\\u0022)~i', '\\u0022', $content, static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => self::css($value, $replace)) . $match[3]);
         }
         if (str_contains($content, '\\u003c')) {
-            $content = self::replaceWhenChanged('~(\bstyle\s*=\s*([\'\"]))(.*?)\2~is', $content, static fn(array $match): string => $match[1] . self::css($match[3], $replace) . $match[2]);
+            $content = self::replaceDelimited('~(\bstyle\s*=\s*([\'\"]))~i', null, $content, static fn(array $match): string => $match[1] . self::css($match[3], $replace) . $match[2]);
         }
         if (false !== stripos($content, '<style')) {
             $content = self::replaceRegex('~<style\b[^>]*>(.*?)</style\s*>~is', static function (array $match) use ($replace, $fontCss): string {
@@ -131,7 +131,7 @@ final class AssetReferenceCanonicalizer
         }
         // Block comments are the supported serialized JSON transport. Restricting
         // rewrites to them avoids treating arbitrary text or SVG data as markup.
-        return str_contains($content, '<!--') ? self::replaceWhenChanged('~<!--\s*wp:.*?-->~is', $content, static fn(array $match): string => self::json($match[0], $replace)) : $content;
+        return str_contains($content, '<!--') ? self::replaceDelimited('~<!--\s*wp:~i', '-->', $content, static fn(array $match): string => self::json($match[0], $replace)) : $content;
     }
 
     /** @param array<int,string> $origins */
@@ -242,20 +242,50 @@ final class AssetReferenceCanonicalizer
         }
     }
 
-    /** @param callable(array<int|string,string>):string $replace */
-    private static function replaceWhenChanged(string $pattern, string $content, callable $replace): string
+    /**
+     * Match only the short opener with PCRE, then scan to its first delimiter.
+     * A null delimiter uses the opener's last capture (a style attribute quote).
+     * Append the body and closing delimiter to the opener's captures so callers
+     * retain the same match layout as the former lazy-wildcard patterns.
+     *
+     * @param callable(array<int|string,string>):string $replace
+     */
+    private static function replaceDelimited(string $pattern, ?string $delimiter, string $content, callable $replace): string
     {
         $offset = 0;
+        $copied = 0;
+        $chunks = array();
+        $missing = array();
         while (true) {
             $result = preg_match($pattern, $content, $captures, PREG_OFFSET_CAPTURE, $offset);
             if (false === $result) throw self::regexFailure();
             if (0 === $result) break;
             $match = array();
             foreach ($captures as $key => $capture) $match[$key] = $capture[0];
-            if ($replace($match) !== $match[0]) return self::replaceRegex($pattern, $replace, $content);
-            $offset = $captures[0][1] + strlen($captures[0][0]);
+            $start = $captures[0][1];
+            $offset = $start + strlen($match[0]);
+            $closer = $delimiter ?? $match[count($match) - 1];
+            if (isset($missing[$closer])) continue;
+            $end = stripos($content, $closer, $offset);
+            if (false === $end) {
+                // Do not repeatedly scan an unterminated suffix for the same
+                // delimiter; another quote kind may still have a complete match.
+                $missing[$closer] = true;
+                continue;
+            }
+            $match[] = substr($content, $offset, $end - $offset);
+            $match[] = substr($content, $end, strlen($closer));
+            $offset = $end + strlen($closer);
+            $match[0] = substr($content, $start, $offset - $start);
+            $rewritten = $replace($match);
+            if ($rewritten === $match[0]) continue;
+            $chunks[] = substr($content, $copied, $start - $copied);
+            $chunks[] = $rewritten;
+            $copied = $offset;
         }
-        return $content;
+        if (array() === $chunks) return $content;
+        $chunks[] = substr($content, $copied);
+        return implode('', $chunks);
     }
 
     /** @param callable(string,string,string):string $replace */
