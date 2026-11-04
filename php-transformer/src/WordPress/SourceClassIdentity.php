@@ -19,6 +19,14 @@ final class SourceClassIdentity
             || 1 === preg_match('/^(?:[a-z0-9_-]+-template(?:-.+)?|(?:page-id|postid|attachmentid|parent-pageid|paged)-[0-9]+|(?:single|attachment|category|tag|author|tax|term|post-type-archive|post-type-paged|page-paged|date-paged|search-paged|wp-theme|wp-child-theme)-.+)$/', $class);
     }
 
+    /** Classes that mark the route being served, not what an element is. */
+    public const CURRENT_STATE_CLASSES = array('current', 'active', 'selected');
+
+    public static function isCurrentState(string $class): bool
+    {
+        return in_array($class, self::CURRENT_STATE_CLASSES, true);
+    }
+
     public static function marker(string $class): string
     {
         return self::needsMarker($class) ? 'blocks-engine-source-class-' . substr(hash('sha256', $class), 0, 12) . '-0' : '';

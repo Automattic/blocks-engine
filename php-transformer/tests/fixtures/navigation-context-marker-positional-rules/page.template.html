@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>{{title}}</title><style>
+.site-header .menu{display:flex;list-style:none}
+.site-header .item.active{font-weight:700}
+@media (min-width:1024px){.site-header .menu{flex-direction:row}}
+.crumbs li+li::before{content:"/"}
+.btn-group>.btn:first-child{margin-left:0}
+.list>li:last-child{border:0}
+{{css}}
+</style></head><body>
+<header class="site-header"><nav><div class="nav-wrap"{{style}}><ul class="menu">
+<li class="item{{home}}"><a href="/">Home</a></li>
+<li class="item{{about}}"><a href="/about/">About</a></li>
+<li class="item"><a href="/contact/">Contact</a></li>
+</ul></div></nav></header>
+{{crumbs}}<main><h1>{{title}}</h1><ul class="list"><li>One</li><li>Two</li></ul><div class="btn-group"><a class="btn" href="/a/">A</a><a class="btn" href="/b/">B</a></div></main>
+<footer><p>Footer</p></footer>
+</body></html>

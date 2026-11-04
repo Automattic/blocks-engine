@@ -42,6 +42,9 @@ final class NavigationToggleSuppressor
      */
     private SplObjectStorage $coreNavigationRecognitions;
 
+    /** @var SplObjectStorage<DOMElement, DOMElement|null> Control-independent hidden-target recognition. */
+    private SplObjectStorage $hiddenNavigationTargets;
+
     /** Recognizer executions behind {@see self::convertsToCoreNavigation()}. */
     public int $coreNavigationRecognitionExecutions = 0;
 
@@ -50,12 +53,14 @@ final class NavigationToggleSuppressor
         private readonly StyleResolver $styleResolver
     ) {
         $this->coreNavigationRecognitions = new SplObjectStorage();
+        $this->hiddenNavigationTargets = new SplObjectStorage();
     }
 
     /** Source markup changed after selector analysis, so memoized recognitions are stale. */
     public function forgetCoreNavigationRecognitions(): void
     {
         $this->coreNavigationRecognitions = new SplObjectStorage();
+        $this->hiddenNavigationTargets = new SplObjectStorage();
     }
     /**
      * Bind a hidden dialog/menu to its source hamburger before recursive
@@ -345,6 +350,14 @@ final class NavigationToggleSuppressor
     }
 
     private function hiddenNavigationInControlledTarget(DOMElement $target): ?DOMElement
+    {
+        if ( $this->hiddenNavigationTargets->contains($target) ) {
+            return $this->hiddenNavigationTargets[$target];
+        }
+        return $this->hiddenNavigationTargets[$target] = $this->recognizeHiddenNavigationInControlledTarget($target);
+    }
+
+    private function recognizeHiddenNavigationInControlledTarget(DOMElement $target): ?DOMElement
     {
         if ( ! $this->sourceElementIsHidden($target) && ! $this->isCollapsedOutOfFlowPanel($target) ) {
             return null;

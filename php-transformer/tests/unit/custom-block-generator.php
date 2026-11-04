@@ -120,14 +120,15 @@ $deepResult = ( new HtmlTransformer() )->transform($deepCollection)->toArray();
 $deepDefinitions = $deepResult['source_reports']['generated_blocks'] ?? array();
 $deepComponentDefinitions = array_values(array_filter($deepDefinitions, static fn (array $definition): bool => 'Layout Shell' !== ($definition['block_json']['title'] ?? null)));
 $deepMarkup = (string) ($deepResult['serialized_blocks'] ?? '');
-$assert(1 === count($deepComponentDefinitions), '6: one deep repeatable component produces one generated definition alongside its structural layout shell');
-$assert(str_contains($deepMarkup, '<!-- wp:custom/collection-') && str_contains((string) ($deepComponentDefinitions[0]['render'] ?? ''), '<div class="story-collection">') && !str_contains((string) ($deepComponentDefinitions[0]['render'] ?? ''), 'shell-15'), '6: capture starts at the cohesive component root rather than the surrounding page shell');
+$assert(array() === $deepComponentDefinitions, '6: native-expressible deep cards need no opaque generated definition');
+$assert(!str_contains($deepMarkup, '<!-- wp:custom/collection-') && 3 === substr_count($deepMarkup, '<!-- wp:heading'), '6: repeated card headings stay native');
+$assert('pass' === ($deepResult['source_reports']['wp_block_validity']['status'] ?? ''), '6: promoted cards remain editor-valid');
 $assert(20 >= ($deepResult['source_reports']['editability_report']['metrics']['max_nesting_depth'] ?? PHP_INT_MAX), '6: generated component keeps the resulting List View depth within policy');
 
 $tagResetResult = ( new HtmlTransformer() )->transform('<style>p{margin:0}</style>' . $deepCollection)->toArray();
 $tagResetDefinitions = $tagResetResult['source_reports']['generated_blocks'] ?? array();
 $tagResetCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $tagResetResult['assets'] ?? array()));
-$assert(str_contains((string) ($tagResetDefinitions[0]['render'] ?? ''), '<p class="blocks-engine-source-p-') && str_contains($tagResetCss, ':where(.blocks-engine-source-p-') && str_contains($tagResetCss, '{margin:0}'), '6: generated component descendants retain source tag projection markers');
+$assert(str_contains((string) $tagResetResult['serialized_blocks'], '<p class="blocks-engine-source-p-') && str_contains($tagResetCss, ':where(.blocks-engine-source-p-') && str_contains($tagResetCss, '{margin:0}'), '6: native component descendants retain source tag projection markers');
 
 $shallowResult = ( new HtmlTransformer() )->transform('<div><div>' . $collection . '</div></div>')->toArray();
 $assert(array() === ($shallowResult['source_reports']['generated_blocks'] ?? array()), '6: shallow repeatable content remains native blocks');

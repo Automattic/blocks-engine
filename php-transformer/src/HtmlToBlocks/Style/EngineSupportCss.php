@@ -506,6 +506,9 @@ final class EngineSupportCss
                 . ':root .wp-block-social-links:where(.blocks-engine-social-source-cluster) .wp-social-link:not(:where(.blocks-engine-social-source-item))::after,'
                 . ':root .wp-block-social-links:where(.blocks-engine-social-source-cluster) .wp-social-link:not(:where(.blocks-engine-social-source-glyph))>a::before,'
                 . ':root .wp-block-social-links:where(.blocks-engine-social-source-cluster) .wp-social-link>a::after{content:none}';
+            // Font artwork is painted inside the source anchor, whose own
+            // background remains live. Core's service tile is an extra box.
+            $parts[] = ':root .wp-block-social-links .wp-social-link.blocks-engine-social-source-glyph{background:transparent}';
             // The source cluster was an inline box, so its container's text
             // alignment placed it. core's list is a full-width flex row, which
             // packs the items at the start instead. An inline flex row resolves

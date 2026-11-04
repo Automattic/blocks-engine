@@ -110,7 +110,9 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             }
             $text = $this->visibleText($anchor, $context);
             if ( '' === $label ) {
-                $label = $text;
+                // Clipped text still supplies the accessible name, even
+                // though it must not enable Core's visible-label layout.
+                $label = $text ?: trim($anchor->textContent);
             }
             $service = self::serviceForUrl($url) ?? $this->serviceFromLabel($label);
             $labeledPlaceholder = $explicit

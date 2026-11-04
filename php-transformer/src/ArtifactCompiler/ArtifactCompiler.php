@@ -1173,6 +1173,7 @@ final class ArtifactCompiler
         $forms = array();
         $orderLookups = array();
         $carts = array();
+        $checkouts = array();
         $productGrids = array(); $productListings = array(); $listingControlSelectors = array();
         foreach ( $fallbacks as $fallback ) {
             if ( ! is_array($fallback) ) continue;
@@ -1266,6 +1267,14 @@ final class ArtifactCompiler
                 $binding = $fallback['binding'] ?? null;
                 if ( '' === $selector || ! is_array($binding) || 'generic/block-binding/v1' !== ($binding['schema'] ?? null) || ! is_string($binding['search_block_markup'] ?? null) || '' === trim($binding['search_block_markup']) ) continue;
                 $carts[$sourcePath . "\n" . $selector] = array('source_path' => $sourcePath, 'selector' => $selector, 'bindings' => array(array_merge($binding, array('source_path' => $sourcePath))));
+            } elseif ( 'html_checkout_view_fallback' === $code ) {
+                // A checkout view binds through its page-owned anchor exactly
+                // like a cart view; the reporter already superseded the cart
+                // finding over the same region, so the two never co-declare.
+                $selector = is_string($fallback['selector'] ?? null) ? $fallback['selector'] : '';
+                $binding = $fallback['binding'] ?? null;
+                if ( '' === $selector || ! is_array($binding) || 'generic/block-binding/v1' !== ($binding['schema'] ?? null) || ! is_string($binding['search_block_markup'] ?? null) || '' === trim($binding['search_block_markup']) ) continue;
+                $checkouts[$sourcePath . "\n" . $selector] = array('source_path' => $sourcePath, 'selector' => $selector, 'bindings' => array(array_merge($binding, array('source_path' => $sourcePath))));
             } elseif ( 'html_form_fallback' === $code && is_array($fallback['controls'] ?? null) ) {
                 $selector = is_string($fallback['selector'] ?? null) ? $fallback['selector'] : '';
                 // Only a finding carrying data-entry metadata describes a form a
@@ -1464,19 +1473,35 @@ final class ArtifactCompiler
             });
             if ( array() !== $owned && array() === $unclaimed ) unset($forms[$key]);
         }
+        // A form the checkout view region owns is part of the client-side
+        // checkout rendering, not an independent form-provider surface: the
+        // shop provider replacing the region covers it, so it leaves `forms`
+        // like the order-lookup form above instead of racing that provider for
+        // the same block anchor.
+        foreach ( $checkouts as $checkout ) {
+            foreach ( $forms as $key => $form ) {
+                if ( ($form['source_path'] ?? '') !== $checkout['source_path'] ) continue;
+                $selector = (string) ($form['selector'] ?? '');
+                if ( '' !== $selector && ( $selector === $checkout['selector'] || str_starts_with($selector, $checkout['selector'] . ' > ') ) ) unset($forms[$key]);
+            }
+        }
         foreach ($products as $productSlug => &$product) {
             $product['id'] = 'product:' . hash('sha256', $productSlug);
             // Only a claimed detail page names the product's route; others keep their URL.
             if (isset($product['whole_page_candidate'])) $product['source_route'] = $pageRoutes[$product['source_path']];
         }
         unset($product);
-        ksort($products, SORT_STRING); ksort($forms, SORT_STRING); ksort($orderLookups, SORT_STRING); ksort($carts, SORT_STRING); ksort($productGrids, SORT_STRING); ksort($productListings, SORT_STRING);
+        ksort($products, SORT_STRING); ksort($forms, SORT_STRING); ksort($orderLookups, SORT_STRING); ksort($carts, SORT_STRING); ksort($checkouts, SORT_STRING); ksort($productGrids, SORT_STRING); ksort($productListings, SORT_STRING);
         $collections = array(
             array('capability' => 'shop', 'type' => 'products', 'aliases' => array('product', 'products'), 'entities' => array_values($products), 'schema' => 'generic/products/v1'),
             // A cart holds the store's products, so a cart view is declared only
             // beside a products collection: on its own it would ask a provider
             // to install a store with nothing to sell.
             array('capability' => 'shop', 'type' => 'carts', 'aliases' => array('cart', 'carts'), 'entities' => array_values($carts), 'schema' => 'generic/carts/v1', 'requires' => array('product', 'products')),
+            // A checkout is the store's purchase surface over the same
+            // products, so like a cart view it is declared only beside a
+            // products collection, and never beside a cart for the same region.
+            array('capability' => 'shop', 'type' => 'checkouts', 'aliases' => array('checkout', 'checkouts'), 'entities' => array_values($checkouts), 'schema' => 'generic/checkouts/v1', 'requires' => array('product', 'products')),
             // Empty controlled listings still declare their replaceable grid
             // region, even when the site has no products yet.
             array('capability' => 'shop', 'type' => 'product_grids', 'aliases' => array('product_grid', 'product_grids'), 'entities' => array_values($productGrids), 'schema' => 'generic/product-grids/v1'),
