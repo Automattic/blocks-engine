@@ -324,6 +324,48 @@ final class ShellExtraction
     /** @var array<string,array<int,array<string,mixed>>> Entities of this call's manifest declarations, by payload hash. */
     private array $manifestEntities = array();
 
+    /**
+     * Bind producer-owned parts to equivalent landmarks at their authored
+     * positions, including repeated device documents. A conflicting part stays
+     * unbound and continues to reserve its slug; runtime anchors stay page-owned.
+     *
+     * @return array{pages:array,parts:array}
+     */
+    public function bindExplicitParts(array $pages, array $parts, array $declarations, array $records = array()): array
+    {
+        $this->resolveManifestEntities($declarations, $records);
+        foreach ($parts as &$part) {
+            $area = $part['area'] ?? '';
+            if ('unbound' !== ($part['placement']['kind'] ?? null) || !in_array($area, array('header', 'footer'), true)) continue;
+            $identity = self::normalizeNestedChromeMarkup(self::landmarkPartMarkup($part['canonical_block_markup'], $area));
+            $sources = array();
+            foreach ($pages as &$page) {
+                if (!empty($page['synthetic'])) continue;
+                $rows = $this->nestedLandmarkCandidates(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($page['canonical_block_markup']), $page['source_path'], $area, false);
+                if (array() === $rows) continue;
+                foreach ($rows as $row) {
+                    if ($identity !== self::normalizeNestedChromeMarkup($row['markup'])) continue 2;
+                    $bindings = $this->runtimeBindingsInRanges($declarations, $page, array($row));
+                    if ($bindings['blocked'] || array() !== $bindings['refs']) continue 2;
+                }
+                usort($rows, static fn(array $left, array $right): int => $right['offset'] <=> $left['offset']);
+                $markup = $page['canonical_block_markup'];
+                $reference = '<!-- wp:template-part {"slug":"' . $part['slug'] . '","area":"' . $area . '","tagName":"div","className":"blocks-engine-shell-transport"} /-->';
+                foreach ($rows as $row) $markup = substr_replace($markup, $reference, $row['offset'], $row['length']);
+                $page['canonical_block_markup'] = $markup;
+                $page['content_hash'] = WordPressSitePlan::contentHash($markup);
+                $sources[] = $page['source_path'];
+            }
+            unset($page);
+            if (array() !== $sources) {
+                $part['placement'] = array('kind' => 'inline_shared_shell', 'source_path' => $part['source_path'], 'source_paths' => $sources);
+                $part['tag_name'] = 'div';
+            }
+        }
+        unset($part);
+        return array('pages' => $pages, 'parts' => $parts);
+    }
+
     public function __construct(private readonly WordPressSitePlan $plan)
     {
     }
@@ -1036,7 +1078,7 @@ final class ShellExtraction
     }
 
     /** @return array<int,array<string,mixed>> */
-    private function nestedLandmarkCandidates(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, string $sourcePath, string $area): array
+    private function nestedLandmarkCandidates(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, string $sourcePath, string $area, bool $includeCaptureEdges = true): array
     {
         // Keep the existing shell-main rule, with an exception for a unique
         // document-edge landmark inside main/section. Article/aside landmarks
@@ -1129,7 +1171,7 @@ final class ShellExtraction
             $tagName = $landmark ?: ($footerClass ?? $tagName);
             $kind = $namedFooter ? 'footer' : $tagName;
             if (null === $shellMains && !$disallowedAncestor && 'header' === $landmark && self::isShellLandmarkBlock($name)) $shellMains = $mainAncestors;
-            $candidate = ('header' === $area || 0 < count($stack)) && (!$disallowedAncestor || $edgeLandmark) && $area === $kind && (self::isShellLandmarkBlock($name) || ('footer' === $area && $hasShellWrapperContract && 'footer' === $footerClass));
+            $candidate = (!$includeCaptureEdges || 'header' === $area || 0 < count($stack)) && (!$disallowedAncestor || $edgeLandmark) && $area === $kind && (self::isShellLandmarkBlock($name) || ('footer' === $area && $hasShellWrapperContract && 'footer' === $footerClass));
             // Whether page content precedes the landmark inside its ancestors: a
             // block other than the enclosing openings started or ended before it.
             $preceded = false;
@@ -1154,7 +1196,7 @@ final class ShellExtraction
             $disjoint[] = $row;
             $outerEnd = $end;
         }
-        $rows = $this->captureScopeEdges($index, $disjoint, $area);
+        $rows = $includeCaptureEdges ? $this->captureScopeEdges($index, $disjoint, $area) : $disjoint;
         foreach ($rows as $variant => &$row) { unset($row['main_ancestors']); $row['variant'] = $variant; } unset($row);
         return $rows;
     }
@@ -2291,9 +2333,13 @@ final class ShellExtraction
             preg_match_all('/<!--\s*wp:template-part\s+\{[^}]*"slug":"([^"]+)"/', $generic['opening'] . $generic['closing'], $slugs);
             $frames['page'] = array('opening' => $generic['opening'], 'closing' => $generic['closing'], 'shells' => array_values(array_unique($slugs[1])));
         }
-        // Native query fallbacks use the entry route's cluster, independently
-        // of which population supplied the generic page or single frame.
+        // Use the shared cluster rather than entry-only wrappers or an
+        // incomplete entry frame. Preserve a distinct entry cluster (for
+        // example another language) when it owns different shared parts.
         $fallback = $frames['front-page'] ?? $frames['page'] ?? null;
+        if (isset($frames['page']) && array() === array_diff($fallback['shells'] ?? array(), $frames['page']['shells'])) {
+            $fallback = $frames['page'];
+        }
         if (null !== $fallback) {
             $hasCapturedPosts = (bool) array_filter($pages, static fn(array $page): bool => 'post' === ($page['post_type'] ?? null));
             foreach (array('single', 'index', 'archive', 'search', '404') as $slug) {

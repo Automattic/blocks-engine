@@ -4236,13 +4236,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $this->textLeafConverter->convert($element, $tagName, $fallbacks)->block;
         }
 
-        // App roots are transport, not sectioning content. Even a footer
-        // holding only one paragraph must survive until shared-shell extraction.
-        $documentFooter = 'footer' === $tagName
-            && ! $this->hasAncestorTag($element, array('main', 'section', 'aside', 'nav'));
+        // Plain wrappers are transport, not sectioning content. Lower document
+        // landmarks consistently so shared-shell identity does not depend on them.
+        $documentLandmark = ! $this->hasAncestorTag($element, array('main', 'section', 'aside', 'nav'));
         if ( $this->session->preservesShellLandmarks()
             && in_array(ShellLandmarkPolicy::landmarkKind($tagName, $this->attr($element, 'role')), array('header', 'footer'), true)
-            && ('body' === strtolower($element->parentNode?->nodeName ?? '') || $this->hasAncestorTag($element, array('article')) || $documentFooter || ($this->hasAncestorTag($element, array('main', 'section')) && ShellLandmarkPolicy::isDocumentEdgeLandmark($element)))
+            && ($documentLandmark || $this->hasAncestorTag($element, array('article')) || ($this->hasAncestorTag($element, array('main', 'section')) && ShellLandmarkPolicy::isDocumentEdgeLandmark($element)))
         ) {
             $children = $this->convertChildren($element, $fallbacks, true);
             if ( array() !== $children ) {
