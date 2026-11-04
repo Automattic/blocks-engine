@@ -110,7 +110,7 @@ $definition = (new CapturedDialogBlockGenerator())->definition('site/captured-di
 $css = (string) ($definition['assets']['style.css'] ?? '');
 $assert('file:./style.css' === ($definition['block_json']['style'] ?? null), 'the dialog block ships a stylesheet');
 $assert(str_contains($css, '[data-blocks-engine-presentation="dropdown"]'), 'the stylesheet targets dropdown dialogs', $css);
-foreach (array('position:fixed', 'margin:0', 'max-width:none', 'width:100%', 'background-color:var(--blocks-engine-dropdown-background', 'color:inherit', 'z-index:var(--blocks-engine-dropdown-layer', 'position:static') as $needle) {
+foreach (array('position:fixed', 'margin:0', 'max-width:none', 'box-sizing:border-box', 'width:100%', 'background-color:var(--blocks-engine-dropdown-background', 'color:inherit', 'z-index:var(--blocks-engine-dropdown-layer', 'position:static') as $needle) {
     $assert(str_contains($css, $needle), 'dropdown dialog style resets the user agent look: ' . $needle, $css);
 }
 $assert(1 === preg_match('/:where\(dialog\[data-blocks-engine-presentation="dropdown"\]\[data-blocks-engine-placement="under-header"\]\)/', $css) && 1 === preg_match('/:where\(dialog\[data-blocks-engine-presentation="dropdown"\]\[data-blocks-engine-placement="in-place"\]\)/', $css), 'the resets have no specificity, so source classes still win', $css);

@@ -719,8 +719,9 @@ final class CapturedDialogProjector
             $sourcePlace->parentNode->replaceChild($dialogElement, $sourcePlace);
             return $dialogElement;
         }
-        // A modal mounts in its triggers' responsive document; a dropdown's
-        // placement is owned by the view script, so it keeps the body mount.
+        // By default a modal mounts in its triggers' responsive document and a
+        // dropdown in the body. Shared headers below carry their panels instead;
+        // under-header placement remains fixed and is owned by the view script.
         $mount = $dropdown ? ($document->getElementsByTagName('body')->item(0) ?? $document->documentElement) : $this->triggerDocumentScope($document, $triggers);
         // Keep shared chrome self-contained when it is extracted as a template
         // part. The dialog must travel with its trigger, not remain page content.
