@@ -735,6 +735,16 @@ $reducedFormEntity = $reducedFormDeclaration['payload']['entities'][0] ?? array(
 $assert(is_array($reducedFormFallback) && is_array($reducedFormEntity), 'The reduced #4339 form produces both a published finding and a declared entity.');
 $assert(array() === array_filter($reducedFormFallback['controls'] ?? array(), static fn(array $control): bool => array_key_exists('_unresolved_description_candidates', $control)), 'The published finding controls carry no internal description-resolution markers.');
 $assert(RuntimeDeclarations::hash($reducedFormFallback['controls'] ?? null) === RuntimeDeclarations::hash($reducedFormEntity['controls'] ?? null), 'Published finding and entity controls are identical for provider reconciliation.');
+foreach (array(
+    'result diagnostics' => $reducedFormResult['diagnostics'] ?? array(),
+    'site plan diagnostics' => $reducedFormResult['source_reports']['wordpress_site_plan']['diagnostics'] ?? array(),
+) as $surface => $publishedDiagnostics) {
+    $formDiagnostics = array_values(array_filter($publishedDiagnostics, static fn(array $diagnostic): bool => 'html_form_fallback' === ($diagnostic['code'] ?? null)));
+    $assert(1 === count($formDiagnostics), 'The reduced form has a published html_form_fallback in ' . $surface . '.');
+    $diagnosticControls = $formDiagnostics[0]['controls'] ?? array();
+    $assert(array() === array_filter($diagnosticControls, static fn(array $control): bool => array_key_exists('_unresolved_description_candidates', $control)), 'Internal description-resolution markers never reach ' . $surface . '.');
+    $assert(RuntimeDeclarations::hash($diagnosticControls) === RuntimeDeclarations::hash($reducedFormEntity['controls'] ?? null), 'Diagnostic and entity controls hash identically for provider reconciliation in ' . $surface . '.');
+}
 $reducedFormDiagnostics = array_values(array_filter($reducedFormResult['diagnostics'] ?? array(), static fn(array $diagnostic): bool => 'form_field_context_unrepresented' === ($diagnostic['code'] ?? null)));
 $assert(array('One.', 'Two.') === ($reducedFormDiagnostics[0]['unrepresented_text'] ?? null), 'Ambiguous submit-button copy remains available to the unrepresented-text diagnostic.');
 

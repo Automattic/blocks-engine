@@ -473,17 +473,8 @@ final class ArtifactCompiler
         // published contract. Ambiguous description candidates were used to
         // build the unrepresented-text diagnostic; remove them from findings
         // too, keeping their controls identical to the declared form entity.
-        $allFallbacks = array_map(static function (mixed $fallback): mixed {
-            if ( ! is_array($fallback) ) return $fallback;
-            unset($fallback['_collection_binding_declined']);
-            if ( is_array($fallback['controls'] ?? null) ) {
-                foreach ( $fallback['controls'] as &$control ) {
-                    if ( is_array($control) ) unset($control['_unresolved_description_candidates']);
-                }
-                unset($control);
-            }
-            return $fallback;
-        }, $allFallbacks);
+        $allFallbacks = $this->withoutInternalFindingMarkers($allFallbacks);
+        $allDiagnostics = $this->withoutInternalFindingMarkers($allDiagnostics);
         $pageMarkup = array();
         $pageMarkup[(string) ($ownedBy(array(array()), $entryPath)[0]['owner'] ?? '')] = $entryBlocks['serialized_blocks'];
         foreach ($compiledHtmlDocuments as $sourcePath => $document) {
@@ -5208,6 +5199,25 @@ final class ArtifactCompiler
             static fn (array $asset): string => (string) ($asset['path'] ?? ''),
             array_filter($assets, static fn (array $asset): bool => $role === ($asset['role'] ?? ''))
         ));
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $findings
+     * @return array<int, array<string, mixed>>
+     */
+    private function withoutInternalFindingMarkers(array $findings): array
+    {
+        return array_map(static function (mixed $finding): mixed {
+            if ( ! is_array($finding) ) return $finding;
+            unset($finding['_collection_binding_declined']);
+            if ( is_array($finding['controls'] ?? null) ) {
+                foreach ( $finding['controls'] as &$control ) {
+                    if ( is_array($control) ) unset($control['_unresolved_description_candidates']);
+                }
+                unset($control);
+            }
+            return $finding;
+        }, $findings);
     }
 
     /**
