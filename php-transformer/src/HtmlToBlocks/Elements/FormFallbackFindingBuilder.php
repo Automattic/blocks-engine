@@ -20,8 +20,7 @@ final class FormFallbackFindingBuilder
         private readonly FormFallbackFindingContext $context,
         private readonly FormControlMetadataBuilder $metadataBuilder,
         private readonly FormSuccessPanelMetadataBuilder $successPanelMetadataBuilder,
-        private readonly PseudoFormAnalyzer $pseudoFormAnalyzer,
-        private readonly ?\Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache $formSelectorCache = null
+        private readonly PseudoFormAnalyzer $pseudoFormAnalyzer
     ) {
     }
 
@@ -35,12 +34,11 @@ final class FormFallbackFindingBuilder
     {
         $controls = $this->metadataBuilder->controls($element);
         $controlTopology = (new FormControlTopologyBuilder())->build($element);
-        $layoutGraph ??= (new FormLayoutGraphBuilder($this->formSelectorCache))->build($element, $this->context->stylesheetAssets(), $this->context->formLayoutCss());
+        $layoutGraph ??= (new FormLayoutGraphBuilder())->build($element, $this->context->stylesheetAssets(), $this->context->formLayoutCss());
         $presentationBuilder = new FormPresentationGraphBuilder(
             fn (DOMElement $control, string $value): string => $this->context->resolvePresentationValue($control, $value),
             fn (DOMElement $element): string => $this->context->sanitizeInlineSvgMarkup($element),
-            fn (DOMElement $control): ?DOMElement => $this->metadataBuilder->requiredMarker($control),
-            selectorMatchCache: $this->formSelectorCache
+            fn (DOMElement $control): ?DOMElement => $this->metadataBuilder->requiredMarker($control)
         );
         $presentationGraph = $presentationBuilder->build($element, $this->context->stylesheetAssets(), $this->context->formLayoutCss());
         $formMetadata = $this->metadataBuilder->form($element);
@@ -103,7 +101,7 @@ final class FormFallbackFindingBuilder
         if ( array() !== $choiceGroups ) {
             $finding['choice_groups'] = $choiceGroups;
         }
-        $steps = true === ($layoutGraph['truncated'] ?? true) ? null : (new FormStepTrackDetector($this->formSelectorCache))->detect($element, $layoutGraph, $this->context->stylesheetAssets(), $this->context->formLayoutCss());
+        $steps = true === ($layoutGraph['truncated'] ?? true) ? null : (new FormStepTrackDetector())->detect($element, $layoutGraph, $this->context->stylesheetAssets(), $this->context->formLayoutCss());
         if ( null !== $steps ) {
             $finding['steps'] = $steps;
         }

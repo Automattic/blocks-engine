@@ -43,14 +43,14 @@ final class FormLayoutGraphBuilder
     private array $nodeIds = array();
     private array $spacers = array();
     private array $labels = array();
-    /** Selector match memo shared by the owning compilation, or local to a standalone build. */
+    /** Selector match memo for one immutable build scope. */
     private CssSelectorMatchCache $selectorCache;
     /** Custom-property resolution over {@see $selectorCache}; reset at every build(). */
     private FormCustomPropertyResolver $customProperties;
 
-    public function __construct(private readonly ?CssSelectorMatchCache $sharedSelectorCache = null)
+    public function __construct(?CssSelectorMatchCache $selectorCache = null)
     {
-        $this->selectorCache = $sharedSelectorCache ?? new CssSelectorMatchCache();
+        $this->selectorCache = $selectorCache ?? new CssSelectorMatchCache();
         $this->customProperties = new FormCustomPropertyResolver($this->selectorCache);
     }
 
@@ -63,9 +63,9 @@ final class FormLayoutGraphBuilder
     {
         $this->diagnostics = array();
         $this->truncated = false;
-        // The compilation owns the shared match memo. Standalone builds retain
-        // their old fresh-cache lifetime; neither path shares DOM data globally.
-        $selectorCache = $this->selectorCache = $this->sharedSelectorCache ?? new CssSelectorMatchCache();
+        // Lowering and projection can mutate the source between builds. Only
+        // the immutable CSS index may be shared across those boundaries.
+        $selectorCache = $this->selectorCache = new CssSelectorMatchCache();
         $this->customProperties = new FormCustomPropertyResolver($selectorCache);
         $controls = array();
         $relevant = array();
