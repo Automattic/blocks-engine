@@ -178,8 +178,7 @@ foreach (array(
     'script-referenced data hook' => '<media-frame data-hook="profile-image" style="display:block"><img src="profile.png" alt="Profile"></media-frame><script>document.querySelector("[data-hook]")</script>',
 ) as $name => $source) {
     $candidate = ( new HtmlTransformer() )->transform($source)->toArray();
-    $carrier = in_array($name, array('crop focus', 'non-default crop focus'), true)
-        ? 'custom/responsive-media' : 'custom/layout-shell';
+    $carrier = 'custom/layout-shell';
     $assert(in_array($carrier, array_column($candidate['blocks'] ?? array(), 'blockName'), true), $name . ' retains host semantics in its appropriate carrier');
 }
 

@@ -171,7 +171,11 @@ final class EngineSupportCss
             // cyclic shrink-to-fit basis. Keep the image itself inline too.
             $inlineFigure = ':root .' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS;
             $parts[] = $inlineFigure . '{display:contents}'
-                . $inlineFigure . ' img{display:inline}';
+                . $inlineFigure . ' img{display:inline}'
+                // A propagated card link adds another synthetic box. Core's
+                // inline-block anchor would make percentage images shrink to
+                // their intrinsic width instead of the retained source host.
+                . $inlineFigure . '.blocks-engine-custom-host-image.blocks-engine-linked-image-figure>a{display:contents}';
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS) ) {
             // The figure stands in for the paragraph that wrapped this image.

@@ -11722,8 +11722,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     /** Retain a static host box around independently editable native media. */
     private function nativeImageInCustomHost(DOMElement $host, DOMElement $image): ?array
     {
-        if (!$this->isSafeTransparentCustomElement($host)
-            || $this->hasCropFocusThatCoreImageCannotCarry($image)) {
+        if (!$this->isSafeTransparentCustomElement($host)) {
             return null;
         }
         $picture = $image->parentNode;
@@ -11735,6 +11734,18 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if (null === $block || 'core/image' !== $block['blockName']) {
             return null;
         }
+        if ($this->hasCropFocusThatCoreImageCannotCarry($image)) {
+            $shape = $this->styleResolver->imageShapeDeclarations($image);
+            $position = CssValueInspector::carriableDeclarationValue((string) ($shape['object-position']['value'] ?? ''));
+            if ('' !== $position) {
+                $carrier = $this->layoutGeometry()->allocateCarrier('custom-host-image-position' . "\n" . $position);
+                $this->layoutGeometry()->registerRule($carrier, '.' . $carrier . '{object-position:' . $position . '}.' . $carrier . ' img{object-position:inherit}');
+                $block['attrs']['className'] = $this->mergeClassNames((string) ($block['attrs']['className'] ?? ''), $carrier);
+                $block = $this->blockFactory->rebuild($block, $block['attrs']);
+            }
+        }
+        $block['attrs']['className'] = $this->mergeClassNames((string) ($block['attrs']['className'] ?? ''), 'blocks-engine-custom-host-image');
+        $block = $this->blockFactory->rebuild($block, $block['attrs']);
         // Preserve the host's box and identity separately from the editable
         // image. In particular an id and captured image metadata are not a
         // reason to make the image itself an opaque HTML editing surface.
