@@ -354,6 +354,10 @@ PHP;
         foreach ($pages as &$page) {
             $path = $routeBySource[$page['source_path']] ?? null;
             if (is_string($path)) $page['route'] = array('path' => $path, 'parent_path' => self::parentRoutePath($path), 'slug' => self::routeSlug($path));
+            // Shared chrome later moves the breadcrumb into one template, so
+            // each document's own source trail is recorded while it still has it.
+            $trail = BreadcrumbLabelRuntime::trail($page);
+            if (array() !== $trail) $page['metadata']['breadcrumb_trail'] = $trail;
         }
         unset($page);
         $preflightPages = $pages;
@@ -6197,7 +6201,8 @@ PHP;
             }
         }
         $breadcrumbLabels = BreadcrumbLabelRuntime::labels(array_merge($templates, $parts, $pages), $pages);
-        if (array() !== $breadcrumbLabels) $lines[] = BreadcrumbLabelRuntime::source($breadcrumbLabels);
+        $breadcrumbPostTrails = BreadcrumbLabelRuntime::postTrails($pages);
+        if (array() !== $breadcrumbLabels || array() !== $breadcrumbPostTrails) $lines[] = BreadcrumbLabelRuntime::source($breadcrumbLabels, $breadcrumbPostTrails);
         foreach (array_merge($templates, $parts, $pages, $menus) as $document) {
             if (str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), 'blocksEngineRuntimeAttributes')) {
                 $lines[] = RuntimeAttributesRuntime::source();
