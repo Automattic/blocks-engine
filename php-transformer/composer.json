@@ -430,6 +430,7 @@
       "php tests/unit/carousel-single-control-owner.php",
       "php tests/unit/capture-gallery-page.php",
       "php tests/unit/gallery-compilation-scaling.php",
+      "php tests/unit/recognizer-compilation-scaling.php",
       "php tests/unit/document-reference-index.php",
       "php tests/unit/single-slide-carousel-static.php",
       "php tests/unit/carousel-page-navigation-link.php",
