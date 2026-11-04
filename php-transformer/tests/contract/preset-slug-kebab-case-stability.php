@@ -84,6 +84,9 @@ foreach ($blocks as $block) {
     }
 }
 $assert($bound >= 3, 'The page binds heading size and family presets onto blocks (' . $bound . ' classes).');
-$assert(str_contains($markup, 'has-heading-28-font-size') && str_contains($markup, 'has-heading-font-family'), 'The heading and the timetable slot carry the heading presets.');
+$assert(str_contains($markup, 'has-heading-28-font-size'), 'The heading carries the heading size preset.');
+// The text-only slot wrapper now folds into its paragraph; its inherited
+// font family is preserved by the text carrier rather than a group preset.
+$assert(str_contains($markup, 'be-inline-geometry-'), 'The folded timetable slot carries its inherited typography.');
 
 echo "Preset slug kebab-case stability contract passed.\n";

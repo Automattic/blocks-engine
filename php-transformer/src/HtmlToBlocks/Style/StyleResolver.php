@@ -1979,6 +1979,20 @@ final class StyleResolver implements ElementPresentationResolver
         return $this->inlineGeometry()->className($image, array_values(array_diff(array_keys($declarations), $placement)), $placement, array(), false, true);
     }
 
+    /** @param array<string, string> $declarations */
+    public function inheritedTextCarrier(array $declarations): string
+    {
+        if (array() === $declarations) return '';
+        ksort($declarations);
+        $body = '';
+        foreach ($declarations as $name => $value) {
+            $body .= $name . ':' . CssValueInspector::withoutImportant($value) . '!important;';
+        }
+        $className = $this->context->layoutGeometry()->allocateCarrier('inherited-text:' . $body);
+        $this->context->layoutGeometry()->registerRule($className, '.' . $className . '{' . $body . '}');
+        return $className;
+    }
+
     /**
      * `core/embed`'s save() is a rigid, two-level `<figure><div
      * class="wp-block-embed__wrapper">` shape with no attribute path onto

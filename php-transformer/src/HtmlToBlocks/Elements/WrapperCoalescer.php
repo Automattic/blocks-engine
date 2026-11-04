@@ -185,9 +185,110 @@ final class WrapperCoalescer
         return $this->coalescingResolution($element, $childBlock)['disposition'];
     }
 
+    /** @var array<string, true> */
+    private array $inheritedTextCarriers = array();
+
+    /**
+     * Text-only wrappers have no box to project. Resolve along the source
+     * chain, rather than merging carrier classes: inheritance is not a
+     * specificity contest between the disappearing ancestors.
+     *
+     * @param array<string, mixed> $childBlock
+     * @return array<string, mixed>|null
+     */
+    private function coalescedInheritedTextWrapper(DOMElement $element, array $childBlock): ?array
+    {
+        if (! $this->isInheritedTextWrapper($element)) return null;
+        if (! in_array($childBlock['blockName'] ?? '', array('core/paragraph', 'core/heading', 'core/group', 'core/image', 'core/quote', 'core/list'), true)) return null;
+        $chain = array($element);
+        $leaf = ($this->soleElementChild)($element);
+        while ($leaf instanceof DOMElement && $this->isInheritedTextWrapper($leaf)) {
+            $chain[] = $leaf;
+            $leaf = ($this->soleElementChild)($leaf);
+        }
+        if (! $leaf instanceof DOMElement) return null;
+        if ('core/paragraph' === ($childBlock['blockName'] ?? '') && 'p' !== strtolower($leaf->tagName)) return null;
+        if (! $this->selectorMatchingSurvivesWrapperCoalescing($element, $leaf, true)) return null;
+        $chain[] = $leaf;
+        $values = array();
+        foreach ($chain as $node) {
+            foreach ($this->inheritedWrapperDeclarations($node) as $name => $value) {
+                if (! $this->isInheritedTextProperty($name)) continue;
+                if (in_array(CssValueInspector::comparable($value), array('inherit', 'unset'), true)) continue;
+                $values[$name] = $value;
+            }
+        }
+        $attrs = is_array($childBlock['attrs'] ?? null) ? $childBlock['attrs'] : array();
+        if (isset($attrs['align'], $values['text-align']) && $attrs['align'] === CssValueInspector::comparable($values['text-align'])) unset($values['text-align']);
+        if (array() === $values) return null;
+        $carrier = $this->styleResolver->inheritedTextCarrier($values);
+        $wrapperAttrs = $this->styleResolver->presentationAttributes($element);
+        foreach (array('fontSize', 'fontFamily', 'textColor', 'align') as $attribute) {
+            if (! isset($attrs[$attribute]) && isset($wrapperAttrs[$attribute])) $attrs[$attribute] = $wrapperAttrs[$attribute];
+        }
+        $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
+        $classes = array_values(array_filter($classes, fn (string $name): bool => ! isset($this->inheritedTextCarriers[$name])));
+        $attrs['className'] = SourceDom::mergeClassNames(implode(' ', $classes), $carrier, ...array_map(static fn (DOMElement $node): string => SourceDom::attr($node, 'class'), array_slice($chain, 0, -1)));
+        if ('' !== $carrier) $this->inheritedTextCarriers[$carrier] = true;
+        return $this->createBlock->createBlock((string) $childBlock['blockName'], $attrs, $childBlock['innerBlocks'] ?? array(), $leaf);
+    }
+
+    /** @return array<string, string> */
+    private function inheritedWrapperDeclarations(DOMElement $element): array
+    {
+        return $this->styleResolver->mergeCssDeclarationMaps(
+            $this->matchingAuthorDeclarations($element),
+            $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($element))
+        );
+    }
+
+    private function isInheritedTextProperty(string $name): bool
+    {
+        return str_starts_with($name, 'font-') || in_array($name, array('font', 'white-space', 'color', 'line-height', 'letter-spacing', 'word-spacing', 'text-align', 'text-transform', 'text-indent'), true);
+    }
+
+    private function isInheritedTextWrapper(DOMElement $element): bool
+    {
+        if ('div' !== strtolower($element->tagName)
+            || SourceDom::hasClass($element, 'wp-block-group')
+            || ! ($this->soleElementChild)($element) instanceof DOMElement
+            || $this->runtimeIslands->isRuntimeDomTarget($element)
+            || $this->sourceElementClassifier->hasMotionStructureToken($element)
+            || $this->isDirectChildOfStructuralLayout($element)
+            || array() !== $this->interactiveAttributes($element)
+        ) return false;
+        foreach ($element->childNodes as $node) {
+            if (XML_TEXT_NODE === $node->nodeType && '' !== trim((string) $node->nodeValue)) return false;
+        }
+        foreach ($element->attributes as $attribute) {
+            if (! in_array(strtolower($attribute->nodeName), array('class', 'style', 'data-node-view-wrapper', 'data-node-view-content', 'data-node-view-content-inner'), true)) return false;
+        }
+        foreach ($this->authorStyleRuleCandidates($element) as $rule) {
+            if (str_contains($rule['selector'], '>')) return false;
+        }
+        $declarations = $this->inheritedWrapperDeclarations($element);
+        if (array() === $declarations && ! $element->hasAttribute('data-node-view-content-inner') && ! $element->hasAttribute('style')) return false;
+        foreach ($declarations as $name => $value) {
+            // This invalid spelling has no rendering effect and no carrier.
+            if ('whitespace' === $name || $this->isInheritedTextProperty($name)) continue;
+            if (in_array($name, array('width', 'height'), true) && '100%' === CssValueInspector::comparable($value)) {
+                $parent = $element->parentNode;
+                if (! $parent instanceof DOMElement) return false;
+                $parentStyle = $this->styleResolver->structuralPresentationDeclarations($parent);
+                if (! in_array(CssValueInspector::comparable((string) ($parentStyle['display'] ?? 'block')), array('', 'block'), true)
+                    || ! in_array(CssValueInspector::comparable((string) ($parentStyle['position'] ?? 'static')), array('', 'static', 'relative'), true)) return false;
+                continue;
+            }
+            return false;
+        }
+        return true;
+    }
+
     /** @param array<string, mixed> $childBlock @return array<string, mixed>|null */
     public function coalescedSingleGroupWrapper(DOMElement $element, array $childBlock): ?array
     {
+        $textWrapper = $this->coalescedInheritedTextWrapper($element, $childBlock);
+        if (null !== $textWrapper) return $textWrapper;
         $resolution = $this->coalescingResolution($element, $childBlock);
         if ( ! $resolution['disposition']->isCoalesce() ) {
             return null;
@@ -553,6 +654,7 @@ final class WrapperCoalescer
 
     private function isRenderNeutralGeometryDeclaration(string $property, string $value): bool
     {
+        if ('whitespace' === $property) return true;
         $value = strtolower(trim(CssValueInspector::withoutImportant($value)));
         if (preg_match('/^(?:margin|padding)(?:-(?:top|right|bottom|left))?$/', $property)) return in_array($value, array('0', '0px', '0em', '0rem', '0%'), true);
         if (str_starts_with($property, 'border') || 'outline' === $property) return in_array($value, array('0', '0 none', 'none'), true);

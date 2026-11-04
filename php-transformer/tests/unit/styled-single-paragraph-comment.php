@@ -25,7 +25,11 @@ foreach (array($css, '.wp-block-comment-content{font-size:.95rem;line-height:1.7
     };
     $multiClasses = $sourceClasses($first->parentNode);
     $singleClasses = $sourceClasses($single->parentNode);
-    if ($index < 3) {
+    if (1 === $index) {
+        if (!str_contains($single->getAttribute('class'), 'be-inline-geometry-')) {
+            throw new RuntimeException('Text-only comment wrapper folds into a typography-carrying paragraph');
+        }
+    } elseif ($index < 3) {
         if (!str_contains($single->parentNode->getAttribute('class'), 'wp-block-group') || array() === array_intersect($singleClasses, $multiClasses)) {
             throw new RuntimeException('Single-paragraph comment must keep the same source-class group as the two-paragraph comment');
         }
