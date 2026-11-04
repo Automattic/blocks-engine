@@ -21,18 +21,22 @@ function recognizerPage(int $count): string
 (new HtmlTransformer())->transform(recognizerPage(1));
 $expected = array(
     8 => '6e4523088182e7561bedd821c1e7597f37b573d1528f74cd381337c7c23db395',
-    64 => '4dcd8d3b6736726a8eb4cabd873c845a50ce0d5241486b8e63c9ba442a91f983',
+    128 => '54afbe5eaa3c9c55319ab99ec732452b12037ba77cdecceffca691a704af000f',
 );
+// Best of two runs per size keeps a shared CI host's pauses out of the ratio.
 $times = array();
-foreach (array(8, 64) as $n) {
-    $start = microtime(true);
-    $blocks = (new HtmlTransformer())->transform(recognizerPage($n))->toArray()['blocks'];
-    $times[$n] = microtime(true) - $start;
+foreach (array_keys($expected) as $n) {
+    $html = recognizerPage($n);
+    for ($run = 0; $run < 2; ++$run) {
+        $start = microtime(true);
+        $blocks = (new HtmlTransformer())->transform($html)->toArray()['blocks'];
+        $times[$n] = min($times[$n] ?? INF, microtime(true) - $start);
+    }
     $hash = hash('sha256', json_encode($blocks));
     if ($expected[$n] !== $hash) throw new RuntimeException('Recognizer output changed for ' . $n . ' sections: ' . $hash);
     printf("%d sections: %.3fs; hash %s\n", $n, $times[$n], $hash);
 }
-if ($times[64] / 64 > 2.0 * $times[8] / 8) {
+if ($times[128] / 128 > 2.0 * $times[8] / 8) {
     throw new RuntimeException('Recognizer per-section cost grew superlinearly: ' . json_encode($times));
 }
 fwrite(STDOUT, "Recognizer compile scaling regression passed.\n");
