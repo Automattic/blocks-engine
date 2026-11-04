@@ -1,0 +1,6 @@
+<!DOCTYPE html><html><head><title>Nav</title><style>
+.bar{display:flex;justify-content:space-between;align-items:center;background:#123;color:#fff;padding:12px 20px}
+.bar a{color:#fff}
+@layer utilities{.hidden{display:none}.links{gap:28px}}
+@layer utilities{@media (min-width:768px){.md-flex{display:flex}.md-hidden{display:none}}}
+</style></head><body><header><div class="bar"><a href="#top">Brand</a><nav aria-label="Main" class="hidden links md-flex"><a href="#a">One</a><a href="#b">Two</a><a href="#c">Three</a></nav><button class="md-hidden" aria-label="Open menu">Menu</button></div></header><main><h1>Page</h1><p>Body.</p></main></body></html>
