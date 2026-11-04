@@ -26,9 +26,9 @@ $assert('10px' === ($button['attrs']['style']['border']['radius'] ?? ''), 'ancho
 $assert('/contact' === ($button['attrs']['url'] ?? '') && str_contains($button['attrs']['text'] ?? '', 'Contact us'), 'destination and editable text remain native');
 $typedLabel = $transform('<style>.cta{padding:10px 20px;border-radius:10px;background:#39b4e1}.label p{color:white;font-family:Inter;font-size:16px;font-weight:600;line-height:30px}</style><a class="cta" href="/contact"><div class="label"><p>Contact</p></div></a>');
 $typed = $findButton($typedLabel['blocks']);
-$assert(null === $typed, 'a paragraph label remains block content rather than inline reduction');
-$assert(str_contains($typedLabel['serialized_blocks'], '>Contact</p>'), 'the paragraph remains editable');
-$assert(str_contains($typedLabel['serialized_blocks'], 'href="/contact"'), 'the container keeps its destination');
+$assert(null !== $typed && '#39b4e1' === ($typed['attrs']['style']['color']['background'] ?? ''), 'one unstyled wrapper around the paragraph label keeps the anchor-owned fill on the native button');
+$assert('/contact' === ($typed['attrs']['url'] ?? '') && str_contains($typed['attrs']['text'] ?? '', 'Contact'), 'destination and editable text remain native behind the wrapper');
+$assert('white' === ($typed['attrs']['style']['color']['text'] ?? '') && 'Inter' === ($typed['attrs']['style']['typography']['fontFamily'] ?? ''), 'the label element typography survives the wrapper');
 
 // A heading tag alone is not a card: own chrome plus one direct label is
 // the historical native-button case. Wrapped/branching content is not.
