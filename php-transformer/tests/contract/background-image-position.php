@@ -33,7 +33,7 @@ foreach (array(
             throw new RuntimeException($label . ': absent position must not emit object-position.');
         }
     } elseif (!preg_match('/\b(be-inline-geometry-[a-f0-9]+)\b/', $figure[1], $carrier)
-        || !str_contains($css, '.' . $carrier[1] . '>img{object-position:' . $position . '}')) {
+        || !str_contains($css, '.' . $carrier[1] . '{object-position:' . $position . '}.' . $carrier[1] . '>img{object-position:inherit}')) {
         throw new RuntimeException($label . ': image geometry carrier must preserve object-position.');
     }
 }
