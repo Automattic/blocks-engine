@@ -43,14 +43,14 @@ final class FormLayoutGraphBuilder
     private array $nodeIds = array();
     private array $spacers = array();
     private array $labels = array();
-    /** Selector match memo for one build's document; replaced at every build() so it never spans documents. */
+    /** Selector match memo shared by the owning compilation, or local to a standalone build. */
     private CssSelectorMatchCache $selectorCache;
-    /** Custom-property resolution over {@see $selectorCache}; replaced with it at every build(). */
+    /** Custom-property resolution over {@see $selectorCache}; reset at every build(). */
     private FormCustomPropertyResolver $customProperties;
 
-    public function __construct()
+    public function __construct(private readonly ?CssSelectorMatchCache $sharedSelectorCache = null)
     {
-        $this->selectorCache = new CssSelectorMatchCache();
+        $this->selectorCache = $sharedSelectorCache ?? new CssSelectorMatchCache();
         $this->customProperties = new FormCustomPropertyResolver($this->selectorCache);
     }
 
@@ -63,10 +63,9 @@ final class FormLayoutGraphBuilder
     {
         $this->diagnostics = array();
         $this->truncated = false;
-        // One match memo per build: the layout analyses and both presentation
-        // builders below re-ask the same (element, selector) questions of the
-        // same stylesheet set, and each match is computed once for all of them.
-        $selectorCache = $this->selectorCache = new CssSelectorMatchCache();
+        // The compilation owns the shared match memo. Standalone builds retain
+        // their old fresh-cache lifetime; neither path shares DOM data globally.
+        $selectorCache = $this->selectorCache = $this->sharedSelectorCache ?? new CssSelectorMatchCache();
         $this->customProperties = new FormCustomPropertyResolver($selectorCache);
         $controls = array();
         $relevant = array();
@@ -138,7 +137,7 @@ final class FormLayoutGraphBuilder
                 $ancestorVisits[] = $ancestor;
             }
         }
-        $analysis = (new CssRuleAnalyzer())->analyze(
+        $analysis = (new CssRuleAnalyzer())->query(
             $stylesheets,
             $inlineCss,
             array_merge(self::PROPERTIES, self::SOURCE_BOX_PROPERTIES, self::SHORTHAND_PROPERTIES),
@@ -159,7 +158,7 @@ final class FormLayoutGraphBuilder
         );
         $this->diagnostics = array_merge($this->diagnostics, $analysis['diagnostics']);
         $this->truncated = $this->truncated || $analysis['truncated'];
-        $customPropertyAnalysis = (new CssRuleAnalyzer())->analyze(
+        $customPropertyAnalysis = (new CssRuleAnalyzer())->query(
             $stylesheets,
             $inlineCss,
             array('--*'),

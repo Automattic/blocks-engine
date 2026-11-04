@@ -324,6 +324,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     /** Held per transform so the context-typography cascade analysis runs once. */
     private ?FormPresentationGraphBuilder $formContextTypographyBuilder = null;
 
+    /** Form consumers share matches only within this compilation's source DOM. */
+    private ?\Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache $formSelectorCache = null;
+
+    private function formSelectorCache(): \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache
+    {
+        return $this->formSelectorCache ??= new \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache();
+    }
+
     private readonly AuthoredFormControlBlockConverter $authoredFormControlBlockConverter;
 
     private readonly ReadableFormControlBlockConverter $readableFormControlBlockConverter;
@@ -745,7 +753,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             function (DOMElement $element, array &$fallbacks): array {
                 $block = $this->convertElement($element, $fallbacks);
                 return null === $block ? array() : array( $block );
-            }
+            },
+            $this->formSelectorCache()
         );
         $this->nativeGetFormBlockBuilder = new NativeGetFormBlockBuilder(
             function (DOMElement $element, array &$fallbacks): array {
@@ -794,7 +803,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             ),
             $this->formControlMetadataBuilder,
             $this->formSuccessPanelMetadataBuilder,
-            $this->pseudoFormAnalyzer
+            $this->pseudoFormAnalyzer,
+            $this->formSelectorCache()
         );
         $this->searchBlockConverter = new SearchBlockConverter($this->createSearchBlockConversionContext(), $this->formControlMetadataBuilder, $this->pseudoFormAnalyzer);
         $loginBlockConverter = new LoginBlockConverter(
@@ -1422,7 +1432,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private function formContextTypography(DOMElement $element): array
     {
-        return ($this->formContextTypographyBuilder ??= new FormPresentationGraphBuilder())->typographyStyles(
+        return ($this->formContextTypographyBuilder ??= new FormPresentationGraphBuilder(selectorMatchCache: $this->formSelectorCache()))->typographyStyles(
             $element,
             $this->authorStyles()->stylesheetAssets(),
             $this->sourceStyles()->formLayoutCss()
@@ -1435,7 +1445,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private function formContextPaint(DOMElement $element): array
     {
-        return ($this->formContextTypographyBuilder ??= new FormPresentationGraphBuilder())->paintStyles(
+        return ($this->formContextTypographyBuilder ??= new FormPresentationGraphBuilder(selectorMatchCache: $this->formSelectorCache()))->paintStyles(
             $element,
             $this->authorStyles()->stylesheetAssets(),
             $this->sourceStyles()->formLayoutCss()
@@ -1445,7 +1455,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     /** @return array<string, string>|null */
     private function formContextHiddenState(DOMElement $element, DOMElement $boundary): ?array
     {
-        return ($this->formContextTypographyBuilder ??= new FormPresentationGraphBuilder())->hiddenState(
+        return ($this->formContextTypographyBuilder ??= new FormPresentationGraphBuilder(selectorMatchCache: $this->formSelectorCache()))->hiddenState(
             $element,
             $boundary,
             $this->authorStyles()->stylesheetAssets(),

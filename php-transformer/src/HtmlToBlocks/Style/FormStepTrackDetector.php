@@ -5,7 +5,6 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssAnalysisLimits;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
-use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -25,6 +24,13 @@ use InvalidArgumentException;
  */
 final class FormStepTrackDetector
 {
+    private readonly \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache $selectorCache;
+
+    public function __construct(?\Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache $selectorCache = null)
+    {
+        $this->selectorCache = $selectorCache ?? new \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache();
+    }
+
     public const SCHEMA = 'generic/form-steps/v1';
     private const MAX_STEPS = 16;
     private const PROPERTIES = array( 'overflow', 'overflow-x', 'overflow-inline', 'flex-flow', 'flex-direction', 'flex-wrap', 'box-sizing', 'border', 'border-width', 'border-left', 'border-right', 'border-left-width', 'border-right-width', 'border-inline', 'border-inline-width', 'border-inline-start', 'border-inline-end' );
@@ -296,23 +302,24 @@ final class FormStepTrackDetector
      */
     private function cascade(array $elements, array $stylesheets, string $inlineCss): ?array
     {
-        $retain = static function (array $selector) use ($elements): bool {
+        $cache = $this->selectorCache;
+        $retain = static function (array $selector, string $text) use ($elements, $cache): bool {
             foreach ( $elements as $element ) {
-                $match = CssSelectorMatcher::matches($element, $selector);
+                $match = $cache->matches($element, $text, $selector);
                 if ( ! $match['supported'] || $match['matches'] ) {
                     return true;
                 }
             }
             return false;
         };
-        $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, 512, 1024, 8, $retain, CssAnalysisLimits::MAX_SCANNED_SELECTORS);
+        $analysis = (new CssRuleAnalyzer())->query($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, 512, 1024, 8, $retain, CssAnalysisLimits::MAX_SCANNED_SELECTORS);
         if ( $analysis['truncated'] ) {
             return null;
         }
-        $customProperties = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, array( '--*' ), CssAnalysisLimits::MAX_STYLESHEET_BYTES, 512, 1024, 8, static function (array $selector) use ($elements): bool {
+        $customProperties = (new CssRuleAnalyzer())->query($stylesheets, $inlineCss, array( '--*' ), CssAnalysisLimits::MAX_STYLESHEET_BYTES, 512, 1024, 8, static function (array $selector, string $text) use ($elements, $cache): bool {
             foreach ( $elements as $element ) {
                 for ( $ancestor = $element; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode instanceof DOMElement ? $ancestor->parentNode : null ) {
-                    if ( CssSelectorMatcher::matches($ancestor, $selector)['matches'] ) {
+                    if ( $cache->matches($ancestor, $text, $selector)['matches'] ) {
                         return true;
                     }
                 }
@@ -324,12 +331,12 @@ final class FormStepTrackDetector
         }
 
         $result = array();
-        $customPropertyResolver = new FormCustomPropertyResolver();
+        $customPropertyResolver = new FormCustomPropertyResolver($cache);
         foreach ( $elements as $id => $element ) {
             $facts = array();
             $ambiguous = array();
             foreach ( $analysis['rules'] as $rule ) {
-                $match = CssSelectorMatcher::matches($element, $rule['parsed_selector']);
+                $match = $cache->matches($element, $rule['selector'], $rule['parsed_selector']);
                 if ( ! $match['matches'] ) {
                     continue;
                 }

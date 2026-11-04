@@ -116,7 +116,7 @@ final class FormPresentationGraphBuilder
     {
         $this->truncated = false;
         $this->unrepresentable = array();
-        $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, $this->cascadeFilter(array($form)), CssAnalysisLimits::MAX_SCANNED_SELECTORS);
+        $analysis = (new CssRuleAnalyzer())->query($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, $this->cascadeFilter(array($form)), CssAnalysisLimits::MAX_SCANNED_SELECTORS);
         if ($analysis['truncated']) return array();
         $matched = $this->matched($form, $analysis['rules']);
         $styles = $this->styles($matched['base'], $form, null, array());
@@ -277,7 +277,7 @@ final class FormPresentationGraphBuilder
     {
         if ( null === $this->visibilityAnalysis ) {
             $filter = array() === $this->scopeElements ? null : $this->cascadeFilter($this->scopeElements);
-            $this->visibilityAnalysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, array( 'display', 'visibility' ), CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, $filter, CssAnalysisLimits::MAX_SCANNED_SELECTORS);
+            $this->visibilityAnalysis = (new CssRuleAnalyzer())->query($stylesheets, $inlineCss, array( 'display', 'visibility' ), CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, $filter, CssAnalysisLimits::MAX_SCANNED_SELECTORS);
         }
         if ( $this->visibilityAnalysis['truncated'] ) {
             return null;
@@ -471,8 +471,8 @@ final class FormPresentationGraphBuilder
     private function typographyAnalysis(array $stylesheets, string $inlineCss): array
     {
         $filter = array() === $this->scopeElements ? null : $this->cascadeFilter($this->scopeElements);
-        $properties = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, $filter, CssAnalysisLimits::MAX_SCANNED_SELECTORS);
-        $customProperties = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, array('--*'), CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, $filter, CssAnalysisLimits::MAX_SCANNED_SELECTORS);
+        $properties = (new CssRuleAnalyzer())->query($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, $filter, CssAnalysisLimits::MAX_SCANNED_SELECTORS);
+        $customProperties = (new CssRuleAnalyzer())->query($stylesheets, $inlineCss, array('--*'), CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, $filter, CssAnalysisLimits::MAX_SCANNED_SELECTORS);
         return array(
             'truncated' => $properties['truncated'] || $customProperties['truncated'],
             'rules' => $properties['rules'],
@@ -527,8 +527,8 @@ final class FormPresentationGraphBuilder
         $this->unrepresentable = array();
         $groupCaptions = $this->captionElements($form);
         $controlsForCustomProperties = array_merge($this->presentationElements($form), $groupCaptions['elements']);
-        $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, $this->cascadeFilter($controlsForCustomProperties), CssAnalysisLimits::MAX_SCANNED_SELECTORS);
-        $customPropertyAnalysis = (new CssRuleAnalyzer())->analyze(
+        $analysis = (new CssRuleAnalyzer())->query($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, $this->cascadeFilter($controlsForCustomProperties), CssAnalysisLimits::MAX_SCANNED_SELECTORS);
+        $customPropertyAnalysis = (new CssRuleAnalyzer())->query(
             $stylesheets,
             $inlineCss,
             array('--*'),

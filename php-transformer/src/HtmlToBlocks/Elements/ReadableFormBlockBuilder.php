@@ -81,7 +81,8 @@ final class ReadableFormBlockBuilder
         private readonly Closure $fieldBoxShell,
         private readonly ?Closure $stylesheetAssets = null,
         private readonly ?Closure $formLayoutCss = null,
-        private readonly ?Closure $convertFlowContent = null
+        private readonly ?Closure $convertFlowContent = null,
+        private readonly ?\Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache $formSelectorCache = null
     ) {
     }
 
@@ -160,7 +161,7 @@ final class ReadableFormBlockBuilder
     private function groupedContentBlocks(DOMElement $form, array &$fallbacks): array
     {
         $structure = array();
-        $this->layoutGraph = (new FormLayoutGraphBuilder())->build(
+        $this->layoutGraph = (new FormLayoutGraphBuilder($this->formSelectorCache))->build(
             $form,
             null !== $this->stylesheetAssets ? ($this->stylesheetAssets)() : array(),
             null !== $this->formLayoutCss ? ($this->formLayoutCss)() : '',

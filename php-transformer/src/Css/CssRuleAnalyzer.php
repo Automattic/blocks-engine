@@ -17,24 +17,60 @@ final class CssRuleAnalyzer
      */
     public function analyze(array $stylesheets, string $inlineCss, array $properties, int $maxCssBytes, int $maxRules, int $maxSelectors, int $maxConditionDepth, ?callable $retainSelector = null, ?int $maxScannedSelectors = null): array
     {
-        $result = array( 'rules' => array(), 'diagnostics' => array(), 'truncated' => false );
-        $counters = array( 'order' => 0, 'retained' => 0, 'scanned' => 0, 'max_scanned' => $maxScannedSelectors ?? $maxSelectors );
+        return $this->query($stylesheets, $inlineCss, $properties, $maxCssBytes, $maxRules, $maxSelectors, $maxConditionDepth, $retainSelector, $maxScannedSelectors);
+    }
 
+    /** Query the shared stylesheet-set analysis without rebuilding it for each form scope. */
+    public function query(array $stylesheets, string $inlineCss, array $properties, int $maxCssBytes, int $maxRules, int $maxSelectors, int $maxConditionDepth, ?callable $retainSelector = null, ?int $maxScannedSelectors = null): array
+    {
+        return $this->index($stylesheets, $inlineCss, $properties, $maxCssBytes, $maxConditionDepth)->query($maxRules, $maxSelectors, $retainSelector, $maxScannedSelectors);
+    }
+
+    /** Retention-independent stylesheet-set analysis. Callers query it with their own scope and limits. */
+    public function index(array $stylesheets, string $inlineCss, array $properties, int $maxCssBytes, int $maxConditionDepth): CssRuleIndex
+    {
+        $key = hash('sha256', serialize(array($stylesheets, array() === $stylesheets ? $inlineCss : '', $properties, $maxCssBytes, $maxConditionDepth)));
+        if ( isset(self::$indexes[$key]) ) {
+            $index = self::$indexes[$key];
+            unset(self::$indexes[$key]);
+            return self::$indexes[$key] = $index;
+        }
+        ++self::$indexBuilds;
+        $streams = array();
         foreach ( $stylesheets as $sheet ) {
             $css = (string) ( $sheet['content'] ?? '' );
             $stream = $this->stylesheetStream($css, (string) ( $sheet['source_path'] ?? $sheet['path'] ?? '' ), (string) ( $sheet['source_hash'] ?? '' ), $this->linkCondition($sheet), $properties, $maxCssBytes, $maxConditionDepth);
-            if ( ! $this->replay($stream, $maxRules, $maxSelectors, $retainSelector, $result, $counters) ) {
-                break;
-            }
+            $streams[] = $stream;
         }
 
         if ( array() === $stylesheets && '' !== trim($inlineCss) ) {
             $stream = $this->stylesheetStream($inlineCss, 'inline-style', hash('sha256', $inlineCss), null, $properties, $maxCssBytes, $maxConditionDepth);
-            $this->replay($stream, $maxRules, $maxSelectors, $retainSelector, $result, $counters);
+            $streams[] = $stream;
         }
 
-        $result['diagnostics'] = array_values(array_unique($result['diagnostics']));
-        return $result;
+        $index = new CssRuleIndex($streams);
+        // Retain bounded immutable CSS data only, never DOM elements or callbacks.
+        if ( $index->entries() > self::STREAM_CACHE_ENTRY_BUDGET ) {
+            return $index;
+        }
+        while ( self::$indexEntries + $index->entries() > self::STREAM_CACHE_ENTRY_BUDGET || count(self::$indexes) >= 128 ) {
+            $oldest = array_key_first(self::$indexes);
+            self::$indexEntries -= self::$indexes[$oldest]->entries();
+            unset(self::$indexes[$oldest]);
+        }
+        self::$indexEntries += $index->entries();
+        return self::$indexes[$key] = $index;
+    }
+
+    /** @var array<string, CssRuleIndex> */
+    private static array $indexes = array();
+    private static int $indexEntries = 0;
+    private static int $indexBuilds = 0;
+
+    /** Number of distinct stylesheet-set/property analyses built; observable for contracts. */
+    public static function indexBuilds(): int
+    {
+        return self::$indexBuilds;
     }
 
     /**
@@ -96,56 +132,6 @@ final class CssRuleAnalyzer
         }
         self::$streamEntries += count($stream);
         return self::$streams[ $key ] = $stream;
-    }
-
-    /**
-     * Apply one caller's retention and limits to a stylesheet stream.
-     *
-     * @param list<array<string, mixed>> $stream
-     * @param array{rules: list<array<string, mixed>>, diagnostics: list<string>, truncated: bool} $result
-     * @param array{order: int, retained: int, scanned: int, max_scanned: int} $counters
-     * @return bool False once the selector scan limit stops the analysis.
-     */
-    private function replay(array $stream, int $maxRules, int $maxSelectors, ?callable $retainSelector, array &$result, array &$counters): bool
-    {
-        for ( $index = 0, $count = count($stream); $index < $count; ) {
-            $entry = $stream[ $index ];
-            if ( isset($entry['diagnostic']) ) {
-                $result['diagnostics'][] = $entry['diagnostic'];
-                $result['truncated'] = $result['truncated'] || $entry['truncated'];
-                ++$index;
-                continue;
-            }
-            if ( ++$counters['scanned'] > $counters['max_scanned'] ) {
-                $result['truncated'] = true;
-                $result['diagnostics'][] = 'css_selector_scan_limit';
-                return false;
-            }
-            if ( null !== $retainSelector && ! $retainSelector($entry['parsed_selector'], $entry['selector']) ) {
-                ++$index;
-                continue;
-            }
-            if ( $counters['retained'] >= $maxSelectors || count($result['rules']) >= $maxRules ) {
-                $result['truncated'] = true;
-                $result['diagnostics'][] = 'css_rule_or_selector_limit';
-                $index = $entry['block_end'];
-                continue;
-            }
-            ++$counters['retained'];
-            $result['rules'][] = array(
-                'selector' => $entry['selector'],
-                'parsed_selector' => $entry['parsed_selector'],
-                'declarations' => $entry['declarations'],
-                'condition' => $entry['condition'],
-                'layer' => $entry['layer'],
-                'path' => $entry['path'],
-                'hash' => $entry['hash'],
-                'order' => $counters['order']++,
-                'specificity' => $entry['specificity'],
-            );
-            ++$index;
-        }
-        return true;
     }
 
     /** @param array<string, mixed> $sheet */
