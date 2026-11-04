@@ -32,4 +32,14 @@ if (!str_contains($markup, 'blocks-engine-custom-host-image')
     || str_contains($css, '.blocks-engine-synthetic-image-figure-inline.blocks-engine-linked-image-figure>a{display:contents}')) {
     throw new RuntimeException('Custom-host link sizing must not change ordinary linked images.');
 }
+// A retained media box is not permission to rewrite a control's children.
+$control = (new HtmlTransformer())->transform('<button type="button"><media-frame data-image-info="{}"><img src="photo.jpg" alt="Photo"></media-frame></button>')->toArray();
+if (!str_contains($control['serialized_blocks'], '/responsive-media')) {
+    throw new RuntimeException('Interactive image hosts must retain their original carrier.');
+}
+$capturedBlock = (new HtmlTransformer())->transform('<media-frame data-image-info="{}" style="display:block;overflow:hidden"><img src="photo.jpg" alt="Photo"></media-frame>')->toArray();
+if (!str_contains($capturedBlock['serialized_blocks'], '<!-- wp:image ')
+    || str_contains($capturedBlock['serialized_blocks'], '/responsive-media')) {
+    throw new RuntimeException('Static metadata-backed block hosts must expose native media.');
+}
 echo "Custom image native host regression passed\n";

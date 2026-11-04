@@ -11722,8 +11722,26 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     /** Retain a static host box around independently editable native media. */
     private function nativeImageInCustomHost(DOMElement $host, DOMElement $image): ?array
     {
-        if (!$this->isSafeTransparentCustomElement($host)) {
+        // Retain inline hosts and metadata-backed captured media boxes.
+        // Ordinary block hosts keep the conservative clipping/crop policy;
+        // interactive hosts must keep their original inline control topology.
+        if (!$this->isSafeTransparentCustomElement($host)
+            || ($this->hasBlockFigureDisplay($host) && !$host->hasAttribute('data-image-info'))
+            || $this->ancestorElement($host, 'button') instanceof DOMElement
+            || $this->runtimeIslands->isRuntimeDomTarget($host)
+            || array() !== $this->interactiveAttributes($host)
+            || $this->hasAuthorSemanticMarker($host)) {
             return null;
+        }
+        // Unknown host data may describe presentation that native media does
+        // not model. Only the already-understood image metadata permits that
+        // boundary to be split into a retained shell and editable image.
+        if (!$host->hasAttribute('data-image-info')) {
+            foreach ($host->attributes as $attribute) {
+                if (str_starts_with(strtolower($attribute->name), 'data-')) {
+                    return null;
+                }
+            }
         }
         $picture = $image->parentNode;
         if ($picture instanceof DOMElement && 'picture' === strtolower($picture->tagName)
