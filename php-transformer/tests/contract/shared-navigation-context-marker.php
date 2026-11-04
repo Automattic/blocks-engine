@@ -44,6 +44,6 @@ $assert(1 === count($headers) && count($routes) === count($headers[0]['provenanc
 
 // A sibling combinator can observe the sections around the header, so they
 // are part of the marker's identity again.
-$sibling = '.site-header + .crumbs .x{margin:0}';
+$sibling = '.site-header + .crumbs p{margin:0}';
 $assert($markers($page($routes['index.html'], $sibling)) !== $markers($page($routes['team/index.html'], $sibling)), 'Sibling selectors keep the surrounding sections in the marker name.');
 echo "ok\n";

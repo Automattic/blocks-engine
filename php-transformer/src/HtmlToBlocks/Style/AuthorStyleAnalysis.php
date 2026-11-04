@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
 use Automattic\BlocksEngine\PhpTransformer\Css\ClassAttributeSelectorProjection;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
 use DOMElement;
@@ -60,7 +61,8 @@ final class AuthorStyleAnalysis
     private ?array $markerContextPolicy = null;
     /** @var \SplObjectStorage<DOMElement, string>|null */
     private ?\SplObjectStorage $contextHashes = null;
-    private ?bool $positionalSelectors = null;
+    /** @var \SplObjectStorage<DOMElement, true>|null */
+    private ?\SplObjectStorage $positionalParents = null;
     /** @var \SplObjectStorage<DOMElement, string>|null */
     private ?\SplObjectStorage $subtreeHashes = null;
 
@@ -146,6 +148,8 @@ final class AuthorStyleAnalysis
     {
         $this->styleRules = $rules;
         $this->styleRuleCandidateIndex = null;
+        $this->positionalParents = null;
+        $this->contextHashes = null;
     }
 
     /** @return list<array<string, mixed>> */
@@ -231,8 +235,9 @@ final class AuthorStyleAnalysis
      * any document that loads the rule. With document-seeded markers, a
      * stylesheet shared by N pages therefore projected to N different texts.
      * Here the seed hashes the author CSS identity, the document type, the
-     * element's source path and full subtree (every attribute and text node),
-     * and every ancestor with all its siblings and their emptiness. Two
+     * element's full subtree (every observable attribute and text node), and
+     * every ancestor, with its siblings and position wherever a positional
+     * selector observes them (positionalParents()). Two
      * documents give one element the same marker only when all of that
      * agrees, so every author selector sees the same element in both and a
      * rule projected for one of them is correct for the other.
@@ -255,7 +260,7 @@ final class AuthorStyleAnalysis
         }
         return $this->allocateStableMarker(
             $kind,
-            "context\0" . $kind . "\0" . ( $this->usesPositionalSelectors() ? $path : '' ) . "\0" . $this->authorCssIdentity . "\0" . $this->documentTypeIdentity($element) . "\0" . $this->contextHash($element) . "\0" . $this->subtreeHash($element)
+            "context\0" . $kind . "\0\0" . $this->authorCssIdentity . "\0" . $this->documentTypeIdentity($element) . "\0" . $this->contextHash($element) . "\0" . $this->subtreeHash($element)
         );
     }
 
@@ -404,25 +409,51 @@ final class AuthorStyleAnalysis
     }
 
     /**
-     * Whether any author selector can observe sibling lists or positions:
-     * a sibling combinator or a structural pseudo-class. Otherwise only an
-     * element's own ancestor chain, never what surrounds that chain, is
-     * observable, and the document path says nothing the chain does not.
+     * The elements whose children's order author CSS observes: the parent of
+     * any element matched by a selector up to a compound that reads its
+     * position (a structural pseudo-class) or its neighbours (either side of
+     * `+` / `~`). A positional rule elsewhere on the page observes nothing
+     * around other elements.
+     *
+     * @return \SplObjectStorage<DOMElement, true>
      */
-    private function usesPositionalSelectors(): bool
+    private function positionalParents(): \SplObjectStorage
     {
-        if ( null !== $this->positionalSelectors ) {
-            return $this->positionalSelectors;
+        if ( null !== $this->positionalParents ) {
+            return $this->positionalParents;
         }
-        $selectors = preg_replace('~/\*.*?\*/~s', '', $this->combinedCss) ?? '';
-        do {
-            $selectors = preg_replace('/\{[^{}]*\}/', ';', $selectors, -1, $removed) ?? '';
-        } while ( $removed > 0 );
-        $selectors = preg_replace('/\[[^\]]*\]/', '', $selectors) ?? '';
-        return $this->positionalSelectors = 1 === preg_match('/[+~]|:(?:nth-|first-|last-|only-)/i', $selectors);
+        $parents = new \SplObjectStorage();
+        foreach ( $this->styleRules as $rule ) {
+            foreach ( $rule['selectors'] as $selector ) {
+                $parsed = ($selector['parsed']['supported'] ?? false) ? $selector['parsed'] : ($selector['direct_child_parsed'] ?? array());
+                if ( ! ($parsed['supported'] ?? false) ) {
+                    continue;
+                }
+                $compounds = $parsed['compounds'];
+                $combinators = $parsed['combinators'];
+                foreach ( $compounds as $index => $compound ) {
+                    $sibling = in_array($combinators[$index - 1] ?? '', array('+', '~'), true) || in_array($combinators[$index] ?? '', array('+', '~'), true);
+                    if ( ! $sibling && CssSelectorMatcher::dependsOnlyOnSubject(array('supported' => true, 'compounds' => array($compound), 'combinators' => array())) ) {
+                        continue;
+                    }
+                    $prefix = array('supported' => true, 'compounds' => array_slice($compounds, 0, $index + 1), 'combinators' => array_slice($combinators, 0, $index));
+                    foreach ( $this->selectorCandidates($prefix) as $candidate ) {
+                        $parent = $candidate->parentNode;
+                        if ( $parent instanceof DOMElement && ! isset($parents[$parent]) && CssSelectorMatcher::matches($candidate, $prefix)['matches'] ) {
+                            $parents[$parent] = true;
+                        }
+                    }
+                }
+            }
+        }
+        return $this->positionalParents = $parents;
     }
 
-    /** The element's ancestors, each with the siblings and position that author selectors can observe. */
+    /**
+     * The element's ancestor chain as author CSS can observe it. At a level
+     * whose children's order a positional selector observes, the siblings and
+     * the position among them count too.
+     */
     private function contextHash(DOMElement $element): string
     {
         $this->contextHashes ??= new \SplObjectStorage();
@@ -430,22 +461,21 @@ final class AuthorStyleAnalysis
             return $this->contextHashes[$element];
         }
         $parent = $element->parentNode;
-        if ( ! $this->usesPositionalSelectors() ) {
-            $hash = hash('sha256', ( $parent instanceof DOMElement ? $this->contextHash($parent) : '' ) . "\0" . $this->startTagIdentity($element, true));
-            $this->contextHashes[$element] = $hash;
-            return $hash;
-        }
-        $siblings = array();
-        $position = -1;
-        foreach ( $parent?->childNodes ?? array() as $child ) {
-            if ( $child instanceof DOMElement ) {
-                if ( $child->isSameNode($element) ) {
-                    $position = count($siblings);
+        $identity = $this->startTagIdentity($element, true);
+        if ( $parent instanceof DOMElement && isset($this->positionalParents()[$parent]) ) {
+            $siblings = array();
+            $position = -1;
+            foreach ( $parent->childNodes as $child ) {
+                if ( $child instanceof DOMElement ) {
+                    if ( $child->isSameNode($element) ) {
+                        $position = count($siblings);
+                    }
+                    $siblings[] = $this->startTagIdentity($child, true);
                 }
-                $siblings[] = $this->startTagIdentity($child, true);
             }
+            $identity = $position . "\0" . implode("\0", $siblings);
         }
-        $hash = hash('sha256', ( $parent instanceof DOMElement ? $this->contextHash($parent) : '' ) . "\0" . $position . "\0" . implode("\0", $siblings));
+        $hash = hash('sha256', ( $parent instanceof DOMElement ? $this->contextHash($parent) : '' ) . "\0" . $identity);
         $this->contextHashes[$element] = $hash;
         return $hash;
     }
