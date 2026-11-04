@@ -9,6 +9,8 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 /** Splits browser-loaded CSS before selector records approach engine limits. */
 final class CssStylesheetChunker
 {
+    private ?\Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTreeCache $ruleTrees = null;
+
     // Blink RuleData positions use 18 bits. Leave headroom for non-selector records.
     public const MAX_SELECTOR_RECORDS = 200000;
 
@@ -103,43 +105,12 @@ final class CssStylesheetChunker
 
     private function nextBoundary(string $css, int $offset): ?int
     {
-        $state = CssSyntaxScanner::state();
-        for ($index = $offset, $length = strlen($css); $index < $length; ) {
-            $index = CssSyntaxScanner::inertEnd($css, $index, $state, '{;');
-            if ($index >= $length) break;
-            $topLevel = CssSyntaxScanner::isTopLevel($state);
-            $next = CssSyntaxScanner::consume($css, $index, $state);
-            if (null === $next) {
-                return null;
-            }
-            if ($topLevel && $next === $index + 1 && ('{' === $css[$index] || ';' === $css[$index])) {
-                return $index;
-            }
-            $index = $next;
-        }
-        return null;
+        return \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTreeCache::parse($css, $this->ruleTrees ??= new \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTreeCache())->nextBoundary($offset);
     }
 
     private function matchingBrace(string $css, int $openingBrace): ?int
     {
-        $state = CssSyntaxScanner::state();
-        $depth = 0;
-        for ($index = $openingBrace, $length = strlen($css); $index < $length; ) {
-            $index = CssSyntaxScanner::inertEnd($css, $index, $state, '{}');
-            if ($index >= $length) break;
-            $topLevel = CssSyntaxScanner::isTopLevel($state);
-            $next = CssSyntaxScanner::consume($css, $index, $state);
-            if (null === $next) {
-                return null;
-            }
-            if ($topLevel && $next === $index + 1 && '{' === $css[$index]) {
-                ++$depth;
-            } elseif ($topLevel && $next === $index + 1 && '}' === $css[$index] && 0 === --$depth) {
-                return $index;
-            }
-            $index = $next;
-        }
-        return null;
+        return \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTreeCache::parse($css, $this->ruleTrees ??= new \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTreeCache())->blockEnd($openingBrace);
     }
 
     private function firstSignificantCharacter(string $value): string
