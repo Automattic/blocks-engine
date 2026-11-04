@@ -1782,6 +1782,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DocumentReferenceIndex::install($document);
         \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\InteractiveSurface::indexDocument($document);
         try {
+            // Resolve purchase-only wrappers before conversion so sibling runs
+            // become one canonical block anchor, just like an authored form.
+            $this->commerceReporter->appendFormlessPurchaseFallbacks($body, $fallbacks, (string) ($options['declarative_state_html'] ?? $html));
             $interactionCandidates = $this->interactionFallbackReporter->interactionCandidates($body);
             $this->navigationToggleSuppressor->collectProjectedNavigationRelationships($body);
             $this->navigationToggleSuppressor->collectSupersededNavToggleSelectors($body);
