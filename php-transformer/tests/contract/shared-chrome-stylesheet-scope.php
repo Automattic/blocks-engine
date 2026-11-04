@@ -308,19 +308,23 @@ $assert(1 === count($conflictFindings) && 'warning' === $conflictFindings[0]['se
 $assert(in_array('wordpress_site_plan_colliding_asset_target', $conflictPlan['reporting']['diagnostic_codes'], true), 'The colliding-target finding is linked to plan reporting.');
 
 $collidingPlan = $plan;
-$collidingPlan['assets'][1]['target_path'] = $collidingPlan['assets'][0]['target_path'];
-$collidingPlan['assets'][1]['token'] = $collidingPlan['assets'][0]['token'];
-$collidingPlan['assets'][1]['reconciliation_identity'] = WordPressSitePlan::identity('asset', (string) $collidingPlan['assets'][1]['source_path'], (string) $collidingPlan['assets'][1]['target_path']);
-$collidingPlan['reference_tokens'][1]['target_path'] = $collidingPlan['assets'][0]['target_path'];
-$collidingPlan['reference_tokens'][1]['token'] = $collidingPlan['assets'][0]['token'];
-$collidingPlan['reference_tokens'][1]['source_path'] = $collidingPlan['assets'][1]['source_path'];
+// Collide the authored route stylesheet onto the first asset's target: both
+// source paths are short enough to be named within the bounded diagnostic.
+$routeAsset = (int) array_search('route.css', array_column($collidingPlan['assets'], 'source_path'), true);
+$routeToken = (int) array_search('route.css', array_column($collidingPlan['reference_tokens'], 'source_path'), true);
+$assert(0 < $routeAsset, 'The route stylesheet is a separate plan asset.');
+$collidingPlan['assets'][$routeAsset]['target_path'] = $collidingPlan['assets'][0]['target_path'];
+$collidingPlan['assets'][$routeAsset]['token'] = $collidingPlan['assets'][0]['token'];
+$collidingPlan['assets'][$routeAsset]['reconciliation_identity'] = WordPressSitePlan::identity('asset', (string) $collidingPlan['assets'][$routeAsset]['source_path'], (string) $collidingPlan['assets'][$routeAsset]['target_path']);
+$collidingPlan['reference_tokens'][$routeToken]['target_path'] = $collidingPlan['assets'][0]['target_path'];
+$collidingPlan['reference_tokens'][$routeToken]['token'] = $collidingPlan['assets'][0]['token'];
 $collisionMessage = '';
 try {
     WordPressSitePlan::assertValid($collidingPlan);
 } catch (InvalidArgumentException $exception) {
     $collisionMessage = $exception->getMessage();
 }
-$assert(str_contains($collisionMessage, 'colliding asset targets') && str_contains($collisionMessage, (string) $collidingPlan['assets'][0]['target_path']) && str_contains($collisionMessage, (string) $collidingPlan['assets'][0]['source_path']) && str_contains($collisionMessage, (string) $collidingPlan['assets'][1]['source_path']), 'A genuine asset-target collision names the target and both sources: ' . $collisionMessage);
+$assert(str_contains($collisionMessage, 'colliding asset targets') && str_contains($collisionMessage, (string) $collidingPlan['assets'][0]['target_path']) && str_contains($collisionMessage, (string) $collidingPlan['assets'][0]['source_path']) && str_contains($collisionMessage, (string) $collidingPlan['assets'][$routeAsset]['source_path']), 'A genuine asset-target collision names the target and both sources: ' . $collisionMessage);
 $assert(strlen($collisionMessage) <= 256, 'The collision diagnostic stays bounded.');
 
 fwrite(STDOUT, "shared-chrome-stylesheet-scope contract passed\n");
