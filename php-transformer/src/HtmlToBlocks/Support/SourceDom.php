@@ -42,6 +42,28 @@ use DOMText;
  */
 final class SourceDom
 {
+    public static function anchorIsHeadingWrapped(DOMElement $anchor, DOMElement $boundary): bool
+    {
+        for ( $node = $anchor; $node instanceof DOMElement && ! $node->isSameNode($boundary); $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
+            if ( preg_match('/^h[1-6]$/', strtolower($node->tagName)) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public static function nearestPreviousHeadingText(DOMElement $element): string
+    {
+        for ( $node = $element->previousSibling; $node instanceof DOMNode; $node = $node->previousSibling ) {
+            if ( $node instanceof DOMElement && preg_match('/^h[1-6]$/i', $node->tagName) ) {
+                return trim(preg_replace('/\s+/', ' ', $node->textContent ?? '') ?? '');
+            }
+        }
+
+        return '';
+    }
+
     /**
      * Upper bound for an inline SVG data image kept in preserved HTML. Matches
      * the data URL budget the document head applies to embedded links.

@@ -1241,12 +1241,12 @@ final class CommerceFallbackReporter
             'selector'                => SourceDom::elementSelector($element),
             'parent_tag'              => $parent instanceof DOMElement && 'body' !== strtolower($parent->tagName) ? strtolower($parent->tagName) : '',
             'ancestor_tags'           => SourceDom::ancestorTags($element),
-            'nearest_heading'         => $this->nearestPreviousHeadingText($element),
+            'nearest_heading'         => SourceDom::nearestPreviousHeadingText($element),
             'role'                    => SourceDom::attr($element, 'role'),
             'id'                      => SourceDom::attr($element, 'id'),
             'class_names'             => SourceDom::classNames($element),
             'ancestor_class_names'    => $this->ancestorClassNames($element),
-            'data_attributes'         => $this->safeDataAttributes($element),
+            'data_attributes'         => SourceDom::safeDataAttributes($element),
             'interactive_attributes'  => $this->interactiveAttributes($element),
         ), static fn (mixed $value): bool => '' !== $value && array() !== $value);
     }
@@ -1260,32 +1260,6 @@ final class CommerceFallbackReporter
         }
 
         return array_values(array_unique($classes));
-    }
-
-    private function nearestPreviousHeadingText(DOMElement $element): string
-    {
-        for ( $node = $element->previousSibling; $node instanceof DOMNode; $node = $node->previousSibling ) {
-            if ( $node instanceof DOMElement && preg_match('/^h[1-6]$/i', $node->tagName) ) {
-                return trim(preg_replace('/\s+/', ' ', $node->textContent ?? '') ?? '');
-            }
-        }
-
-        return '';
-    }
-
-    /**
-     * @return array<string, string>
-     */
-    private function safeDataAttributes(DOMElement $element): array
-    {
-        $data = array();
-        foreach ( SourceDom::htmlAttributes($element) as $name => $value ) {
-            if ( preg_match('/^data-[a-z0-9_-]+$/i', $name) && strlen($value) <= 300 && ! preg_match('/javascript\s*:/i', $value) ) {
-                $data[$name] = $value;
-            }
-        }
-
-        return $data;
     }
 
     /**

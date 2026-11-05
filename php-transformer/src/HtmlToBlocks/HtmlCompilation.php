@@ -7264,7 +7264,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 return false;
             }
             $anchor = $anchors->item(0);
-            if ( ! $anchor instanceof DOMElement || ! $this->anchorIsHeadingWrapped($anchor, $child) ) {
+            if ( ! $anchor instanceof DOMElement || ! SourceDom::anchorIsHeadingWrapped($anchor, $child) ) {
                 return false;
             }
             $href = trim($this->attr($anchor, 'href'));
@@ -7276,17 +7276,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return 3 <= $items;
-    }
-
-    private function anchorIsHeadingWrapped(DOMElement $anchor, DOMElement $boundary): bool
-    {
-        for ( $node = $anchor; $node instanceof DOMElement && ! $node->isSameNode($boundary); $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
-            if ( preg_match('/^h[1-6]$/', strtolower($node->tagName)) ) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private function shouldPreserveEmptyVisualElement(DOMElement $element): bool { return $this->emptyElementFootprint->shouldPreserveEmptyVisualElement($element, $this->emptyVisualRetentionPolicy($element)); }
@@ -8336,7 +8325,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'selector'                => $this->elementSelector($element),
             'parent_tag'              => $element->parentNode instanceof DOMElement && 'body' !== strtolower($element->parentNode->tagName) ? strtolower($element->parentNode->tagName) : '',
             'ancestor_tags'           => $this->ancestorTags($element),
-            'nearest_heading'         => $this->nearestPreviousHeadingText($element),
+            'nearest_heading'         => SourceDom::nearestPreviousHeadingText($element),
             'role'                    => $this->attr($element, 'role'),
             'id'                      => $this->attr($element, 'id'),
             'class_names'             => $this->classNames($element),
@@ -8356,17 +8345,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return array_values(array_unique($classes));
-    }
-
-    private function nearestPreviousHeadingText(DOMElement $element): string
-    {
-        for ( $node = $element->previousSibling; $node instanceof DOMNode; $node = $node->previousSibling ) {
-            if ( $node instanceof DOMElement && preg_match('/^h[1-6]$/i', $node->tagName) ) {
-                return trim(preg_replace('/\s+/', ' ', $node->textContent ?? '') ?? '');
-            }
-        }
-
-        return '';
     }
 
     /**

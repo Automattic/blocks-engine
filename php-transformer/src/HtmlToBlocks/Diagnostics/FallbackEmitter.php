@@ -130,12 +130,6 @@ final class FallbackEmitter
         return false;
     }
 
-    public function resetGeneratedBlocks(): void
-    {
-        $this->generatedBlockNames = array();
-        $this->generatedBlockIdentities = array();
-    }
-
     /**
      * Producer link of the classify -> route -> generate chain (issue #497).
      *
