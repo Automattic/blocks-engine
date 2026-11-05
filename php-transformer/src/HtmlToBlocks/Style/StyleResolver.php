@@ -4923,7 +4923,7 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
-            $declarations = $this->cssDeclarations($this->specificityResolvedPresentationStyle($current));
+            $declarations = $this->authoredInheritedDeclarations($current);
             if ( ! array_key_exists($property, $declarations) ) {
                 continue;
             }
@@ -4941,10 +4941,53 @@ final class StyleResolver implements ElementPresentationResolver
                 return '';
             }
 
-            return $this->resolveCssVariablesInValue($value);
+            return $this->resolveCssVariablesInValue($value, $current);
         }
 
         return '';
+    }
+
+    /**
+     * Expand pending font substitutions before choosing inherited longhands.
+     * A shorthand that cannot be expanded still owns (and resets) its family:
+     * it must not expose an ancestor's unrelated reset as an authored winner.
+     * Conditional variants remain owned by the projected author stylesheet,
+     * rather than being appended as unconditional, higher-priority values.
+     *
+     * @return array<string, string>
+     */
+    private function authoredInheritedDeclarations(DOMElement $element): array
+    {
+        $cascade = array();
+        $sequence = 0;
+        $apply = function (array $declarations, ?string $font, array $following, bool $inline, array $specificity, ?int $layer) use (&$cascade, &$sequence, $element): void {
+            if (null !== $font) {
+                $expanded = CssFontShorthand::expand($this->resolveCssVariablesInValue($font, $element));
+                // CSS-wide values retain their inheritance semantics. Other
+                // unexpandable values deliberately stop the ancestor search.
+                $keyword = CssValueInspector::withoutImportant($font);
+                $fallback = in_array(strtolower($keyword), array('inherit', 'unset', 'initial', 'revert', 'revert-layer'), true) ? $keyword : 'initial';
+                $suffix = CssValueInspector::isImportant($font) ? ' !important' : '';
+                foreach (array('font-family', 'font-size', 'font-style', 'font-weight', 'line-height') as $property) {
+                    $this->applyMediaTextCascadeDeclaration($cascade, $property, $expanded[$property] ?? $fallback . $suffix, $inline, $specificity, ++$sequence, $layer);
+                }
+            }
+            foreach ($declarations as $property => $value) {
+                if ('font' === $property || (null !== $font && in_array($property, array('font-family', 'font-size', 'font-style', 'font-weight', 'line-height'), true) && !in_array($property, $following, true))) continue;
+                $this->applyMediaTextCascadeDeclaration($cascade, (string) $property, (string) $value, $inline, $specificity, ++$sequence, $layer);
+            }
+        };
+        foreach ($this->matchingStyleRules($element, 'static') as $rule) {
+            $apply($rule['declarations'], $rule['pendingFont'] ?? null, $rule['pendingFontFollowingProperties'] ?? array(), false, $this->mediaTextSelectorSpecificity($rule['selector']), $rule['layerRank'] ?? null);
+        }
+        $inline = $this->cssDeclarations(SourceDom::attr($element, 'style'));
+        $order = array_flip(array_keys($inline));
+        $apply($inline, $inline['font'] ?? null, isset($order['font']) ? array_slice(array_keys($inline), $order['font'] + 1) : array(), true, array(PHP_INT_MAX, PHP_INT_MAX, PHP_INT_MAX), null);
+        $declarations = array();
+        foreach ($cascade as $property => $entry) {
+            $declarations[$property] = $entry['value'] . ($entry['important'] ? ' !important' : '');
+        }
+        return $declarations;
     }
 
     /**
@@ -5188,6 +5231,7 @@ final class StyleResolver implements ElementPresentationResolver
         if ( isset($rawDeclarations['font']) ) {
             $order = array_flip(array_keys($rawDeclarations));
             $pendingFont['pendingFont'] = (string) $rawDeclarations['font'];
+            $pendingFont['pendingFontFollowingProperties'] = array_slice(array_keys($rawDeclarations), $order['font'] + 1);
             // The rule's own later `font-family` decides the family instead.
             if ( isset($order['font-family']) && $order['font-family'] > $order['font'] ) $pendingFont['pendingFontFamilyFollows'] = true;
         }

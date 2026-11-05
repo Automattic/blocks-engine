@@ -36,4 +36,19 @@ foreach ($dom->getElementsByTagName('a') as $link) {
     }
 }
 if (2 !== $count) throw new RuntimeException('Expected both native navigation links.');
+// Reopened #4512: a whole-value var() shorthand must own the font
+// family, even in the presence of lower-specificity conditional presets.
+foreach (array('', '@container style(--preset: a){.w-p .item{font:14px sans-serif}}', '@media (min-width:1px){.w-p .item{font:14px sans-serif}}') as $conditional) {
+    foreach (array('normal normal 700 16.875px/1.4 sora, sans-serif', 'var(--unresolved-font)') as $font) {
+        $source = '<!doctype html><html><head><title>Navigation</title><style>:root{--para-font:' . $font . '}body{font-family:Arial, Helvetica, sans-serif;font-size:10px}#main :where(.menu-1).menu .item{font:var(--para-font)}' . $conditional . '</style></head><body><div id="main"><nav class="menu-1 menu w-p" style="--preset:a"><ul><li><div class="item"><a href="/about">About</a></div></li></ul></nav></div></body></html>';
+        $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(array('path' => 'index.html', 'kind' => 'html', 'content' => $source))))->toArray();
+        $editorCss = implode("\n", array_column(array_filter($result['assets'], static fn(array $asset): bool => 'editor' === ($asset['stylesheet_target'] ?? 'both')), 'content'));
+        if (preg_match('/Arial|10px|14px/i', $editorCss)) throw new RuntimeException('Editor inherited a reset or lower-specificity preset: ' . $editorCss);
+        if (!str_contains($font, 'var(')) {
+            foreach (array('font-family:sora, sans-serif', 'font-size:16.875px', 'font-weight:700') as $declaration) {
+                if (!str_contains($editorCss, $declaration)) throw new RuntimeException('Missing ' . $declaration . ': ' . $editorCss);
+            }
+        }
+    }
+}
 echo "Navigation label-box typography reaches editor links without changing frontend output\n";
