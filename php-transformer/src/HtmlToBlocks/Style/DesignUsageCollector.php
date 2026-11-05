@@ -316,6 +316,16 @@ final class DesignUsageCollector
         // the family it substitutes to; one it cannot state is unknown, never
         // the ancestor's.
         $shorthand = $this->resolver->restingFontShorthand($element);
+        if (null === $shorthand && isset($fontDeclarations['font'])) {
+            // Pending shorthands in media rules are absent from the resting
+            // classified cascade. The author declarations retain them and
+            // order shorthand/longhand winners by cascade precedence.
+            $referenceFont = $this->resolver->referenceViewportAuthorDeclarations($element, array('font', 'font-family'));
+            if ('font' === array_key_last($referenceFont)) {
+                $value = $referenceFont['font'];
+                if (!in_array(strtolower(self::clean($value)), array('inherit', 'unset'), true)) $shorthand = $value;
+            }
+        }
         if (null !== $shorthand) {
             $font = CssFontShorthand::expand($this->resolver->resolveDefaultSchemeCssVariablesInValue($shorthand, $element));
             $context['family'] = isset($font['font-family']) && !str_contains($font['font-family'], 'var(') ? self::clean($font['font-family']) : null;
