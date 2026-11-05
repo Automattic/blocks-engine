@@ -10996,6 +10996,35 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                     return $this->layoutShellBlockForElements(array($anchor), array($media), $anchor);
                 }
             }
+            // Flatten a single image nested in inert presentation boxes just as
+            // a directly linked image, while retaining the outer box's styling
+            // on the replacement core/image figure.
+            if ( 1 === $anchor->getElementsByTagName('img')->length ) {
+                $carrier = null;
+                foreach ( $anchor->childNodes as $child ) {
+                    if ( $child instanceof DOMElement && $this->imageOnlyCarrierElement($child) instanceof DOMElement ) {
+                        $carrier = $child;
+                        break;
+                    }
+                }
+                if ( $carrier instanceof DOMElement ) {
+                    $image = $this->imageOnlyCarrierElement($carrier);
+                    $safe = true;
+                    for ( $node = $image?->parentNode; $node instanceof DOMElement && ! $node->isSameNode($anchor); $node = $node->parentNode ) {
+                        if ( ! in_array(strtolower($node->tagName), array('div', 'span'), true)
+                            || $this->runtimeIslands->isRuntimeDomTarget($node)
+                            || array() !== $this->eventMetadata($node)
+                            || array() !== $this->interactiveAttributes($node)
+                            || $this->hasRouteBearingDataAttributes($node) ) {
+                            $safe = false;
+                            break;
+                        }
+                    }
+                    if ( $safe && $image instanceof DOMElement ) {
+                        return $this->convertImageElement($image, $carrier, null, $anchor);
+                    }
+                }
+            }
             return $this->responsiveMediaBlock($anchor);
         }
         return $image instanceof DOMElement ? $this->convertImageElement($image, null, null, $anchor) : null;
