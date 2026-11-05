@@ -1377,7 +1377,59 @@ final class SourceDom
         return true;
     }
 
-    /** Definitions-only SVGs must stay in the page, not in an image document. */
+    /** A non-rendering resource carrier with no fragment consumers in the source. */
+    public static function isUnreferencedDefinitionsSvg(DOMElement $element): bool
+    {
+        if ('svg' !== strtolower($element->tagName) || 0 === self::childElementCount($element)) {
+            return false;
+        }
+        foreach ($element->childNodes as $child) {
+            if ($child instanceof DOMElement && !in_array(strtolower($child->tagName), array('defs', 'style', 'title', 'desc'), true)) {
+                return false;
+            }
+            if (XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '')) {
+                return false;
+            }
+        }
+
+        $ids = array();
+        foreach (array_merge(array($element), iterator_to_array($element->getElementsByTagName('*'), false)) as $descendant) {
+            $id = self::attr($descendant, 'id');
+            if ('' !== $id) {
+                if (self::documentReferencesFragmentId($descendant, $id)
+                    || (DocumentReferenceIndex::forDocument($element->ownerDocument)?->referencesCssFragment($id) ?? false)) {
+                    return false;
+                }
+                $ids[$id] = true;
+            }
+        }
+        foreach ($element->ownerDocument?->getElementsByTagName('*') ?? array() as $candidate) {
+            // The shared fragment helper covers HTML href/idrefs; SVG also uses
+            // xlink:href and CSS URLs in stylesheets and presentation attributes.
+            $href = trim(self::attr($candidate, 'xlink:href'));
+            if (str_starts_with($href, '#') && isset($ids[rawurldecode(substr($href, 1))])) {
+                return false;
+            }
+            $values = 'style' === strtolower($candidate->tagName) ? array($candidate->textContent) : array();
+            foreach ($candidate->attributes as $attribute) {
+                if (in_array(strtolower($attribute->name), array('style', 'mask', 'filter', 'clip-path', 'fill', 'stroke', 'marker', 'marker-start', 'marker-mid', 'marker-end'), true)) {
+                    $values[] = $attribute->value;
+                }
+            }
+            foreach ($values as $value) {
+                if (preg_match_all('/\burl\s*\(\s*["\']?#([^\s"\')]+)["\']?\s*\)/i', $value, $matches)) {
+                    foreach ($matches[1] as $id) {
+                        if (isset($ids[rawurldecode($id)])) {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
+    /** Referenced definitions-only SVGs must stay in the page, not in an image document. */
     public static function isDefinitionsOnlySvg(DOMElement $element): bool
     {
         if ('svg' !== strtolower($element->tagName)) {
@@ -1389,7 +1441,7 @@ final class SourceDom
                 $tag = strtolower($child->tagName);
                 if ('defs' === $tag) {
                     $hasDefinitions = $hasDefinitions || 0 < $child->getElementsByTagName('*')->length;
-                } elseif (!in_array($tag, array('title', 'desc', 'metadata'), true)) {
+                } elseif (!in_array($tag, array('style', 'title', 'desc', 'metadata'), true)) {
                     return false;
                 }
             } elseif (XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '')) {
