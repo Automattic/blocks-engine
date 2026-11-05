@@ -42,6 +42,28 @@ use DOMText;
  */
 final class SourceDom
 {
+    public static function anchorIsHeadingWrapped(DOMElement $anchor, DOMElement $boundary): bool
+    {
+        for ( $node = $anchor; $node instanceof DOMElement && ! $node->isSameNode($boundary); $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
+            if ( preg_match('/^h[1-6]$/', strtolower($node->tagName)) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public static function nearestPreviousHeadingText(DOMElement $element): string
+    {
+        for ( $node = $element->previousSibling; $node instanceof DOMNode; $node = $node->previousSibling ) {
+            if ( $node instanceof DOMElement && preg_match('/^h[1-6]$/i', $node->tagName) ) {
+                return trim(preg_replace('/\s+/', ' ', $node->textContent ?? '') ?? '');
+            }
+        }
+
+        return '';
+    }
+
     /**
      * Upper bound for an inline SVG data image kept in preserved HTML. Matches
      * the data URL budget the document head applies to embedded links.
@@ -387,43 +409,57 @@ final class SourceDom
 
     /**
      * Whether this anchor is the document's skip link: a fragment link to the
-     * document's first <main>, ahead of it and outside every landmark (a logo
-     * in the header that links to the top of <main> is the site's brand). A
+     * document's first main landmark or its first element descendant. Only the
+     * first keyboard-focusable element, ahead of main, is eligible. A
      * WordPress block template renders its own skip link to the template's
      * first <main> (keeping that element's id), so the authored one would be
      * a second.
      */
-    public static function isMainSkipLink(DOMElement $element): bool
+    public static function isMainSkipLink(DOMElement $element, string $sourcePath = ''): bool
     {
-        if ( 'a' !== strtolower($element->tagName) || 1 !== preg_match('/^#(.+)$/', trim(self::attr($element, 'href')), $match) ) {
+        $href = trim(self::attr($element, 'href'));
+        if ( 'a' !== strtolower($element->tagName) || 1 !== preg_match('/^([^#]*)#(.+)$/', $href, $match) ) {
             return false;
+        }
+        if ( '' !== $match[1] ) {
+            // Artifact paths use website/ as an optional packaging root, not a
+            // public URL prefix. Resolve relative links before comparing routes.
+            $documentPath = preg_replace('~^/?website/~', '', $sourcePath) ?? $sourcePath;
+            $reference = parse_url($match[1]);
+            if ( false === $reference || isset($reference['scheme']) || isset($reference['host']) || isset($reference['query']) ) return false;
+            $path = (string) ($reference['path'] ?? '');
+            $resolved = \Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath::resolveRelativePath(
+                ltrim($path, '/'), str_starts_with($path, '/') ? '' : ltrim($documentPath . ( str_ends_with($documentPath, '/') ? 'index.html' : '' ), '/')
+            );
+            $normalize = static fn (string $value): string => trim(preg_replace('~(?:^|/)index\.html$~', '', trim($value, '/')) ?? $value, '/');
+            if ( $normalize($resolved) !== $normalize($documentPath) ) return false;
         }
         $root = $element->ownerDocument?->documentElement;
         if ( ! $root instanceof DOMElement ) {
             return false;
         }
-        $main = $root->getElementsByTagName('main')->item(0);
-        if ( ! $main instanceof DOMElement || rawurldecode($match[1]) !== self::attr($main, 'id') ) {
+        $main = null;
+        foreach ( $root->getElementsByTagName('*') as $candidate ) {
+            if ( 'main' === strtolower($candidate->tagName) || 'main' === strtolower(self::attr($candidate, 'role')) ) {
+                $main = $candidate;
+                break;
+            }
+        }
+        $target = rawurldecode($match[2]);
+        if ( ! $main instanceof DOMElement || ( $target !== self::attr($main, 'id')
+            && $target !== ($main->firstElementChild?->getAttribute('id') ?? '') ) ) {
             return false;
         }
-        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
-            if ( in_array(strtolower($ancestor->tagName), array('header', 'nav', 'main', 'aside', 'footer', 'section', 'article'), true)
-                || in_array(strtolower(self::attr($ancestor, 'role')), array('banner', 'navigation', 'main', 'complementary', 'contentinfo', 'region'), true) ) {
-                return false;
-            }
-        }
-        return self::precedes($element, $main);
-    }
-
-    private static function precedes(DOMElement $first, DOMElement $second): bool
-    {
-        foreach ( $first->ownerDocument?->getElementsByTagName('*') ?? array() as $node ) {
-            if ( $node === $first ) {
-                return true;
-            }
-            if ( $node === $second ) {
-                return false;
-            }
+        foreach ( $root->getElementsByTagName('*') as $node ) {
+            if ( $node === $main ) return false;
+            $tabindex = trim(self::attr($node, 'tabindex'));
+            if ( $node->hasAttribute('hidden') || $node->hasAttribute('disabled') || ( '' !== $tabindex && (int) $tabindex < 0 ) ) continue;
+            $tag = strtolower($node->tagName);
+            $focusable = '' !== $tabindex || ( in_array($tag, array('a', 'area'), true) && $node->hasAttribute('href') )
+                || in_array($tag, array('button', 'select', 'textarea', 'summary'), true)
+                || ( 'input' === $tag && 'hidden' !== strtolower(self::attr($node, 'type')) )
+                || $node->hasAttribute('contenteditable');
+            if ( $focusable ) return $node === $element;
         }
         return false;
     }
@@ -1377,7 +1413,75 @@ final class SourceDom
         return true;
     }
 
-    /** Definitions-only SVGs must stay in the page, not in an image document. */
+    /**
+     * A zero-box resource carrier with no fragment consumers in the source.
+     *
+     * Only a zero width or height proves the carrier occupies no box: a shown
+     * SVG without one still lays out at its default 300x150 even when it holds
+     * nothing but definitions.
+     */
+    public static function isUnreferencedDefinitionsSvg(DOMElement $element): bool
+    {
+        if ('svg' !== strtolower($element->tagName) || 0 === self::childElementCount($element)) {
+            return false;
+        }
+        $zero = static fn (string $value): bool => 1 === preg_match('/^\s*[+-]?(?:0+(?:\.0+)?|\.0+)(?:px|em|rem|%)?\s*$/i', $value);
+        $inline = self::attr($element, 'style');
+        $hasZeroBox = false;
+        foreach (array('width', 'height') as $axis) {
+            $styled = preg_match('/(?:^|;)\s*' . $axis . '\s*:\s*([^;!]+)/i', $inline, $match) ? $match[1] : null;
+            $hasZeroBox = $hasZeroBox || (null !== $styled ? $zero($styled) : $zero(self::attr($element, $axis)));
+        }
+        if (! $hasZeroBox) {
+            return false;
+        }
+        foreach ($element->childNodes as $child) {
+            if ($child instanceof DOMElement && !in_array(strtolower($child->tagName), array('defs', 'style', 'title', 'desc'), true)) {
+                return false;
+            }
+            if (XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '')) {
+                return false;
+            }
+        }
+
+        $ids = array();
+        foreach (array_merge(array($element), iterator_to_array($element->getElementsByTagName('*'), false)) as $descendant) {
+            $id = self::attr($descendant, 'id');
+            if ('' !== $id) {
+                if (self::documentReferencesFragmentId($descendant, $id)
+                    || (DocumentReferenceIndex::forDocument($element->ownerDocument)?->referencesCssFragment($id) ?? false)) {
+                    return false;
+                }
+                $ids[$id] = true;
+            }
+        }
+        foreach ($element->ownerDocument?->getElementsByTagName('*') ?? array() as $candidate) {
+            // The shared fragment helper covers HTML href/idrefs; SVG also uses
+            // xlink:href and CSS URLs in stylesheets and presentation attributes.
+            $href = trim(self::attr($candidate, 'xlink:href'));
+            if (str_starts_with($href, '#') && isset($ids[rawurldecode(substr($href, 1))])) {
+                return false;
+            }
+            $values = 'style' === strtolower($candidate->tagName) ? array($candidate->textContent) : array();
+            foreach ($candidate->attributes as $attribute) {
+                if (in_array(strtolower($attribute->name), array('style', 'mask', 'filter', 'clip-path', 'fill', 'stroke', 'marker', 'marker-start', 'marker-mid', 'marker-end'), true)) {
+                    $values[] = $attribute->value;
+                }
+            }
+            foreach ($values as $value) {
+                if (preg_match_all('/\burl\s*\(\s*["\']?#([^\s"\')]+)["\']?\s*\)/i', $value, $matches)) {
+                    foreach ($matches[1] as $id) {
+                        if (isset($ids[rawurldecode($id)])) {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
+    /** Referenced definitions-only SVGs must stay in the page, not in an image document. */
     public static function isDefinitionsOnlySvg(DOMElement $element): bool
     {
         if ('svg' !== strtolower($element->tagName)) {
@@ -1389,7 +1493,7 @@ final class SourceDom
                 $tag = strtolower($child->tagName);
                 if ('defs' === $tag) {
                     $hasDefinitions = $hasDefinitions || 0 < $child->getElementsByTagName('*')->length;
-                } elseif (!in_array($tag, array('title', 'desc', 'metadata'), true)) {
+                } elseif (!in_array($tag, array('style', 'title', 'desc', 'metadata'), true)) {
                     return false;
                 }
             } elseif (XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '')) {

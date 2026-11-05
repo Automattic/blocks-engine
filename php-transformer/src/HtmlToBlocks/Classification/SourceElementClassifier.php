@@ -239,25 +239,6 @@ final class SourceElementClassifier
             && 0 < count(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array());
     }
 
-    /** @param array<string, mixed> $block */
-    public function isSingleGroupShellCandidate(array $block): bool
-    {
-        if ('core/group' !== ($block['blockName'] ?? null)
-            || 1 !== count(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array())
-            || isset($block['_binding_token'])
-            || in_array(strtolower((string) ($block['attrs']['tagName'] ?? 'div')), array('ul', 'ol', 'li'), true)
-        ) {
-            return false;
-        }
-        return true;
-    }
-
-    /** @param array<string, mixed> $block */
-    public function hasSourceProjectionClass(array $block): bool
-    {
-        return (bool) preg_match('/(?:^|\s)blocks-engine-(?:attribute|css-owned|editor-anchor|semantic|source)-/', (string) ($block['attrs']['className'] ?? ''));
-    }
-
     public function isLayoutShellSerializableStyle(string $style): bool
     {
         // React style objects cannot express declaration priority. Other

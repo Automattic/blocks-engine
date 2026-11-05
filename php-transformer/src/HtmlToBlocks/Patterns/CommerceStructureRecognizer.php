@@ -305,7 +305,7 @@ final class CommerceStructureRecognizer
                 SourceDom::attr($descendant, 'name'),
                 SourceDom::attr($descendant, 'aria-label'),
                 SourceDom::attr($descendant, 'value'),
-                implode(' ', $this->safeDataAttributes($descendant)),
+                implode(' ', SourceDom::safeDataAttributes($descendant)),
                 $this->collapsedText($descendant),
             )));
 
@@ -698,7 +698,7 @@ final class CommerceStructureRecognizer
     /** Text, class, id, aria-label and `data-*` attribute names, tokenized on non-alphanumerics. */
     private function vocabulary(DOMElement $element): string
     {
-        $dataNames = array_map(static fn (string $name): string => substr($name, 5), array_keys($this->safeDataAttributes($element)));
+        $dataNames = array_map(static fn (string $name): string => substr($name, 5), array_keys(SourceDom::safeDataAttributes($element)));
 
         return strtolower((string) preg_replace('/[^a-z0-9]+/i', ' ', implode(' ', array(
             SourceDom::attr($element, 'class'),
@@ -791,7 +791,7 @@ final class CommerceStructureRecognizer
     /** Tag, class, id, field attributes (label, placeholder, name, type), aria-label, `data-*` attribute names and text, tokenized on non-alphanumerics. */
     private function checkoutFieldVocabulary(DOMElement $element): string
     {
-        $dataNames = array_map(static fn (string $name): string => substr($name, 5), array_keys($this->safeDataAttributes($element)));
+        $dataNames = array_map(static fn (string $name): string => substr($name, 5), array_keys(SourceDom::safeDataAttributes($element)));
 
         return strtolower((string) preg_replace('/[^a-z0-9]+/i', ' ', implode(' ', array(
             $element->tagName,
@@ -833,7 +833,7 @@ final class CommerceStructureRecognizer
                 SourceDom::attr($descendant, 'id'),
                 SourceDom::attr($descendant, 'name'),
                 SourceDom::attr($descendant, 'aria-label'),
-                implode(' ', $this->safeDataAttributes($descendant)),
+                implode(' ', SourceDom::safeDataAttributes($descendant)),
                 $this->collapsedText($descendant),
             )));
 
@@ -1013,18 +1013,4 @@ final class CommerceStructureRecognizer
         return trim(preg_replace('/\s+/', ' ', $element->textContent ?? '') ?? '');
     }
 
-    /**
-     * @return array<string, string>
-     */
-    private function safeDataAttributes(DOMElement $element): array
-    {
-        $data = array();
-        foreach ( SourceDom::htmlAttributes($element) as $name => $value ) {
-            if ( preg_match('/^data-[a-z0-9_-]+$/i', $name) && strlen($value) <= 300 && ! preg_match('/javascript\s*:/i', $value) ) {
-                $data[$name] = $value;
-            }
-        }
-
-        return $data;
-    }
 }

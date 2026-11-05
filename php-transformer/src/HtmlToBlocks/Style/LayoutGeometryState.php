@@ -23,11 +23,6 @@ final class LayoutGeometryState
         $this->carrierClassAllocator = new GeometryCarrierClassAllocator();
     }
 
-    public function hasProofReductions(): bool
-    {
-        return array() !== $this->proofReductions;
-    }
-
     /** @return array<int, array<string, mixed>> */
     public function proofReductions(): array
     {

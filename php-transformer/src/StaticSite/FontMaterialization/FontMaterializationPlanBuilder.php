@@ -545,28 +545,6 @@ final class FontMaterializationPlanBuilder
     }
 
     /**
-     * Collect every typeface referenced by `font-family` declarations in CSS.
-     *
-     * @return array<int,array{family:string,weights:array<int,int>}>
-     */
-    public function fontUsageFromCssDeclarations(string $css): array
-    {
-        $usage = array();
-        if ( ! preg_match_all('/font-family\s*:\s*([^;{}]+)/i', $css, $matches) ) {
-            return $usage;
-        }
-
-        foreach ( $matches[1] as $declaration ) {
-            $family = $this->primaryFamily((string) $declaration);
-            if ( '' !== $family ) {
-                $usage[] = array('family' => $family, 'weights' => array(400));
-            }
-        }
-
-        return $usage;
-    }
-
-    /**
      * Map `font-family` declarations to heading/body roles based on selectors.
      *
      * @return array<string,string>

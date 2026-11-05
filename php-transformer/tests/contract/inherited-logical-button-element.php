@@ -9,6 +9,15 @@ $fixture = require dirname(__DIR__) . '/fixtures/design-system/inherited-logical
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
 };
+$paddingValues = static function (array $styles, array $theme): array {
+    $padding = $styles['spacing']['padding'] ?? array();
+    if (is_string($padding)) {
+        $parts = preg_split('/\s+/', $padding);
+        return array($parts[0], $parts[1] ?? $parts[0], $parts[2] ?? $parts[0], $parts[3] ?? $parts[1] ?? $parts[0]);
+    }
+    $scale = array_column($theme['settings']['spacing']['spacingSizes'] ?? array(), 'size', 'slug');
+    return array_values(array_map(static fn(string $value): string => $scale[substr($value, strlen('var:preset|spacing|'))] ?? $value, $padding));
+};
 $plan = (new ArtifactCompiler())->compile($fixture)->toArray()['source_reports']['wordpress_site_plan'];
 $markup = '';
 foreach ($plan['writes'] as $write) {
@@ -17,7 +26,7 @@ foreach ($plan['writes'] as $write) {
 }
 $button = $theme['styles']['elements']['button'] ?? array();
 $assert('8px' === ($button['border']['radius'] ?? null), 'button element radius');
-$assert('7.5px 15px' === ($button['spacing']['padding'] ?? null), 'logical variable-backed padding');
+$assert(array('7.5px', '15px', '7.5px', '15px') === $paddingValues($button, $theme), 'logical variable-backed padding');
 $assert('400' === ($button['typography']['fontWeight'] ?? null), 'button weight');
 foreach (array('fontFamily' => 'font-family', 'fontSize' => 'font-size') as $key => $preset) $assert(str_starts_with($button['typography'][$key] ?? '', 'var:preset|' . $preset . '|'), $key . ' preset');
 $families = array_column($theme['settings']['typography']['fontFamilies'], 'fontFamily', 'slug');
@@ -52,10 +61,11 @@ foreach (array('physical', 'focus', 'media', 'conditional-variable', 'unsupporte
     $variant = (new ArtifactCompiler())->compile($input)->toArray()['source_reports']['wordpress_site_plan'];
     foreach ($variant['writes'] as $write) {
         if ('theme.json' !== $write['target_path']) continue;
-        $styles = json_decode($write['payload']['data'], true, 512, JSON_THROW_ON_ERROR)['styles']['elements']['button'] ?? array();
+        $variantTheme = json_decode($write['payload']['data'], true, 512, JSON_THROW_ON_ERROR);
+        $styles = $variantTheme['styles']['elements']['button'] ?? array();
         if (in_array($case, array('media', 'conditional-variable'), true)) $assert(!isset($styles['spacing']['padding']), $case . ' disqualifies padding');
         else {
-            $assert('7.5px 15px' === ($styles['spacing']['padding'] ?? null), $case . ' preserves the look');
+            $assert(array('7.5px', '15px', '7.5px', '15px') === $paddingValues($styles, $variantTheme), $case . ' preserves the look');
             if ('relative-size' === $case) $assert(!isset($styles['typography']['fontSize']), 'relative size disqualifies only size');
             if ('original' === $case) $assert('700' === ($styles['typography']['fontWeight'] ?? null), $case . ' weight');
             if ('unsupported-state' === $case) $assert(!isset($styles[':hover']['color']['text']), 'unsupported hover drops only the state');
@@ -101,7 +111,7 @@ foreach ($variant['writes'] as $write) {
     if ('theme.json' === $write['target_path']) {
         $theme = json_decode($write['payload']['data'], true, 512, JSON_THROW_ON_ERROR);
         $styles = $theme['styles']['elements']['button'] ?? array();
-        $assert('7.5px 15px' === ($styles['spacing']['padding'] ?? null), 'majority padding promoted despite minority');
+        $assert(array('7.5px', '15px', '7.5px', '15px') === $paddingValues($styles, $theme), 'majority padding promoted despite minority');
         $sizes = array_column($theme['settings']['typography']['fontSizes'], 'size', 'slug');
         $assert('15px' === ($sizes[substr($styles['typography']['fontSize'] ?? '', strlen('var:preset|font-size|'))] ?? null), 'majority font size promoted despite minority');
         $assert(!isset($styles['border']['radius']), 'radius tie remains unpromoted');
@@ -134,4 +144,33 @@ foreach ($variant['writes'] as $write) {
         $assert(!isset($styles[':' . $state]['color']['text']), $state . ' cannot defeat important resting text');
     }
 }
+$input = require dirname(__DIR__) . '/fixtures/design-system/preset-padding-buttons.php';
+$variant = (new ArtifactCompiler())->compile($input)->toArray()['source_reports']['wordpress_site_plan'];
+$majority = $minority = 0;
+foreach ($variant['writes'] as $write) {
+    if ('theme.json' === $write['target_path']) {
+        $theme = json_decode($write['payload']['data'], true, 512, JSON_THROW_ON_ERROR);
+        $padding = $theme['styles']['elements']['button']['spacing']['padding'] ?? array();
+        $scale = array_column($theme['settings']['spacing']['spacingSizes'], 'size', 'slug');
+        foreach (array('top' => '7.5px', 'right' => '15px', 'bottom' => '7.5px', 'left' => '15px') as $side => $value) {
+            $reference = $padding[$side] ?? '';
+            $assert(str_starts_with($reference, 'var:preset|spacing|'), 'element padding side binds to spacing preset');
+            $assert($value === ($scale[substr($reference, strlen('var:preset|spacing|'))] ?? null), 'element spacing preset preserves padding');
+        }
+        continue;
+    }
+    preg_match_all('/<!-- wp:button(?: (\{.*?\}))? -->(.*?)<!-- \/wp:button -->/s', $write['payload']['data'], $matches, PREG_SET_ORDER);
+    foreach ($matches as $match) {
+        $attrs = json_decode($match[1], true, 512, JSON_THROW_ON_ERROR);
+        if (str_contains($match[2], '>Small<')) {
+            ++$minority;
+            $assert(isset($attrs['style']['spacing']['padding']), 'minority padding stays block-owned');
+        } else {
+            ++$majority;
+            $assert(!isset($attrs['style']['spacing']['padding']), 'matching preset padding is dropped from blocks');
+            $assert(!str_contains($match[2], 'padding-'), 'matching saved padding declarations are dropped');
+        }
+    }
+}
+$assert($majority > 0 && $minority > 0, 'preset fixture covers majority and minority buttons');
 echo "Inherited logical button element contract passed\n";

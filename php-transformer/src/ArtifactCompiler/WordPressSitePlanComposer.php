@@ -16,6 +16,8 @@ use InvalidArgumentException;
 /** Derives WordPress site-plan production from a canonical transformer envelope. */
 final class WordPressSitePlanComposer
 {
+    use \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactDiagnostics;
+
     /**
      * @param array<string, int|float> $processMetrics
      */
@@ -139,41 +141,4 @@ final class WordPressSitePlanComposer
         return ( new WordPressSitePlanView() )->fromResult($result);
     }
 
-    /**
-     * @param array<int, array<string, mixed>> $diagnostics
-     */
-    private function statusFromDiagnostics(array $diagnostics): string
-    {
-        $warningDiagnostics = array();
-        foreach ( $diagnostics as $diagnostic ) {
-            if ( 'error' === ($diagnostic['severity'] ?? '') ) {
-                return 'failed';
-            }
-
-            if ( in_array(($diagnostic['code'] ?? ''), array('preserved_runtime_island', 'runtime_dom_contract_preserved', 'runtime_dom_contract_fallback'), true) ) {
-                continue;
-            }
-
-            $warningDiagnostics[] = $diagnostic;
-        }
-        return array() === $warningDiagnostics ? 'success' : 'success_with_warnings';
-    }
-
-    /**
-     * @param array<string, mixed> $context
-     * @return array<string, mixed>
-     */
-    private function diagnostic(string $code, string $severity, string $message, array $context = array()): array
-    {
-        return array_filter(
-            array(
-                'code'     => $code,
-                'severity' => $severity,
-                'message'  => $message,
-                'source'   => ArtifactCompiler::class,
-                'context'  => $context,
-            ),
-            static fn (mixed $value): bool => array() !== $value
-        );
-    }
 }

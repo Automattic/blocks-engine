@@ -19,9 +19,20 @@ final class DocumentReferenceIndex
     /** @var array<string, array<string, true>> */
     private array $dialogControls = array();
 
-    public static function install(DOMDocument $document): void
+    /** @var array<string, true> */
+    private array $cssFragments = array();
+
+    public function referencesCssFragment(string $id): bool
+    {
+        return isset($this->cssFragments[$id]);
+    }
+
+    public static function install(DOMDocument $document, string $sourceCss = ''): void
     {
         $index = new self();
+        if (preg_match_all('/\burl\s*\(\s*["\']?#([^\s"\')]+)["\']?\s*\)/i', $sourceCss, $matches)) {
+            foreach ($matches[1] as $id) $index->cssFragments[rawurldecode($id)] = true;
+        }
         foreach ($document->getElementsByTagName('*') as $candidate) {
             $identity = trim(SourceDom::attr($candidate, 'id'));
             if ('' !== $identity) $index->ids[$identity][] = $candidate;

@@ -25,6 +25,8 @@ use DOMElement;
 /** Navigation-only evidence and policy, backed by real collaborators. */
 final class NavigationPatternContext
 {
+    use \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ResolvedPatternStyle;
+
     public function __construct(
         private readonly ?StyleResolver $styleResolver = null,
         private readonly ?NavigationStyleProjector $navigationStyleProjector = null,
@@ -326,18 +328,6 @@ final class NavigationPatternContext
     public function resolvedBoxSizing(DOMElement $element): string
     {
         return (string) ($this->styleResolver?->referenceViewportAuthorDeclarations($element, array('box-sizing'))['box-sizing'] ?? 'content-box');
-    }
-
-    public function resolvedStyle(DOMElement $element): string
-    {
-        if ( ! $this->styleResolver instanceof StyleResolver ) {
-            return '';
-        }
-
-        return $this->styleResolver->resolveCssVariablesInValue(
-            $this->styleResolver->specificityResolvedPresentationStyle($element),
-            $element
-        );
     }
 
     /**

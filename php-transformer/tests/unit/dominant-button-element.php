@@ -21,7 +21,12 @@ foreach ($plan['writes'] as $write) {
 }
 $button = $theme['styles']['elements']['button'] ?? array();
 $assert('9px' === ($button['border']['radius'] ?? null), 'dominant button radius');
-$assert('13px 22px' === ($button['spacing']['padding'] ?? null), 'dominant button padding');
+$spacing = array_column($theme['settings']['spacing']['spacingSizes'], 'size', 'slug');
+$padding = $button['spacing']['padding'] ?? array();
+foreach (array('top' => '13px', 'right' => '22px', 'bottom' => '13px', 'left' => '22px') as $side => $value) {
+    $reference = $padding[$side] ?? '';
+    $assert($value === ($spacing[substr($reference, strlen('var:preset|spacing|'))] ?? $reference), 'dominant button padding ' . $side);
+}
 $type = $button['typography'] ?? array();
 foreach (array('fontWeight' => '600', 'textTransform' => 'uppercase', 'letterSpacing' => '.07em') as $key => $value) $assert($value === ($type[$key] ?? null), $key . ' belongs to the element');
 foreach (array('fontSize' => 'font-size', 'fontFamily' => 'font-family') as $key => $preset) $assert(str_starts_with($type[$key] ?? '', 'var:preset|' . $preset . '|'), $key . ' uses a preset');
@@ -103,7 +108,14 @@ foreach (array('tie', 'responsive', 'unstyled') as $case) {
         if ('theme.json' !== $write['target_path']) continue;
         $negative = json_decode($write['payload']['data'], true, 512, JSON_THROW_ON_ERROR);
         if ('unstyled' === $case) $assert(!isset($negative['styles']['elements']['button']['spacing']['padding']), 'unstyled: no unproven dominant look');
-        else $assert('13px 22px' === ($negative['styles']['elements']['button']['spacing']['padding'] ?? null), $case . ': shared padding survives');
+        else {
+            $scale = array_column($negative['settings']['spacing']['spacingSizes'], 'size', 'slug');
+            $actual = $negative['styles']['elements']['button']['spacing']['padding'] ?? array();
+            foreach (array('top' => '13px', 'right' => '22px', 'bottom' => '13px', 'left' => '22px') as $side => $value) {
+                $reference = $actual[$side] ?? '';
+                $assert($value === ($scale[substr($reference, strlen('var:preset|spacing|'))] ?? $reference), $case . ': shared padding survives');
+            }
+        }
         if ('responsive' === $case) $assert(!isset($negative['styles']['elements']['button']['typography']['fontSize']), 'responsive size stays local');
         $assert(!isset($negative['styles']['blocks']['core/button']['variations']), $case . ': no variation');
     }

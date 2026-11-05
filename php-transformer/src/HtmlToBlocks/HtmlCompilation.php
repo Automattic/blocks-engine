@@ -1692,6 +1692,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
         $timer->start('transform.source_normalization');
         SourceDom::removeIntegerKeyAttributes($body);
+        $definitionClips = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::replacements($body);
+        if (array() !== $definitionClips) {
+            foreach ($body->getElementsByTagName('*') as $sourceElement) {
+                if ($sourceElement->hasAttribute('style')) {
+                    $sourceElement->setAttribute('style', \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::rewrite($sourceElement->getAttribute('style'), $definitionClips));
+                }
+            }
+        }
         $this->restoreNativeNavigationPanels($body);
         $this->restoreCapturedExistingPanelRestingStates($body);
         // Capture evidence, not content: read before anything serializes the source.
@@ -1762,7 +1770,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (array $finding): array => FallbackDiagnostic::build($finding, $this->transformationProvenance()->fallback()),
             $paymentWidgetFindings
         );
-        \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DocumentReferenceIndex::install($document);
+        \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DocumentReferenceIndex::install($document, $this->documentAuthorCss);
         \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\InteractiveSurface::indexDocument($document);
         try {
             $interactionCandidates = $this->interactionFallbackReporter->interactionCandidates($body);
@@ -4349,6 +4357,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $mediaDispatch->block;
         }
 
+        // Core owns the template's keyboard skip control, including in reduced mode.
+        if ( 'a' === $tagName && $this->styleResolver->isFocusRevealedSkipLink($element, $this->currentSourcePath) ) {
+            return null;
+        }
+
         if ($this->session->usesFallbackReductionMode() && ( 'button' === $tagName || ( 'a' === $tagName && ! $this->sourceElementClassifier->hasBlockLevelDescendant($element) && '' === trim($this->attr($element, 'aria-label')) ) )) {
             $text = $this->innerHtml($element);
             if ('' !== trim($this->runtime->stripAllTags($text))) {
@@ -4371,11 +4384,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if ( SourceDom::isEmptyNamedFragmentTarget($element) ) {
                 return null;
             }
-            // The block template renders the native skip link to this main.
-            if ( SourceDom::isMainSkipLink($element) ) {
-                return null;
-            }
-
             $anchorBlock = $this->buttonLinkDispatcher->convertAnchor($element, $fallbacks);
             if ( null !== $anchorBlock ) {
                 return $anchorBlock;
@@ -7257,7 +7265,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 return false;
             }
             $anchor = $anchors->item(0);
-            if ( ! $anchor instanceof DOMElement || ! $this->anchorIsHeadingWrapped($anchor, $child) ) {
+            if ( ! $anchor instanceof DOMElement || ! SourceDom::anchorIsHeadingWrapped($anchor, $child) ) {
                 return false;
             }
             $href = trim($this->attr($anchor, 'href'));
@@ -7269,17 +7277,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return 3 <= $items;
-    }
-
-    private function anchorIsHeadingWrapped(DOMElement $anchor, DOMElement $boundary): bool
-    {
-        for ( $node = $anchor; $node instanceof DOMElement && ! $node->isSameNode($boundary); $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
-            if ( preg_match('/^h[1-6]$/', strtolower($node->tagName)) ) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private function shouldPreserveEmptyVisualElement(DOMElement $element): bool { return $this->emptyElementFootprint->shouldPreserveEmptyVisualElement($element, $this->emptyVisualRetentionPolicy($element)); }
@@ -8329,7 +8326,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'selector'                => $this->elementSelector($element),
             'parent_tag'              => $element->parentNode instanceof DOMElement && 'body' !== strtolower($element->parentNode->tagName) ? strtolower($element->parentNode->tagName) : '',
             'ancestor_tags'           => $this->ancestorTags($element),
-            'nearest_heading'         => $this->nearestPreviousHeadingText($element),
+            'nearest_heading'         => SourceDom::nearestPreviousHeadingText($element),
             'role'                    => $this->attr($element, 'role'),
             'id'                      => $this->attr($element, 'id'),
             'class_names'             => $this->classNames($element),
@@ -8349,17 +8346,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return array_values(array_unique($classes));
-    }
-
-    private function nearestPreviousHeadingText(DOMElement $element): string
-    {
-        for ( $node = $element->previousSibling; $node instanceof DOMNode; $node = $node->previousSibling ) {
-            if ( $node instanceof DOMElement && preg_match('/^h[1-6]$/i', $node->tagName) ) {
-                return trim(preg_replace('/\s+/', ' ', $node->textContent ?? '') ?? '');
-            }
-        }
-
-        return '';
     }
 
     /**

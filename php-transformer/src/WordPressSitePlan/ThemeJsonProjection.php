@@ -553,6 +553,11 @@ final class ThemeJsonProjection
             $paths[$state . '_background'] = array(array(':' . $state, 'color', 'background'), $color);
         }
         foreach (array('text_transform' => array('typography', 'textTransform'), 'letter_spacing' => array('typography', 'letterSpacing'), 'radius' => array('border', 'radius'), 'padding' => array('spacing', 'padding')) as $field => $path) $paths[$field] = array($path, static fn(string $value): string => $value);
+        $paths['padding'] = array(array('spacing', 'padding'), static function (string $value) use ($system): array|string {
+            $padding = $system->buttonPadding($value);
+            // Preserve the shorthand when no side has a matching spacing preset.
+            return array() === array_filter($padding, static fn(string $side): bool => str_starts_with($side, 'var:preset|spacing|')) ? $value : $padding;
+        });
         $properties = array('color' => array('color'), 'background' => array('background', 'background-color'), 'font_family' => array('font-family', 'font'), 'font_size' => array('font-size', 'font'), 'font_weight' => array('font-weight', 'font'), 'line_height' => array('line-height', 'font'));
         $elements = $system->elements;
         if (null !== $system->buttonVariationSlug()) $elements['button'] = $system->buttonVariation;

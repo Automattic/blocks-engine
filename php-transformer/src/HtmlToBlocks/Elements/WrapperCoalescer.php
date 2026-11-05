@@ -12,6 +12,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlAttributeName;
 use Closure;
@@ -377,7 +378,7 @@ final class WrapperCoalescer
             array('has_role_attribute', fn (): bool => '' !== trim(SourceDom::attr($element, 'role'))),
             array('non_neutral_geometry_without_proof', fn (): bool => null === $proof && ! $fullWidthTransparentShell && ! $this->hasOnlyRenderNeutralInlineGeometry($element) && ! $redundantNestedLayout),
             array('has_interactive_attributes', fn (): bool => array() !== $this->interactiveAttributes($element)),
-            array('has_data_attributes_without_proof', fn (): bool => null === $proof && array() !== $this->safeDataAttributes($element)),
+            array('has_data_attributes_without_proof', fn (): bool => null === $proof && array() !== SourceDom::safeDataAttributes($element)),
             array('has_structure_signals_without_proof', fn (): bool => null === $proof && $this->hasBlockingStructureSignals($element, $childBlock) && ! $redundantNestedLayout),
             array('has_motion_structure_token', fn (): bool => $this->sourceElementClassifier->hasMotionStructureToken($element)),
         );
@@ -657,7 +658,9 @@ final class WrapperCoalescer
     /** @param array<string,string> $declarations */
     private function hasOnlyRenderNeutralBoxAffectingDeclarationMap(array $declarations): bool
     {
+        $zeroWidthBorder = (new StyleAttributeMapper())->allBorderWidthsZero($declarations);
         foreach ($declarations as $property => $value) {
+            if ($zeroWidthBorder && preg_match('/^border(?:-(?:top|right|bottom|left))?(?:-(?:width|style|color))?$/', $property)) continue;
             if (! preg_match('/^(?:align-content|align-items|align-self|background|border|bottom|column|contain|display|filter|flex|float|gap|grid|height|inset|isolation|left|margin|max-|min-|opacity|outline|overflow|padding|perspective|position|right|row-gap|top|transform|width|z-index)/', $property)) continue;
             if (! $this->isRenderNeutralGeometryDeclaration($property, $value)) return false;
         }
@@ -916,7 +919,7 @@ final class WrapperCoalescer
             || '' !== trim(SourceDom::attr($element, 'role'))
             || ! $this->hasOnlyRenderNeutralInlineGeometry($element)
             || array() !== $this->interactiveAttributes($element)
-            || array() !== $this->safeDataAttributes($element)
+            || array() !== SourceDom::safeDataAttributes($element)
             || array() !== ($this->structureSignals)($element)
             || $this->sourceElementClassifier->hasMotionStructureToken($element)
             || ! $this->hasOnlyRenderNeutralBoxAffectingDeclarations($element)
@@ -944,18 +947,6 @@ final class WrapperCoalescer
             'aria-controls' => SourceDom::attr($element, 'aria-controls'),
             'has_events'    => array() !== SourceDom::eventMetadata($element),
         ), static fn (mixed $value): bool => false !== $value && '' !== $value);
-    }
-
-    /** @return array<string, string> */
-    private function safeDataAttributes(DOMElement $element): array
-    {
-        $data = array();
-        foreach ( SourceDom::htmlAttributes($element) as $name => $value ) {
-            if ( preg_match('/^data-[a-z0-9_-]+$/i', $name) && strlen($value) <= 300 && ! preg_match('/javascript\s*:/i', $value) ) {
-                $data[$name] = $value;
-            }
-        }
-        return $data;
     }
 
     private function generatedBlocks(): GeneratedBlockRegistry

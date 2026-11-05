@@ -12,6 +12,8 @@ use DOMElement;
 /** Projects verified choice-group transitions into an editable companion marker. */
 final class CapturedChoiceGroupProjector
 {
+    use \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CapturedDocumentScopes;
+
     private const KIND = 'choice-group';
     private const MAX_GROUPS_PER_PAGE = 8;
     private const MAX_CHOICES = 32;
@@ -617,22 +619,6 @@ final class CapturedChoiceGroupProjector
             }
         }
         return array('status' => array() === $elements ? 'unmatched' : 'matched', 'elements' => $elements);
-    }
-
-    /** @return array<int, DOMElement> */
-    private function documentScopes(DOMDocument $document): array
-    {
-        $body = $document->getElementsByTagName('body')->item(0) ?? $document->documentElement;
-        if (! $body instanceof DOMElement) {
-            return array();
-        }
-        $scopes = array();
-        foreach ($body->childNodes as $child) {
-            if ($child instanceof DOMElement && $this->isResponsiveDocumentWrapper($child)) {
-                $scopes[] = $child;
-            }
-        }
-        return array() === $scopes ? array($body) : $scopes;
     }
 
     private function isResponsiveDocumentWrapper(DOMElement $element): bool

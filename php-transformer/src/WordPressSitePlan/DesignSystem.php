@@ -467,6 +467,19 @@ final class DesignSystem
         return null;
     }
 
+    /** Expand button padding and bind each side exactly as block spacing binds. */
+    public function buttonPadding(string $value): array
+    {
+        $parts = preg_split('/\s+/', trim($value)) ?: array();
+        $values = array($parts[0], $parts[1] ?? $parts[0], $parts[2] ?? $parts[0], $parts[3] ?? $parts[1] ?? $parts[0]);
+        $padding = array();
+        foreach (array('top', 'right', 'bottom', 'left') as $index => $side) {
+            $slug = $this->spacingSlug($values[$index]);
+            $padding[$side] = null === $slug ? $values[$index] : 'var:preset|spacing|' . $slug;
+        }
+        return $padding;
+    }
+
     /** Slug of the font family preset with the same primary family, or null. */
     public function fontFamilySlug(string $stack): ?string
     {
