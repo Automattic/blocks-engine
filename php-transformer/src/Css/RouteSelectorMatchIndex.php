@@ -229,7 +229,10 @@ final class RouteSelectorMatchIndex
      */
     public static function dependsOnRouteState(string $arm): bool
     {
-        if (preg_match('/\[\s*(?:aria-current|data-status|data-state)\b/i', $arm)) return true;
+        // Capture device ancestors are restored at render time, including on
+        // shared parts absent from an individual route's serialized content.
+        // Their absence cannot prove a flattened projection inert elsewhere.
+        if (preg_match('/\[\s*(?:aria-current|data-status|data-state|' . preg_quote(\Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker::DEVICE_SCOPE_ATTRIBUTE, '/') . '|' . preg_quote(\Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence::DEVICE_DOCUMENT, '/') . ')\b/i', $arm)) return true;
         // Escapes cannot safely be interpreted by this lightweight proof.
         if (str_contains($arm, '\\')) return true;
         preg_match_all('/\.([A-Za-z0-9_-]+)/', $arm, $classes);

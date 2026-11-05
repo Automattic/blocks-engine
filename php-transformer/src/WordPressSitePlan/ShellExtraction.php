@@ -1410,7 +1410,7 @@ final class ShellExtraction
     public function sharedShells(array $pages, array $reservedSlugs = array(), array $runtimeDeclarations = array(), array $runtimeEntityRecords = array(), bool $partitionTypes = true, bool $partitionHeaders = true, array $assets = array()): array
     {
         $this->resolveManifestEntities($runtimeDeclarations, $runtimeEntityRecords);
-        $pages = self::withWordmarkRouteState($pages, $assets);
+        $pages = self::withWordmarkRouteState(self::withRouteCurrentLinksAtRest($pages), $assets);
         // Route-numbered id canonicalization must not merge a shell whose id an
         // applying stylesheet names, so the shared-chrome scoping inventory of
         // stylesheet selectors is computed for the candidate pages up front.
@@ -3207,7 +3207,7 @@ final class ShellExtraction
             ++$applicable;
             foreach ($page['shell_candidates'] ?? array() as $candidateIndex => $candidate) {
                 if ('header' !== $candidate['area']) continue;
-                $markup = $candidate['markup'];
+                $markup = $candidate['rest_markup'] ?? $candidate['markup'];
                 $nodes = self::blockNodes(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup));
                 foreach ($nodes as $node) {
                     if (!in_array($node['name'], array('group', 'heading', 'paragraph'), true)) continue;
@@ -3284,14 +3284,88 @@ final class ShellExtraction
             foreach ($routes as $index => $matches) {
                 $match = $matches[0];
                 $candidate = &$pages[$index]['shell_candidates'][$match['candidate']];
-                $identity = substr_replace($candidate['markup'], '<!-- shared-wordmark:' . $signature . ' -->', $match['offset'], $match['length']);
+                $markup = $candidate['rest_markup'] ?? $candidate['markup'];
+                $identity = substr_replace($markup, '<!-- shared-wordmark:' . $signature . ' -->', $match['offset'], $match['length']);
                 $candidate['identity_markup'] = self::normalizeNestedChromeMarkup($identity);
                 $candidate['wordmark_route_state'] = true;
-                $part = substr_replace($candidate['markup'], $match['replacement'], $match['leaf_offset'], $match['leaf_length']);
+                $part = substr_replace($markup, $match['replacement'], $match['leaf_offset'], $match['leaf_length']);
                 $candidate['template_part_markup'] = self::landmarkPartMarkup(self::withoutCurrentNavigationState($part), 'header');
                 unset($candidate);
             }
         }
+        return $pages;
+    }
+
+    /**
+     * A menu can mark the served route's link with nothing but a class swap:
+     * no aria-current, no current/active token. Cross-route evidence names it
+     * anyway: a link's look on the routes it does not name is its resting
+     * presentation. The comparison and part copies give the link naming the
+     * served route that resting look; the navigation keeps its current-item
+     * markers, so WordPress paints whichever item is current per request.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     * @return array<int,array<string,mixed>>
+     */
+    private static function withRouteCurrentLinksAtRest(array $pages): array
+    {
+        $link = '/<!--\s*wp:navigation-link\s+(\{.*?\})\s*\/-->/s';
+        $isMarker = static fn (string $class): bool => 1 === preg_match('/^blocks-engine-(?:current-navigation-|navigation-current-)/', $class);
+        $classes = static fn (array $attrs): array => array_values(array_filter(preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array()));
+        $atRest = static function (array $attrs) use ($isMarker, $classes): array {
+            $kept = array_values(array_filter($classes($attrs), static fn (string $class): bool => !$isMarker($class)));
+            if (array() === $kept) unset($attrs['className']); else $attrs['className'] = implode(' ', $kept);
+            return $attrs;
+        };
+        $names = static fn (array $attrs, string $route): bool => is_string($attrs['url'] ?? null) && !str_contains($attrs['url'], '#')
+            && ('' === ($path = rtrim(explode('?', $attrs['url'])[0], '/')) ? '/' : $path) === $route;
+        $key = static fn (string $area, array $attrs): string => $area . "\0" . json_encode(array($attrs['label'] ?? null, rtrim((string) ($attrs['url'] ?? ''), '/')));
+        $resting = array();
+        foreach ($pages as $page) {
+            if (!empty($page['synthetic'])) continue;
+            $route = (string) ($page['route']['path'] ?? '');
+            foreach ($page['shell_candidates'] ?? array() as $candidate) {
+                preg_match_all($link, $candidate['markup'], $matches);
+                foreach ($matches[1] as $json) {
+                    $attrs = json_decode($json, true);
+                    if (!is_array($attrs) || $names($attrs, $route)) continue;
+                    $rest = $atRest($attrs);
+                    $resting[$key($candidate['area'], $attrs)][BlockAttributes::encode($rest)] = $rest;
+                }
+            }
+        }
+        foreach ($pages as &$page) {
+            if (!empty($page['synthetic']) || !is_array($page['shell_candidates'] ?? null)) continue;
+            $route = (string) ($page['route']['path'] ?? '');
+            foreach ($page['shell_candidates'] as &$candidate) {
+                $markup = $candidate['markup'];
+                $rested = preg_replace_callback($link, static function (array $match) use ($route, $resting, $candidate, $names, $key, $atRest, $isMarker, $classes): string {
+                    $attrs = json_decode($match[1], true);
+                    if (!is_array($attrs) || !$names($attrs, $route)) return $match[0];
+                    // Only one resting look is evidence of the link's own presentation.
+                    $rest = $resting[$key($candidate['area'], $attrs)] ?? array();
+                    if (1 !== count($rest)) return $match[0];
+                    $rest = reset($rest);
+                    if ($rest === $atRest($attrs)) return $match[0];
+                    $markers = array_values(array_filter($classes($attrs), $isMarker));
+                    if (array() !== $markers) $rest['className'] = trim(($rest['className'] ?? '') . ' ' . implode(' ', $markers));
+                    return '<!-- wp:navigation-link ' . BlockAttributes::encode($rest) . ' /-->';
+                }, $markup) ?? $markup;
+                if ($rested === $markup) continue;
+                // Recompute only copies this candidate's own derivation reproduces.
+                $identity = match ($candidate['identity_markup'] ?? null) {
+                    self::normalizeNestedChromeMarkup($markup) => self::normalizeNestedChromeMarkup($rested),
+                    self::nestedChromeIdentity($markup) => self::nestedChromeIdentity($rested),
+                    default => null,
+                };
+                if (null === $identity || ($candidate['template_part_markup'] ?? null) !== self::landmarkPartMarkup(self::withoutCurrentNavigationState($markup), $candidate['area'])) continue;
+                $candidate['rest_markup'] = $rested;
+                $candidate['identity_markup'] = $identity;
+                $candidate['template_part_markup'] = self::landmarkPartMarkup(self::withoutCurrentNavigationState($rested), $candidate['area']);
+            }
+            unset($candidate);
+        }
+        unset($page);
         return $pages;
     }
 
@@ -3675,7 +3749,7 @@ final class ShellExtraction
                 // The part keeps the item's own link-state carrier, which the
                 // navigation-root current-color rule resolves its state against.
                 $stateCarriers = $semanticIdentity ? array() : array_values(array_filter($classes, static fn(string $class): bool => 1 === preg_match('/^blocks-engine-navigation-link-color-states-\d+$/', $class)));
-                $merged = array_values(array_filter(array_merge($peerClasses, $stable, $stateCarriers), static fn(string $class): bool => '' !== $class));
+                $merged = array_values(array_unique(array_filter(array_merge($peerClasses, $stable, $stateCarriers), static fn(string $class): bool => '' !== $class)));
                 if (array() === $merged) unset($attrs['className']); else $attrs['className'] = implode(' ', $merged);
                 return '<!-- wp:' . $match[1] . ' ' . BlockAttributes::encode($attrs) . ' ' . (($match[3] ?? '') ? '/' : '') . '-->';
             }
