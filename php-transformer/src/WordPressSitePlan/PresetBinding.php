@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Contract\ResponsiveCorrespondence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
@@ -109,7 +111,7 @@ final class PresetBinding
     private const CLASS_STYLE_PROPERTIES = array('color', 'background-color', 'font-size', 'font-family', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left');
 
     /** Classes WordPress or the engine add to a block; they do not identify the author's class list. */
-    private const GENERATED_CLASS = '/^(?:wp-|has-|is-layout-|is-content-justification-|is-nowrap$|is-vertical$|blocks-engine-|align(?:wide|full|left|right|center)$)/';
+    private const GENERATED_CLASS = '/^(?:' . CaptureEvidence::RESPONSIVE_COUNTERPART_CLASS_PREFIX . '|' . ResponsiveCorrespondence::TOKEN_CLASS_PREFIX . '|wp-|has-|is-layout-|is-content-justification-|is-nowrap$|is-vertical$|blocks-engine-|align(?:wide|full|left|right|center)$)/';
 
     private const SPACING_SIDES = array('top', 'right', 'bottom', 'left');
 
