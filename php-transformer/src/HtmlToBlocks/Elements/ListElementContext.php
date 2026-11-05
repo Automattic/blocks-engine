@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorLayoutOwnership;
 use Closure;
 use DOMElement;
 
@@ -19,8 +20,6 @@ final class ListElementContext
      * @param Closure(DOMElement): bool $containsStructuralItemContent
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array<string, mixed> $decomposeStructuralList
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): array<int, array<string, mixed>> $listItems
-     * @param Closure(DOMElement): bool $isCssOwnedGridElement
-     * @param Closure(DOMElement): array<string, mixed> $cssOwnedGridAttributes
      */
     public function __construct(
         private readonly Closure $recognizePatterns,
@@ -30,8 +29,7 @@ final class ListElementContext
         private readonly Closure $containsStructuralItemContent,
         private readonly Closure $decomposeStructuralList,
         private readonly Closure $listItems,
-        private readonly Closure $isCssOwnedGridElement,
-        private readonly Closure $cssOwnedGridAttributes,
+        public readonly AuthorLayoutOwnership $authorLayoutOwnership,
         private readonly ElementPresentationResolver $presentationResolver,
         private readonly SourceBlockCreator $createBlock
     ) {
@@ -75,17 +73,6 @@ final class ListElementContext
     public function listItems(DOMElement $element, array &$fallbacks): array
     {
         return ($this->listItems)($element, $fallbacks);
-    }
-
-    public function isCssOwnedGridElement(DOMElement $element): bool
-    {
-        return ($this->isCssOwnedGridElement)($element);
-    }
-
-    /** @return array<string, mixed> */
-    public function cssOwnedGridAttributes(DOMElement $element): array
-    {
-        return ($this->cssOwnedGridAttributes)($element);
     }
 
     /** @return array<string, mixed> */

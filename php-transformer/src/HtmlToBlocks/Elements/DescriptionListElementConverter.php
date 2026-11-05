@@ -68,8 +68,8 @@ final class DescriptionListElementConverter implements ElementConverter
 
         $items = $this->context->definitionListItems($element);
         if ( array() !== $items ) {
-            $attributes = $this->context->isCssOwnedGridElement($element)
-                ? $this->context->cssOwnedGridAttributes($element)
+            $attributes = $this->context->authorLayoutOwnership->isCssOwnedGridElement($element)
+                ? $this->context->authorLayoutOwnership->cssOwnedGridAttributes($element)
                 : $this->context->presentationAttributes($element);
 
             return $this->context->createBlock('core/list', $attributes, $items, $element);

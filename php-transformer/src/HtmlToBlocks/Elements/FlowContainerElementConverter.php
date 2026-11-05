@@ -136,7 +136,7 @@ final class FlowContainerElementConverter implements ElementConverter
         if ( null !== $block ) {
             return ConversionOutcome::handled($block);
         }
-        if ( $this->context->isDirectChildOfAuthorOwnedLayout($element) && '' !== SourceDom::attr($element, 'role') ) {
+        if ( $this->context->authorLayoutOwnership->isDirectChildOfAuthorOwnedLayout($element) && '' !== SourceDom::attr($element, 'role') ) {
             $claim = $this->semanticPatternClaim($element, $fallbacks);
             if ( null !== $claim ) {
                 return $claim;
@@ -159,7 +159,7 @@ final class FlowContainerElementConverter implements ElementConverter
         // A flex/grid child may itself be an ordinary inline text run. Keep
         // its own box as the layout item while its addressable spans share one
         // editable RichText carrier instead of becoming stacked paragraphs.
-        if ( $this->hasMultipleAddressableInlineChildren($element) && $this->context->isDirectChildOfAuthorOwnedLayout($element) ) {
+        if ( $this->hasMultipleAddressableInlineChildren($element) && $this->context->authorLayoutOwnership->isDirectChildOfAuthorOwnedLayout($element) ) {
             $inlineRun = $this->context->inlineAddressableRunGroupBlock($element);
             if ( null !== $inlineRun ) return ConversionOutcome::handled($inlineRun);
         }
@@ -167,7 +167,7 @@ final class FlowContainerElementConverter implements ElementConverter
         if ( 'button' !== strtolower(SourceDom::attr($element, 'role'))
             && ! SourceDom::hasClass($element, 'wp-block-columns')
             && ! $this->context->isGeneratedComponentCandidate($element)
-            && $this->context->isAuthorOwnedLayout($element)
+            && $this->context->authorLayoutOwnership->isAuthorOwnedLayout($element)
         ) {
             // The element's own CSS layout (a flex/grid list of disclosure
             // items) must not hide an accordion from its recognizer any more
@@ -197,7 +197,7 @@ final class FlowContainerElementConverter implements ElementConverter
         }
 
         if ( ! $this->context->isGeneratedComponentCandidate($element)
-            && $this->context->isDirectChildOfAuthorOwnedLayout($element)
+            && $this->context->authorLayoutOwnership->isDirectChildOfAuthorOwnedLayout($element)
             && in_array($tagName, array( 'div', 'section', 'article', 'aside', 'header', 'footer', 'main' ), true)
         ) {
             if ( 0 === SourceDom::childElementCount($element) && '' === trim($element->textContent) ) {
@@ -226,7 +226,7 @@ final class FlowContainerElementConverter implements ElementConverter
             // A layout item holding one run of text and inline elements is one
             // box in the source, exactly as it is in flow: its run stays one
             // paragraph rather than splitting at each inline element.
-            if ( ! $this->context->isAuthorOwnedLayout($element) && 0 < SourceDom::childElementCount($element) ) {
+            if ( ! $this->context->authorLayoutOwnership->isAuthorOwnedLayout($element) && 0 < SourceDom::childElementCount($element) ) {
                 $block = $this->context->paragraphBlockFromInlineContentWrapper($element);
                 if ( null !== $block ) {
                     return ConversionOutcome::handled($block);
@@ -345,7 +345,7 @@ final class FlowContainerElementConverter implements ElementConverter
             if ( null !== $block ) {
                 return ConversionOutcome::handled($block);
             }
-            if ( $this->context->shouldPreserveWrapper($element, $tagName) || $this->context->isDirectChildOfAuthorOwnedLayout($element) ) {
+            if ( $this->context->shouldPreserveWrapper($element, $tagName) || $this->context->authorLayoutOwnership->isDirectChildOfAuthorOwnedLayout($element) ) {
                 return ConversionOutcome::handled($this->group($element, $children));
             }
             return ConversionOutcome::handled($children[0]);

@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceEle
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorLayoutOwnership;
 use Closure;
 use DOMElement;
 
@@ -22,13 +23,12 @@ final class FlowContainerElementContext
         private readonly Closure $canCaptureExternalSvgFragmentDependency,
         private readonly SourceElementClassifier $sourceElementClassifier,
         private readonly Closure $responsiveMediaBlock,
-        private readonly Closure $isDirectChildOfAuthorOwnedLayout,
+        public readonly AuthorLayoutOwnership $authorLayoutOwnership,
         private readonly Closure $authorLayoutBlock,
         private readonly Closure $hasMultipleRuntimeInlineTextTargets,
         private readonly Closure $paragraphBlockFromInlineContentWrapper,
         private readonly Closure $inlineAddressableRunGroupBlock,
         private readonly Closure $isGeneratedComponentCandidate,
-        private readonly Closure $isAuthorOwnedLayout,
         private readonly Closure $proofBackedWrapperCoalescing,
         private readonly Closure $shouldPreserveEmptyVisualElement,
         private readonly Closure $isInertEmptyElement,
@@ -74,7 +74,6 @@ final class FlowContainerElementContext
     public function hasCapturedMediaContent(DOMElement $element): bool { return $this->sourceElementClassifier->hasCapturedMediaContent($element); }
     /** @return array<string, mixed> */
     public function responsiveMediaBlock(DOMElement $element): array { return ($this->responsiveMediaBlock)($element); }
-    public function isDirectChildOfAuthorOwnedLayout(DOMElement $element): bool { return ($this->isDirectChildOfAuthorOwnedLayout)($element); }
     /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed> */
     public function authorLayoutBlock(DOMElement $element, array &$fallbacks): array { return ($this->authorLayoutBlock)($element, $fallbacks); }
     public function hasMultipleRuntimeInlineTextTargets(DOMElement $element): bool { return ($this->hasMultipleRuntimeInlineTextTargets)($element); }
@@ -83,7 +82,6 @@ final class FlowContainerElementContext
     /** @return array<string, mixed>|null */
     public function inlineAddressableRunGroupBlock(DOMElement $element): ?array { return ($this->inlineAddressableRunGroupBlock)($element); }
     public function isGeneratedComponentCandidate(DOMElement $element): bool { return ($this->isGeneratedComponentCandidate)($element); }
-    public function isAuthorOwnedLayout(DOMElement $element): bool { return ($this->isAuthorOwnedLayout)($element); }
     /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed>|null */
     public function proofBackedWrapperCoalescing(DOMElement $element, array &$fallbacks): ?array { return ($this->proofBackedWrapperCoalescing)($element, $fallbacks); }
     public function shouldPreserveEmptyVisualElement(DOMElement $element): bool { return ($this->shouldPreserveEmptyVisualElement)($element); }

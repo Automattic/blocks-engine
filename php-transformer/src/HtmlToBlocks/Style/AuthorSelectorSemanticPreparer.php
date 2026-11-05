@@ -197,7 +197,7 @@ final class AuthorSelectorSemanticPreparer
                 $path = $element->getNodePath() ?? '';
                 $inlineTag = strtolower($element->tagName);
                 $directChildSelector = '>' === ($parsed['combinators'][count($parsed['combinators']) - 1] ?? null);
-                $directAuthorLayoutItem = $directChildSelector && $this->context->isDirectChildOfAuthorOwnedLayout($element);
+                $directAuthorLayoutItem = $directChildSelector && $this->context->authorLayoutOwnership->isDirectChildOfAuthorOwnedLayout($element);
                 // `span` and `font` are replaced by a `<mark>` RichText carrier,
                 // so an author rule naming them needs a marker hook to keep
                 // matching after conversion.
@@ -246,7 +246,7 @@ final class AuthorSelectorSemanticPreparer
                 $path = $element->getNodePath() ?? '';
                 $parentPath = $element->parentNode instanceof DOMElement ? ($element->parentNode->getNodePath() ?? '') : '';
                 if ( '' !== $path
-                    && $this->context->requiresInlineLayoutCarrier($element)
+                    && $this->context->authorLayoutOwnership->requiresStandaloneInlineLayoutLeaf($element)
                     && ! $this->isPhrasingWithinHeading($element)
                     && ! $this->isQuoteCitation($element)
                     && ! $projections->isControlPath($parentPath)

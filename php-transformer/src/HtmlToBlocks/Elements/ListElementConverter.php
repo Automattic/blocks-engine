@@ -48,8 +48,8 @@ final class ListElementConverter implements ElementConverter
             return ConversionOutcome::handled(null);
         }
 
-        $attributes = $this->context->isCssOwnedGridElement($element)
-            ? $this->context->cssOwnedGridAttributes($element)
+        $attributes = $this->context->authorLayoutOwnership->isCssOwnedGridElement($element)
+            ? $this->context->authorLayoutOwnership->cssOwnedGridAttributes($element)
             : $this->context->presentationAttributes($element, array(), array( 'text-align' ));
 
         return ConversionOutcome::handled($this->context->createBlock(
