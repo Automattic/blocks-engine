@@ -145,5 +145,46 @@ foreach (array(
     $assert(null !== $button && !isset($button['attrs']['style']['color']['text']), 'matching conditional selector keeps color stylesheet-owned: ' . $rule);
 }
 
+// DOM delta-debug reduction of the real home page: a mixed inline run must
+// resolve the wrapped label in its original CSS scope, just like a lone CTA.
+$mixedInlineDocument = <<<'HTML'
+<!DOCTYPE html><html><head><style>body { --token-5c4ab942-0b5f-42a3-81d8-027b4885b291: #101010; --token-9e31575d-60ee-43f8-9b06-6fc6c6ac75de: #f5f3ee; --token-d1cb36e4-3378-4804-a263-30f466c246a7: #858585; --token-1801d4d9-9be0-45f8-85d1-e9c989c018cf: #c6ff4d; }
+p.framer-text, div.framer-text, h1.framer-text, h2.framer-text, h3.framer-text, h4.framer-text, h5.framer-text, h6.framer-text, li.framer-text, ol.framer-text, ul.framer-text, mark.framer-text, span.framer-text:not([data-text-fill]) { font-family: var(--framer-font-family-preview,var(--framer-blockquote-font-family,var(--framer-font-family,Inter, Inter Placeholder, sans-serif))); font-style: var(--framer-font-style-preview,var(--framer-blockquote-font-style,var(--framer-font-style,normal))); font-weight: var(--framer-font-weight-preview,var(--framer-blockquote-font-weight,var(--framer-font-weight,400))); color: var(--framer-blockquote-text-color,var(--framer-text-color,#000)); font-size: calc(var(--framer-blockquote-font-size,var(--framer-font-size,16px)) * var(--framer-font-size-scale,1)); letter-spacing: var(--framer-blockquote-letter-spacing,var(--framer-letter-spacing,0)); text-transform: var(--framer-blockquote-text-transform,var(--framer-text-transform,none)); text-decoration-line: var(--framer-blockquote-text-decoration,var(--framer-text-decoration,initial)); text-decoration-style: var(--framer-blockquote-text-decoration-style,var(--framer-text-decoration-style,initial)); text-decoration-color: var(--framer-blockquote-text-decoration-color,var(--framer-text-decoration-color,initial)); text-decoration-thickness: var(--framer-blockquote-text-decoration-thickness,var(--framer-text-decoration-thickness,initial)); text-decoration-skip-ink: var(--framer-blockquote-text-decoration-skip-ink,var(--framer-text-decoration-skip-ink,initial)); text-underline-offset: var(--framer-blockquote-text-decoration-offset,var(--framer-text-decoration-offset,initial)); line-height: var(--framer-blockquote-line-height,var(--framer-line-height,1.2em)); text-align: var(--framer-blockquote-text-alignment,var(--framer-text-alignment,start)); -webkit-text-stroke-width: var(--framer-text-stroke-width,initial); -webkit-text-stroke-color: var(--framer-text-stroke-color,initial); font-feature-settings: var(--framer-font-open-type-features,initial); font-variation-settings: var(--framer-font-variation-axes-preview,var(--framer-font-variation-axes,normal)); text-wrap: var(--framer-text-wrap-override,var(--framer-text-wrap)); }
+@supports not (color:color(display-p3 1 1 1)) {
+  p.framer-text, div.framer-text, h1.framer-text, h2.framer-text, h3.framer-text, h4.framer-text, h5.framer-text, h6.framer-text, li.framer-text, ol.framer-text, ul.framer-text, span.framer-text:not([data-text-fill]) { color: var(--framer-blockquote-text-color-rgb,var(--framer-blockquote-text-color,var(--framer-text-color-rgb,var(--framer-text-color,#000)))); -webkit-text-stroke-color: var(--framer-text-stroke-color-rgb,var(--framer-text-stroke-color,initial)); }
+  mark.framer-text { background-color: var(--framer-blockquote-text-background-color-rgb,var(--framer-blockquote-text-background-color,var(--framer-text-background-color-rgb,var(--framer-text-background-color,initial)))); }
+}
+.framer-cxa9c.framer-c00dtm { cursor: pointer; flex-flow: row; place-content: center; align-items: center; gap: 0px; width: min-content; height: min-content; padding: 16px 24px; text-decoration: none; display: flex; position: relative; }</style></head>
+<body>
+
+	<!-- Start of bodyStart -->
+
+    <!-- End of bodyStart -->
+
+	<!--$-->Gute Unternehmenverdienen bessere<span>Websites.</span><!--$--><!--$--><a class="framer-cxa9c framer-c00dtm framer-v-c00dtm framer-twulji data-blocks-engine-capture-responsive-counterpart-e226f9e06d49" style="background-color:var(--token-1801d4d9-9be0-45f8-85d1-e9c989c018cf);border-bottom-left-radius:2px;border-bottom-right-radius:2px;border-top-left-radius:2px;border-top-right-radius:2px;opacity:1"><div style="--extracted-r6o4lv: var(--token-5c4ab942-0b5f-42a3-81d8-027b4885b291);opacity: 1;transform: none"><p class="framer-text data-blocks-engine-capture-responsive-counterpart-080b549768f4" style="--font-selector:SW50ZXItU2VtaUJvbGQ=;--framer-font-size:14px;--framer-font-weight:600;--framer-text-color:var(--extracted-r6o4lv, var(--token-5c4ab942-0b5f-42a3-81d8-027b4885b291))">Projekt besprechen ↗</p></div></a><!--/$--><!--/$--><!--/$-->
+
+
+	<!---->
+
+
+
+	<!-- Start of bodyEnd -->
+
+    <!-- End of bodyEnd -->
+
+
+</body></html>
+HTML;
+foreach (array(
+    'LOST: mixed inline run' => $mixedInlineDocument,
+    'kept: anchor only' => str_replace('Gute Unternehmenverdienen bessere<span>Websites.</span>', '', $mixedInlineDocument),
+    'kept: loose text only' => str_replace('<span>Websites.</span>', '', $mixedInlineDocument),
+) as $label => $html) {
+    $result = (new HtmlTransformer())->transform($html)->toArray();
+    $button = $firstBlock($result['blocks'] ?? array(), 'core/button');
+    $color = $button['attrs']['style']['color'] ?? array();
+    $assert(null !== $button && '#101010' === ($color['text'] ?? null), $label . ': expected style.color.text #101010; got style.color ' . json_encode($color));
+}
+
 if ($failures) { fwrite(STDERR, implode("\n", $failures) . "\n"); exit(1); }
 echo "Button link wrapped label contract passed\n";

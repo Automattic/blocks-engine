@@ -654,19 +654,22 @@ final class StyleResolver implements ElementPresentationResolver
     private function conditionalFamiliesInPlay(DOMElement $element): array
     {
         $conditionalFamilies = array();
+        $matchingSelectors = array();
         foreach ($this->styleRuleCandidates($element, 'conditional') as $rule) {
             $selector = (string) ($rule['selector'] ?? '');
+            $matches = $this->matchesCssSelector($element, $selector);
+            if ($matches) $matchingSelectors[$selector] = true;
             // A shared class token is only a fallback for selectors we cannot
             // evaluate. A supported non-match (for example a.label against
             // p.label) cannot give this element conditional style ownership.
-            if (! $this->matchesCssSelector($element, $selector)
+            if (! $matches
                 && ($this->isSupportedCssSelector($selector)
                     || ! $this->unsupportedSelectorReferencesElement($selector, $element))
             ) {
                 continue;
             }
             foreach ($rule['declarations'] as $property => $value) {
-                if ($this->matchesCssSelector($element, $selector)
+                if ($matches
                     && $this->conditionalValueMatchesRestingValue($element, $property, $value)
                 ) {
                     continue;
@@ -676,7 +679,15 @@ final class StyleResolver implements ElementPresentationResolver
         }
         foreach ($this->context->sourceStyles()->conditionalRules() as $rule) {
             $selector = (string) ($rule['selector'] ?? '');
-            if ( 1 !== preg_match('/:(?:is|where|not|has)\s*\(/i', $selector)
+            // Matching candidates already use the shared equal-value decision.
+            // A supported negation-only selector can also prove a non-match
+            // (span.label:not(...) cannot own a p.label's color). Keep the
+            // conservative fallback for relational/alternative functions,
+            // whose ancestor or alternative hooks may evade the index.
+            if ( isset($matchingSelectors[$selector])
+                || ( $this->isSupportedCssSelector($selector)
+                    && ! preg_match('/:(?:is|where|has)\s*\(/i', $selector) )
+                || 1 !== preg_match('/:(?:is|where|not|has)\s*\(/i', $selector)
                 || ! $this->unsupportedSelectorReferencesElement($selector, $element)
             ) {
                 continue;
