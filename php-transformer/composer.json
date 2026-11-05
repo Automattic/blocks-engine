@@ -367,6 +367,7 @@
       "php tests/contract/checkout-view-binding.php",
       "php tests/contract/order-lookup-form.php",
       "php tests/contract/product-grid-item-template.php",
+      "php tests/contract/product-grid-media-cardinality.php",
       "php tests/contract/product-grid-item-template-assets.php",
       "php tests/contract/form-readable-blocks-assets.php",
       "php tests/contract/product-grid-optional-row.php",
