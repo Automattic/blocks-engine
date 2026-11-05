@@ -445,16 +445,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         // than written onto the block, so documents that share this shell keep
         // identical markup and continue to collapse into one template part.
         $authorClasses = $this->authorClassNames((string) ($navigationAttrs['className'] ?? ''));
-        if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
-            $defaultTextColorClass = $this->defaultNavigationTextColorClass($links);
-            if ( '' !== $defaultTextColorClass ) {
-                $navigationAttrs = $this->withClassName($navigationAttrs, $defaultTextColorClass);
-            }
-        }
-        $currentTextColorClass = $this->currentNavigationTextColorClass($links);
-        if ( '' !== $currentTextColorClass ) {
-            $navigationAttrs['className'] = trim((string) ($navigationAttrs['className'] ?? '') . ' ' . $currentTextColorClass);
-        }
+        $navigationAttrs = $this->withNavigationLinkColorClasses($navigationAttrs, $links);
 
         $navigationAttrs = $this->withProjectedFontFamily($navigationAttrs, $navigationSource, $navigationContext);
         $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext?->navigationListHostIdentity($navigationSource, 'never' === ($navigationAttrs['overlayMenu'] ?? '') ? $listSource : null, 'default' === ($navigationAttrs['layout']['type'] ?? '') ? ($navigationAttrs['style']['spacing']['blockGap'] ?? null) : null) ?? '');
@@ -1274,16 +1265,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             unset($commonTextAttrs['style']['typography']);
         }
         $navigationAttrs = array_replace_recursive($navigationAttrs, $commonTextAttrs);
-        if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
-            $defaultTextColorClass = $this->defaultNavigationTextColorClass($links);
-            if ( '' !== $defaultTextColorClass ) {
-                $navigationAttrs = $this->withClassName($navigationAttrs, $defaultTextColorClass);
-            }
-        }
-        $currentTextColorClass = $this->currentNavigationTextColorClass($links);
-        if ( '' !== $currentTextColorClass ) {
-            $navigationAttrs['className'] = trim((string) ($navigationAttrs['className'] ?? '') . ' ' . $currentTextColorClass);
-        }
+        $navigationAttrs = $this->withNavigationLinkColorClasses($navigationAttrs, $links);
 
         $navigationAttrs = $this->withProjectedFontFamily($navigationAttrs, $cluster, $navigationContext);
         $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext?->navigationListHostIdentity($cluster) ?? '');
@@ -1508,6 +1490,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             // Shared link text settings are read from the menu's own items; the
             // overlay-only extras are not items and must not dilute them.
             $attrs = array_replace_recursive($attrs, $this->commonNavigationLinkTextAttributes($links));
+            $attrs = $this->withNavigationLinkColorClasses($attrs, $links);
             $linkSets[] = $links;
             $attrs = $this->withSourceSubmenuIndicator($attrs, $row, $navigationContext);
             $children[] = $createBlock('core/navigation', $attrs, array_merge($links, $overlayExtras), $slot['elements'][0]);
@@ -2517,6 +2500,27 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return null;
+    }
+
+    /**
+     * Scope the items' link-colour rules to this navigation: the overlay menu's
+     * resting colour, and the current item's colour.
+     *
+     * @param array<string, mixed> $navigationAttrs
+     * @param array<int, array<string, mixed>> $links
+     * @return array<string, mixed>
+     */
+    private function withNavigationLinkColorClasses(array $navigationAttrs, array $links): array
+    {
+        $classes = array(
+            'mobile' === ($navigationAttrs['overlayMenu'] ?? '') ? $this->defaultNavigationTextColorClass($links) : '',
+            $this->currentNavigationTextColorClass($links),
+        );
+        foreach ( array_filter($classes) as $className ) {
+            $navigationAttrs = $this->withClassName($navigationAttrs, $className);
+        }
+
+        return $navigationAttrs;
     }
 
     /** @param array<int, array<string, mixed>> $links */

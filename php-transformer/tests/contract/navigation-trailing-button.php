@@ -15,6 +15,7 @@ $assert(1 === count($headers), 'One header part');
 $header = $headers[0]['canonical_block_markup'];
 $assert(1 === substr_count($header, '<!-- wp:navigation '), 'One native navigation');
 $assert(str_contains($header, '"overlayMenu":"mobile"'), 'Mobile overlay retained');
+$assert((bool) preg_match('/<!-- wp:navigation \{[^>]*"className":"[^"]*blocks-engine-navigation-link-color-[a-f0-9]{64}/', $header), 'Navigation scopes its items\' link colour');
 $assert(str_contains($header, 'blocks-engine-native-navigation-toggle-'), 'Source toggle retained');
 $assert(str_contains($header, 'blocksEngineNavigationOpener') && str_contains($header, 'M4 12h16') && str_contains($header, 'M4 6h16'), 'Original two-path toggle icon retained');
 $assert(str_contains($header, '<!-- wp:button ') && str_contains($header, 'Join'), 'Native CTA retained');
