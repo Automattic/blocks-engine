@@ -2877,11 +2877,16 @@ final class AuthorStylesheetProjector
         // Retain only the device predicate; root classes retain their weight
         // through the shims below, not through a flattened ancestor compound.
         foreach ($parsed['compounds'][0]['attributes'] ?? array() as $attribute) {
-            if (in_array($attribute['name'], array(CaptureEvidence::DEVICE_DOCUMENT, EngineMarker::DEVICE_SCOPE_ATTRIBUTE), true)
-                && '=' === $attribute['operator']) {
-                $scope = ':where([' . $attribute['name'] . '="' . str_replace(array('\\', '"', "\n", "\r", "\f"), array('\\\\', '\\"', '\\a ', '\\d ', '\\c '), $attribute['value']) . '"]) ';
-                break;
-            }
+            if (!in_array($attribute['name'], array(CaptureEvidence::DEVICE_DOCUMENT, EngineMarker::DEVICE_SCOPE_ATTRIBUTE), true)
+                || '=' !== $attribute['operator']) continue;
+            $scope = ':where([' . $attribute['name'] . '="' . str_replace(array('\\', '"', "\n", "\r", "\f"), array('\\\\', '\\"', '\\a ', '\\d ', '\\c '), $attribute['value']) . '"]) ';
+            break;
+        }
+        // :where() containing a selector list is represented by the parser as
+        // an attribute-free compound. Preserve the device gate from source text.
+        if ('' === $scope && preg_match('/\[\s*(data-[a-z0-9_-]+)\s*=\s*(["\'])(.*?)\2\s*\]/i', $ancestry, $deviceMatch)
+            && in_array(strtolower($deviceMatch[1]), array(CaptureEvidence::DEVICE_DOCUMENT, EngineMarker::DEVICE_SCOPE_ATTRIBUTE), true)) {
+            $scope = ':where([' . $deviceMatch[1] . '="' . $deviceMatch[3] . '"]) ';
         }
         // Preserve the historical output for selectors without a device gate.
         if ('' === $scope && preg_match('/^\s*((?::where\([^(),]+\)\s+)+)/i', $selector, $scopeMatch)) {
