@@ -897,6 +897,7 @@
       "php tests/unit/button-signal-classifier.php",
       "php tests/unit/pill-button-anchor.php",
       "php tests/unit/button-style-resolver.php",
+      "php tests/unit/square-source-button.php",
       "php tests/unit/button-conditional-border.php",
       "php tests/unit/button-custom-property-chain.php",
       "php tests/unit/anchor-owned-button-surface.php",

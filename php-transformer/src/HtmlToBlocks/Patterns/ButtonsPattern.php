@@ -978,7 +978,8 @@ final class ButtonsPattern
             return true;
         }
 
-        if ( ! preg_match('/(?:^|;)\s*border(?:-[a-z-]+)?\s*:\s*[^;]+/', $normalized) ) {
+        // Corner geometry alone is not an outline/paint signal.
+        if ( ! preg_match('/(?:^|;)\s*border(?:-(?:width|style|color|(?:top|right|bottom|left)(?:-(?:width|style|color))?))?\s*:\s*[^;]+/', $normalized) ) {
             return false;
         }
 
