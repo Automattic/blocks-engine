@@ -6149,6 +6149,48 @@ final class StyleResolver implements ElementPresentationResolver
         return $cache->selectorMatchCache->styleRuleCandidates($element, $collection, $index);
     }
 
+    /** A source-only keyboard shortcut, with no painted content at rest. */
+    public function isFocusRevealedSkipLink(DOMElement $element, string $sourcePath = ''): bool
+    {
+        if ( ! SourceDom::isMainSkipLink($element, $sourcePath) ) return false;
+        $rest = array_map(static fn (array $values): string => (string) end($values), $this->authorDeclaredValuesAtAnyViewport(
+            $element, array('position', 'left', 'right', 'top', 'bottom', 'display', 'visibility', 'opacity', 'clip', 'clip-path')
+        ));
+        if ( ! self::skipLinkHidden($rest) ) return false;
+        $authorStyles = $this->context->authorStyles();
+        $cache = $authorStyles->selectorMatchCache();
+        $focused = array();
+        $hasFocusRule = false;
+        foreach ( $cache->styleRuleCandidates($element, 'author-structural', $authorStyles->styleRuleCandidateIndex()) as $rule ) {
+            $selector = (string) ($rule['selector'] ?? '');
+            // A negated focus rule matches at rest, not in the focused set.
+            // Test it without ignoring pseudo states (which negates the match).
+            if ( 1 === preg_match('/:not\\(\\s*:focus(?:-visible|-within)?\\s*\\)/', $selector) ) {
+                if ( $cache->matches($element, $selector, $rule['parsed'] ?? array())['matches'] ) $hasFocusRule = true;
+                continue;
+            }
+            if ( ! $cache->matches($element, $selector, $rule['parsed'] ?? array(), true)['matches'] ) continue;
+            if ( 1 === preg_match('/:focus(?:-visible|-within)?\\b/', $selector) ) $hasFocusRule = true;
+            $focused = $this->mergeCssDeclarationMaps($focused, $rule['declarations'] ?? array());
+        }
+        $focused = $this->mergeCssDeclarationMaps($focused, $this->cssDeclarations(SourceDom::attr($element, 'style')));
+        return $hasFocusRule && ! self::skipLinkHidden($focused);
+    }
+
+    /** @param array<string, string> $declarations */
+    private static function skipLinkHidden(array $declarations): bool
+    {
+        $value = static fn (string $property): string => CssValueInspector::comparable($declarations[$property] ?? '');
+        if ( 'none' === $value('display') || in_array($value('visibility'), array('hidden', 'collapse'), true) || '0' === $value('opacity') ) return true;
+        if ( in_array($value('position'), array('absolute', 'fixed'), true) ) {
+            foreach ( array('left', 'top', 'right', 'bottom') as $edge ) {
+                if ( 1 === preg_match('/^(-[0-9.]+)px$/', $value($edge), $match) && (float) $match[1] <= -40 ) return true;
+            }
+        }
+        return 1 === preg_match('/^rect\\(\\s*0(?:px)?[ ,]+0(?:px)?[ ,]+0(?:px)?[ ,]+0(?:px)?\\s*\\)$/', $value('clip'))
+            || in_array($value('clip-path'), array('inset(50%)', 'inset(100%)'), true);
+    }
+
     /** @return list<string> Authored interaction states that paint a background on this element. */
     public function sourceBackgroundInteractionStates(DOMElement $element): array
     {

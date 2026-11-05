@@ -4356,6 +4356,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $mediaDispatch->block;
         }
 
+        // Core owns the template's keyboard skip control, including in reduced mode.
+        if ( 'a' === $tagName && $this->styleResolver->isFocusRevealedSkipLink($element, $this->currentSourcePath) ) {
+            return null;
+        }
+
         if ($this->session->usesFallbackReductionMode() && ( 'button' === $tagName || ( 'a' === $tagName && ! $this->sourceElementClassifier->hasBlockLevelDescendant($element) && '' === trim($this->attr($element, 'aria-label')) ) )) {
             $text = $this->innerHtml($element);
             if ('' !== trim($this->runtime->stripAllTags($text))) {
@@ -4378,11 +4383,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if ( SourceDom::isEmptyNamedFragmentTarget($element) ) {
                 return null;
             }
-            // The block template renders the native skip link to this main.
-            if ( SourceDom::isMainSkipLink($element) ) {
-                return null;
-            }
-
             $anchorBlock = $this->buttonLinkDispatcher->convertAnchor($element, $fallbacks);
             if ( null !== $anchorBlock ) {
                 return $anchorBlock;
