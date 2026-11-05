@@ -54,6 +54,16 @@ final class InertScaffoldingSuppressor implements ElementConverter
     /** @param array<int, array<string, mixed>> $fallbacks */
     public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
     {
+        // A closed, script-populated dialog shell has no source content to lose.
+        // Open dialogs render even when empty (including user-agent border and
+        // padding); they and dialogs with descendants retain their existing path.
+        if ( 'dialog' === $tagName
+            && ! $element->hasAttribute('open')
+            && 0 === SourceDom::childElementCount($element)
+            && '' === trim($element->textContent ?? '') ) {
+            return ConversionOutcome::handled(null);
+        }
+
         if ( 'iframe' === $tagName && $this->isInertHiddenCaptureIframe($element) ) {
             return ConversionOutcome::handled(null);
         }
