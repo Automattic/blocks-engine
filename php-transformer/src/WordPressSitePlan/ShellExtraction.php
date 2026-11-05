@@ -3358,12 +3358,21 @@ final class ShellExtraction
      * served route that resting look; the navigation keeps its current-item
      * markers, so WordPress paints whichever item is current per request.
      *
+     * A submenu whose descendant link names the served route is its current
+     * ancestor and can carry an active look of its own; on the routes outside
+     * it, the same submenu rests, so it is given that resting look too. Links
+     * and submenus are compared by area, label, URL and occurrence, so a menu
+     * repeated in one header (a bar and its drawer) keeps each copy's look.
+     * Resting looks are read among candidates of one design, the same markup
+     * apart from classes and route numbers, so a route with another header
+     * does not contradict the evidence of the routes that share one.
+     *
      * @param array<int,array<string,mixed>> $pages
      * @return array<int,array<string,mixed>>
      */
     private static function withRouteCurrentLinksAtRest(array $pages): array
     {
-        $link = '/<!--\s*wp:navigation-link\s+(\{.*?\})\s*\/-->/s';
+        $item = '/<!--\s*(\/)?wp:navigation-(link|submenu)(?:\s+(\{.*?\}))?\s*(\/)?-->/s';
         $isMarker = static fn (string $class): bool => 1 === preg_match('/^blocks-engine-(?:current-navigation-|navigation-current-)/', $class);
         $classes = static fn (array $attrs): array => array_values(array_filter(preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array()));
         $atRest = static function (array $attrs) use ($isMarker, $classes): array {
@@ -3373,38 +3382,85 @@ final class ShellExtraction
         };
         $names = static fn (array $attrs, string $route): bool => is_string($attrs['url'] ?? null) && !str_contains($attrs['url'], '#')
             && ('' === ($path = rtrim(explode('?', $attrs['url'])[0], '/')) ? '/' : $path) === $route;
-        $key = static fn (string $area, array $attrs): string => $area . "\0" . json_encode(array($attrs['label'] ?? null, rtrim((string) ($attrs['url'] ?? ''), '/')));
-        $resting = array();
+        // Each menu item of a candidate, in order: its key, attributes, comment
+        // range, and whether it names the route or (a submenu) holds one that does.
+        $items = static function (string $markup, string $area, string $route) use ($item, $names): array {
+            preg_match_all($item, $markup, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
+            $rows = array(); $open = array(); $seen = array();
+            foreach ($matches as $match) {
+                if ('' !== ($match[1][0] ?? '')) {
+                    array_pop($open);
+                    continue;
+                }
+                $attrs = json_decode($match[3][0] ?? '', true);
+                if (!is_array($attrs)) $attrs = array();
+                $identity = json_encode(array($match[2][0], $attrs['label'] ?? null, rtrim((string) ($attrs['url'] ?? ''), '/')));
+                $seen[$identity] = ($seen[$identity] ?? 0) + 1;
+                $current = $names($attrs, $route);
+                $rows[] = array('kind' => $match[2][0], 'key' => $area . "\0" . $identity . "\0" . $seen[$identity], 'attrs' => $attrs, 'offset' => $match[0][1], 'length' => strlen($match[0][0]), 'current' => $current, 'holds' => false, 'closed' => '' !== ($match[4][0] ?? ''), 'valid' => isset($match[3][0]) && '' !== $match[3][0] && is_array(json_decode($match[3][0], true)));
+                $index = array_key_last($rows);
+                if ($current) foreach ($open as $parent) $rows[$parent]['holds'] = true;
+                if ('submenu' === $match[2][0] && !$rows[$index]['closed']) $open[] = $index;
+            }
+            return $rows;
+        };
+        $design = static fn (array $candidate): string => hash('sha256', (string) preg_replace(array('/"className"\s*:\s*"[^"]*"|\sclass="[^"]*"/', '/[0-9]+/'), array('', '#'), (string) ($candidate['identity_markup'] ?? $candidate['markup'])));
+        $resting = array(); $held = array();
         foreach ($pages as $page) {
             if (!empty($page['synthetic'])) continue;
             $route = (string) ($page['route']['path'] ?? '');
             foreach ($page['shell_candidates'] ?? array() as $candidate) {
-                preg_match_all($link, $candidate['markup'], $matches);
-                foreach ($matches[1] as $json) {
-                    $attrs = json_decode($json, true);
-                    if (!is_array($attrs) || $names($attrs, $route)) continue;
-                    $rest = $atRest($attrs);
-                    $resting[$key($candidate['area'], $attrs)][BlockAttributes::encode($rest)] = $rest;
+                foreach ($items($candidate['markup'], $design($candidate) . "\0" . $candidate['area'], $route) as $row) {
+                    if (!$row['valid'] || $row['current']) continue;
+                    $rest = $atRest($row['attrs']);
+                    if ($row['holds']) $held[$row['key']][BlockAttributes::encode($rest)] = $rest;
+                    else $resting[$row['key']][BlockAttributes::encode($rest)] = $rest;
                 }
             }
+        }
+        // A submenu holding the served route on every route (an overflow menu
+        // listing all items) never rests. Route state only adds classes, to
+        // the item or its anchor, so when one observed look is contained in
+        // every other, it is the rest. Looks compare as the shell identity
+        // sees them, without generated markers.
+        $contained = static function (array $look, array $other) use ($classes): bool {
+            $seen = static function (array $attrs) use ($classes): array {
+                $attrs = json_decode(preg_replace('/^<!-- wp:navigation-submenu (.*) -->$/s', '$1', self::normalizeNestedChromeMarkup('<!-- wp:navigation-submenu ' . BlockAttributes::encode($attrs) . ' -->')) ?? '', true) ?: array();
+                $anchor = $classes($attrs['metadata']['blocksEngineNavigationAnchor'] ?? array());
+                $item = $classes($attrs);
+                unset($attrs['className'], $attrs['metadata']['blocksEngineNavigationAnchor']['className']);
+                return array($item, $anchor, $attrs);
+            };
+            [$lookItem, $lookAnchor, $lookRest] = $seen($look);
+            [$otherItem, $otherAnchor, $otherRest] = $seen($other);
+            return array() === array_diff($lookItem, $otherItem) && array() === array_diff($lookAnchor, $otherAnchor) && $lookRest === $otherRest;
+        };
+        foreach ($held as $key => $looks) {
+            if (isset($resting[$key]) || count($looks) < 2) continue;
+            $base = array_filter($looks, static function (array $look) use ($looks, $contained): bool {
+                foreach ($looks as $other) if (!$contained($look, $other)) return false;
+                return true;
+            });
+            if (1 === count($base)) $resting[$key] = $base;
         }
         foreach ($pages as &$page) {
             if (!empty($page['synthetic']) || !is_array($page['shell_candidates'] ?? null)) continue;
             $route = (string) ($page['route']['path'] ?? '');
             foreach ($page['shell_candidates'] as &$candidate) {
                 $markup = $candidate['markup'];
-                $rested = preg_replace_callback($link, static function (array $match) use ($route, $resting, $candidate, $names, $key, $atRest, $isMarker, $classes): string {
-                    $attrs = json_decode($match[1], true);
-                    if (!is_array($attrs) || !$names($attrs, $route)) return $match[0];
-                    // Only one resting look is evidence of the link's own presentation.
-                    $rest = $resting[$key($candidate['area'], $attrs)] ?? array();
-                    if (1 !== count($rest)) return $match[0];
+                $rested = $markup;
+                foreach (array_reverse($items($markup, $design($candidate) . "\0" . $candidate['area'], $route)) as $row) {
+                    if (!$row['valid'] || !($row['current'] || ('submenu' === $row['kind'] && $row['holds']))) continue;
+                    // Only one resting look is evidence of the item's own presentation.
+                    $rest = $resting[$row['key']] ?? array();
+                    if (1 !== count($rest)) continue;
                     $rest = reset($rest);
-                    if ($rest === $atRest($attrs)) return $match[0];
-                    $markers = array_values(array_filter($classes($attrs), $isMarker));
+                    if ($rest === $atRest($row['attrs'])) continue;
+                    $markers = array_values(array_filter($classes($row['attrs']), $isMarker));
                     if (array() !== $markers) $rest['className'] = trim(($rest['className'] ?? '') . ' ' . implode(' ', $markers));
-                    return '<!-- wp:navigation-link ' . BlockAttributes::encode($rest) . ' /-->';
-                }, $markup) ?? $markup;
+                    $comment = '<!-- wp:navigation-' . $row['kind'] . ' ' . BlockAttributes::encode($rest) . ($row['closed'] ? ' /-->' : ' -->');
+                    $rested = substr_replace($rested, $comment, $row['offset'], $row['length']);
+                }
                 if ($rested === $markup) continue;
                 // Recompute only copies this candidate's own derivation reproduces.
                 $identity = match ($candidate['identity_markup'] ?? null) {
@@ -3463,36 +3519,63 @@ final class ShellExtraction
      * one page's id, so the other page would lose the styling written for its
      * own. Stylesheet references are read with the shared-chrome scoping
      * inventory (stylesheetReferencedShellIds), not a second CSS parser.
+     *
+     * Ids are read from block anchors, rendered `id` attributes and the JSON
+     * wrapper attributes of layout shells. Builders number tracking data
+     * attributes per route too (`data-track="Logo.Link.75449.click"`); a data
+     * value whose digit runs differ on every candidate, with identical text
+     * around them, is the same route-numbered handle. Positions are compared
+     * among candidates whose numbered values share one stem sequence, so a
+     * structurally different candidate (another design) neither blocks nor
+     * joins them.
      */
     private static function canonicalizeRouteNumberedShellIds(array $markups, array $stylesheetIds = array('ids' => array(), 'patterns' => array())): array
     {
-        $values = array();
-        foreach ($markups as $markup) {
-            preg_match_all('/(?:"anchor"\s*:\s*"([^"]+)"|\bid="([^"]+)")/', $markup, $matches, PREG_SET_ORDER);
+        $rows = array(); $groups = array();
+        foreach ($markups as $index => $markup) {
+            preg_match_all('/"anchor"\s*:\s*"([^"]+)"|"id"\s*:\s*"([^"]+)"|\bid="([^"]+)"|"(data-[\w-]+)"\s*:\s*"([^"]*)"|\s(data-[\w-]+)="([^"]*)"/', $markup, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
             $row = array();
-            foreach ($matches as $match) $row[] = $match[1] !== '' ? $match[1] : $match[2];
-            $values[] = $row;
-        }
-        if (count($values) < 2) return $markups;
-        $replace = array();
-        foreach ($values[0] as $position => $value) {
-            // The route number is the trailing digit run after a non-digit stem,
-            // whether hyphenated (top-101), underscored (top_101) or glued (top101).
-            // The stem keeps its separator, so the placeholder stays a valid id.
-            if (!preg_match('/^(.*[^0-9])([0-9]+)$/', $value, $match)) continue;
-            $stem = $match[1]; $suffixes = array(); $safe = true;
-            foreach ($markups as $index => $markup) {
-                $other = $values[$index][$position] ?? '';
-                if (!preg_match('/^' . preg_quote($stem, '/') . '([0-9]+)$/', $other, $number)) { $safe = false; break; }
-                $suffixes[] = $number[1];
-                if (self::stylesheetTargetsId((string) $other, $stylesheetIds)) { $safe = false; break; }
-                if (preg_match('/(?:href\s*=\s*["\']#' . preg_quote($other, '/') . '["\']|(?:aria-controls|for)\s*=\s*["\']' . preg_quote($other, '/') . '["\'])/i', $markup)) { $safe = false; break; }
+            foreach ($matches as $match) {
+                $data = '' !== ($match[4][0] ?? '') ? 4 : ('' !== ($match[6][0] ?? '') ? 6 : null);
+                if (null !== $data) {
+                    [$value, $offset] = $match[$data + 1];
+                    if (!preg_match('/[0-9]/', $value)) continue;
+                    $row[] = array('data', $value, $offset, $match[$data][0] . '=' . preg_replace('/[0-9]+/', '#', $value));
+                    continue;
+                }
+                $group = '' !== $match[1][0] ? 1 : ('' !== ($match[2][0] ?? '') ? 2 : 3);
+                [$value, $offset] = $match[$group];
+                // The route number is the trailing digit run after a non-digit stem,
+                // whether hyphenated (top-101), underscored (top_101) or glued (top101).
+                // The stem keeps its separator, so the placeholder stays a valid id.
+                $row[] = array('id', $value, $offset, preg_match('/^(.*[^0-9])[0-9]+$/', $value, $stem) ? $stem[1] . '#' : $value);
             }
-            if ($safe && count(array_unique($suffixes)) > 1) foreach ($values as $index => $row) $replace[$index][$row[$position]] = $stem . '__route__';
+            $rows[$index] = $row;
+            $groups[json_encode(array_column($row, 3))][] = $index;
         }
-        foreach ($markups as $index => $markup) foreach ($replace[$index] ?? array() as $from => $to) {
-            $markup = str_replace(array('"anchor":"' . $from . '"', 'id="' . $from . '"'), array('"anchor":"' . $to . '"', 'id="' . $to . '"'), $markup);
-            $markups[$index] = $markup;
+        $replace = array();
+        foreach ($groups as $indexes) {
+            if (count($indexes) < 2) continue;
+            foreach ($rows[$indexes[0]] as $position => [$kind, , , $stem]) {
+                if ($stem === $rows[$indexes[0]][$position][1]) continue;
+                $variants = array(); $safe = true;
+                foreach ($indexes as $index) {
+                    $value = $rows[$index][$position][1];
+                    $variants[$value] = true;
+                    if ('data' === $kind) continue;
+                    if (self::stylesheetTargetsId($value, $stylesheetIds)) { $safe = false; break; }
+                    if (preg_match('/(?:href\s*=\s*["\']#' . preg_quote($value, '/') . '["\']|(?:aria-controls|for)\s*=\s*["\']' . preg_quote($value, '/') . '["\'])/i', $markups[$index])) { $safe = false; break; }
+                }
+                if (!$safe || count($variants) < 2 || ('data' === $kind && count($variants) !== count($indexes))) continue;
+                foreach ($indexes as $index) $replace[$index][$position] = str_replace('#', '__route__', 'data' === $kind ? substr($stem, strpos($stem, '=') + 1) : $stem);
+            }
+        }
+        foreach ($replace as $index => $positions) {
+            krsort($positions);
+            foreach ($positions as $position => $to) {
+                [, $from, $offset] = $rows[$index][$position];
+                $markups[$index] = substr_replace($markups[$index], $to, $offset, strlen($from));
+            }
         }
         return $markups;
     }
