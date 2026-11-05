@@ -2260,8 +2260,9 @@ final class NavigationToggleSuppressor
         return $this->isNavigationLandmark($element)
             && 'core/group' === ($block['blockName'] ?? '')
             && strtolower($element->tagName) === strtolower((string) ($block['attrs']['tagName'] ?? ''))
-            && 1 === count($innerBlocks)
-            && 'core/navigation' === ($innerBlocks[0]['blockName'] ?? '');
+            && 1 === count(array_filter($innerBlocks, static fn (array $child): bool => 'core/navigation' === ($child['blockName'] ?? '')))
+            && 'core/navigation' === ($innerBlocks[0]['blockName'] ?? '')
+            && array() === array_filter(array_slice($innerBlocks, 1), static fn (array $child): bool => ! in_array($child['blockName'] ?? '', array( 'core/button', 'core/buttons' ), true));
     }
 
     private function elementWithId(DOMElement $context, string $id): ?DOMElement
