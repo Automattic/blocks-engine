@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceEle
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMaterialization;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorLayoutOwnership;
 use Closure;
 use DOMElement;
 
@@ -17,8 +18,6 @@ final class DescriptionListElementContext
      * @param Closure(DOMElement): ?array<string, mixed> $descriptionListBlock
      * @param Closure(DOMElement): ?array<string, mixed> $metadataGridBlock
      * @param Closure(DOMElement): array<int, array<string, mixed>> $definitionListItems
-     * @param Closure(DOMElement): bool $isCssOwnedGridElement
-     * @param Closure(DOMElement): array<string, mixed> $cssOwnedGridAttributes
      * @param Closure(DOMElement, array<int, array<string, mixed>>&, bool): array<int, array<string, mixed>> $convertChildren
      * @param Closure(string): bool $hasVisibleText
      */
@@ -27,8 +26,7 @@ final class DescriptionListElementContext
         private readonly Closure $descriptionListBlock,
         private readonly Closure $metadataGridBlock,
         private readonly Closure $definitionListItems,
-        private readonly Closure $isCssOwnedGridElement,
-        private readonly Closure $cssOwnedGridAttributes,
+        public readonly AuthorLayoutOwnership $authorLayoutOwnership,
         private readonly ElementPresentationResolver $presentationResolver,
         private readonly Closure $convertChildren,
         private readonly SourceBlockCreator $createBlock,
@@ -53,17 +51,6 @@ final class DescriptionListElementContext
     public function definitionListItems(DOMElement $element): array
     {
         return ($this->definitionListItems)($element);
-    }
-
-    public function isCssOwnedGridElement(DOMElement $element): bool
-    {
-        return ($this->isCssOwnedGridElement)($element);
-    }
-
-    /** @return array<string, mixed> */
-    public function cssOwnedGridAttributes(DOMElement $element): array
-    {
-        return ($this->cssOwnedGridAttributes)($element);
     }
 
     /** @return array<string, mixed> */

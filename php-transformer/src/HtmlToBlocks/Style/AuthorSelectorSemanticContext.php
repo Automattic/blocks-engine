@@ -11,27 +11,19 @@ use DOMElement;
 final class AuthorSelectorSemanticContext
 {
     /**
-     * @param Closure(DOMElement): bool        $isDirectChildOfAuthorOwnedLayout
      * @param Closure(DOMElement): bool        $isStructuralListItem
      * @param Closure(DOMElement): bool        $requiresIndependentSemanticWrapper
-     * @param Closure(DOMElement): bool        $requiresInlineLayoutCarrier
      * @param Closure(DOMElement): bool        $isRepresentableTable
      * @param Closure(DOMElement): bool        $convertsToOtherElementType
      */
     public function __construct(
         private readonly SourceElementClassifier $sourceElementClassifier,
-        private readonly Closure $isDirectChildOfAuthorOwnedLayout,
+        public readonly AuthorLayoutOwnership $authorLayoutOwnership,
         private readonly Closure $isStructuralListItem,
         private readonly Closure $requiresIndependentSemanticWrapper,
-        private readonly Closure $requiresInlineLayoutCarrier,
         private readonly Closure $isRepresentableTable,
         private readonly Closure $convertsToOtherElementType
     ) {}
-
-    public function isDirectChildOfAuthorOwnedLayout(DOMElement $element): bool
-    {
-        return ($this->isDirectChildOfAuthorOwnedLayout)($element);
-    }
 
     public function isInlineContentElement(string $tagName): bool
     {
@@ -46,11 +38,6 @@ final class AuthorSelectorSemanticContext
     public function requiresIndependentSemanticWrapper(DOMElement $element): bool
     {
         return ($this->requiresIndependentSemanticWrapper)($element);
-    }
-
-    public function requiresInlineLayoutCarrier(DOMElement $element): bool
-    {
-        return ($this->requiresInlineLayoutCarrier)($element);
     }
 
     /** @param array<string, mixed> $parsed */

@@ -639,7 +639,10 @@ final class StyleResolver implements ElementPresentationResolver
             if (! $this->matchesCssSelector($element, $selector) || ! $this->selectorNamesAnyRetainedClass($selector, $classes)) {
                 continue;
             }
-            foreach (array_keys($rule['declarations']) as $property) {
+            foreach ($rule['declarations'] as $property => $value) {
+                if ($this->conditionalValueMatchesRestingValue($element, $property, $value)) {
+                    continue;
+                }
                 $families[$this->responsivePropertyFamily($property)] = true;
             }
         }
@@ -670,20 +673,40 @@ final class StyleResolver implements ElementPresentationResolver
     private function conditionalFamiliesInPlay(DOMElement $element): array
     {
         $conditionalFamilies = array();
+        $matchingSelectors = array();
         foreach ($this->styleRuleCandidates($element, 'conditional') as $rule) {
             $selector = (string) ($rule['selector'] ?? '');
-            if (! $this->matchesCssSelector($element, $selector)
-                && ! $this->unsupportedSelectorReferencesElement($selector, $element)
+            $matches = $this->matchesCssSelector($element, $selector);
+            if ($matches) $matchingSelectors[$selector] = true;
+            // A shared class token is only a fallback for selectors we cannot
+            // evaluate. A supported non-match (for example a.label against
+            // p.label) cannot give this element conditional style ownership.
+            if (! $matches
+                && ($this->isSupportedCssSelector($selector)
+                    || ! $this->unsupportedSelectorReferencesElement($selector, $element))
             ) {
                 continue;
             }
-            foreach (array_keys($rule['declarations']) as $property) {
+            foreach ($rule['declarations'] as $property => $value) {
+                if ($matches
+                    && $this->conditionalValueMatchesRestingValue($element, $property, $value)
+                ) {
+                    continue;
+                }
                 $conditionalFamilies[$this->responsivePropertyFamily($property)] = true;
             }
         }
         foreach ($this->context->sourceStyles()->conditionalRules() as $rule) {
             $selector = (string) ($rule['selector'] ?? '');
-            if ( 1 !== preg_match('/:(?:is|where|not|has)\s*\(/i', $selector)
+            // Matching candidates already use the shared equal-value decision.
+            // A supported negation-only selector can also prove a non-match
+            // (span.label:not(...) cannot own a p.label's color). Keep the
+            // conservative fallback for relational/alternative functions,
+            // whose ancestor or alternative hooks may evade the index.
+            if ( isset($matchingSelectors[$selector])
+                || ( $this->isSupportedCssSelector($selector)
+                    && ! preg_match('/:(?:is|where|has)\s*\(/i', $selector) )
+                || 1 !== preg_match('/:(?:is|where|not|has)\s*\(/i', $selector)
                 || ! $this->unsupportedSelectorReferencesElement($selector, $element)
             ) {
                 continue;
@@ -694,6 +717,38 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         return $conditionalFamilies;
+    }
+
+    /**
+     * A matching conditional restatement is not a variant when both values
+     * compute identically in this element's scope. Unresolved references and
+     * conditionally redefined tokens remain conservative: a capture-time
+     * equality is not proof of equality in every condition.
+     */
+    private function conditionalValueMatchesRestingValue(DOMElement $element, string $property, string $value): bool
+    {
+        $resting = $this->matchedCascadedDeclarations($element)[$property] ?? '';
+        if ('' === $resting || str_starts_with($property, '--')) {
+            return false;
+        }
+
+        $live = array();
+        for ($node = $element; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null) {
+            foreach ($this->matchingStyleRules($node, 'conditional') as $rule) {
+                foreach (($rule['cascadedDeclarations'] ?? array()) + $rule['declarations'] as $name => $_value) {
+                    if (str_starts_with((string) $name, '--')) $live[$name] = true;
+                }
+            }
+        }
+        $customProperties = $this->cascadedCustomProperties($element, true);
+        $resolve = function (string $declared) use ($customProperties, $live): string {
+            $declared = preg_replace('/\s*!\s*important\s*$/i', '', $declared) ?? $declared;
+            return trim($this->expandCssVariableReferences($declared, $customProperties, $live));
+        };
+        $base = $resolve($resting);
+        $conditional = $resolve($value);
+
+        return '' !== $base && !str_contains($base, 'var(') && !str_contains($conditional, 'var(') && $base === $conditional;
     }
 
     /**
@@ -1837,9 +1892,12 @@ final class StyleResolver implements ElementPresentationResolver
      */
     public function readsConditionalCustomProperty(DOMElement $element, array $properties): bool
     {
+        $properties = array_map('strtolower', $properties);
         $readers = array();
         foreach ( $this->matchingStyleRules($element, 'static') as $rule ) {
-            if ( array() !== array_intersect($properties, array_map('strtolower', array_map('strval', array_keys($rule['declarations'] ?? array())))) ) {
+            $declared = array_map('strtolower', array_map('strval', array_keys($rule['declarations'] ?? array())));
+            if ( isset($rule['pendingFont']) ) array_push($declared, ...self::FONT_SHORTHAND_LONGHANDS);
+            if ( array() !== array_intersect($properties, $declared) ) {
                 foreach ( $rule['customPropertyReferences'] ?? array() as $name ) $readers[(string) $name] = true;
             }
         }
@@ -1852,6 +1910,45 @@ final class StyleResolver implements ElementPresentationResolver
             }
         }
         return false;
+    }
+
+    /** Longhands an ordinary `font` shorthand sets (and resets). */
+    private const FONT_SHORTHAND_LONGHANDS = array( 'font-style', 'font-variant', 'font-weight', 'font-size', 'line-height', 'font-family' );
+
+    /**
+     * The `font` shorthand that decides the element's resting font family when
+     * that shorthand could not be expanded at parse time (`font: var(--type)`,
+     * a system font), or null when a `font-family` longhand or nothing
+     * decides it. Such a shorthand is invisible to the classified cascade, yet
+     * it resets the family the element would otherwise inherit. The value is
+     * returned as authored, before custom-property substitution.
+     */
+    public function restingFontShorthand(DOMElement $element): ?string
+    {
+        $cascade = array();
+        $sequence = 0;
+        $apply = function (string $kind, string $value, bool $inline, array $specificity, ?int $layer) use (&$cascade, &$sequence): void {
+            $this->applyMediaTextCascadeDeclaration($cascade, 'font-family', $kind . ':' . $value, $inline, $specificity, ++$sequence, $layer);
+        };
+        foreach ( $this->matchingStyleRules($element, 'static') as $rule ) {
+            if ( ! empty($rule['conditions']) && ! $this->conditionsApplyAtViewport($rule['conditions'], self::DESKTOP_REFERENCE_WIDTH) ) {
+                continue;
+            }
+            $specificity = $this->mediaTextSelectorSpecificity((string) $rule['selector']);
+            // Apply the rule's shorthand and longhand in authored order.
+            $entries = array();
+            if ( isset($rule['declarations']['font-family']) ) $entries[] = array( 'family', (string) $rule['declarations']['font-family'] );
+            if ( isset($rule['pendingFont']) ) {
+                $font = array( 'font', (string) $rule['pendingFont'] );
+                if ( empty($rule['pendingFontFamilyFollows']) ) $entries[] = $font; else array_unshift($entries, $font);
+            }
+            foreach ( $entries as [$kind, $value] ) $apply($kind, $value, false, $specificity, $rule['layerRank'] ?? null);
+        }
+        foreach ( $this->cssDeclarations(SourceDom::attr($element, 'style')) as $property => $value ) {
+            if ( 'font-family' === $property || 'font' === $property ) $apply('font' === $property ? 'font' : 'family', (string) $value, true, array( PHP_INT_MAX, PHP_INT_MAX, PHP_INT_MAX ), null);
+        }
+        $winner = (string) ( $cascade['font-family']['value'] ?? '' );
+        return str_starts_with($winner, 'font:') ? substr($winner, 5) : null;
     }
 
     /**
@@ -5072,9 +5169,20 @@ final class StyleResolver implements ElementPresentationResolver
         // an ancestor declares is only carried when the engine can see
         // a reader for it. Names only: this rides every rule record.
         $customPropertyReferences = array_keys($this->customPropertiesReferencedByValues($rawDeclarations));
-        $readingCustomProperties = static fn (array $rule): array => array() === $customPropertyReferences
+        // cssDeclarations() expands every `font` shorthand it can; one left
+        // whole is a pending substitution (`font: var(--type)`) or a system
+        // font. It still resets the family and size the element inherits,
+        // so its readers need it although no classified longhand carries it.
+        $pendingFont = array();
+        if ( isset($rawDeclarations['font']) ) {
+            $order = array_flip(array_keys($rawDeclarations));
+            $pendingFont['pendingFont'] = (string) $rawDeclarations['font'];
+            // The rule's own later `font-family` decides the family instead.
+            if ( isset($order['font-family']) && $order['font-family'] > $order['font'] ) $pendingFont['pendingFontFamilyFollows'] = true;
+        }
+        $readingCustomProperties = static fn (array $rule): array => (array() === $customPropertyReferences
             ? $rule
-            : $rule + array( 'customPropertyReferences' => $customPropertyReferences );
+            : $rule + array( 'customPropertyReferences' => $customPropertyReferences )) + $pendingFont;
         $mediaTextDeclarations = array() === $conditions
             ? array_values(array_filter(
                 $this->mediaTextInlineDeclarationEntries($body),
@@ -6039,6 +6147,48 @@ final class StyleResolver implements ElementPresentationResolver
         $cache = $this->context->sourceStyles();
         $index = $cache->ruleCandidateIndexes[$collection] ??= $this->styleRuleCandidateIndex($collection);
         return $cache->selectorMatchCache->styleRuleCandidates($element, $collection, $index);
+    }
+
+    /** A source-only keyboard shortcut, with no painted content at rest. */
+    public function isFocusRevealedSkipLink(DOMElement $element, string $sourcePath = ''): bool
+    {
+        if ( ! SourceDom::isMainSkipLink($element, $sourcePath) ) return false;
+        $rest = array_map(static fn (array $values): string => (string) end($values), $this->authorDeclaredValuesAtAnyViewport(
+            $element, array('position', 'left', 'right', 'top', 'bottom', 'display', 'visibility', 'opacity', 'clip', 'clip-path')
+        ));
+        if ( ! self::skipLinkHidden($rest) ) return false;
+        $authorStyles = $this->context->authorStyles();
+        $cache = $authorStyles->selectorMatchCache();
+        $focused = array();
+        $hasFocusRule = false;
+        foreach ( $cache->styleRuleCandidates($element, 'author-structural', $authorStyles->styleRuleCandidateIndex()) as $rule ) {
+            $selector = (string) ($rule['selector'] ?? '');
+            // A negated focus rule matches at rest, not in the focused set.
+            // Test it without ignoring pseudo states (which negates the match).
+            if ( 1 === preg_match('/:not\\(\\s*:focus(?:-visible|-within)?\\s*\\)/', $selector) ) {
+                if ( $cache->matches($element, $selector, $rule['parsed'] ?? array())['matches'] ) $hasFocusRule = true;
+                continue;
+            }
+            if ( ! $cache->matches($element, $selector, $rule['parsed'] ?? array(), true)['matches'] ) continue;
+            if ( 1 === preg_match('/:focus(?:-visible|-within)?\\b/', $selector) ) $hasFocusRule = true;
+            $focused = $this->mergeCssDeclarationMaps($focused, $rule['declarations'] ?? array());
+        }
+        $focused = $this->mergeCssDeclarationMaps($focused, $this->cssDeclarations(SourceDom::attr($element, 'style')));
+        return $hasFocusRule && ! self::skipLinkHidden($focused);
+    }
+
+    /** @param array<string, string> $declarations */
+    private static function skipLinkHidden(array $declarations): bool
+    {
+        $value = static fn (string $property): string => CssValueInspector::comparable($declarations[$property] ?? '');
+        if ( 'none' === $value('display') || in_array($value('visibility'), array('hidden', 'collapse'), true) || '0' === $value('opacity') ) return true;
+        if ( in_array($value('position'), array('absolute', 'fixed'), true) ) {
+            foreach ( array('left', 'top', 'right', 'bottom') as $edge ) {
+                if ( 1 === preg_match('/^(-[0-9.]+)px$/', $value($edge), $match) && (float) $match[1] <= -40 ) return true;
+            }
+        }
+        return 1 === preg_match('/^rect\\(\\s*0(?:px)?[ ,]+0(?:px)?[ ,]+0(?:px)?[ ,]+0(?:px)?\\s*\\)$/', $value('clip'))
+            || in_array($value('clip-path'), array('inset(50%)', 'inset(100%)'), true);
     }
 
     /** @return list<string> Authored interaction states that paint a background on this element. */

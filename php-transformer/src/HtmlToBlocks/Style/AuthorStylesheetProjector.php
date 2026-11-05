@@ -74,9 +74,10 @@ final class AuthorStylesheetProjector
      */
     public function project(string $stylesheet, AuthorStylesheetProjectionContext $context, array $outerConditions = array()): string
     {
+        $clips = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::replacements($context->authorStyles->sourceBody());
         $projected = ( new CssStylesheetTransformer() )->transformStyleRules(
             $stylesheet,
-            fn (string $prelude, string $body, array $ancestors = array()): string => $this->projectStyleRule($prelude, $body, $context, self::ancestorsAreConditional($ancestors), $ancestors, $outerConditions)
+            fn (string $prelude, string $body, array $ancestors = array()): string => $this->projectStyleRule($prelude, \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::rewrite($body, $clips), $context, self::ancestorsAreConditional($ancestors), $ancestors, $outerConditions)
         );
         // Engine class tokens must not satisfy an authored class substring.
         $projected = $context->authorStyles->classAttributeSelectors()->stylesheet($projected);
@@ -2883,6 +2884,13 @@ final class AuthorStylesheetProjector
                 break;
             }
         }
+        // A functional device list is an OR, not its first attribute. Keep
+        // the entire zero-specificity gate, including every captured device.
+        $deviceAttribute = '(?:' . preg_quote(CaptureEvidence::DEVICE_DOCUMENT, '/') . '|' . preg_quote(EngineMarker::DEVICE_SCOPE_ATTRIBUTE, '/') . ')';
+        $devicePredicate = '\\[\\s*' . $deviceAttribute . '\\s*=\\s*(?:"[^"\\r\\n]*"|\'[^\'\\r\\n]*\')\\s*\\]';
+        if (preg_match('/:where\\(\\s*' . $devicePredicate . '(?:\\s*,\\s*' . $devicePredicate . ')*\\s*\\)/i', $ancestry, $deviceList)) {
+            $scope = $deviceList[0] . ' ';
+        }
         // Preserve the historical output for selectors without a device gate.
         if ('' === $scope && preg_match('/^\s*((?::where\([^(),]+\)\s+)+)/i', $selector, $scopeMatch)) {
             $scope = trim((string) $scopeMatch[1]) . ' ';
@@ -4424,12 +4432,16 @@ final class AuthorStylesheetProjector
      * renders that list's box. Emit at the author rule's position so
      * conditions, importance and cascade remain authored rather than being
      * frozen into resolved base styles.
+     *
+     * A list of inline-level items packs them with its `text-align`; on the
+     * root's flex row the same packing is `justify-content`.
      */
     private function navigationListBoxRule(string $prelude, array $declarations, AuthorStylesheetProjectionContext $context): string
     {
         $box = array_intersect_key($declarations, array_flip(AuthorSelectorProjectionState::NAVIGATION_LIST_BOX_PROPERTIES));
-        if (array() === $box) return '';
-        // Display => projected selectors: one rule may reach lists whose shown box differs.
+        $packing = $this->inlineItemPacking((string) ( $declarations['text-align'] ?? '' ));
+        if (array() === $box && '' === $packing) return '';
+        // Declarations => projected selectors: one rule may reach lists whose shown box differs.
         $groups = array();
         foreach (CssValueSplitter::splitTopLevel($prelude, array(',')) as $selector) {
             $selector = trim($selector);
@@ -4442,14 +4454,52 @@ final class AuthorStylesheetProjector
                 if ('' === $target) continue;
                 $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
                 $display = $this->navigationListBoxDisplay($box['display'] ?? null, $context->selectorProjections->navigationListShownDisplay($path));
-                $groups[$display][] = ':root ' . $target . $this->selectorSpecificityShims($parsed, $context) . $suffix;
+                $rendered = '' === $display ? $box : array('display' => $display) + $box;
+                if ('' !== $packing && $this->packsInlineItems($element)) $rendered['justify-content'] = $packing;
+                if (array() === $rendered) continue;
+                $groups[$this->styleResolver->cssDeclarationString($rendered)][] = ':root ' . $target . $this->selectorSpecificityShims($parsed, $context) . $suffix;
             }
         }
         $rules = '';
-        foreach ($groups as $display => $selectors) {
-            $rules .= implode(',', array_unique($selectors)) . '{' . $this->styleResolver->cssDeclarationString('' === $display ? $box : array('display' => $display) + $box) . '}';
+        foreach ($groups as $body => $selectors) {
+            $rules .= implode(',', array_unique($selectors)) . '{' . $body . '}';
         }
         return $rules;
+    }
+
+    /** The flex packing of a row for the `text-align` that packed its inline items, with its importance. */
+    private function inlineItemPacking(string $textAlign): string
+    {
+        $value = CssValueInspector::comparable(CssValueInspector::withoutImportant($textAlign));
+        $packing = array( 'start' => 'flex-start', 'end' => 'flex-end', 'left' => 'left', 'right' => 'right', 'center' => 'center' )[$value] ?? '';
+        return '' === $packing ? '' : $packing . ( CssValueInspector::isImportant($textAlign) ? ' !important' : '' );
+    }
+
+    /**
+     * Whether a source list lays its items out as inline content at the
+     * desktop reference viewport: the list is not a flex or grid container
+     * and every item is inline-level and in flow.
+     */
+    private function packsInlineItems(DOMElement $list): bool
+    {
+        $listDisplay = CssValueInspector::comparable($this->styleResolver->referenceViewportAuthorDeclarations($list, array( 'display' ))['display'] ?? '');
+        if ( 1 === preg_match('/(?<![\w-])(?:inline-)?(?:flex|grid)(?![\w-])/', $listDisplay) ) {
+            return false;
+        }
+        $items = 0;
+        foreach ( $list->childNodes as $item ) {
+            if ( ! $item instanceof DOMElement ) {
+                continue;
+            }
+            $own = $this->styleResolver->referenceViewportAuthorDeclarations($item, array( 'display', 'float', 'position' ));
+            $float = CssValueInspector::comparable($own['float'] ?? '');
+            $position = CssValueInspector::comparable($own['position'] ?? '');
+            if ( ! $this->isInlineLevelDisplay((string) ( $own['display'] ?? '' )) || ! in_array($float, array( '', 'none' ), true) || in_array($position, array( 'absolute', 'fixed' ), true) ) {
+                return false;
+            }
+            ++$items;
+        }
+        return $items > 0;
     }
 
     /**
@@ -4534,13 +4584,22 @@ final class AuthorStylesheetProjector
     /**
      * Whether an authored rule already generates `::after` content on one of
      * the items (`#menu li:after{content:"|"}`). That rule stays live on the
-     * rendered item, and the space must not replace its content.
+     * rendered item, and the space must not replace its content. The space is
+     * measured at the desktop reference viewport, so only rules that apply
+     * there count: a mobile menu's `li:after` does not own the desktop row.
      *
      * @param list<DOMElement> $items
      */
     private function authorsItemAfterContent(array $items, AuthorStylesheetProjectionContext $context): bool
     {
         foreach ( $context->authorStyles->styleRules() as $rule ) {
+            $conditions = array_values(array_filter(array_map(
+                static fn ($condition): string => trim((string) preg_replace('#/\*.*?\*/#s', '', (string) $condition)),
+                is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array()
+            )));
+            if ( array() !== $conditions && ! $this->styleResolver->conditionsApplyAtViewport($conditions, StyleResolver::DESKTOP_REFERENCE_WIDTH) ) {
+                continue;
+            }
             foreach ( is_array($rule['selectors'] ?? null) ? $rule['selectors'] : array() as $record ) {
                 $selector = trim((string) ( $record['selector'] ?? '' ));
                 if ( 1 !== preg_match('/^(.+?)::?after$/i', $selector, $subject) ) {

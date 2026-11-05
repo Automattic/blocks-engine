@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use InvalidArgumentException;
 
@@ -66,7 +67,7 @@ final class NavigationEntityProjection
                 'kind' => 'menu', 'source_path' => $canonical['source_path'],
                 'target_slug' => $slug, 'title' => $title,
                 'source_relation' => 'navigation_entity', 'order' => count($entities),
-                'items' => $canonical['block']['items'], 'block_markup' => $canonical['inner'],
+                'items' => $canonical['block']['items'], 'block_markup' => self::sharedItemClasses($occurrences),
                 'token' => $token, 'reconciliation_identity' => $identity,
             );
             foreach ($occurrences as $occurrence) {
@@ -176,6 +177,46 @@ final class NavigationEntityProjection
             return $result;
         };
         return hash('sha256', json_encode($items((new Runtime())->parseBlocks($markup)), JSON_THROW_ON_ERROR));
+    }
+
+    /**
+     * Source item classes mean what their own page's stylesheet says, so the
+     * shared entity keeps only the classes every reference's item carries.
+     * Per-reference item presentation is addressed through its navigation
+     * instance scope; document-seeded engine markers stay canonical.
+     */
+    private static function sharedItemClasses(array $occurrences): string
+    {
+        $pattern = '/<!--\s*wp:navigation-(?:link|submenu)\s+(\{.*?\})\s*(\/)?-->/s';
+        $classes = static function (array $attrs): array {
+            return array(
+                preg_split('/\s+/', trim((string) ($attrs['className'] ?? '')), -1, PREG_SPLIT_NO_EMPTY) ?: array(),
+                preg_split('/\s+/', trim((string) ($attrs['metadata']['blocksEngineNavigationAnchor']['className'] ?? '')), -1, PREG_SPLIT_NO_EMPTY) ?: array(),
+            );
+        };
+        $shared = null;
+        foreach ($occurrences as $occurrence) {
+            preg_match_all($pattern, $occurrence['inner'], $matches);
+            $items = array_map(static fn(string $json): array => $classes(json_decode($json, true) ?: array()), $matches[1]);
+            $shared = null === $shared ? $items : array_map(static fn(array $left, array $right): array => array(
+                array_intersect($left[0], $right[0] ?? array()), array_intersect($left[1], $right[1] ?? array()),
+            ), $shared, $items);
+        }
+        $keep = static fn(array $tokens, array $common): string => implode(' ', array_filter($tokens, static fn(string $token): bool =>
+            in_array($token, $common, true) || EngineMarker::isSpecificityShim($token) || 1 === preg_match('/^blocks-engine-[a-z0-9-]+-[a-f0-9]{12}-\d+$/D', $token)));
+        $position = 0;
+        return preg_replace_callback($pattern, static function (array $match) use ($classes, $keep, $shared, &$position): string {
+            $common = $shared[$position++] ?? array(array(), array());
+            $attrs = json_decode($match[1], true);
+            if (!is_array($attrs)) return $match[0];
+            $before = $classes($attrs);
+            $item = $keep($before[0], $common[0]);
+            $anchor = $keep($before[1], $common[1]);
+            if ($item === implode(' ', $before[0]) && $anchor === implode(' ', $before[1])) return $match[0];
+            if ('' === $item) unset($attrs['className']); else $attrs['className'] = $item;
+            if (isset($attrs['metadata']['blocksEngineNavigationAnchor']['className'])) $attrs['metadata']['blocksEngineNavigationAnchor']['className'] = $anchor;
+            return str_replace($match[1], BlockAttributes::encode($attrs, JSON_THROW_ON_ERROR), $match[0]);
+        }, $occurrences[0]['inner']) ?? $occurrences[0]['inner'];
     }
 
     private static function labelText(string $label): string

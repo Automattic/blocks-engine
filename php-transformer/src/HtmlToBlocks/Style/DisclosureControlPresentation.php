@@ -150,9 +150,23 @@ final class DisclosureControlPresentation
             }
             $css = $this->accordionToggleBoxCss($control, $row, $iconSource, $css);
         }
-        $carrierCss = $hasContentCarrier
-            ? $this->disclosureControlCarriedCss($control, array() !== $conditionalDisplay, true, true)
-            : '';
+        // The carrier is label content, not a second disclosure box. In
+        // particular, copying summary's UA list-item display creates a second
+        // line below the native marker.
+        $carrierDeclarations = $hasContentCarrier
+            ? $this->styles->cssDeclarations($this->disclosureControlCarriedCss($control, true, true))
+            : array();
+        $carrierCss = $this->styles->cssDeclarationString(array_filter(
+            $carrierDeclarations,
+            static fn (string $property): bool => (bool) preg_match('/^(?:color|font(?:-[a-z-]+)?|letter-spacing|line-height|text-align|text-transform)$/', $property),
+            ARRAY_FILTER_USE_KEY
+        ));
+        // Flex/button-like disclosures use the carrier as their authored
+        // interactive layout. Native list-item summaries must not do so.
+        $nativeSummaryDisplay = $this->styles->resolvedPresentationDeclarations($control)['display'] ?? 'list-item';
+        if ( $hasContentCarrier && ! in_array($nativeSummaryDisplay, array('list-item', ''), true) ) {
+            $carrierCss = $this->disclosureControlCarriedCss($control, array() !== $conditionalDisplay, true, true);
+        }
         $conditionalPresentation = $this->conditionalPresentation($control, $isSummary);
         $titleCss = str_starts_with($prefix, 'blocks-engine-accordion-toggle-')
             ? $this->styles->cssDeclarationString($this->disclosureSummaryLabelTypography($control)) : '';
@@ -388,7 +402,10 @@ final class DisclosureControlPresentation
         // ancestor those rules were written against. Its type is inheritable, so
         // restating it on the summary reaches the label again, and any rule the
         // label still owns keeps winning over it.
-        $carried = array_merge($this->disclosureSummaryLabelTypography($summary), $carried);
+        $isNativeSummary = 'summary' === strtolower($control->tagName);
+        if ( ! $isNativeSummary ) {
+            $carried = array_merge($this->disclosureSummaryLabelTypography($summary), $carried);
+        }
         // Buttons do not inherit line-height by default. Preserve their UA
         // normal line box rather than walking past the control to body type.
         // Explicit values (including inherit) still use the authored cascade.
@@ -398,7 +415,9 @@ final class DisclosureControlPresentation
         }
         // The generated h3 introduces theme heading type between the control
         // and its source ancestors. Carry explicitly inherited winners across it.
-        foreach ( array('font-family', 'line-height') as $property ) {
+        // Native summaries have no intervening heading: inherited type must
+        // remain live through details, including on the summary content carrier.
+        foreach ( $isNativeSummary ? array() : array('font-family', 'line-height') as $property ) {
             if ( ! isset($carried[$property]) || in_array(strtolower(trim($carried[$property])), array('inherit', 'unset'), true) ) {
                 $value = $this->styles->authoredInheritedPropertyWinner($control, $property);
                 if ( '' !== $value ) {
@@ -410,6 +429,9 @@ final class DisclosureControlPresentation
         // conditions instead. Restating the reference viewport's value here
         // unconditionally would outrank the author's own responsive rule, which
         // is layered, and show a small-screen control on every screen.
+        if ( 'summary' === strtolower($control->tagName) && 'list-item' === ($carried['display'] ?? '') ) {
+            unset($carried['display']);
+        }
         if ( $displayIsConditional ) {
             if ( ! $preserveReferenceDisplay ) {
                 unset($carried['display']);

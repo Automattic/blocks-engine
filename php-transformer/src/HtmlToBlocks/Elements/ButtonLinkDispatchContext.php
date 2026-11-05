@@ -28,7 +28,8 @@ final class ButtonLinkDispatchContext
         private readonly ?RuntimeIslandAnalyzer $runtimeIslands = null,
         private readonly ?FormRuntimeIslandRecorder $formRuntimeIslandRecorder = null,
         private readonly ?ButtonLinkLeftovers $leftovers = null,
-        private readonly Runtime $runtime = new Runtime()
+        private readonly Runtime $runtime = new Runtime(),
+        private readonly ?\Closure $runtimeAuthoredButton = null
     ) {
     }
 
@@ -46,6 +47,12 @@ final class ButtonLinkDispatchContext
     public function recordRuntimeControlIsland(DOMElement $element): void
     {
         $this->formRuntimeIslandRecorder?->recordControl($element);
+    }
+
+    /** @return array<string, mixed>|null */
+    public function runtimeAuthoredButton(DOMElement $element): ?array
+    {
+        return $this->runtimeAuthoredButton instanceof \Closure ? ($this->runtimeAuthoredButton)($element) : null;
     }
 
     /**

@@ -24,7 +24,13 @@ HTML;
 $responsiveResult = (new HtmlTransformer())->transform($responsive)->toArray();
 $responsiveCss = implode('', array_map(static fn(array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string)($asset['content'] ?? '') : '', $responsiveResult['assets'] ?? array()));
 
+$native = '<style>.t{font-family:serif;cursor:pointer}</style><details><summary class="t">Title</summary><p>Body</p></details>';
+$nativeResult = (new HtmlTransformer())->transform($native)->toArray();
+$nativeCss = implode('', array_map(static fn(array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $nativeResult['assets'] ?? array()));
+
 echo json_encode(array(
+    'nativeSource' => $native,
+    'nativeCandidate' => '<style>' . $nativeCss . '</style>' . $nativeResult['serialized_blocks'],
     'source' => $html,
     'candidate' => '<style>' . $css . '</style>' . $out['serialized_blocks'],
     'validity' => $out['source_reports']['wp_block_validity'] ?? null,

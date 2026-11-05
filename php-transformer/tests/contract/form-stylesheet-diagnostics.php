@@ -55,7 +55,7 @@ $element['diagnostics'] = array('provenance_limit');
 $element['truncated'] = true;
 FormPresentationGraphBuilder::assertElement($element);
 
-// Pin trunk's complete transform output except diagnostics and timings, including styles,
+// Pin complete transform output except diagnostics and timings, including styles,
 // provenance, responsive variants and compiled blocks (not just selected values).
 $withoutDiagnostics = static function (array $value) use (&$withoutDiagnostics): array {
     unset($value['diagnostics'], $value['metrics']);
@@ -63,6 +63,7 @@ $withoutDiagnostics = static function (array $value) use (&$withoutDiagnostics):
     return $value;
 };
 $hash = hash('sha256', json_encode($withoutDiagnostics($result), JSON_THROW_ON_ERROR));
-$assert('1806a69d123a9ec47c52babf4398eaf4c1bd88ea3b4fa2bcb39742afd49dcafb' === $hash, 'non-diagnostic transform output stays byte-identical to trunk: ' . $hash);
+// Updated for repair-only editor CSS and natively preserved captured dialog trigger anchors.
+$assert('22ea7d9e4aaf867feb2d78384d0dec45ba7f3095b6416aa973838ab46e9ba24f' === $hash, 'non-diagnostic transform output stays byte-identical to baseline: ' . $hash);
 fwrite(STDOUT, 'fixture layout graph bytes: ' . strlen(json_encode($layout, JSON_THROW_ON_ERROR)) . PHP_EOL);
 exit($failures ? 1 : 0);

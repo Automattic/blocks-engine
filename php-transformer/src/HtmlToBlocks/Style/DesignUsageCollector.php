@@ -119,6 +119,7 @@ final class DesignUsageCollector
         $rootContext = array(
             'color' => '#000000',
             'size' => $this->rootPx,
+            'size_known' => true,
             'family' => null,
             'background' => $canvas,
             'role' => 'body',
@@ -241,7 +242,7 @@ final class DesignUsageCollector
         if ($opaque) $this->addBackground((string) CssColor::hex($background), $control || 'input' === $tag ? 'cta' : 'surface', $mass + 1, $background, $control ? $this->hoverColor($element, array('background-color', 'background')) : null, $control && ($this->resolver->hasConditionalStyleFamily($element, 'background') || $this->resolver->readsConditionalCustomProperty($element, array('background', 'background-color'))));
         $this->spacingFrom($element, $declarations, $context['size']);
         $this->widthFrom($declarations, $context['size'], $mass);
-        $this->recordClassStyles($element, $declarations, $parent['size'], $context['size']);
+        $this->recordClassStyles($element, $declarations, $parent['size_known'] ? $parent['size'] : null, $context['size']);
         return $mass;
     }
 
@@ -271,7 +272,17 @@ final class DesignUsageCollector
         elseif ('a' === $tag && $element->hasAttribute('href') && 'button' !== $parent['role']) $context['role'] = 'link';
         elseif ('button' === $tag) $context['role'] = 'button';
 
-        $size = $this->fontSize($declarations['font-size'] ?? null, $parent['size']);
+        $fontDeclarations = $this->resolver->referenceViewportAuthorDeclarations($element, array('font', 'font-size'));
+        $sizeValue = $declarations['font-size'] ?? $fontDeclarations['font-size'] ?? null;
+        $size = $this->fontSize($sizeValue, $parent['size']);
+        // Keep a numeric estimate for usage mass, but never present that
+        // estimate as static evidence for preset binding. A shorthand left
+        // without a size longhand has not been interpreted by this collector.
+        if (null !== $sizeValue) {
+            $context['size_known'] = '!value' !== $this->fontSizeObservation(self::clean($sizeValue), $parent['size_known'] ? $parent['size'] : null);
+        } elseif (isset($fontDeclarations['font']) && !in_array(strtolower(self::clean($fontDeclarations['font'])), array('inherit', 'unset'), true)) {
+            $context['size_known'] = false;
+        }
         if (null === $size && isset(self::HEADING_EM[$tag])) $size = round(self::HEADING_EM[$tag] * $parent['size'], 3);
         if (null === $size && 'small' === $tag) $size = round(0.833 * $parent['size'], 3);
         if (null !== $size) $context['size'] = $size;
@@ -300,7 +311,25 @@ final class DesignUsageCollector
         elseif (isset($declarations['color'])) $context['hover_color'] = null;
 
         $family = $this->keyword($declarations['font-family'] ?? null);
-        if (null !== $family && !in_array($family, array('inherit', 'unset'), true)) {
+        // A `font` shorthand that substitutes a custom property (or names a
+        // system font) resets the family without a classified longhand. Read
+        // the family it substitutes to; one it cannot state is unknown, never
+        // the ancestor's.
+        $shorthand = $this->resolver->restingFontShorthand($element);
+        if (null === $shorthand && isset($fontDeclarations['font'])) {
+            // Pending shorthands in media rules are absent from the resting
+            // classified cascade. The author declarations retain them and
+            // order shorthand/longhand winners by cascade precedence.
+            $referenceFont = $this->resolver->referenceViewportAuthorDeclarations($element, array('font', 'font-family'));
+            if ('font' === array_key_last($referenceFont)) {
+                $value = $referenceFont['font'];
+                if (!in_array(strtolower(self::clean($value)), array('inherit', 'unset'), true)) $shorthand = $value;
+            }
+        }
+        if (null !== $shorthand) {
+            $font = CssFontShorthand::expand($this->resolver->resolveDefaultSchemeCssVariablesInValue($shorthand, $element));
+            $context['family'] = isset($font['font-family']) && !str_contains($font['font-family'], 'var(') ? self::clean($font['font-family']) : null;
+        } elseif (null !== $family && !in_array($family, array('inherit', 'unset'), true)) {
             $context['family'] = 'initial' === $family || str_contains($family, 'var(') ? null : self::clean($declarations['font-family']);
         } elseif (null === $family && in_array($tag, self::MONOSPACE_TAGS, true)) {
             $context['family'] = 'monospace';
@@ -438,7 +467,7 @@ final class DesignUsageCollector
      *
      * @param array<string,string> $declarations
      */
-    private function recordClassStyles(DOMElement $element, array $declarations, float $parentPx, float $fontPx): void
+    private function recordClassStyles(DOMElement $element, array $declarations, ?float $parentPx, float $fontPx): void
     {
         $classes = array_values(array_unique(array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn(string $class): bool => '' !== $class)));
         if (array() === $classes) return;
@@ -492,7 +521,7 @@ final class DesignUsageCollector
     }
 
     /** The resting observation followed by the values media-conditional rules give the property, or `!` and the reason. */
-    private function withVariants(DOMElement $element, string $property, string $observation, float $parentPx): string
+    private function withVariants(DOMElement $element, string $property, string $observation, ?float $parentPx): string
     {
         $family = self::CLASS_STYLE_FAMILIES[$property];
         if ($this->resolver->hasStateStyleFamily($element, $family)) return '!state';
@@ -540,10 +569,11 @@ final class DesignUsageCollector
         return 1 === count($tokens) ? self::colorObservation($tokens[0]) : '!value';
     }
 
-    private function fontSizeObservation(string $value, float $parentPx): string
+    private function fontSizeObservation(string $value, ?float $parentPx): string
     {
         if (1 === preg_match('/!\s*important\s*$/i', $value)) return '!important';
-        $px = $this->fontSize($value, $parentPx);
+        if (null === $parentPx && 1 === preg_match('/^(?:inherit|unset|smaller|larger|(?:\d+\.?\d*|\.\d+)(?:%|em))$/i', trim($value))) return '!value';
+        $px = $this->fontSize($value, $parentPx ?? 16.0);
         return null === $px ? '!value' : CssLength::format($px);
     }
 

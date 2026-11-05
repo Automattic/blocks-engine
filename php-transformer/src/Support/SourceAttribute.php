@@ -22,6 +22,43 @@ final class SourceAttribute
         return in_array(strtolower($name), self::DECLARED_EVENTS, true);
     }
 
+    /** Whether an attribute value declares user interaction, not just a library event. */
+    public static function hasDeclaredEvent(string $name, string $value): bool
+    {
+        if (!self::isDeclaredEventAttribute($name) || '' === trim($value)) {
+            return false;
+        }
+        if ('jsaction' !== strtolower($name)) {
+            return true;
+        }
+
+        // JSAction grammar: [eventType:]handler; an omitted type means click.
+        // Keep custom events (often obfuscated library names) out of interaction evidence.
+        $interactionEvents = array(
+            'click', 'dblclick', 'auxclick', 'contextmenu',
+            'mousedown', 'mouseup', 'mousemove', 'mouseover', 'mouseout', 'mouseenter', 'mouseleave',
+            'pointerdown', 'pointerup', 'pointermove', 'pointerover', 'pointerout', 'pointerenter', 'pointerleave',
+            'pointercancel', 'gotpointercapture', 'lostpointercapture',
+            'keydown', 'keyup', 'keypress',
+            'input', 'beforeinput', 'change', 'submit', 'reset', 'invalid',
+            'focus', 'blur', 'focusin', 'focusout',
+            'touchstart', 'touchend', 'touchmove', 'touchcancel',
+            'wheel', 'scroll', 'scrollend',
+            'drag', 'dragstart', 'dragend', 'dragenter', 'dragleave', 'dragover', 'drop',
+            'copy', 'cut', 'paste', 'select', 'selectstart', 'selectionchange',
+            'compositionstart', 'compositionupdate', 'compositionend',
+        );
+        foreach (explode(';', $value) as $entry) {
+            $parts = explode(':', trim($entry), 2);
+            $type = count($parts) === 1 ? 'click' : trim($parts[0]);
+            $handler = trim($parts[count($parts) - 1]);
+            if ('' !== $handler && in_array($type, $interactionEvents, true)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** One policy is consumed by PHP projection and generated editor/save code. */
     public static function staticPolicy(): array
     {

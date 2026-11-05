@@ -91,7 +91,29 @@ final class NavigationPattern implements PatternRecognizerInterface
             return true;
         }
 
-        return MenuVocabulary::isCurrentPageLinkRun($element) || $this->hasHeaderLinkCluster($element) || $this->hasRepeatedLinkItems($element) || $this->hasButtonDropdownChild($element);
+        return MenuVocabulary::isCurrentPageLinkRun($element) || $this->hasHeaderLinkCluster($element) || $this->hasRepeatedLinkItems($element) || $this->hasButtonDropdownChild($element) || $this->holdsAriaMenu($element);
+    }
+
+    /**
+     * The WAI-ARIA menu pattern: a list with `role="menu"` or `role="menubar"`
+     * whose items link as `role="menuitem"`, as the element itself or as its
+     * direct child. The author declared the list a menu, so it is navigation
+     * even where a parent's CSS layout places it.
+     */
+    private function holdsAriaMenu(DOMElement $element): bool
+    {
+        foreach ( array_merge(array( $element ), iterator_to_array($element->childNodes)) as $list ) {
+            if ( ! $list instanceof DOMElement || ! in_array(strtolower($list->tagName), array( 'ul', 'ol' ), true) || ! in_array(strtolower($this->attr($list, 'role')), array( 'menu', 'menubar' ), true) ) {
+                continue;
+            }
+            foreach ( $list->getElementsByTagName('a') as $link ) {
+                if ( 'menuitem' === strtolower($this->attr($link, 'role')) && '' !== trim($this->attr($link, 'href')) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -3260,7 +3282,7 @@ final class NavigationPattern implements PatternRecognizerInterface
      */
     private function hasSubmenuDisclosureControl(DOMElement $item, DOMElement $anchor, ?DOMElement $submenuContainer): bool
     {
-        if ( 'button' === strtolower($anchor->tagName) ) return true;
+        if ( $this->isSubmenuToggleControl($anchor) ) return true;
         foreach ( $item->getElementsByTagName('button') as $button ) {
             if ( ! $button instanceof DOMElement ) continue;
             for ( $node = $button; $node instanceof DOMElement; $node = $node->parentNode ) {
@@ -3269,6 +3291,18 @@ final class NavigationPattern implements PatternRecognizerInterface
             return true;
         }
         return false;
+    }
+
+    /**
+     * Whether the submenu label is a disclosure control rather than a link:
+     * a button, or a link that declares itself one (`role="button"`, or a
+     * popup it opens).
+     */
+    private function isSubmenuToggleControl(DOMElement $anchor): bool
+    {
+        if ( 'button' === strtolower($anchor->tagName) ) return true;
+        $popup = strtolower(trim($anchor->getAttribute('aria-haspopup')));
+        return 'button' === strtolower(trim($anchor->getAttribute('role'))) || ( '' !== $popup && 'false' !== $popup );
     }
 
     /**
@@ -3283,9 +3317,10 @@ final class NavigationPattern implements PatternRecognizerInterface
         $itemAttrs = $item->isSameNode($anchor) ? array() : $this->withoutCoreNavigationClasses($presentationAttributes($item));
         $anchorAttrs = $this->withoutCoreNavigationClasses($presentationAttributes($anchor));
         if ($hasAuthoredCurrentState) $navigationContext?->recordCurrentNavigationItem($item, $anchor);
-        // Button submenu labels have their own rendered content subject, just
-        // like ordinary links. Leave the existing linked-submenu path unchanged.
-        $subjectMarker = $item->isSameNode($anchor) || (null !== $submenuContainer && 'button' !== strtolower($anchor->tagName)) ? '' : ($navigationContext?->navigationAnchorSubjectMarker($anchor, $item) ?? '');
+        // Submenu toggles (buttons, or links declared as buttons) have their
+        // own rendered content subject, just like ordinary links. Leave the
+        // existing linked-submenu path unchanged.
+        $subjectMarker = $item->isSameNode($anchor) || (null !== $submenuContainer && ! $this->isSubmenuToggleControl($anchor)) ? '' : ($navigationContext?->navigationAnchorSubjectMarker($anchor, $item) ?? '');
         if ('' !== $subjectMarker) {
             $anchorClassName = (string) ($anchorAttrs['className'] ?? $anchor->getAttribute('class'));
             // The subject renders on every route; the served route's own hooks do not.
@@ -4647,6 +4682,17 @@ final class NavigationPattern implements PatternRecognizerInterface
         return false;
     }
 
+    private function holdsLink(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('a') as $link ) {
+            if ( '' !== trim($this->attr($link, 'href')) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function isNavigationChromeElement(DOMElement $element): bool
     {
         $tagName = strtolower($element->tagName);
@@ -4654,7 +4700,11 @@ final class NavigationPattern implements PatternRecognizerInterface
             return true;
         }
 
-        if ( in_array(strtolower($this->attr($element, 'role')), array( 'separator', 'presentation', 'none' ), true) ) {
+        // `presentation` and `none` remove only the element's own semantics.
+        // The WAI-ARIA menu pattern puts them on each menu item's `li`, which
+        // still holds the item's link.
+        $role = strtolower($this->attr($element, 'role'));
+        if ( 'separator' === $role || ( in_array($role, array( 'presentation', 'none' ), true) && ! $this->holdsLink($element) ) ) {
             return true;
         }
 

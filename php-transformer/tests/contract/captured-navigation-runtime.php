@@ -132,5 +132,30 @@ foreach (array('observed' => array_merge($ownedStates, array($state('#notes-togg
         $assert(array() === ($mixed['source_reports']['native_runtime_replacements'] ?? array()), $case . ' mixed ownership does not claim complete retirement');
     }
 }
+// A non-navigation captured dialog can keep the disclosure runtime. Its
+// anchor trigger must still lower to an editable native control with every
+// runtime binding attribute, rather than one core/html island.
+$anchorTrigger = '<a role="button" aria-expanded="false" aria-label="Menu" href="#" data-blocks-engine-capture-dialog-trigger="menu-panel" aria-controls="menu-panel"><svg viewBox="0 0 24 24" fill="currentColor" width="40" height="40"><path d="M4 8h16V6H4z"></path></svg></a>';
+$anchorPanel = static function (bool $hidden): string {
+    $snapshot = json_encode(array('resting' => array('style' => null, 'class' => 'data-blocks-engine-capture-dialog', 'hidden' => $hidden)), JSON_THROW_ON_ERROR);
+    return '<div class="data-blocks-engine-capture-dialog" role="dialog" aria-modal="true" hidden id="menu-panel" data-blocks-engine-capture-dialog-panel="menu-panel" data-blocks-engine-capture-existing-panel="' . htmlspecialchars($snapshot, ENT_QUOTES) . '"><ul><li><a href="/one/">One</a></li></ul></div>';
+};
+foreach (array('#', 'javascript:void(0)', 'java&#10;script:alert(1)', 'java&#9;script:alert(1)', 'java&#13;script:alert(1)', '&#1;javascript:alert(1)') as $href) {
+foreach (array('hidden resting snapshot' => true, 'visible resting snapshot' => false) as $snapshotCase => $restingHidden) {
+    $case = $href . ', ' . $snapshotCase;
+    $trigger = str_replace('href="#"', 'href="' . $href . '"', $anchorTrigger);
+    foreach ($compileBoth($artifact($page('<main><div>' . $trigger . $anchorPanel($restingHidden) . '</div></main>'), array())) as $result) {
+        $markup = (string) ($result['serialized_blocks'] ?? '');
+        $assert(!str_contains($markup, '<!-- wp:html'), $case . ': captured anchor trigger has no core/html block');
+        $assert(str_contains($markup, '<!-- wp:custom/authored-button ') && str_contains($markup, 'data-blocks-engine-capture-dialog-trigger="menu-panel"'), $case . ': trigger is an authored native button retaining its capture binding');
+        $assert(str_contains($markup, 'aria-controls="menu-panel"') && str_contains($markup, 'aria-expanded="false"') && !str_contains($markup, 'javascript:'), $case . ': trigger retains dialog, expanded, and keyboard activation attributes');
+        $assert(('#' === $href) === str_contains($markup, 'href="#"'), $case . ': safe fragment href is retained');
+        $assert('#' === $href || 0 === preg_match('/<a\b[^>]*\bhref="[^>]*data-blocks-engine-capture-dialog-trigger|<a\b[^>]*data-blocks-engine-capture-dialog-trigger[^>]*\bhref="/', $markup), $case . ': unsafe href is absent from saved trigger markup');
+        $assert(in_array($helper, array_column($result['assets'] ?? array(), 'content'), true), $case . ': kept disclosure runtime ships with its native trigger');
+        $hasRestingDiagnostic = str_contains(json_encode($result['diagnostics'] ?? array()), 'captured_disclosure_resting_inline_runtime_kept');
+        $assert($restingHidden ? !$hasRestingDiagnostic : $hasRestingDiagnostic, $case . ': hidden resting snapshots are not treated as inline; visible snapshots remain protected');
+    }
+}
+}
 if (0 < $failures) { fwrite(STDERR, "captured navigation runtime FAILED: {$passes} passed, {$failures} failed\n"); exit(1); }
 echo "captured navigation runtime passed: {$passes} assertions\n";
