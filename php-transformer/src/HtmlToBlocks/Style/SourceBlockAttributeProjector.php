@@ -30,6 +30,8 @@ final class SourceBlockAttributeProjector
     public const SYNTHETIC_FILL_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-fill';
     public const SYNTHETIC_FILL_VIDEO_FIGURE_CLASS = 'blocks-engine-synthetic-video-figure-fill';
     public const SYNTHETIC_EMBED_FIGURE_CLASS = 'blocks-engine-synthetic-embed-figure';
+    /** A core/embed under inherited whitespace preservation its wrapper must not apply. */
+    public const EMBED_NORMAL_WHITESPACE_CLASS = 'blocks-engine-embed-normal-whitespace';
     public const CSS_OWNED_INLINE_FLOW_CLASS = 'blocks-engine-css-owned-inline-flow';
     public const CSS_OWNED_LAYOUT_ITEM_CLASS = 'blocks-engine-css-owned-layout-item';
     public const LAYOUT_NEUTRAL_BUTTONS_CLASS = 'blocks-engine-layout-neutral-buttons';
