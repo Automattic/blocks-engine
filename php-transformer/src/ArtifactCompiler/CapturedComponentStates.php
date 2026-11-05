@@ -46,12 +46,21 @@ final class CapturedComponentStates
             if (!is_string($contents[$path] ?? null) || !is_array($page['components'] ?? null)) continue;
             $document = self::document($contents[$path]);
             $components = array();
-            foreach ($page['components'] as $component) $components[hash('sha256', serialize($component))] = $component;
+            $owned = array();
+            foreach ($page['components'] as $component) {
+                $components[hash('sha256', serialize($component))] = $component;
+                if (is_string($component['selector'] ?? null)) $owned[$component['selector']] = true;
+            }
             foreach ($inventory as $selector => $identities) {
+                // A route that captured this control keeps its own states; other
+                // routes' variants only fill controls the route did not capture.
+                if (isset($owned[$selector])) continue;
                 $parsed = CssSelectorMatcher::parse($selector);
                 foreach ($document->getElementsByTagName('*') as $node) {
                     if (!(CssSelectorMatcher::matches($node, $parsed)['matches'] ?? false)) continue;
-                    foreach ($identities[self::fingerprint($node)] ?? array() as $key => $component) $components[$key] = $component;
+                    // One control needs one variant; the first captured route supplies it.
+                    $variants = $identities[self::fingerprint($node)] ?? array();
+                    if (array() !== $variants) $components[array_key_first($variants)] = reset($variants);
                 }
             }
             $page['components'] = array_values($components);
