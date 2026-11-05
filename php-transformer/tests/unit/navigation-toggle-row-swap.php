@@ -49,6 +49,17 @@ $dialogPage = static fn(string $panel, string $phone = '', string $wide = '', st
 $sameLinks = '<ul><li><a href="/index.html">Home</a></li><li><a href="/about">About</a></li></ul>';
 $assert(array('always', 'never') === $modes($transform($dialogPage($sameLinks))['serialized_blocks']), 'Links match with or without a trailing slash or index file.');
 
+$assert(array('always', 'never') === $modes($transform($dialogPage('<a href="#" aria-label="Close panel"></a>' . $sameLinks))['serialized_blocks']), 'A placeholder link is not a destination of its own.');
+
+// Other pages in the capture may hold the panel: the rows alone are enough.
+$noPanel = $transform($page($swap . '.phone,.wide{background-color:#161616}nav a{color:#f7f7f7}', '<div class="phone">' . $brand . $toggle . '</div><div class="wide">' . $brand . $list . '</div>'));
+$assert(array('always', 'never') === $modes($noPanel['serialized_blocks']), 'Swapped rows work without a captured panel.');
+$assert(!str_contains($noPanel['serialized_blocks'], 'aria-label="Open site menu"'), 'The source toggle would open nothing without a panel too.');
+$assert(1 === preg_match('/is-menu-open:not\(\.disable-default-overlay\)\{background:#161616!important\}/i', $assets($noPanel)), 'Without a panel the overlay takes the paint around the toggle.');
+
+$translucent = $transform($page($swap . 'header{background-color:#161616}.phone,.wide{background-color:rgba(22,22,22,.25)}', '<div class="phone">' . $brand . $toggle . '</div><div class="wide">' . $brand . $list . '</div>'));
+$assert(1 === preg_match('/is-menu-open:not\(\.disable-default-overlay\)\{background:#161616!important\}/i', $assets($translucent)), 'A translucent row is skipped for the first solid background.');
+
 // A panel with more in it, or other destinations, is the author's own content.
 $extraPanels = array(
     'a link of its own' => '<ul><li><a href="/">Home</a></li><li><a href="/about">About</a></li><li><a href="/only-here/">Only here</a></li></ul>',
