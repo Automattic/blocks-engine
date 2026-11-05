@@ -163,11 +163,48 @@ final class NavigationPattern implements PatternRecognizerInterface
             $hidden = $descendant->hasAttribute('hidden')
                 || str_contains($style, 'display:none')
                 || str_contains($style, 'visibility:hidden');
-            if ( ! $hidden || $this->hasAnchorAncestor($descendant, $landmark) ) {
+            if ( ! $hidden || $this->hasAnchorAncestor($descendant, $landmark)
+                || $this->isNavigationChromeElement($descendant)
+                || $this->isHiddenNavigationOverflowControl($descendant)
+                || $this->isWithinOwnedSubmenu($descendant, $landmark) ) {
                 continue;
             }
 
             return true;
+        }
+
+        return false;
+    }
+
+    /** A hidden, destinationless overflow opener is superseded by native navigation. */
+    private function isHiddenNavigationOverflowControl(DOMElement $element): bool
+    {
+        if ( 'true' !== strtolower($this->attr($element, 'aria-hidden')) || $this->holdsLink($element) ) {
+            return false;
+        }
+        foreach ( $element->getElementsByTagName('*') as $control ) {
+            if ( $control instanceof DOMElement && 'button' === strtolower($this->attr($control, 'role'))
+                && in_array(strtolower($this->attr($control, 'aria-haspopup')), array( 'true', 'menu' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** Collapsed menu content is handled by the ordinary submenu recognizer. */
+    private function isWithinOwnedSubmenu(DOMElement $element, DOMElement $landmark): bool
+    {
+        for ( $item = $element->parentNode; $item instanceof DOMElement && ! $item->isSameNode($landmark); $item = $item->parentNode ) {
+            $anchor = $this->primaryNavigationAnchor($item);
+            if ( ! $anchor instanceof DOMElement ) {
+                continue;
+            }
+            foreach ( $this->submenuContainers($item, $anchor) as $container ) {
+                if ( $container->isSameNode($element) || $this->containsNode($container, $element) ) {
+                    return true;
+                }
+            }
         }
 
         return false;
@@ -2770,7 +2807,8 @@ final class NavigationPattern implements PatternRecognizerInterface
                 continue;
             }
 
-            if ( $item instanceof DOMElement && $this->isNavigationChromeElement($item) ) {
+            if ( $item instanceof DOMElement && ( $this->isNavigationChromeElement($item)
+                || $this->isHiddenNavigationOverflowControl($item) ) ) {
                 continue;
             }
 
@@ -4154,6 +4192,14 @@ final class NavigationPattern implements PatternRecognizerInterface
 
             if ( 'a' === strtolower($child->tagName) ) {
                 $anchors[] = $child;
+                continue;
+            }
+
+            // A destination link may have a separate submenu disclosure button.
+            // The linked submenu path owns the control; it is not a second label.
+            if ( 'button' === strtolower($child->tagName) && 1 === count($anchors)
+                && in_array(strtolower($this->attr($anchors[0], 'aria-haspopup')), array( 'true', 'menu' ), true)
+                && ! $this->holdsLink($child) && array() !== $this->submenuContainers($element, $anchors[0]) ) {
                 continue;
             }
 
