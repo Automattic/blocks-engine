@@ -311,7 +311,15 @@ final class DesignUsageCollector
         elseif (isset($declarations['color'])) $context['hover_color'] = null;
 
         $family = $this->keyword($declarations['font-family'] ?? null);
-        if (null !== $family && !in_array($family, array('inherit', 'unset'), true)) {
+        // A `font` shorthand that substitutes a custom property (or names a
+        // system font) resets the family without a classified longhand. Read
+        // the family it substitutes to; one it cannot state is unknown, never
+        // the ancestor's.
+        $shorthand = $this->resolver->restingFontShorthand($element);
+        if (null !== $shorthand) {
+            $font = CssFontShorthand::expand($this->resolver->resolveDefaultSchemeCssVariablesInValue($shorthand, $element));
+            $context['family'] = isset($font['font-family']) && !str_contains($font['font-family'], 'var(') ? self::clean($font['font-family']) : null;
+        } elseif (null !== $family && !in_array($family, array('inherit', 'unset'), true)) {
             $context['family'] = 'initial' === $family || str_contains($family, 'var(') ? null : self::clean($declarations['font-family']);
         } elseif (null === $family && in_array($tag, self::MONOSPACE_TAGS, true)) {
             $context['family'] = 'monospace';

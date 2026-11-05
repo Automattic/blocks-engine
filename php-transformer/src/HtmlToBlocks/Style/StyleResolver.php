@@ -1892,9 +1892,12 @@ final class StyleResolver implements ElementPresentationResolver
      */
     public function readsConditionalCustomProperty(DOMElement $element, array $properties): bool
     {
+        $properties = array_map('strtolower', $properties);
         $readers = array();
         foreach ( $this->matchingStyleRules($element, 'static') as $rule ) {
-            if ( array() !== array_intersect($properties, array_map('strtolower', array_map('strval', array_keys($rule['declarations'] ?? array())))) ) {
+            $declared = array_map('strtolower', array_map('strval', array_keys($rule['declarations'] ?? array())));
+            if ( isset($rule['pendingFont']) ) array_push($declared, ...self::FONT_SHORTHAND_LONGHANDS);
+            if ( array() !== array_intersect($properties, $declared) ) {
                 foreach ( $rule['customPropertyReferences'] ?? array() as $name ) $readers[(string) $name] = true;
             }
         }
@@ -1907,6 +1910,45 @@ final class StyleResolver implements ElementPresentationResolver
             }
         }
         return false;
+    }
+
+    /** Longhands an ordinary `font` shorthand sets (and resets). */
+    private const FONT_SHORTHAND_LONGHANDS = array( 'font-style', 'font-variant', 'font-weight', 'font-size', 'line-height', 'font-family' );
+
+    /**
+     * The `font` shorthand that decides the element's resting font family when
+     * that shorthand could not be expanded at parse time (`font: var(--type)`,
+     * a system font), or null when a `font-family` longhand or nothing
+     * decides it. Such a shorthand is invisible to the classified cascade, yet
+     * it resets the family the element would otherwise inherit. The value is
+     * returned as authored, before custom-property substitution.
+     */
+    public function restingFontShorthand(DOMElement $element): ?string
+    {
+        $cascade = array();
+        $sequence = 0;
+        $apply = function (string $kind, string $value, bool $inline, array $specificity, ?int $layer) use (&$cascade, &$sequence): void {
+            $this->applyMediaTextCascadeDeclaration($cascade, 'font-family', $kind . ':' . $value, $inline, $specificity, ++$sequence, $layer);
+        };
+        foreach ( $this->matchingStyleRules($element, 'static') as $rule ) {
+            if ( ! empty($rule['conditions']) && ! $this->conditionsApplyAtViewport($rule['conditions'], self::DESKTOP_REFERENCE_WIDTH) ) {
+                continue;
+            }
+            $specificity = $this->mediaTextSelectorSpecificity((string) $rule['selector']);
+            // Apply the rule's shorthand and longhand in authored order.
+            $entries = array();
+            if ( isset($rule['declarations']['font-family']) ) $entries[] = array( 'family', (string) $rule['declarations']['font-family'] );
+            if ( isset($rule['pendingFont']) ) {
+                $font = array( 'font', (string) $rule['pendingFont'] );
+                if ( empty($rule['pendingFontFamilyFollows']) ) $entries[] = $font; else array_unshift($entries, $font);
+            }
+            foreach ( $entries as [$kind, $value] ) $apply($kind, $value, false, $specificity, $rule['layerRank'] ?? null);
+        }
+        foreach ( $this->cssDeclarations(SourceDom::attr($element, 'style')) as $property => $value ) {
+            if ( 'font-family' === $property || 'font' === $property ) $apply('font' === $property ? 'font' : 'family', (string) $value, true, array( PHP_INT_MAX, PHP_INT_MAX, PHP_INT_MAX ), null);
+        }
+        $winner = (string) ( $cascade['font-family']['value'] ?? '' );
+        return str_starts_with($winner, 'font:') ? substr($winner, 5) : null;
     }
 
     /**
@@ -5127,9 +5169,20 @@ final class StyleResolver implements ElementPresentationResolver
         // an ancestor declares is only carried when the engine can see
         // a reader for it. Names only: this rides every rule record.
         $customPropertyReferences = array_keys($this->customPropertiesReferencedByValues($rawDeclarations));
-        $readingCustomProperties = static fn (array $rule): array => array() === $customPropertyReferences
+        // cssDeclarations() expands every `font` shorthand it can; one left
+        // whole is a pending substitution (`font: var(--type)`) or a system
+        // font. It still resets the family and size the element inherits,
+        // so its readers need it although no classified longhand carries it.
+        $pendingFont = array();
+        if ( isset($rawDeclarations['font']) ) {
+            $order = array_flip(array_keys($rawDeclarations));
+            $pendingFont['pendingFont'] = (string) $rawDeclarations['font'];
+            // The rule's own later `font-family` decides the family instead.
+            if ( isset($order['font-family']) && $order['font-family'] > $order['font'] ) $pendingFont['pendingFontFamilyFollows'] = true;
+        }
+        $readingCustomProperties = static fn (array $rule): array => (array() === $customPropertyReferences
             ? $rule
-            : $rule + array( 'customPropertyReferences' => $customPropertyReferences );
+            : $rule + array( 'customPropertyReferences' => $customPropertyReferences )) + $pendingFont;
         $mediaTextDeclarations = array() === $conditions
             ? array_values(array_filter(
                 $this->mediaTextInlineDeclarationEntries($body),
