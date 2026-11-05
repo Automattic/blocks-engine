@@ -264,6 +264,8 @@
       "php tests/contract/navigation-anchor-submenu-toggle.php",
       "php tests/contract/svg-local-id-identity.php",
       "php tests/contract/route-fragment-link-identity.php",
+      "php tests/contract/capture-device-anchor-target.php",
+      "php tests/contract/capture-device-runtime-evidence.php",
       "php tests/contract/main-skip-link-native.php",
       "php tests/contract/shared-form-diagnostics-identity.php",
       "php tests/contract/shared-header-with-landmark-footer.php",

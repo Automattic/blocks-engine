@@ -249,12 +249,15 @@ final class CaptureEvidence
             : $digest === (self::RECOGNIZED_RUNTIMES[$marker] ?? null);
     }
 
+    /** Capture-owned overlay script: excluded from author runtime evidence. */
+    public const DEVICE_BODY = 'data-blocks-engine-capture-device-body';
+    /** Per-device inline styles retained on native block roots for overlay replay. */
+    public const DEVICE_INLINE = 'data-blocks-engine-capture-device-inline';
+
     // Published for downstream importers; Blocks Engine does not read these.
 
     /** Marker on the capture's device-selection bootstrap `<script>` in `<head>`. */
     public const DEVICE_SELECTION = 'data-blocks-engine-capture-device-selection';
-    /** Marker on the capture's device-document overlay `<script>` at the start of `<body>`. */
-    public const DEVICE_BODY = 'data-blocks-engine-capture-device-body';
     /** On `<html>`: the profile the device-selection runtime selected; written at runtime. */
     public const SELECTED_DOCUMENT = 'data-blocks-engine-capture-selected-document';
     /** On `<html>`: set at runtime when no captured document applies to the device. */
@@ -270,7 +273,6 @@ final class CaptureEvidence
     public const PUBLISHED_FOR_DOWNSTREAM = array(
         'COMPONENT_DISCLOSURE_RUNTIME',
         'DEVICE_SELECTION',
-        'DEVICE_BODY',
         'SELECTED_DOCUMENT',
         'DOCUMENT_UNAVAILABLE',
         'MEMBER_LOGIN',
