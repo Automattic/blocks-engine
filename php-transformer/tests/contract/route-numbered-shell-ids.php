@@ -59,6 +59,45 @@ $header = (string) (array_values(array_filter($numberedPlan['template_parts'], s
 $assert(str_contains($header, '"anchor":"top-101"') && str_contains($header, 'wp:navigation'), 'The shared header part keeps the selected candidate markup: ' . $header);
 $assert(!str_contains($header, '__route__'), 'The shared header part carries no canonicalization placeholder: ' . $header);
 
+// Builders also glue the route number straight onto the stem
+// (header_stickynav75444) or join it with an underscore. Any trailing digit
+// run after the same non-digit stem is a route number; ids that differ in
+// their non-numeric part are different elements and do not merge.
+$wrapped = static function (string $id, string $title): string {
+    return '<!doctype html><html><head><meta charset="utf-8"><title>' . $title . '</title><link rel="stylesheet" href="/style.css"></head><body>'
+        . '<header class="bar"><div id="' . $id . '"><a href="/">Acme</a><nav><a href="/">Home</a><a href="/about/">About</a></nav></div></header>'
+        . '<main class="content"><h1>' . $title . '</h1><p>' . $title . ' body text.</p></main>'
+        . '<footer class="foot"><p>Copyright 2026 Acme.</p></footer></body></html>';
+};
+$suffixCases = array(
+    'glued route number' => array('header_stickynav75444', 'header_stickynav236888', true),
+    'underscore route number' => array('stickynav_75444', 'stickynav_236888', true),
+    'different stems' => array('stickynav-a75444', 'stickynav-b236888', false),
+);
+foreach ($suffixCases as $label => [$homeId, $aboutId, $extracts]) {
+    $suffixPlan = (new ArtifactCompiler())->compile(array(
+        'entrypoint' => 'index.html',
+        'files' => array(
+            'index.html' => $wrapped($homeId, 'Home'),
+            'about/index.html' => $wrapped($aboutId, 'About'),
+            'style.css' => $css,
+        ),
+    ))->toArray()['source_reports']['wordpress_site_plan'];
+    WordPressSitePlan::assertValid($suffixPlan);
+    $suffixHeaders = array_values(array_filter($suffixPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
+    $suffixCodes = array_column($suffixPlan['diagnostics'], 'code');
+    if (!$extracts) {
+        $assert(array() === $suffixHeaders, "{$label}: ids differing outside the route number keep the header page-owned: " . json_encode($suffixCodes));
+        continue;
+    }
+    $assert(1 === count($suffixHeaders), "{$label}: the repeated header is one shared part: " . json_encode($suffixCodes));
+    $suffixHeader = (string) ($suffixHeaders[0]['canonical_block_markup'] ?? '');
+    $assert(str_contains($suffixHeader, $homeId) && !str_contains($suffixHeader, '__route__'), "{$label}: the shared header keeps the entry page's authored id: " . $suffixHeader);
+    foreach (array_column($suffixPlan['pages'], null, 'source_path') as $source => $row) {
+        $assert(!str_contains((string) $row['canonical_block_markup'], 'Acme'), "{$label}: {$source} keeps no header copy in its content.");
+    }
+}
+
 // An id referenced inside the shell is a real per-route navigation target:
 // those shells keep differing identities and stay page-owned.
 $referencedPlan = (new ArtifactCompiler())->compile(array(
