@@ -797,7 +797,20 @@ PHP;
         };
         $shared = $text($leaves(array_intersect_key($plan, array_flip(array('template_parts', 'templates', 'synced_patterns', 'menus', 'runtime_records', 'runtime_entity_records')))));
         $pages = array();
-        foreach ($plan['pages'] as $page) $pages[$page['source_path']] = $text($leaves($page));
+        $byType = array();
+        foreach ($plan['pages'] as $page) {
+            $pages[$page['source_path']] = $text($leaves($page));
+            $byType[(string) ($page['post_type'] ?? '')][] = $pages[$page['source_path']];
+        }
+        // A query loop renders the titles, excerpts and bound meta of the
+        // entries it queries, so their text is carried by the listing page.
+        foreach ($plan['pages'] as $page) {
+            if (!preg_match_all('/<!-- wp:query (\{.*?\}) \/?-->/s', (string) ($page['canonical_block_markup'] ?? ''), $queries)) continue;
+            foreach ($queries[1] as $json) {
+                $type = json_decode($json, true)['query']['postType'] ?? null;
+                if (is_string($type)) $pages[$page['source_path']] .= "\n" . implode("\n", $byType[$type] ?? array());
+            }
+        }
         $findings = array();
         foreach ($documents as $document) {
             if (!is_array($document) || !is_string($document['block_markup'] ?? null) || !is_string($document['source_path'] ?? null)) continue;

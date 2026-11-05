@@ -29,4 +29,18 @@ $lossy = WordPressSitePlan::withContentConservation($plan, $result['source_repor
 $found = $losses($lossy);
 $assert(1 === $lossy['quality']['metrics']['content_loss_count'] && 1 === count($found), 'One page lost text, so one content-loss finding');
 $assert('about.html' === $found[0]['source_path'] && array('Only on About') === $found[0]['lost_text'] && 'content_loss' === $found[0]['loss_class'], 'The finding names the page and the lost text');
+// A listing that becomes a query loop renders its cards from the posts.
+$document = static fn(string $title, string $head, string $main): string => '<html><head><title>' . $title . '</title>' . $head . '</head><body><header><nav><a href="/">Home</a></nav></header><main>' . $main . '</main></body></html>';
+$titles = array('first' => 'First story', 'second' => 'Second story', 'third' => 'Third story');
+$files = array('index.html' => $document('Home', '', '<h1>Home</h1>'), 'journal/index.html' => '');
+$cards = '';
+foreach (array_keys($titles) as $position => $slug) {
+    $cards .= '<a class="post" href="/journal/' . $slug . '/"><h3>' . $titles[$slug] . '</h3><p>Summary of ' . $slug . '.</p></a>';
+    $files['journal/' . $slug . '/index.html'] = $document($titles[$slug], '<script type="application/ld+json">{"@context":"https://schema.org","@type":"Article","headline":"' . $titles[$slug] . '","datePublished":"2026-0' . ($position + 1) . '-01"}</script>', '<article><h1>' . $titles[$slug] . '</h1><p>Summary of ' . $slug . '.</p><p>Body of ' . $slug . '.</p></article>');
+}
+$files['journal/index.html'] = $document('Journal', '', '<h1>Journal</h1><div class="posts">' . $cards . '</div>');
+$listing = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray()['source_reports']['wordpress_site_plan'];
+$journal = array_column($listing['pages'], 'canonical_block_markup', 'source_path')['journal/index.html'] ?? '';
+$assert(str_contains($journal, '<!-- wp:query '), 'The listing becomes a query loop');
+$assert(array() === array_filter($losses($listing), static fn(array $finding): bool => 'journal/index.html' === $finding['source_path']), 'Query-loop card text rendered from the queried posts is not content loss');
 fwrite(STDOUT, "Site plan content conservation tests passed\n");
