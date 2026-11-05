@@ -3587,7 +3587,7 @@ PHP;
                     break;
                 }
             }
-            if (null === $explicit && 'metadata:post_type' === ($metadata['post_type_declaration'] ?? null) && is_string($metadata['post_type'] ?? null) && in_array(strtolower($metadata['post_type']), array('page', 'post'), true)) {
+            if (null === $explicit && 'metadata:post_type' === ($metadata['post_type_declaration'] ?? null) && is_string($metadata['post_type'] ?? null) && preg_match('/^[a-z0-9_-]{1,20}$/', strtolower($metadata['post_type']))) {
                 $explicit = strtolower($metadata['post_type']);
                 $provenance = 'metadata:post_type';
             }
@@ -4226,8 +4226,12 @@ PHP;
     private static function shellPartAppliesToOverride(array $part, string $slug): bool
     {
         if (!preg_match('/^(?:page|single)-[a-z0-9_-]+$/', $slug) || in_array($slug, $part['placement']['excluded_template_slugs'] ?? array(), true)) return false;
-        $type = $part['placement']['post_type'] ?? null;
-        return null === $type || str_starts_with($slug, 'page' === $type ? 'page-' : 'single-' . $type . '-');
+        $types = $part['placement']['post_types'] ?? (isset($part['placement']['post_type']) ? array($part['placement']['post_type']) : null);
+        if (null === $types) return true;
+        foreach ($types as $type) {
+            if (str_starts_with($slug, 'page' === $type ? 'page-' : 'single-' . $type . '-')) return true;
+        }
+        return false;
     }
 
     /**
