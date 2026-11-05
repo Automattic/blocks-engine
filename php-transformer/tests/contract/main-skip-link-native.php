@@ -13,12 +13,23 @@ $assert = static function (bool $condition, string $message): void {
 
 // The issue's minimal case: the only at-rest painted content survives, while
 // neither a paragraph nor a button is emitted for the off-screen shortcut.
-$minimal = (string) file_get_contents(__DIR__ . '/fixtures/source-skip-link.html');
-$compile = static function (string $html): string {
-    $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html)))->toWordPressSitePlanView()['wordpress_site_plan'];
+$minimal = '<!doctype html><html><head><style>.skip{position:absolute;left:-9999px}.skip:focus{left:8px;top:8px}</style></head><body><a class="skip" href="#main">Skip to content</a><header>…</header><main id="main"><h1>Hi</h1></main></body></html>';
+$compile = static function (string $html, string $path = 'index.html'): string {
+    $plan = (new ArtifactCompiler())->compile(array('entrypoint' => $path, 'files' => array($path => $html)))->toWordPressSitePlanView()['wordpress_site_plan'];
     return implode('', array_column($plan['pages'], 'canonical_block_markup'))
         . implode('', array_column($plan['template_parts'] ?? array(), 'canonical_block_markup'));
 };
+$fixture = (string) file_get_contents(__DIR__ . '/fixtures/source-skip-link.html');
+foreach (array('/diensten/', '/diensten/index.html', 'index.html', './index.html', '../diensten/index.html') as $href) {
+    $markup = $compile(str_replace('/diensten/index.html#', $href . '#', $fixture), 'website/diensten/index.html');
+    $assert(! str_contains($markup, 'Ga direct') && ! str_contains($markup, 'wp:button'), 'Jimdo self-URL skip link is suppressed: ' . $href);
+    $assert(1 === preg_match('/<main\\b[^>]*\\bid="main-content"/', $markup), 'Jimdo main retains its anchor.');
+}
+$assert(str_contains($compile(str_replace('/diensten/index.html#', 'diensten/index.html#', $fixture)), 'Ga direct'), 'A relative path to another document stays.');
+foreach (array('/other/index.html', 'https://example.com/diensten/index.html', '//example.com/diensten/index.html', '/diensten/index.html?other=1') as $href) {
+    $assert(str_contains($compile(str_replace('/diensten/index.html#', $href . '#', $fixture), 'website/diensten/index.html'), 'Ga direct'), 'Links to other documents stay: ' . $href);
+}
+$assert(str_contains($compile(str_replace('.jw-skip-link:not(:focus)', '.unrelated:not(:focus)', $fixture), 'website/diensten/index.html'), 'Ga direct'), 'A visible base alone is not a skip link.');
 $markup = $compile($minimal);
 $jimdo = str_replace('.skip{position:absolute;left:-9999px}.skip:focus{left:8px;top:8px}', '.skip{clip:auto;clip-path:none;left:10px;top:10px;position:absolute}.skip:not(:focus){clip:rect(0,0,0,0);height:1px;overflow:hidden;width:1px}', $minimal);
 $assert(! str_contains($compile(str_replace('href="#main"', 'href="/#main"', $jimdo)), 'Skip to content'), 'Jimdo home-fragment link with resting-state clipping is removed on focus.');

@@ -396,12 +396,21 @@ final class SourceDom
     public static function isMainSkipLink(DOMElement $element, string $sourcePath = ''): bool
     {
         $href = trim(self::attr($element, 'href'));
-        // Root-relative home fragments are common in exported Jimdo documents.
-        if ( str_starts_with($href, '/#') && in_array(ltrim($sourcePath, '/'), array('', 'index.html', 'website/index.html'), true) ) {
-            $href = substr($href, 1);
-        }
-        if ( 'a' !== strtolower($element->tagName) || 1 !== preg_match('/^#(.+)$/', $href, $match) ) {
+        if ( 'a' !== strtolower($element->tagName) || 1 !== preg_match('/^([^#]*)#(.+)$/', $href, $match) ) {
             return false;
+        }
+        if ( '' !== $match[1] ) {
+            // Artifact paths use website/ as an optional packaging root, not a
+            // public URL prefix. Resolve relative links before comparing routes.
+            $documentPath = preg_replace('~^/?website/~', '', $sourcePath) ?? $sourcePath;
+            $reference = parse_url($match[1]);
+            if ( false === $reference || isset($reference['scheme']) || isset($reference['host']) || isset($reference['query']) ) return false;
+            $path = (string) ($reference['path'] ?? '');
+            $resolved = \Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath::resolveRelativePath(
+                ltrim($path, '/'), str_starts_with($path, '/') ? '' : ltrim($documentPath . ( str_ends_with($documentPath, '/') ? 'index.html' : '' ), '/')
+            );
+            $normalize = static fn (string $value): string => trim(preg_replace('~(?:^|/)index\.html$~', '', trim($value, '/')) ?? $value, '/');
+            if ( $normalize($resolved) !== $normalize($documentPath) ) return false;
         }
         $root = $element->ownerDocument?->documentElement;
         if ( ! $root instanceof DOMElement ) {
@@ -414,7 +423,7 @@ final class SourceDom
                 break;
             }
         }
-        $target = rawurldecode($match[1]);
+        $target = rawurldecode($match[2]);
         if ( ! $main instanceof DOMElement || ( $target !== self::attr($main, 'id')
             && $target !== ($main->firstElementChild?->getAttribute('id') ?? '') ) ) {
             return false;

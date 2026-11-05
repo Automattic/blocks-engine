@@ -6055,9 +6055,14 @@ final class StyleResolver implements ElementPresentationResolver
         $hasFocusRule = false;
         foreach ( $cache->styleRuleCandidates($element, 'author-structural', $authorStyles->styleRuleCandidateIndex()) as $rule ) {
             $selector = (string) ($rule['selector'] ?? '');
+            // A negated focus rule matches at rest, not in the focused set.
+            // Test it without ignoring pseudo states (which negates the match).
+            if ( 1 === preg_match('/:not\\(\\s*:focus(?:-visible|-within)?\\s*\\)/', $selector) ) {
+                if ( $cache->matches($element, $selector, $rule['parsed'] ?? array())['matches'] ) $hasFocusRule = true;
+                continue;
+            }
             if ( ! $cache->matches($element, $selector, $rule['parsed'] ?? array(), true)['matches'] ) continue;
             if ( 1 === preg_match('/:focus(?:-visible|-within)?\\b/', $selector) ) $hasFocusRule = true;
-            if ( 1 === preg_match('/:not\\(\\s*:focus(?:-visible|-within)?\\s*\\)/', $selector) ) continue;
             $focused = $this->mergeCssDeclarationMaps($focused, $rule['declarations'] ?? array());
         }
         $focused = $this->mergeCssDeclarationMaps($focused, $this->cssDeclarations(SourceDom::attr($element, 'style')));

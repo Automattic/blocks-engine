@@ -983,7 +983,7 @@ final class ShellExtraction
                 foreach ($pages as $page) {
                     if (!empty($page['synthetic']) || !isset($part['provenance']['sources'][$page['source_path'] ?? ''])) continue;
                     if (!empty($page['entrypoint'])) $selected = in_array('front-page', $part['placement']['template_slugs'] ?? array(), true);
-                    elseif ('post' === ($page['post_type'] ?? null)) $selected = in_array('single', $part['placement']['template_slugs'] ?? array(), true) && !isset($excluded[WordPressSitePlan::routeTemplateKey($page)]);
+                    elseif ('page' !== ($page['post_type'] ?? null)) $selected = in_array('single', $part['placement']['template_slugs'] ?? array(), true) && !isset($excluded[WordPressSitePlan::routeTemplateKey($page)]);
                     else $selected = in_array('page', $part['placement']['template_slugs'] ?? array(), true) && !isset($excluded[WordPressSitePlan::routeTemplateKey($page)]);
                     if ($selected) $sourcePaths[] = (string) $page['source_path'];
                 }
@@ -1566,13 +1566,16 @@ final class ShellExtraction
                         $part['reconciliation_identity'] = WordPressSitePlan::identity('template-part', $part['source_path'], 'parts/' . $slug . '.html');
                         if (in_array($part['placement']['kind'], array('shared_shell', 'entry_shell'), true)) {
                             $allowed = $dominant
-                                ? array_merge(WordPressSitePlan::NATIVE_QUERY_TEMPLATE_SLUGS, array_values(array_unique(array_map(static fn(array $page): string => 'post' === $page['post_type'] ? 'single' : 'page', $subset))))
-                                : array('post' === $type ? 'single' : 'page');
+                                ? array_merge(WordPressSitePlan::NATIVE_QUERY_TEMPLATE_SLUGS, array_values(array_unique(array_map(static fn(array $page): string => 'page' === $page['post_type'] ? 'page' : 'single', $subset))))
+                                : array('page' === $type ? 'page' : 'single');
                             if (array_filter($subset, static fn(array $page): bool => !empty($page['entrypoint']))) $allowed[] = 'front-page';
                             if (array() !== array_intersect($indexes, $cluster['indexes'])) $allowed = array_merge($allowed, WordPressSitePlan::NATIVE_QUERY_TEMPLATE_SLUGS);
                             $part['placement']['template_slugs'] = array_values(array_intersect($part['placement']['template_slugs'] ?? array(), $allowed));
                             $populationTypes = array_values(array_unique(array_column($subset, 'post_type')));
-                            if (1 === count($populationTypes)) $part['placement']['post_type'] = $populationTypes[0];
+                            // A dominant shell can serve several singular post types.
+                            // Keep the whole population when binding route overrides.
+                            unset($part['placement']['post_type']);
+                            $part['placement']['post_types'] = $populationTypes;
                         }
                         // Composition declarations are materialized before shell binding
                         // hoists; update only the newly hoisted part owner.
@@ -1651,7 +1654,7 @@ final class ShellExtraction
                 if (!empty($page['entrypoint'])) { if ($selected) $templateSlugs[] = 'front-page'; continue; }
                 // The generic fallback templates always carry the dominant
                 // shell; excluded routes get their own override templates.
-                $templateSlugs[] = 'post' === ($page['post_type'] ?? null) ? 'single' : 'page';
+                $templateSlugs[] = 'page' === ($page['post_type'] ?? null) ? 'page' : 'single';
                 if (!$selected) {
                     $slug = WordPressSitePlan::routeTemplateKey($page);
                     if (isset($overrides[$slug])) {
@@ -1774,7 +1777,7 @@ final class ShellExtraction
                         if (!empty($page['entrypoint'])) { if ($selected) $templateSlugs[] = 'front-page'; continue; }
                         // The generic fallback templates always carry the dominant
                         // shell; excluded routes get their own override templates.
-                        $templateSlugs[] = 'post' === ($page['post_type'] ?? null) ? 'single' : 'page';
+                        $templateSlugs[] = 'page' === ($page['post_type'] ?? null) ? 'page' : 'single';
                         if (!$selected) {
                             $slug = WordPressSitePlan::routeTemplateKey($page);
                             if (isset($overrides[$slug])) {
@@ -2746,7 +2749,7 @@ final class ShellExtraction
                 if (!empty($page['entrypoint'])) { if ($selected) $templateSlugs[] = 'front-page'; continue; }
                 // The generic fallback templates always carry the dominant
                 // shell; excluded routes get their own override templates.
-                $templateSlugs[] = 'post' === ($page['post_type'] ?? null) ? 'single' : 'page';
+                $templateSlugs[] = 'page' === ($page['post_type'] ?? null) ? 'page' : 'single';
                 if (!$selected) {
                     $slug = WordPressSitePlan::routeTemplateKey($page);
                     if (isset($overrides[$slug])) return null;

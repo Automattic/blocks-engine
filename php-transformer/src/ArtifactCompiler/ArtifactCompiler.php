@@ -90,6 +90,7 @@ final class ArtifactCompiler
 
     /** @var array<string,string> Collision-free root classes keyed by site route identity. */
     private array $routeClasses = array();
+    private array $routeSets = array();
 
     /** @var array<string, true> Source resources imported into an authored layer. */
     private array $layeredNavigationImports = array();
@@ -363,6 +364,7 @@ final class ArtifactCompiler
             $routeIdentities[] = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::identity('page', $source, $source);
         }
         $this->routeClasses = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClasses($routeIdentities);
+        $this->routeSets = array();
         $capturedDialogs = is_array($reduction['captured_dialogs'] ?? null) ? $reduction['captured_dialogs'] : array('diagnostics' => array(), 'projected_count' => 0);
         $entry = $this->entryFile($normalized['files'], $normalized['entrypoints']);
         $documents = is_array($reduction['source_documents'] ?? null) ? $reduction['source_documents'] : $this->compileSourceDocuments($normalized);
@@ -2816,7 +2818,9 @@ final class ArtifactCompiler
             $fallbackSharedStylesheets = $sharedStylesheets;
             foreach ($pages as $owner => $_) $pages[$owner] = $pageProjections[$owner] ?? $pages[$owner];
             $timer?->start('compose.author_stylesheet_projections.route_variants');
-            $routed = $transformer->scopeRouteVariants($sharedStylesheets, $pageProjections, $routeIdentities, preg_match('/@namespace\b/i', implode('', $preambles)) ? '@namespace' : null, $pageMarkup, $routeMatchIndex, $this->routeClasses, $sharedMarkup);
+            $routed = $transformer->scopeRouteVariants($sharedStylesheets, $pageProjections, $routeIdentities, preg_match('/@namespace\b/i', implode('', $preambles)) ? '@namespace' : null, $pageMarkup, $routeMatchIndex, $this->routeClasses, $sharedMarkup, function (array $classes): string {
+                return \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeSetClass($classes, $this->routeSets);
+            });
             // Recompact only at serialization, merging compatible marker arms.
             $recompact = static function (string $css) use ($timer, $pageProjections): string {
                 $compact = static fn(): string => count($pageProjections) > 1 ? CssSelectorListCompactor::stylesheet($css, true) : $css;
@@ -4572,6 +4576,7 @@ final class ArtifactCompiler
         $title = isset($titles[0]) ? trim(html_entity_decode(strip_tags($titles[0]['content']), ENT_QUOTES | ENT_HTML5, 'UTF-8')) : $this->titleFromHtml($html, $sourcePath);
         $routeIdentity = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::identity('page', $sourcePath, $sourcePath);
         $metadata = array('source_context' => array('source_path' => $sourcePath, 'kind' => 'html'), ...\Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::metadataFromHtml($html, $routeIdentity, $this->routeClasses[$routeIdentity] ?? null), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => $meta, 'links' => $links, 'scripts' => $scripts);
+        $metadata = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::withRouteSets($metadata, $this->routeSets);
         if ( array() !== $projectedRootMarkers ) {
             $rootClasses = array_values(array_filter(preg_split('/\s+/', trim((string) ($metadata['root_attributes']['class'] ?? ''))) ?: array(), static fn(string $class): bool => '' !== $class));
             $metadata['root_attributes']['class'] = implode(' ', array_unique(array_merge($rootClasses, $projectedRootMarkers)));
