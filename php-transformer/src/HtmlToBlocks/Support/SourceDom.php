@@ -387,43 +387,48 @@ final class SourceDom
 
     /**
      * Whether this anchor is the document's skip link: a fragment link to the
-     * document's first <main>, ahead of it and outside every landmark (a logo
-     * in the header that links to the top of <main> is the site's brand). A
+     * document's first main landmark or its first element descendant. Only the
+     * first keyboard-focusable element, ahead of main, is eligible. A
      * WordPress block template renders its own skip link to the template's
      * first <main> (keeping that element's id), so the authored one would be
      * a second.
      */
-    public static function isMainSkipLink(DOMElement $element): bool
+    public static function isMainSkipLink(DOMElement $element, string $sourcePath = ''): bool
     {
-        if ( 'a' !== strtolower($element->tagName) || 1 !== preg_match('/^#(.+)$/', trim(self::attr($element, 'href')), $match) ) {
+        $href = trim(self::attr($element, 'href'));
+        // Root-relative home fragments are common in exported Jimdo documents.
+        if ( str_starts_with($href, '/#') && in_array(ltrim($sourcePath, '/'), array('', 'index.html', 'website/index.html'), true) ) {
+            $href = substr($href, 1);
+        }
+        if ( 'a' !== strtolower($element->tagName) || 1 !== preg_match('/^#(.+)$/', $href, $match) ) {
             return false;
         }
         $root = $element->ownerDocument?->documentElement;
         if ( ! $root instanceof DOMElement ) {
             return false;
         }
-        $main = $root->getElementsByTagName('main')->item(0);
-        if ( ! $main instanceof DOMElement || rawurldecode($match[1]) !== self::attr($main, 'id') ) {
+        $main = null;
+        foreach ( $root->getElementsByTagName('*') as $candidate ) {
+            if ( 'main' === strtolower($candidate->tagName) || 'main' === strtolower(self::attr($candidate, 'role')) ) {
+                $main = $candidate;
+                break;
+            }
+        }
+        $target = rawurldecode($match[1]);
+        if ( ! $main instanceof DOMElement || ( $target !== self::attr($main, 'id')
+            && $target !== ($main->firstElementChild?->getAttribute('id') ?? '') ) ) {
             return false;
         }
-        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
-            if ( in_array(strtolower($ancestor->tagName), array('header', 'nav', 'main', 'aside', 'footer', 'section', 'article'), true)
-                || in_array(strtolower(self::attr($ancestor, 'role')), array('banner', 'navigation', 'main', 'complementary', 'contentinfo', 'region'), true) ) {
-                return false;
-            }
-        }
-        return self::precedes($element, $main);
-    }
-
-    private static function precedes(DOMElement $first, DOMElement $second): bool
-    {
-        foreach ( $first->ownerDocument?->getElementsByTagName('*') ?? array() as $node ) {
-            if ( $node === $first ) {
-                return true;
-            }
-            if ( $node === $second ) {
-                return false;
-            }
+        foreach ( $root->getElementsByTagName('*') as $node ) {
+            if ( $node === $main ) return false;
+            $tabindex = trim(self::attr($node, 'tabindex'));
+            if ( $node->hasAttribute('hidden') || $node->hasAttribute('disabled') || ( '' !== $tabindex && (int) $tabindex < 0 ) ) continue;
+            $tag = strtolower($node->tagName);
+            $focusable = '' !== $tabindex || ( in_array($tag, array('a', 'area'), true) && $node->hasAttribute('href') )
+                || in_array($tag, array('button', 'select', 'textarea', 'summary'), true)
+                || ( 'input' === $tag && 'hidden' !== strtolower(self::attr($node, 'type')) )
+                || $node->hasAttribute('contenteditable');
+            if ( $focusable ) return $node === $element;
         }
         return false;
     }
