@@ -1691,6 +1691,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
         $timer->start('transform.source_normalization');
         SourceDom::removeIntegerKeyAttributes($body);
+        $definitionClips = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::replacements($body);
+        if (array() !== $definitionClips) {
+            foreach ($body->getElementsByTagName('*') as $sourceElement) {
+                if ($sourceElement->hasAttribute('style')) {
+                    $sourceElement->setAttribute('style', \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::rewrite($sourceElement->getAttribute('style'), $definitionClips));
+                }
+            }
+        }
         $this->restoreNativeNavigationPanels($body);
         $this->restoreCapturedExistingPanelRestingStates($body);
         // Capture evidence, not content: read before anything serializes the source.

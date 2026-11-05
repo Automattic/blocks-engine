@@ -29,6 +29,10 @@ final class SvgElementConverter implements ElementConverter
             return ConversionOutcome::unhandled();
         }
 
+        if ( \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::isCarrier($element) ) {
+            return ConversionOutcome::handled(null);
+        }
+
         if ( $this->context->isInertHiddenStorage($element) ) {
             return ConversionOutcome::handled(null);
         }
