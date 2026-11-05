@@ -2704,6 +2704,24 @@ PHP;
             // Relative url() references still resolve against the stylesheet the
             // rules were projected from, not the synthetic shared-chrome identity.
             $sharedAsset['reference_origin'] = (string) ($asset['source_path'] ?? $asset['path'] ?? '');
+            // Static capture-device projections freeze source ancestry, unlike
+            // live navigation state that WordPress supplies on every route.
+            // Lifting those page-owned editor rules must not widen their scope.
+            $scopeClasses = array();
+            $global = false;
+            foreach ($asset['scopes'] ?? array() as $scope) {
+                if ('global' === ($scope['kind'] ?? null)) $global = true;
+                $source = $scope['source_path'] ?? '';
+                if (isset($routeIdentities[$source])) $scopeClasses[$routeClasses[$routeIdentities[$source]]] = true;
+            }
+            if ('editor-static-state' === ($asset['source'] ?? null) && !$global && $scopeClasses) {
+                $gate = ':where(:root:is(.' . implode(',.', array_keys($scopeClasses)) . '))';
+                $shared = (new CssStylesheetTransformer())->transformStyleRules($shared, static function (string $prelude, string $body) use ($gate): string {
+                    $arms = CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude);
+                    return implode(',', array_map(static fn(string $arm): string => preg_match('/\\[\\s*(?:' . preg_quote(EngineMarker::DEVICE_SCOPE_ATTRIBUTE, '/') . '|' . preg_quote(CaptureEvidence::DEVICE_DOCUMENT, '/') . ')\\b/i', $arm) ? $gate . ' ' . $arm : $arm, $arms)) . '{' . $body . '}';
+                });
+                $sharedAsset['path'] = $sharedAsset['target_path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', self::sharedChromeContract($asset) . "\0" . $shared), 0, 16) . '.css';
+            }
             $sharedAsset = self::withRewrittenTextContent($sharedAsset, $shared);
             $sharedAsset['scopes'] = array(array('kind' => 'global'));
             $sharedAsset['token'] = 'asset-' . substr(hash('sha256', $sharedAsset['target_path']), 0, 16);
