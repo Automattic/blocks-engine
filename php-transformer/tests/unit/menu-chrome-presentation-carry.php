@@ -116,8 +116,10 @@ if ( array() !== $rule ) {
         $rule[2]
     );
     $assert(
-        str_contains($rule[2], 'color:#EFFE8B') && str_contains($rule[2], 'font-size:18px'),
-        'the label type rides along, since it lost the same ancestor',
+        ! str_contains($rule[2], 'color:') && ! str_contains($rule[2], 'font-size:')
+            && str_contains($disclosure['blocks'], 'Btn__label')
+            && str_contains($disclosure['frontend'], 'color:#EFFE8B;font-size:18px'),
+        'the retained label owns its typography without lifting it onto summary',
         $rule[2]
     );
     $assert(

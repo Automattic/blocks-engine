@@ -99,6 +99,7 @@
       "php tests/contract/navigation-aria-menu-pattern.php",
       "php tests/contract/navigation-current-item-shared-menu.php",
       "php tests/contract/navigation-disclosure-current-item-shared-header.php",
+      "php tests/contract/native-summary-typography.php",
       "php tests/contract/current-descendant-shell-identity.php",
       "php tests/contract/viewport-entrance-shared-footer.php",
       "php tests/contract/navigation-shared-class-inherited-presentation.php",
