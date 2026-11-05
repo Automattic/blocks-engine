@@ -35,4 +35,17 @@ foreach (array(
     $links = $xpath->query('.//a[@href="' . $href . '"]', $host);
     $assert(1 === $links->length, '#' . $id . ' keeps its link inside the marked host.');
 }
+
+// Keeping a marked host off the buttons recognizer must not stop other
+// recognizers from producing their native widgets for marked containers.
+$compileBody = static function (string $body): string {
+    $page = '<!DOCTYPE html><html><head><title>T</title></head><body><div class="data-blocks-engine-capture-desktop-document" data-blocks-engine-capture-device-document="desktop" data-blocks-engine-capture-document-scope="">' . $body . '</div></body></html>';
+    $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $page)))->toWordPressSitePlanView()['wordpress_site_plan'];
+    return (string) $plan['pages'][0]['canonical_block_markup'] . implode('', array_column($plan['template_parts'] ?? array(), 'canonical_block_markup'));
+};
+$marker = 'data-blocks-engine-capture-device-only="mobile"';
+$tabs = $compileBody('<div class="tabs" ' . $marker . '><div role="tablist"><button role="tab" aria-controls="p1" aria-selected="true">One</button><button role="tab" aria-controls="p2" aria-selected="false">Two</button></div><div id="p1" role="tabpanel"><p>First panel</p></div><div id="p2" role="tabpanel" hidden><p>Second panel</p></div></div>');
+$assert(str_contains($tabs, '<!-- wp:tabs'), 'A marked tabs container still lowers to native tabs. Got: ' . $tabs);
+$social = $compileBody('<div class="social-links" ' . $marker . '><a href="https://github.com/example">GitHub</a><a href="https://instagram.com/example">Instagram</a></div>');
+$assert(str_contains($social, '<!-- wp:social-links'), 'A marked social row still lowers to native social links. Got: ' . $social);
 echo "Capture device markers survive on pattern-recognized hosts.\n";

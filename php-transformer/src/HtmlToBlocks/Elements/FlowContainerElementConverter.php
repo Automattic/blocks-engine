@@ -81,9 +81,7 @@ final class FlowContainerElementConverter implements ElementConverter
     /** @param array<int, array<string, mixed>> $fallbacks */
     private function lower(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
     {
-        // Pattern recognizers would replace the marked host with their own
-        // block root, so the capture visibility markers would have no carrier.
-        if ( SourceDom::documentVariantRoot($element) === $element || SourceDom::isDeviceVisibilityCarrier($element) ) {
+        if ( SourceDom::documentVariantRoot($element) === $element ) {
             return ConversionOutcome::handled($this->context->authorLayoutBlock($element, $fallbacks));
         }
         if (in_array($tagName, array('header', 'footer'), true)
@@ -194,7 +192,7 @@ final class FlowContainerElementConverter implements ElementConverter
             // Native core/buttons save markup is laid out by its own block
             // CSS. Its author flex rules restate that layout, so the native
             // block keeps each button (and its width class) editable.
-            if ( SourceDom::hasClass($element, 'wp-block-buttons') ) {
+            if ( SourceDom::hasClass($element, 'wp-block-buttons') && ! SourceDom::isDeviceVisibilityCarrier($element) ) {
                 $buttons = $this->context->recognizePatterns($element, $fallbacks, array( ButtonsContainerPattern::class ));
                 if ( null !== $buttons ) {
                     return ConversionOutcome::handled($buttons);
@@ -316,7 +314,9 @@ final class FlowContainerElementConverter implements ElementConverter
         if ( null !== $block ) {
             return ConversionOutcome::handled($block);
         }
-        $block = $this->context->recognizePatterns($element, $fallbacks, array( ButtonsContainerPattern::class ));
+        // core/buttons replaces the host with its own root, which would drop
+        // the capture device marker; a marked host stays its own carrier.
+        $block = SourceDom::isDeviceVisibilityCarrier($element) ? null : $this->context->recognizePatterns($element, $fallbacks, array( ButtonsContainerPattern::class ));
         if ( null !== $block ) {
             return ConversionOutcome::handled($block);
         }
