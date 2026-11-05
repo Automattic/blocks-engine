@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
@@ -38,13 +39,12 @@ final class SvgTextRunLowering
 
     /**
      * @param Closure(string, DOMElement): string $resolveCssVariables
-     * @param Closure(array<string, mixed>): void $recordFrozenHiddenState
      */
     public function __construct(
         private readonly ElementPresentationResolver $styles,
         private readonly Closure $resolveCssVariables,
         private readonly SourceBlockCreator $blocks,
-        private readonly Closure $recordFrozenHiddenState
+        private readonly HtmlTransformerSession $session
     ) {
     }
 
@@ -98,7 +98,7 @@ final class SvgTextRunLowering
             return null;
         }
         if ( array() !== $reveal ) {
-            ($this->recordFrozenHiddenState)(array(
+            $this->session->transformationEvidenceState()->recordFrozenHiddenState(array(
                 'tag'          => 'text',
                 'selector'     => SourceDom::elementSelector($text),
                 'declarations' => $reveal,

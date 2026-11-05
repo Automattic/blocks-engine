@@ -12,6 +12,9 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredSelec
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 
+$session = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession(new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime(), static fn (DOMElement $element): array => array());
+$session->installGeneratedBlockRegistry(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry('ssi-fixture'));
+
 $assertions = 0;
 $failures = array();
 $assert = static function (bool $condition, string $label) use (&$assertions, &$failures): void {
@@ -31,8 +34,8 @@ $elementFrom = static function (string $html, string $tagName): DOMElement {
     throw new RuntimeException('No ' . $tagName . ' parsed');
 };
 
-$registry = new GeneratedBlockRegistry('ssi-fixture');
-$echoes = array();
+$registry = $session->requireGeneratedBlockRegistry();
+$echoStart = count($session->transformationEvidenceState()->formControlEchoTexts());
 $metadataBuilder = new FormControlMetadataBuilder(static fn (DOMElement $element): string => strtolower($element->tagName));
 $converter = new AuthoredFormControlBlockConverter(
     $metadataBuilder,
@@ -43,10 +46,7 @@ $converter = new AuthoredFormControlBlockConverter(
         'attrs' => $attrs,
         'innerBlocks' => $innerBlocks,
     )),
-    static fn (): GeneratedBlockRegistry => $registry,
-    static function (string $text) use (&$echoes): void {
-        $echoes[] = $text;
-    },
+    $session,
     new Runtime(),
     static fn (string $id): string => 'safe-' . $id,
     static fn (DOMElement $element): DOMElement => $element
@@ -69,16 +69,16 @@ $runtimeInputBlock = $converter->input($runtimeInput, $runtimeLabel instanceof D
 $assert(array( 'data-search' => '', 'data-styled' => '' ) === ($runtimeInputBlock['attrs']['dataAttributes'] ?? array()), 'runtime-input-retains-safe-data-attributes-only');
 $assert('<label class="search">Search docs<input type="search" data-search="" data-styled=""></label>' === ($runtimeInputBlock['innerHTML'] ?? ''), 'runtime-input-retains-native-label-shell');
 
-$echoes = array();
+$echoStart = count($session->transformationEvidenceState()->formControlEchoTexts());
 $plainSelect = $elementFrom('<select aria-label="Plan"><option value="basic">Basic</option><option selected>Pro &amp; Plus</option></select>', 'select');
 $selectFallback = $converter->select($plainSelect);
 $assert('core/group' === ($selectFallback['blockName'] ?? ''), 'unstyled-select-uses-readable-group');
 $assert('presented' === ($selectFallback['attrs']['className'] ?? ''), 'unstyled-select-retains-presentation-attributes');
 $assert('Plan' === ($selectFallback['innerBlocks'][0]['attrs']['content'] ?? ''), 'unstyled-select-emits-readable-label');
 $assert('Pro &amp; Plus (selected)' === ($selectFallback['innerBlocks'][1]['innerBlocks'][1]['attrs']['content'] ?? ''), 'unstyled-select-marks-and-escapes-selected-option');
-$assert(array( 'Plan', 'Basic', 'Pro & Plus (selected)' ) === $echoes, 'unstyled-select-registers-round-trip-echoes');
+$assert(array( 'Plan', 'Basic', 'Pro & Plus (selected)' ) === array_slice($session->transformationEvidenceState()->formControlEchoTexts(), $echoStart), 'unstyled-select-registers-round-trip-echoes');
 
-$echoes = array();
+$echoStart = count($session->transformationEvidenceState()->formControlEchoTexts());
 $styledSelect = $elementFrom('<select data-styled id="plan" name="plan"><option value="basic">Basic</option><option value="pro" selected>Pro</option></select>', 'select');
 $selectBlock = $converter->select($styledSelect);
 $authoredSelect = $selectBlock;
@@ -87,9 +87,9 @@ $assert($registry->blockName(AuthoredSelectBlockGenerator::LOCAL_NAME) === ($aut
 $assert('Pro (selected)' === ($authoredSelect['attrs']['selectedSummary'] ?? ''), 'styled-select-retains-selected-summary');
 $assert(str_contains((string) ($authoredSelect['innerHTML'] ?? ''), '<option value="pro" selected>Pro</option>'), 'styled-select-emits-native-option-markup');
 $assert($registry->has(AuthoredSelectBlockGenerator::class), 'styled-select-registers-generated-definition');
-$assert(array( 'plan' ) === $echoes, 'styled-select-registers-only-label-echo');
+$assert(array( 'plan' ) === array_slice($session->transformationEvidenceState()->formControlEchoTexts(), $echoStart), 'styled-select-registers-only-label-echo');
 
-$echoes = array();
+$echoStart = count($session->transformationEvidenceState()->formControlEchoTexts());
 $requiredSelect = $elementFrom('<label class="block">Assistance required<select data-styled class="mt-1.5 w-full" required><option value="" selected disabled>Select a program</option><option value="food">Food &amp; housing</option></select></label>', 'select');
 $requiredLabel = $requiredSelect->parentNode instanceof DOMElement ? $requiredSelect->parentNode : null;
 $requiredBlock = $converter->select($requiredSelect, false, $requiredLabel);
@@ -103,10 +103,10 @@ $assert(
     'required-select-emits-required-placeholder-and-escaped-option-markup'
 );
 
-$echoes = array();
+$echoStart = count($session->transformationEvidenceState()->formControlEchoTexts());
 $emptySelect = $elementFrom('<select></select>', 'select');
 $assert(null === $converter->select($emptySelect), 'select-without-options-declines-block');
-$assert(array( 'Select option' ) === $echoes, 'select-without-options-still-registers-label-echo');
+$assert(array( 'Select option' ) === array_slice($session->transformationEvidenceState()->formControlEchoTexts(), $echoStart), 'select-without-options-still-registers-label-echo');
 
 $plainButton = $elementFrom('<button type="submit">Send</button>', 'button');
 $assert(null === $converter->button($plainButton), 'unstyled-button-declines-authored-block');

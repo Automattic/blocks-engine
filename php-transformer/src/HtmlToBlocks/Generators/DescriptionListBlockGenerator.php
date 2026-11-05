@@ -3,9 +3,9 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
-use Closure;
 use DOMElement;
 use LogicException;
 
@@ -19,14 +19,9 @@ final class DescriptionListBlockGenerator
 {
     public const LOCAL_NAME = 'description-list';
 
-    /**
-     * @param Closure(string, array<string, mixed>): void $registerGeneratedBlock
-     * @param Closure(): string $generatedBlockNamespace Resolves the consumer-owned namespace the block is emitted under.
-     */
     public function __construct(
         private readonly SourceElementClassifier $sourceElementClassifier = new SourceElementClassifier(),
-        private readonly ?Closure $registerGeneratedBlock = null,
-        private readonly ?Closure $generatedBlockNamespace = null
+        private readonly ?HtmlTransformerSession $session = null
     ) {
     }
 
@@ -213,12 +208,10 @@ JS;
             return null;
         }
 
-        $register = $this->registerGeneratedBlock
+        $registry = $this->session?->requireGeneratedBlockRegistry()
             ?? throw new LogicException('DescriptionListBlockGenerator was not wired for conversion.');
-        $namespaceResolver = $this->generatedBlockNamespace
-            ?? throw new LogicException('DescriptionListBlockGenerator was not wired for conversion.');
-        $namespace = $namespaceResolver();
-        $register(self::class, $this->definition($namespace));
+        $namespace = $registry->namespace();
+        $registry->register(self::class, $this->definition($namespace));
 
         $markup = $this->markup($list, $groups);
         return array(

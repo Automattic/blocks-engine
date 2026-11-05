@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
@@ -19,7 +20,6 @@ final class ReadableFormControlBlockConverter
      * @param Closure(DOMElement): bool                                                                     $isRuntimeDomTarget
      * @param Closure(DOMElement): array<string, mixed>                                                     $htmlPreservationBlock
      * @param Closure(DOMElement): array<string, mixed>                                                     $presentationAttributes
-     * @param Closure(string): void                                                                         $registerEcho
      */
     public function __construct(
         private readonly FormControlMetadataBuilder $metadataBuilder,
@@ -31,7 +31,7 @@ final class ReadableFormControlBlockConverter
         private readonly Closure $htmlPreservationBlock,
         private readonly Closure $presentationAttributes,
         private readonly SourceBlockCreator $createBlock,
-        private readonly Closure $registerEcho
+        private readonly HtmlTransformerSession $session
     ) {
     }
 
@@ -274,7 +274,7 @@ final class ReadableFormControlBlockConverter
             $text .= ' (required)';
         }
 
-        ($this->registerEcho)($text);
+        $this->session->transformationEvidenceState()->recordFormControlEcho($text);
         return $this->runtime->escapeHtml($text);
     }
 }

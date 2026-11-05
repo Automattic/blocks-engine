@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic;
 use Closure;
 use DOMElement;
 
@@ -12,20 +15,13 @@ use DOMElement;
 final class UnsupportedElementContext
 {
     /**
-     * @param Closure(DOMElement): ?array<string, mixed>  $maybeGenerateCustomBlock
      * @param Closure(array<string, mixed>, DOMElement): array<string, mixed> $generatedComponentBlock
      * @param Closure(DOMElement): array<string, mixed>   $sourceContext
-     * @param Closure(DOMElement): array<string, mixed>   $classifyFallbackSubtree
-     * @param Closure(DOMElement): string                 $safeFallbackHtml
-     * @param Closure(array<string, mixed>): array<string, mixed> $buildFallbackDiagnostic
      */
     public function __construct(
-        private readonly Closure $maybeGenerateCustomBlock,
+        private readonly HtmlTransformerSession $session,
         private readonly Closure $generatedComponentBlock,
         private readonly Closure $sourceContext,
-        private readonly Closure $classifyFallbackSubtree,
-        private readonly Closure $safeFallbackHtml,
-        private readonly Closure $buildFallbackDiagnostic
     ) {
     }
 
@@ -34,7 +30,7 @@ final class UnsupportedElementContext
      */
     public function maybeGenerateCustomBlock(DOMElement $element): ?array
     {
-        return ($this->maybeGenerateCustomBlock)($element);
+        return $this->session->fallbackEmitter()->maybeGenerateCustomBlock($element, $this->session->requireGeneratedBlockRegistry());
     }
 
     /**
@@ -59,12 +55,12 @@ final class UnsupportedElementContext
      */
     public function classifyFallbackSubtree(DOMElement $element): array
     {
-        return ($this->classifyFallbackSubtree)($element);
+        return $this->session->fallbackEmitter()->classifyFallbackSubtree($element);
     }
 
     public function safeFallbackHtml(DOMElement $element): string
     {
-        return ($this->safeFallbackHtml)($element);
+        return SourceDom::safeFallbackHtml($element, $this->session->authorSelectorProjectionState()->tagMarkers());
     }
 
     /**
@@ -73,6 +69,6 @@ final class UnsupportedElementContext
      */
     public function buildFallbackDiagnostic(array $fallback): array
     {
-        return ($this->buildFallbackDiagnostic)($fallback);
+        return FallbackDiagnostic::build($fallback, $this->session->transformationProvenanceState()->fallback());
     }
 }

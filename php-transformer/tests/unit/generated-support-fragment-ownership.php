@@ -83,8 +83,8 @@ $fragmentBlocks = $safeFragment->invoke(
         . '<details><summary style="background-color:rgb(1, 2, 3);padding:4px">Services</summary><p>Care</p></details>'
 );
 $assert(is_array($fragmentBlocks) && array() !== $fragmentBlocks, 'native fragment is accepted');
-$supportAccessor = new ReflectionMethod($compilation, 'generatedSupportStyles');
-$support = $supportAccessor->invoke($compilation);
+$sessionProperty = new ReflectionProperty($compilation, 'session');
+$support = $sessionProperty->getValue($compilation)->generatedSupportStylesheetState();
 $fragmentMarkup = (new Runtime())->serializeBlocks($fragmentBlocks);
 $fragmentCss = implode("\n", array_map(
     static fn ($rule): string => $rule->css,

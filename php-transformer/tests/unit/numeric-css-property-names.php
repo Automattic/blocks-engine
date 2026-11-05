@@ -78,8 +78,7 @@ $context = new StyleResolutionContext(
         return $context->sourceStyles()->parsedSelector($selector);
     },
     static fn (string $className): string => $className,
-    static fn (string $url): string => $url,
-    static fn (DOMElement $node): bool => false
+    static fn (string $url): string => $url
 );
 $resolver = new StyleResolver($context, new HtmlTransformerAnalysisCache());
 $broken = '0: ;0: none;12: 1px; padding-inline: 4px 8px;-1: x;color: red;1px: 0';

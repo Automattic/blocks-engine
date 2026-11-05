@@ -90,6 +90,12 @@ final class HtmlTransformerSession
         $this->generatedBlockRegistry = $registry;
     }
 
+    public function requireGeneratedBlockRegistry(): GeneratedBlockRegistry
+    {
+        return $this->generatedBlockRegistry
+            ?? throw new \LogicException('Generated block registry has not been prepared for this transform.');
+    }
+
     public function generatedBlockRegistry(): ?GeneratedBlockRegistry
     {
         return $this->generatedBlockRegistry;

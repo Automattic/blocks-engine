@@ -45,6 +45,7 @@ $elementFrom = static function (string $html): DOMElement {
 
 $runtime = new Runtime();
 $session = new HtmlTransformerSession($runtime, static fn (DOMElement $element): array => array());
+$session->installGeneratedBlockRegistry(new GeneratedBlockRegistry('ssi-fixture'));
 $createBlock = new SourceBlockCreatorFixture(static fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => array(
     'blockName' => $name,
     'attrs' => $attrs,
@@ -59,7 +60,7 @@ $builder = new NativeGetFormBlockBuilder(
     },
     static fn (DOMElement $element): array => array(),
     $createBlock,
-    static fn (): GeneratedBlockRegistry => new GeneratedBlockRegistry('ssi-fixture')
+    $session
 );
 $assert(! $builder->isInside(), 'native-get-form-depth-starts-idle');
 
@@ -76,8 +77,7 @@ $authored = new AuthoredFormControlBlockConverter(
     static fn (DOMElement $element): array => array(),
     static fn (DOMElement $element): array => array(),
     $createBlock,
-    static fn (): GeneratedBlockRegistry => new GeneratedBlockRegistry('ssi-fixture'),
-    static function (string $text): void {},
+    $session,
     $runtime,
     static fn (string $id): string => $id,
     static fn (DOMElement $element): DOMElement => $element
@@ -88,8 +88,7 @@ $styleResolver = new StyleResolver(
         static fn (string $value): string => $value,
         static fn (string $selector): array => array(),
         static fn (string $className): string => $className,
-        static fn (string $url): string => $url,
-        static fn (DOMElement $element): bool => false
+        static fn (string $url): string => $url
     ),
     new HtmlTransformerAnalysisCache()
 );

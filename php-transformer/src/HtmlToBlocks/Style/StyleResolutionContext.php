@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationEvidenceState;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
 use DOMElement;
 
@@ -21,15 +22,13 @@ final class StyleResolutionContext
      * @param Closure(string): array<string, mixed>    $parsedCssSelector
      * @param Closure(string): string                  $promotedClassName
      * @param Closure(string): string                  $resolvedAssetImageUrl
-     * @param Closure(DOMElement): bool                $hasRetainedPresentationRuntime
      */
     public function __construct(
         private readonly HtmlTransformerSession $session,
         private readonly Closure $cssComparableValue,
         private readonly Closure $parsedCssSelector,
         private readonly Closure $promotedClassName,
-        private readonly Closure $resolvedAssetImageUrl,
-        private readonly Closure $hasRetainedPresentationRuntime
+        private readonly Closure $resolvedAssetImageUrl
     ) {
     }
 
@@ -93,6 +92,6 @@ final class StyleResolutionContext
 
     public function hasRetainedPresentationRuntime(DOMElement $element): bool
     {
-        return ($this->hasRetainedPresentationRuntime)($element);
+        return $this->session->authorSelectorProjectionState()->isRuntimeAttributePath(SourceDom::sourceElementIdentity($element));
     }
 }

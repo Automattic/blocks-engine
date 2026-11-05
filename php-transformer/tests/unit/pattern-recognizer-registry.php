@@ -14,6 +14,9 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
+$session = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession(new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime(), static fn (DOMElement $element): array => array());
+$session->installGeneratedBlockRegistry(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry('ssi-fixture'));
+
 $failures = 0;
 $assertSame = static function (mixed $expected, mixed $actual, string $message) use (&$failures): void {
     if ( $expected === $actual ) {
@@ -102,7 +105,7 @@ $directContext = new PatternContext(
     static fn (DOMElement $source, array $excluded = array()): array => array(),
     $createBlock,
     markupContext: new MarkupPatternContext(
-        static fn (DOMElement $source): string => $source->ownerDocument?->saveHTML($source) ?: '',
+        $session,
         new Runtime()
     )
 );

@@ -42,7 +42,6 @@ final class VisualIframeBlockGenerator
     /**
      * @param Closure(DOMElement): bool $isInertRuntimeMediaPlaceholder
      * @param Closure(DOMElement): bool $sourceElementStartsHidden
-     * @param Closure(DOMElement): array{html: string, bytes: int, truncated: bool} $boundedFallbackHtml
      * @param Closure(DOMElement): array<string, mixed> $sourceContext
      */
     public function __construct(
@@ -53,7 +52,6 @@ final class VisualIframeBlockGenerator
         private readonly ?HtmlTransformerSession $session = null,
         private readonly ?Closure $isInertRuntimeMediaPlaceholder = null,
         private readonly ?Closure $sourceElementStartsHidden = null,
-        private readonly ?Closure $boundedFallbackHtml = null,
         private readonly ?Closure $sourceContext = null
     ) {
     }
@@ -212,7 +210,6 @@ JS;
         $session = $this->session ?? throw new LogicException('VisualIframeBlockGenerator was not wired for conversion.');
         $isInertRuntimeMediaPlaceholder = $this->isInertRuntimeMediaPlaceholder ?? throw new LogicException('VisualIframeBlockGenerator was not wired for conversion.');
         $sourceElementStartsHidden = $this->sourceElementStartsHidden ?? throw new LogicException('VisualIframeBlockGenerator was not wired for conversion.');
-        $boundedFallbackHtml = $this->boundedFallbackHtml ?? throw new LogicException('VisualIframeBlockGenerator was not wired for conversion.');
         $sourceContext = $this->sourceContext ?? throw new LogicException('VisualIframeBlockGenerator was not wired for conversion.');
         $registry = $session->generatedBlockRegistry()
             ?? throw new LogicException('Generated block registry has not been prepared for this transform.');
@@ -288,7 +285,7 @@ JS;
             return $customHost instanceof DOMElement ? $this->customVisualIframeHostBlock($customHost, $surface, $block, $styleResolver, $createBlock) : $block;
         }
 
-        $boundedHtml = $boundedFallbackHtml($iframe);
+        $boundedHtml = SourceDom::boundedFallbackHtml(SourceDom::safeFallbackHtml($iframe, $this->session->authorSelectorProjectionState()->tagMarkers()));
         $runtimeIslands->recordRuntimeIsland($iframe, 'iframe', 'iframe_requires_embed_runtime', 'third_party_embed_runtime', array(
             'preservation_strategy' => 'sanitized_embed_markup',
             'attributes'            => $this->safeEmbedAttributes($iframe),

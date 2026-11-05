@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\MathPattern;
@@ -99,7 +100,7 @@ final class ElementConversionPrelude
         private readonly AuthorLayoutOwnership $authorLayoutOwnership,
         private readonly Closure $proofBackedWrapperCoalescing,
         private readonly Closure $layoutGeometryProofFor,
-        private readonly Closure $adoptAsSemanticBlock,
+        private readonly HtmlTransformerSession $session,
         private readonly ?CapturedCollectionConverter $capturedCollection = null
     ) {
     }
@@ -409,7 +410,7 @@ final class ElementConversionPrelude
             $attrs = $this->styleResolver->presentationAttributes($element);
             $attrs['content'] = SourceDom::innerHtml($element);
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS);
-            ($this->adoptAsSemanticBlock)($element);
+            $this->session->authorSelectorProjectionState()->adoptAsSemanticBlock($element->getNodePath() ?? '');
             return $this->createBlock->createBlock('core/paragraph', $attrs, array(), $element);
         }
         $identity = AddressableInlineLayoutLeaf::identity($element, $this->styleResolver);
