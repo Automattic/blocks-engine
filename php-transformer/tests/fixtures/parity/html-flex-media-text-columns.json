@@ -31,7 +31,7 @@
     { "path": "blocks.0.innerBlocks.0.attrs.url", "assert": "contains", "value": "assets/materialized-svg/" },
     { "path": "assets.0.content", "assert": "contains", "value": "WIDTH" },
     { "path": "assets", "assert": "count", "count": 2 },
-    { "path": "assets.1.content", "assert": "contains", "value": "margin-block-start:0;margin-block-end:0" },
+    { "path": "assets.1.content", "assert": "contains", "value": "margin-block-start:revert;margin-block-end:revert" },
     { "path": "serialized_blocks", "assert": "contains", "value": "blocks-engine-css-owned-layout blocks-engine-css-owned-flow" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "blocks-engine/author-layout" },
     { "path": "fallbacks", "assert": "count", "count": 0 },

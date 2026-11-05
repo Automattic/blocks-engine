@@ -227,7 +227,7 @@ final class EngineSupportCss
                 . ':root .editor-styles-wrapper :where(.' . self::CSS_OWNED_LAYOUT_CLASS . ')>div:not([class]):not([id]):not([style]):has(>[data-block].wp-block-group__placeholder){display:contents}';
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_FLOW_CLASS) ) {
-            $parts[] = ':root :where(.' . self::CSS_OWNED_FLOW_CLASS . '>p){margin-top:0;margin-bottom:0}';
+            $parts[] = ':root :where(.' . self::CSS_OWNED_FLOW_CLASS . '>p){margin-top:revert;margin-bottom:revert}';
         }
         if ( str_contains($serializedBlocks, ButtonLinkDispatcher::POSITIONED_FRAGMENT_LINK_CARRIER_CLASS) ) {
             // Positioned fragment links retain their source anchor and selectors;
@@ -301,9 +301,10 @@ final class EngineSupportCss
             $parts[] = ':where(.' . HtmlCompilation::EMPTY_VISUAL_GROUP_CLASS . '){pointer-events:none!important}';
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_FLOW_CLASS) ) {
-            // Core flow spacing is not part of a source grid or flex contract.
-            // This precedes author CSS so source child margins remain authoritative.
-            $parts[] = ':root :where(.wp-block-group.' . self::CSS_OWNED_FLOW_CLASS . ')>*{margin-block-start:0;margin-block-end:0}';
+            // Cancel Core's author-origin flow margins, not the source's UA
+            // margins (notably p's 1em). Author CSS follows and remains in
+            // control; synthesized boxes get their own zero-margin resets.
+            $parts[] = ':root :where(.wp-block-group.' . self::CSS_OWNED_FLOW_CLASS . ')>*{margin-block-start:revert;margin-block-end:revert}';
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_GRID_CLASS) ) {
             // Core flow margins are not part of a source grid contract; the
