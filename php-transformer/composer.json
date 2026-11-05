@@ -242,6 +242,7 @@
       "php tests/contract/block-comment-attribute-escaping.php",
       "php tests/contract/shared-header-control-routes.php",
       "php tests/contract/route-edge-shared-shell.php",
+      "php tests/contract/route-numbered-shell-ids.php",
       "php tests/contract/route-edge-clusters.php",
       "php tests/contract/trailing-edge-clusters.php",
       "php tests/contract/route-edge-plain-link-state.php",

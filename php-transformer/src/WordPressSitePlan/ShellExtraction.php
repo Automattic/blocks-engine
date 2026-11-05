@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
 use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
@@ -12,6 +13,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Support\RenderEquivalentMarkup;
 use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
+use Automattic\BlocksEngine\PhpTransformer\Support\StylesheetActivation;
 
 /**
  * Sole owner of header/footer shell-candidate location and removal.
@@ -818,11 +820,12 @@ final class ShellExtraction
         return $candidates;
     }
 
-    /** @param array<int,array<string,mixed>> $pages @param array<string,true> $reservedSlugs @param array<int,array<string,mixed>> $runtimeDeclarations @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,runtime_declarations:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>} */
-    public function inlineSharedShells(array $pages, array $reservedSlugs, array $runtimeDeclarations, array $canonicalArtifacts = array(), array $runtimeEntityRecords = array()): array
+    /** @param array<int,array<string,mixed>> $pages @param array<string,true> $reservedSlugs @param array<int,array<string,mixed>> $runtimeDeclarations @param array<int,array<string,mixed>> $assets @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,runtime_declarations:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>} */
+    public function inlineSharedShells(array $pages, array $reservedSlugs, array $runtimeDeclarations, array $canonicalArtifacts = array(), array $runtimeEntityRecords = array(), array $assets = array()): array
     {
         $this->resolveManifestEntities($runtimeDeclarations, $runtimeEntityRecords);
         if (count(array_filter($pages, static fn(array $page): bool => empty($page['synthetic']))) < 2) return array('pages' => $pages, 'parts' => array(), 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => array());
+        $stylesheetIds = self::stylesheetReferencedShellIds($assets, self::pageSourcePaths($pages));
         $parts = array(); $diagnostics = array();
         foreach (array('header', 'footer') as $area) {
             $applicable = array_filter($pages, static fn(array $page): bool => empty($page['synthetic']));
@@ -860,6 +863,7 @@ final class ShellExtraction
                     continue;
                 }
                 $identities = array(); foreach ($candidates as $rows) $identities[] = $rows[$variant]['identity_markup'];
+                $identities = self::canonicalizeRouteNumberedShellIds($identities, $stylesheetIds);
                 if (1 !== count(array_unique($identities))) { $rejected = true; break; }
                 $variants[] = $identities[0];
             }
@@ -1410,6 +1414,10 @@ final class ShellExtraction
     {
         $this->resolveManifestEntities($runtimeDeclarations, $runtimeEntityRecords);
         $pages = self::withWordmarkRouteState($pages, $assets);
+        // Route-numbered id canonicalization must not merge a shell whose id an
+        // applying stylesheet names, so the shared-chrome scoping inventory of
+        // stylesheet selectors is computed for the candidate pages up front.
+        $stylesheetIds = self::stylesheetReferencedShellIds($assets, self::pageSourcePaths(array_filter($pages, static fn(array $page): bool => empty($page['synthetic']))));
         $parts = array(); $diagnostics = array(); $unremovable = array();
         $areas = array('footer', 'header');
         while (null !== ($area = array_shift($areas))) {
@@ -1510,11 +1518,24 @@ final class ShellExtraction
             $applicable = array_filter($pages, static fn(array $page): bool => empty($page['synthetic']));
             if (array() === $applicable) continue;
             foreach ($applicable as $index => $page) if (!isset($unremovable[$area][$index])) foreach ($page['shell_candidates'] ?? array() as $candidate) if ($area === ($candidate['area'] ?? null)) $candidates[$index][] = $candidate;
+            // Clustering compares one route candidate per page. Builder sites
+            // number chrome ids per route (logo-container-75450 versus
+            // logo-container-236894), so the cluster key compares canonical
+            // identities: unreferenced ids that share a stem across the area's
+            // candidates collapse to that stem. Each candidate keeps its own
+            // markup for removal and for the emitted part.
+            $identityPages = array(); $identityInputs = array();
+            foreach ($candidates as $index => $rows) {
+                if (1 !== count($rows)) continue;
+                $identityPages[] = $index;
+                $identityInputs[] = (string) ($rows[0]['identity_markup'] ?? $rows[0]['markup']);
+            }
+            $clusterIdentities = array_combine($identityPages, self::canonicalizeRouteNumberedShellIds($identityInputs, $stylesheetIds));
             foreach ($applicable as $index => $page) {
                 $rows = $candidates[$index] ?? array();
                 if (1 !== count($rows)) { $excluded[$index] = count($rows) > 1 ? 'multiple' : 'missing'; continue; }
                 $candidate = $rows[0];
-                $candidateIdentity = hash('sha256', $area . "\0" . ($candidate['identity_markup'] ?? $candidate['markup']));
+                $candidateIdentity = hash('sha256', $area . "\0" . $clusterIdentities[$index]);
                 if (!isset($clusters[$candidateIdentity]['candidate']) || (!empty($page['entrypoint']) && !empty($candidate['wordmark_route_state'])) || self::prefersScrollStateCarrier($candidate, $clusters[$candidateIdentity]['candidate'])) $clusters[$candidateIdentity]['candidate'] = $candidate;
                 $clusters[$candidateIdentity]['indexes'][] = $index;
             }
@@ -3306,6 +3327,131 @@ final class ShellExtraction
         }
         ksort($inherited);
         return $inherited;
+    }
+
+    /**
+     * Canonicalize route-numbered authored ids only when the same stem varies
+     * across candidates and nothing references the ids. References inside the
+     * shells (href="#…", aria-controls, for) keep their per-route targets, and
+     * a stylesheet selector that names any candidate's id (`#top-202`,
+     * `[id="top-202"]`) carries per-route presentation: the shared part keeps
+     * one page's id, so the other page would lose the styling written for its
+     * own. Stylesheet references are read with the shared-chrome scoping
+     * inventory (stylesheetReferencedShellIds), not a second CSS parser.
+     */
+    private static function canonicalizeRouteNumberedShellIds(array $markups, array $stylesheetIds = array('ids' => array(), 'patterns' => array())): array
+    {
+        $values = array();
+        foreach ($markups as $markup) {
+            preg_match_all('/(?:"anchor"\s*:\s*"([^"]+)"|\bid="([^"]+)")/', $markup, $matches, PREG_SET_ORDER);
+            $row = array();
+            foreach ($matches as $match) $row[] = $match[1] !== '' ? $match[1] : $match[2];
+            $values[] = $row;
+        }
+        if (count($values) < 2) return $markups;
+        $replace = array();
+        foreach ($values[0] as $position => $value) {
+            if (!preg_match('/^(.*?)-([0-9]+)$/', $value, $match)) continue;
+            $stem = $match[1]; $suffixes = array(); $safe = true;
+            foreach ($markups as $index => $markup) {
+                $other = $values[$index][$position] ?? '';
+                if (!preg_match('/^' . preg_quote($stem, '/') . '-([0-9]+)$/', $other, $number)) { $safe = false; break; }
+                $suffixes[] = $number[1];
+                if (self::stylesheetTargetsId((string) $other, $stylesheetIds)) { $safe = false; break; }
+                if (preg_match('/(?:href\s*=\s*["\']#' . preg_quote($other, '/') . '["\']|(?:aria-controls|for)\s*=\s*["\']' . preg_quote($other, '/') . '["\'])/i', $markup)) { $safe = false; break; }
+            }
+            if ($safe && count(array_unique($suffixes)) > 1) foreach ($values as $index => $row) $replace[$index][$row[$position]] = $stem . '-__route__';
+        }
+        foreach ($markups as $index => $markup) foreach ($replace[$index] ?? array() as $from => $to) {
+            $markup = str_replace(array('"anchor":"' . $from . '"', 'id="' . $from . '"'), array('"anchor":"' . $to . '"', 'id="' . $to . '"'), $markup);
+            $markups[$index] = $markup;
+        }
+        return $markups;
+    }
+
+    /** @param array<int,array<string,mixed>> $pages @return list<string> */
+    private static function pageSourcePaths(array $pages): array
+    {
+        return array_values(array_filter(array_map(static fn(array $page): string => (string) ($page['source_path'] ?? ''), $pages)));
+    }
+
+    /**
+     * The id hooks (`#id`, `[id…]`) that stylesheets applying to any of the
+     * given pages name. This is the shared-chrome scoping inventory: plan
+     * assets already carry their route instances and scopes, and rule preludes
+     * are read with the same style-rule visitor the scoping uses.
+     *
+     * @param array<int,array<string,mixed>> $assets @param list<string> $sourcePaths @return array{ids:array<string,true>,patterns:list<array{0:string,1:string}>}
+     */
+    private static function stylesheetReferencedShellIds(array $assets, array $sourcePaths): array
+    {
+        $inventory = array('ids' => array(), 'patterns' => array());
+        if (array() === $sourcePaths) return $inventory;
+        foreach ($assets as $asset) {
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || '' === trim($asset['content']) || !StylesheetActivation::active($asset)) continue;
+            if (!self::stylesheetAppliesToPages($asset, $sourcePaths)) continue;
+            (new CssStylesheetTransformer())->visitStyleRules($asset['content'], static function (string $prelude) use (&$inventory): void {
+                foreach (self::selectorIdReferences($prelude) as $reference) {
+                    if (is_string($reference)) $inventory['ids'][$reference] = true;
+                    else $inventory['patterns'][] = $reference;
+                }
+            });
+        }
+        return $inventory;
+    }
+
+    /** Whether a stylesheet asset styles one of the pages: a route instance, a scope naming one, or a global resource. */
+    private static function stylesheetAppliesToPages(array $asset, array $sourcePaths): bool
+    {
+        $instances = array_column($asset['stylesheet_instances'] ?? array(), 'source_path');
+        if (array() !== array_intersect($instances, $sourcePaths)) return true;
+        $global = false;
+        foreach ($asset['scopes'] ?? array() as $scope) {
+            if (!is_array($scope)) continue;
+            if ('global' === ($scope['kind'] ?? null) || !isset($scope['source_path'])) $global = true;
+            elseif (in_array((string) $scope['source_path'], $sourcePaths, true)) return true;
+        }
+        // A resource with no document occurrence and no page scope loads on every route.
+        return $global || (array() === $instances && array() === ($asset['scopes'] ?? array()));
+    }
+
+    /**
+     * Id references in one selector prelude: `#id` tokens (including inside
+     * `:not()` and `:is()`, whose match also depends on the id), and `[id…]`
+     * values — word lists for `~=`, match patterns for the substring forms.
+     *
+     * @return list<string|array{0:string,1:string}>
+     */
+    private static function selectorIdReferences(string $selector): array
+    {
+        $references = array();
+        foreach ((bool) preg_match_all('/#(-?[_a-zA-Z][\w-]*)/', $selector, $matches) ? $matches[1] : array() as $id) $references[] = (string) $id;
+        foreach ((bool) preg_match_all('/\[\s*id\s*([*~^$|]?=)\s*(?:"([^"]*)"|\'([^\']*)\'|([^\]\s]+))\s*[^\]]*\]/i', $selector, $matches, PREG_SET_ORDER) ? $matches : array() as $match) {
+            $value = '' !== ($match[2] ?? '') ? (string) $match[2] : ('' !== ($match[3] ?? '') ? (string) $match[3] : (string) ($match[4] ?? ''));
+            if ('~=' === $match[1]) {
+                foreach (preg_split('/\s+/', trim($value)) ?: array() as $word) if ('' !== $word) $references[] = $word;
+            } else {
+                $references[] = array($match[1], $value);
+            }
+        }
+        return $references;
+    }
+
+    /** Whether the stylesheet inventory names a candidate id: a literal `#id`, a `[id…]` value, or a substring of one. */
+    private static function stylesheetTargetsId(string $id, array $inventory): bool
+    {
+        if (isset($inventory['ids'][$id])) return true;
+        foreach ($inventory['patterns'] ?? array() as $pattern) {
+            [$operator, $value] = $pattern;
+            if ('' === $value) continue;
+            if ('^=' === $operator) $matched = str_starts_with($id, $value);
+            elseif ('$=' === $operator) $matched = str_ends_with($id, $value);
+            elseif ('*=' === $operator) $matched = str_contains($id, $value);
+            elseif ('|=' === $operator) $matched = $value === $id || str_starts_with($id, $value . '-');
+            else $matched = $value === $id;
+            if ($matched) return true;
+        }
+        return false;
     }
 
     private static function normalizeNestedChromeMarkup(string $markup): string
