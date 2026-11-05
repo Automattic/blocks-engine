@@ -205,11 +205,28 @@ final class DesignUsageCollector
             $context['background'] = (string) CssColor::hex($background);
             if ($control) $context['role'] = 'button';
         }
-        if ($control && isset($declarations['padding'], $declarations['border-radius'], $declarations['font-size'], $declarations['font-family'])) {
+        if ($control && isset($declarations['border-radius'], $declarations['font-size'])) {
+            $lookDeclarations = $declarations;
+            $padding = $this->paddingObservations($declarations, (float) $context['size']);
+            if (array() === array_filter($padding, static fn(string $value): bool => '' === $value || str_starts_with($value, '!'))) $lookDeclarations['padding'] = ($padding['padding-top'] === $padding['padding-bottom'] && $padding['padding-right'] === $padding['padding-left'])
+                ? ($padding['padding-top'] === $padding['padding-right'] ? $padding['padding-top'] : $padding['padding-top'] . ' ' . $padding['padding-right']) : implode(' ', array_values($padding));
+            if (!isset($lookDeclarations['font-family']) && is_string($context['family'])) $lookDeclarations['font-family'] = $context['family'];
             $look = array();
             foreach (array('font-family' => 'font_family', 'font-size' => 'font_size', 'font-weight' => 'font_weight', 'text-transform' => 'text_transform', 'letter-spacing' => 'letter_spacing', 'border-radius' => 'radius', 'padding' => 'padding', 'background-color' => 'background', 'color' => 'color') as $property => $field) {
-                $value = 'background' === $field ? $background : ($declarations[$property] ?? null);
-                if (null !== $value && !$this->resolver->hasConditionalStyleFamily($element, $property) && !$this->resolver->hasStateStyleFamily($element, $property) && !$this->resolver->readsConditionalCustomProperty($element, array($property))) $look[$field] = 'font_size' === $field ? CssLength::format((float) $context['size']) : $value;
+                $value = 'background' === $field ? $background : ($lookDeclarations[$property] ?? null);
+                $family = 'background' === $field ? 'background' : $property;
+                $color = in_array($field, array('background', 'color'), true);
+                $conditional = in_array($family, $context['conditional'], true) || $this->resolver->hasConditionalStyleFamily($element, $family)
+                    || $this->resolver->readsConditionalCustomProperty($element, 'padding' === $property ? array_merge(array('padding'), array_keys(self::PADDING_SIDES)) : array($property, $family));
+                if (null !== $value && !$conditional && ($color || !$this->resolver->hasStateStyleFamily($element, $family))) $look[$field] = 'font_size' === $field ? CssLength::format((float) $context['size']) : $value;
+                if ($color && !$conditional) foreach (array('hover', 'focus', 'focus-visible', 'focus-within', 'active') as $state) {
+                    $stateValue = $this->resolver->stateDeclaredValue($element, $state, $property);
+                    if (null === $stateValue && 'background' === $field) $stateValue = $this->resolver->stateDeclaredValue($element, $state, 'background');
+                    if (null === $stateValue) continue;
+                    $stateValue = $this->resolver->resolveCssVariablesInValue($stateValue, $element);
+                    if (!CssColor::opaque($stateValue)) { unset($look[$field]); break; }
+                    $look[$state . '_' . $field] = (string) CssColor::hex($stateValue);
+                }
             }
             $this->buttonLooks[] = $look;
         }

@@ -548,6 +548,10 @@ final class ThemeJsonProjection
             'hover_color' => array(array(':hover', 'color', 'text'), $color),
             'hover_background' => array(array(':hover', 'color', 'background'), $color),
         );
+        foreach (array('focus', 'focus-visible', 'focus-within', 'active') as $state) {
+            $paths[$state . '_color'] = array(array(':' . $state, 'color', 'text'), $color);
+            $paths[$state . '_background'] = array(array(':' . $state, 'color', 'background'), $color);
+        }
         foreach (array('text_transform' => array('typography', 'textTransform'), 'letter_spacing' => array('typography', 'letterSpacing'), 'radius' => array('border', 'radius'), 'padding' => array('spacing', 'padding')) as $field => $path) $paths[$field] = array($path, static fn(string $value): string => $value);
         $properties = array('color' => array('color'), 'background' => array('background', 'background-color'), 'font_family' => array('font-family', 'font'), 'font_size' => array('font-size', 'font'), 'font_weight' => array('font-weight', 'font'), 'line_height' => array('line-height', 'font'));
         $elements = $system->elements;

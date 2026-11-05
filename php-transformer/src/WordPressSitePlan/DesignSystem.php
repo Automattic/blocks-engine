@@ -359,7 +359,10 @@ final class DesignSystem
                     // A dominant look may replace only source-owned values.
                     // An unstyled sibling would otherwise acquire this look.
                     $outline = str_contains((string) ($attributes['className'] ?? ''), 'is-style-outline');
-                    if (!isset($style['typography']['fontFamily'], $style['typography']['fontSize'], $style['typography']['fontWeight'], $style['border']['radius'], $style['spacing']['padding'])
+                    $inheritedFamily = !isset($style['typography']['fontFamily']) && !isset($attributes['fontFamily'])
+                        && self::familyKey((string) ($this->root['font_family'] ?? '')) === self::familyKey($this->elements['button']['font_family']);
+                    if ((!isset($style['typography']['fontFamily']) && !isset($attributes['fontFamily']) && !$inheritedFamily)
+                        || !isset($style['typography']['fontSize'], $style['typography']['fontWeight'], $style['border']['radius'], $style['spacing']['padding'])
                         || (isset($this->elements['button']['text_transform']) && !isset($style['typography']['textTransform']))
                         || (isset($this->elements['button']['letter_spacing']) && !isset($style['typography']['letterSpacing']))
                         || (!isset($style['color']['text']) && !isset($attributes['textColor']))
@@ -1146,7 +1149,7 @@ final class DesignSystem
             $rows = $usage['button_looks'] ?? array();
             foreach ($rows as $look) {
                 ++$count;
-                // A partially observed look (state, media or inherited value,
+                // A partially observed look (unsupported state or media value,
                 // or an outline control with no authored fill) cannot become
                 // the element look. It does not vote; binding still requires
                 // every block to own the values it yields to the element.

@@ -57,15 +57,27 @@ $chrome = getenv('CHROME_PATH') ?: trim((string) shell_exec('command -v chromium
 if ('' !== $chrome) {
     $temp = tempnam(sys_get_temp_dir(), 'shared-nav-');
     $file = $temp . '.html';
+    $profile = $temp . '-profile';
     unlink($temp);
+    mkdir($profile, 0700);
     $browserHtml = str_replace('<html>', '<html><head><style>.wp-block-navigation{display:flex;width:350px}.wp-block-navigation__container{display:contents;width:100%}.wp-block-navigation-item{display:flex;flex-shrink:0}' . $css . '</style></head>', $html);
     $browserHtml .= '<script>document.body.dataset.widths=JSON.stringify([...document.querySelectorAll("nav")].map(n=>[...n.querySelectorAll("li")].map(i=>i.getBoundingClientRect().width)).sort((a,b)=>a[0]-b[0]));</script>';
     file_put_contents($file, $browserHtml);
     try {
-        $output = shell_exec(escapeshellarg($chrome) . ' --headless --no-sandbox --disable-gpu --dump-dom --window-size=390,900 ' . escapeshellarg('file://' . $file) . ' 2>/dev/null');
+        // Explicitly own the profile: Chrome's implicit headless profile can
+        // fail to initialize in the runner's shared temporary directory.
+        $output = shell_exec(escapeshellarg($chrome) . ' --headless --no-sandbox --disable-gpu --user-data-dir=' . escapeshellarg($profile) . ' --dump-dom --window-size=390,900 ' . escapeshellarg('file://' . $file) . ' 2>/dev/null');
         preg_match('/data-widths="([^"]+)"/', (string) $output, $measured);
         $widths = json_decode(html_entity_decode($measured[1] ?? '', ENT_QUOTES), true);
         $assert(array(array(90, 90, 90), array(350, 350, 350)) === $widths, 'At phone width only mobile items fill the 350px row: ' . json_encode($widths));
-    } finally { unlink($file); }
+    } finally {
+        unlink($file);
+        $entries = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($profile, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
+        foreach ($entries as $entry) {
+            if ($entry->isDir() && !$entry->isLink()) rmdir($entry->getPathname());
+            else unlink($entry->getPathname());
+        }
+        rmdir($profile);
+    }
 }
 echo "shared-navigation-item-layout: ok\n";

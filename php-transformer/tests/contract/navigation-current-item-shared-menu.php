@@ -79,11 +79,13 @@ $chrome = getenv('CHROME_PATH') ?: (is_executable('/Applications/Google Chrome.a
 if ('' !== $chrome) {
     $temp = tempnam(sys_get_temp_dir(), 'current-nav-');
     $file = $temp . '.html';
+    $profile = $temp . '-profile';
     unlink($temp);
+    mkdir($profile, 0700);
     file_put_contents($file, $html . '<script>const links=[...document.querySelectorAll("a")];document.body.dataset.result=JSON.stringify(links.map((_,current)=>{links.forEach((a,i)=>i===current?a.setAttribute("aria-current","page"):a.removeAttribute("aria-current"));return links.map(a=>{const s=getComputedStyle(a);return [s.color,s.textDecorationLine]})}));</script>');
     try {
         foreach (array(1440 => 'rgb(171, 205, 239)', 390 => 'rgb(254, 220, 186)') as $width => $activeColor) {
-            $output = shell_exec(escapeshellarg($chrome) . ' --headless --no-sandbox --disable-gpu --dump-dom --window-size=' . $width . ',900 ' . escapeshellarg('file://' . $file) . ' 2>/dev/null');
+            $output = shell_exec(escapeshellarg($chrome) . ' --headless --no-sandbox --disable-gpu --user-data-dir=' . escapeshellarg($profile) . ' --dump-dom --window-size=' . $width . ',900 ' . escapeshellarg('file://' . $file) . ' 2>/dev/null');
             preg_match('/data-result="([^"]+)"/', (string) $output, $result);
             $styles = json_decode(html_entity_decode($result[1] ?? '', ENT_QUOTES), true);
             $assert(3 === count($styles ?? array()), 'Browser measured each served route.');
@@ -92,7 +94,15 @@ if ('' !== $chrome) {
                 $assert($expected === $style, 'Only the current nested link has computed colour and underline at ' . $width . ': ' . json_encode($styles));
             }
         }
-    } finally { unlink($file); }
+    } finally {
+        unlink($file);
+        $entries = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($profile, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
+        foreach ($entries as $entry) {
+            if ($entry->isDir() && !$entry->isLink()) rmdir($entry->getPathname());
+            else unlink($entry->getPathname());
+        }
+        rmdir($profile);
+    }
 }
 // Also keep a DOM selector-match check for browserless runners.
 {
