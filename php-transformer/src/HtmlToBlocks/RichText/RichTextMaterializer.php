@@ -473,7 +473,7 @@ final class RichTextMaterializer implements RichTextMaterialization
         }
 
         $declarations = $this->inlineVisualDeclarations($sourceButton);
-        if ( ! isset($declarations['background-color']) ) {
+        if ( ! isset($declarations['background-color']) && ! isset($declarations['background']) ) {
             $declarations['background-color'] = 'transparent';
         }
         if ( ! isset($declarations['color']) ) {

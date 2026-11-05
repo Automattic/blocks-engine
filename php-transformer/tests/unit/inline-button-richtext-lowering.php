@@ -98,6 +98,29 @@ $standaloneSerialized = (string) ($standalone['serialized_blocks'] ?? '');
 $assert(str_contains($standaloneSerialized, 'wp:buttons'), 'standalone-button-still-becomes-core-buttons');
 $assert(0 === substr_count($standaloneSerialized, '<mark'), 'standalone-button-is-never-lowered-to-mark');
 
+// The reduced page keeps a standalone paragraph button native and editable.
+$page = file_get_contents(dirname(__DIR__) . '/fixtures/button-in-paragraph.html');
+$compiledPage = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'website/index.html',
+    'files' => array('website/index.html' => $page),
+))->toArray();
+$pageMarkup = (string) ($compiledPage['serialized_blocks'] ?? '');
+$assert('success' === ($compiledPage['status'] ?? ''), 'button-page-compiles');
+$assert(str_contains($pageMarkup, 'wp:buttons') && str_contains($pageMarkup, 'wp:button '), 'button-page-native-buttons');
+$assert(str_contains($pageMarkup, '"tagName":"button"'), 'button-page-native-tag');
+$assert(! str_contains($pageMarkup, '<mark') && ! str_contains($pageMarkup, 'wp:html'), 'button-page-no-mark-or-html');
+foreach (array('background-color:#b9276b', 'color:#fff', 'padding-top:8px', 'padding-right:24px', 'border-radius:6px') as $style) {
+    $assert(str_contains($pageMarkup, $style), 'button-page-' . $style, $pageMarkup);
+}
+$assert(! str_contains($pageMarkup, 'background-color:transparent'), 'button-page-no-transparent-override');
+$assert(str_contains($pageMarkup, 'Fill in the form below.') && str_contains($pageMarkup, 'Show the form'), 'button-page-content');
+
+// Mixed text still uses a mark, without cancelling authored shorthand paint.
+$paintedInline = $transform('<main><p>Next: <button type="button" style="background:#b9276b;color:#fff">Show the form</button></p></main>');
+$paintedMarkup = (string) ($paintedInline['serialized_blocks'] ?? '');
+$assert(str_contains($paintedMarkup, '<mark') && str_contains($paintedMarkup, 'background:#b9276b'), 'inline-shorthand-preserved');
+$assert(! str_contains($paintedMarkup, 'background-color:transparent'), 'inline-shorthand-not-overridden');
+
 // Inline wrappers must use the same lowering as paragraph rich text, including
 // when a button contains an icon and a formatted label.
 foreach ( array(
@@ -113,7 +136,7 @@ foreach ( array(
     $markup = (string) ($wrapped['serialized_blocks'] ?? '');
     $assert(! str_contains($markup, 'wp:html'), $label . '-no-html-fallback');
     $assert('passed' === $editabilityStatus($wrapped), $label . '-editable');
-    if ('direct' === $label) {
+    if (in_array($label, array('direct', 'paragraph'), true)) {
         $assert(str_contains($markup, 'wp:buttons') && str_contains($markup, 'wp:button '), $label . '-native-buttons');
     } else {
         $assert(str_contains($markup, 'role="button"') && str_contains($markup, 'tabindex="0"'), $label . '-inline-lowered');
