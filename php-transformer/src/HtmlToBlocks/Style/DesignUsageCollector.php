@@ -222,10 +222,12 @@ final class DesignUsageCollector
                     || $this->resolver->readsConditionalCustomProperty($element, 'padding' === $property ? array_merge(array('padding'), array_keys(self::PADDING_SIDES)) : array($property, $family));
                 if (null !== $value && !$conditional && ($color || !$this->resolver->hasStateStyleFamily($element, $family))) $look[$field] = 'font_size' === $field ? CssLength::format((float) $context['size']) : $value;
                 if ($color && !$conditional) foreach (array('hover', 'focus', 'focus-visible', 'focus-within', 'active') as $state) {
-                    $stateValue = $this->resolver->stateDeclaredValue($element, $state, $property);
-                    if (null === $stateValue && 'background' === $field) $stateValue = $this->resolver->stateDeclaredValue($element, $state, 'background');
+                    $stateValue = $this->resolver->statePaintValue($element, $state, $property);
+                    if (null === $stateValue && 'background' === $field) $stateValue = $this->resolver->statePaintValue($element, $state, 'background');
                     if (null === $stateValue) continue;
-                    $stateValue = self::clean($this->resolver->resolveCssVariablesInValue($stateValue, $element));
+                    // A normal state declaration cannot override important resting paint.
+                    if (1 === preg_match('/!\s*important\s*$/i', $declarations[$property] ?? ('background' === $field ? ($declarations['background'] ?? '') : ''))) continue;
+                    $stateValue = self::clean($this->resolver->resolveStateCssVariablesInValue($stateValue, $element, $state));
                     // An unsupported state must not erase the resting colour.
                     if (CssColor::opaque($stateValue)) $look[$state . '_' . $field] = (string) CssColor::hex($stateValue);
                     elseif (self::opaqueRelativeColor($stateValue)) $look[$state . '_' . $field] = $stateValue;
@@ -337,7 +339,11 @@ final class DesignUsageCollector
         elseif (isset($declarations['color'])) $context['hover_color'] = null;
 
         $family = $this->keyword($declarations['font-family'] ?? null);
-        if (null !== $family && !in_array($family, array('inherit', 'unset'), true)) {
+        $shorthand = $this->resolver->restingFontShorthand($element);
+        if (null !== $shorthand) {
+            $font = CssFontShorthand::expand($this->resolver->resolveDefaultSchemeCssVariablesInValue($shorthand, $element));
+            $context['family'] = isset($font['font-family']) && !str_contains($font['font-family'], 'var(') ? self::clean($font['font-family']) : null;
+        } elseif (null !== $family && !in_array($family, array('inherit', 'unset'), true)) {
             $context['family'] = 'initial' === $family || str_contains($family, 'var(') ? null : self::clean($declarations['font-family']);
         } elseif (null === $family && in_array($tag, self::MONOSPACE_TAGS, true)) {
             $context['family'] = 'monospace';

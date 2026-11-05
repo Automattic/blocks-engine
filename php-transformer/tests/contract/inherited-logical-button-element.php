@@ -27,7 +27,8 @@ $assert('15px' === ($sizes[substr($button['typography']['fontSize'], strlen('var
 $palette = array_column($theme['settings']['color']['palette'], 'color', 'slug');
 foreach (array('text' => '#5b5b5b', 'background' => '#cacaca') as $key => $value) $assert($value === ($palette[substr($button['color'][$key] ?? '', strlen('var:preset|color|'))] ?? null), 'rest ' . $key);
 $hover = $button[':hover']['color']['text'] ?? '';
-$assert('oklch(from #646464 calc(l + .1) c h)' === $hover, 'opaque relative hover colour');
+$assert('' === $hover, 'important resting text defeats normal hover colour');
+$assert('oklch(from #cacaca calc(l - .04) c h)' === ($button[':hover']['color']['background'] ?? null), 'state-local relative background captured');
 preg_match_all('/<!-- wp:button(?: (\{.*?\}))? -->/', $markup, $matches);
 $assert(count($matches[1]) >= 1, 'native buttons emitted');
 foreach ($matches[1] as $json) {
@@ -35,9 +36,10 @@ foreach ($matches[1] as $json) {
     $assert(!isset($attrs['style']['color']) && !isset($attrs['style']['typography']) && !isset($attrs['style']['spacing']['padding']) && !isset($attrs['style']['border']['radius']), 'matching look is not inline');
     $assert(!isset($attrs['textColor']) && !isset($attrs['backgroundColor']) && !isset($attrs['fontSize']) && !isset($attrs['fontFamily']), 'no duplicate presets');
 }
-foreach (array('physical', 'focus', 'media', 'conditional-variable', 'unsupported-state', 'relative-size', 'original') as $case) {
+foreach (array('physical', 'focus', 'media', 'conditional-variable', 'unsupported-state', 'relative-size', 'original', 'state-token') as $case) {
     $input = $fixture;
     foreach ($input['files'] as &$html) {
+        if ('state-token' === $case) $html = str_replace(array('background-color:#cacaca', '--hover-bg:oklch(from #cacaca calc(l - .04) c h);background-color:var(--hover-bg)'), array('--bg:#cacaca;background-color:var(--bg)', '--bg:oklch(from #cacaca calc(l - .04) c h)'), $html);
         if ('physical' === $case) $html = str_replace('padding-block:7.5px;padding-inline:var(--edge)', 'padding-top:7.5px;padding-right:var(--edge);padding-bottom:7.5px;padding-left:var(--edge)', $html);
         if ('original' === $case) $html = str_replace(array('font-size:var(--jw-button-font-size)', 'color:#5b5b5b!important', 'oklch(from #646464 calc(l + .1) c h)'), array('font-size:16px;font-weight:700', 'color:#5b5b5b', '#000'), $html);
         if ('unsupported-state' === $case) $html = str_replace('oklch(from #646464 calc(l + .1) c h)', 'var(--unresolved-hover)', $html);
@@ -56,8 +58,10 @@ foreach (array('physical', 'focus', 'media', 'conditional-variable', 'unsupporte
             $assert('7.5px 15px' === ($styles['spacing']['padding'] ?? null), $case . ' preserves the look');
             if ('relative-size' === $case) $assert(!isset($styles['typography']['fontSize']), 'relative size disqualifies only size');
             if ('original' === $case) $assert('700' === ($styles['typography']['fontWeight'] ?? null), $case . ' weight');
-            if ('unsupported-state' === $case) $assert(!isset($styles[':hover']), 'unsupported hover drops only the state');
-            if ('focus' === $case) $assert(isset($styles[':focus']['color']['text']), 'focus colour emitted');
+            if ('unsupported-state' === $case) $assert(!isset($styles[':hover']['color']['text']), 'unsupported hover drops only the state');
+            if ('focus' === $case) $assert(isset($styles[':focus']['color']['background']) && !isset($styles[':focus']['color']['text']), 'focus background emitted, dead text omitted');
+            if ('original' === $case) $assert(isset($styles[':hover']['color']['text']), 'non-important resting colour permits hover');
+            if ('state-token' === $case) $assert('oklch(from #cacaca calc(l - .04) c h)' === ($styles[':hover']['color']['background'] ?? null), 'state-only token change captured');
         }
     }
 }
@@ -83,4 +87,34 @@ foreach ($variant['writes'] as $write) {
     }
 }
 $assert(2 === count($radii), 'both radius looks covered');
+// A minority size/padding must not veto the strict per-field majority, and
+// minority blocks must retain their differing values.
+$input = require dirname(__DIR__) . '/fixtures/design-system/per-field-button-looks.php';
+foreach ($input['files'] as &$html) {
+    $html = str_replace('</style>', '.small{font-size:13.125px;padding:5.625px}</style>', $html);
+    $html = str_replace('</body>', '<a class="btn small" href="/small">Small</a><a class="btn pill small" href="/small-pill">Small pill</a></body>', $html);
+}
+unset($html);
+$variant = (new ArtifactCompiler())->compile($input)->toArray()['source_reports']['wordpress_site_plan'];
+$minority = false;
+foreach ($variant['writes'] as $write) {
+    if ('theme.json' === $write['target_path']) {
+        $theme = json_decode($write['payload']['data'], true, 512, JSON_THROW_ON_ERROR);
+        $styles = $theme['styles']['elements']['button'] ?? array();
+        $assert('7.5px 15px' === ($styles['spacing']['padding'] ?? null), 'majority padding promoted despite minority');
+        $sizes = array_column($theme['settings']['typography']['fontSizes'], 'size', 'slug');
+        $assert('15px' === ($sizes[substr($styles['typography']['fontSize'] ?? '', strlen('var:preset|font-size|'))] ?? null), 'majority font size promoted despite minority');
+        $assert(!isset($styles['border']['radius']), 'radius tie remains unpromoted');
+        continue;
+    }
+    preg_match_all('/<!-- wp:button(?: (\{.*?\}))? -->/', $write['payload']['data'], $matches);
+    foreach ($matches[1] as $json) {
+        $attrs = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+        if (isset($attrs['style']['spacing']['padding'])) {
+            $minority = true;
+            $assert(isset($attrs['fontSize']) || isset($attrs['style']['typography']['fontSize']), 'minority keeps own font size');
+        }
+    }
+}
+$assert($minority, 'minority padding retained');
 echo "Inherited logical button element contract passed\n";

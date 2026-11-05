@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ResponsiveCorrespondence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
@@ -175,7 +176,7 @@ final class PresetBinding
     private array $importantRules = array();
     /** @var array<string,list<array{tokens:list<string>|null,negated:list<string>,fragment:string}>> `[style*=…]` selectors per family; null tokens reach any element. */
     private array $styleTextRules = array();
-    /** @var array<string,list<array{tokens:list<string>,negated:list<string>,attributes:list<array{0:string,1:string|null}>}>> Subjects of interaction-state rules, per family. */
+    /** @var array<string,list<array{tokens:list<string>,negated:list<string>,attributes:list<array{0:string,1:string|null}>,compound?:array<string,mixed>}>> Subjects of interaction-state rules, per family. */
     private array $stateTokens = array();
     /** @var array<string,array<string,string>> Authored class list => property => the one observation every element agreed on, or `!`. */
     private array $classStyles = array();
@@ -186,6 +187,8 @@ final class PresetBinding
     private array $fontDefaults = array();
     /** Whether an author rule selects `mark` elements, which a span made a mark would join. */
     private bool $markRules = false;
+    /** Author font rules that may compete with a heading default. @var list<array{selector:string,value:?string}> */
+    private array $fontRules = array();
     /** @var array<string,string|false> Root custom properties; false when a value is scoped or conditional. */
     private array $variables = array();
     /** @var array<string,array<string,true>> Values custom properties take outside the root. */
@@ -205,6 +208,15 @@ final class PresetBinding
             $visitor->visitStyleRules($asset['content'], function (string $prelude, string $body, array $ancestors = array()): void {
                 $this->indexRule($prelude, $body);
                 $this->indexVariables($prelude, $body, $ancestors);
+                $font = self::declared(self::declarations($body), 'font-family');
+                $shorthand = self::declared(self::declarations($body), 'font');
+                if (null !== $font || null !== $shorthand || str_contains($body, '{')) {
+                    foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) {
+                        // Unconditional element defaults yield in bindStylesheet().
+                        if (array() === $ancestors && preg_match('/^(?:body|h[1-6])$/i', trim($selector))) continue;
+                        $this->fontRules[] = array('selector' => $selector, 'value' => null !== $shorthand || str_contains($body, '{') ? null : $font);
+                    }
+                }
                 if (array() === $ancestors) {
                     foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
                         // A plain class (including its projected control exclusion)
@@ -855,7 +867,8 @@ final class PresetBinding
             $value = $this->resolve($value);
             $rules = array();
             foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) {
-                $tag = strtolower(trim($selector));
+                $selector = trim($selector);
+                $tag = strtolower($selector);
                 if (1 === preg_match('/^(?::root\s+)?body\.editor-styles-wrapper$/', $tag)) $tag = 'body';
                 $kept = $body;
                 if (isset($this->fontDefaults[$tag])) {
@@ -863,7 +876,7 @@ final class PresetBinding
                 } elseif (preg_match('/^\.[a-zA-Z_][a-zA-Z0-9_-]*(?::not\(:where\(\.blocks-engine-role-(?:' . implode('|', EngineMarker::ROLE_KINDS) . ')(?:\s*,\s*\.blocks-engine-role-(?:' . implode('|', EngineMarker::ROLE_KINDS) . '))*\)\))?$/', trim($selector))) {
                     $excluded = array();
                     foreach ($this->fontDefaults as $target => $font) {
-                        if ('body' !== $target && $this->sameFont($value, $font)) $excluded[] = $target;
+                        if ('body' !== $target && $this->sameFont($value, $font) && !$this->hasCompetingFont($target, $value)) $excluded[] = $target;
                     }
                     if (array() !== $excluded) {
                         $other = self::declarationText(array_values(array_filter(self::declarations($body), static fn(array $pair): bool => 'font-family' !== $pair[0])));
@@ -924,6 +937,23 @@ final class PresetBinding
     {
         return '' !== DesignSystem::familyKey($a) && DesignSystem::familyKey($a) === DesignSystem::familyKey($b)
             && strtolower(str_replace(array(' ', '"', "'"), '', $a)) === strtolower(str_replace(array(' ', '"', "'"), '', $b));
+    }
+
+    /**
+     * Dropping an explicit class font is safe only when no different author
+     * font can replace it. Class overlap is not known here, so ambiguous,
+     * conditional and shorthand rules conservatively retain the class rule.
+     */
+    private function hasCompetingFont(string $tag, string $value): bool
+    {
+        foreach ($this->fontRules as $rule) {
+            $subject = self::subjectCompound($rule['selector']);
+            if (preg_match('/^([a-z][a-z0-9-]*)/i', $subject, $match) && strtolower($match[1]) !== $tag) continue;
+            if (null === self::subjectTokens($rule['selector'])) continue;
+            if (null !== $rule['value'] && $this->sameFont($value, $this->resolve($rule['value']))) continue;
+            return true;
+        }
+        return false;
     }
 
     private function inheritsFont(string $html, string $value): bool
@@ -1458,6 +1488,7 @@ final class PresetBinding
     private function stateMatches(string $family, array $tokens): bool
     {
         foreach ($this->stateTokens[$family] ?? array() as $subject) {
+            if (isset($subject['compound']) && !self::stateSubjectMatches($subject['compound'], $tokens)) continue;
             if (array() !== array_intersect_key(array_flip($subject['negated']), $tokens)) continue;
             if (array() !== $subject['tokens'] && array() === array_intersect_key(array_flip($subject['tokens']), $tokens)) continue;
             if (isset($tokens[self::KNOWN_ATTRIBUTES])) {
@@ -1474,10 +1505,40 @@ final class PresetBinding
     private function indexState(string $prelude, string $family): void
     {
         foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) {
-            $subject = self::subjectTokens((string) preg_replace(self::STATE_PSEUDO, '', $selector));
+            $resting = (string) preg_replace(self::STATE_PSEUDO, '', $selector);
+            $subject = self::subjectTokens($resting);
             if (null === $subject) continue;
+            $parsed = CssSelectorMatcher::parse($resting);
+            if ($parsed['supported'] && array() !== $parsed['compounds']) {
+                $subject['compound'] = $parsed['compounds'][array_key_last($parsed['compounds'])];
+            }
             $this->stateTokens[$family][] = $subject + array('attributes' => self::subjectAttributes($selector));
         }
+    }
+
+    /**
+     * Necessary subject constraints, including the subject of each :is/:where
+     * alternative. Ancestor tokens inside those functions cannot establish a
+     * match on the element itself. Unknown/relational constraints stay conservative.
+     *
+     * @param array<string,mixed> $compound
+     * @param array<string,true> $tokens
+     */
+    private static function stateSubjectMatches(array $compound, array $tokens): bool
+    {
+        if (is_string($compound['type'] ?? null) && !isset($tokens['tag:' . strtolower($compound['type'])])) return false;
+        foreach (array('classes' => 'class:', 'ids' => 'id:') as $key => $prefix) {
+            foreach ($compound[$key] ?? array() as $value) if (!isset($tokens[$prefix . $value])) return false;
+        }
+        foreach ($compound['any'] ?? array() as $group) {
+            $possible = false;
+            foreach ($group['alternatives'] as $alternative) {
+                $subjects = $alternative['compounds'];
+                if (array() === $subjects || self::stateSubjectMatches($subjects[array_key_last($subjects)], $tokens)) $possible = true;
+            }
+            if (!$possible) return false;
+        }
+        return true;
     }
 
     /** Property names declared anywhere in a nested rule body, through further nesting and conditions. */
