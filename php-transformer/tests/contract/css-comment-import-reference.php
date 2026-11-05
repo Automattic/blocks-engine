@@ -14,10 +14,12 @@ $assert = static function (bool $condition, string $message): void {
     }
 };
 
-$page = '<!doctype html><html><head><meta charset="utf-8"><title>Comment import</title>\n'
-    . '<style>/* This block can be replaced with an @import / enqueue later. */\n'
-    . ':root{--accent:#c00}h1{color:var(--accent)}</style>\n'
-    . '</head><body><main><h1>Hello</h1><p>Body text.</p></main></body></html>';
+$page = <<<'HTML'
+<!doctype html><html><head><meta charset="utf-8"><title>Comment import</title>
+<style>/* This block can be replaced with an @import / enqueue later. */
+:root{--accent:#c00}h1{color:var(--accent)}</style>
+</head><body><main><h1>Hello</h1><p>Body text.</p></main></body></html>
+HTML;
 $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $page)))->toArray();
 $plan = $result['source_reports']['wordpress_site_plan'] ?? array();
 $assert(array() !== $plan, 'A CSS comment mentioning @import does not prevent site plan production.');
