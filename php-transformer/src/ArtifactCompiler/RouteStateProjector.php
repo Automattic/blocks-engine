@@ -59,6 +59,16 @@ final class RouteStateProjector
      */
     public function project(array $files, string $entryPath = ''): array
     {
+        // Normalized artifacts carry their entrypoint on the files themselves,
+        // including when projection is invoked by the staged transport.
+        if ('' === $entryPath) {
+            foreach ($files as $file) {
+                if (!empty($file['entrypoint'])) {
+                    $entryPath = (string) $file['path'];
+                    break;
+                }
+            }
+        }
         $files = self::bindNavigationRuns(self::bindRetainedLabels($files, $entryPath));
         $files = self::bindCurrentNavigationSources($files);
         $files = self::withRestingChrome($files);
@@ -612,7 +622,7 @@ final class RouteStateProjector
      */
     public static function normalize(string $html, bool $preserveNavigationPresentation = false): string
     {
-        if (! preg_match('/\saria-current\s*=|\sdata-status\s*=\s*["\']?active/i', $html)) {
+        if (! preg_match('/\saria-current\s*=|\sdata-status\s*=\s*["\']?active|\sstyle\s*=\s*(?:"[\s;]*"|\'[\s;]*\')/i', $html)) {
             return $html;
         }
         $previous = libxml_use_internal_errors(true);
@@ -624,9 +634,19 @@ final class RouteStateProjector
             return $html;
         }
 
+        $changed = false;
+        $xpath = new DOMXPath($document);
+        // An inline style with no declarations has no resting presentation.
+        // Remove it on the source DOM, before labels or identities serialize it.
+        foreach ($xpath->query('//*[@style]') ?: array() as $element) {
+            if ('' === trim($element->getAttribute('style'), "; \t\n\r\0\x0B")) {
+                $element->removeAttribute('style');
+                $changed = true;
+            }
+        }
         $current = array();
         $resting = array();
-        foreach ((new DOMXPath($document))->query('//a[@href]') ?: array() as $link) {
+        foreach ($xpath->query('//a[@href]') ?: array() as $link) {
             if (! $link instanceof DOMElement) {
                 continue;
             }
@@ -637,10 +657,9 @@ final class RouteStateProjector
             }
         }
         if (array() === $current) {
-            return $html;
+            return $changed ? HtmlSerialization::documentHtml($document) : $html;
         }
 
-        $changed = false;
         if (array() !== $resting) {
             $restingClasses = array();
             foreach ($resting as $chain) {
