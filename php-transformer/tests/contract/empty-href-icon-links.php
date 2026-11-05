@@ -28,7 +28,7 @@ $markup = $result['serialized_blocks'];
 $assert(array() === $result['fallbacks'], 'icon links record no fallback', (string) json_encode($result['fallbacks']));
 $assert(! str_contains($markup, '<!-- wp:html'), 'icon links stay native', $markup);
 $assert(1 === substr_count($markup, 'class="prev" href=""') && 1 === substr_count($markup, 'class="next" href=""'), 'each link keeps its class and same-document destination once', $markup);
-$assert(2 === substr_count($markup, 'class="icon"'), 'each link keeps its painted icon', $markup);
+$assert(2 === substr_count($markup, 'class="icon has-inline-color"'), 'each empty icon carrier is a format RichText keeps', $markup);
 $assert('pass' === (new BlockValidityValidator())->validateBlocks($result['blocks'])['status'], 'output has valid native save grammar');
 
 $compiled = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $page)))->toArray();
@@ -58,5 +58,8 @@ $unsafe = $transform('<main><p><a class="unsafe" href="javascript:alert(1)">Run<
 $assert(! str_contains($unsafe['serialized_blocks'], 'href='), 'an unsafe destination is still removed', $unsafe['serialized_blocks']);
 $absent = $transform('<main><div><a class="widget"></a></div></main>');
 $assert(! str_contains($absent['serialized_blocks'], '<a '), 'an empty link with no href is still not carried', $absent['serialized_blocks']);
+
+$worded = $transform('<style>.tint{color:red}</style><main><p>Read <span class="tint">this</span> now</p></main>');
+$assert(! str_contains($worded['serialized_blocks'], 'has-inline-color'), 'a carrier with text does not need the format class', $worded['serialized_blocks']);
 
 echo "OK: empty-href icon links ({$assertions} assertions)\n";
