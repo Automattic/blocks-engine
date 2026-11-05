@@ -10987,6 +10987,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $attrs['metadata'] = array_merge(is_array($attrs['metadata'] ?? null) ? $attrs['metadata'] : array(), array( 'blocksEngineImageSelection' => $selection ));
         }
 
+        if ($figure instanceof DOMElement && $link instanceof DOMElement) {
+            $display = $this->styleResolver->declaredPresentation($image, 'display')->resolvedValue();
+            if ('' === $display) $display = $this->styleResolver->defaultTagDisplay($image);
+            if ('inline' === CssValueInspector::comparable($display)) {
+                // Retain the authored figure box; only the replaced leaf was inline.
+                $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::INLINE_IMAGE_LEAF_CLASS);
+            }
+        }
         $block = $this->createBlock('core/image', $attrs, array(), $figure ?? $image);
         // core/image saves the class list and anchor on the <figure>; an author
         // subject naming the <img> by class or id must find them there.

@@ -167,6 +167,9 @@ final class EngineSupportCss
             // through the anchor so the bridge lands the same either way.
             $parts[] = ':root :where(.blocks-engine-linked-image-figure)>a{object-fit:inherit;object-position:inherit;border-radius:inherit}';
         }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::INLINE_IMAGE_LEAF_CLASS) ) {
+            $parts[] = ':where(.' . SourceBlockAttributeProjector::INLINE_IMAGE_LEAF_CLASS . ').wp-block-image > a > img{display:inline}';
+        }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS) ) {
             // This figure has no source box. Remove its layout box so image
             // percentages keep the source containing block, rather than a
