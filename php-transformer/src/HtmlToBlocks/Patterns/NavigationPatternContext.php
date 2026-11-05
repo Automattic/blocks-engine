@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
@@ -965,7 +966,8 @@ final class NavigationPatternContext
             if ($sibling instanceof DOMElement) ++$position;
         }
         $projections = $this->session->authorSelectorProjectionState();
-        $classes = array_values(array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn(string $class): bool => !$projections->isCurrentNavigationClass($class, $element) && !$projections->selectsCurrentNavigationState('.' . $class, $element)));
+        $classes = preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array();
+        $classes = array_values(array_filter(array_diff($classes, SourceClassIdentity::routeState($element)), static fn(string $class): bool => !$projections->isCurrentNavigationClass($class, $element) && !$projections->selectsCurrentNavigationState('.' . $class, $element)));
         $identity = array(strtolower($element->tagName), $element->getAttribute('id'), implode(' ', $classes), $element->getAttribute('style'), \Automattic\BlocksEngine\PhpTransformer\Support\NavigationUrl::serialize($element->getAttribute('href')), $position, $rules);
         return $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-' . $kind, (string) json_encode($identity));
     }

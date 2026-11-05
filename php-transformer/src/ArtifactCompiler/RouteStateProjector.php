@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
@@ -27,7 +28,8 @@ use DOMXPath;
  * a resting link, each current link and each of its single-link wrappers
  * (such as its `li`) loses `data-status` and the current-state class tokens
  * (`active`, `nav-item--current`) that no resting link or wrapper at that
- * depth carries. A menu item holding a submenu wraps one link, its label, so
+ * depth carries, with the disclosure classes (`expanded`) a builder adds to
+ * the served item. A menu item holding a submenu wraps one link, its label, so
  * a current parent item rests too. Other tokens are the link's own
  * identity, even when only the current link has them.
  *
@@ -521,7 +523,7 @@ final class RouteStateProjector
             }
             foreach ($current as $chain) {
                 foreach ($chain as $level => $element) {
-                    $state = array_values(array_filter(self::classes($element), static fn(string $class): bool => ! isset($restingClasses[$level][$class]) && (MenuVocabulary::containsCurrentStateToken($class) || 'page_item' === $class || 1 === preg_match('/^page-item-\d+$/', $class))));
+                    $state = array_values(array_filter(self::classes($element), static fn(string $class): bool => ! isset($restingClasses[$level][$class]) && (MenuVocabulary::containsCurrentStateToken($class) || in_array($class, SourceClassIdentity::DISCLOSURE_CLASSES, true) || 'page_item' === $class || 1 === preg_match('/^page-item-\d+$/', $class))));
                     if (array() === $state) {
                         continue;
                     }

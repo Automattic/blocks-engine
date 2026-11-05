@@ -28,9 +28,6 @@ use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
  */
 final class ShellExtraction
 {
-    /** Source classes that disclose the served route, not the chrome: a site builder paints the current item or its submenu with them. */
-    private const DISCLOSURE_CLASSES = array('open', 'is-open', 'expanded', 'is-expanded');
-
     /**
      * Capture-document siblings after the root owning main are page chrome,
      * not article content. Keep their device scope when moving them to the
@@ -3606,7 +3603,7 @@ final class ShellExtraction
         foreach ($lists as $items) {
             if (2 > count($items)) continue;
             $counts = array();
-            foreach ($items as $item) foreach (array_intersect($item['classes'], self::DISCLOSURE_CLASSES) as $class) $counts[$class] = ($counts[$class] ?? 0) + 1;
+            foreach ($items as $item) foreach (array_intersect($item['classes'], SourceClassIdentity::DISCLOSURE_CLASSES) as $class) $counts[$class] = ($counts[$class] ?? 0) + 1;
             $routeState = array_keys(array_filter($counts, static fn(int $count): bool => 1 === $count));
             if (array() === $routeState) continue;
             foreach ($items as $item) {
@@ -3750,7 +3747,7 @@ final class ShellExtraction
      */
     private static function withoutDisclosureClasses(array $classes, array $peerClasses = array()): array
     {
-        return array_values(array_diff($classes, array_diff(self::DISCLOSURE_CLASSES, $peerClasses)));
+        return array_values(array_diff($classes, array_diff(SourceClassIdentity::DISCLOSURE_CLASSES, $peerClasses)));
     }
 
     /**
