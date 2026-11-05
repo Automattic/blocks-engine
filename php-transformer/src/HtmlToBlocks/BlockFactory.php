@@ -986,8 +986,9 @@ final class BlockFactory
             'poster'   => (string) ($attrs['poster'] ?? ''),
             // Core video omits its default preload value from save markup.
             'preload'  => 'video' === $tagName && 'metadata' === ($attrs['preload'] ?? '') ? '' : (string) ($attrs['preload'] ?? ''),
-            'width'    => (string) ($attrs['width'] ?? ''),
-            'height'   => (string) ($attrs['height'] ?? ''),
+            // Core video save() does not support HTML dimension attributes.
+            'width'    => 'video' === $tagName ? '' : (string) ($attrs['width'] ?? ''),
+            'height'   => 'video' === $tagName ? '' : (string) ($attrs['height'] ?? ''),
             'controls' => ! empty($attrs['controls']) ? 'controls' : '',
         );
         if ( 'video' === $tagName ) {
