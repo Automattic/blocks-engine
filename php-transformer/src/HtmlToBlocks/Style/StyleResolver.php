@@ -2054,7 +2054,7 @@ final class StyleResolver implements ElementPresentationResolver
     public function inheritedTextCarrier(array $declarations): string
     {
         if (array() === $declarations) return '';
-        ksort($declarations);
+        // Shorthands and longhands must retain their resolved cascade order.
         $body = '';
         foreach ($declarations as $name => $value) {
             $body .= $name . ':' . CssValueInspector::withoutImportant($value) . '!important;';
@@ -4012,12 +4012,12 @@ final class StyleResolver implements ElementPresentationResolver
             return;
         }
 
-        // Box shorthands reset their entire family, just as `all` does above.
+        // Shorthands reset their entire family, just as `all` does above.
         // Keep stronger descendants, but serialize them after the shorthand.
-        $longhands = self::BOX_SHORTHAND_LONGHANDS[$property] ?? array();
+        $longhands = self::WHITE_SPACE_SHORTHAND_LONGHANDS[$property] ?? self::BOX_SHORTHAND_LONGHANDS[$property] ?? array();
         $strongerLonghands = array();
         foreach ($cascade as $existing => $entry) {
-            if (in_array($property, self::BOX_SHORTHAND_LONGHANDS[$existing] ?? array(), true)
+            if (in_array($property, self::WHITE_SPACE_SHORTHAND_LONGHANDS[$existing] ?? self::BOX_SHORTHAND_LONGHANDS[$existing] ?? array(), true)
                 && $this->mediaTextCascadeEntryOutranks($entry, $incoming)) {
                 return;
             }
@@ -4044,6 +4044,12 @@ final class StyleResolver implements ElementPresentationResolver
         // border shorthands), rather than the order of the family map.
         $cascade += $strongerLonghands;
     }
+
+    /** Include the intermediate text-wrap shorthand as well as its longhands. */
+    private const WHITE_SPACE_SHORTHAND_LONGHANDS = array(
+        'white-space' => array('text-wrap', 'text-wrap-mode', 'text-wrap-style', 'white-space-collapse'),
+        'text-wrap' => array('text-wrap-mode', 'text-wrap-style'),
+    );
 
     /**
      * Physical box shorthand reset families projected by this resolver.
@@ -4999,6 +5005,9 @@ final class StyleResolver implements ElementPresentationResolver
                 }
                 continue;
             }
+            foreach ( self::WHITE_SPACE_SHORTHAND_LONGHANDS[$property] ?? array() as $longhand ) {
+                unset($base[$longhand]);
+            }
             if ( 'background' === $property ) {
                 foreach ( array_keys($base) as $existing ) {
                     if ( 'background' === $existing || str_starts_with($existing, 'background-') ) {
@@ -5561,6 +5570,11 @@ final class StyleResolver implements ElementPresentationResolver
     public function safeVisualDeclarations(array $declarations): array
     {
         $safe = array_flip(array(
+            'white-space',
+            'text-wrap',
+            'text-wrap-mode',
+            'text-wrap-style',
+            'white-space-collapse',
             '-webkit-background-clip',
             '-webkit-text-fill-color',
             'alignment-baseline',
