@@ -31,6 +31,12 @@ nav{display:flex;position:relative}
 </nav></header><main><p>Body</p></main></body></html>
 HTML;
 $compile = static fn(string $html): array => (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html)))->toArray();
+$wrappedArtifact = $compile($source);
+// Inert capture support siblings make wrapper recognition descend to the
+// anchors, rather than treating the outer sizing wrappers as menu items.
+$source = str_replace(array('<div class="design-element element-size-box', '<a class="design-element-link-part'), array('<strong hidden class="title"></strong><div class="design-element element-size-box', '<strong hidden class="title"></strong><a class="design-element-link-part'), $source);
+$source = str_replace(array('slot inline-block', 'design-element element-size-box'), array('nav slot inline-block', 'nav design-element element-size-box'), $source);
+$source = str_replace('</style>', '[hidden]{display:none}</style>', $source);
 $artifact = $compile($source);
 $native = StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($artifact['serialized_blocks']);
 $css = implode("\n", array_column($artifact['assets'], 'content'));
@@ -44,8 +50,7 @@ if (2 !== $items->length) throw new RuntimeException('Expected two native naviga
 foreach ($items as $item) {
     $style = $cascade->resolve($item, array('width', 'flex-shrink'), array());
     if ('125px' !== ($style['width'] ?? '') || '0' !== ($style['flex-shrink'] ?? '')) throw new RuntimeException('Planned item width must be 125px without flex shrinking');
-    $placement = $cascade->resolve($item, array('height', 'left', 'top'), array());
-    if ('53px' !== ($placement['height'] ?? '') || '370px' !== ($placement['left'] ?? '') || '7px' !== ($placement['top'] ?? '')) throw new RuntimeException('Source height and position must remain unchanged');
+    if (str_contains($item->getAttribute('class'), 'blocks-engine-navigation-anchor-')) throw new RuntimeException('Regression fixture must exercise the anchor-as-item path, not a split anchor subject');
 }
 foreach ($find('wp-block-navigation-item__content') as $anchor) {
     if ('125px' !== ($cascade->resolve($anchor, array('width'), array())['width'] ?? '')) throw new RuntimeException('Anchor must carry source width');
@@ -78,11 +83,20 @@ if (!$box instanceof DOMElement) throw new RuntimeException('Underline must have
 foreach (array(
     str_replace('.absolute-fill{position:absolute;', '.absolute-fill{position:relative;', str_replace('.caption{position:absolute;', '.caption{position:relative;', $source)),
     str_replace('width:125px', 'width:50%', $source),
+    str_replace(array('width:125px', 'nav{display:flex;'), array('width:auto', 'nav{width:125px;display:flex;'), $source),
     str_replace('</style>', 'a{width:90px}</style>', $source),
     str_replace('right:0px;z-index:2;left:0px', 'width:80%;z-index:2;left:0px', $source),
 ) as $control) {
     $controlArtifact = $compile($control);
     $controlCss = implode("\n", array_column($controlArtifact['assets'], 'content'));
     if (preg_match('/__label\{display:block;width:100%\}/', $controlCss)) throw new RuntimeException('Intrinsic or unproven labels must not acquire width carry');
+}
+// The wrapper-as-item path still retains its established geometry too.
+$wrappedDom = new DOMDocument();
+@$wrappedDom->loadHTML(StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($wrappedArtifact['serialized_blocks']));
+$wrappedCascade = new StaticCssCascade($wrappedDom, implode("\n", array_column($wrappedArtifact['assets'], 'content')));
+foreach ((new DOMXPath($wrappedDom))->query('//*[contains(concat(" ",normalize-space(@class)," ")," wp-block-navigation-item ")]') as $item) {
+    $placement = $wrappedCascade->resolve($item, array('height', 'left', 'top', 'width'), array());
+    if ('53px' !== ($placement['height'] ?? '') || '370px' !== ($placement['left'] ?? '') || '7px' !== ($placement['top'] ?? '') || '125px' !== ($placement['width'] ?? '')) throw new RuntimeException('Wrapper item sizing and placement must remain unchanged');
 }
 echo "Absolute navigation labels retain their source sizing width\n";

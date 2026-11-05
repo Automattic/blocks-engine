@@ -85,6 +85,7 @@ final class EngineMarker
         'navigation-instance',
         'navigation-box',
         'navigation-list-box',
+        'navigation-label-width',
         'navigation-artwork',
         'richtext',
         'root-child',

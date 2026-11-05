@@ -859,25 +859,33 @@ final class NavigationPatternContext
             $this->sourceTargetProjection?->record(SourceDom::elementSelector($anchor), $target, 'height:100%');
             $this->sourceTargetProjection?->record(SourceDom::elementSelector($anchor), $target . '>.wp-block-navigation-item__label', 'display:block;height:100%');
         }
-        $width = $this->absoluteLabelSizingWidth($anchor, $item);
-        if ('' !== $width) {
-            // Out-of-flow label layers contribute no intrinsic width to Core's
-            // flex item. Restore their sizing box on the new carrier chain,
-            // without changing the already-projected placement or height.
-            $source = SourceDom::elementSelector($anchor);
-            $this->sourceTargetProjection?->record($source, '.wp-block-navigation .wp-block-navigation-item.' . $marker, 'width:' . $width . ';flex-shrink:0');
-            $this->sourceTargetProjection?->record($source, $target, 'width:' . $width);
-            $this->sourceTargetProjection?->record($source, $target . '>.wp-block-navigation-item__label', 'display:block;width:100%');
-        }
+        return $marker;
+    }
+
+    /** Carry an out-of-flow label's sizing independently of anchor subject splitting. */
+    public function navigationLabelWidthMarker(DOMElement $anchor): string
+    {
+        if (!$this->session instanceof HtmlTransformerSession || !$this->styleResolver instanceof StyleResolver
+            || $this->isRuntimeDomTarget($anchor)) return '';
+        $width = $this->absoluteLabelSizingWidth($anchor);
+        if ('' === $width) return '';
+        $marker = $this->navigationSubjectMarker($anchor, 'label-width');
+        $target = '.wp-block-navigation .wp-block-navigation-item.' . $marker . ' :where(.wp-block-navigation-item__content)';
+        // Out-of-flow layers contribute no intrinsic width to Core's flex
+        // item. Size the new carriers without changing placement or height.
+        $source = SourceDom::elementSelector($anchor);
+        $this->sourceTargetProjection?->record($source, '.wp-block-navigation .wp-block-navigation-item.' . $marker, 'width:' . $width . ';flex-shrink:0');
+        $this->sourceTargetProjection?->record($source, $target, 'width:' . $width);
+        $this->sourceTargetProjection?->record($source, $target . '>.wp-block-navigation-item__label', 'display:block;width:100%');
         return $marker;
     }
 
     /**
      * Restore an authored sizing box only when the label has no intrinsic
-     * in-flow content. Ancestor sizing must stay within this menu item and
-     * reach the anchor through stretching boxes, never a shrink-to-fit gap.
+     * in-flow content. Reach an item-local ancestor through stretching boxes,
+     * never crossing a list boundary or a box shared with another item.
      */
-    private function absoluteLabelSizingWidth(DOMElement $anchor, ?DOMElement $item): string
+    private function absoluteLabelSizingWidth(DOMElement $anchor): string
     {
         $anchorStyle = $this->styleResolver->referenceViewportAuthorDeclarations($anchor, array('width'));
         if (isset($anchorStyle['width']) && 'auto' !== $anchorStyle['width']) return '';
@@ -887,8 +895,18 @@ final class NavigationPatternContext
             $style = $this->styleResolver->referenceViewportAuthorDeclarations($node, array('display', 'width', 'position', 'left', 'right'));
             $width = trim((string) ($style['width'] ?? ''));
             if (CssValueInspector::isAbsoluteLength($width)) return $width;
-            if (!$item instanceof DOMElement || $node->isSameNode($item)) break;
             if (!$this->isStretchingLabelBox($node, $style)) break;
+            $parent = $node->parentNode;
+            if (!$parent instanceof DOMElement
+                || in_array(strtolower($parent->tagName), array('nav', 'ul', 'ol', 'menu', 'body', 'header'), true)
+                || in_array(strtolower($parent->getAttribute('role')), array('navigation', 'menubar', 'menu', 'list'), true)) break;
+            // A wrapper with another element or in-flow text is not an
+            // exclusive sizing box for this item, even if it has a width.
+            foreach ($parent->childNodes as $child) {
+                if ($child->isSameNode($node) || XML_COMMENT_NODE === $child->nodeType) continue;
+                if ($child instanceof DOMElement && 'none' === ($this->styleResolver->referenceViewportAuthorDeclarations($child, array('display'))['display'] ?? '')) continue;
+                if ($child instanceof DOMElement || '' !== trim($child->textContent)) break 2;
+            }
         }
         // Some captures put the definite sizing box inside the anchor instead.
         return $this->absoluteDescendantLabelWidth($anchor, false);
