@@ -74,9 +74,10 @@ final class AuthorStylesheetProjector
      */
     public function project(string $stylesheet, AuthorStylesheetProjectionContext $context, array $outerConditions = array()): string
     {
+        $clips = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::replacements($context->authorStyles->sourceBody());
         $projected = ( new CssStylesheetTransformer() )->transformStyleRules(
             $stylesheet,
-            fn (string $prelude, string $body, array $ancestors = array()): string => $this->projectStyleRule($prelude, $body, $context, self::ancestorsAreConditional($ancestors), $ancestors, $outerConditions)
+            fn (string $prelude, string $body, array $ancestors = array()): string => $this->projectStyleRule($prelude, \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::rewrite($body, $clips), $context, self::ancestorsAreConditional($ancestors), $ancestors, $outerConditions)
         );
         // Engine class tokens must not satisfy an authored class substring.
         $projected = $context->authorStyles->classAttributeSelectors()->stylesheet($projected);
