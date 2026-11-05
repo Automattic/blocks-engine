@@ -1003,6 +1003,7 @@
       "php tests/unit/empty-named-fragment-target.php",
       "php tests/unit/empty-hrefless-anchor.php",
       "php tests/unit/textless-painted-anchor.php",
+      "php tests/contract/empty-href-icon-links.php",
       "php tests/unit/button-wrapper-keyword-width.php",
       "php tests/unit/button-link-min-content.php",
       "php tests/unit/button-link-automatic-minimum.php",
