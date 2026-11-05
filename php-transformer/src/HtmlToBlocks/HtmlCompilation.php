@@ -7252,7 +7252,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( '' !== $tagMarker ) {
             $classes[] = $tagMarker;
         }
-        if ($element->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) && SourceDom::isDocumentVariantRoot($element)) return SourceDom::mergeClassNames(SourceDom::attr($element, 'class'), implode(' ', $classes));
+        if ($this->isCaptureDeviceVisibilityCarrier($element)) return SourceDom::mergeClassNames(SourceDom::attr($element, 'class'), implode(' ', $classes));
         $runtime = array();
         foreach ( $this->runtimeIslands->runtimeDomSelectorsForElement($element) as $selector ) {
             if ( str_starts_with($selector, '.') ) {
@@ -7268,9 +7268,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return implode(' ', array_values(array_unique(array_filter($classes, static fn (string $class): bool => '' !== $class))));
     }
 
+    /** Capture runtime CSS owns these hosts, outside author selector analysis. */
+    private function isCaptureDeviceVisibilityCarrier(DOMElement $element): bool
+    {
+        return ($element->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) && SourceDom::isDocumentVariantRoot($element))
+            || $element->hasAttribute(CaptureEvidence::DEVICE_ONLY)
+            || $element->hasAttribute(CaptureEvidence::DEVICE_HIDE);
+    }
+
     private function preservesScriptStateWrapper(DOMElement $element): bool
     {
-        if ($element->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) && SourceDom::isDocumentVariantRoot($element)) return true;
+        if ($this->isCaptureDeviceVisibilityCarrier($element)) return true;
         if ( $this->isInertHiddenEmptyElement($element) ) {
             return false;
         }

@@ -69,6 +69,8 @@ Two audiences read this vocabulary:
 | ---- | ---- | ----- | ------- |
 | `data-blocks-engine-capture-document-scope` | attribute (flag) | ignored | The element is a body-equivalent document root. With `device-document` it declares a device profile. |
 | `data-blocks-engine-capture-device-document` | attribute | `[a-z][a-z0-9_-]{0,63}` | Profile id of a declared document scope. |
+| `data-blocks-engine-capture-device-only` | attribute | device profile id (for example `mobile`) | Folded device-specific subtree, rather than a separate document. Its host, attributes and classes survive compilation so capture visibility CSS can select it. |
+| `data-blocks-engine-capture-device-hide` | attribute | device profile id (for example `mobile`) | Subtree hidden on this device profile by capture visibility CSS; preserved on its emitted host like `device-only`. |
 | `data-blocks-engine-capture-device-visibility` | attribute (flag) on `<style>` | ignored | Capture runtime device-selection gates. Excluded whole from author presentation analysis so selected-device chrome cannot acquire a frozen hide gate. |
 | `data-blocks-engine-capture-mobile-document` | class | — | Root of the mobile copy of a responsive capture. |
 | `data-blocks-engine-capture-desktop-document` | class | — | Root of the desktop (default) copy of a responsive capture. |
