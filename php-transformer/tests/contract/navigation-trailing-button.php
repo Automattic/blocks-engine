@@ -15,7 +15,6 @@ $assert(1 === count($headers), 'One header part');
 $header = $headers[0]['canonical_block_markup'];
 $assert(1 === substr_count($header, '<!-- wp:navigation '), 'One native navigation');
 $assert(str_contains($header, '"overlayMenu":"mobile"'), 'Mobile overlay retained');
-$assert((bool) preg_match('/<!-- wp:navigation \{[^>]*"className":"[^"]*blocks-engine-navigation-link-color-[a-f0-9]{64}/', $header), 'Navigation scopes its items\' link colour');
 $assert(str_contains($header, 'blocks-engine-native-navigation-toggle-'), 'Source toggle retained');
 $assert(str_contains($header, 'blocksEngineNavigationOpener') && str_contains($header, 'M4 12h16') && str_contains($header, 'M4 6h16'), 'Original two-path toggle icon retained');
 $assert(str_contains($header, '<!-- wp:button ') && str_contains($header, 'Join'), 'Native CTA retained');
@@ -25,6 +24,8 @@ $assert('flex' === $rowAttrs['layout']['type'] && 'nowrap' === $rowAttrs['layout
 $assert(1 === count($plan['menus']), 'One saved navigation entity');
 $assert(str_contains($header, '"ref":"{{wordpress-site-plan:navigation:'), 'Header references the saved navigation entity');
 $css = implode("\n", array_column(array_filter($plan['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null)), 'content'));
+$assert((bool) preg_match('/<!-- wp:navigation \{[^>]*"className":"[^"]*(blocks-engine-navigation-instance-[a-f0-9]{12}-\d+)/', $header, $instance), 'Navigation has an instance scope');
+$assert(str_contains($css, '.wp-block-navigation.' . $instance[1] . ' .wp-block-navigation-item__content{color:'), 'Items keep the source link colour');
 $assert((bool) preg_match('/@media\(max-width:[0-9]+px\)\{\.wp-block-group\.blocks-engine-menu-fold-[a-z0-9]+\{display:flex!important\}/', $css), 'Responsive source wrapper exposes the owned toggle');
 $menu = $plan['menus'][0]['block_markup'];
 $assert(3 === substr_count($menu, '<!-- wp:navigation-link '), 'Menu contains exactly three links');

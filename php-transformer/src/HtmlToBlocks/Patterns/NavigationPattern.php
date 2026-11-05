@@ -1493,7 +1493,13 @@ final class NavigationPattern implements PatternRecognizerInterface
             $attrs = $this->withNavigationLinkColorClasses($attrs, $links);
             $linkSets[] = $links;
             $attrs = $this->withSourceSubmenuIndicator($attrs, $row, $navigationContext);
-            $children[] = $createBlock('core/navigation', $attrs, array_merge($links, $overlayExtras), $slot['elements'][0]);
+            $navigation = $createBlock('core/navigation', $attrs, array_merge($links, $overlayExtras), $slot['elements'][0]);
+            if ( $trailingControl ) {
+                // The landmark's classes stay on the row group, so the link
+                // presentation the items inherit is scoped to this block.
+                $navigationContext?->recordInheritedPresentation($row, $this->scopedNavigationClasses(array(), $navigation));
+            }
+            $children[] = $navigation;
         }
         if ( array() === $linkSets ) {
             return null;
