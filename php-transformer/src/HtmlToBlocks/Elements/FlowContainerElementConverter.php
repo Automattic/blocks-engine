@@ -81,7 +81,9 @@ final class FlowContainerElementConverter implements ElementConverter
     /** @param array<int, array<string, mixed>> $fallbacks */
     private function lower(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
     {
-        if ( SourceDom::documentVariantRoot($element) === $element ) {
+        // Pattern recognizers would replace the marked host with their own
+        // block root, so the capture visibility markers would have no carrier.
+        if ( SourceDom::documentVariantRoot($element) === $element || SourceDom::isDeviceVisibilityCarrier($element) ) {
             return ConversionOutcome::handled($this->context->authorLayoutBlock($element, $fallbacks));
         }
         if (in_array($tagName, array('header', 'footer'), true)
