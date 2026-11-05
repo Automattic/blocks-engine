@@ -3,9 +3,9 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredInputBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredLabelBlockGenerator;
@@ -31,8 +31,6 @@ final class AuthoredFormControlBlockConverter
     /**
      * @param Closure(DOMElement): array<string, mixed>                                                     $authoredPresentationDeclarations
      * @param Closure(DOMElement): array<string, mixed>                                                     $presentationAttributes
-     * @param Closure(): GeneratedBlockRegistry                                                             $generatedBlocks
-     * @param Closure(string): void                                                                         $registerEcho
      * @param Closure(string): string                                                                       $safeAnchor
      * @param Closure(DOMElement): ?DOMElement                                                               $projectSourceTags
      * @param Closure(DOMElement): string|null                                                                $richTextLabelContent
@@ -43,8 +41,7 @@ final class AuthoredFormControlBlockConverter
         private readonly Closure $authoredPresentationDeclarations,
         private readonly Closure $presentationAttributes,
         private readonly SourceBlockCreator $createBlock,
-        private readonly Closure $generatedBlocks,
-        private readonly Closure $registerEcho,
+        private readonly HtmlTransformerSession $session,
         private readonly Runtime $runtime,
         private readonly Closure $safeAnchor,
         private readonly Closure $projectSourceTags,
@@ -79,7 +76,7 @@ final class AuthoredFormControlBlockConverter
             return null;
         }
         $generator = new AuthoredLabelBlockGenerator();
-        $registry = ($this->generatedBlocks)();
+        $registry = $this->session->requireGeneratedBlockRegistry();
         $registry->register(AuthoredLabelBlockGenerator::class, $generator->definition($registry->namespace()));
         $projected = ($this->projectSourceTags)($label) ?? $label;
         $attrs = array_filter(array(
@@ -110,7 +107,7 @@ final class AuthoredFormControlBlockConverter
         $state = NativeControlState::attributes($select);
         $forceNative = $forceNative || $runtimeTarget || null !== $state;
         $label = $this->metadataBuilder->readableLabel($select);
-        ($this->registerEcho)($label);
+        $this->session->transformationEvidenceState()->recordFormControlEcho($label);
         $options = $this->metadataBuilder->options($select);
         if ( array() === $options && null === $state ) {
             return null;
@@ -128,7 +125,7 @@ final class AuthoredFormControlBlockConverter
                 if ( true === ($option['selected'] ?? false) ) {
                     $optionLabel .= ' (selected)';
                 }
-                ($this->registerEcho)($optionLabel);
+                $this->session->transformationEvidenceState()->recordFormControlEcho($optionLabel);
                 $optionBlocks[] = $this->createBlock->createBlock('core/list-item', array( 'content' => $this->runtime->escapeHtml($optionLabel) ));
             }
 
@@ -139,7 +136,7 @@ final class AuthoredFormControlBlockConverter
         }
 
         $generator = new AuthoredSelectBlockGenerator();
-        $registry = ($this->generatedBlocks)();
+        $registry = $this->session->requireGeneratedBlockRegistry();
         $registry->register(AuthoredSelectBlockGenerator::class, $generator->definition($registry->namespace()));
         $attrs = array_filter(array(
             'id' => SourceDom::attr($select, 'id'),
@@ -224,7 +221,7 @@ final class AuthoredFormControlBlockConverter
             array_unshift($options, array('label' => $triggerLabel, 'value' => '', 'selected' => true, 'disabled' => true, 'placeholder' => true));
         }
         $generator = new AuthoredSelectBlockGenerator();
-        $registry = ($this->generatedBlocks)();
+        $registry = $this->session->requireGeneratedBlockRegistry();
         $registry->register(AuthoredSelectBlockGenerator::class, $generator->definition($registry->namespace()));
         $attrs = array_filter(array(
             'id' => SourceDom::attr($trigger, 'id'),
@@ -255,7 +252,7 @@ final class AuthoredFormControlBlockConverter
         }
 
         $generator = new AuthoredInputBlockGenerator();
-        $registry = ($this->generatedBlocks)();
+        $registry = $this->session->requireGeneratedBlockRegistry();
         $registry->register(AuthoredInputBlockGenerator::class, $generator->definition($registry->namespace()));
         $isImage = 'image' === FormControlClassifier::controlType($input);
         $indicator = in_array(strtolower($input->tagName), array('progress', 'meter'), true);
@@ -335,7 +332,7 @@ final class AuthoredFormControlBlockConverter
         }
 
         $generator = new AuthoredTextareaBlockGenerator();
-        $registry = ($this->generatedBlocks)();
+        $registry = $this->session->requireGeneratedBlockRegistry();
         $registry->register(AuthoredTextareaBlockGenerator::class, $generator->definition($registry->namespace()));
         $attrs = array_filter(array(
             'id' => SourceDom::attr($textarea, 'id'),
@@ -387,7 +384,7 @@ final class AuthoredFormControlBlockConverter
         }
 
         $generator = new AuthoredButtonBlockGenerator();
-        $registry = ($this->generatedBlocks)();
+        $registry = $this->session->requireGeneratedBlockRegistry();
         $registry->register(AuthoredButtonBlockGenerator::class, $generator->definition($registry->namespace()));
         $type = FormControlClassifier::controlType($button);
         if ( ! in_array($type, array( 'button', 'reset', 'submit' ), true) ) {
@@ -419,7 +416,7 @@ final class AuthoredFormControlBlockConverter
     public function runtimeButton(DOMElement $button): array
     {
         $generator = new AuthoredButtonBlockGenerator();
-        $registry = ($this->generatedBlocks)();
+        $registry = $this->session->requireGeneratedBlockRegistry();
         $registry->register(AuthoredButtonBlockGenerator::class, $generator->definition($registry->namespace()));
         $type = FormControlClassifier::controlType($button);
         if ( ! in_array($type, array( 'button', 'reset', 'submit' ), true) ) {

@@ -10,6 +10,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerS
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationEvidenceState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationProvenanceState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutGeometryState;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
 use DOMElement;
 
@@ -23,7 +24,6 @@ final class SvgMaterializationContext
 {
     /**
      * @param Closure(DOMElement): ?string                                                         $reusableComponentFingerprintFor
-     * @param Closure(DOMElement): string                                                          $safeFallbackHtml
      * @param Closure(DOMElement): string                                                          $sanitizeInlineSvgMarkup
      * @param Closure(DOMElement, string): array<string, mixed>                                     $svgArtworkBlock
      */
@@ -32,7 +32,6 @@ final class SvgMaterializationContext
         private readonly SourceElementClassifier $sourceElementClassifier,
         private readonly SourceBlockCreator $createBlock,
         private readonly Closure $reusableComponentFingerprintFor,
-        private readonly Closure $safeFallbackHtml,
         private readonly Closure $sanitizeInlineSvgMarkup,
         private readonly Closure $svgArtworkBlock
     ) {
@@ -90,7 +89,7 @@ final class SvgMaterializationContext
 
     public function safeFallbackHtml(DOMElement $element): string
     {
-        return ($this->safeFallbackHtml)($element);
+        return SourceDom::safeFallbackHtml($element, $this->session->authorSelectorProjectionState()->tagMarkers());
     }
 
     public function sanitizeInlineSvgMarkup(DOMElement $element): string

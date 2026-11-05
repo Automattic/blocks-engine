@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
 use DOMElement;
@@ -13,12 +14,11 @@ final class FormSuccessPanelMetadataBuilder
 {
     /**
      * @param Closure(DOMElement): string                                          $elementSelector
-     * @param Closure(DOMElement): array{html: string, bytes: int, truncated: bool} $fallbackHtmlMetadata
      * @param Closure(DOMElement): string                                          $innerHtml
      */
     public function __construct(
         private readonly Closure $elementSelector,
-        private readonly Closure $fallbackHtmlMetadata,
+        private readonly HtmlTransformerSession $session,
         private readonly Closure $innerHtml
     ) {
     }
@@ -54,7 +54,7 @@ final class FormSuccessPanelMetadataBuilder
     /** @return array<string, mixed> */
     private function metadata(DOMElement $element): array
     {
-        $boundedHtml = ($this->fallbackHtmlMetadata)($element);
+        $boundedHtml = SourceDom::boundedFallbackHtml(SourceDom::safeFallbackHtml($element, $this->session->authorSelectorProjectionState()->tagMarkers()));
         return array_filter(array(
             'selector'       => ($this->elementSelector)($element),
             'id'             => SourceDom::attr($element, 'id'),

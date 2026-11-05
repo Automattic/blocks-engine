@@ -29,14 +29,7 @@ $selector = static function (DOMElement $element): string {
     $id = $element->getAttribute('id');
     return '' !== $id ? '#' . $id : strtolower($element->tagName);
 };
-$fallbackHtmlMetadata = static function (DOMElement $element): array {
-    $html = trim($element->ownerDocument->saveHTML($element) ?: '');
-    return array(
-        'html'      => $html,
-        'bytes'     => strlen($html),
-        'truncated' => false,
-    );
-};
+$session = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession(new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime(), static fn (DOMElement $element): array => array());
 $innerHtml = static function (DOMElement $element): string {
     $html = '';
     foreach ( $element->childNodes as $child ) {
@@ -44,7 +37,7 @@ $innerHtml = static function (DOMElement $element): string {
     }
     return trim($html);
 };
-$builder = new FormSuccessPanelMetadataBuilder($selector, $fallbackHtmlMetadata, $innerHtml);
+$builder = new FormSuccessPanelMetadataBuilder($selector, $session, $innerHtml);
 
 $form = $elementFrom('<form></form>   <div id="sent" class="notice success" role="status" aria-live="polite"> Thanks <strong>Chris</strong> &amp; team </div>');
 $metadata = $builder->build($form);
@@ -74,10 +67,10 @@ $assert(array() === $builder->build($partialToken), 'partial-success-token-is-no
 
 $boundedBuilder = new FormSuccessPanelMetadataBuilder(
     $selector,
-    static fn (DOMElement $element): array => array( 'html' => '<p>...', 'bytes' => 2500, 'truncated' => true ),
+    $session,
     $innerHtml
 );
-$truncated = $boundedBuilder->build($elementFrom('<div><p role="status">Sent</p></div>'));
+$truncated = $boundedBuilder->build($elementFrom('<div><p role="status">' . str_repeat('x', 2479) . '</p></div>'));
 $assert(true === ($truncated['html_truncated'] ?? false) && 2500 === ($truncated['html_bytes'] ?? 0), 'truncated-html-metadata-is-propagated');
 
 if ( $failures ) {

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CapturedSelectableSetProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
@@ -22,7 +23,6 @@ final class CapturedSelectableSetConverter implements ElementConverter
     /**
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): array<int, array<string, mixed>> $convertChildren
      * @param Closure(): string $visuallyHiddenClassName
-     * @param Closure(string, string): void $registerRule Registers one stylesheet rule under a class name.
      * @param Closure(bool): string $flowClassName Registers and returns the class that lets the tab-list and tab-panels lay out as the source's trigger row and region did.
      */
     public function __construct(
@@ -31,7 +31,7 @@ final class CapturedSelectableSetConverter implements ElementConverter
         private readonly Closure $convertChildren,
         private readonly Closure $visuallyHiddenClassName,
         private readonly Closure $flowClassName,
-        private readonly Closure $registerRule
+        private readonly HtmlTransformerSession $session
     ) {
     }
 
@@ -400,7 +400,7 @@ final class CapturedSelectableSetConverter implements ElementConverter
         if ($hideUnderline) {
             $css[] = '.wp-block-tab-list.' . $className . ' button[aria-selected="true"]::before{display:none}';
         }
-        ($this->registerRule)($className, implode("\n", $css));
+        $this->session->layoutGeometryState()->registerRule($className, implode("\n", $css));
 
         return $className;
     }

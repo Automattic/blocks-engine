@@ -19,6 +19,9 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\VisualIframeB
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 
+$session = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession(new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime(), static fn (DOMElement $element): array => array());
+$session->installGeneratedBlockRegistry(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry('custom'));
+
 $failures = 0;
 $passes = 0;
 $assert = static function (bool $condition, string $message) use (&$failures, &$passes): void {
@@ -47,17 +50,13 @@ $assert(! is_a(AuthoredCarouselBlockGenerator::class, 'Automattic\\BlocksEngine\
 $assert(! is_a(VisualIframeBlockGenerator::class, 'Automattic\\BlocksEngine\\PhpTransformer\\HtmlToBlocks\\HtmlCompilation', true), 'iframe-generator-is-not-htmlcompilation');
 $assert(! is_a(CustomBlockGenerator::class, 'Automattic\\BlocksEngine\\PhpTransformer\\HtmlToBlocks\\HtmlCompilation', true), 'custom-block-generator-is-not-htmlcompilation');
 
-$registered = array();
 $descriptionList = new DescriptionListBlockGenerator(
     new SourceElementClassifier(),
-    function (string $identity, array $definition) use (&$registered): void {
-        $registered[$identity] = $definition;
-    },
-    static fn (): string => 'custom'
+    $session
 );
 $block = $descriptionList->convert($elementFrom('<dl class="facts"><dt>Office</dt><dd>North Hall</dd></dl>', 'dl'));
 $assert('custom/description-list' === ($block['blockName'] ?? null), 'description-list-convert-without-htmlcompilation');
-$assert(isset($registered[DescriptionListBlockGenerator::class]), 'description-list-registers-companion-definition');
+$assert($session->requireGeneratedBlockRegistry()->has(DescriptionListBlockGenerator::class), 'description-list-registers-companion-definition');
 $assert('Office' === ($block['attrs']['groups'][0]['terms'][0]['content'] ?? null), 'description-list-preserves-term-content');
 $assert(null === $descriptionList->convert($elementFrom('<dl><dd>Description before term</dd></dl>', 'dl')), 'description-list-rejects-malformed-list');
 

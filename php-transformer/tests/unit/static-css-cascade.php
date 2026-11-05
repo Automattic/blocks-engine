@@ -76,8 +76,7 @@ $resolvedAuthorColor = static function (string $html, string $css, string $xpath
             return $context->sourceStyles()->parsedSelector($selector);
         },
         static fn (string $className): string => $className,
-        static fn (string $url): string => $url,
-        static fn (DOMElement $node): bool => false
+        static fn (string $url): string => $url
     );
 
     $analysisCache = new HtmlTransformerAnalysisCache();

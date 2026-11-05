@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
@@ -74,13 +75,10 @@ final class HostBlockGapEncoder
     /** @var \WeakMap<DOMElement, array<string, array{0: ?float, 1: ?float}>>|null */
     private ?\WeakMap $margins = null;
 
-    /**
-     * @param \Closure(int): ?DOMElement $sourceElement Source element of a block provenance id.
-     */
     public function __construct(
         private readonly StyleResolver $styleResolver,
         private readonly BlockFactory $blockFactory,
-        private readonly \Closure $sourceElement,
+        private readonly HtmlTransformerSession $session,
         private readonly float $rootPx = 16.0
     ) {}
 
@@ -645,7 +643,7 @@ final class HostBlockGapEncoder
             : array( $block['_source_provenance_id'] ?? null );
         $elements = array();
         foreach ( $ids as $id ) {
-            $element = is_int($id) ? ( $this->sourceElement )($id) : null;
+            $element = is_int($id) ? $this->session->transformationProvenanceState()->sourceElement($id) : null;
             if ( $element instanceof DOMElement ) {
                 $elements[] = $element;
             }

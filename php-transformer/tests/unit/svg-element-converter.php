@@ -93,7 +93,7 @@ $textRun = new SvgTextRunLowering(
     new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array()),
     static fn (string $value, DOMElement $element): string => $value,
     new SourceBlockCreatorFixture(static fn (string $name, array $attrs, array $innerBlocks, ?DOMElement $source): array => array( 'blockName' => $name, 'attrs' => $attrs, 'sourceTag' => $source?->tagName )),
-    static function (array $finding): void {}
+    new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession(new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime(), static fn (DOMElement $element): array => array())
 );
 $converter = new SvgElementConverter($context, $materializer, $textRun);
 $svg = $elementFrom('<svg><path d="M0 0"></path></svg>');

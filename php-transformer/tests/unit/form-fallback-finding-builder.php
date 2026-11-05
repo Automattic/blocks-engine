@@ -31,6 +31,7 @@ $elementFrom = static function (string $html): DOMElement {
     throw new RuntimeException('No element parsed');
 };
 
+$session = new HtmlTransformerSession(new Runtime(), static fn (DOMElement $element): array => array());
 $selector = static fn (DOMElement $element): string => '#' . ($element->getAttribute('id') ?: strtolower($element->tagName));
 $metadataBuilder = new FormControlMetadataBuilder(
     $selector,
@@ -40,7 +41,7 @@ $metadataBuilder = new FormControlMetadataBuilder(
 );
 $successBuilder = new FormSuccessPanelMetadataBuilder(
     $selector,
-    static fn (DOMElement $element): array => array( 'html' => '<aside>Thanks</aside>', 'bytes' => 21, 'truncated' => false ),
+    $session,
     static fn (DOMElement $element): string => $element->textContent ?? ''
 );
 $pseudoAnalyzer = new PseudoFormAnalyzer($metadataBuilder, $selector);
@@ -51,15 +52,12 @@ $sourceBody = $sourceDocument->getElementsByTagName('body')->item(0);
 if ( ! $sourceBody instanceof DOMElement ) {
     throw new RuntimeException('No source body parsed');
 }
-$session = new HtmlTransformerSession(new Runtime(), static fn (DOMElement $element): array => array());
 $session->installAuthorStyleAnalysis(new AuthorStyleAnalysis('', '', array(), $sourceBody));
 $session->transformationProvenanceState()->installFallback(array( 'provenance' => 'fixture' ));
 $context = new FormFallbackFindingContext(
     $session,
-    static fn (DOMElement $element): array => array( 'html' => '<safe-form>', 'bytes' => 11, 'truncated' => true ),
     static fn (DOMElement $element): array => array( '#existing-runtime' ),
     static fn (DOMElement $element): array => array( 'source' => 'fixture' ),
-    static fn (DOMElement $element): array => array( 'kind' => 'interactive' ),
     static function (array $block, string $role, array $selectors, ?DOMElement $anchorElement = null) use (&$bindingCalls, $selector): array {
         $anchor = null !== $anchorElement ? $selector($anchorElement) : null;
         $bindingCalls[] = compact('block', 'role', 'selectors', 'anchor');
@@ -92,8 +90,8 @@ $assert(array( '#existing-runtime' ) === ($finding['binding']['selectors'] ?? ar
 // A real `<form>` is replaced by the block it binds, so it never needs a
 // separate source-element anchor. See #700 for real-form scope.
 $assert(! isset($finding['binding']['anchor']), 'real-form-binding-has-no-source-element-anchor');
-$assert('<safe-form>' === ($finding['html'] ?? ''), 'bounded-html');
-$assert(11 === ($finding['html_bytes'] ?? 0) && true === ($finding['html_truncated'] ?? false), 'bounded-html-metadata');
+$assert(str_contains($finding['html'] ?? '', '<form id="signup"'), 'bounded-html');
+$assert(strlen($finding['html']) === ($finding['html_bytes'] ?? 0) && false === ($finding['html_truncated'] ?? true), 'bounded-html-metadata');
 $assert(array( 'source' => 'fixture' ) === ($finding['context'] ?? array()), 'source-context');
 $assert('fixture' === ($finding['provenance'] ?? ''), 'diagnostic-builder');
 $assert(! isset($finding['form_boundary']), 'real-form-has-no-pseudo-boundary');

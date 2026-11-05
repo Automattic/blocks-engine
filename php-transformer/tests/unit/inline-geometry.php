@@ -47,8 +47,7 @@ $context = new StyleResolutionContext(
     static fn (string $value): string => $value,
     static fn (string $selector): array => array(),
     static fn (string $className): string => $className,
-    static fn (string $url): string => $url,
-    static fn (DOMElement $element): bool => false
+    static fn (string $url): string => $url
 );
 
 $parseDeclarations = static function (string $style): array {

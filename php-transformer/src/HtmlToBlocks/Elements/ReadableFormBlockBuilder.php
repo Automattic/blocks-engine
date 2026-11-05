@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
@@ -67,8 +68,6 @@ final class ReadableFormBlockBuilder
      * @param Closure(DOMElement): array<string, mixed>                                                     $cssOwnedGroupAttributes
      * @param Closure(list<DOMElement>, list<array<string, mixed>>, DOMElement): array<string, mixed>       $layoutShellBlockForElements
      * @param Closure(list<DOMElement>): (array<string, mixed>|null)                                        $fieldBoxShell
-     * @param Closure(): list<array<string, mixed>>|null                                                    $stylesheetAssets
-     * @param Closure(): string|null                                                                        $formLayoutCss
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): list<array<string, mixed>>|null       $convertFlowContent
      */
     public function __construct(
@@ -83,8 +82,7 @@ final class ReadableFormBlockBuilder
         private readonly SourceBlockCreator $createBlock,
         private readonly Closure $layoutShellBlockForElements,
         private readonly Closure $fieldBoxShell,
-        private readonly ?Closure $stylesheetAssets = null,
-        private readonly ?Closure $formLayoutCss = null,
+        private readonly HtmlTransformerSession $session,
         private readonly ?Closure $convertFlowContent = null
     ) {
     }
@@ -172,8 +170,8 @@ final class ReadableFormBlockBuilder
         $structure = array();
         $this->layoutGraph = (new FormLayoutGraphBuilder())->build(
             $form,
-            null !== $this->stylesheetAssets ? ($this->stylesheetAssets)() : array(),
-            null !== $this->formLayoutCss ? ($this->formLayoutCss)() : '',
+            $this->session->authorStyleAnalysis()->stylesheetAssets(),
+            $this->session->sourceStyleResolutionState()->formLayoutCss(),
             $structure
         );
         $children = array();

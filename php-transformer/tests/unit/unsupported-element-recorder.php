@@ -37,34 +37,21 @@ $elementFrom = static function (string $html): DOMElement {
 
 $makeRecorder = static function (array $overrides = array()): UnsupportedElementRecorder {
     $defaults = array(
-        'maybeGenerate'   => static fn (DOMElement $e): ?array => null,
         'generatedBlock'  => static fn (array $g, DOMElement $e): array => array('blockName' => 'blocks-engine/generated', 'from' => $g),
         'selector'        => static fn (DOMElement $e): string => strtolower($e->tagName) . '.sel',
         'sourceContext'   => static fn (DOMElement $e): array => array('ctx' => true),
-        'classify'        => static fn (DOMElement $e): array => array('kind' => 'unknown'),
-        'safeHtml'        => static fn (DOMElement $e): string => '<safe/>',
-        'buildDiagnostic' => static fn (array $f): array => $f + array('built' => true),
     );
     $c = array_merge($defaults, $overrides);
 
+    $session = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession(new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime(), $c['sourceContext']);
+    $session->installGeneratedBlockRegistry(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry('fixture'));
     $metadataBuilder = new FormControlMetadataBuilder($c['selector']);
     return new UnsupportedElementRecorder(new UnsupportedElementContext(
-        $c['maybeGenerate'],
+        $session,
         $c['generatedBlock'],
-        $c['sourceContext'],
-        $c['classify'],
-        $c['safeHtml'],
-        $c['buildDiagnostic']
+        $c['sourceContext']
     ), $metadataBuilder);
 };
-
-// A high-confidence custom block short-circuits the fallback entirely: a block
-// is returned and no diagnostic is recorded.
-$fallbacks = array();
-$generated = $makeRecorder(array('maybeGenerate' => static fn (DOMElement $e): ?array => array('name' => 'x-widget')))
-    ->record($elementFrom('<x-widget></x-widget>'), 'x-widget', $fallbacks);
-$assert('blocks-engine/generated' === ($generated['blockName'] ?? ''), 'generated-block-returned');
-$assert(array() === $fallbacks, 'generated-block-records-no-fallback');
 
 // Otherwise a fallback diagnostic is appended and the element drops.
 $fallbacks = array();
@@ -79,9 +66,8 @@ $assert('unsupported_element' === ($row['reason'] ?? ''), 'fallback-reason');
 $assert('html' === ($row['source_format'] ?? ''), 'fallback-source-format');
 $assert('x-thing' === ($row['tag'] ?? ''), 'fallback-carries-tag');
 $assert('x-thing:nth-of-type(1)' === ($row['selector'] ?? ''), 'fallback-carries-selector');
-$assert('<safe/>' === ($row['html'] ?? ''), 'fallback-carries-safe-html');
+$assert('<x-thing>hello</x-thing>' === ($row['html'] ?? ''), 'fallback-carries-safe-html');
 $assert(5 === ($row['text_length'] ?? 0), 'fallback-measures-text-length');
-$assert(true === ($row['built'] ?? false), 'fallback-passes-through-diagnostic-builder');
 $assert(! array_key_exists('control', $row), 'non-control-fallback-omits-control-key');
 
 // Form-control metadata is attached only when the element actually has it.

@@ -3,8 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredNativeFormBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -23,9 +23,8 @@ final class NativeGetFormBlockBuilder
 
     /** @param Closure(DOMElement, array<int, array<string, mixed>>&): array<int, array<string, mixed>> $convertChildren */
     /** @param Closure(DOMElement): array<string, mixed> $presentationAttributes */
-    /** @param Closure(): GeneratedBlockRegistry $generatedBlocks */
     /** @param Closure(): list<string> $documentHosts Hosts the source document declares as its own. */
-    public function __construct(private readonly Closure $convertChildren, private readonly Closure $presentationAttributes, private readonly SourceBlockCreator $createBlock, private readonly Closure $generatedBlocks, private readonly ?Closure $documentHosts = null)
+    public function __construct(private readonly Closure $convertChildren, private readonly Closure $presentationAttributes, private readonly SourceBlockCreator $createBlock, private readonly HtmlTransformerSession $session, private readonly ?Closure $documentHosts = null)
     {
     }
 
@@ -52,7 +51,7 @@ final class NativeGetFormBlockBuilder
             return null;
         }
         $generator = new AuthoredNativeFormBlockGenerator();
-        $registry = ($this->generatedBlocks)();
+        $registry = $this->session->requireGeneratedBlockRegistry();
         $registry->register(AuthoredNativeFormBlockGenerator::class, $generator->definition($registry->namespace()));
         $attrs = array_filter(array_merge(($this->presentationAttributes)($form), array(
             'action' => SourceDom::attr($form, 'action'),

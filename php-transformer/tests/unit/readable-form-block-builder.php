@@ -15,6 +15,9 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredTexta
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 
+$session = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession(new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime(), static fn (DOMElement $element): array => array());
+$session->installGeneratedBlockRegistry(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry('ssi-fixture'));
+
 $assertions = 0;
 $failures = array();
 $assert = static function (bool $condition, string $label) use (&$assertions, &$failures): void {
@@ -43,7 +46,7 @@ $presentationAttributes = static fn (DOMElement $element): array => array( 'clas
 $eventMetadata = static fn (DOMElement $element): array => $element->hasAttribute('data-event') ? array( 'submit' => true ) : array();
 $isRuntimeDomTarget = static fn (DOMElement $element): bool => $element->hasAttribute('data-runtime');
 $recorded = array();
-$echoes = array();
+$echoStart = count($session->transformationEvidenceState()->formControlEchoTexts());
 $metadataBuilder = new FormControlMetadataBuilder(static fn (DOMElement $element): string => strtolower($element->tagName));
 $runtimeRecorder = new FormRuntimeIslandRecorder(
     $metadataBuilder,
@@ -53,16 +56,13 @@ $runtimeRecorder = new FormRuntimeIslandRecorder(
     $eventMetadata,
     static fn (DOMElement $element): array => array()
 );
-$authoredRegistry = new GeneratedBlockRegistry('ssi-fixture');
+$authoredRegistry = $session->requireGeneratedBlockRegistry();
 $authoredConverter = new AuthoredFormControlBlockConverter(
     $metadataBuilder,
     static fn (DOMElement $element): array => $element->hasAttribute('data-styled') ? array( 'display' => 'block' ) : array(),
     $presentationAttributes,
     $createBlock,
-    static fn (): GeneratedBlockRegistry => $authoredRegistry,
-    static function (string $text) use (&$echoes): void {
-        $echoes[] = $text;
-    },
+    $session,
     new Runtime(),
     static fn (string $id): string => $id,
     static fn (DOMElement $element): DOMElement => $element
@@ -77,9 +77,7 @@ $controlConverter = new ReadableFormControlBlockConverter(
     static fn (DOMElement $element): array => array( 'blockName' => 'core/html', 'attrs' => array( 'content' => 'preserved' ) ),
     $presentationAttributes,
     $createBlock,
-    static function (string $text) use (&$echoes): void {
-        $echoes[] = $text;
-    }
+    $session
 );
 $layoutShellBlockForElements = static function (array $elements, array $innerBlocks, DOMElement $sourceElement): array {
     return array(
@@ -102,6 +100,8 @@ $layoutShellBlockForElements = static function (array $elements, array $innerBlo
 $rowCss = '.fields-row{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem}';
 $compilation = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation();
 $ownership = (new ReflectionProperty($compilation, 'authorLayoutOwnership'))->getValue($compilation);
+$session->installAuthorStyleAnalysis(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysis('', $rowCss, array(array('path' => 'style.css', 'source_path' => 'style.css', 'content' => $rowCss, 'source_hash' => hash('sha256', $rowCss), 'media' => '')), $formFrom('<form></form>')));
+$session->sourceStyleResolutionState()->setFormLayoutCss($rowCss);
 $builder = new ReadableFormBlockBuilder(
     $metadataBuilder,
     $controlConverter,
@@ -127,16 +127,7 @@ $builder = new ReadableFormBlockBuilder(
         'innerHTML' => '',
         'innerContent' => array('<div>', '</div>'),
     ),
-    static fn (): array => array(
-        array(
-            'path' => 'style.css',
-            'source_path' => 'style.css',
-            'content' => $rowCss,
-            'source_hash' => hash('sha256', $rowCss),
-            'media' => '',
-        ),
-    ),
-    static fn (): string => $rowCss,
+    $session,
     // The production flow converter declines standalone controls; stray copy
     // converts as ordinary flow content.
     static function (DOMElement $element, array &$fallbacks): array {
@@ -161,13 +152,13 @@ $assert('core/group' === ($builder->build($eventForm, true)['blockName'] ?? ''),
 $assert(null === $builder->build($formFrom('<form><input data-event></form>')), 'eventful-control-declines-form');
 $assert(null === $builder->build($formFrom('<form><input type="hidden" value="secret"></form>')), 'unreadable-control-declines-form');
 
-$echoes = array();
+$echoStart = count($session->transformationEvidenceState()->formControlEchoTexts());
 $plain = $builder->build($formFrom('<form><input aria-label="Email" value="a&amp;b" required></form>'));
 $assert('core/group' === ($plain['blockName'] ?? ''), 'plain-form-builds-group');
 $assert('presented-form' === ($plain['attrs']['className'] ?? ''), 'form-presentation-is-retained');
 $assert('core/paragraph' === ($plain['innerBlocks'][0]['blockName'] ?? ''), 'plain-control-remains-direct-child');
 $assert('Email: a&amp;b (required)' === ($plain['innerBlocks'][0]['attrs']['content'] ?? ''), 'plain-control-summary-is-retained');
-$assert(array( 'Email: a&b (required)' ) === $echoes, 'plain-control-registers-echo');
+$assert(array( 'Email: a&b (required)' ) === array_slice($session->transformationEvidenceState()->formControlEchoTexts(), $echoStart), 'plain-control-registers-echo');
 
 $submit = $builder->build($formFrom('<form><button type="submit" class="send">Join &amp; Go</button></form>'));
 $submitButton = $submit['innerBlocks'][0] ?? array();

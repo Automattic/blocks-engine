@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlLabel;
@@ -37,7 +38,6 @@ final class FormControlMetadataBuilder
      *     facts for one element, through the form presentation graph's cascade.
      * @param Closure(DOMElement): array<string, string>|null $paintStyles Resolved snake_case paint facts
      *     (text colour, background fill) for one element, through the same cascade.
-     * @param Closure(DOMElement): string|null $sourceTagMarker Existing source tag identity for a retagging provider.
      * @param Closure(DOMElement): list<string>|null $controlCarrierClasses Registered author-selector wrapper classes.
      * @param Closure(DOMElement, DOMElement): (array<string, string>|null)|null $hiddenState The declaration
      *     that hides an element below a form boundary, if the source hides it unconditionally.
@@ -51,7 +51,7 @@ final class FormControlMetadataBuilder
         private readonly ?Closure $typographyStyles = null,
         private readonly ?Closure $paintStyles = null,
         private readonly ?Closure $hiddenState = null,
-        private readonly ?Closure $sourceTagMarker = null,
+        private readonly ?HtmlTransformerSession $session = null,
         private readonly ?Closure $richTextContent = null,
         private readonly ?Closure $controlCarrierClasses = null
     ) {
@@ -65,7 +65,7 @@ final class FormControlMetadataBuilder
         foreach ( FormControlClassifier::controlElements($form) as $control ) {
             $metadata = $this->control($control);
             if ( array() !== $metadata ) {
-                $marker = null !== $this->sourceTagMarker ? ($this->sourceTagMarker)($control) : '';
+                $marker = $this->session?->authorSelectorProjectionState()->tagMarker($control->tagName) ?? '';
                 if ( '' !== $marker ) {
                     $metadata['source_tag_marker'] = $marker;
                 }

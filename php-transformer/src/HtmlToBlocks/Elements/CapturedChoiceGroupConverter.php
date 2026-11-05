@@ -33,15 +33,11 @@ final class CapturedChoiceGroupConverter implements ElementConverter
 
     /**
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): array<int, array<string, mixed>> $convertChildren
-     * @param Closure(string, string): void $registerRule Registers one stylesheet rule under a class name.
-     * @param Closure(): void $sourceMarkupMutated Invalidates selector caches after a temporary source swap.
      */
     public function __construct(
         private readonly HtmlTransformerSession $session,
         private readonly Closure $convertChildren,
         private readonly ?ElementPresentationResolver $presentation = null,
-        private readonly ?Closure $registerRule = null,
-        private readonly ?Closure $sourceMarkupMutated = null
     ) {
     }
 
@@ -58,7 +54,7 @@ final class CapturedChoiceGroupConverter implements ElementConverter
     /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed> */
     private function block(DOMElement $element, array &$fallbacks): array
     {
-        $registry = $this->session->generatedBlockRegistry()
+        $registry = $this->session->requireGeneratedBlockRegistry()
             ?? throw new LogicException('Generated block registry has not been prepared for this transform.');
         $blockName = $registry->blockName(CapturedChoiceGroupBlockGenerator::LOCAL_NAME);
         $registry->register(CapturedChoiceGroupBlockGenerator::class, (new CapturedChoiceGroupBlockGenerator())->definition($blockName));
@@ -146,7 +142,7 @@ final class CapturedChoiceGroupConverter implements ElementConverter
     {
         $none = array('className' => '', 'tokens' => array());
         $parent = $element->parentNode;
-        if (null === $this->presentation || null === $this->registerRule || null === $parent) {
+        if (null === $this->presentation || null === $parent) {
             return $none;
         }
         $choiceCount = count($this->choiceNodes($element));
@@ -211,9 +207,7 @@ final class CapturedChoiceGroupConverter implements ElementConverter
                 }
             } finally {
                 $parent->replaceChild($element, $clone);
-                if (null !== $this->sourceMarkupMutated) {
-                    ($this->sourceMarkupMutated)();
-                }
+                $this->session->sourceStyleResolutionState()->invalidateSelectorMatches();
             }
         }
 
@@ -280,7 +274,7 @@ final class CapturedChoiceGroupConverter implements ElementConverter
             return array('className' => '', 'tokens' => array_keys($stateTokens));
         }
         $className = 'blocks-engine-choice-state-' . substr(md5(implode("\n", $rules)), 0, 10);
-        ($this->registerRule)($className, implode("\n", array_map(static fn (string $rule): string => sprintf($rule, '.' . $className), $rules)));
+        $this->session->layoutGeometryState()->registerRule($className, implode("\n", array_map(static fn (string $rule): string => sprintf($rule, '.' . $className), $rules)));
 
         return array('className' => $className, 'tokens' => array_keys($stateTokens));
     }

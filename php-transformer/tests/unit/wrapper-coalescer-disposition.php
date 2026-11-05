@@ -97,8 +97,7 @@ $makeCoalescer = static function (array $runtimeDomSelectors = array(), array $o
             static fn (string $value): string => $value,
             static fn (string $selector): array => array(),
             static fn (string $className): string => $className,
-            static fn (string $url): string => $url,
-            static fn (DOMElement $element): bool => false
+            static fn (string $url): string => $url
         ),
         new HtmlTransformerAnalysisCache()
     );

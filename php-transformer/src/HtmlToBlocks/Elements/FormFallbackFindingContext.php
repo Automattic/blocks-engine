@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
 use DOMElement;
 
@@ -12,20 +13,16 @@ use DOMElement;
 final class FormFallbackFindingContext
 {
     /**
-     * @param Closure(DOMElement): array{html: string, bytes: int, truncated: bool}                $boundedFallbackHtml
      * @param Closure(DOMElement): array<int, string>                                               $runtimeDomSelectors
      * @param Closure(DOMElement): array<string, mixed>                                             $sourceContext
-     * @param Closure(DOMElement): array<string, mixed>                                             $classifyFallbackSubtree
      * @param Closure(array<string, mixed>, string, array<int, string>, ?DOMElement): array<string, mixed> $blockBinding
      * @param (Closure(DOMElement, string): string)|null                                            $resolvePresentationValue
      * @param (Closure(DOMElement): string)|null                                                    $sanitizeInlineSvgMarkup
      */
     public function __construct(
         private readonly HtmlTransformerSession $session,
-        private readonly Closure $boundedFallbackHtml,
         private readonly Closure $runtimeDomSelectors,
         private readonly Closure $sourceContext,
-        private readonly Closure $classifyFallbackSubtree,
         private readonly Closure $blockBinding,
         private readonly ?Closure $resolvePresentationValue = null,
         private readonly ?Closure $sanitizeInlineSvgMarkup = null
@@ -46,7 +43,7 @@ final class FormFallbackFindingContext
     /** @return array{html: string, bytes: int, truncated: bool} */
     public function boundedFallbackHtml(DOMElement $element): array
     {
-        return ($this->boundedFallbackHtml)($element);
+        return SourceDom::boundedFallbackHtml(SourceDom::safeFallbackHtml($element, $this->session->authorSelectorProjectionState()->tagMarkers()));
     }
 
     /** @return array<int, string> */
@@ -64,7 +61,7 @@ final class FormFallbackFindingContext
     /** @return array<string, mixed> */
     public function classifyFallbackSubtree(DOMElement $element): array
     {
-        return ($this->classifyFallbackSubtree)($element);
+        return $this->session->fallbackEmitter()->classifyFallbackSubtree($element);
     }
 
     /**
