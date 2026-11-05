@@ -175,7 +175,7 @@ See [Native control state](../native-control-state.md).
 | `data-blocks-engine-capture-glyph-color` | attribute | `#rrggbb` (any case) | Rendered glyph colour of an icon; read and removed. See [Social icon glyph colour](../glyph-color.md). |
 | `data-blocks-engine-capture-anchor-unresolved` | attribute | text | An anchor the capture could not resolve; ignored when comparing render-equivalent markup. |
 | `data-blocks-engine-capture-anchor-target` | attribute | fragment | On an empty placeholder: the fragment a route's link scrolls to. Inside route chrome it moves to just before the chrome landmark, so it stays with that route rather than the shared part. |
-| `data-blocks-engine-capture-viewport-entrance` | attribute | JSON | Recorded entrance states of an element the source reveals as it scrolls into view; layout shells carrying it are labelled "Scroll reveal". |
+| `data-blocks-engine-capture-viewport-entrance` | attribute | JSON | Recorded entrance states of an element the source reveals as it scrolls into view; layout shells carrying it are labelled "Scroll reveal". Shared source-shell identity ignores this evidence and attributes matching its recorded `after` states. The emitted shared part prefers a member with observed entrance evidence and retains it for replay. |
 | `data-blocks-engine-capture-viewport-entrances` | attribute | presence | Marks the capture's own entrance activator `<script>`. It addresses entrance evidence, not source behavior, so runtime-selector analysis excludes it. |
 
 ### Component replay

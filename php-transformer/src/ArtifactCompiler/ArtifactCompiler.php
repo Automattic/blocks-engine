@@ -3842,7 +3842,15 @@ final class ArtifactCompiler
             foreach ($groups as $variant => $variantGroups) foreach ($variantGroups as $sourceIdentity => $members) {
                 if (count($members) < 2) continue;
                 $sourcePath = isset($members[$entryPath]) ? $entryPath : (string) array_key_first($members);
-                $canonicalMarkup = $members[$sourcePath]['rows'][$area][$variant]['identity'];
+                // Identity excludes capture-only entrance state, but the emitted
+                // part must retain it. Prefer a member that observed entrances,
+                // even when the entry route was too short to trigger them.
+                $canonicalSource = $members[$sourcePath]['rows'][$area][$variant]['markup'];
+                foreach ($members as $member) {
+                    $candidate = $member['rows'][$area][$variant]['markup'];
+                    if (substr_count($candidate, CaptureEvidence::VIEWPORT_ENTRANCE . '=') > substr_count($canonicalSource, CaptureEvidence::VIEWPORT_ENTRANCE . '=')) $canonicalSource = $candidate;
+                }
+                $canonicalMarkup = self::normalizeSourceShellIdentity($canonicalSource, false);
                 $head = preg_match('/<head\b[^>]*>(.*?)<\/head>/is', $members[$sourcePath]['content'], $headMatch) ? $headMatch[1] : '';
                 // A route-only stylesheet must not seed the shared part, even
                 // when that route is the entrypoint. Only style sources common
@@ -3989,12 +3997,24 @@ final class ArtifactCompiler
         }
     }
 
-    private static function normalizeSourceShellIdentity(string $markup): string
+    private static function normalizeSourceShellIdentity(string $markup, bool $ignoreViewportEntrance = true): string
     {
         $dom = new \DOMDocument();
         $loaded = self::loadUtf8Html($dom, '<body>' . $markup . '</body>');
         if (!$loaded) return $markup;
         $xpath = new \DOMXPath($dom);
+        if ($ignoreViewportEntrance) {
+            foreach ($xpath->query('//*[@' . CaptureEvidence::VIEWPORT_ENTRANCE . ']') ?: array() as $node) {
+                if (!$node instanceof \DOMElement) continue;
+                $evidence = json_decode($node->getAttribute(CaptureEvidence::VIEWPORT_ENTRANCE), true);
+                foreach (is_array($evidence['attributes'] ?? null) ? $evidence['attributes'] : array() as $name => $state) {
+                    // Only recorded after states are incidental. An unrelated or
+                    // subsequently changed attribute remains structural.
+                    if (is_string($name) && is_array($state) && array_key_exists('after', $state) && is_string($state['after']) && $node->getAttribute($name) === $state['after']) $node->removeAttribute($name);
+                }
+                $node->removeAttribute(CaptureEvidence::VIEWPORT_ENTRANCE);
+            }
+        }
         $currentNodes = array();
         foreach ($xpath->query('//*[@aria-current] | //*[contains(concat(" ", normalize-space(@data-state), " "), " selected ")]') ?: array() as $node) if ($node instanceof \DOMElement) $currentNodes[] = $node;
         foreach ($currentNodes as $node) {
