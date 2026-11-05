@@ -186,6 +186,7 @@
       "php tests/contract/frontend-page-identity-scope.php",
       "php tests/contract/document-support-stylesheet-scope.php",
       "php tests/contract/document-body-context.php",
+      "php tests/contract/document-root-fallback.php",
       "php tests/contract/root-element-editor-typography-parity.php",
       "php tests/contract/percentage-root-font-size.php",
       "php tests/contract/root-font-size-sources.php",
