@@ -4913,6 +4913,7 @@ final class StyleResolver implements ElementPresentationResolver
             'font-family',
             'font-size',
             'font-style',
+            'font-weight',
             'letter-spacing',
             'line-height',
             'text-transform',

@@ -954,6 +954,22 @@ final class NavigationPatternContext
             $marker = $this->navigationSubjectMarker($node, 'box');
             $boxes[] = array('tag' => $tag, 'marker' => $marker, 'style' => $node->getAttribute('style'), 'className' => SourceDom::mergeClassNames($node->getAttribute('class'), implode(' ', $this->sourcePresentationMarkers($node))));
         }
+        if (array() !== $boxes && $this->styleResolver instanceof StyleResolver) {
+            // These carriers exist only at frontend render time. Resolve the
+            // link's own cascade too, so a link override beats box inheritance.
+            $typography = array();
+            foreach (array('font-family', 'font-size', 'font-weight', 'letter-spacing', 'line-height', 'color', 'text-transform') as $property) {
+                $value = $this->styleResolver->authoredInheritedPropertyWinner($anchor, $property);
+                if ('' !== $value) $typography[$property] = $value;
+            }
+            $typography = $this->styleResolver->safeVisualDeclarations($typography);
+            if (array() !== $typography) {
+                $this->session->generatedSupportStylesheetState()->registerNavigationEditorTypography(
+                    $this->navigationSubjectMarker($anchor, 'anchor'),
+                    $this->styleResolver->cssDeclarationString($typography)
+                );
+            }
+        }
         $node = $anchor->parentNode;
         foreach ($boxes as $box) {
             $this->pendingNavigationSubjects[$node->getNodePath() ?? ''] = array('marker' => $box['marker'], 'target' => '.wp-block-navigation .wp-block-navigation-item .' . $box['marker']);

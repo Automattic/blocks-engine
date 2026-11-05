@@ -62,6 +62,25 @@ final class GeneratedSupportStylesheetState
     /** @var array<string, string> */
     private array $navigationAnchorLineHeights = array();
 
+    /** @var array<string, string> Editor-only inheritance across omitted label boxes. */
+    private array $navigationEditorTypography = array();
+
+    public function registerNavigationEditorTypography(string $marker, string $declarations): void
+    {
+        $this->navigationEditorTypography[$marker] = $declarations;
+    }
+
+    /** @return list<string> */
+    public function navigationEditorTypographyRules(): array
+    {
+        $rules = array();
+        foreach ($this->navigationEditorTypography as $marker => $declarations) {
+            $rules[] = '.wp-block-navigation .wp-block-navigation-item.' . $marker
+                . ' .wp-block-navigation-item__content{' . $declarations . '}';
+        }
+        return $rules;
+    }
+
     /** @var array<string, string> */
     private array $navigationLinkIcons = array();
 
