@@ -3282,7 +3282,7 @@ final class NavigationPattern implements PatternRecognizerInterface
      */
     private function hasSubmenuDisclosureControl(DOMElement $item, DOMElement $anchor, ?DOMElement $submenuContainer): bool
     {
-        if ( 'button' === strtolower($anchor->tagName) ) return true;
+        if ( $this->isSubmenuToggleControl($anchor) ) return true;
         foreach ( $item->getElementsByTagName('button') as $button ) {
             if ( ! $button instanceof DOMElement ) continue;
             for ( $node = $button; $node instanceof DOMElement; $node = $node->parentNode ) {
@@ -3291,6 +3291,18 @@ final class NavigationPattern implements PatternRecognizerInterface
             return true;
         }
         return false;
+    }
+
+    /**
+     * Whether the submenu label is a disclosure control rather than a link:
+     * a button, or a link that declares itself one (`role="button"`, or a
+     * popup it opens).
+     */
+    private function isSubmenuToggleControl(DOMElement $anchor): bool
+    {
+        if ( 'button' === strtolower($anchor->tagName) ) return true;
+        $popup = strtolower(trim($anchor->getAttribute('aria-haspopup')));
+        return 'button' === strtolower(trim($anchor->getAttribute('role'))) || ( '' !== $popup && 'false' !== $popup );
     }
 
     /**
@@ -3305,9 +3317,10 @@ final class NavigationPattern implements PatternRecognizerInterface
         $itemAttrs = $item->isSameNode($anchor) ? array() : $this->withoutCoreNavigationClasses($presentationAttributes($item));
         $anchorAttrs = $this->withoutCoreNavigationClasses($presentationAttributes($anchor));
         if ($hasAuthoredCurrentState) $navigationContext?->recordCurrentNavigationItem($item, $anchor);
-        // Button submenu labels have their own rendered content subject, just
-        // like ordinary links. Leave the existing linked-submenu path unchanged.
-        $subjectMarker = $item->isSameNode($anchor) || (null !== $submenuContainer && 'button' !== strtolower($anchor->tagName)) ? '' : ($navigationContext?->navigationAnchorSubjectMarker($anchor, $item) ?? '');
+        // Submenu toggles (buttons, or links declared as buttons) have their
+        // own rendered content subject, just like ordinary links. Leave the
+        // existing linked-submenu path unchanged.
+        $subjectMarker = $item->isSameNode($anchor) || (null !== $submenuContainer && ! $this->isSubmenuToggleControl($anchor)) ? '' : ($navigationContext?->navigationAnchorSubjectMarker($anchor, $item) ?? '');
         if ('' !== $subjectMarker) {
             $anchorClassName = (string) ($anchorAttrs['className'] ?? $anchor->getAttribute('class'));
             // The subject renders on every route; the served route's own hooks do not.

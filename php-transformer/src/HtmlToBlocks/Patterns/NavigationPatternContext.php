@@ -478,7 +478,8 @@ final class NavigationPatternContext
 
     /**
      * Carry a replaced disclosure glyph's own box, not the label or panel box.
-     * Only a unique SVG outside the link and submenu is an unambiguous trigger.
+     * Only a unique SVG outside the link and submenu is an unambiguous trigger;
+     * failing that, a unique SVG trailing the link's label is its indicator.
      */
     public function submenuIconGeometryMarker(DOMElement $item, DOMElement $anchor, DOMElement $submenu): string
     {
@@ -492,13 +493,17 @@ final class NavigationPatternContext
             }
             if ( ! $excluded ) $candidates[] = $svg;
         }
+        $inAnchor = array() === $candidates;
+        if ( $inAnchor ) $candidates = $this->trailingAnchorGlyphs($anchor);
         if ( 1 !== count($candidates) ) return '';
         $svg = $candidates[0];
         $container = $svg->parentNode;
-        if ( ! $container instanceof DOMElement || $container->isSameNode($item) || $container->isSameNode($anchor->parentNode) ) return '';
+        if ( ! $container instanceof DOMElement || ( ! $inAnchor && ( $container->isSameNode($item) || $container->isSameNode($anchor->parentNode) ) ) ) return '';
 
         $properties = array('margin', 'padding', 'border', 'border-width', 'width', 'height', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width', 'box-sizing');
-        $box = $this->styleResolver->referenceViewportAuthorDeclarations($container, $properties);
+        // A glyph directly inside the link has no box of its own: the link's
+        // box is the label's, which core's content already carries.
+        $box = $container->isSameNode($anchor) ? array() : $this->styleResolver->referenceViewportAuthorDeclarations($container, $properties);
         $glyph = $this->styleResolver->referenceViewportAuthorDeclarations($svg, $properties);
         // CSS dimensions override the SVG's presentational width/height hints.
         foreach ( array('width', 'height') as $dimension ) {
@@ -518,7 +523,7 @@ final class NavigationPatternContext
         };
         $box = $safe($box);
         $glyph = $safe($glyph);
-        if ( ! isset($glyph['width'], $glyph['height']) || array() === $box ) return '';
+        if ( ! isset($glyph['width'], $glyph['height']) || ( array() === $box && ! $inAnchor ) ) return '';
         $serialize = static function (array $values): string {
             $css = '';
             foreach ( $values as $property => $value ) $css .= $property . ':' . $value . ';';
@@ -531,6 +536,24 @@ final class NavigationPatternContext
         $marker = 'blocks-engine-submenu-icon-' . substr(hash('sha256', $serialize($box) . $serialize($glyph)), 0, 16);
         $this->session->generatedSupportStylesheetState()->registerNavigationSubmenuIconGeometry($marker, $serialize($box), $serialize($glyph));
         return $marker;
+    }
+
+    /**
+     * The link's SVGs when it has exactly one and no label text follows it.
+     *
+     * @return list<DOMElement>
+     */
+    private function trailingAnchorGlyphs(DOMElement $anchor): array
+    {
+        $svgs = array();
+        foreach ( $anchor->getElementsByTagName('svg') as $svg ) $svgs[] = $svg;
+        if ( 1 !== count($svgs) ) return array();
+        for ( $node = $svgs[0]; $node instanceof DOMElement && ! $node->isSameNode($anchor); $node = $node->parentNode ) {
+            for ( $next = $node->nextSibling; null !== $next; $next = $next->nextSibling ) {
+                if ( '' !== trim($next->textContent) ) return array();
+            }
+        }
+        return $svgs;
     }
 
     /** @var array<string, true> Source submenu toggles that paint their own indicator. */

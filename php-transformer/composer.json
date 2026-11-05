@@ -253,6 +253,7 @@
       "php tests/contract/navigation-current-item-shape.php",
       "php tests/contract/navigation-submenu-icon-geometry.php",
       "php tests/contract/navigation-submenu-source-indicator.php",
+      "php tests/contract/navigation-anchor-submenu-toggle.php",
       "php tests/contract/svg-local-id-identity.php",
       "php tests/contract/route-fragment-link-identity.php",
       "php tests/contract/main-skip-link-native.php",
