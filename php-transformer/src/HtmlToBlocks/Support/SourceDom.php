@@ -1377,10 +1377,26 @@ final class SourceDom
         return true;
     }
 
-    /** A non-rendering resource carrier with no fragment consumers in the source. */
+    /**
+     * A zero-box resource carrier with no fragment consumers in the source.
+     *
+     * Only a zero width or height proves the carrier occupies no box: a shown
+     * SVG without one still lays out at its default 300x150 even when it holds
+     * nothing but definitions.
+     */
     public static function isUnreferencedDefinitionsSvg(DOMElement $element): bool
     {
         if ('svg' !== strtolower($element->tagName) || 0 === self::childElementCount($element)) {
+            return false;
+        }
+        $zero = static fn (string $value): bool => 1 === preg_match('/^\s*[+-]?(?:0+(?:\.0+)?|\.0+)(?:px|em|rem|%)?\s*$/i', $value);
+        $inline = self::attr($element, 'style');
+        $hasZeroBox = false;
+        foreach (array('width', 'height') as $axis) {
+            $styled = preg_match('/(?:^|;)\s*' . $axis . '\s*:\s*([^;!]+)/i', $inline, $match) ? $match[1] : null;
+            $hasZeroBox = $hasZeroBox || (null !== $styled ? $zero($styled) : $zero(self::attr($element, $axis)));
+        }
+        if (! $hasZeroBox) {
             return false;
         }
         foreach ($element->childNodes as $child) {

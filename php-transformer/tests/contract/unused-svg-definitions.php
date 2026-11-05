@@ -13,6 +13,8 @@ $cases = array(
     'visible artwork' => array('<svg width="10" height="10"><path d="M0 0h10v10z"/></svg>', 1),
     'metadata and style' => array(str_replace('<defs>', '<title>Resources</title><desc>Unused</desc><style>.unused{color:red}</style><defs>', $filter), 0),
     'inline style' => array($filter . '<div style="filter:url(&quot;#f&quot;)">Filtered</div>', 1),
+    'unused but box-occupying' => array(str_replace(' width="0" height="0"', '', $filter), 1),
+    'zero inline style' => array(str_replace(' width="0" height="0"', ' style="width:0;height:0"', $filter), 0),
     'xlink reference' => array($filter . '<svg><use xlink:href="#f"/></svg>', 2),
 );
 foreach (array('mask', 'filter', 'clip-path', 'fill', 'stroke') as $attribute) {
