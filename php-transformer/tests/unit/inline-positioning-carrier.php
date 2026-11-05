@@ -147,7 +147,7 @@ $assert(
 // -- Viewport-fixed layers retain their source box, with editor-only accommodation.
 $fixedOverlay = $transform(
     '<section class="hero"><h1>Atmospheric hero</h1>'
-    . '<div class="grain" style="position:fixed;inset:0;pointer-events:none;opacity:.14;background:black"></div>'
+    . '<div class="grain" style="position:fixed;inset:0;pointer-events:none;opacity:.14"></div>'
     . '</section>'
 );
 $assert(

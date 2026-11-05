@@ -1009,7 +1009,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             isAuthorOwnedLayout: fn (DOMElement $element): bool => $this->isAuthorOwnedLayout($element),
             proofBackedWrapperCoalescing: fn (DOMElement $element, array &$fallbacks): ?array => $this->proofBackedWrapperCoalescing($element, $fallbacks),
             shouldPreserveEmptyVisualElement: fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element),
-            isInertEmptyElement: fn (DOMElement $element): bool => $this->isOutOfFlow($element) && $this->emptyElementHasNoPaintOrInteraction($element),
+            isInertEmptyElement: fn (DOMElement $element): bool => $this->isInertOutOfFlowEmptyElement($element),
             createBlock: $this,
             patternContext: $this->patternContext,
             shouldDeferNavigationPatternToChildren: fn (DOMElement $element): bool => $this->shouldDeferNavigationPatternToChildren($element),
@@ -7687,18 +7687,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function shouldPreserveEmptyVisualElement(DOMElement $element): bool
     {
-        if ( '' !== $this->renderedTextContent($element) ) {
+        if ( '' !== $this->renderedTextContent($element) || $this->isInertOutOfFlowEmptyElement($element) ) {
             return false;
         }
 
         $inlineDeclarations = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
+        $inlineOpacity = CssValueInspector::comparable((string) ($inlineDeclarations['opacity'] ?? ''));
         $paintDeclarations = array_merge($this->styleResolver->structuralPresentationDeclarations($element), $inlineDeclarations);
-        if ( $this->emptyElementHasNoPaintOrInteraction($element) ) {
-            return false;
-        }
+        $hasAuthoredPaint = array() !== array_intersect_key($paintDeclarations, array_flip(array( 'background', 'background-color', 'background-image' )));
         if ( $this->isInertHiddenEmptyElement($element)
-            && ! $this->styleResolver->hasStateStyleFamily($element, 'opacity')
-            && ! $this->hasVisibleEmptyVisualPaint($paintDeclarations, $element)
+            && ! (is_numeric($inlineOpacity) && 0.0 === (float) $inlineOpacity && $hasAuthoredPaint)
         ) {
             return false;
         }
@@ -7745,19 +7743,21 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return $this->isEmptyVisualInlineCandidate($element);
     }
 
-    /** Classify dead empty boxes using the resolved resting author cascade. */
-    private function emptyElementHasNoPaintOrInteraction(DOMElement $element): bool
+    /**
+     * Page builders lay click-capture layers over media: an empty, positioned,
+     * fully transparent box their own script listens on. It takes no flex gap
+     * or grid cell, paints nothing at rest or in any state, and nothing in
+     * WordPress interacts with it, so it is not a box the author can see or edit.
+     */
+    private function isInertOutOfFlowEmptyElement(DOMElement $element): bool
     {
         if ( 0 !== $this->childElementCount($element)
             || $this->runtimeIslands->isRuntimeDomTarget($element)
-            || $this->isEmptyLayoutItemSpacer($element)
-            || $this->occupiesDefiniteGridCell($element)
+            || array() !== $this->interactiveAttributes($element)
+            || $this->hasStaticPseudoElementRule($element)
         ) {
             return false;
         }
-
-        // State and responsive paint must retain a source subject for the
-        // existing stylesheet projection, even when its resting box is inert.
         foreach ( array( 'opacity', 'visibility', 'background', 'border', 'outline', 'box-shadow', 'filter', 'layout' ) as $family ) {
             if ( $this->styleResolver->hasStateStyleFamily($element, $family)
                 || $this->styleResolver->hasConditionalStyleFamily($element, $family)
@@ -7766,27 +7766,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
         $declarations = array_merge(
-            $this->styleResolver->cssDeclarations($this->styleResolver->controlSurfaceResolvedStyle($element)),
-            $this->styleResolver->resolvedSourceStateDeclarations($element)
+            $this->styleResolver->structuralPresentationDeclarations($element),
+            $this->styleResolver->matchedCascadedDeclarations($element),
+            $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'))
         );
-        foreach ( $declarations as $property => $value ) {
-            $declarations[$property] = CssValueInspector::comparable($this->styleResolver->resolveCssVariablesInValue($value, $element));
-        }
-        $opacity = $declarations['opacity'] ?? '';
-        $transparent = is_numeric($opacity) && 0.0 === (float) $opacity;
-        $noPaint = $transparent || (
-            ! $this->hasVisibleEmptyVisualPaint($declarations, $element)
-            && ! $this->hasStaticPseudoElementRule($element)
-            && in_array($declarations['filter'] ?? 'none', array( '', 'none' ), true)
-            && in_array($declarations['content'] ?? 'none', array( '', 'none', 'normal', '""', "''" ), true)
-        );
-        // A box that never paints is only worth keeping when it reserves flow
-        // space or something can interact with it after import. Pointer
-        // targets alone (a cursor, a click-capture layer for a builder's own
-        // script) do not survive into WordPress.
-        $outOfFlow = in_array($declarations['position'] ?? '', array( 'absolute', 'fixed' ), true);
-        $reservesFlowSpace = ! $outOfFlow && $this->reservesEmptyFlowSpace($element);
-        return $noPaint && ! $reservesFlowSpace && array() === $this->interactiveAttributes($element);
+        $position = CssValueInspector::comparable((string) ($declarations['position'] ?? ''));
+        $opacity = CssValueInspector::comparable($this->styleResolver->resolveCssVariablesInValue((string) ($declarations['opacity'] ?? ''), $element));
+        $authoredPaint = array() !== array_intersect_key($declarations, array_flip(array( 'background', 'background-color', 'background-image', 'border', 'border-top', 'border-right', 'border-bottom', 'border-left', 'box-shadow', 'outline', 'mask', 'mask-image' )));
+
+        return in_array($position, array( 'absolute', 'fixed' ), true)
+            && is_numeric($opacity) && 0.0 === (float) $opacity
+            && ! $authoredPaint;
     }
 
     /** Empty in-flow flex items can reserve space without painting anything (#4065). */
@@ -7874,16 +7864,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * and it holds its place in auto-placement (so dropping it, even when it is
      * transparent, moves every later sibling into the wrong cell).
      */
-    /** An absolutely or fixed positioned element takes no flex gap or grid cell from its siblings. */
-    private function isOutOfFlow(DOMElement $element): bool
-    {
-        $declarations = array_merge(
-            $this->styleResolver->structuralPresentationDeclarations($element),
-            $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'))
-        );
-        return in_array(CssValueInspector::comparable((string) ($declarations['position'] ?? '')), array( 'absolute', 'fixed' ), true);
-    }
-
     private function occupiesDefiniteGridCell(DOMElement $element): bool
     {
         $parent = $element->parentNode;
@@ -7946,8 +7926,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return false;
     }
 
-    /** An empty element still occupies normal-flow space through its own height, padding or grid tracks. */
-    private function reservesEmptyFlowSpace(DOMElement $element): bool
+    private function hasRenderableEmptyBlockBox(DOMElement $element): bool
     {
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
         if ( $this->hasAuthoredGridTracks($element) ) {
@@ -7957,15 +7936,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if ( isset($declarations[$property]) && $this->sourceElementClassifier->isPositiveCssLength($this->styleResolver->resolveCssVariablesInValue($declarations[$property], $element)) ) {
                 return true;
             }
-        }
-        return false;
-    }
-
-    private function hasRenderableEmptyBlockBox(DOMElement $element): bool
-    {
-        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        if ( $this->reservesEmptyFlowSpace($element) ) {
-            return true;
         }
         if ( $this->hasVisibleEmptyVisualPaint($declarations, $element) ) {
             return true;
@@ -8103,9 +8073,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             || $this->styleResolver->hasConditionalStyleFamily($element, 'layout')
             || $this->styleResolver->hasConditionalStyleFamily($element, 'visibility')
             || $this->styleResolver->hasConditionalStyleFamily($element, 'opacity')
-            || $this->styleResolver->hasStateStyleFamily($element, 'opacity')
-            || $this->styleResolver->hasStateStyleFamily($element, 'visibility')
-            || $this->styleResolver->hasStateStyleFamily($element, 'layout')
         ) {
             return false;
         }

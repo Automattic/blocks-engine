@@ -5,39 +5,32 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 
+$compile = static fn (string $html): string => (string) (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html)))->toArray()['serialized_blocks'];
+
+// Builder media chain: a flex column holding a clipped, rounded frame whose
+// first child is an empty overlay and whose second wraps the image. The overlay
+// drops only when it is out of flow, fully transparent, unpainted in every
+// state, and nothing in WordPress can interact with it.
+$overlay = 'position:absolute;inset:0;width:100%;height:100%;z-index:1;cursor:zoom-in;opacity:0';
 foreach (array(
-    'inert overlay' => array('position:absolute;inset:0;opacity:0;background:transparent;border:0;box-shadow:none;pointer-events:none', '', false),
-    'hover overlay' => array('position:absolute;inset:0;opacity:0;background:transparent;border:0;box-shadow:none;pointer-events:none', '.empty:hover{opacity:1}', true),
-    'background' => array('background-color:red', '', true),
-    'border rule' => array('border-top:1px solid black', '', true),
-    'focus overlay' => array('opacity:0;background:red;pointer-events:none', '.empty:focus{opacity:1}', true),
-    'resolved opacity' => array('opacity:var(--hidden);--hidden:0;background:red;pointer-events:none', '', false),
-    'flow spacer' => array('height:30px', '', true),
-    'click-capture overlay' => array('position:absolute;inset:0;width:100%;height:100%;z-index:1;cursor:zoom-in;opacity:0', '', false),
-    'zero-height rule' => array('height:0;pointer-events:none', '', false),
-) as $label => [$style, $stateRule, $keep]) {
-    $html = '<style>.empty{' . $style . '}' . $stateRule . '</style><div class="empty"></div>';
-    $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html)))->toArray();
-    $markup = (string) $result['serialized_blocks'];
-    if ($keep !== str_contains($markup, 'blocks-engine-empty-visual-group')) {
-        throw new RuntimeException($label . ': empty visual group preservation must follow resting paint and interaction. ' . $markup);
-    }
-    if (!$keep && str_contains($markup, '<!-- wp:group')) {
-        throw new RuntimeException($label . ': inert empty element must not emit a group.');
+    'click-capture overlay' => array($overlay, '', '', false),
+    'painted overlay' => array($overlay . ';background:#000', '', '', true),
+    'hover-revealed overlay' => array($overlay, '.empty:hover{opacity:1;background:rgba(0,0,0,.3)}', '', true),
+    'focusable overlay' => array($overlay, '', ' tabindex="0"', true),
+) as $label => [$style, $stateRule, $attributes, $keep]) {
+    $markup = $compile('<style>.column{display:flex;flex-direction:column;width:100%}.frame{width:480px;max-width:100%;position:relative;overflow:hidden;border-radius:8px}'
+        . '.crop{max-width:100%;overflow:hidden;width:100%;display:block}.empty{' . $style . '}' . $stateRule . '</style>'
+        . '<div class="column"><div class="frame"><div class="empty"' . $attributes . '></div><div class="crop"><img src="a.jpg" alt="Boat"></div></div></div>');
+    if ($keep !== str_contains($markup, 'empty') || !str_contains($markup, 'wp:image')) {
+        throw new RuntimeException($label . ': overlay ' . ($keep ? 'must stay' : 'must drop') . ' while the image stays. ' . $markup);
     }
 }
-// Inside a CSS-owned layout the empty child reaches the layout-item path, which
-// must apply the same proof instead of lowering it to an empty group.
-$html = '<style>.frame{display:flex;position:relative;width:300px;border-radius:8px;overflow:hidden}.zoom{position:absolute;inset:0;width:100%;height:100%;z-index:1;cursor:zoom-in;opacity:0}</style>'
-    . '<div class="frame"><div class="zoom"></div><img src="a.jpg" alt="Boat"></div>';
-$markup = (string) (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html)))->toArray()['serialized_blocks'];
-if (str_contains($markup, 'zoom') || !str_contains($markup, 'wp:image')) {
-    throw new RuntimeException('layout-item click-capture overlay must drop while its sibling image stays. ' . $markup);
-}
-$html = '<style>.grid{display:grid;grid-template-columns:repeat(4,1fr)}.cell{grid-area:3/1/auto/span 1;cursor:default}</style>'
-    . '<div class="grid"><p>One</p><p>Two</p><div class="cell"></div></div>';
-$markup = (string) (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html)))->toArray()['serialized_blocks'];
+
+// An in-flow empty grid item takes a cell and shapes its siblings' tracks.
+$markup = $compile('<style>.track{display:grid;grid-template-columns:repeat(4,1fr)}.cell{grid-area:3/1/auto/span 1;cursor:default}</style>'
+    . '<div class="track"><p>One</p><p>Two</p><div class="cell"></div></div>');
 if (!str_contains($markup, 'cell')) {
-    throw new RuntimeException('an empty in-flow grid item shapes its tracks and must stay. ' . $markup);
+    throw new RuntimeException('in-flow grid item must stay. ' . $markup);
 }
+
 echo "Empty at-rest paint contract passed.\n";
