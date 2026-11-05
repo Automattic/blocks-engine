@@ -16,6 +16,10 @@ const variants = {
   'source columns': (html) => html.replace('margin:0 auto}', 'margin:0 auto;grid-template-columns:repeat(3,1fr)}'),
   // An equally specific root-scoped rule must not undo the centering.
   'root-scoped mirror': (html) => html.replace('.next{justify-self:end;transform:scaleX(-1)}', '.next{justify-self:end}.slideshow .next{transform:scaleX(-1)}'),
+  'ID-scoped important mirror': (html) => html.replace('class="slideshow"', 'id="hero" class="slideshow"').replace('.next{justify-self:end;transform:scaleX(-1)}', '.next{justify-self:end}#hero .next{transform:scaleX(-1)!important}'),
+  'responsive mirror': (html) => html.replace('</style>', '@media(max-width:600px){.next{transform:scaleX(1)}} </style>'),
+  'layered combined transform': (html) => html.replace('transform:scaleX(-1)', 'transform:translateY(-50%) scaleX(-1)').replace('.next{justify-self:end;transform:translateY(-50%) scaleX(-1)}', '@layer source{.next{justify-self:end;transform:translateY(-50%) scaleX(-1)}}'),
+  'combined transform': (html) => html.replace('transform:scaleX(-1)', 'transform:translateY(-50%) scaleX(-1)'),
   'important mirror': (html) => html.replace('transform:scaleX(-1)}', 'transform:scaleX(-1)!important}'),
 };
 const compile = (source) => JSON.parse(execFileSync('php', ['-r', `
@@ -38,17 +42,18 @@ try {
     assert.ok(name === 'base' || source !== fixture, `${name} variant changes the fixture`);
     const output = compile(source);
     assert.match(output.markup, /blocks-engine-authored-carousel--slideshow/);
-    for (const width of [390, 1440]) {
+    for (const width of [390, 768, 1440]) {
       const page = await browser.newPage({ viewport: { width, height: 900 } });
       await page.setContent(`<style>${output.style}</style><div id="source">${source}</div><div id="generated">${output.markup}</div>`);
       const geometry = await page.evaluate(() => {
         const rect = (element) => { const box = element.getBoundingClientRect(); return { x: box.x, y: box.y, width: box.width, height: box.height }; };
-        const mirrored = (element) => new DOMMatrixReadOnly(getComputedStyle(element).transform).a < 0;
+        const transform = (element) => getComputedStyle(element).transform;
+        const mirrored = (element) => new DOMMatrixReadOnly(transform(element)).a < 0;
         const read = (root, stage, previous, next) => ({
           stage: rect(root.querySelector(stage)),
           image: rect(root.querySelector('img')),
           previous: { ...rect(root.querySelector(previous)), mirrored: mirrored(root.querySelector(previous)) },
-          next: { ...rect(root.querySelector(next)), mirrored: mirrored(root.querySelector(next)) },
+          next: { ...rect(root.querySelector(next)), mirrored: mirrored(root.querySelector(next)), transform: transform(root.querySelector(next)) },
         });
         return {
           source: read(document.querySelector('#source'), '.slides', '.prev', '.next'),
@@ -59,10 +64,14 @@ try {
       const label = `${name} @ ${width}px ${JSON.stringify(geometry)}`;
       assert.ok(Math.abs(before.stage.width - after.stage.width) < 1, `stage fills the grid root: ${label}`);
       assert.ok(Math.abs(after.image.width - after.stage.width) < 1, `active slide image fills the stage: ${label}`);
-      assert.ok(before.next.mirrored && after.next.mirrored, `next arrow keeps its authored mirror: ${label}`);
+      assert.equal(after.next.mirrored, before.next.mirrored, `next arrow keeps its authored mirror: ${label}`);
       assert.ok(!before.previous.mirrored && !after.previous.mirrored, `previous arrow is not mirrored: ${label}`);
       const middle = (box, stage) => box.y + box.height / 2 - stage.y;
-      assert.ok(Math.abs(middle(after.next, after.stage) - after.stage.height / 2) < 1, `next arrow stays vertically centered: ${label}`);
+      if (name === 'responsive mirror' || name.includes('combined transform')) {
+        assert.equal(after.next.transform, before.next.transform, `uncaptured source transform survives: ${label}`);
+      } else {
+        assert.ok(Math.abs(middle(after.next, after.stage) - after.stage.height / 2) < 1, `next arrow stays vertically centered: ${label}`);
+      }
       await page.close();
     }
   }
