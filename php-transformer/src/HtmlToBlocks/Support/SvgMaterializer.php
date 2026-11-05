@@ -242,6 +242,11 @@ final class SvgMaterializer implements SvgElementMaterializer
             $html = $this->ensureInlineSvgSizing($html);
         }
         $html = $this->withViewBoxIntrinsicSizeForRelativeSvg($html);
+        $overflow = $richTextImage ? null : $this->visibleOverflowGeometry($element);
+        if (null !== $overflow) {
+            $html = preg_replace_callback('/<svg\b[^>]*>/i', static fn (array $match): string => preg_replace('/\s(?:viewBox|width|height)\s*=\s*(["\']).*?\1/i', '', $match[0]) ?? $match[0], $html, 1) ?? $html;
+            $html = preg_replace('/<svg\b/i', '<svg viewBox="' . $overflow['viewBox'] . '" width="' . $overflow['width'] . '" height="' . $overflow['height'] . '"', $html, 1) ?? $html;
+        }
         $assetHtml = $html;
         $visualPayload = $this->svgImageAssetIdentity($html);
         $path = $this->materializedInlineSvgPath($element, $visualPayload);
@@ -276,6 +281,17 @@ final class SvgMaterializer implements SvgElementMaterializer
         );
         if (array() !== $occurrence) $asset['component_occurrences'] = array($occurrence);
         $this->context->materializedAssets()->registerInlineSvg($path, $asset, $occurrence, $visualPayload);
+
+        if (null !== $overflow) {
+            // Keep the original layout box. Only the image's painted surface
+            // grows; absolute positioning prevents overflow from moving siblings.
+            $figure = '{position:relative;margin:0;width:' . $overflow['boxWidth'] . 'px;height:' . $overflow['boxHeight'] . 'px;overflow:visible;line-height:0}';
+            $image = '{position:absolute;display:block;max-width:none;max-height:none;width:' . $overflow['width'] . 'px;height:' . $overflow['height'] . 'px;left:' . $overflow['left'] . 'px;top:' . $overflow['top'] . 'px;margin:0}';
+            $carrier = $this->context->layoutGeometry()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $figure . $image);
+            $selector = '.wp-block-image.' . $carrier;
+            $this->context->layoutGeometry()->registerRule($carrier, $selector . $figure . $selector . '>img,' . $selector . '>a>img' . $image);
+            return array('url' => $url, 'alt' => $this->svgImageAlt($element), 'className' => $this->styleResolver->mergePresentationClassNames(SourceDom::attr($element, 'class'), $carrier));
+        }
 
         $dimensions = $this->cssOwnsMediaBox($element) ? array() : $this->svgImageDimensions($element, $html);
         $presentation = $this->styleResolver->presentationDeclarations($element);
@@ -887,6 +903,63 @@ final class SvgMaterializer implements SvgElementMaterializer
             && ! in_array($parentPosition, array( 'absolute', 'fixed' ), true)
             && in_array($parentFloat, array( '', 'none' ), true)
             ? array( 'width' => '100%', 'height' => 'auto' ) : array();
+    }
+
+    /** Expand only proven overflow, leaving ordinary SVG asset identity untouched. */
+    private function visibleOverflowGeometry(DOMElement $element): ?array
+    {
+        $declarations = $this->styleResolver->referenceViewportAuthorDeclarations($element, array('overflow'));
+        if ('visible' !== $this->plainDeclarationValue($declarations['overflow'] ?? SourceDom::attr($element, 'overflow'))) return null;
+        $size = array();
+        foreach (array('width', 'height') as $axis) {
+            $node = $element;
+            $scale = 1.0;
+            while ($node instanceof DOMElement) {
+                $style = array_merge(
+                    $this->styleResolver->authorStructuralDeclarations($node),
+                    $this->styleResolver->structuralPresentationDeclarations($node),
+                    $this->styleResolver->presentationDeclarations($node),
+                    $this->styleResolver->referenceViewportAuthorDeclarations($node, array('width', 'height', 'display', 'position', 'float'))
+                );
+                $value = $this->plainDeclarationValue($style[$axis] ?? SourceDom::attr($node, $axis));
+                if (preg_match('/^([\d.]+)(?:px)?$/', $value, $m)) { $size[$axis] = (float) $m[1] * $scale; break; }
+                if (preg_match('/^([\d.]+)%$/', $value, $m)) $scale *= (float) $m[1] / 100;
+                elseif ($node === $element || (!$this->declarationsPinInsetBox($style) && !$this->isUnsizedSvgWrapper($node, $style, $value))) return null;
+                $node = $node->parentNode;
+            }
+            if (empty($size[$axis])) return null;
+        }
+        $bounds = SvgGeometryBounds::of($element);
+        if (null === $bounds) return null;
+        $vb = preg_split('/[\s,]+/', trim(SourceDom::attr($element, 'viewBox') ?: SourceDom::attr($element, 'viewbox')));
+        $w = $size['width']; $h = $size['height'];
+        $sx = $sy = 1.0; $tx = $ty = 0.0;
+        if (count($vb) === 4 && count(array_filter($vb, 'is_numeric')) === 4 && (float) $vb[2] > 0 && (float) $vb[3] > 0) {
+            $sx = $w / (float) $vb[2]; $sy = $h / (float) $vb[3];
+            $par = trim(SourceDom::attr($element, 'preserveaspectratio'));
+            if ('none' !== $par) {
+                $sx = $sy = str_contains($par, 'slice') ? max($sx, $sy) : min($sx, $sy);
+                $tx = (str_contains($par, 'xMin') ? 0 : (str_contains($par, 'xMax') ? 1 : 0.5)) * ($w - (float) $vb[2] * $sx);
+                $ty = (str_contains($par, 'YMin') ? 0 : (str_contains($par, 'YMax') ? 1 : 0.5)) * ($h - (float) $vb[3] * $sy);
+            }
+            $tx -= (float) $vb[0] * $sx; $ty -= (float) $vb[1] * $sy;
+        }
+        $left = min(0, $bounds[0] * $sx + $tx); $top = min(0, $bounds[1] * $sy + $ty);
+        $right = max($w, $bounds[2] * $sx + $tx); $bottom = max($h, $bounds[3] * $sy + $ty);
+        if ($left >= 0 && $top >= 0 && $right <= $w && $bottom <= $h) return null;
+        $format = static fn (float $v): string => rtrim(rtrim(sprintf('%.4F', $v), '0'), '.');
+        return array('viewBox' => implode(' ', array_map($format, array(($left - $tx) / $sx, ($top - $ty) / $sy, ($right - $left) / $sx, ($bottom - $top) / $sy))),
+            'boxWidth' => $format($w), 'boxHeight' => $format($h), 'width' => $format($right - $left), 'height' => $format($bottom - $top), 'left' => $format($left), 'top' => $format($top));
+    }
+
+    /** Plain wrapper divs pass the percentage SVG's containing box through. */
+    private function isUnsizedSvgWrapper(DOMElement $node, array $style, string $axisValue): bool
+    {
+        return 'div' === strtolower($node->tagName)
+            && in_array($axisValue, array('', 'auto'), true)
+            && in_array($this->plainDeclarationValue($style['display'] ?? ''), array('', 'block'), true)
+            && in_array($this->plainDeclarationValue($style['position'] ?? ''), array('', 'static', 'relative'), true)
+            && in_array($this->plainDeclarationValue($style['float'] ?? ''), array('', 'none'), true);
     }
 
     private function unsizedMediaAxisDeclarations(array $presentation): string

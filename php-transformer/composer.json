@@ -1064,6 +1064,7 @@
       "php tests/unit/materialized-svg-custom-property-carry.php",
       "php tests/unit/materialized-svg-text-font.php",
       "php tests/unit/inset-positioned-parent-fill-svg.php",
+      "php tests/unit/svg-visible-overflow.php",
       "php tests/unit/media-scoped-inset-parent-fill-svg.php",
       "php tests/unit/percentage-width-svg-intrinsic-size.php",
       "php tests/unit/collapsed-control-presentation.php",
