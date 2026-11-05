@@ -443,7 +443,21 @@ final class CssStylesheetTransformer
             $cursor = 0;
             $localChanges = $localInsertions = $localSite = array();
             $matches = array();
-            self::alignKeys(array_map($key, $units), $baseKeys, 0, count($units), 0, count($baseKeys), $matches);
+            // Anchor unchanged rules before aligning declaration-only keys.
+            // Otherwise an inserted rule with a common body (outline:none,
+            // for example) consumes the next unchanged root/body rule and
+            // shifts the whole run into complementary route forks.
+            $exact = array();
+            $unitKeys = array_map($key, $units);
+            self::alignKeys(array_map($value, $units), array_map($value, $base), 0, count($units), 0, count($base), $exact);
+            ksort($exact);
+            $routeCursor = $baseCursor = 0;
+            foreach ($exact + array(count($units) => count($base)) as $j => $i) {
+                self::alignKeys($unitKeys, $baseKeys, $routeCursor, $j, $baseCursor, $i, $matches);
+                if ($j < count($units)) $matches[$j] = $i;
+                $routeCursor = $j + 1;
+                $baseCursor = $i + 1;
+            }
             foreach ($units as $j => $unit) {
                 $match = $matches[$j] ?? null;
                 if (null === $match) {
