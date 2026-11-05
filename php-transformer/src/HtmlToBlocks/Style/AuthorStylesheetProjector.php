@@ -2883,6 +2883,13 @@ final class AuthorStylesheetProjector
                 break;
             }
         }
+        // A functional device list is an OR, not its first attribute. Keep
+        // the entire zero-specificity gate, including every captured device.
+        $deviceAttribute = '(?:' . preg_quote(CaptureEvidence::DEVICE_DOCUMENT, '/') . '|' . preg_quote(EngineMarker::DEVICE_SCOPE_ATTRIBUTE, '/') . ')';
+        $devicePredicate = '\\[\\s*' . $deviceAttribute . '\\s*=\\s*(?:"[^"\\r\\n]*"|\'[^\'\\r\\n]*\')\\s*\\]';
+        if (preg_match('/:where\\(\\s*' . $devicePredicate . '(?:\\s*,\\s*' . $devicePredicate . ')*\\s*\\)/i', $ancestry, $deviceList)) {
+            $scope = $deviceList[0] . ' ';
+        }
         // Preserve the historical output for selectors without a device gate.
         if ('' === $scope && preg_match('/^\s*((?::where\([^(),]+\)\s+)+)/i', $selector, $scopeMatch)) {
             $scope = trim((string) $scopeMatch[1]) . ' ';
