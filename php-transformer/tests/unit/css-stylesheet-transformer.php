@@ -302,6 +302,25 @@ foreach ( $document->getElementsByTagName('p') as $element ) {
     $assert($oldMatch === $matcher::matches($element, $matcher::parse($after))['matches'], 'factored selector matches exactly the original union');
 }
 
+// Per-position arms covering positions 1..b collapse into one :nth-child(-n+b)
+// arm that matches exactly the same items; gapped or offset runs stay as authored.
+$document = new DOMDocument();
+$document->loadHTML('<ul class="m"><li><a>1</a></li><li><a>2</a></li><li><a>3</a></li><li><a>4</a></li></ul>');
+$links = iterator_to_array($document->getElementsByTagName('a'));
+foreach (array(
+    array('.m>li:nth-child(1) a,.m>li:nth-child(2) a,#x,.m>li:nth-child(3) a', '.m>li:nth-child(-n+3) a,#x'),
+    array('.m>li:nth-child(1) a,.m>li:nth-child(3) a', '.m>li:nth-child(1) a,.m>li:nth-child(3) a'),
+    array('.m>li:nth-child(2) a,.m>li:nth-child(3) a', '.m>li:nth-child(2) a,.m>li:nth-child(3) a'),
+) as [$before, $expected]) {
+    $after = $compactor::mergeNthChildRuns($before);
+    $assert($expected === $after, 'item runs from the first position merge into one :nth-child(-n+b) arm', $after);
+    foreach ($links as $link) {
+        $any = static fn(string $list): bool => array() !== array_filter(explode(',', $list), static fn(string $arm): bool => $matcher::matches($link, $matcher::parse($arm))['matches']);
+        $assert($any($before) === $any($after), 'merged item runs match exactly the original arms');
+    }
+    $assert($matcher::specificityCounts($matcher::parse('.m>li:nth-child(1) a')) === $matcher::specificityCounts($matcher::parse('.m>li:nth-child(-n+3) a')), 'merged item runs keep their specificity');
+}
+
 // Cached probe failures must not leak between routes sharing selector bytes.
 foreach (array(
     array('.x{color:red}', '@page{margin:0}.x{color:red}', 'non-selector rule cannot be route scoped'),

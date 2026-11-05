@@ -32,7 +32,7 @@ $css = implode("\n", array_map(static fn (array $write): string => (string) $wri
 $assert(str_contains($css, '.x .k2{width:30%}'), 'Home keeps its own content-column rule.');
 foreach ($plan['pages'] as $document) {
     $assert(1 === preg_match('/"className":"[^"]*(blocks-engine-navigation-instance-[a-f0-9]{12}-\d+)[^"]*".*?"ref":"\{\{wordpress-site-plan:navigation:' . $menus[0]['token'] . '\}\}"/', $document['canonical_block_markup'], $scope), $document['source_path'] . ' references the shared entity through its own instance scope.');
-    $assert(1 === preg_match('/\.wp-block-navigation\.' . $scope[1] . ' \.wp-block-navigation__container>\.wp-block-navigation-item:nth-child\(4\)[^{]*\{display:inline-block;padding-left:32px\}/', $css), $document['source_path'] . ' keeps its own item presentation through its instance scope.');
+    $assert(1 === preg_match('/\.wp-block-navigation\.' . $scope[1] . ' \.wp-block-navigation__container>\.wp-block-navigation-item:nth-child\((?:4|-n\+4)\)[^{]*\{display:inline-block;padding-left:32px\}/', $css), $document['source_path'] . ' keeps its own item presentation through its instance scope.');
 }
 
 echo "Shared navigation entity item classes contract passed.\n";

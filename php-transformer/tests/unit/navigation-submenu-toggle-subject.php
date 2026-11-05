@@ -43,7 +43,7 @@ foreach (array('nav' => '', 'list' => '') as $host => $_) {
         $emittedCss = implode("\n", array_column($result['assets'], 'content'));
         preg_match('/blocks-engine-navigation-anchor-[a-f0-9]{12}-\d+/', $attrs['className'], $marker);
         $assert(isset($marker[0]), "$row: toggle has an item-addressed author selector subject");
-        $assert(1 === preg_match('/[^{}]*' . 'nth-child\\(1\\)' . '[^{}]*:where\(\.wp-block-navigation-item__content\)[^{}]*\{[^{}]*padding:0[;}]/', $emittedCss), "$row: authored li button rule resets toggle padding");
+        $assert(1 === preg_match('/[^{}]*' . 'nth-child\\((?:1|-n\\+\\d+)\\)' . '[^{}]*:where\(\.wp-block-navigation-item__content\)[^{}]*\{[^{}]*padding:0[;}]/', $emittedCss), "$row: authored li button rule resets toggle padding");
 
         // Core's rendered shape: the NAV root and its inner container both carry
         // the block classes; items are the container's children.

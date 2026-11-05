@@ -190,8 +190,65 @@ final class CssSelectorListCompactor
         return null;
     }
 
+    /**
+     * Merge arms identical but for `:nth-child(k)` at one position, for every
+     * k from 1 to b, into one `:nth-child(-n+b)` arm. An element matches the
+     * merged arm exactly when it matches one of them, with the same
+     * specificity, so the list stays equivalent whatever the sibling count.
+     */
+    public static function mergeNthChildRuns(string $prelude): string
+    {
+        if ( ! str_contains($prelude, ':nth-child(') || ! str_contains($prelude, ',') ) {
+            return $prelude;
+        }
+        $arms = CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $arms || count($arms) < 2 ) {
+            return $prelude;
+        }
+        $arms = array_map('trim', $arms);
+        $changed = false;
+        do {
+            $runs = array();
+            foreach ( $arms as $index => $arm ) {
+                if ( str_contains($arm, '/*') || false !== strpbrk($arm, '\\"\'') || ! preg_match_all('/:nth-child\((\d+)\)/', $arm, $matches, PREG_OFFSET_CAPTURE) ) {
+                    continue;
+                }
+                foreach ( $matches[0] as $position => [$text, $offset] ) {
+                    $key = substr($arm, 0, $offset) . "\0" . substr($arm, $offset + strlen($text));
+                    $runs[ $key ][ (int) $matches[1][ $position ][0] ] ??= $index;
+                }
+            }
+            $merged = false;
+            foreach ( $runs as $key => $members ) {
+                $last = 0;
+                while ( isset($members[ $last + 1 ]) ) {
+                    ++$last;
+                }
+                if ( $last < 2 ) {
+                    continue;
+                }
+                [$before, $after] = explode("\0", $key, 2);
+                $first = PHP_INT_MAX;
+                foreach ( range(1, $last) as $k ) {
+                    $first = min($first, $members[ $k ]);
+                    unset($arms[ $members[ $k ] ]);
+                }
+                // The merged arm takes the place of the run's earliest member.
+                $arms[ $first ] = $before . ':nth-child(-n+' . $last . ')' . $after;
+                ksort($arms);
+                $merged = $changed = true;
+                break;
+            }
+        } while ( $merged );
+        return $changed ? implode(',', $arms) : $prelude;
+    }
+
     public static function compact(string $prelude): string
     {
+        if ( ! str_contains($prelude, ',') ) {
+            return $prelude;
+        }
+        $prelude = self::mergeNthChildRuns($prelude);
         if ( ! str_contains($prelude, ',') ) {
             return $prelude;
         }
