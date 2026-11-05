@@ -30,6 +30,8 @@ $elementFrom = static function (string $html): DOMElement {
     throw new RuntimeException('No element parsed');
 };
 
+$compilation = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation();
+$ownership = (new ReflectionProperty($compilation, 'authorLayoutOwnership'))->getValue($compilation);
 $state = (object) array( 'mode' => 'empty', 'captures' => 0 );
 $false = static fn (): bool => false;
 $null = static fn (): mixed => null;
@@ -44,13 +46,12 @@ $operations = array(
     'canCaptureExternalSvgFragmentDependency' => static fn (): bool => true,
     'sourceElementClassifier' => new SourceElementClassifier(),
     'responsiveMediaBlock' => static fn (): array => array( 'blockName' => 'responsive-media' ),
-    'isDirectChildOfAuthorOwnedLayout' => static fn (): bool => 'author-layout-child-empty' === $state->mode,
+    'authorLayoutOwnership' => $ownership,
     'authorLayoutBlock' => static fn (): array => array( 'blockName' => 'author-layout' ),
     'hasMultipleRuntimeInlineTextTargets' => $false,
     'paragraphBlockFromInlineContentWrapper' => $null,
     'inlineAddressableRunGroupBlock' => $null,
     'isGeneratedComponentCandidate' => $false,
-    'isAuthorOwnedLayout' => static fn (): bool => 'author-layout' === $state->mode,
     'proofBackedWrapperCoalescing' => $null,
     'shouldPreserveEmptyVisualElement' => static fn (): bool => in_array($state->mode, array( 'visual-empty', 'author-layout-child-empty' ), true),
     'isInertEmptyElement' => static fn (): bool => false,
@@ -109,7 +110,7 @@ $assert('custom/authored-marquee' === ($converter->convert($div, 'div', $fallbac
 $state->mode = 'spacer';
 $assert('core/spacer' === ($converter->convert($div, 'div', $fallbacks)->block['blockName'] ?? '') && 1 === $state->captures, 'spacer-after-form-capture');
 $state->mode = 'author-layout';
-$assert('author-layout' === ($converter->convert($div, 'div', $fallbacks)->block['blockName'] ?? ''), 'author-layout-before-generic-patterns');
+$assert('author-layout' === ($converter->convert($elementFrom('<div style="display:flex"><span>Item</span></div>'), 'div', $fallbacks)->block['blockName'] ?? ''), 'author-layout-before-generic-patterns');
 $state->mode = 'single-child';
 $assert('core/paragraph' === ($converter->convert($div, 'div', $fallbacks)->block['blockName'] ?? ''), 'single-child-unwrapped');
 $state->mode = 'multiple-children';
@@ -118,7 +119,8 @@ $assert('core/group' === ($group['blockName'] ?? '') && 2 === count($group['inne
     $state->mode = 'visual-empty';
     $assert('core/spacer' === ($converter->convert($div, 'div', $fallbacks)->block['blockName'] ?? ''), 'empty-visual-preserved');
     $state->mode = 'author-layout-child-empty';
-    $assert('core/spacer' === ($converter->convert($div, 'div', $fallbacks)->block['blockName'] ?? ''), 'empty-visual-inside-authored-layout-uses-empty-visual-path');
+    $child = $elementFrom('<div style="display:flex"><div></div></div>')->firstElementChild;
+    $assert('core/spacer' === ($converter->convert($child, 'div', $fallbacks)->block['blockName'] ?? ''), 'empty-visual-inside-authored-layout-uses-empty-visual-path');
 $state->mode = 'empty';
 $empty = $converter->convert($div, 'div', $fallbacks);
 $assert($empty->handled && null === $empty->block, 'empty-flow-handled-without-block');

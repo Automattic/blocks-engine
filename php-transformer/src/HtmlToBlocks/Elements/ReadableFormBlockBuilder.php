@@ -7,6 +7,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormContr
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorLayoutOwnership;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Closure;
 use DOMElement;
 
@@ -62,7 +64,7 @@ final class ReadableFormBlockBuilder
     /**
      * @param Closure(DOMElement): array<string, mixed>                                                     $eventMetadata
      * @param Closure(DOMElement): bool                                                                     $isRuntimeDomTarget
-     * @param Closure(DOMElement): array<string, mixed>                                                     $presentationAttributes
+     * @param Closure(DOMElement): array<string, mixed>                                                     $cssOwnedGroupAttributes
      * @param Closure(list<DOMElement>, list<array<string, mixed>>, DOMElement): array<string, mixed>       $layoutShellBlockForElements
      * @param Closure(list<DOMElement>): (array<string, mixed>|null)                                        $fieldBoxShell
      * @param Closure(): list<array<string, mixed>>|null                                                    $stylesheetAssets
@@ -75,7 +77,9 @@ final class ReadableFormBlockBuilder
         private readonly FormRuntimeIslandRecorder $runtimeIslandRecorder,
         private readonly Closure $eventMetadata,
         private readonly Closure $isRuntimeDomTarget,
-        private readonly Closure $presentationAttributes,
+        private readonly Closure $cssOwnedGroupAttributes,
+        private readonly AuthorLayoutOwnership $authorLayoutOwnership,
+        private readonly ElementPresentationResolver $presentationResolver,
         private readonly SourceBlockCreator $createBlock,
         private readonly Closure $layoutShellBlockForElements,
         private readonly Closure $fieldBoxShell,
@@ -83,6 +87,12 @@ final class ReadableFormBlockBuilder
         private readonly ?Closure $formLayoutCss = null,
         private readonly ?Closure $convertFlowContent = null
     ) {
+    }
+
+    private function presentationAttributes(DOMElement $element): array
+    {
+        return $this->authorLayoutOwnership->isAuthorOwnedLayout($element)
+            ? ($this->cssOwnedGroupAttributes)($element) : $this->presentationResolver->presentationAttributes($element);
     }
 
     /** @return array<string, mixed>|null */
@@ -142,7 +152,7 @@ final class ReadableFormBlockBuilder
         // A degraded form is still a form: keep the source element so its
         // controls stay grouped for assistive technology and for a provider
         // that binds a handler to it later.
-        $attributes = ($this->presentationAttributes)($form);
+        $attributes = $this->presentationAttributes($form);
         if ( 'form' === strtolower($form->tagName) ) {
             $attributes['tagName'] = 'form';
         }
@@ -271,7 +281,7 @@ final class ReadableFormBlockBuilder
                 continue;
             }
             if ($isFieldset) {
-                $group = $this->createBlock->createBlock('core/group', ($this->presentationAttributes)($element), $inner, $element);
+                $group = $this->createBlock->createBlock('core/group', $this->presentationAttributes($element), $inner, $element);
                 $legend = null;
                 foreach ($element->childNodes as $child) {
                     if ($child instanceof DOMElement && 'legend' === strtolower($child->tagName)) {
