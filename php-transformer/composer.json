@@ -597,6 +597,7 @@
       "php tests/unit/presentational-hint-cascade.php",
       "php tests/unit/table-cell-layered-author-box.php",
       "php tests/unit/table-width-hints.php",
+      "php tests/unit/table-hidden-caption.php",
       "php tests/unit/table-cell-selector-compaction.php",
       "php tests/unit/accordion-flex-list-with-sibling.php",
       "php tests/unit/own-layout-disclosure-item.php",
