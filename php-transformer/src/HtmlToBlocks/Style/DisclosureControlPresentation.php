@@ -402,7 +402,10 @@ final class DisclosureControlPresentation
         // ancestor those rules were written against. Its type is inheritable, so
         // restating it on the summary reaches the label again, and any rule the
         // label still owns keeps winning over it.
-        $carried = array_merge($this->disclosureSummaryLabelTypography($summary), $carried);
+        $isNativeSummary = 'summary' === strtolower($control->tagName);
+        if ( ! $isNativeSummary ) {
+            $carried = array_merge($this->disclosureSummaryLabelTypography($summary), $carried);
+        }
         // Buttons do not inherit line-height by default. Preserve their UA
         // normal line box rather than walking past the control to body type.
         // Explicit values (including inherit) still use the authored cascade.
@@ -412,7 +415,9 @@ final class DisclosureControlPresentation
         }
         // The generated h3 introduces theme heading type between the control
         // and its source ancestors. Carry explicitly inherited winners across it.
-        foreach ( array('font-family', 'line-height') as $property ) {
+        // Native summaries have no intervening heading: inherited type must
+        // remain live through details, including on the summary content carrier.
+        foreach ( $isNativeSummary ? array() : array('font-family', 'line-height') as $property ) {
             if ( ! isset($carried[$property]) || in_array(strtolower(trim($carried[$property])), array('inherit', 'unset'), true) ) {
                 $value = $this->styles->authoredInheritedPropertyWinner($control, $property);
                 if ( '' !== $value ) {
