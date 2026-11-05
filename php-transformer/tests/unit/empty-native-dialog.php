@@ -16,12 +16,25 @@ foreach (array(
     '<dialog class="viewer" aria-label="Photo viewer"></dialog>',
     "<dialog id=\"viewer\"> \n\t </dialog>",
     '<dialog><!-- runtime fills this shell --></dialog>',
-    '<dialog open style="width:600px;background:black" aria-label="Viewer"></dialog>',
+    '<dialog style="width:600px;background:black" aria-label="Viewer"></dialog>',
 ) as $source) {
     $result = $transform($source);
     $assert(array() === $result['fallbacks'], 'Empty dialog must not report unsupported content loss: ' . $source);
     $assert($baseline['serialized_blocks'] === $result['serialized_blocks'], 'Empty dialog must leave heading and paragraph unchanged');
     $assert(! str_contains($result['serialized_blocks'], '<dialog'), 'Empty dialog emits no block');
+}
+
+// Open dialogs render even without content. Boolean attribute presence, not
+// its value, determines whether the dialog is open.
+foreach (array(
+    '<dialog open></dialog>',
+    '<dialog open style="width:600px;background:black" aria-label="Viewer"></dialog>',
+    "<dialog open=\"false\"> \n\t </dialog>",
+    '<dialog open><!-- runtime fills this shell --></dialog>',
+) as $source) {
+    $result = $transform($source);
+    $unsupported = array_filter($result['fallbacks'], static fn (array $finding): bool => 'html_unsupported_element' === ($finding['diagnostic_code'] ?? '') && 'dialog' === ($finding['tag'] ?? ''));
+    $assert(array() !== $unsupported, 'Open empty dialog retains its unsupported conversion path: ' . $source);
 }
 
 // Text, elements without text, and nested empty elements are all content.
