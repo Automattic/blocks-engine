@@ -149,4 +149,31 @@ $unbound = ( new HtmlTransformer() )->transform('<p class="clip"><span class="tr
 $unboundMarkup = (string) ($unbound['serialized_blocks'] ?? '');
 $assert(str_contains($unboundMarkup, 'layout-shell') && str_contains($unboundMarkup, '<!-- wp:html') && str_contains($unboundMarkup, 'aria-label="Pause"') && !str_contains($unboundMarkup, 'authored-button') && !str_contains($unboundMarkup, 'data-wp-on'), 'a button with an unreplayed handler stays raw and does not block the layout shell');
 
+// Issue #4424: runtime textPath output is disposable; the declaration is editable.
+foreach ( array(
+    array( 'items' => '[{"text":"Featured Products"},{"text":"〰️"}]', 'direction' => 'left', 'speed' => '1', 'class' => 'Marquee', 'valid' => true ),
+    array( 'items' => '[{"text":"Featured Products"},{"text":"〰️"}]', 'direction' => 'right', 'speed' => '2', 'class' => 'renamed-ribbon', 'valid' => true ),
+    array( 'items' => '[{"text":', 'direction' => 'left', 'speed' => '1', 'class' => 'Marquee', 'valid' => false ),
+    array( 'items' => '{"text":"Featured Products"}', 'direction' => 'left', 'speed' => '1', 'class' => 'Marquee', 'valid' => false ),
+    array( 'items' => '[{"text":42}]', 'direction' => 'left', 'speed' => '1', 'class' => 'Marquee', 'valid' => false ),
+) as $case ) {
+    $runtimeSource = '<div class="' . $case['class'] . '" data-marquee-items=\'' . $case['items'] . '\' data-text-style="heading-1" data-animation-speed="' . $case['speed'] . '" data-animation-direction="' . $case['direction'] . '" data-paused-on-hover="false" data-wave-intensity="0"><div class="Marquee-display"><div class="Marquee-measure" style="visibility:hidden"><h1 class="Marquee-item Marquee-item--text">Featured Products</h1><h1 class="Marquee-item Marquee-item--text">〰️</h1></div><h1><svg class="Marquee-svg" aria-hidden="true" style="overflow:visible"><g><path id="p1" d="M-550,61.5 L2200,61.5"/></g><text><textPath href="#p1" startOffset="-235"><tspan x="0">Featured Products</tspan><tspan x="538.2">〰️</tspan></textPath></text></svg><span class="v6-visually-hidden">Featured Products 〰️</span></h1><div class="Marquee-track"></div></div></div>';
+    $options = array( 'static_css' => '.Marquee-item{font-size:80px;line-height:93px;margin:0}.Marquee-display{height:93px}.v6-visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden}' );
+    $compiled = ( new HtmlTransformer() )->transform($runtimeSource, $options)->toArray();
+    $markup = (string) $compiled['serialized_blocks'];
+    if ( ! $case['valid'] ) {
+        $withoutDeclaration = preg_replace('/ data-marquee-items=\'[^\']*\'/', '', $runtimeSource);
+        $baseline = ( new HtmlTransformer() )->transform($withoutDeclaration, $options)->toArray();
+        $assert(array_column($compiled['blocks'], 'blockName') === array_column($baseline['blocks'], 'blockName') && !str_contains($markup, 'custom/authored-marquee') && str_contains($markup, 'Featured Products'), 'malformed item declarations keep the existing output');
+        continue;
+    }
+    $marquee = $compiled['blocks'][0] ?? array();
+    $assert(1 === count($compiled['blocks']) && 'custom/authored-marquee' === ($marquee['blockName'] ?? null), 'declared runtime marquee replaces the whole source, without an empty wrapper');
+    $assert(array( 'Featured Products', '〰️' ) === array_column($marquee['attrs']['items'], 'content'), 'JSON items remain editable in declaration order');
+    $assert($case['direction'] === $marquee['attrs']['direction'] && 40.0 / (float) $case['speed'] === $marquee['attrs']['duration'], 'declared direction and speed multiplier control motion');
+    $assert('h1' === $marquee['attrs']['items'][0]['tagName'] && 'Marquee-item Marquee-item--text' === $marquee['attrs']['items'][0]['className'] && str_contains($markup, '<h1 class="Marquee-item Marquee-item--text"'), 'measure heading tags and classes retain source typography and line height');
+    $assert(!str_contains($markup, '<!-- wp:html') && !str_contains($markup, '<svg') && !str_contains($markup, 'height:0') && !str_contains($markup, 'visibility:hidden') && !str_contains($markup, 'Marquee-display'), 'runtime SVG and collapsed or hidden measure wrappers are replaced entirely');
+    $assert('pass' === ($compiled['source_reports']['wp_block_validity']['status'] ?? null), 'declared marquee serialization is editor-valid');
+}
+
 fwrite(STDOUT, "Authored marquee companion tests passed\n");
