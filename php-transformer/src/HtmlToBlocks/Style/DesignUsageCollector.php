@@ -206,11 +206,12 @@ final class DesignUsageCollector
             if ($control) $context['role'] = 'button';
         }
         if ($control && isset($declarations['border-radius'], $declarations['font-size'])) {
-            $lookDeclarations = $declarations;
-            $padding = $this->paddingObservations($declarations, (float) $context['size']);
+            $lookDeclarations = array_map(self::clean(...), $declarations);
+            $padding = $this->paddingObservations($lookDeclarations, (float) $context['size']);
             if (array() === array_filter($padding, static fn(string $value): bool => '' === $value || str_starts_with($value, '!'))) $lookDeclarations['padding'] = ($padding['padding-top'] === $padding['padding-bottom'] && $padding['padding-right'] === $padding['padding-left'])
                 ? ($padding['padding-top'] === $padding['padding-right'] ? $padding['padding-top'] : $padding['padding-top'] . ' ' . $padding['padding-right']) : implode(' ', array_values($padding));
             if (!isset($lookDeclarations['font-family']) && is_string($context['family'])) $lookDeclarations['font-family'] = $context['family'];
+            if (!isset($lookDeclarations['font-weight']) || in_array(strtolower($lookDeclarations['font-weight']), array('inherit', 'unset'), true)) $lookDeclarations['font-weight'] = (string) $context['weight'];
             $look = array();
             foreach (array('font-family' => 'font_family', 'font-size' => 'font_size', 'font-weight' => 'font_weight', 'text-transform' => 'text_transform', 'letter-spacing' => 'letter_spacing', 'border-radius' => 'radius', 'padding' => 'padding', 'background-color' => 'background', 'color' => 'color') as $property => $field) {
                 $value = 'background' === $field ? $background : ($lookDeclarations[$property] ?? null);
@@ -223,9 +224,10 @@ final class DesignUsageCollector
                     $stateValue = $this->resolver->stateDeclaredValue($element, $state, $property);
                     if (null === $stateValue && 'background' === $field) $stateValue = $this->resolver->stateDeclaredValue($element, $state, 'background');
                     if (null === $stateValue) continue;
-                    $stateValue = $this->resolver->resolveCssVariablesInValue($stateValue, $element);
-                    if (!CssColor::opaque($stateValue)) { unset($look[$field]); break; }
-                    $look[$state . '_' . $field] = (string) CssColor::hex($stateValue);
+                    $stateValue = self::clean($this->resolver->resolveCssVariablesInValue($stateValue, $element));
+                    // An unsupported state must not erase the resting colour.
+                    if (CssColor::opaque($stateValue)) $look[$state . '_' . $field] = (string) CssColor::hex($stateValue);
+                    elseif (self::opaqueRelativeColor($stateValue)) $look[$state . '_' . $field] = $stateValue;
                 }
             }
             $this->buttonLooks[] = $look;
@@ -309,6 +311,13 @@ final class DesignUsageCollector
         // Text properties a media-conditional rule can change here or on an
         // ancestor it inherits from render differently under that condition.
         foreach (self::CONDITIONAL_TEXT_FAMILIES as $family) {
+            $value = strtolower(self::clean($declarations[$family] ?? ''));
+            // Own absolute sizes do not depend on an ancestor's responsive
+            // size. Relative em/% sizes still do; rem depends on the root.
+            $independent = 'font-size' === $family
+                ? (null !== CssLength::toPx($value) && !preg_match('/(?:[\d.](?:r?em|%)|\b(?:smaller|larger))/', $value))
+                : ('' !== $value && !in_array($value, array('inherit', 'unset', 'currentcolor', 'bolder', 'lighter'), true));
+            if ($independent) $context['conditional'] = array_values(array_diff($context['conditional'], array($family)));
             if (!in_array($family, $context['conditional'], true) && ($this->resolver->hasConditionalStyleFamily($element, $family) || $this->resolver->readsConditionalCustomProperty($element, array($family)))) $context['conditional'][] = $family;
         }
         // A link or button changes colour on hover only through its own
@@ -344,6 +353,15 @@ final class DesignUsageCollector
             return '' !== $value && CssColor::opaque($value) ? (string) CssColor::hex($value) : '!';
         }
         return null;
+    }
+
+    /** Relative oklch without alpha preserves the opacity of its origin. */
+    private static function opaqueRelativeColor(string $value): bool
+    {
+        if (1 !== preg_match('/^oklch\((.*)\)$/i', $value, $match)) return false;
+        $parts = CssValueSplitter::splitTopLevelWhitespace($match[1]);
+        return 5 === count($parts) && 'from' === strtolower($parts[0])
+            && CssColor::opaque($parts[1]) && !str_contains($match[1], '/');
     }
 
     /** Numeric font weight: the declared one, else the user agent's bold for headings, `th`, `b` and `strong`, else the parent's. */

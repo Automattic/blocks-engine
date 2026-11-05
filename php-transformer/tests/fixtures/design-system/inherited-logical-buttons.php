@@ -1,6 +1,6 @@
 <?php
-// Issue #4392: inherited family, variable-backed logical padding and hover colour.
-$css = 'body{font-family:Georgia,serif}.btn{--edge:15px;display:inline-flex;padding-block:7.5px;padding-inline:var(--edge);font-size:16px;font-weight:700;border-radius:8px;background-color:#cacaca;color:#5b5b5b;text-decoration:none}.btn:hover{color:#000}';
+// Issue #4392 / PR #4422: Jimdo's inherited typography and relative hover colour.
+$css = 'body{font-family:Georgia,serif;font-size:16px}@media(max-width:600px){body{font-size:14px}}.btn{--edge:15px;--jw-button-font-size:calc(16px*.9375);display:inline-flex;padding-block:7.5px;padding-inline:var(--edge);font-size:var(--jw-button-font-size);border-radius:8px;background-color:#cacaca;color:#5b5b5b!important;text-decoration:none}.btn:hover{color:oklch(from #646464 calc(l + .1) c h)}';
 $files = array();
 foreach (array('index.html', 'a.html', 'b.html') as $route) {
     $files[$route] = '<!doctype html><html><head><style>' . $css . '</style></head><body><a class="btn" href="/a">One</a> <a class="btn" href="/b">Two</a> <a class="btn" href="/c">Three</a></body></html>';

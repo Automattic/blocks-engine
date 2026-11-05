@@ -362,7 +362,8 @@ final class DesignSystem
                     $inheritedFamily = !isset($style['typography']['fontFamily']) && !isset($attributes['fontFamily'])
                         && self::familyKey((string) ($this->root['font_family'] ?? '')) === self::familyKey($this->elements['button']['font_family']);
                     if ((!isset($style['typography']['fontFamily']) && !isset($attributes['fontFamily']) && !$inheritedFamily)
-                        || !isset($style['typography']['fontSize'], $style['typography']['fontWeight'], $style['border']['radius'], $style['spacing']['padding'])
+                        || !isset($style['typography']['fontSize'], $style['border']['radius'], $style['spacing']['padding'])
+                        || (!isset($style['typography']['fontWeight']) && '400' !== $this->elements['button']['font_weight'])
                         || (isset($this->elements['button']['text_transform']) && !isset($style['typography']['textTransform']))
                         || (isset($this->elements['button']['letter_spacing']) && !isset($style['typography']['letterSpacing']))
                         || (!isset($style['color']['text']) && !isset($attributes['textColor']))
