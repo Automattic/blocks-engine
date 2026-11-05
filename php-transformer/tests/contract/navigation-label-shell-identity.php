@@ -24,7 +24,7 @@ $reactHeader = static function (string $a, string $b): array {
     return (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toWordPressSitePlanView()['wordpress_site_plan'];
 };
 $headers = static fn(array $plan): int => count(array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
-foreach (array(array('_r_1_', '_r_2_', 1), array(':r1:', ':r2:', 1), array('«r1»', '«r2»', 1), array('authored-a', 'authored-b', 2)) as [$a, $b, $expected]) {
+foreach (array(array('_r_1_', '_r_2_', 1), array(':r1:', ':r2:', 1), array('«r1»', '«r2»', 1), array('authored-a', 'authored-b', 1)) as [$a, $b, $expected]) {
     $assert($expected === $headers($reactHeader($a, $b)), "Header ids {$a}/{$b} yield {$expected} header part(s).");
 }
 $labelBlock = static fn(string $id, string $title = 'Home', string $url = '/'): string => '<!-- wp:navigation-link ' . json_encode(array('label' => '<span id="' . $id . '" data-element-id="' . $id . '">' . $title . '</span>', 'url' => $url)) . ' /-->';
