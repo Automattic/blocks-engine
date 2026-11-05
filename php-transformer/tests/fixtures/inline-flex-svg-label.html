@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+    .turn-hint {
+        position: absolute;
+        left: 50%;
+        bottom: 18px;
+        transform: translateX(-50%);
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        font: 400 .66rem/1 sans-serif;
+        letter-spacing: .24em;
+        text-transform: uppercase;
+        white-space: nowrap;
+    }
+    .turn-hint svg { width: 18px; height: 18px; }
+</style>
+</head>
+<body>
+<span class="turn-hint"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor"/><path d="M8 12h8m-3-3 3 3-3 3" fill="none" stroke="currentColor"/></svg>Drag to turn</span>
+</body>
+</html>
