@@ -30,9 +30,6 @@ use Automattic\BlocksEngine\PhpTransformer\Support\StylesheetActivation;
  */
 final class ShellExtraction
 {
-    /** Source classes that disclose the served route, not the chrome: a site builder paints the current item or its submenu with them. */
-    private const DISCLOSURE_CLASSES = array('open', 'is-open', 'expanded', 'is-expanded');
-
     /**
      * Capture-document siblings after the root owning main are page chrome,
      * not article content. Keep their device scope when moving them to the
@@ -3724,8 +3721,8 @@ final class ShellExtraction
     }
 
     /**
-     * A menu authored as list items converts to li groups or list items. The
-     * source paints the item holding the served route (and, in a submenu,
+     * A menu authored as list items converts to li groups, list items or
+     * navigation links. The source paints the item holding the served route (and, in a submenu,
      * its parent item) with a disclosure class its sibling items do not
      * carry. That class is route state, so it is neither part of the
      * chrome's identity nor frozen into the shared part.
@@ -3742,7 +3739,9 @@ final class ShellExtraction
             $attrs = json_decode((string) ($token[3][0] ?? ''), true);
             $attrs = is_array($attrs) ? $attrs : array();
             if ('' !== ($token[5][0] ?? '') && ('list-item' === $name || ('group' === $name && 'li' === ($attrs['tagName'] ?? null)))) {
-                $lists[(string) end($stack)][] = array('token' => $index, 'name' => $name, 'attrs' => $attrs, 'classes' => preg_split('/\s+/', trim($token[5][0])) ?: array());
+                $lists[(string) end($stack)][] = array('token' => $index, 'name' => $name, 'attrs' => $attrs, 'classes' => preg_split('/\s+/', trim($token[5][0])) ?: array(), 'li' => true);
+            } elseif (in_array($name, array('navigation-link', 'navigation-submenu'), true)) {
+                $lists[(string) end($stack)][] = array('token' => $index, 'name' => $name, 'attrs' => $attrs, 'classes' => preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array(), 'li' => false, 'self_closing' => '' !== ($token[4][0] ?? ''));
             }
             if ('' === ($token[4][0] ?? '')) $stack[] = $index;
         }
@@ -3750,7 +3749,7 @@ final class ShellExtraction
         foreach ($lists as $items) {
             if (2 > count($items)) continue;
             $counts = array();
-            foreach ($items as $item) foreach (array_intersect($item['classes'], self::DISCLOSURE_CLASSES) as $class) $counts[$class] = ($counts[$class] ?? 0) + 1;
+            foreach ($items as $item) foreach (array_intersect($item['classes'], SourceClassIdentity::DISCLOSURE_CLASSES) as $class) $counts[$class] = ($counts[$class] ?? 0) + 1;
             $routeState = array_keys(array_filter($counts, static fn(int $count): bool => 1 === $count));
             if (array() === $routeState) continue;
             foreach ($items as $item) {
@@ -3759,8 +3758,8 @@ final class ShellExtraction
                 $kept = array_values(array_diff(preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array(), $routeState));
                 if (array() === $kept) unset($attrs['className']); else $attrs['className'] = implode(' ', $kept);
                 $token = $tokens[$item['token']];
-                $comment = '<!-- wp:' . $item['name'] . (array() === $attrs ? '' : ' ' . BlockAttributes::encode($attrs)) . ' -->';
-                $replacements[] = array($token[0][1], strlen($token[0][0]), $comment . '<li class="' . implode(' ', array_values(array_diff($item['classes'], $routeState))) . '"');
+                $comment = '<!-- wp:' . $item['name'] . (array() === $attrs ? '' : ' ' . BlockAttributes::encode($attrs)) . ($item['li'] || empty($item['self_closing']) ? ' -->' : ' /-->');
+                $replacements[] = array($token[0][1], strlen($token[0][0]), $comment . ($item['li'] ? '<li class="' . implode(' ', array_values(array_diff($item['classes'], $routeState))) . '"' : ('' === ($token[5][0] ?? '') ? '' : '<li class="' . $token[5][0] . '"')));
             }
         }
         usort($replacements, static fn(array $left, array $right): int => $right[0] <=> $left[0]);
@@ -3894,7 +3893,7 @@ final class ShellExtraction
      */
     private static function withoutDisclosureClasses(array $classes, array $peerClasses = array()): array
     {
-        return array_values(array_diff($classes, array_diff(self::DISCLOSURE_CLASSES, $peerClasses)));
+        return array_values(array_diff($classes, array_diff(SourceClassIdentity::DISCLOSURE_CLASSES, $peerClasses)));
     }
 
     /**

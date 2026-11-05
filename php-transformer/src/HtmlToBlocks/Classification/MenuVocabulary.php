@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
 use DOMElement;
 
 /**
@@ -103,13 +104,7 @@ final class MenuVocabulary
      */
     public static function containsCurrentStateToken(string $value): bool
     {
-        foreach (preg_split('/[^a-z0-9]+/', strtolower($value)) ?: array() as $token) {
-            if (in_array($token, array('active', 'current', 'selected'), true)) {
-                return true;
-            }
-        }
-
-        return false;
+        return SourceClassIdentity::containsCurrentStateToken($value);
     }
 
     /**

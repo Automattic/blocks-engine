@@ -377,10 +377,8 @@ final class AuthorStyleAnalysis
             // shared, so route state never renames a context marker.
             unset($attributes['aria-current']);
             if ( isset($attributes['class']) ) {
-                $attributes['class'] = implode(' ', array_filter(
-                    preg_split('/\s+/', trim($attributes['class'])) ?: array(),
-                    static fn (string $class): bool => ! SourceClassIdentity::isCurrentState($class)
-                ));
+                $classes = preg_split('/\s+/', trim($attributes['class'])) ?: array();
+                $attributes['class'] = implode(' ', array_diff($classes, SourceClassIdentity::routeState($element)));
             }
             $attributes["\0empty"] = $element->hasChildNodes() ? '0' : '1';
             $policy = $this->markerContextPolicy();

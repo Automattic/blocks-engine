@@ -59,4 +59,14 @@ foreach (array(array('About'), array('Models', 'Fiat'), array('Models', 'Ford'))
 $assert(!str_contains($resting($listMenu(array('Models', 'Fiat'))), 'expanded'), 'The shared li-group menu does not freeze disclosure state.');
 $assert(5 === preg_match_all('/<li class="(?:wp-block-group )?expanded /', $resting($listMenu(array('Home', 'About', 'Models', 'Fiat', 'Ford')))), 'A disclosure class every sibling carries stays.');
 
+// The same menu converted to core/navigation links: the served item's
+// disclosure class is route state even where no item carries a current marker.
+$navigationMenu = static function (array $disclosed): string {
+    $link = static fn(string $label): string => '<!-- wp:navigation-link ' . json_encode(array_filter(array('className' => in_array($label, $disclosed, true) ? 'expanded' : null, 'label' => $label, 'url' => '/' . strtolower($label) . '/'))) . ' /-->';
+    return '<!-- wp:navigation {"overlayMenu":"never"} -->' . $link('Home') . $link('About') . '<!-- wp:navigation-submenu {"label":"Models","url":"/models/"} -->' . $link('Fiat') . $link('Ford') . '<!-- /wp:navigation-submenu --><!-- /wp:navigation -->';
+};
+foreach (array(array('About'), array('Fiat')) as $served) {
+    $assert($resting($navigationMenu(array('Home'))) === $resting($navigationMenu($served)), 'The served link\'s disclosure class does not split navigation chrome: ' . implode(', ', $served));
+}
+
 echo "navigation-disclosure-current-item-shared-header contract passed\n";

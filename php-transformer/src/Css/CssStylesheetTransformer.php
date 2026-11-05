@@ -965,7 +965,8 @@ final class CssStylesheetTransformer
         }
         $limit = -1 === $scope ? strlen($css) : $tree->blockEnd($scope);
         $tail = substr($css, $offset, $limit - $offset);
-        if ('' !== trim($tail)) $units[] = array('context' => $context, 'text' => $tail, 'dedupable' => false);
+        // Commented-out rules inside a group carry nothing a route could scope.
+        if ('' !== trim(array() === $context ? $tail : CssSyntaxScanner::withoutComments($tail))) $units[] = array('context' => $context, 'text' => $tail, 'dedupable' => false);
     }
 
     /**
