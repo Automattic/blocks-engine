@@ -564,6 +564,15 @@ final class SourceDom
     }
 
     /**
+     * A folded device variant whose visibility the capture runtime CSS owns
+     * through its device-only/device-hide markers.
+     */
+    public static function isDeviceVisibilityCarrier(DOMElement $element): bool
+    {
+        return $element->hasAttribute(CaptureEvidence::DEVICE_ONLY) || $element->hasAttribute(CaptureEvidence::DEVICE_HIDE);
+    }
+
+    /**
      * A captured responsive document variant stands in for the source `<body>`
      * inside its own viewport branch, so it carries the body's classes without
      * being a content element of its own.
