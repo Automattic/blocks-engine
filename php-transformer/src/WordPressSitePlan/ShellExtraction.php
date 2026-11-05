@@ -3424,16 +3424,19 @@ final class ShellExtraction
         if (count($values) < 2) return $markups;
         $replace = array();
         foreach ($values[0] as $position => $value) {
-            if (!preg_match('/^(.*?)-([0-9]+)$/', $value, $match)) continue;
+            // The route number is the trailing digit run after a non-digit stem,
+            // whether hyphenated (top-101), underscored (top_101) or glued (top101).
+            // The stem keeps its separator, so the placeholder stays a valid id.
+            if (!preg_match('/^(.*[^0-9])([0-9]+)$/', $value, $match)) continue;
             $stem = $match[1]; $suffixes = array(); $safe = true;
             foreach ($markups as $index => $markup) {
                 $other = $values[$index][$position] ?? '';
-                if (!preg_match('/^' . preg_quote($stem, '/') . '-([0-9]+)$/', $other, $number)) { $safe = false; break; }
+                if (!preg_match('/^' . preg_quote($stem, '/') . '([0-9]+)$/', $other, $number)) { $safe = false; break; }
                 $suffixes[] = $number[1];
                 if (self::stylesheetTargetsId((string) $other, $stylesheetIds)) { $safe = false; break; }
                 if (preg_match('/(?:href\s*=\s*["\']#' . preg_quote($other, '/') . '["\']|(?:aria-controls|for)\s*=\s*["\']' . preg_quote($other, '/') . '["\'])/i', $markup)) { $safe = false; break; }
             }
-            if ($safe && count(array_unique($suffixes)) > 1) foreach ($values as $index => $row) $replace[$index][$row[$position]] = $stem . '-__route__';
+            if ($safe && count(array_unique($suffixes)) > 1) foreach ($values as $index => $row) $replace[$index][$row[$position]] = $stem . '__route__';
         }
         foreach ($markups as $index => $markup) foreach ($replace[$index] ?? array() as $from => $to) {
             $markup = str_replace(array('"anchor":"' . $from . '"', 'id="' . $from . '"'), array('"anchor":"' . $to . '"', 'id="' . $to . '"'), $markup);
