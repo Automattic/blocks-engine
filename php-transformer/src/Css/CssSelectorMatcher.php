@@ -670,6 +670,16 @@ final class CssSelectorMatcher
                         $hasSimple = true;
                         continue;
                     }
+                    // Treat enabled gating as part of the detachable state
+                    // suffix, not a source-only predicate. Projection must put
+                    // it back on the lowered control alongside hover/focus.
+                    if ( $isRightmost && ':disabled' === strtolower($argument) ) {
+                        $suffix ??= array('start' => $sourceStart + $start, 'end' => $sourceStart + $closing + 1);
+                        $suffix['end'] = $sourceStart + $closing + 1;
+                        $offset = $closing + 1;
+                        $hasSimple = true;
+                        continue;
+                    }
                     // Selectors Level 4 allows complex selectors — arguments
                     // carrying descendant, child, or sibling combinators —
                     // inside `:not()`. Parsing the argument as one compound
