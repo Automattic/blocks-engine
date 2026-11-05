@@ -3654,15 +3654,10 @@ final class ShellExtraction
         }, $markup) ?? $markup;
     }
 
-    /** Timestamp-like builder ids are render noise, not authored anchors. */
-    private static function isPerRenderId(string $value): bool
-    {
-        return 1 === preg_match('/(?:^id[0-9]{13}$|:r[0-9a-z]+:|«r[0-9a-z]+»|_r_[0-9a-z]+_)/i', $value);
-    }
-
+    /** Timestamp-like builder ids and React useId tokens are render noise, not authored anchors. */
     private static function normalizePerRenderIdTokens(string $value): string
     {
-        return preg_replace('/(?:id[0-9]{13}|:r[0-9a-z]+:|«r[0-9a-z]+»|_r_[0-9a-z]+_)/i', 'id-render', $value) ?? $value;
+        return preg_replace('/(?:^id[0-9]{13}$|:r[0-9a-z]+:|«r[0-9a-z]+»|_r_[0-9a-z]+_)/iu', 'id-render', $value) ?? $value;
     }
 
     private static function normalizeRenderIds(string $markup): string
