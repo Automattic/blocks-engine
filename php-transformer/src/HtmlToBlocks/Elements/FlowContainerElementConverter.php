@@ -192,7 +192,7 @@ final class FlowContainerElementConverter implements ElementConverter
             // Native core/buttons save markup is laid out by its own block
             // CSS. Its author flex rules restate that layout, so the native
             // block keeps each button (and its width class) editable.
-            if ( SourceDom::hasClass($element, 'wp-block-buttons') ) {
+            if ( SourceDom::hasClass($element, 'wp-block-buttons') && ! SourceDom::isDeviceVisibilityCarrier($element) ) {
                 $buttons = $this->context->recognizePatterns($element, $fallbacks, array( ButtonsContainerPattern::class ));
                 if ( null !== $buttons ) {
                     return ConversionOutcome::handled($buttons);
@@ -314,7 +314,9 @@ final class FlowContainerElementConverter implements ElementConverter
         if ( null !== $block ) {
             return ConversionOutcome::handled($block);
         }
-        $block = $this->context->recognizePatterns($element, $fallbacks, array( ButtonsContainerPattern::class ));
+        // core/buttons replaces the host with its own root, which would drop
+        // the capture device marker; a marked host stays its own carrier.
+        $block = SourceDom::isDeviceVisibilityCarrier($element) ? null : $this->context->recognizePatterns($element, $fallbacks, array( ButtonsContainerPattern::class ));
         if ( null !== $block ) {
             return ConversionOutcome::handled($block);
         }

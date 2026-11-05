@@ -7272,8 +7272,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function isCaptureDeviceVisibilityCarrier(DOMElement $element): bool
     {
         return ($element->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) && SourceDom::isDocumentVariantRoot($element))
-            || $element->hasAttribute(CaptureEvidence::DEVICE_ONLY)
-            || $element->hasAttribute(CaptureEvidence::DEVICE_HIDE);
+            || SourceDom::isDeviceVisibilityCarrier($element);
     }
 
     private function preservesScriptStateWrapper(DOMElement $element): bool
