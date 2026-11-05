@@ -642,7 +642,16 @@ final class ThemeJsonProjection
             'hover_color' => array(array(':hover', 'color', 'text'), $color),
             'hover_background' => array(array(':hover', 'color', 'background'), $color),
         );
+        foreach (array('focus', 'focus-visible', 'focus-within', 'active') as $state) {
+            $paths[$state . '_color'] = array(array(':' . $state, 'color', 'text'), $color);
+            $paths[$state . '_background'] = array(array(':' . $state, 'color', 'background'), $color);
+        }
         foreach (array('text_transform' => array('typography', 'textTransform'), 'letter_spacing' => array('typography', 'letterSpacing'), 'radius' => array('border', 'radius'), 'padding' => array('spacing', 'padding')) as $field => $path) $paths[$field] = array($path, static fn(string $value): string => $value);
+        $paths['padding'] = array(array('spacing', 'padding'), static function (string $value) use ($system): array|string {
+            $padding = $system->buttonPadding($value);
+            // Preserve the shorthand when no side has a matching spacing preset.
+            return array() === array_filter($padding, static fn(string $side): bool => str_starts_with($side, 'var:preset|spacing|')) ? $value : $padding;
+        });
         $properties = array('color' => array('color'), 'background' => array('background', 'background-color'), 'font_family' => array('font-family', 'font'), 'font_size' => array('font-size', 'font'), 'font_weight' => array('font-weight', 'font'), 'line_height' => array('line-height', 'font'), 'letter_spacing' => array('letter-spacing'), 'text_transform' => array('text-transform'));
         $elements = $system->elements;
         if (null !== $system->buttonVariationSlug()) $elements['button'] = $system->buttonVariation;
@@ -653,7 +662,7 @@ final class ThemeJsonProjection
                 if (!isset($paths[$field])) continue;
                 $differs = false;
                 foreach ($tags as $tag) foreach ($properties[$field] ?? array() as $property) foreach ($authored['element:' . $tag . "\n" . $property] ?? array() as $declared) $differs = $differs || !(self::sameElementValue($property, $declared, $value) || (1 === preg_match('/^h[1-6]$/', $element) && in_array($field, array('font_size', 'font_weight', 'line_height'), true) && in_array(trim($declared), array('inherit', 'unset'), true)));
-                $dominantButton = 'button' === $element && isset($values['padding']);
+                $dominantButton = 'button' === $element;
                 if ($differs && !$dominantButton && !('button' === $element && 'color' === $field)) continue;
                 [$path, $reference] = $paths[$field];
                 if ('button' === $element && null !== ($slug = $system->buttonVariationSlug())) $target = &$styles['blocks']['core/button']['variations'][$slug];

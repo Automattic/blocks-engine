@@ -651,7 +651,7 @@ final class PresetBinding
         $style = $attributes->style ?? new \stdClass();
 
         $variation = $isLink && null !== $this->system->buttonVariationSlug() && $this->matchesButtonVariation($style);
-        $buttonLook = $isLink && (isset($this->system->elements['button']['padding']) || $variation);
+        $buttonLook = $isLink && (isset($this->system->elements['button']) || $variation);
         if ($variation) {
             $class = 'is-style-' . $this->system->buttonVariationSlug();
             $attributes->className = trim(($attributes->className ?? '') . ' ' . $class);
@@ -673,7 +673,7 @@ final class PresetBinding
             }
             foreach (array('top', 'right', 'bottom', 'left') as $side) {
                 $value = $style->spacing->padding->{$side} ?? null;
-                if (is_string($value) && $this->matchesButtonElement('padding-' . $side, $value) && self::removeDeclaration($declarations, 'padding-' . $side, $value)) {
+                if (is_string($value) && $this->matchesButtonElement('padding-' . $side, $value) && self::removeDeclaration($declarations, 'padding-' . $side, str_starts_with($value, 'var:preset|spacing|') ? 'var(--wp--preset--spacing--' . substr($value, strlen('var:preset|spacing|')) . ')' : $value)) {
                     unset($style->spacing->padding->{$side});
                     ++$bound;
                 }
@@ -971,10 +971,15 @@ final class PresetBinding
         $element = $this->system->elements['button'] ?? $this->system->buttonVariation;
         $expected = $element[$fields[$property] ?? ''] ?? null;
         if (str_starts_with($property, 'padding-') && isset($element['padding'])) {
-            $parts = preg_split('/\s+/', trim($element['padding'])) ?: array();
-            $sides = array($parts[0], $parts[1] ?? $parts[0], $parts[2] ?? $parts[0], $parts[3] ?? $parts[1] ?? $parts[0]);
-            $index = array_search(substr($property, 8), array('top', 'right', 'bottom', 'left'), true);
-            $expected = false === $index ? null : ($sides[$index] ?? null);
+            $padding = $this->system->buttonPadding($element['padding']);
+            $expected = $padding[substr($property, 8)] ?? null;
+            // Compare the preset identity too: both paths must use the same
+            // spacing tolerance, not compare a bound block to a raw length.
+            if (null !== $expected && str_starts_with($expected, 'var:preset|spacing|')) {
+                $slug = substr($expected, strlen('var:preset|spacing|'));
+                return $value === $expected || $value === 'var(--wp--preset--spacing--' . $slug . ')'
+                    || $this->system->spacingSlug($this->resolve($value)) === $slug;
+            }
         }
         if (null === $expected || '' === $value) return false;
         $value = $this->resolve($value);

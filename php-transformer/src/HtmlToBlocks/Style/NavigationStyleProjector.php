@@ -1771,8 +1771,11 @@ final class NavigationStyleProjector
             $expectedClass = $prefix . hash('sha256', $color . "\0" . $stateMask);
             $restingSuffix = $this->navigationColorRestingSuffix($stateMask);
             if ( in_array($expectedClass, $classes, true) ) {
+                $content = isset($attrs['metadata']['blocksEngineNavigationAnchor'])
+                    ? ' .wp-block-navigation-item__content'
+                    : '>.wp-block-navigation-item__content';
                 $selector = '.wp-block-navigation .wp-block-navigation-item.' . $expectedClass
-                    . '>.wp-block-navigation-item__content' . $restingSuffix;
+                    . $content . $restingSuffix;
                 $rules[$expectedClass] = $selector . '{color:' . $color . '}';
                 $defaultColors[$expectedClass] = $color;
             }

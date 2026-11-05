@@ -278,7 +278,9 @@ final class DesignSystem
         }
         ksort($tints, SORT_STRING);
         array_push($colors, ...array_values($tints));
-        if (array() !== $buttonLook && (null === $system->colorSlug($buttonLook['background']) || null === $system->colorSlug($buttonLook['color']) || null === $system->fontFamilySlug($buttonLook['font_family']) || null === $system->fontSizeSlug($buttonLook['font_size']))) $buttonLook = array();
+        foreach (array('background' => 'colorSlug', 'color' => 'colorSlug', 'font_family' => 'fontFamilySlug', 'font_size' => 'fontSizeSlug') as $field => $method) {
+            if (isset($buttonLook[$field]) && null === $system->{$method}($buttonLook[$field])) unset($buttonLook[$field]);
+        }
         return new self($colors, $fontSizes, $fontFamilies, $spacing, $layout, $root, array_replace(self::unanimousElements($usageBySource, $system), array() === $buttonLook ? array() : array('button' => $buttonLook)), $system->rootPx, $system->documentCount, $literalColors);
     }
 
@@ -330,47 +332,23 @@ final class DesignSystem
      * button that does not carry its own value; the usage it comes from
      * only covers buttons that render a fill, so an outlined button that
      * converts to `core/button` would otherwise be painted. A button value
-     * stays only when every button block carries that property itself. A
-     * clustered look additionally requires every block to own its typography,
-     * shape and colours (core's outline style owns its transparent fill).
+     * stays only when every button block owns that field. Dominant look
+     * fields are checked independently, including shape and spacing; matching
+     * inherited typography and core's outline fill also establish ownership.
      *
      * @param list<string> $markups Every page's block markup.
      */
     public function withButtonElementsOwnedBy(array $markups): self
     {
         if (!isset($this->elements['button'])) return $this;
-        $dominant = isset($this->elements['button']['padding']);
+        $dominant = isset($this->elements['button']['padding']) || isset($this->elements['button']['radius']);
         $owned = array('color' => true, 'background' => true, 'font_family' => true, 'font_size' => true, 'font_weight' => true);
-        $unstyled = false;
-        foreach ($markups as $markup) {
-            preg_match_all('/<!-- wp:button(?: (\{.*?\}))? \/?-->/s', $markup, $buttons);
-            foreach ($buttons[1] as $json) {
-                $attributes = json_decode($json, true);
-                if (empty($attributes['style'])) $unstyled = true;
-            }
-        }
         foreach ($markups as $markup) {
             if (!preg_match_all('/<!-- wp:button(?: (\{.*?\}))? \/?-->/s', $markup, $matches)) continue;
             foreach ($matches[1] as $json) {
                 $attributes = '' === $json ? array() : json_decode($json, true);
                 if (!is_array($attributes)) $attributes = array();
                 $style = is_array($attributes['style'] ?? null) ? $attributes['style'] : array();
-                if ($dominant) {
-                    // A dominant look may replace only source-owned values.
-                    // An unstyled sibling would otherwise acquire this look.
-                    $outline = str_contains((string) ($attributes['className'] ?? ''), 'is-style-outline');
-                    if (!isset($style['typography']['fontFamily'], $style['typography']['fontSize'], $style['typography']['fontWeight'], $style['border']['radius'], $style['spacing']['padding'])
-                        || (isset($this->elements['button']['text_transform']) && !isset($style['typography']['textTransform']))
-                        || (isset($this->elements['button']['letter_spacing']) && !isset($style['typography']['letterSpacing']))
-                        || (!isset($style['color']['text']) && !isset($attributes['textColor']))
-                        || (!$outline && !isset($style['color']['background']) && !isset($attributes['backgroundColor']))) {
-                        $elements = $this->elements;
-                        unset($elements['button']);
-                        // A plain unstyled button does not establish a button system.
-                        $variation = $unstyled ? array() : $this->elements['button'];
-                        return new self($this->colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $elements, $this->rootPx, $this->documentCount, $this->literalColors, $variation);
-                    }
-                }
                 $carried = array(
                     'color' => isset($attributes['textColor']) || isset($style['color']['text']),
                     'background' => isset($attributes['backgroundColor']) || isset($attributes['gradient']) || isset($style['color']['background']) || isset($style['color']['gradient']),
@@ -378,14 +356,26 @@ final class DesignSystem
                     'font_size' => isset($attributes['fontSize']) || isset($style['typography']['fontSize']),
                     'font_weight' => isset($style['typography']['fontWeight']),
                 );
+                if ($dominant) {
+                    // Missing ownership vetoes only this field, not the rest of
+                    // the dominant look. Matching inherited defaults are safe.
+                    $carried['font_family'] = $carried['font_family'] || self::familyKey((string) ($this->root['font_family'] ?? '')) === self::familyKey($this->elements['button']['font_family'] ?? '');
+                    $carried['font_weight'] = $carried['font_weight'] || '400' === ($this->elements['button']['font_weight'] ?? null);
+                    $carried['background'] = $carried['background'] || str_contains((string) ($attributes['className'] ?? ''), 'is-style-outline');
+                    $carried['radius'] = isset($style['border']['radius']);
+                    $carried['padding'] = isset($style['spacing']['padding']);
+                    $carried['text_transform'] = isset($style['typography']['textTransform']);
+                    $carried['letter_spacing'] = isset($style['typography']['letterSpacing']);
+                }
                 foreach ($carried as $field => $present) if (!$present) $owned[$field] = false;
             }
         }
-        if ($dominant) return $this;
         $button = $this->elements['button'];
         foreach ($owned as $field => $isOwned) if (!$isOwned) unset($button[$field]);
-        if (!$owned['color']) unset($button['hover_color']);
-        if (!$owned['background']) unset($button['hover_background']);
+        foreach (array('hover', 'focus', 'focus-visible', 'focus-within', 'active') as $state) {
+            if (!$owned['color']) unset($button[$state . '_color']);
+            if (!$owned['background']) unset($button[$state . '_background']);
+        }
         $elements = $this->elements;
         if (array() === $button) unset($elements['button']); else $elements['button'] = $button;
         return new self($this->colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation);
@@ -456,6 +446,19 @@ final class DesignSystem
         if (null === $px || $px <= 0) return null;
         foreach ($this->spacing as $step) if (abs($step['px'] - $px) <= self::SPACING_TOLERANCE_PX) return $step['slug'];
         return null;
+    }
+
+    /** Expand button padding and bind each side exactly as block spacing binds. */
+    public function buttonPadding(string $value): array
+    {
+        $parts = preg_split('/\s+/', trim($value)) ?: array();
+        $values = array($parts[0], $parts[1] ?? $parts[0], $parts[2] ?? $parts[0], $parts[3] ?? $parts[1] ?? $parts[0]);
+        $padding = array();
+        foreach (array('top', 'right', 'bottom', 'left') as $index => $side) {
+            $slug = $this->spacingSlug($values[$index]);
+            $padding[$side] = null === $slug ? $values[$index] : 'var:preset|spacing|' . $slug;
+        }
+        return $padding;
     }
 
     /** Slug of the font family preset with the same primary family, or null. */
@@ -1136,8 +1139,8 @@ final class DesignSystem
     }
 
     /**
-     * Cluster complete authored looks, not individual properties: the element
-     * default must be a look that actually renders. Each route has equal say.
+     * Choose each authored field independently by strict weighted majority.
+     * Each route has equal say; missing observations count against a majority.
      * Ties and isolated controls do not establish a design system.
      *
      * @param array<string,array<string,mixed>> $usageBySource
@@ -1145,29 +1148,28 @@ final class DesignSystem
      */
     private static function dominantButtonLook(array $usageBySource): array
     {
-        $weights = $looks = array();
-        $count = 0;
+        $weights = array();
+        $total = $count = 0;
         foreach ($usageBySource as $usage) {
             $rows = $usage['button_looks'] ?? array();
             foreach ($rows as $look) {
                 ++$count;
-                // A partially observed look (state, media or inherited value,
-                // or an outline control with no authored fill) cannot become
-                // the element look. It does not vote; binding still requires
-                // every block to own the values it yields to the element.
-                if (!isset($look['font_family'], $look['font_size'], $look['font_weight'], $look['radius'], $look['padding'], $look['color'], $look['background'])) continue;
-                ksort($look);
-                $key = json_encode($look, JSON_THROW_ON_ERROR);
-                $looks[$key] = $look;
-                $weights[$key] = ($weights[$key] ?? 0) + self::documentShare(1, count($rows));
+                $weight = self::documentShare(1, count($rows));
+                $total += $weight;
+                foreach ($look as $field => $value) {
+                    $weights[$field][$value] = ($weights[$field][$value] ?? 0) + $weight;
+                }
             }
         }
         if ($count < 3 || array() === $weights) return array();
-        uksort($weights, static fn(string $a, string $b): int => ($weights[$b] <=> $weights[$a]) ?: strcmp($a, $b));
-        $key = array_key_first($weights);
-        $ranked = array_values($weights);
-        if ($weights[$key] * 2 < array_sum($weights) || ($ranked[1] ?? 0) === $weights[$key]) return array();
-        return $looks[$key];
+        $look = array();
+        foreach ($weights as $field => $values) {
+            foreach ($values as $value => $weight) {
+                if ($weight * 2 > $total) $look[$field] = (string) $value;
+            }
+        }
+        ksort($look, SORT_STRING);
+        return $look;
     }
 
     /**

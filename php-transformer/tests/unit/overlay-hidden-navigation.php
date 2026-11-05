@@ -41,6 +41,18 @@ $runtimeMarkup = (string) ($runtime['serialized_blocks'] ?? '');
 $assert(str_contains($runtimeMarkup, '<!-- wp:navigation'), 'runtime-targeted overlay and toggle chrome do not abort list-backed navigation');
 $assert(str_contains($runtimeMarkup, '"overlayMenu":"mobile"'), 'runtime-targeted overlay chrome still yields a native mobile overlay menu');
 
+// A content nav shown at every width keeps its links on phones even when a
+// closed header drawer lists the same destinations (#4511).
+$contentNav = ( new HtmlTransformer() )->transform((string) file_get_contents(dirname(__DIR__) . '/fixtures/content-nav-shared-header-drawer.html'))->toArray();
+$overlayByClass = array();
+preg_match_all('/<!-- wp:navigation (\{.*?\}) \/?-->/s', (string) ($contentNav['serialized_blocks'] ?? ''), $navigationComments);
+foreach ( $navigationComments[1] as $json ) {
+    $attrs = json_decode($json, true);
+    $overlayByClass[ strtok((string) ($attrs['className'] ?? ''), ' ') ] = $attrs['overlayMenu'] ?? 'mobile';
+}
+$assert('mobile' === ($overlayByClass['desktop-only'] ?? null), 'the header nav still collapses behind the mobile overlay');
+$assert('never' === ($overlayByClass['city-links'] ?? null), 'a content nav visible at every width does not collapse behind the mobile overlay');
+
 if ( 0 !== $failures ) {
     exit(1);
 }

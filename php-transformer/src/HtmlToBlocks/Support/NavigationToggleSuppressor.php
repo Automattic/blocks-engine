@@ -1730,8 +1730,30 @@ final class NavigationToggleSuppressor
                 continue;
             }
             if ( $signature === $this->sourceNavigationSignature($candidate)
-                && ($this->hasMobileNavigationSignal($navigationRoot) || $this->hasMobileNavigationSignal($candidate))
+                && ($this->hasMobileNavigationSignal($navigationRoot)
+                    || ($this->hasMobileNavigationSignal($candidate) && ! $this->isContentNavigationBesideChromeVariant($navigationRoot, $candidate)))
             ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * A nav in the page's main content is not the desktop half of a site-chrome
+     * drawer. It is content that shares destinations with that drawer, and it
+     * stays inline on phones.
+     */
+    private function isContentNavigationBesideChromeVariant(DOMElement $navigation, DOMElement $mobileVariant): bool
+    {
+        return $this->isInsideMainContent($navigation) && ! $this->isInsideMainContent($mobileVariant);
+    }
+
+    private function isInsideMainContent(DOMElement $element): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( 'main' === strtolower($node->tagName) || 'main' === strtolower(SourceDom::attr($node, 'role')) ) {
                 return true;
             }
         }
@@ -2260,8 +2282,9 @@ final class NavigationToggleSuppressor
         return $this->isNavigationLandmark($element)
             && 'core/group' === ($block['blockName'] ?? '')
             && strtolower($element->tagName) === strtolower((string) ($block['attrs']['tagName'] ?? ''))
-            && 1 === count($innerBlocks)
-            && 'core/navigation' === ($innerBlocks[0]['blockName'] ?? '');
+            && 1 === count(array_filter($innerBlocks, static fn (array $child): bool => 'core/navigation' === ($child['blockName'] ?? '')))
+            && 'core/navigation' === ($innerBlocks[0]['blockName'] ?? '')
+            && array() === array_filter(array_slice($innerBlocks, 1), static fn (array $child): bool => ! in_array($child['blockName'] ?? '', array( 'core/button', 'core/buttons' ), true));
     }
 
     private function elementWithId(DOMElement $context, string $id): ?DOMElement
