@@ -24,10 +24,26 @@ foreach (array('index.html' => '/', 'services/index.html' => '/services/', 'blog
     foreach (array('/' => 'Home', '/services/' => 'Services', '/blog/' => 'Blog') as $href => $title) {
         $active = $href === $current;
         $zIndex = array('/' => array(14, 10, 7), '/services/' => array(6, 12, 8), '/blog/' => array(5, 9, 14))[$current][array_search($href, array('/', '/services/', '/blog/'), true)];
-        $items .= '<li><a href="' . $href . '"' . ($active ? ' aria-current="page"' : '') . '><span style="position:relative;z-index:' . $zIndex . '"><span style="background-color:rgba(255, 255, 255, 0)' . ($active ? ';border-width:0px 0px 4px' : '') . '"><span style="border-color:red;border-style:solid' . ($active ? ';border-width:0px 0px 4px' : '') . ';padding:0px;z-index:1"><span style="' . ($active ? 'border-radius:0px;' : '') . 'min-height:5px">' . $title . '</span></span></span></span></a></li>';
+        $items .= '<li><a href="' . ('/' === $href ? '/index.html' : $href . 'index.html') . '"><span style="position:relative;z-index:' . $zIndex . '"><span style="background-color:rgba(255, 255, 255, 0)' . ($active ? ';border-width:0px 0px 4px' : '') . '"><span style="border-color:red;border-style:solid' . ($active ? ';border-width:0px 0px 4px' : '') . ';padding:0px;z-index:1"><span style="' . ($active ? 'border-radius:0px;' : '') . 'min-height:5px">' . $title . '</span></span></span></span></a></li>';
     }
     $files[] = array('path' => $path, 'kind' => 'html', 'content' => '<!doctype html><html><head><title>' . $current . '</title></head><body><div class="data-blocks-engine-capture-desktop-document full-screen-view ' . ('/' === $current ? 'pc-desktop-mode header-exists footer-exists' : 'header-exists footer-exists pc-desktop-mode') . '" data-blocks-engine-capture-document-scope=""><header><nav><ul>' . $items . '</ul></nav></header><main><h1>' . $current . '</h1><p>Page body</p></main></div></body></html>');
 }
+// Hrefs are candidates, not permission to erase arbitrary inline differences.
+$withoutPair = $files;
+foreach ($withoutPair as &$file) $file['content'] = str_replace(array(';border-width:0px 0px 4px', 'border-radius:0px;'), '', $file['content']);
+unset($file);
+foreach ((new RouteStateProjector())->project($withoutPair)['files'] as $file) $assert(!str_contains($file['content'], 'data-blocks-engine-route-state'), 'Varying z-index alone does not demonstrate current state.');
+$ambiguous = $files;
+foreach ($ambiguous as &$file) {
+    $href = '/' . $file['path'];
+    $file['content'] = str_replace('</ul>', '<li><a href="' . $href . '">Duplicate self target</a></li></ul>', $file['content']);
+}
+unset($file);
+foreach ((new RouteStateProjector())->project($ambiguous)['files'] as $file) $assert(!str_contains($file['content'], 'data-blocks-engine-route-state'), 'Multiple self-targeting peers prevent href inference.');
+$explicit = $files;
+foreach ($explicit as &$file) $file['content'] = str_replace('<a href="/index.html">', '<a href="/index.html" aria-current="page">', $file['content']);
+unset($file);
+foreach ((new RouteStateProjector())->project($explicit)['files'] as $file) $assert(!str_contains($file['content'], 'data-blocks-engine-route-state'), 'Explicit markers take priority over conflicting self-target evidence.');
 $projected = (new RouteStateProjector())->project($files)['files'];
 foreach ($projected as $file) {
     $assert(str_contains($file['content'], 'data-blocks-engine-route-state'), 'Inline current paint is bound to route state.');
@@ -38,6 +54,21 @@ $assert(str_contains($bootstrap['payload']['data'], NavigationAnchorRuntime::ret
 $headers = array_values(array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
 $assert(1 === count($headers), 'Moving inline current paint produces one header part.');
 foreach ($plan['pages'] as $page) $assert(!str_contains($page['canonical_block_markup'], '<header'), 'No header remains in page content.');
+
+foreach (array('label', 'url') as $difference) {
+    $different = $files[0];
+    $different['path'] = 'different/index.html';
+    $different['content'] = str_replace(array(';border-width:0px 0px 4px', 'border-radius:0px;'), '', $different['content']);
+    $different['content'] = 'label' === $difference
+        ? str_replace('>Services<', '>Different services<', $different['content'])
+        : str_replace('href="/services/index.html"', 'href="/different-services/index.html"', $different['content']);
+    $differentPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array_merge($files, array($different))))->toWordPressSitePlanView()['wordpress_site_plan'];
+    $differentHeaders = array_values(array_filter($differentPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
+    $assert(1 === count($differentHeaders), 'A real ' . $difference . ' change does not join the shared header.');
+    $assert(!in_array('different/index.html', $differentHeaders[0]['placement']['source_paths'], true), 'Changed ' . $difference . ' route is excluded from shared placement.');
+    $pages = array_column($differentPlan['pages'], null, 'source_path');
+    $assert(str_contains($pages['different/index.html']['canonical_block_markup'], '<header'), 'Changed ' . $difference . ' keeps its own header.');
+}
 
 class WP_HTML_Tag_Processor
 {

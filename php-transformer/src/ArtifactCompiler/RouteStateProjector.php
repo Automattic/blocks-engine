@@ -125,6 +125,7 @@ final class RouteStateProjector
     {
         $documents = array();
         $groups = array();
+        $menus = array();
         foreach ($files as $index => $file) {
             if ('html' !== ($file['kind'] ?? null) || !is_string($file['content'] ?? null) || !str_contains($file['content'], '<nav')) continue;
             $document = new DOMDocument('1.0', 'UTF-8');
@@ -151,12 +152,27 @@ final class RouteStateProjector
                 $href = trim($link->getAttribute('href'));
                 if ('' === $href || ArtifactPath::namesSection($href) || str_starts_with($href, '//') || preg_match('~^[a-z][a-z0-9+.-]*:~i', $href)) continue;
                 $target = str_starts_with($href, '/') ? ltrim(ArtifactPath::stripQueryAndFragment($href), '/') : ArtifactPath::resolveRelativePath($href, (string) ($file['path'] ?? ''));
-                $key = $target . ':' . implode('/', $shape) . ':' . trim($label->textContent);
-                $groups[$key][] = array('index' => $index, 'nodes' => $nodes, 'current' => $current, 'retained' => 'label' === strtolower($label->tagName));
+                $navigation = $link->parentNode;
+                while ($navigation instanceof DOMElement && 'nav' !== strtolower($navigation->tagName)) $navigation = $navigation->parentNode;
+                $menu = (string) $navigation->getNodePath();
+                $self = self::labelRoute($target) === self::labelRoute((string) ($file['path'] ?? ''));
+                $menus[$menu][$index]['self'] = ($menus[$menu][$index]['self'] ?? 0) + (int) $self;
+                $menus[$menu][$index]['explicit'] = ($menus[$menu][$index]['explicit'] ?? false) || $current;
+                $key = $menu . ':' . $target . ':' . implode('/', $shape) . ':' . trim($label->textContent);
+                $groups[$key][] = array('index' => $index, 'nodes' => $nodes, 'current' => $current, 'self' => $self, 'menu' => $menu, 'retained' => 'label' === strtolower($label->tagName));
             }
         }
         $changed = array();
         foreach ($groups as $rows) {
+            // Explicit state owns the menu. Href inference is only a candidate:
+            // every capture must have at most one self-targeting peer, and the
+            // same item's descendant paint must demonstrate a stable pair.
+            $menuRows = $menus[$rows[0]['menu']];
+            if (!array_filter($menuRows, static fn(array $menu): bool => $menu['explicit'] || $menu['self'] > 1)
+                && self::hasSelfTargetPaintPair($rows)) {
+                foreach ($rows as &$row) $row['current'] = $row['self'];
+                unset($row);
+            }
             $resting = array_values(array_filter($rows, static fn(array $row): bool => !$row['current']));
             $selected = array_values(array_filter($rows, static fn(array $row): bool => $row['current']));
             if (array() === $resting || array() === $selected) continue;
@@ -208,7 +224,7 @@ final class RouteStateProjector
                         $binding['rest']['style'] = $serialize($canonical);
                         $binding['current']['style'] = $serialize($styles[array_search(true, array_column($rows, 'current'), true)]);
                         foreach ($rows as $i => $row) {
-                            $route = '/' . trim((string) preg_replace('~(?:^|/)index(?:\\.html?)?$|\\.html?$~i', '', (string) ($files[$row['index']]['path'] ?? '')), '/');
+                            $route = self::labelRoute((string) ($files[$row['index']]['path'] ?? ''));
                             $binding['routes'][$route]['style'] = $serialize($styles[$i]);
                         }
                         ksort($binding['routes'], SORT_STRING);
@@ -231,6 +247,36 @@ final class RouteStateProjector
         }
         foreach (array_keys($changed) as $index) $files[$index]['content'] = HtmlSerialization::documentHtml($documents[$index]);
         return $files;
+    }
+
+    /** Use the same route identity for self-target evidence and replay bindings. */
+    private static function labelRoute(string $path): string
+    {
+        return '/' . trim((string) preg_replace('~(?:^|/)index(?:\\.html?)?$|\\.html?$~i', '', ArtifactPath::stripQueryAndFragment($path)), '/');
+    }
+
+    /** Href alone (or capture-varying stacking order alone) is not state evidence. */
+    private static function hasSelfTargetPaintPair(array $rows): bool
+    {
+        $selected = array_filter($rows, static fn(array $row): bool => $row['self']);
+        $resting = array_filter($rows, static fn(array $row): bool => !$row['self']);
+        if (array() === $selected || array() === $resting) return false;
+        foreach ($rows[0]['nodes'] as $position => $node) {
+            if (0 === $position || 'a' === strtolower($node->tagName)) continue;
+            $styles = array_map(static fn(array $row): array => self::inlineDeclarations($row['nodes'][$position]->getAttribute('style')), $rows);
+            foreach (array_unique(array_merge(...array_map('array_keys', $styles))) as $property) {
+                if ('z-index' === $property) continue;
+                $active = array(); $rest = array();
+                foreach ($rows as $i => $row) {
+                    if ($row['self']) $active[] = $styles[$i][$property] ?? null;
+                    else $rest[] = $styles[$i][$property] ?? null;
+                }
+                $active = array_values(array_unique($active, SORT_REGULAR));
+                $rest = array_values(array_unique($rest, SORT_REGULAR));
+                if (1 === count($active) && 1 === count($rest) && $active !== $rest) return true;
+            }
+        }
+        return false;
     }
 
     /** Split only at CSS declaration boundaries, never inside strings or functions. */
