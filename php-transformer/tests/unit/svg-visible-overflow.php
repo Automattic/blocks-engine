@@ -2,6 +2,7 @@
 declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 
 $source = file_get_contents(dirname(__DIR__) . '/fixtures/svg-overflow.html');
 $check = static function (bool $ok, string $message): void {
@@ -34,4 +35,31 @@ $check(str_contains($relative, 'viewBox="-32 -12 264 64"'), 'relative and reflec
 [, $scaled, $scaledCss] = $convert('<div><svg width="200" height="40" viewBox="0 0 100 20" overflow="visible"><rect x="-16" y="-6" width="132" height="32"/></svg></div>');
 $check(str_contains($scaled, 'viewBox="-16 -6 132 32"'), 'existing viewBox user units');
 $check(str_contains($scaledCss, 'width:264px;height:64px;left:-32px;top:-12px'), 'viewBox scales painted CSS geometry');
+// Exercise the production multi-file path: author CSS is linked, and the
+// percentage-sized SVG reaches a pixel box through two unsized wrappers.
+$files = array();
+foreach (array('index.html', '_assets/style.css') as $path) {
+    $files[$path] = file_get_contents(dirname(__DIR__) . '/fixtures/svg-overflow-linked/' . $path);
+}
+$out = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray();
+$svg = $css = '';
+foreach ($out['assets'] ?? array() as $asset) {
+    if (($asset['kind'] ?? '') === 'svg') $svg .= $asset['content'];
+    if (($asset['kind'] ?? '') === 'css') $css .= $asset['content'];
+}
+$check(preg_match('/viewBox="([^"]+)"/', $svg, $match) === 1, 'linked stylesheet overflow adds a viewBox: ' . $svg);
+$bounds = array_map('floatval', explode(' ', $match[1]));
+foreach (array(-25.48008, -13.92505, 248.444535, 65.48008) as $i => $expected) {
+    $check(isset($bounds[$i]) && abs($bounds[$i] - $expected) < 0.0001, 'linked SVG painted bounds axis ' . $i);
+}
+$check(str_contains($css, 'width:248.4445px;height:65.4801px;left:-25.4801px;top:-13.9251px'), 'linked SVG painted size and offset');
+$check(str_contains($css, 'width:197.48px;height:37.63px;overflow:visible'), 'linked SVG retains ancestor-sized layout box');
+$check(str_contains(json_encode($out), 'wp:image') && str_contains(json_encode($out), 'Get in touch'), 'linked SVG remains editable beside its label');
+$files['_assets/style.css'] = str_replace('overflow:visible', 'overflow:hidden', $files['_assets/style.css']);
+$hiddenOut = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray();
+foreach ($hiddenOut['assets'] ?? array() as $asset) {
+    if (($asset['kind'] ?? '') === 'svg') {
+        $check(!str_contains($asset['content'], 'viewBox='), 'linked stylesheet hidden overflow is not expanded');
+    }
+}
 echo "SVG visible overflow tests passed.\n";

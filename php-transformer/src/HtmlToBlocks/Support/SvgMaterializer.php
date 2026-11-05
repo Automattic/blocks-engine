@@ -915,11 +915,16 @@ final class SvgMaterializer implements SvgElementMaterializer
             $node = $element;
             $scale = 1.0;
             while ($node instanceof DOMElement) {
-                $style = array_merge($this->styleResolver->authorStructuralDeclarations($node), $this->styleResolver->structuralPresentationDeclarations($node), $this->styleResolver->presentationDeclarations($node));
+                $style = array_merge(
+                    $this->styleResolver->authorStructuralDeclarations($node),
+                    $this->styleResolver->structuralPresentationDeclarations($node),
+                    $this->styleResolver->presentationDeclarations($node),
+                    $this->styleResolver->referenceViewportAuthorDeclarations($node, array('width', 'height', 'display', 'position', 'float'))
+                );
                 $value = $this->plainDeclarationValue($style[$axis] ?? SourceDom::attr($node, $axis));
                 if (preg_match('/^([\d.]+)(?:px)?$/', $value, $m)) { $size[$axis] = (float) $m[1] * $scale; break; }
                 if (preg_match('/^([\d.]+)%$/', $value, $m)) $scale *= (float) $m[1] / 100;
-                elseif ($node === $element || !$this->declarationsPinInsetBox($style)) return null;
+                elseif ($node === $element || (!$this->declarationsPinInsetBox($style) && !$this->isUnsizedSvgWrapper($node, $style, $value))) return null;
                 $node = $node->parentNode;
             }
             if (empty($size[$axis])) return null;
@@ -945,6 +950,16 @@ final class SvgMaterializer implements SvgElementMaterializer
         $format = static fn (float $v): string => rtrim(rtrim(sprintf('%.4F', $v), '0'), '.');
         return array('viewBox' => implode(' ', array_map($format, array(($left - $tx) / $sx, ($top - $ty) / $sy, ($right - $left) / $sx, ($bottom - $top) / $sy))),
             'boxWidth' => $format($w), 'boxHeight' => $format($h), 'width' => $format($right - $left), 'height' => $format($bottom - $top), 'left' => $format($left), 'top' => $format($top));
+    }
+
+    /** Plain wrapper divs pass the percentage SVG's containing box through. */
+    private function isUnsizedSvgWrapper(DOMElement $node, array $style, string $axisValue): bool
+    {
+        return 'div' === strtolower($node->tagName)
+            && in_array($axisValue, array('', 'auto'), true)
+            && in_array($this->plainDeclarationValue($style['display'] ?? ''), array('', 'block'), true)
+            && in_array($this->plainDeclarationValue($style['position'] ?? ''), array('', 'static', 'relative'), true)
+            && in_array($this->plainDeclarationValue($style['float'] ?? ''), array('', 'none'), true);
     }
 
     private function unsizedMediaAxisDeclarations(array $presentation): string
