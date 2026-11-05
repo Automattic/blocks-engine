@@ -335,6 +335,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     /** @var list<string> Hosts the current source document declares as its own. */
     private array $sourceDocumentHosts = array();
 
+    /** @var list<DOMElement> Neutral convention instances retained as author selector hooks. */
+    private array $retainedCustomWrapperHooks = array();
+
     private readonly ElementConversionPrelude $elementPrelude;
 
     private readonly WrapperCoalescer $wrapperCoalescer;
@@ -2268,6 +2271,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private function unwrapRenderNeutralCustomElements(DOMElement $body, string $staticCss): void
     {
+        $this->retainedCustomWrapperHooks = array();
         $instances = array();
         foreach ( $body->getElementsByTagName('*') as $element ) {
             if ( $element instanceof DOMElement && str_contains(strtolower($element->tagName), '-') ) {
@@ -2282,8 +2286,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
             $attributeSelectors ??= $this->authorDataAttributeSelectors($staticCss);
             foreach ( $elements as $element ) {
-                if ( $this->isRenderNeutralWrapper($element, false) && ! $this->authorAttributeSelectorAddresses($element, $attributeSelectors) ) {
-                    $this->unwrapElement($element);
+                if ( $this->isRenderNeutralWrapper($element, false) ) {
+                    if ( $this->authorAttributeSelectorAddresses($element, $attributeSelectors) ) {
+                        $this->retainedCustomWrapperHooks[] = $element;
+                    } else {
+                        $this->unwrapElement($element);
+                    }
                 }
             }
         }
@@ -4062,6 +4070,19 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function convertElement(DOMElement $element, array &$fallbacks, bool $captureUnsupported = false): ?array
     {
         $tagName = strtolower($element->tagName);
+
+        // A boxless host is not a cohesive component: keep its selector identity
+        // on a native Group, without folding its child (the actual grid/flex
+        // item) into that Group. Author projection carries display:contents and
+        // attribute compounds onto the native carrier's selector classes.
+        if ( str_contains($tagName, '-') && $this->isSafeTransparentCustomElement($element)
+            && ( in_array($element, $this->retainedCustomWrapperHooks, true)
+                || 'contents' === strtolower(trim((string) ($this->styleResolver->structuralPresentationDeclarations($element)['display'] ?? ''))) )
+        ) {
+            $block = $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $this->convertChildren($element, $fallbacks, $captureUnsupported), $element);
+            $block['_native_custom_wrapper_hook'] = true;
+            return $block;
+        }
 
         // WordPress post navigation is a dynamic post primitive, not a menu.
         $classes = preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array();
