@@ -18,7 +18,16 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
  */
 final class DeclarationAddressedClasses
 {
-    private const PATTERN = '/\bblocks-engine-(?:control|native-button)-[a-f0-9]{12}-[0-9]+\b/';
+    /**
+     * Control, semantic and RichText markers stand for one carrier each, so a
+     * repeated source element under a positional or descendant author rule
+     * otherwise enumerates one arm per carrier. Carriers whose every rule
+     * arm, declaration, condition and order agree match exactly the same
+     * rules, so they share one address and each rule keeps one arm for them.
+     * A marker inside JSON-escaped label HTML follows `\u0022`, so the leading
+     * boundary admits a digit before it.
+     */
+    private const PATTERN = '/(?<![A-Za-z_-])blocks-engine-(?:control|native-button|richtext|semantic)-[a-f0-9]{12}-[0-9]+\b/';
 
     /** @param list<array<string, mixed>> $stylesheets @return array<string, string> */
     public function replacements(array $stylesheets): array
@@ -52,7 +61,7 @@ final class DeclarationAddressedClasses
             // Keep competing rule order, including A/B/A overrides. Sorting
             // or treating these records as an unordered set changes CSS.
             $signature = implode("\n", $rules);
-            preg_match('/^blocks-engine-(control|native-button)-/', $marker, $kind);
+            preg_match('/^blocks-engine-(control|native-button|richtext|semantic)-/', $marker, $kind);
             $replacements[$marker] = 'blocks-engine-' . $kind[1] . '-' . substr(hash('sha256', $signature), 0, 12) . '-0';
         }
         return $replacements;
