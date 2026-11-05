@@ -882,19 +882,33 @@ final class StyleResolver implements ElementPresentationResolver
         return $this->authorDeclarationsAtViewport($element, $properties, self::DESKTOP_REFERENCE_WIDTH, $excludeCaptureDisclosure);
     }
 
+    /** Preserve authored inline CSS except typography already supplied by the parent. */
+    public function serializedInlineStyle(DOMElement $element): string
+    {
+        $style = SourceDom::attr($element, 'style');
+        // Lowered RichText carriers already own their effective declarations;
+        // their synthetic ancestry is not the original inheritance context.
+        if ('mark' === strtolower($element->tagName) && 'none' === SourceDom::attr($element, 'role')) return $style;
+        $declarations = $this->cssDeclarations($style);
+        $effective = $this->withoutRedundantInheritedTypography($element, $declarations);
+
+        return $effective === $declarations ? $style : $this->cssDeclarationString($effective);
+    }
+
     /**
-     * The element to serialize as RichText: a clone without the boundary
-     * whitespace its flex and grid containers (at the reference viewport)
-     * never paint, or the element itself when there is none.
-     * {@see SourceDom::withoutBlockifiedBoundaryWhitespace()}
+     * Serialize RichText without unpainted flex/grid boundary whitespace or
+     * redundant inherited typography. Resolve styles against source ancestry.
      */
     public function richTextSerializationSource(DOMElement $element): DOMElement
     {
-        return SourceDom::withoutBlockifiedBoundaryWhitespace($element, function (DOMElement $container): bool {
+        $serialized = SourceDom::withoutBlockifiedBoundaryWhitespace($element, function (DOMElement $container): bool {
             $display = CssValueInspector::comparable($this->referenceViewportAuthorDeclarations($container, array( 'display' ))['display'] ?? '');
 
             return 1 === preg_match('/(?<![\w-])(?:inline-)?(?:flex|grid)(?![\w-])/', $display);
         });
+        $clone = SourceDom::canonicalizedSerializationClone($serialized);
+        SourceDom::projectInlineStyles($element, $clone, $this->serializedInlineStyle(...));
+        return $clone;
     }
 
     /**

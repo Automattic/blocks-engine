@@ -73,9 +73,9 @@ final class SourceDom
     /** HTML void elements: never an empty inline box with CSS geometry. */
     private const VOID_TAGS = array( 'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr' );
 
-    public static function innerHtml(DOMElement $element): string
+    public static function innerHtml(DOMElement $element, ?callable $inlineStyleFor = null): string
     {
-        $element = self::canonicalizedSerializationClone($element);
+        $element = self::canonicalizedSerializationClone($element, $inlineStyleFor);
         $html = '';
         foreach ( $element->childNodes as $child ) {
             $html .= $element->ownerDocument->saveHTML($child);
@@ -99,7 +99,7 @@ final class SourceDom
      *
      * @param callable(DOMElement): list<string> $markersFor
      */
-    public static function innerHtmlWithProjectedMarkers(DOMElement $element, callable $markersFor): string
+    public static function innerHtmlWithProjectedMarkers(DOMElement $element, callable $markersFor, ?callable $inlineStyleFor = null): string
     {
         $sourceDescendants = array();
         foreach ( $element->getElementsByTagName('*') as $descendant ) {
@@ -108,7 +108,7 @@ final class SourceDom
             }
         }
 
-        $clone = self::canonicalizedSerializationClone($element);
+        $clone = self::canonicalizedSerializationClone($element, $inlineStyleFor);
         $index = 0;
         foreach ( $clone->getElementsByTagName('*') as $cloned ) {
             if ( ! $cloned instanceof DOMElement ) {
@@ -255,14 +255,34 @@ final class SourceDom
         return trim($element->ownerDocument->saveHTML($element) ?: '');
     }
 
-    public static function canonicalizedSerializationClone(DOMElement $element): DOMElement
+    public static function canonicalizedSerializationClone(DOMElement $element, ?callable $inlineStyleFor = null): DOMElement
     {
         $clone = $element->cloneNode(true);
         if ( ! $clone instanceof DOMElement ) {
             throw new \LogicException('Cloning a DOMElement must produce a DOMElement.');
         }
         self::canonicalizeLinkUrls($clone);
+        if (null !== $inlineStyleFor) self::projectInlineStyles($element, $clone, $inlineStyleFor);
         return $clone;
+    }
+
+    /** Project against the original ancestry, never the detached serialization clone.
+     * @param callable(DOMElement): string $inlineStyleFor
+     */
+    public static function projectInlineStyles(DOMElement $source, DOMElement $clone, callable $inlineStyleFor): void
+    {
+        $sources = array_merge(array($source), iterator_to_array($source->getElementsByTagName('*')));
+        $targets = array_merge(array($clone), iterator_to_array($clone->getElementsByTagName('*')));
+        foreach ($sources as $index => $element) {
+            if (!$element->hasAttribute('style')) continue;
+            $style = $inlineStyleFor($element);
+            if ($style === $element->getAttribute('style')) continue;
+            if ('' === trim($style)) {
+                $targets[$index]->removeAttribute('style');
+            } else {
+                $targets[$index]->setAttribute('style', $style);
+            }
+        }
     }
 
     public static function canonicalizeLinkUrls(DOMElement $element): void

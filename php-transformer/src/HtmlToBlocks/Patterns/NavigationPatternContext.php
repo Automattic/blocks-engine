@@ -192,6 +192,11 @@ final class NavigationPatternContext
      * text presentation. Such an element (a logo heading) is what paints the
      * label, so it must survive the label's inline reduction.
      */
+    public function serializedInlineStyle(DOMElement $element): string
+    {
+        return $this->styleResolver?->serializedInlineStyle($element) ?? SourceDom::attr($element, 'style');
+    }
+
     public function ownsLabelTypography(DOMElement $element): bool
     {
         if ( ! $this->styleResolver instanceof StyleResolver || 1 !== preg_match('/^(?:' . NavigationPattern::BLOCK_LEVEL_LABEL_TAGS . ')$/i', $element->tagName) ) {
