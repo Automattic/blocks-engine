@@ -3532,6 +3532,8 @@ final class ShellExtraction
 
     private static function normalizeNestedChromeMarkup(string $markup): string
     {
+        // Emission-only landmark transport must not prevent producer/capture matching.
+        $markup = str_replace(array(',"className":"blocks-engine-shell-landmark"', ' blocks-engine-shell-landmark'), '', $markup);
         $markup = self::withoutCurrentNavigationState($markup, true);
         $markup = self::normalizeRenderIds($markup);
         $markup = self::withoutScrollStateCarrierIdentity($markup);
@@ -3565,14 +3567,14 @@ final class ShellExtraction
      * A part's content is its landmark box: the part renders exactly one
      * area landmark and Core's template-part wrapper only transports it.
      * Chrome without that landmark (an edge of skip link, bar and nav, an
-     * unlabeled masthead) gets a plain group with the area tag. Chrome that
+     * unlabeled masthead) gets a synthetic, frontend-boxless group with the area tag. Chrome that
      * already holds the landmark keeps it as authored: another landmark
      * around it would nest the two.
      */
     private static function landmarkPartMarkup(string $markup, string $area): string
     {
         if ('' === trim($markup) || self::containsAreaLandmark($markup, $area)) return $markup;
-        return '<!-- wp:group {"tagName":"' . $area . '"} --><' . $area . ' class="wp-block-group">' . $markup . '</' . $area . '><!-- /wp:group -->';
+        return '<!-- wp:group {"tagName":"' . $area . '","className":"blocks-engine-shell-landmark"} --><' . $area . ' class="wp-block-group blocks-engine-shell-landmark">' . $markup . '</' . $area . '><!-- /wp:group -->';
     }
 
     private static function containsAreaLandmark(string $markup, string $area): bool

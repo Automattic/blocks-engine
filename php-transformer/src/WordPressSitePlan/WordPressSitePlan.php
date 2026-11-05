@@ -6349,8 +6349,10 @@ PHP;
         }
         // Keep the source landmark intact. The marked Core transport contributes
         // no layout box on the frontend; the editor retains its selection box.
+        // Synthetic landmarks likewise must not replace source flex/grid items.
+        // Authored landmark boxes remain intact.
         if (array() !== $parts) {
-            $transportCss = ':where(body:not(.editor-styles-wrapper):not(.wp-admin)) :where(.blocks-engine-shell-transport){display:contents}';
+            $transportCss = ':where(body:not(.editor-styles-wrapper):not(.wp-admin)) :where(.blocks-engine-shell-transport){display:contents}:where(body:not(.editor-styles-wrapper):not(.wp-admin)) :where(.blocks-engine-shell-landmark){display:contents}';
             $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_style( 'blocks-engine-shell-transport', false, array(), null ); wp_enqueue_style( 'blocks-engine-shell-transport' ); wp_add_inline_style( 'blocks-engine-shell-transport', " . var_export($transportCss, true) . " ); } );";
         }
         // A page's layout frame sits in its template around post-content. Core's

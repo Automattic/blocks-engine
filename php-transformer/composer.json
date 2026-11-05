@@ -297,6 +297,7 @@
       "php tests/contract/navigation-explicit-references.php",
       "php tests/contract/shared-shell-containment.php",
       "php tests/contract/viewport-shell.php",
+      "php tests/contract/synthetic-landmark-layout.php",
       "php tests/contract/unlabeled-viewport-shell.php",
       "php tests/contract/unlabeled-capture-device-shell.php",
       "php tests/contract/shared-chrome-stylesheet-scope.php",
