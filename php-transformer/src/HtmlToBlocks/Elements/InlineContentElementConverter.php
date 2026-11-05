@@ -66,6 +66,18 @@ final class InlineContentElementConverter implements ElementConverter
         }
 
         if ( $this->context->isRuntimeDomTarget($element) ) {
+            // An empty fragment target needs no RichText or opaque HTML owner.
+            // Use the same native carrier as the non-runtime path below; group
+            // creation retains script-bound attributes through a layout shell.
+            $fragmentId = SourceDom::namedFragmentTargetId($element);
+            if ( ! $element->hasChildNodes()
+                && '' !== $fragmentId
+                && SourceDom::documentReferencesFragmentId($element, $fragmentId)
+                && ! SourceDom::documentHasOtherFragmentTarget($element, $fragmentId) ) {
+                $attributes = $this->styleResolver->presentationAttributes($element);
+                $attributes['anchor'] = $fragmentId;
+                return ConversionOutcome::handled($this->context->createBlock('core/group', $attributes, array(), $element));
+            }
             // An inline role-button (or a captured gallery direction control)
             // belongs to the button converter's editable runtime control.
             if ( AuthoredButtonBlockGenerator::canRetainRoleButton($element) ) {
