@@ -12,6 +12,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutParticipatio
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMDocument;
 use DOMElement;
+use DOMText;
 
 final class ButtonsPattern
 {
@@ -964,10 +965,92 @@ final class ButtonsPattern
 
     private function isRichTextAnchorLabel(DOMElement $anchor, ButtonPatternContext $buttons): bool
     {
-        return $this->sourceElements->isRichTextButtonLabel(
-            $anchor,
-            $this->signalClassifier->hasStyleSignal($anchor, $buttons->controlSurfaceStyle($anchor))
-        );
+        $hasOwnSurface = $this->signalClassifier->hasStyleSignal($anchor, $buttons->controlSurfaceStyle($anchor));
+        if ( $this->sourceElements->isRichTextButtonLabel($anchor, $hasOwnSurface) ) {
+            return true;
+        }
+        // Builder markup commonly wraps the label in one unstyled box
+        // (`<a class="cta"><div class="label"><p>Label</p></div></a>`). That
+        // single wrapper chain is the already-supported `<a><p>` shape with
+        // extra boxes, so classify the label element behind it instead of
+        // keeping the whole subtree a linked container.
+        $label = $this->singleLabelChainElement($anchor, $buttons);
+
+        return null !== $label && $this->sourceElements->isRichTextButtonLabel($label, $hasOwnSurface);
+    }
+
+    /**
+     * The single text element behind one chain of unstyled label wrappers.
+     *
+     * Each level after the anchor must hold exactly one element child and no
+     * text of its own, and every descended element stays in the label tag
+     * set. The element the chain ends on carries the label and keeps its own
+     * paint (a styled label element is what `<a><p>` already supports); the
+     * wrappers before it must not paint (no background, border, shadow, or
+     * outline): a painted wrapper is a second box the control surface cannot
+     * fold away, and branching or structural content (a card body, a heading)
+     * is not a label. The label element is validated as RichText on its own,
+     * so its content rules are exactly the unwrapped form's.
+     */
+    private function singleLabelChainElement(DOMElement $anchor, ButtonPatternContext $buttons): ?DOMElement
+    {
+        $element = $anchor;
+        $chain = array();
+        for ( $depth = 0; $depth < 16; ++$depth ) {
+            $child = null;
+            $text = false;
+            foreach ( $element->childNodes as $node ) {
+                if ( XML_COMMENT_NODE === $node->nodeType
+                    || ( XML_TEXT_NODE === $node->nodeType && '' === trim($node->textContent ?? '') ) ) {
+                    continue;
+                }
+                if ( $node instanceof DOMText ) {
+                    $text = true;
+                    continue;
+                }
+                if ( ! $node instanceof DOMElement || null !== $child ) {
+                    return null;
+                }
+                $child = $node;
+            }
+            if ( $text || null === $child ) {
+                break;
+            }
+            if ( ! in_array(strtolower($child->tagName), AuthoredButtonBlockGenerator::LABEL_TAGS, true) ) {
+                return null;
+            }
+            $chain[] = $child;
+            $element = $child;
+        }
+        if ( ! in_array(strtolower($element->tagName), AuthoredButtonBlockGenerator::LABEL_TAGS, true) ) {
+            return null;
+        }
+        foreach ( array_slice($chain, 0, -1) as $wrapper ) {
+            if ( $this->labelWrapperPaints($wrapper, $buttons) ) {
+                return null;
+            }
+        }
+
+        return $element;
+    }
+
+    /** Whether the wrapper box paints: fills, borders, shadows, or outlines. */
+    private function labelWrapperPaints(DOMElement $wrapper, ButtonPatternContext $buttons): bool
+    {
+        $style = strtolower($buttons->resolvedStyle($wrapper));
+        foreach ( array(
+            'background(?:-color|-image)?' => '/^(?:transparent|none|inherit|initial|rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\))\s*$/',
+            'border(?:-(?:top|right|bottom|left)(?:-(?:width|style|color)))?' => '/^(?:0|none)\s*[a-z%]*\s*$/',
+            'box-shadow' => '/^none\s*$/',
+            'outline(?:-(?:width|style|color))?' => '/^(?:0|none)\s*[a-z%]*\s*$/',
+        ) as $property => $negations ) {
+            if ( preg_match('/(?:^|;)\s*' . $property . '\s*:\s*([^;]+)/', $style, $matches)
+                && 1 !== preg_match($negations, trim($matches[1])) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function hasButtonSignal(DOMElement $anchor, ButtonPatternContext $buttons): bool
