@@ -63,7 +63,7 @@ $withoutDiagnostics = static function (array $value) use (&$withoutDiagnostics):
     return $value;
 };
 $hash = hash('sha256', json_encode($withoutDiagnostics($result), JSON_THROW_ON_ERROR));
-// Updated for repair-only editor CSS: author at-rules are no longer copied.
-$assert('60015930b6702c5d212bc42fde029a845bb8ca8ffc1223bf2c6f709e31055e81' === $hash, 'non-diagnostic transform output stays byte-identical to baseline: ' . $hash);
+// Updated for repair-only editor CSS and natively preserved captured dialog trigger anchors.
+$assert('22ea7d9e4aaf867feb2d78384d0dec45ba7f3095b6416aa973838ab46e9ba24f' === $hash, 'non-diagnostic transform output stays byte-identical to baseline: ' . $hash);
 fwrite(STDOUT, 'fixture layout graph bytes: ' . strlen(json_encode($layout, JSON_THROW_ON_ERROR)) . PHP_EOL);
 exit($failures ? 1 : 0);
