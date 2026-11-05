@@ -86,7 +86,7 @@ final class NavigationStyleProjector
             // wrapper classes, animations included. Settle those copies too, or
             // the editor keeps the source's hidden start keyframe on exactly the
             // elements the projection exists to reach.
-            foreach ( ( new RevealAnimationSettler() )->settleRules($anchorProjectionCss) as $settledRule ) {
+            foreach ( ( new RevealAnimationSettler() )->settleRules($anchorProjectionCss, $this->context->authorStyles()->combinedCss()) as $settledRule ) {
                 $rules[] = $settledRule;
             }
         }
@@ -172,9 +172,13 @@ final class NavigationStyleProjector
     {
         $stateMarkers = $this->context->selectorProjections()->attributeNegationMarkers();
 
-        return trim(( new CssStylesheetTransformer() )->transform(
+        // Collect repairs rather than transforming the source sheet: a
+        // transform retains non-style rules (fonts, keyframes, imports) and
+        // even returns malformed input unchanged. None belongs in this asset.
+        $repairs = array();
+        ( new CssStylesheetTransformer() )->visitStyleRules(
             $stylesheet,
-            function (string $prelude, string $body) use ($ids, $uncoveredIds, $stateMarkers): array {
+            function (string $prelude, string $body, array $conditions) use ($ids, $uncoveredIds, $stateMarkers, &$repairs): void {
                 $projected = array();
                 $transported = array();
                 foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
@@ -210,7 +214,7 @@ final class NavigationStyleProjector
                 }
 
                 if ( array() === $projected ) {
-                    return array();
+                    return;
                 }
 
                 $rules = array(array('prelude' => implode(',', $projected), 'body' => $body));
@@ -218,9 +222,16 @@ final class NavigationStyleProjector
                 if ( array() !== $transported && '' !== $transportBody ) {
                     $rules[] = array('prelude' => implode(',', array_unique($transported)), 'body' => $transportBody);
                 }
-                return $rules;
+                foreach ( $rules as $rule ) {
+                    $css = $rule['prelude'] . '{' . $rule['body'] . '}';
+                    foreach ( array_reverse($conditions) as $condition ) {
+                        $css = $condition . '{' . $css . '}';
+                    }
+                    $repairs[] = $css;
+                }
             }
-        ));
+        );
+        return trim(implode("\n", $repairs));
     }
 
     /**

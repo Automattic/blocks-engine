@@ -95,7 +95,7 @@ final class RevealAnimationSettler
      *
      * @return list<string>
      */
-    public function settleRules(string $css): array
+    public function settleRules(string $css, string $keyframeCss = ''): array
     {
         if ( 1 !== preg_match('/(?:^|[;{\s])animation(?:-[a-z-]+)?\s*:/i', $css) ) {
             return array();
@@ -104,6 +104,12 @@ final class RevealAnimationSettler
         $candidates = array();
         $settled = array();
         $transformer = new CssStylesheetTransformer();
+        $visitKeyframes = function (string $name, string $body) use ($transformer, &$keyframes): void {
+            $keyframes[$name] = $this->keyframeBoundaryState($transformer, $body, $keyframes[$name] ?? array('start' => array(), 'end' => array()));
+        };
+        // Repairs may refer to keyframes supplied by the shared author sheet.
+        // Read those definitions without making its selectors repair candidates.
+        $transformer->visitKeyframeRules($keyframeCss, $visitKeyframes);
         $transformer->visitStyleAndKeyframeRules(
             $css,
             function (string $prelude, string $body) use (&$candidates): void {
@@ -111,9 +117,7 @@ final class RevealAnimationSettler
                     $candidates[] = array($prelude, $this->declarations($body));
                 }
             },
-            function (string $name, string $body) use ($transformer, &$keyframes): void {
-                $keyframes[$name] = $this->keyframeBoundaryState($transformer, $body, $keyframes[$name] ?? array('start' => array(), 'end' => array()));
-            }
+            $visitKeyframes
         );
         if ( array() === $keyframes ) {
             return array();

@@ -39,11 +39,12 @@ final class AuthoredMarqueeBlockGenerator
     var RichText = blockEditor.RichText;
     function duration( value ) { value = Number( value ); return Math.min( 600, Math.max( 1, Number.isFinite( value ) ? value : 40 ) ); }
     function items( attributes ) { return Array.isArray( attributes.items ) && attributes.items.length ? attributes.items : [ { content: attributes.content || '', className: '', marker: '' } ]; }
-    function itemProps( item, key ) { var props = { key: key, tagName: 'span', className: item.className || undefined, value: item.content || '' }; if ( item.marker ) { props[ 'data-blocks-engine-richtext-marker' ] = item.marker; } return props; }
+    function itemTag( item ) { return /^(h[1-6]|p|span)$/.test( item.tagName || '' ) ? item.tagName : 'span'; }
+    function itemProps( item, key ) { var props = { key: key, tagName: itemTag( item ), className: item.className || undefined, value: item.content || '' }; if ( item.marker ) { props[ 'data-blocks-engine-richtext-marker' ] = item.marker; } return props; }
     function edit( props ) {
         var authoredItems = items( props.attributes );
         return createElement( 'div', blockEditor.useBlockProps(), authoredItems.map( function( item, index ) {
-            return createElement( RichText, { key: index, tagName: 'p', value: item.content || '', onChange: function( content ) { var next = authoredItems.slice(); next[ index ] = Object.assign( {}, item, { content: content } ); props.setAttributes( { items: next, content: '' } ); }, allowedFormats: [], placeholder: 'Animated text' } );
+            return createElement( RichText, { key: index, tagName: item.tagName ? itemTag( item ) : 'p', className: item.className || undefined, value: item.content || '', onChange: function( content ) { var next = authoredItems.slice(); next[ index ] = Object.assign( {}, item, { content: content } ); props.setAttributes( { items: next, content: '' } ); }, allowedFormats: [], placeholder: 'Animated text' } );
         } ) );
     }
     blocks.registerBlockType( '__BLOCK_NAME__', {
@@ -54,7 +55,7 @@ final class AuthoredMarqueeBlockGenerator
             var attributes = props.attributes;
             var direction = 'right' === attributes.direction ? 'right' : 'left';
             var authoredItems = items( attributes );
-            var sequence = function( hidden ) { return createElement( 'span', { className: 'blocks-engine-authored-marquee__content' + ( attributes.items && attributes.items.length ? ' blocks-engine-authored-marquee__content--items' : '' ), 'aria-hidden': hidden ? true : undefined, inert: hidden ? '' : undefined }, authoredItems.map( function( item, index ) { return createElement( RichText.Content, itemProps( item, index ) ); } ) ); };
+            var sequence = function( hidden ) { return createElement( authoredItems.some( function( item ) { return !!item.tagName; } ) ? 'div' : 'span', { className: 'blocks-engine-authored-marquee__content' + ( attributes.items && attributes.items.length ? ' blocks-engine-authored-marquee__content--items' : '' ), 'aria-hidden': hidden ? true : undefined, inert: hidden ? '' : undefined }, authoredItems.map( function( item, index ) { return createElement( RichText.Content, itemProps( item, index ) ); } ) ); };
             return createElement( 'div', { className: 'blocks-engine-authored-marquee', style: { '--blocks-engine-marquee-duration': duration( attributes.duration ) + 's' }, 'data-direction': direction, 'aria-hidden': attributes.decorative ? true : undefined }, createElement( 'div', { className: 'blocks-engine-authored-marquee__viewport' }, createElement( 'div', { className: 'blocks-engine-authored-marquee__track' }, sequence( false ), sequence( true ) ) ) );
         }
     } );
@@ -77,19 +78,24 @@ JS;
         $decorative = true === ($attributes['decorative'] ?? false) ? ' aria-hidden="true"' : '';
         $contentClass = 'blocks-engine-authored-marquee__content' . (is_array($attributes['items'] ?? null) && array() !== $attributes['items'] ? ' blocks-engine-authored-marquee__content--items' : '');
         $content = '';
+        $sequenceTag = 'span';
         foreach ( $items as $item ) {
             if ( ! is_array($item) ) {
                 continue;
             }
             $className = $this->safeTokenList((string) ($item['className'] ?? ''));
             $marker = $this->safeToken((string) ($item['marker'] ?? ''));
-            $content .= '<span'
+            $tag = in_array($item['tagName'] ?? '', array( 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span' ), true) ? $item['tagName'] : 'span';
+            if ( isset($item['tagName']) ) {
+                $sequenceTag = 'div';
+            }
+            $content .= '<' . $tag
                 . ('' !== $className ? ' class="' . $className . '"' : '')
                 . ('' !== $marker ? ' data-blocks-engine-richtext-marker="' . $marker . '"' : '')
-                . '>' . (string) ($item['content'] ?? '') . '</span>';
+                . '>' . (string) ($item['content'] ?? '') . '</' . $tag . '>';
         }
 
-        return '<div class="blocks-engine-authored-marquee" style="--blocks-engine-marquee-duration:' . $duration . 's" data-direction="' . $direction . '"' . $decorative . '><div class="blocks-engine-authored-marquee__viewport"><div class="blocks-engine-authored-marquee__track"><span class="' . $contentClass . '">' . $content . '</span><span class="' . $contentClass . '" aria-hidden="true" inert="">' . $content . '</span></div></div></div>';
+        return '<div class="blocks-engine-authored-marquee" style="--blocks-engine-marquee-duration:' . $duration . 's" data-direction="' . $direction . '"' . $decorative . '><div class="blocks-engine-authored-marquee__viewport"><div class="blocks-engine-authored-marquee__track"><' . $sequenceTag . ' class="' . $contentClass . '">' . $content . '</' . $sequenceTag . '><' . $sequenceTag . ' class="' . $contentClass . '" aria-hidden="true" inert="">' . $content . '</' . $sequenceTag . '></div></div></div>';
     }
 
     private function safeTokenList(string $value): string
