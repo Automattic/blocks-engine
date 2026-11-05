@@ -49,4 +49,17 @@ foreach (array('different', 'identical', 'conflict') as $case) {
         }
     }
 }
+// Captured device documents also carry the device attribute their gated
+// rules and visibility CSS select; each hoisted variant keeps it.
+$gated = static fn(string $title): string => preg_replace('/(<div class="data-blocks-engine-capture-(desktop|mobile)-document")/', '$1 data-blocks-engine-capture-device-document="$2"', $document($title, false, false)) ?? '';
+$plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $gated('Home'), 'services/index.html' => $gated('Services'))))->toArray()['source_reports']['wordpress_site_plan'];
+WordPressSitePlan::assertValid($plan);
+$header = array_column($plan['template_parts'], 'canonical_block_markup', 'area')['header'] ?? '';
+$index = new Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($header);
+$assert(2 === count($index->topLevel()), 'Gated devices have separate visibility wrappers');
+foreach ($index->topLevel() as $range) {
+    $variant = substr($header, $range['offset'], $range['length']);
+    $device = str_contains($variant, 'capture-mobile-document') ? 'mobile' : 'desktop';
+    $assert(1 === preg_match('/^<!--[^>]*-->\s*<div\b[^>]*\bdata-be-d="' . $device . '"[^>]*\bdata-blocks-engine-capture-device-document="' . $device . '"/', $variant), 'The ' . $device . ' header variant keeps its device gate');
+}
 echo "Unlabeled capture-device shell contract passed.\n";
