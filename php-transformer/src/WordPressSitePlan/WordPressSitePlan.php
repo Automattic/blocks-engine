@@ -4995,15 +4995,18 @@ PHP;
             && ($dateContext || 'date' === $this->classifyPostChromeBlock($slice, $post, $route, $postIndex));
         foreach ($children as $child) {
             $transformed = $this->transformPostChromeRange($index, $postIndex, $child, $post, $route, $shared, $childDateContext, $featuredOffset, $contentRange);
-            $foundShared = $foundShared || $transformed['shared'];
-            $body .= $transformed['body'];
-            $retained = array_merge($retained, $transformed['retained']);
             if ($transformed['content'] && $emittedContent) {
                 // The subtree leaves the template, and with it any title or
-                // date it placed: neither is found.
+                // date it placed: neither is found. Shared blocks inside it
+                // leave too, so the body keeps the complete subtree.
+                $body .= substr($markup, $child['offset'], $child['length']);
+                $retained[] = array('offset' => $child['offset'], 'length' => $child['length']);
                 $replacements[] = array('offset' => $child['offset'], 'length' => $child['length'], 'markup' => '');
                 continue;
             }
+            $foundShared = $foundShared || $transformed['shared'];
+            $body .= $transformed['body'];
+            $retained = array_merge($retained, $transformed['retained']);
             $foundTitle = $foundTitle || $transformed['title'];
             $foundDate = $foundDate || $transformed['date'];
             if ($transformed['content']) {
