@@ -93,6 +93,8 @@ final class DesignUsageCollector
     private array $headingTypography = array();
     /** @var list<array<string,string>> Resolved, explicitly authored button looks. */
     private array $buttonLooks = array();
+    /** @var \SplObjectStorage<DOMElement,null> Source controls emitted as core/button, deduplicated by DOM identity. */
+    private \SplObjectStorage $buttonElements;
     private float $rootPx = 16.0;
     private int $elements = 0;
 
@@ -100,9 +102,14 @@ final class DesignUsageCollector
     {
     }
 
-    /** @return array<string,mixed> */
-    public function collect(DOMElement $body): array
+    /**
+     * @param list<DOMElement> $buttonElements Controls owned by emitted core/button blocks.
+     * @return array<string,mixed>
+     */
+    public function collect(DOMElement $body, array $buttonElements = array()): array
     {
+        $this->buttonElements = new \SplObjectStorage();
+        foreach ($buttonElements as $element) $this->buttonElements->attach($element);
         $this->text = $this->backgrounds = $this->spacing = $this->widths = $this->classStyles = array();
         $this->elements = 0;
         $this->headingTypography = $this->buttonLooks = array();
@@ -206,7 +213,7 @@ final class DesignUsageCollector
             $context['background'] = (string) CssColor::hex($background);
             if ($control) $context['role'] = 'button';
         }
-        if ($control && isset($declarations['border-radius'], $declarations['font-size'])) {
+        if ($this->buttonElements->contains($element) && isset($declarations['border-radius'], $declarations['font-size'])) {
             $lookDeclarations = array_map(self::clean(...), $declarations);
             $padding = $this->paddingObservations($lookDeclarations, (float) $context['size']);
             if (array() === array_filter($padding, static fn(string $value): bool => '' === $value || str_starts_with($value, '!'))) $lookDeclarations['padding'] = ($padding['padding-top'] === $padding['padding-bottom'] && $padding['padding-right'] === $padding['padding-left'])

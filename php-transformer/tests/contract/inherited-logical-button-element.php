@@ -196,4 +196,31 @@ foreach ($variant['writes'] as $write) {
     }
 }
 $assert($buttons >= 3, 'missing-family fixture exercises at least three buttons');
+$input = require dirname(__DIR__) . '/fixtures/design-system/navigation-cta-button-votes.php';
+$result = (new ArtifactCompiler())->compile($input)->toArray();
+$variant = $result['source_reports']['wordpress_site_plan'];
+foreach ($result['source_reports']['compiled_site']['pages'] as $page) {
+    $looks = $page['design_usage']['button_looks'] ?? array();
+    $assert(3 === count($looks), 'each content control votes once per document despite repeated shell compilation');
+    foreach ($looks as $look) $assert('7.5px 15px' === ($look['padding'] ?? null), 'only emitted core/button controls contribute looks');
+}
+$buttons = 0;
+$documents = $variant['writes'];
+foreach ($variant['pages'] as $page) $documents[] = array('target_path' => $page['source_path'], 'payload' => array('data' => $page['canonical_block_markup']));
+foreach ($documents as $write) {
+    if ('theme.json' === $write['target_path']) {
+        $theme = json_decode($write['payload']['data'], true, 512, JSON_THROW_ON_ERROR);
+        $assert(array('7.5px', '15px', '7.5px', '15px') === $paddingValues($theme['styles']['elements']['button'] ?? array(), $theme), 'navigation CTA and form controls cannot vote against content padding');
+        continue;
+    }
+    $markup = $write['payload']['data'];
+    preg_match_all('/<!-- wp:button(?: (\{.*?\}))? -->(.*?)<!-- \/wp:button -->/s', $markup, $matches, PREG_SET_ORDER);
+    foreach ($matches as $match) {
+        ++$buttons;
+        $attrs = '' === $match[1] ? array() : json_decode($match[1], true, 512, JSON_THROW_ON_ERROR);
+        $assert(!isset($attrs['style']['spacing']['padding']), 'content buttons yield padding to element');
+        $assert(!str_contains($match[2], 'padding-'), 'content saved padding removed');
+    }
+}
+$assert($buttons >= 3 && str_contains(json_encode($result, JSON_THROW_ON_ERROR), 'wp:navigation-link'), 'fixture emits content buttons and native navigation links');
 echo "Inherited logical button element contract passed\n";
