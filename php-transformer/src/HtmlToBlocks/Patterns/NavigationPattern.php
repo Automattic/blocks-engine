@@ -3439,6 +3439,17 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
         }
 
+        // Native anchor metadata is filtered by WordPress at render time; an
+        // inline hsl(var(...)) colour may not survive that filter. Carry its
+        // resolved resting value through the existing state-aware colour rules.
+        if (null !== $navigationContext && '' !== $subjectMarker
+            && 0 !== $this->navigationColorStateMask($anchor, $navigationContext)
+            && preg_match('/(?:^|;)\s*color\s*:/i', $anchor->getAttribute('style'))
+        ) {
+            $resolvedTextColor = $this->navigationTextColorFromStyle($navigationContext->resolvedStyle($anchor));
+            if ('' !== $resolvedTextColor) $itemAttrs['style']['color']['text'] = $resolvedTextColor;
+        }
+
         $textColor = trim((string) ($itemAttrs['style']['color']['text'] ?? ''));
         $stateMask = $this->navigationColorStateMask($anchor, $navigationContext);
         // An authored current item's own markup is its resting presentation, as
