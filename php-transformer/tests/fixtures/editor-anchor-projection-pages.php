@@ -5,6 +5,11 @@ declare(strict_types=1);
 $pages = array();
 foreach (array('Home', 'About') as $title) {
     $html = '<!doctype html><html><head><style>'
+        . '@charset "UTF-8";@import url("base.css");'
+        . '@font-face{font-family:Shared;src:url("shared.woff2")}'
+        . 'html{font-family:Shared,sans-serif}body{margin:0}h1{font-size:2em}'
+        . '@supports(display:grid){@font-face{font-family:Nested;src:url("nested.woff2")}body{display:grid}}'
+        . '@supports(display:grid){@media(min-width:2px){#ordinary{padding-right:23px}}}'
         . '#panel{color:rgb(12,34,56)}'
         . '@media(min-width:1px){[id="panel"]{padding-left:17px}}'
         . '#panel #child{border-top-width:3px}'
@@ -17,6 +22,6 @@ foreach (array('Home', 'About') as $title) {
         $html .= '<div data-blocks-engine-capture-device-document="' . $device . '" data-blocks-engine-capture-document-scope="">'
             . '<section id="panel"><div id="child"><p>' . $title . ' content</p></div></section></div>';
     }
-    $pages[] = $html . '</body></html>';
+    $pages[] = $html . '<nav><ul><li><a href="/">Home</a></li><li><a href="/about">About</a></li></ul></nav></body></html>';
 }
 return $pages;
