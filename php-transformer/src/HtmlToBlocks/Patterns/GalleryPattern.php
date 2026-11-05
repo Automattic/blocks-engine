@@ -11,6 +11,11 @@ use const XML_TEXT_NODE;
 
 final class GalleryPattern implements PatternRecognizerInterface
 {
+    public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock
+    ) {
+    }
+
     use PatternDomHelpersTrait;
 
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
@@ -27,7 +32,7 @@ final class GalleryPattern implements PatternRecognizerInterface
             fn (DOMElement $figure): ?DOMElement => $gallery->linkedMediaAnchor($figure),
             $context->presentationAttributes(...),
             SourceDom::innerHtml(...),
-            $context->createBlock(...)
+            $this->createBlock->createBlock(...)
         );
 
         return null === $block ? null : new PatternRecognitionResult($block);

@@ -29,17 +29,6 @@ final class FormFallbackFindingContext
     ) {
     }
 
-    /** @return array<int, array<string, mixed>> */
-    public function stylesheetAssets(): array
-    {
-        return $this->session->authorStyleAnalysis()->stylesheetAssets();
-    }
-
-    public function formLayoutCss(): string
-    {
-        return $this->session->sourceStyleResolutionState()->formLayoutCss();
-    }
-
     /** @return array{html: string, bytes: int, truncated: bool} */
     public function boundedFallbackHtml(DOMElement $element): array
     {
@@ -56,12 +45,6 @@ final class FormFallbackFindingContext
     public function sourceContext(DOMElement $element): array
     {
         return ($this->sourceContext)($element);
-    }
-
-    /** @return array<string, mixed> */
-    public function classifyFallbackSubtree(DOMElement $element): array
-    {
-        return $this->session->fallbackEmitter()->classifyFallbackSubtree($element);
     }
 
     /**

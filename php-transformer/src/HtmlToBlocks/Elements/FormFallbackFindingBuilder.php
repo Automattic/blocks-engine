@@ -17,6 +17,7 @@ final class FormFallbackFindingBuilder
     private array $choiceGroupSelectors = array();
 
     public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession $session,
         private readonly FormFallbackFindingContext $context,
         private readonly FormControlMetadataBuilder $metadataBuilder,
         private readonly FormSuccessPanelMetadataBuilder $successPanelMetadataBuilder,
@@ -34,15 +35,15 @@ final class FormFallbackFindingBuilder
     {
         $controls = $this->metadataBuilder->controls($element);
         $controlTopology = (new FormControlTopologyBuilder())->build($element);
-        $layoutGraph ??= (new FormLayoutGraphBuilder())->build($element, $this->context->stylesheetAssets(), $this->context->formLayoutCss());
+        $layoutGraph ??= (new FormLayoutGraphBuilder())->build($element, $this->session->authorStyleAnalysis()->stylesheetAssets(), $this->session->sourceStyleResolutionState()->formLayoutCss());
         $presentationBuilder = new FormPresentationGraphBuilder(
             fn (DOMElement $control, string $value): string => $this->context->resolvePresentationValue($control, $value),
             fn (DOMElement $element): string => $this->context->sanitizeInlineSvgMarkup($element),
             fn (DOMElement $control): ?DOMElement => $this->metadataBuilder->requiredMarker($control)
         );
-        $presentationGraph = $presentationBuilder->build($element, $this->context->stylesheetAssets(), $this->context->formLayoutCss());
+        $presentationGraph = $presentationBuilder->build($element, $this->session->authorStyleAnalysis()->stylesheetAssets(), $this->session->sourceStyleResolutionState()->formLayoutCss());
         $formMetadata = $this->metadataBuilder->form($element);
-        $containerPresentation = $presentationBuilder->buildContainer($element, $this->context->stylesheetAssets(), $this->context->formLayoutCss());
+        $containerPresentation = $presentationBuilder->buildContainer($element, $this->session->authorStyleAnalysis()->stylesheetAssets(), $this->session->sourceStyleResolutionState()->formLayoutCss());
         if ($containerPresentation) $formMetadata['container_presentation'] = $containerPresentation;
         $choiceGroups = $this->choiceGroups($element);
         $boundedHtml = $this->context->boundedFallbackHtml($element);
@@ -78,7 +79,7 @@ final class FormFallbackFindingBuilder
             'form_intent'      => FormRuntimeRequirementAnalyzer::formIntent($element),
             'success_panel'    => $this->successPanelMetadataBuilder->build($element),
             'context'          => $this->context->sourceContext($element),
-            'classification'   => $this->context->classifyFallbackSubtree($element),
+            'classification'   => $this->session->fallbackEmitter()->classifyFallbackSubtree($element),
             'events'           => SourceDom::eventMetadata($element),
             // Top-level block annotations (never attrs): form_control_index
             // addresses controls[], form_choice_group_index addresses
@@ -101,7 +102,7 @@ final class FormFallbackFindingBuilder
         if ( array() !== $choiceGroups ) {
             $finding['choice_groups'] = $choiceGroups;
         }
-        $steps = true === ($layoutGraph['truncated'] ?? true) ? null : (new FormStepTrackDetector())->detect($element, $layoutGraph, $this->context->stylesheetAssets(), $this->context->formLayoutCss());
+        $steps = true === ($layoutGraph['truncated'] ?? true) ? null : (new FormStepTrackDetector())->detect($element, $layoutGraph, $this->session->authorStyleAnalysis()->stylesheetAssets(), $this->session->sourceStyleResolutionState()->formLayoutCss());
         if ( null !== $steps ) {
             $finding['steps'] = $steps;
         }

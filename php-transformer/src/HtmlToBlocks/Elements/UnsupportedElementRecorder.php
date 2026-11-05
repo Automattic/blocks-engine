@@ -18,6 +18,7 @@ use DOMElement;
 final class UnsupportedElementRecorder
 {
     public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession $session,
         private readonly UnsupportedElementContext $context,
         private readonly FormControlMetadataBuilder $formControlMetadataBuilder
     ) {
@@ -35,7 +36,7 @@ final class UnsupportedElementRecorder
      */
     public function record(DOMElement $element, string $tagName, array &$fallbacks): ?array
     {
-        $generated = $this->context->maybeGenerateCustomBlock($element);
+        $generated = $this->session->fallbackEmitter()->maybeGenerateCustomBlock($element, $this->session->requireGeneratedBlockRegistry());
         if ( null !== $generated ) {
             return $this->context->generatedComponentBlock($generated, $element);
         }
@@ -59,7 +60,7 @@ final class UnsupportedElementRecorder
             'selector'        => SourceDom::elementSelector($element),
             'attributes'      => SourceDom::htmlAttributes($element),
             'context'         => $this->context->sourceContext($element),
-            'classification'  => $this->context->classifyFallbackSubtree($element),
+            'classification'  => $this->session->fallbackEmitter()->classifyFallbackSubtree($element),
             'events'          => SourceDom::eventMetadata($element),
             'text_length'     => strlen(trim($element->textContent ?? '')),
             'child_count'     => SourceDom::childElementCount($element),

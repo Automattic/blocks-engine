@@ -54,6 +54,7 @@ final class NavigationToggleSuppressor
     public int $coreNavigationRecognitionExecutions = 0;
 
     public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession $session,
         private readonly NavigationToggleSuppressionContext $context,
         private readonly StyleResolver $styleResolver
     ) {
@@ -78,7 +79,7 @@ final class NavigationToggleSuppressor
         // row's navigation. Record it first so the hamburger and the panel are
         // never offered to the projections below.
         foreach ( CapturedMenuDialogFold::detect($root) as $fold ) {
-            $this->context->navigationProjection()->foldMenuDialog($fold);
+            $this->session->navigationProjectionState()->foldMenuDialog($fold);
         }
 
         $elementsById = array();
@@ -109,7 +110,7 @@ final class NavigationToggleSuppressor
                 break;
             }
 
-            if ( $this->context->navigationProjection()->hasTargetForControl($control) ) {
+            if ( $this->session->navigationProjectionState()->hasTargetForControl($control) ) {
                 continue;
             }
             if ( $this->isBoundCapturedDialogTrigger($control) ) {
@@ -131,7 +132,7 @@ final class NavigationToggleSuppressor
                     continue;
                 }
                 if ( $this->hasDialogPopupSemantics($control) ) {
-                    $this->context->navigationProjection()->markImplicitDialogControl($control);
+                    $this->session->navigationProjectionState()->markImplicitDialogControl($control);
                 }
                 $this->recordProjectedNavigationRelationship($control, $relationship['target'], $relationship['navigation']);
             }
@@ -174,13 +175,13 @@ final class NavigationToggleSuppressor
             || $this->isInsideAdoptedRestingPanel($target) || $this->isInsideAdoptedRestingPanel($navigation) ) {
             return;
         }
-        if ( $this->context->navigationProjection()->isSuppressed($navigation) ) {
+        if ( $this->session->navigationProjectionState()->isSuppressed($navigation) ) {
             return;
         }
 
-        $this->context->navigationProjection()->projectTarget($control, $navigation);
-        $this->context->navigationProjection()->suppress($target);
-        $this->context->navigationProjection()->suppress($navigation);
+        $this->session->navigationProjectionState()->projectTarget($control, $navigation);
+        $this->session->navigationProjectionState()->suppress($target);
+        $this->session->navigationProjectionState()->suppress($navigation);
         $this->suppressCaptureCloseHelpers($target);
         if ( $this->isProjectableHashAnchorMenuToggle($control) ) {
             $this->suppressEquivalentNavigationDuplicates($control, $navigation);
@@ -202,7 +203,7 @@ final class NavigationToggleSuppressor
                 && $id === trim(SourceDom::attr($button, CaptureEvidence::DIALOG_CLOSE))
                 && $button->hasAttribute('hidden')
                 && ! SourceDom::elementContains($target, $button) ) {
-                $this->context->navigationProjection()->suppress($button);
+                $this->session->navigationProjectionState()->suppress($button);
             }
         }
     }
@@ -235,13 +236,13 @@ final class NavigationToggleSuppressor
         foreach ( $root->getElementsByTagName('*') as $candidate ) {
             if ( ! $candidate instanceof DOMElement
                 || $candidate->isSameNode($navigation)
-                || $this->context->navigationProjection()->isSuppressed($candidate)
+                || $this->session->navigationProjectionState()->isSuppressed($candidate)
                 || SourceDom::elementContains($candidate, $control)
                 || ! $this->isAssociatedNavigationTarget($candidate)
                 || $signature !== $this->sourceNavigationSignature($candidate) ) {
                 continue;
             }
-            $this->context->navigationProjection()->suppress($candidate);
+            $this->session->navigationProjectionState()->suppress($candidate);
         }
     }
 
@@ -302,11 +303,11 @@ final class NavigationToggleSuppressor
                 // A capture can retain only the initially closed menu while the
                 // source creates its dialog after a click. A unique hidden nav
                 // in the control's bounded scope is its static counterpart.
-                if ( $this->context->navigationProjection()->isSuppressed($candidate) ) {
+                if ( $this->session->navigationProjectionState()->isSuppressed($candidate) ) {
                     continue;
                 }
                 $navigation = $this->hiddenNavigationInControlledTarget($candidate);
-                if ( $navigation instanceof DOMElement && ! $this->context->navigationProjection()->isSuppressed($navigation) ) {
+                if ( $navigation instanceof DOMElement && ! $this->session->navigationProjectionState()->isSuppressed($navigation) ) {
                     $navigationCandidates[] = array('target' => $candidate, 'navigation' => $navigation);
                 }
             }
@@ -524,7 +525,7 @@ final class NavigationToggleSuppressor
 
     public function projectedNavigationTargetForControl(DOMElement $control): ?DOMElement
     {
-        return $this->context->navigationProjection()->targetForControl($control);
+        return $this->session->navigationProjectionState()->targetForControl($control);
     }
 
     /**
@@ -560,12 +561,12 @@ final class NavigationToggleSuppressor
 
     public function isImplicitDialogNavigationControl(DOMElement $control): bool
     {
-        return $this->context->navigationProjection()->isImplicitDialogControl($control);
+        return $this->session->navigationProjectionState()->isImplicitDialogControl($control);
     }
 
     public function isProjectedNavigationSuppressed(DOMElement $element): bool
     {
-        return $this->context->navigationProjection()->isSuppressed($element);
+        return $this->session->navigationProjectionState()->isSuppressed($element);
     }
 
     /**
@@ -668,8 +669,8 @@ final class NavigationToggleSuppressor
         }
 
         if ( $this->isProjectableHashAnchorMenuToggle($element) ) {
-            if ( $this->context->navigationProjection()->hasTargetForControl($element)
-                || ! $this->context->navigationProjection()->hasProjection() ) {
+            if ( $this->session->navigationProjectionState()->hasTargetForControl($element)
+                || ! $this->session->navigationProjectionState()->hasProjection() ) {
                 return false;
             }
         } elseif ( ! $this->isHamburgerMenuToggleControl($element) ) {
@@ -816,7 +817,7 @@ final class NavigationToggleSuppressor
             if (!$element instanceof DOMElement || !NavigationPattern::ownsCapturedSubmenuTrigger($element)) continue;
             foreach (array($element->getAttribute('id'), $element->getAttribute('aria-controls'), $element->getAttribute(CaptureEvidence::DIALOG_TRIGGER)) as $id) {
                 $id = ltrim(trim($id), '#');
-                if ('' !== $id && 1 === preg_match('/^[A-Za-z][A-Za-z0-9_.:-]*$/', $id)) $this->context->runtimeSelectors()->supersede('#' . $id);
+                if ('' !== $id && 1 === preg_match('/^[A-Za-z][A-Za-z0-9_.:-]*$/', $id)) $this->session->runtimeSelectorState()->supersede('#' . $id);
             }
         }
     }
@@ -855,7 +856,7 @@ final class NavigationToggleSuppressor
      */
     private function recordSupersededControlPaths(DOMElement $toggle): void
     {
-        $projections = $this->context->selectorProjections();
+        $projections = $this->session->authorSelectorProjectionState();
         $projections->markSupersededControlPath($toggle->getNodePath() ?? '');
         foreach ( $toggle->getElementsByTagName('*') as $descendant ) {
             if ( $descendant instanceof DOMElement ) {
@@ -885,7 +886,7 @@ final class NavigationToggleSuppressor
                 continue;
             }
 
-            $this->context->runtimeSelectors()->supersede('#' . $controlledId);
+            $this->session->runtimeSelectorState()->supersede('#' . $controlledId);
 
             $target = $this->elementWithId($toggle, $controlledId);
             if ( $target instanceof DOMElement && ! $target->isSameNode($toggle) ) {
@@ -958,12 +959,12 @@ final class NavigationToggleSuppressor
     {
         $id = trim(SourceDom::attr($element, 'id'));
         if ( '' !== $id ) {
-            $this->context->runtimeSelectors()->supersede('#' . $id);
+            $this->session->runtimeSelectorState()->supersede('#' . $id);
         }
 
         foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $class ) {
             if ( '' !== $class ) {
-                $this->context->runtimeSelectors()->supersede('.' . $class);
+                $this->session->runtimeSelectorState()->supersede('.' . $class);
             }
         }
     }
@@ -1559,17 +1560,17 @@ final class NavigationToggleSuppressor
     /** The captured menu dialog a dropdown row has absorbed, if any. */
     public function capturedMenuFoldForRow(DOMElement $row): ?CapturedMenuDialogFold
     {
-        return $this->context->navigationProjection()->foldForRow($row);
+        return $this->session->navigationProjectionState()->foldForRow($row);
     }
 
     public function releaseCapturedMenuFold(CapturedMenuDialogFold $fold): void
     {
-        $this->context->navigationProjection()->releaseFold($fold);
+        $this->session->navigationProjectionState()->releaseFold($fold);
     }
 
     public function navigationToggleControl(DOMElement $navigation): ?DOMElement
     {
-        $fold = $this->context->navigationProjection()->foldForRow($navigation);
+        $fold = $this->session->navigationProjectionState()->foldForRow($navigation);
         if ( $fold instanceof CapturedMenuDialogFold ) {
             return $fold->triggers[0];
         }
@@ -1869,7 +1870,7 @@ final class NavigationToggleSuppressor
         // The hamburger of an absorbed menu dialog is hidden at the wide
         // reference viewport, so the navigation that takes it over shows its
         // own button only on narrow screens.
-        if ( $this->context->navigationProjection()->foldForTrigger($control) instanceof CapturedMenuDialogFold ) {
+        if ( $this->session->navigationProjectionState()->foldForTrigger($control) instanceof CapturedMenuDialogFold ) {
             return 'mobile';
         }
         // A captured dialog trigger the source shows at the reference viewport

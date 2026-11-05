@@ -30,24 +30,22 @@ $dom->loadHTML('<?xml encoding="utf-8" ?><html><body><nav class="menu"><a id="li
 libxml_clear_errors();
 
 $session = new HtmlTransformerSession(new Runtime(), static fn (DOMElement $node): array => array());
-$context = null;
 $context = new StyleResolutionContext(
-    $session,
     static fn (string $value): string => $value,
-    static function (string $selector) use (&$context): array {
-        return $context->sourceStyles()->parsedSelector($selector);
+    static function (string $selector) use ($session): array {
+        return $session->sourceStyleResolutionState()->parsedSelector($selector);
     },
     static fn (string $className): string => $className,
     static fn (string $url): string => $url
 );
 $analysisCache = new HtmlTransformerAnalysisCache();
-$resolver = new StyleResolver($context, $analysisCache);
+$resolver = new StyleResolver($session, $context, $analysisCache);
 $css = '.menu .item:hover{color:red}'
     . 'nav > .item:focus-visible{background-color:#000}'
     . '#cta:active{font-size:20px}'
     . '.btn:hover{display:flex}'
     . '[id="plain"]:hover{border-radius:4px}';
-$context->sourceStyles()->installStylesheetAnalysis(array(), ( new StylesheetAnalysisComposer($resolver, $analysisCache) )->composedStyleAnalysis(array( $css )));
+$session->sourceStyleResolutionState()->installStylesheetAnalysis(array(), ( new StylesheetAnalysisComposer($resolver, $analysisCache) )->composedStyleAnalysis(array( $css )));
 
 $link = $dom->getElementById('link');
 $cta = $dom->getElementById('cta');

@@ -5,10 +5,6 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerRegistry;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\NavigationProjectionState;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeSelectorState;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProjectionState;
 use Closure;
 use DOMElement;
 
@@ -25,7 +21,6 @@ final class NavigationToggleSuppressionContext
      * @param Closure(DOMElement): bool $sourceElementOrAncestorStartsHidden
      */
     public function __construct(
-        private readonly HtmlTransformerSession $session,
         private readonly Closure $sourceElementStartsHidden,
         private readonly Closure $sourceElementOrAncestorStartsHidden,
         private readonly PatternRecognizerRegistry $patternRecognizers,
@@ -49,21 +44,6 @@ final class NavigationToggleSuppressionContext
     public function sourceElementOrAncestorStartsHidden(DOMElement $element): bool
     {
         return ($this->sourceElementOrAncestorStartsHidden)($element);
-    }
-
-    public function runtimeSelectors(): RuntimeSelectorState
-    {
-        return $this->session->runtimeSelectorState();
-    }
-
-    public function navigationProjection(): NavigationProjectionState
-    {
-        return $this->session->navigationProjectionState();
-    }
-
-    public function selectorProjections(): AuthorSelectorProjectionState
-    {
-        return $this->session->authorSelectorProjectionState();
     }
 
     public function patternRecognizers(): PatternRecognizerRegistry

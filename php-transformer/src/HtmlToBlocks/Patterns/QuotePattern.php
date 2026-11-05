@@ -10,6 +10,13 @@ use const XML_TEXT_NODE;
 
 final class QuotePattern implements PatternRecognizerInterface
 {
+    public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime $runtime,
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock,
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier $sourceElementClassifier
+    ) {
+    }
+
     use PatternDomHelpersTrait;
 
     private const STRUCTURAL_CONTENT_PATTERN = '/<(?:address|article|aside|blockquote|details|div|dl|figure|h[1-6]|hr|main|menu|nav|ol|p|pre|section|table|ul)\b/i';
@@ -29,11 +36,11 @@ final class QuotePattern implements PatternRecognizerInterface
 
         $citation = $quotes->citationFromElement($element);
         $value = SourceDom::innerHtmlWithoutTags($element, array( 'cite', 'footer' ));
-        if ( '' === trim($quotes->stripAllTags($value)) ) {
+        if ( '' === trim($this->runtime->stripAllTags($value)) ) {
             return null;
         }
 
-        $createBlock = $context->createBlock(...);
+        $createBlock = $this->createBlock->createBlock(...);
         if ( $this->hasClass($element, 'wp-block-pullquote') ) {
             return new PatternRecognitionResult($createBlock('core/pullquote', array_filter(array_merge($context->presentationAttributes($element), array(
                 'value'    => $value,
@@ -92,11 +99,11 @@ final class QuotePattern implements PatternRecognizerInterface
         }
 
         $value = SourceDom::innerHtmlWithoutTags($blockquote, array( 'cite', 'footer' ));
-        if ( '' === trim($quotes->stripAllTags($value)) ) {
+        if ( '' === trim($this->runtime->stripAllTags($value)) ) {
             return null;
         }
 
-        $createBlock = $context->createBlock(...);
+        $createBlock = $this->createBlock->createBlock(...);
         $attrs = array_filter(array_merge($context->presentationAttributes($figure), array( 'citation' => $citation )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value);
 
         if ( $this->hasClass($figure, 'wp-block-pullquote') || $this->hasClass($blockquote, 'wp-block-pullquote') ) {
@@ -110,7 +117,7 @@ final class QuotePattern implements PatternRecognizerInterface
                 continue;
             }
             $content = SourceDom::innerHtml($child);
-            if ( 'true' !== strtolower(trim($this->attr($child, 'aria-hidden'))) || '' === trim($quotes->stripAllTags($content)) ) {
+            if ( 'true' !== strtolower(trim($this->attr($child, 'aria-hidden'))) || '' === trim($this->runtime->stripAllTags($content)) ) {
                 continue;
             }
             $innerBlocks[] = $createBlock('core/paragraph', array_merge($context->presentationAttributes($child), array( 'content' => $content )), array(), $child);
@@ -150,14 +157,14 @@ final class QuotePattern implements PatternRecognizerInterface
             if ( in_array($tagName, array( 'cite', 'footer' ), true) ) {
                 continue;
             }
-            if ( 'br' === $tagName || $quotes->isInlineContentElement($tagName) ) {
+            if ( 'br' === $tagName || $this->sourceElementClassifier->isInlineContentElement($tagName) ) {
                 continue;
             }
 
             return array();
         }
 
-        return array( $context->createBlock('core/paragraph', array_filter(array(
+        return array( $this->createBlock->createBlock('core/paragraph', array_filter(array(
             'content'   => $value,
             'className' => 'blocks-engine-synthetic-paragraph',
         ), static fn (string $value): bool => '' !== $value)) );

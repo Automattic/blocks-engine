@@ -11,7 +11,11 @@ use DOMElement;
 /** Converts buttons through search, image-carrier, and generic precedence. */
 final class ButtonElementConverter implements ElementConverter
 {
-    public function __construct(private readonly ButtonElementContext $context)
+    public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier $sourceElementClassifier,
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock,
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver $presentationResolver,
+        private readonly ButtonElementContext $context)
     {
     }
 
@@ -42,7 +46,7 @@ final class ButtonElementConverter implements ElementConverter
             return ConversionOutcome::handled($this->context->convertButton($element));
         }
 
-        if ( $this->context->isRuntimeDomTarget($element) && ( array() !== AuthoredButtonBlockGenerator::sourceSafeAttributes($element) || ! $this->context->isRichTextButtonLabel($element) ) ) {
+        if ( $this->context->isRuntimeDomTarget($element) && ( array() !== AuthoredButtonBlockGenerator::sourceSafeAttributes($element) || ! $this->sourceElementClassifier->isRichTextButtonLabel($element) ) ) {
             $runtimeButton = $this->context->runtimeButton($element);
             if ( null !== $runtimeButton ) {
                 return ConversionOutcome::handled($runtimeButton);
@@ -53,13 +57,13 @@ final class ButtonElementConverter implements ElementConverter
             return ConversionOutcome::handled($this->context->runtimeButton($element));
         }
 
-        if ( $this->context->isImageCarrierButton($element) || ! $this->context->isRichTextButtonLabel($element) ) {
+        if ( $this->sourceElementClassifier->isImageCarrierButton($element) || ! $this->sourceElementClassifier->isRichTextButtonLabel($element) ) {
             $children = $this->context->convertChildren($element, $fallbacks, true);
             if ( array() !== $children ) {
                 return ConversionOutcome::handled(
-                    $this->context->createBlock(
+                    $this->createBlock->createBlock(
                         'core/group',
-                        $this->context->presentationAttributes($element),
+                        $this->presentationResolver->presentationAttributes($element),
                         $children,
                         $element
                     )
@@ -74,7 +78,7 @@ final class ButtonElementConverter implements ElementConverter
         // button text and loses its level, typography and color. Keep one real
         // button around the editable inner blocks, mirroring the flow-content
         // anchor path; a plain-text button still lowers to core/button below.
-        if ( '' !== trim($element->textContent) && $this->context->hasBlockLevelDescendant($element) ) {
+        if ( '' !== trim($element->textContent) && $this->sourceElementClassifier->hasBlockLevelDescendant($element) ) {
             $container = $this->context->convertButtonWrapperGroup($element, $fallbacks);
             if ( null !== $container ) {
                 return ConversionOutcome::handled($container);

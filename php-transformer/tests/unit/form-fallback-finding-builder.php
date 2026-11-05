@@ -67,7 +67,7 @@ $context = new FormFallbackFindingContext(
         );
     }
 );
-$builder = new FormFallbackFindingBuilder($context, $metadataBuilder, $successBuilder, $pseudoAnalyzer);
+$builder = new FormFallbackFindingBuilder($session, $context, $metadataBuilder, $successBuilder, $pseudoAnalyzer);
 
 $readable = array( 'blockName' => 'core/group' );
 $form = $elementFrom('<form id="signup" action="/join"><label>Email<input name="email" required></label><button type="submit">Join</button></form>');

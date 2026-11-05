@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Closure;
 use DOMElement;
 
@@ -17,18 +16,12 @@ final class AuthorSelectorSemanticContext
      * @param Closure(DOMElement): bool        $convertsToOtherElementType
      */
     public function __construct(
-        private readonly SourceElementClassifier $sourceElementClassifier,
         public readonly AuthorLayoutOwnership $authorLayoutOwnership,
         private readonly Closure $isStructuralListItem,
         private readonly Closure $requiresIndependentSemanticWrapper,
         private readonly Closure $isRepresentableTable,
         private readonly Closure $convertsToOtherElementType
     ) {}
-
-    public function isInlineContentElement(string $tagName): bool
-    {
-        return $this->sourceElementClassifier->isInlineContentElement($tagName);
-    }
 
     public function isStructuralListItem(DOMElement $element): bool
     {

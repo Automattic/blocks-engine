@@ -74,9 +74,7 @@ $makeCoalescer = static function (array $runtimeDomSelectors = array(), array $o
     $sourceElementClassifier = new SourceElementClassifier();
     $metadataBuilder = new FormControlMetadataBuilder(static fn (DOMElement $e): string => strtolower($e->tagName));
     $pseudoFormAnalyzer = new PseudoFormAnalyzer($metadataBuilder, static fn (DOMElement $e): string => strtolower($e->tagName));
-    $runtimeIslands = new RuntimeIslandAnalyzer(new RuntimeIslandContext(
-        $session,
-        $sourceElementClassifier,
+    $runtimeIslands = new RuntimeIslandAnalyzer($session, $sourceElementClassifier, new RuntimeIslandContext(
         static function (DOMElement $element): array {
             $out = array();
             foreach ( $element->getElementsByTagName('*') as $node ) {
@@ -91,9 +89,8 @@ $makeCoalescer = static function (array $runtimeDomSelectors = array(), array $o
         static fn (DOMElement $element): bool => false
     ), $pseudoFormAnalyzer);
 
-    $styleResolver = new StyleResolver(
+    $styleResolver = new StyleResolver($session,
         new StyleResolutionContext(
-            $session,
             static fn (string $value): string => $value,
             static fn (string $selector): array => array(),
             static fn (string $className): string => $className,

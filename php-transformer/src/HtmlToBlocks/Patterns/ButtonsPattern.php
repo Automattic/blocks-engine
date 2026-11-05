@@ -22,7 +22,9 @@ final class ButtonsPattern
     private readonly ButtonSignalClassifier $signalClassifier;
     private readonly SourceElementClassifier $sourceElements;
 
-    public function __construct()
+    public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock
+    )
     {
         $this->styleResolver = new ButtonStyleResolver();
         $this->signalClassifier = new ButtonSignalClassifier();
@@ -53,7 +55,7 @@ final class ButtonsPattern
         // A native button cannot faithfully retain nested controls or runtime
         // handlers. Let the normal fallback path retain those diagnostics.
         if ( $this->wrappedButtonRequiresPreservation($anchor) ) {
-            return new PatternRecognitionResult($context->createBlock('core/html', array( 'content' => SourceDom::outerHtml($anchor) ), array(), $anchor));
+            return new PatternRecognitionResult($this->createBlock->createBlock('core/html', array( 'content' => SourceDom::outerHtml($anchor) ), array(), $anchor));
         }
 
         if ( $this->hasUnsafeButtonContent($anchor) || $this->hasRuntimeBehaviorSignal($anchor) ) {
@@ -84,7 +86,7 @@ final class ButtonsPattern
             return $buttons->accessibleNameCompanion($anchor, $text);
         }
 
-        $block = $context->createBlock('core/buttons', $this->buttonWrapperAttributes($anchor, $context, $buttons), array( $this->buttonBlockFromAnchor($anchor, $context, $buttons) ), $anchor);
+        $block = $this->createBlock->createBlock('core/buttons', $this->buttonWrapperAttributes($anchor, $context, $buttons), array( $this->buttonBlockFromAnchor($anchor, $context, $buttons) ), $anchor);
         return new PatternRecognitionResult($block);
     }
 
@@ -97,26 +99,26 @@ final class ButtonsPattern
 
         $preservedAnchor = $this->guardedWrappedButtonAnchor($button);
         if ( $preservedAnchor instanceof DOMElement ) {
-            return $context->createBlock('core/html', array( 'content' => SourceDom::outerHtml($preservedAnchor) ), array(), $preservedAnchor);
+            return $this->createBlock->createBlock('core/html', array( 'content' => SourceDom::outerHtml($preservedAnchor) ), array(), $preservedAnchor);
         }
 
         if ( 'a' === strtolower($button->tagName) && $this->wrappedButtonRequiresPreservation($button) ) {
-            return $context->createBlock('core/html', array( 'content' => SourceDom::outerHtml($button) ), array(), $button);
+            return $this->createBlock->createBlock('core/html', array( 'content' => SourceDom::outerHtml($button) ), array(), $button);
         }
 
         if ( $button->parentNode instanceof DOMElement
             && 'a' === strtolower($button->parentNode->tagName)
             && $this->wrappedButtonRequiresPreservation($button->parentNode) ) {
-            return $context->createBlock('core/html', array( 'content' => SourceDom::outerHtml($button->parentNode) ), array(), $button->parentNode);
+            return $this->createBlock->createBlock('core/html', array( 'content' => SourceDom::outerHtml($button->parentNode) ), array(), $button->parentNode);
         }
 
         // Core/button cannot carry provider event handlers. Preserve the source
         // control for the fallback/behavior-loss path instead of emitting a dead button.
         if ( $this->hasUnportedRuntimeHandler($button) ) {
-            return $context->createBlock('core/html', array( 'content' => SourceDom::outerHtml($button) ), array(), $button);
+            return $this->createBlock->createBlock('core/html', array( 'content' => SourceDom::outerHtml($button) ), array(), $button);
         }
 
-        $createBlock = $context->createBlock(...);
+        $createBlock = $this->createBlock->createBlock(...);
         $resolvedButtonStyle = trim($buttons->resolvedStyle($button));
         $attrs = $this->buttonPresentationAttributes($button, $context, $buttons);
         if ( $buttons->isGridItem($button) ) {
@@ -167,12 +169,12 @@ final class ButtonsPattern
             $preservedAnchor = $child;
         }
         if ( $preservedAnchor instanceof DOMElement ) {
-            return $context->createBlock('core/html', array( 'content' => SourceDom::outerHtml($preservedAnchor) ), array(), $preservedAnchor);
+            return $this->createBlock->createBlock('core/html', array( 'content' => SourceDom::outerHtml($preservedAnchor) ), array(), $preservedAnchor);
         }
 
         $wrappedAnchor = $this->singleSimpleAnchorChild($element);
         if ( $wrappedAnchor instanceof DOMElement && $this->wrappedButtonRequiresPreservation($wrappedAnchor) ) {
-            return $context->createBlock('core/html', array( 'content' => SourceDom::outerHtml($wrappedAnchor) ), array(), $wrappedAnchor);
+            return $this->createBlock->createBlock('core/html', array( 'content' => SourceDom::outerHtml($wrappedAnchor) ), array(), $wrappedAnchor);
         }
         // The wrapper is only the control surface when the anchor inside it is
         // bare. An anchor carrying its own control presentation is the button,
@@ -185,7 +187,7 @@ final class ButtonsPattern
             && $this->isRichTextAnchorLabel($wrappedAnchor, $buttons)
             && $this->hasWrapperButtonSignal($element, $buttons->resolvedStyle($element))
             && ! $this->hasButtonSignal($wrappedAnchor, $buttons) ) {
-            return $context->createBlock('core/buttons', $this->buttonWrapperAttributes($element, $context, $buttons), array( $this->buttonBlockFromAnchor($wrappedAnchor, $context, $buttons, $element) ), $element);
+            return $this->createBlock->createBlock('core/buttons', $this->buttonWrapperAttributes($element, $context, $buttons), array( $this->buttonBlockFromAnchor($wrappedAnchor, $context, $buttons, $element) ), $element);
         }
 
         $buttonBlocks = array();
@@ -223,7 +225,7 @@ final class ButtonsPattern
             return null;
         }
 
-        return $context->createBlock('core/buttons', $context->presentationAttributes($element), $buttonBlocks, $element);
+        return $this->createBlock->createBlock('core/buttons', $context->presentationAttributes($element), $buttonBlocks, $element);
     }
 
     /** @return array<string, mixed> */
@@ -266,7 +268,7 @@ final class ButtonsPattern
             }
         }
 
-        return $context->createBlock('core/button', array_filter(array_merge($attrs, array(
+        return $this->createBlock->createBlock('core/button', array_filter(array_merge($attrs, array(
             'text'       => $text,
             'url'        => $buttons->attribute($anchor, 'href'),
             'title'      => $this->buttonTitleForAnchor($anchor, $text),

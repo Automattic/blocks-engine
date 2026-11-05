@@ -87,7 +87,7 @@ $previous = libxml_use_internal_errors(true);
 $document = new DOMDocument();
 $document->loadHTML('<details open><summary>More</summary><p>Answer.</p></details>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
 $details = $document->documentElement;
-$pattern = new Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern();
+$pattern = new Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern(new Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation());
 $fallbacks = array();
 $block = $pattern->match(
     $details,

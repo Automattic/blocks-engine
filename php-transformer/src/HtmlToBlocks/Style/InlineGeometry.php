@@ -37,6 +37,7 @@ final class InlineGeometry
      * @param Closure(DOMElement, list<string>): array{int, int, int} $authorNormalDeclarationSpecificity
      */
     public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession $session,
         private readonly StyleResolutionContext $context,
         private readonly Closure $cssDeclarations,
         private readonly Closure $stripFrozenHiddenState,
@@ -585,7 +586,7 @@ final class InlineGeometry
         }
         $signature = implode(';', array_merge($normalPriorityDeclarations, $importantDeclarations, $linkShadowDeclarations));
         if ( array() !== $linkShadowDeclarations ) $signature .= "\nbutton-link-shadow";
-        $className = $this->context->layoutGeometry()->allocateCarrier(($this->geometryStructuralPath)($element) . "\n" . $signature . ($imageLeaf ? "\nimage-leaf" : ''));
+        $className = $this->session->layoutGeometryState()->allocateCarrier(($this->geometryStructuralPath)($element) . "\n" . $signature . ($imageLeaf ? "\nimage-leaf" : ''));
         $rules = array();
         if ( array() !== $normalPriorityDeclarations ) {
             $carrier = ':root ' . $this->normalTierCarrierCompound($element, $className, $normalPriorityOverrides);
@@ -620,7 +621,7 @@ final class InlineGeometry
             // block formatting context for the source wrapping to survive.
             $rules[] = '.wp-block-group:has(> .' . $className . '){display:block !important}';
         }
-        $this->context->layoutGeometry()->registerRule($className, implode("\n", $rules));
+        $this->session->layoutGeometryState()->registerRule($className, implode("\n", $rules));
 
         return $className;
     }

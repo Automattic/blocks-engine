@@ -33,7 +33,6 @@ $elementFrom = static function (string $html): DOMElement {
 
 $state = (object) array( 'mode' => 'plain' );
 $context = new InlineContentElementContext(
-    new SourceElementClassifier(),
     static fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => 'social' === $state->mode ? array( 'blockName' => 'core/social-links' ) : null,
     static fn (DOMElement $element): bool => 'runtime' === $state->mode,
     static fn (DOMElement $element): array => array( 'blockName' => 'core/html' ),
@@ -41,14 +40,7 @@ $context = new InlineContentElementContext(
     static fn (DOMElement $element): bool => 'positioned' === $state->mode,
     static fn (DOMElement $element, array &$fallbacks): ?array => array( 'blockName' => 'core/group', 'attrs' => array( 'positioned' => true ) ),
     static fn (DOMElement $element): bool => false,
-    new RichTextMaterializationFixture(),
     static fn (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array => array(),
-    new SourceBlockCreatorFixture(static fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => array(
-        'blockName' => $name,
-        'attrs' => $attributes,
-        'innerBlocks' => $innerBlocks,
-        'sourceTag' => $sourceElement?->tagName,
-    )),
     static fn (DOMElement $element): string => '',
     static fn (DOMElement $element): ?string => null,
     static fn (DOMElement $element, string $tagName): ?DOMElement => null,
@@ -58,7 +50,12 @@ $context = new InlineContentElementContext(
 );
 $styleResolver = (new ReflectionClass(StyleResolver::class))->newInstanceWithoutConstructor();
 $sourceAttributes = (new ReflectionClass(SourceBlockAttributeProjector::class))->newInstanceWithoutConstructor();
-$converter = new InlineContentElementConverter($context, $styleResolver, new Runtime(), $sourceAttributes);
+$converter = new InlineContentElementConverter(new SourceElementClassifier(), new SourceBlockCreatorFixture(static fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => array(
+        'blockName' => $name,
+        'attrs' => $attributes,
+        'innerBlocks' => $innerBlocks,
+        'sourceTag' => $sourceElement?->tagName,
+    )), new RichTextMaterializationFixture(), $context, $styleResolver, new Runtime(), $sourceAttributes);
 $fallbacks = array();
 $span = $elementFrom('<span>Hello</span>');
 

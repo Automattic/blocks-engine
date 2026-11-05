@@ -82,9 +82,8 @@ $authored = new AuthoredFormControlBlockConverter(
     static fn (string $id): string => $id,
     static fn (DOMElement $element): DOMElement => $element
 );
-$styleResolver = new StyleResolver(
+$styleResolver = new StyleResolver($session,
     new StyleResolutionContext(
-        $session,
         static fn (string $value): string => $value,
         static fn (string $selector): array => array(),
         static fn (string $className): string => $className,

@@ -3,9 +3,6 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMaterialization;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Closure;
 use DOMElement;
 
@@ -31,7 +28,6 @@ final class InlineContentElementContext
      * @param (Closure(DOMElement): bool)|null $retainsRuntimeTextLeafInRichText
      */
     public function __construct(
-        private readonly SourceElementClassifier $sourceElementClassifier,
         private readonly Closure $recognizePatterns,
         private readonly Closure $isRuntimeDomTarget,
         private readonly Closure $htmlPreservationBlock,
@@ -39,9 +35,7 @@ final class InlineContentElementContext
         private readonly Closure $ownsPositioningGeometry,
         private readonly Closure $positionedInlineCarrierBlock,
         private readonly Closure $hasAuthorSemanticMarker,
-        private readonly RichTextMaterialization $richTextMaterializer,
         private readonly Closure $convertChildren,
-        private readonly SourceBlockCreator $createBlock,
         private readonly Closure $richTextMarker,
         private readonly Closure $dynamicTextContent,
         private readonly Closure $ancestorElement,
@@ -65,20 +59,12 @@ final class InlineContentElementContext
     /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed>|null */
     public function positionedInlineCarrierBlock(DOMElement $element, array &$fallbacks): ?array { return ($this->positionedInlineCarrierBlock)($element, $fallbacks); }
     public function hasAuthorSemanticMarker(DOMElement $element): bool { return ($this->hasAuthorSemanticMarker)($element); }
-    public function richTextContent(DOMElement $element): string { return $this->richTextMaterializer->content($element); }
-    public function richTextContentHasStructuralHtml(string $content): bool { return $this->richTextMaterializer->hasStructuralHtml($content); }
-    public function materializeRichTextSvgImages(DOMElement $element, string $content): ?string { return $this->richTextMaterializer->contentWithMaterializedSvgImages($element, $content); }
-    public function requiresHtmlFallbackWithoutNativeSvgImageObjects(string $content): bool { return $this->richTextMaterializer->requiresHtmlFallbackWithoutNativeSvgImageObjects($content); }
+
     /** @param array<int, array<string, mixed>> $fallbacks @return array<int, array<string, mixed>> */
     public function convertChildren(DOMElement $element, array &$fallbacks): array { return ($this->convertChildren)($element, $fallbacks, true); }
-    /** @param array<string, mixed> $attributes @param array<int, array<string, mixed>> $innerBlocks @return array<string, mixed> */
-    public function createBlock(string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array { return $this->createBlock->createBlock($name, $attributes, $innerBlocks, $sourceElement); }
-    public function richTextMarker(DOMElement $element): string { return ($this->richTextMarker)($element); }
-    public function hasBlockContentChildren(DOMElement $element): bool { return $this->sourceElementClassifier->hasBlockContentChildren($element); }
 
-    public function hasFlowContentChildren(DOMElement $element): bool { return $this->sourceElementClassifier->hasFlowContentChildren($element); }
-    /** @return array<string, string> */
-    public function richTextInlineVisualDeclarations(DOMElement $element): array { return $this->richTextMaterializer->inlineVisualDeclarations($element); }
+    public function richTextMarker(DOMElement $element): string { return ($this->richTextMarker)($element); }
+
     public function dynamicTextContent(DOMElement $element): ?string { return ($this->dynamicTextContent)($element); }
     public function ancestorElement(DOMElement $element, string $tagName): ?DOMElement { return ($this->ancestorElement)($element, $tagName); }
     public function isStructuralListItem(DOMElement $element): bool { return ($this->isStructuralListItem)($element); }

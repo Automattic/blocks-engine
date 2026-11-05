@@ -17,6 +17,9 @@ use DOMElement;
 final class InlineContentElementConverter implements ElementConverter
 {
     public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier $sourceElementClassifier,
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock,
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMaterialization $richTextMaterializer,
         private readonly InlineContentElementContext $context,
         private readonly StyleResolver $styleResolver,
         private readonly Runtime $runtime,
@@ -60,7 +63,7 @@ final class InlineContentElementConverter implements ElementConverter
         // Captured markup can place flow content inside an inline wrapper. A
         // native group retains that wrapper's presentation while its children
         // follow their own semantic conversion paths.
-        if ( $this->context->hasFlowContentChildren($element) ) {
+        if ( $this->sourceElementClassifier->hasFlowContentChildren($element) ) {
             $children = $this->context->convertChildren($element, $fallbacks);
             return ConversionOutcome::handled($this->group($element, $children));
         }
@@ -74,7 +77,7 @@ final class InlineContentElementConverter implements ElementConverter
             // Inline text a script finds by its hooks is saved verbatim in
             // paragraph rich text (RuntimeIslandAnalyzer::retainsRuntimeTextLeafInRichText()).
             if ( $this->context->retainsRuntimeTextLeafInRichText($element) ) {
-                return ConversionOutcome::handled($this->context->createBlock('core/paragraph', array('content' => SourceDom::outerHtml($element)), array(), $element));
+                return ConversionOutcome::handled($this->createBlock->createBlock('core/paragraph', array('content' => SourceDom::outerHtml($element)), array(), $element));
             }
             return ConversionOutcome::handled($this->context->htmlPreservationBlock($element));
         }
@@ -85,12 +88,12 @@ final class InlineContentElementConverter implements ElementConverter
         }
 
         if ( 0 < $element->getElementsByTagName('svg')->length && '' !== trim($this->runtime->stripAllTags(SourceDom::outerHtml($element))) ) {
-            $content = $this->context->materializeRichTextSvgImages($element, SourceDom::outerHtml($element));
-            if ( null === $content || $this->context->requiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
+            $content = $this->richTextMaterializer->contentWithMaterializedSvgImages($element, SourceDom::outerHtml($element));
+            if ( null === $content || $this->richTextMaterializer->requiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
                 return ConversionOutcome::handled($this->context->htmlPreservationBlock($element));
             }
 
-            return ConversionOutcome::handled($this->context->createBlock('core/paragraph', array( 'content' => $content ), array(), $element));
+            return ConversionOutcome::handled($this->createBlock->createBlock('core/paragraph', array( 'content' => $content ), array(), $element));
         }
 
         if ( $this->context->ownsPositioningGeometry($element) ) {
@@ -103,21 +106,21 @@ final class InlineContentElementConverter implements ElementConverter
         if ( $this->context->hasAuthorSemanticMarker($element) ) {
             $content = SourceDom::innerHtml($element);
             if ( '' !== trim($this->runtime->stripAllTags($content)) ) {
-                if ( $this->context->richTextContentHasStructuralHtml($content) ) {
+                if ( $this->richTextMaterializer->hasStructuralHtml($content) ) {
                     $children = $this->context->convertChildren($element, $fallbacks);
                     if ( array() !== $children ) {
                         return ConversionOutcome::handled($this->group($element, $children));
                     }
                 }
                 return ConversionOutcome::handled($this->group($element, array(
-                    $this->context->createBlock('core/paragraph', array_merge($this->sourceAttributes->syntheticInlineParagraphAttributes($element), array( 'content' => $content ))),
+                    $this->createBlock->createBlock('core/paragraph', array_merge($this->sourceAttributes->syntheticInlineParagraphAttributes($element), array( 'content' => $content ))),
                 )));
             }
         }
 
         $richTextMarker = $this->context->richTextMarker($element);
         if ( '' !== $richTextMarker ) {
-            if ( $this->context->hasBlockContentChildren($element) || $this->context->richTextContentHasStructuralHtml(SourceDom::innerHtml($element)) ) {
+            if ( $this->sourceElementClassifier->hasBlockContentChildren($element) || $this->richTextMaterializer->hasStructuralHtml(SourceDom::innerHtml($element)) ) {
                 $children = $this->context->convertChildren($element, $fallbacks);
                 if ( array() !== $children ) {
                     return ConversionOutcome::handled($this->group($element, $children));
@@ -125,11 +128,11 @@ final class InlineContentElementConverter implements ElementConverter
             }
             // Resolve descendants while their source ancestry still exists;
             // detached RichText normalization cannot match scoped author rules.
-            $content = $this->context->richTextContent($element);
+            $content = $this->richTextMaterializer->content($element);
             if ( '' !== trim($this->runtime->stripAllTags($content)) ) {
                 // The carrier keeps the author's hooks, so a media rule keeps
                 // addressing it; an inline resting value would outrank that rule.
-                $declarations = $this->styleResolver->stripResponsiveClassOwnedDeclarations($element, $this->context->richTextInlineVisualDeclarations($element));
+                $declarations = $this->styleResolver->stripResponsiveClassOwnedDeclarations($element, $this->richTextMaterializer->inlineVisualDeclarations($element));
                 if ( 'transparent' === strtolower((string) ($declarations['-webkit-text-fill-color'] ?? '')) ) {
                     $declarations['color'] = 'transparent';
                 }
@@ -140,13 +143,13 @@ final class InlineContentElementConverter implements ElementConverter
                 if ( 'none' === CssValueInspector::comparable((string) ($declarations['display'] ?? '')) ) {
                     $attrs['className'] = SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS;
                 }
-                return ConversionOutcome::handled($this->context->createBlock('core/paragraph', $attrs, array(), $element));
+                return ConversionOutcome::handled($this->createBlock->createBlock('core/paragraph', $attrs, array(), $element));
             }
         }
 
         $dynamicText = $this->context->dynamicTextContent($element);
         if ( null !== $dynamicText ) {
-            return ConversionOutcome::handled($this->context->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($element), array( 'content' => $this->runtime->escapeHtml($dynamicText) )), array(), $element));
+            return ConversionOutcome::handled($this->createBlock->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($element), array( 'content' => $this->runtime->escapeHtml($dynamicText) )), array(), $element));
         }
 
         $content = SourceDom::outerHtml($element);
@@ -164,7 +167,7 @@ final class InlineContentElementConverter implements ElementConverter
                 && ! SourceDom::documentHasOtherFragmentTarget($element, $fragmentId) ) {
                 $attributes = $this->styleResolver->presentationAttributes($element);
                 $attributes['anchor'] = $fragmentId;
-                return ConversionOutcome::handled($this->context->createBlock('core/group', $attributes, array(), $element));
+                return ConversionOutcome::handled($this->createBlock->createBlock('core/group', $attributes, array(), $element));
             }
             if ( $this->context->shouldPreserveEmptyVisualElement($element) ) {
                 return ConversionOutcome::handled($this->context->emptyVisualSpacerBlock($element));
@@ -183,14 +186,14 @@ final class InlineContentElementConverter implements ElementConverter
     private function sourceElementParagraph(DOMElement $element, string $content): array
     {
         $listItem = $this->context->ancestorElement($element, 'li');
-        $sourceElement = $this->context->richTextContentHasStructuralHtml($content)
+        $sourceElement = $this->richTextMaterializer->hasStructuralHtml($content)
             || 0 < $element->getElementsByTagName('svg')->length
             || ($listItem instanceof DOMElement && $this->context->isStructuralListItem($listItem))
             ? $element
             : null;
         $attrs = array('content' => $content);
         if (null === $sourceElement) $attrs = array_merge($this->sourceAttributes->syntheticInlineParagraphAttributes($element), $attrs);
-        $paragraph = $this->context->createBlock('core/paragraph', $attrs, array(), $sourceElement);
+        $paragraph = $this->createBlock->createBlock('core/paragraph', $attrs, array(), $sourceElement);
         // A synthetic paragraph registers no source, but still stands for this
         // one element: a finding may bind it by the element's selector.
         if (null === $sourceElement && is_array($paragraph)) $paragraph['_source_anchor_selector'] = SourceDom::elementSelector($element);
@@ -200,6 +203,6 @@ final class InlineContentElementConverter implements ElementConverter
     /** @param array<int, array<string, mixed>> $children @return array<string, mixed> */
     private function group(DOMElement $element, array $children): array
     {
-        return $this->context->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $children, $element);
+        return $this->createBlock->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $children, $element);
     }
 }

@@ -46,7 +46,7 @@ $makeRecorder = static function (array $overrides = array()): UnsupportedElement
     $session = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession(new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime(), $c['sourceContext']);
     $session->installGeneratedBlockRegistry(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry('fixture'));
     $metadataBuilder = new FormControlMetadataBuilder($c['selector']);
-    return new UnsupportedElementRecorder(new UnsupportedElementContext(
+    return new UnsupportedElementRecorder($session, new UnsupportedElementContext(
         $session,
         $c['generatedBlock'],
         $c['sourceContext']

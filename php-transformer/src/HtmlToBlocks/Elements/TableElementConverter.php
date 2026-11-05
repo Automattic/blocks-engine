@@ -15,7 +15,10 @@ use DOMElement;
  */
 final class TableElementConverter implements ElementConverter
 {
-    public function __construct(private readonly TableElementContext $context)
+    public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver $presentationResolver,
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock,
+        private readonly TableElementContext $context)
     {
     }
 
@@ -64,7 +67,7 @@ final class TableElementConverter implements ElementConverter
             return ConversionOutcome::handled($this->context->htmlPreservationBlock($element));
         }
 
-        $presentation = $this->context->presentationAttributes($element);
+        $presentation = $this->presentationResolver->presentationAttributes($element);
         if ( TableAttributesBuilder::isNativeSavedTable($element) && isset($presentation['className']) ) {
             // core/table saves hasFixedLayout as this class; it is an attribute, not an author class.
             $classes = array_values(array_filter(preg_split('/\s+/', (string) $presentation['className']) ?: array(), static fn (string $class): bool => '' !== $class && 'has-fixed-layout' !== $class));
@@ -76,7 +79,7 @@ final class TableElementConverter implements ElementConverter
         }
 
         return ConversionOutcome::handled(
-            $this->context->createBlock(
+            $this->createBlock->createBlock(
                 'core/table',
                 array_merge($presentation, $this->context->tableAttributes($element)),
                 array(),

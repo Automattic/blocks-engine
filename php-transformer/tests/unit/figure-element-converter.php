@@ -69,16 +69,14 @@ $context = new FigureElementContext(
         $calls[] = 'generic';
         return array( 'blockName' => 'core/group' );
     },
-    static fn (string $html): bool => '' !== trim(strip_tags($html)),
-    new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array( 'className' => 'caption' )),
-    new SourceBlockCreatorFixture(static fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => array(
+    static fn (string $html): bool => '' !== trim(strip_tags($html))
+);
+$converter = new FigureElementConverter(new SourceBlockCreatorFixture(static fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => array(
         'blockName' => $name,
         'attrs' => $attributes,
         'innerBlocks' => $innerBlocks,
         'sourceTag' => $sourceElement?->tagName,
-    ))
-);
-$converter = new FigureElementConverter($context);
+    )), new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array( 'className' => 'caption' )), $context);
 
 $assert($converter->handles('figure') && $converter->handles('figcaption'), 'handles-figure-family');
 $assert(! $converter->handles('div'), 'declines-other-tags');

@@ -29,6 +29,9 @@ use DOMNode;
 final class SvgMaterializer implements SvgElementMaterializer
 {
     public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock,
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession $session,
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier $sourceElementClassifier,
         private readonly SvgMaterializationContext $context,
         private readonly StyleResolver $styleResolver,
         private readonly Runtime $runtime
@@ -96,7 +99,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             // Non-passive document stores retain their existing inline fallback;
             // they must not enter any standalone image materialization path.
             $this->recordGutenbergIncompatibility($element, 'svg_requires_inline_document_context', 'SVG definition store requires inline document context.');
-            return $this->context->createBlock('core/html', array('content' => $this->restoreSvgCasing($html)), array(), $element);
+            return $this->createBlock->createBlock('core/html', array('content' => $this->restoreSvgCasing($html)), array(), $element);
         }
 
         $html = $this->materializeSanitizedSvgMarkup($html, $element);
@@ -112,7 +115,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         // Honest floor: keep SVGs that need inline document context as sanitized
         // core/html, with viewBox-derived dimensions to avoid unbounded rendering.
         $this->recordGutenbergIncompatibility($element, 'svg_requires_inline_document_context', 'SVG uses behavior or external document features that cannot be represented as a static editable core/image asset.');
-        return $this->context->createBlock('core/html', array( 'content' => $html ), array(), $element);
+        return $this->createBlock->createBlock('core/html', array( 'content' => $html ), array(), $element);
     }
 
     /**
@@ -217,7 +220,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             return null;
         }
 
-        return $this->context->createBlock('core/image', $attrs, array(), $element);
+        return $this->createBlock->createBlock('core/image', $attrs, array(), $element);
     }
 
     /**
@@ -280,16 +283,16 @@ final class SvgMaterializer implements SvgElementMaterializer
             'visual_payload' => $visualPayload . "\n",
         );
         if (array() !== $occurrence) $asset['component_occurrences'] = array($occurrence);
-        $this->context->materializedAssets()->registerInlineSvg($path, $asset, $occurrence, $visualPayload);
+        $this->session->assetMaterializationState()->registerInlineSvg($path, $asset, $occurrence, $visualPayload);
 
         if (null !== $overflow) {
             // Keep the original layout box. Only the image's painted surface
             // grows; absolute positioning prevents overflow from moving siblings.
             $figure = '{position:relative;margin:0;width:' . $overflow['boxWidth'] . 'px;height:' . $overflow['boxHeight'] . 'px;overflow:visible;line-height:0}';
             $image = '{position:absolute;display:block;max-width:none;max-height:none;width:' . $overflow['width'] . 'px;height:' . $overflow['height'] . 'px;left:' . $overflow['left'] . 'px;top:' . $overflow['top'] . 'px;margin:0}';
-            $carrier = $this->context->layoutGeometry()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $figure . $image);
+            $carrier = $this->session->layoutGeometryState()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $figure . $image);
             $selector = '.wp-block-image.' . $carrier;
-            $this->context->layoutGeometry()->registerRule($carrier, $selector . $figure . $selector . '>img,' . $selector . '>a>img' . $image);
+            $this->session->layoutGeometryState()->registerRule($carrier, $selector . $figure . $selector . '>img,' . $selector . '>a>img' . $image);
             return array('url' => $url, 'alt' => $this->svgImageAlt($element), 'className' => $this->styleResolver->mergePresentationClassNames(SourceDom::attr($element, 'class'), $carrier));
         }
 
@@ -360,8 +363,8 @@ final class SvgMaterializer implements SvgElementMaterializer
                     }
                 }
             }
-            $fillClass = $this->context->layoutGeometry()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $figureRule . $imgRule . $conditionedSizes);
-            $this->context->layoutGeometry()->registerRule($fillClass, $this->parentFillCss($fillClass, $figureRule, $imgRule) . str_replace('.{carrier}', '.' . $fillClass, $conditionedSizes));
+            $fillClass = $this->session->layoutGeometryState()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $figureRule . $imgRule . $conditionedSizes);
+            $this->session->layoutGeometryState()->registerRule($fillClass, $this->parentFillCss($fillClass, $figureRule, $imgRule) . str_replace('.{carrier}', '.' . $fillClass, $conditionedSizes));
             $attrs = array(
                 'url'       => $url,
                 'alt'       => $this->svgImageAlt($element),
@@ -428,7 +431,7 @@ final class SvgMaterializer implements SvgElementMaterializer
                 || null !== $this->svgPercentageWidth(trim((string) ($presentation['width'] ?? '')))
             );
             $figureWidthRule = $figureFillsContainer ? '{width:100%}' : '';
-            $geometryClass = $this->context->layoutGeometry()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $rule . $figureWidthRule . implode("\n", $conditionedBox) . implode("\n", $conditionedItemDisplay)
+            $geometryClass = $this->session->layoutGeometryState()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $rule . $figureWidthRule . implode("\n", $conditionedBox) . implode("\n", $conditionedItemDisplay)
                 . (array() === $conditionedFills ? '' : "\nfill:" . implode("\n", array_map(static fn (array $conditions): string => implode('{', $conditions), $conditionedFills))));
             // The image rule must outrank the generic author image bridge
             // (`:where(figure):not(<type>).wp-block-image > img{display:block}`),
@@ -452,13 +455,13 @@ final class SvgMaterializer implements SvgElementMaterializer
                 // shrink-to-fit link wrapper.
                 $geometryCss .= '.' . $geometryClass . '>a{display:block;width:100%}';
             }
-            $this->context->layoutGeometry()->registerRule($geometryClass, $geometryCss);
+            $this->session->layoutGeometryState()->registerRule($geometryClass, $geometryCss);
         } elseif ( ! $richTextImage ) {
             // Core/image rejects typography.lineHeight. A standalone SVG still
             // needs its source line box removed when it becomes a figure.
             $rule = '{line-height:0}';
-            $geometryClass = $this->context->layoutGeometry()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $rule);
-            $this->context->layoutGeometry()->registerRule($geometryClass, '.' . $geometryClass . $rule);
+            $geometryClass = $this->session->layoutGeometryState()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $rule);
+            $this->session->layoutGeometryState()->registerRule($geometryClass, '.' . $geometryClass . $rule);
         }
         $attrs = array_filter(array_merge(array(
             'url'          => $url,
@@ -722,7 +725,7 @@ final class SvgMaterializer implements SvgElementMaterializer
     private function ancestorProjectsAsAnchor(DOMElement $element): bool
     {
         for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
-            if ( $this->context->isFlowContentAnchor($node) ) {
+            if ( $this->sourceElementClassifier->isFlowContentAnchor($node) ) {
                 return true;
             }
         }
@@ -732,7 +735,7 @@ final class SvgMaterializer implements SvgElementMaterializer
 
     public function svgNeedsPhrasingHost(DOMElement $element): bool
     {
-        if ( $this->context->isVisualLayerElement($element) || 'none' === strtolower(trim(SourceDom::attr($element, 'preserveaspectratio'))) ) {
+        if ( $this->sourceElementClassifier->isVisualLayerElement($element) || 'none' === strtolower(trim(SourceDom::attr($element, 'preserveaspectratio'))) ) {
             return false;
         }
 
@@ -745,7 +748,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             if ( 'article' === $parentTag && 'img' === strtolower(trim(SourceDom::attr($element, 'role'))) ) {
                 return false;
             }
-            if ( ( $this->context->isInlineContentElement($parentTag) || 'a' === $parentTag ) && '' !== trim($this->runtime->stripAllTags(SourceDom::innerHtmlWithoutTags($parent, array( 'svg' )))) ) {
+            if ( ( $this->sourceElementClassifier->isInlineContentElement($parentTag) || 'a' === $parentTag ) && '' !== trim($this->runtime->stripAllTags(SourceDom::innerHtmlWithoutTags($parent, array( 'svg' )))) ) {
                 return true;
             }
         }
@@ -761,13 +764,13 @@ final class SvgMaterializer implements SvgElementMaterializer
         for ( $sibling = $element->previousSibling; null !== $sibling; $sibling = $sibling->previousSibling ) {
             if ( $sibling instanceof DOMElement ) {
                 $tag = strtolower($sibling->tagName);
-                return 'svg' !== $tag && ! $this->context->isInlineContentElement($tag);
+                return 'svg' !== $tag && ! $this->sourceElementClassifier->isInlineContentElement($tag);
             }
         }
         for ( $sibling = $element->nextSibling; null !== $sibling; $sibling = $sibling->nextSibling ) {
             if ( $sibling instanceof DOMElement ) {
                 $tag = strtolower($sibling->tagName);
-                return 'svg' !== $tag && ! $this->context->isInlineContentElement($tag);
+                return 'svg' !== $tag && ! $this->sourceElementClassifier->isInlineContentElement($tag);
             }
         }
 
@@ -1698,7 +1701,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         // The asset is the sanitized vector payload, not its generated source
         // selector. A content address lets every compatible instance share one
         // core/image asset while retaining its own alt text and presentation.
-        return $this->context->materializedAssets()->inlineSvgPath($html);
+        return $this->session->assetMaterializationState()->inlineSvgPath($html);
     }
 
     private function sourceRelativeMaterializedSvgPath(string $path): string
@@ -1715,7 +1718,7 @@ final class SvgMaterializer implements SvgElementMaterializer
     private function transformSourcePath(): string
     {
         foreach ( array( 'source', 'path' ) as $key ) {
-            $value = $this->context->transformationProvenance()->fallback()[$key] ?? '';
+            $value = $this->session->transformationProvenanceState()->fallback()[$key] ?? '';
             if ( '' !== trim((string) $value) ) {
                 return trim((string) $value);
             }
@@ -1726,7 +1729,7 @@ final class SvgMaterializer implements SvgElementMaterializer
 
     private function recordGutenbergIncompatibility(DOMElement $element, string $reason, string $message): void
     {
-        $this->context->transformationEvidence()->recordGutenbergIncompatibility(array(
+        $this->session->transformationEvidenceState()->recordGutenbergIncompatibility(array(
             'type'     => 'svg_materialization_incompatibility',
             'element'  => 'svg',
             'selector' => SourceDom::elementSelector($element),

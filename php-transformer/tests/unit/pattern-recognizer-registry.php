@@ -34,15 +34,12 @@ if ( ! $element instanceof DOMElement ) {
 }
 
 $context = new PatternContext(
-    static fn (DOMElement $source): array => array(),
-    new SourceBlockCreatorFixture(static fn (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null): array => array( 'blockName' => $name ))
+    static fn (DOMElement $source): array => array()
 );
 $semanticContext = new PatternContext(
-    static fn (DOMElement $source, array $excluded = array()): array => array( 'excluded' => $excluded ),
-    new SourceBlockCreatorFixture(static fn (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null, ?DOMElement $logicalSource = null): array => array( 'blockName' => $name, 'logicalTag' => $logicalSource?->tagName ))
+    static fn (DOMElement $source, array $excluded = array()): array => array( 'excluded' => $excluded )
 );
 $assertSame(array( 'excluded' => array( 'width' ) ), $semanticContext->presentationAttributes($element, array( 'width' )), 'Pattern context forwards presentation exclusions through its semantic API.');
-$assertSame(array( 'blockName' => 'core/group', 'logicalTag' => 'div' ), $semanticContext->createBlock('core/group', logicalSourceElement: $element), 'Pattern context forwards logical block provenance through its semantic API.');
 $calls = new ArrayObject();
 $declined = new class($calls) implements PatternRecognizerInterface {
     public function __construct(private readonly ArrayObject $calls) {}
@@ -103,13 +100,11 @@ $innerHtml = static function (DOMElement $source): string {
 $createBlock = new SourceBlockCreatorFixture(static fn (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null): array => array( 'blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $children ));
 $directContext = new PatternContext(
     static fn (DOMElement $source, array $excluded = array()): array => array(),
-    $createBlock,
     markupContext: new MarkupPatternContext(
-        $session,
-        new Runtime()
+        $session
     )
 );
-$overlap = PatternRecognizerRegistry::createDefault()->firstMatch($elementFromHtml('<div class="placeholder media math" style="aspect-ratio: 16 / 9">$x$</div>'), $directContext);
+$overlap = PatternRecognizerRegistry::createDefault(new \Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture(static fn (string $name, array $attrs = array(), array $children = array()): array => array('blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $children)), new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\Tests\Support\RichTextMaterializationFixture())->firstMatch($elementFromHtml('<div class="placeholder media math" style="aspect-ratio: 16 / 9">$x$</div>'), $directContext);
 $assertSame('core/math', $overlap?->block()['blockName'] ?? null, 'Math wins the default ordered-registry competition with placeholder media.');
 $assertSame('$x$', $overlap?->block()['attrs']['content'] ?? null, 'Direct ordered-registry winner preserves math content.');
 
@@ -127,27 +122,25 @@ $declinedSpacerContext = new PatternContext(
     static function (DOMElement $source, array $excluded = array()) use ($state): array {
         $state[] = 'presentation';
         return array();
-    },
-    $createBlock
+    }
 );
-$declinedSpacer = ( new PatternRecognizerRegistry( array( new SpacerPattern(), $lower ) ) )->firstMatch($elementFromHtml('<div class="spacer" style="height: 24px">Visible content</div>'), $declinedSpacerContext);
+$declinedSpacer = ( new PatternRecognizerRegistry( array( new SpacerPattern($createBlock), $lower ) ) )->firstMatch($elementFromHtml('<div class="spacer" style="height: 24px">Visible content</div>'), $declinedSpacerContext);
 $assertSame('lower', $declinedSpacer?->block()['blockName'] ?? null, 'A declined direct spacer leaves lower recognizers available.');
 $assertSame(array( 'lower' ), $state->getArrayCopy(), 'A declined direct spacer does not invoke context callbacks or mutate recognizer state.');
 
-$missingMarkup = new PatternContext(static fn (DOMElement $source): array => array(), $createBlock);
-$assertSame(null, ( new MathPattern() )->recognize($elementFromHtml('<math><mi>x</mi></math>'), $missingMarkup), 'Math declines without its atomic markup capability.');
+$missingMarkup = new PatternContext(static fn (DOMElement $source): array => array());
+$assertSame(null, ( new MathPattern(new Runtime(), $createBlock) )->recognize($elementFromHtml('<math><mi>x</mi></math>'), $missingMarkup), 'Math declines without its atomic markup capability.');
 $placeholderState = new ArrayObject();
 $missingPlaceholderMarkup = new PatternContext(
     static function (DOMElement $source) use ($placeholderState): array {
         $placeholderState[] = 'presentation';
         return array();
-    },
-    new SourceBlockCreatorFixture(static function (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null) use ($placeholderState): array {
+    }
+);
+$assertSame(null, ( new PlaceholderMediaPattern(new SourceBlockCreatorFixture(static function (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null) use ($placeholderState): array {
         $placeholderState[] = 'create-block';
         return array();
-    })
-);
-$assertSame(null, ( new PlaceholderMediaPattern() )->recognize($elementFromHtml('<div class="placeholder media" style="aspect-ratio: 16 / 9">Label</div>'), $missingPlaceholderMarkup), 'Placeholder media declines without its atomic markup capability.');
+    }), new Runtime()) )->recognize($elementFromHtml('<div class="placeholder media" style="aspect-ratio: 16 / 9">Label</div>'), $missingPlaceholderMarkup), 'Placeholder media declines without its atomic markup capability.');
 $assertSame(array(), $placeholderState->getArrayCopy(), 'Placeholder media validates missing dependencies before invoking stateful context callbacks.');
 
 echo "pattern recognizer registry ok\n";

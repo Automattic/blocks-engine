@@ -68,7 +68,7 @@ $transformHtml = static function (string $html): array {
     return ( new HtmlTransformer() )->transform($html)->toArray();
 };
 
-$pattern = new MediaTextPattern();
+$pattern = new MediaTextPattern(new \Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture(static fn (string $name, array $attrs = array(), array $children = array()): array => array('blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $children)));
 
 // Frozen public callback contract.
 $matchMethod = new ReflectionMethod(MediaTextPattern::class, 'match');
