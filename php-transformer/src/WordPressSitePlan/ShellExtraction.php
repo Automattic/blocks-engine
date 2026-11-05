@@ -594,10 +594,13 @@ final class ShellExtraction
             // Capture documents are detection roots, not chrome: descend into
             // each device document instead of claiming its route content.
             if (!str_contains($first, CaptureEvidence::DOCUMENT_SCOPE) && self::containsNavigation($first) && !self::containsMainLandmark($first) && !self::chromeSplitIsInside($index, $head)) {
+                // A hidden menu or dialog mounted after the wrapper is not page
+                // content: when only such layers follow, the wrapper holds the
+                // route's whole in-flow content and is not chrome.
                 $restHasContent = false;
                 foreach (array_slice($ranges, $lead + 1) as $range) {
                     $sibling = substr($markup, $range['offset'], $range['length']);
-                    if (!self::isEmptyVisualGroup($sibling)) {
+                    if (!self::isEmptyVisualGroup($sibling) && !self::isOutOfFlowChrome($sibling)) {
                         $restHasContent = true;
                         break;
                     }
