@@ -3952,6 +3952,39 @@ final class ArtifactCompiler
         return $html;
     }
 
+    /**
+     * The current item's state can be marked by a class on a descendant, for
+     * example a current-page class on the link inside the current `li`. Mirror
+     * the ancestor sibling-class intersection inside the subtree: keep on each
+     * descendant only the classes its counterparts at the same position and tag
+     * in the sibling items also carry.
+     *
+     * @param list<\DOMElement> $counterparts Same-position, same-tag elements in the sibling items.
+     */
+    private static function neutralizeCurrentSubtreeShellClasses(\DOMElement $node, array $counterparts): void
+    {
+        $counterpartClasses = array();
+        foreach ($counterparts as $counterpart) {
+            foreach (preg_split('/\s+/', trim($counterpart->getAttribute('class'))) ?: array() as $class) if ('' !== $class) $counterpartClasses[$class] = true;
+        }
+        $classes = preg_split('/\s+/', trim($node->getAttribute('class'))) ?: array();
+        if (array() !== $classes && array() !== $counterpartClasses) $node->setAttribute('class', implode(' ', array_values(array_filter($classes, static fn(string $class): bool => isset($counterpartClasses[$class])))));
+        $children = array();
+        foreach ($node->childNodes as $child) if ($child instanceof \DOMElement) $children[] = $child;
+        $peerLists = array();
+        foreach ($counterparts as $counterpart) {
+            $peers = array();
+            foreach ($counterpart->childNodes as $peer) if ($peer instanceof \DOMElement) $peers[] = $peer;
+            $peerLists[] = $peers;
+        }
+        foreach ($children as $index => $child) {
+            $childCounterparts = array();
+            foreach ($peerLists as $peers) if (isset($peers[$index]) && $peers[$index]->tagName === $child->tagName) $childCounterparts[] = $peers[$index];
+            if (array() === $childCounterparts) continue;
+            self::neutralizeCurrentSubtreeShellClasses($child, $childCounterparts);
+        }
+    }
+
     private static function normalizeSourceShellIdentity(string $markup): string
     {
         $dom = new \DOMDocument();
@@ -3973,6 +4006,14 @@ final class ArtifactCompiler
                     if (array() !== $siblingClasses) $cursor->setAttribute('class', implode(' ', array_values(array_filter($classes, static fn(string $class): bool => isset($siblingClasses[$class])))));
                 }
                 if ('nav' === strtolower($cursor->tagName) || 'navigation' === strtolower($cursor->getAttribute('role'))) break;
+            }
+            if ($node->hasAttribute('aria-current') && 'false' !== strtolower(trim($node->getAttribute('aria-current')))) {
+                if ($node->hasAttribute('data-is-current')) $node->setAttribute('data-is-current', 'false');
+                $siblings = array();
+                foreach ($node->parentNode?->childNodes ?? array() as $sibling) {
+                    if ($sibling instanceof \DOMElement && $sibling !== $node && $sibling->tagName === $node->tagName) $siblings[] = $sibling;
+                }
+                if (array() !== $siblings) self::neutralizeCurrentSubtreeShellClasses($node, $siblings);
             }
         }
         foreach ($xpath->query('//*[@aria-current]') ?: array() as $node) if ($node instanceof \DOMElement) $node->removeAttribute('aria-current');

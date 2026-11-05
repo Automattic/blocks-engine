@@ -98,6 +98,7 @@
       "php tests/contract/form-readable-shapes.php",
       "php tests/contract/navigation-current-item-shared-menu.php",
       "php tests/contract/navigation-disclosure-current-item-shared-header.php",
+      "php tests/contract/current-descendant-shell-identity.php",
       "php tests/contract/navigation-shared-class-inherited-presentation.php",
       "php tests/contract/navigation-toggler-current-item-shared-header.php",
       "php tests/contract/intrinsic-navigation-toggle-size.php",
