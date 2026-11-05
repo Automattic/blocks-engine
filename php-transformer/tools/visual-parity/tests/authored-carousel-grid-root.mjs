@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 
 // A slideshow whose own root is a grid keeps that display in WordPress. Its
-// absolutely positioned slides must still fill the source stage.
+// absolutely positioned slides and mirrored next arrow must still match.
 const here = path.dirname(fileURLToPath(import.meta.url));
 const transformerRoot = path.resolve(here, '../../..');
 const source = readFileSync(path.join(here, 'fixtures/grid-slideshow-root.html'), 'utf8');
@@ -31,22 +31,29 @@ try {
     await page.setContent(`<style>${output.style}</style><div id="source">${source}</div><div id="generated">${output.markup}</div>`);
     const geometry = await page.evaluate(() => {
       const rect = (element) => { const box = element.getBoundingClientRect(); return { x: box.x, y: box.y, width: box.width, height: box.height }; };
-      const read = (root, stage) => ({
+      const mirrored = (element) => new DOMMatrixReadOnly(getComputedStyle(element).transform).a < 0;
+      const read = (root, stage, previous, next) => ({
         stage: rect(root.querySelector(stage)),
         image: rect(root.querySelector('img')),
+        previous: { ...rect(root.querySelector(previous)), mirrored: mirrored(root.querySelector(previous)) },
+        next: { ...rect(root.querySelector(next)), mirrored: mirrored(root.querySelector(next)) },
       });
       return {
-        source: read(document.querySelector('#source'), '.slides'),
-        generated: read(document.querySelector('#generated'), '.blocks-engine-authored-carousel__viewport'),
+        source: read(document.querySelector('#source'), '.slides', '.prev', '.next'),
+        generated: read(document.querySelector('#generated'), '.blocks-engine-authored-carousel__viewport', '.blocks-engine-authored-carousel__previous', '.blocks-engine-authored-carousel__next'),
       };
     });
     const { source: before, generated: after } = geometry;
     const label = `${width}px ${JSON.stringify(geometry)}`;
     assert.ok(Math.abs(before.stage.width - after.stage.width) < 1, `stage fills the grid root: ${label}`);
     assert.ok(Math.abs(after.image.width - after.stage.width) < 1, `active slide image fills the stage: ${label}`);
+    assert.ok(before.next.mirrored && after.next.mirrored, `next arrow keeps its authored mirror: ${label}`);
+    assert.ok(!before.previous.mirrored && !after.previous.mirrored, `previous arrow is not mirrored: ${label}`);
+    const middle = (box, stage) => box.y + box.height / 2 - stage.y;
+    assert.ok(Math.abs(middle(after.next, after.stage) - after.stage.height / 2) < 1, `next arrow stays vertically centered: ${label}`);
     await page.close();
   }
 } finally {
   await browser.close();
 }
-console.log('Authored slideshow on a grid source root keeps its stage width');
+console.log('Authored slideshow on a grid source root keeps its stage width and arrow orientation');
