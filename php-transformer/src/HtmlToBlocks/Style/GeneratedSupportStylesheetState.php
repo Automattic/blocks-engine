@@ -431,7 +431,10 @@ final class GeneratedSupportStylesheetState
                 } else {
                     // Native list-item labels are inline content, not a second
                     // box, even when retained source hooks still match rules.
-                    $parts[] = $summary . $carrier . '{display:inline!important;padding:0!important;border:0!important;margin:0!important;background:none!important;box-shadow:none!important;width:auto!important;height:auto!important;min-width:0!important;min-height:0!important;max-width:none!important;max-height:none!important;position:static!important;float:none!important}';
+                    // The carrier holds the summary's own hooks, so a size the
+                    // summary rule already states would apply twice when relative.
+                    $inheritSize = preg_match('/(?:^|;)font-size:/', $declarations) ? 'font-size:inherit!important;' : '';
+                    $parts[] = $summary . $carrier . '{' . $inheritSize . 'display:inline!important;padding:0!important;border:0!important;margin:0!important;background:none!important;box-shadow:none!important;width:auto!important;height:auto!important;min-width:0!important;min-height:0!important;max-width:none!important;max-height:none!important;position:static!important;float:none!important}';
                 }
             }
         }

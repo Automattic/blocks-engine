@@ -61,4 +61,12 @@ $css = implode('', array_map(static fn (array $asset): string => 'css' === ($ass
 if (!preg_match('/\.blocks-engine-disclosure-summary-[a-f0-9]+\s*>\s*summary\s*\{[^}]*list-style-position:\s*outside/', $css)) {
     throw new RuntimeException('summary list-style-position was not carried to the summary box');
 }
+// A summary's own relative size is restated on `> summary`; the carrier keeps
+// the summary's hooks, so it must inherit that size rather than apply it again.
+$result = (new HtmlTransformer())->transform('<style>body{font-size:18px}[data-size="sm"]{font-size:0.8em}</style><details><summary data-size="sm">Small</summary><p>Body.</p></details>')->toArray();
+$css = implode('', array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $result['assets'] ?? array()));
+if (!preg_match('/\.(blocks-engine-disclosure-summary-[a-f0-9]+)\s*>\s*summary\s*\{[^}]*font-size:0\.8em/', $css, $marker)
+    || !preg_match('/\.' . $marker[1] . '>summary>span\.blocks-engine-summary-content-carrier\{[^}]*font-size:inherit/', $css)) {
+    throw new RuntimeException('summary content carrier compounds the summary font-size: ' . $css);
+}
 echo "Native summary typography contract passed\n";
