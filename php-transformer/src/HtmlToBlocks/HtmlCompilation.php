@@ -7691,11 +7691,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         $inlineDeclarations = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
-        $inlineOpacity = CssValueInspector::comparable((string) ($inlineDeclarations['opacity'] ?? ''));
         $paintDeclarations = array_merge($this->styleResolver->structuralPresentationDeclarations($element), $inlineDeclarations);
-        $hasAuthoredPaint = array() !== array_intersect_key($paintDeclarations, array_flip(array( 'background', 'background-color', 'background-image' )));
+        if ( $this->emptyElementHasNoPaintOrInteraction($element) ) {
+            return false;
+        }
         if ( $this->isInertHiddenEmptyElement($element)
-            && ! (is_numeric($inlineOpacity) && 0.0 === (float) $inlineOpacity && $hasAuthoredPaint)
+            && ! $this->styleResolver->hasStateStyleFamily($element, 'opacity')
+            && ! $this->hasVisibleEmptyVisualPaint($paintDeclarations, $element)
         ) {
             return false;
         }
@@ -7740,6 +7742,55 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return $this->isEmptyVisualInlineCandidate($element);
+    }
+
+    /** Classify dead empty boxes using the resolved resting author cascade. */
+    private function emptyElementHasNoPaintOrInteraction(DOMElement $element): bool
+    {
+        if ( 0 !== $this->childElementCount($element)
+            || $this->runtimeIslands->isRuntimeDomTarget($element)
+            || $this->isEmptyLayoutItemSpacer($element)
+            || $this->occupiesDefiniteGridCell($element)
+        ) {
+            return false;
+        }
+
+        // State and responsive paint must retain a source subject for the
+        // existing stylesheet projection, even when its resting box is inert.
+        foreach ( array( 'opacity', 'visibility', 'background', 'border', 'outline', 'box-shadow', 'filter', 'layout' ) as $family ) {
+            if ( $this->styleResolver->hasStateStyleFamily($element, $family)
+                || $this->styleResolver->hasConditionalStyleFamily($element, $family)
+            ) {
+                return false;
+            }
+        }
+        $declarations = array_merge(
+            $this->styleResolver->cssDeclarations($this->styleResolver->controlSurfaceResolvedStyle($element)),
+            $this->styleResolver->resolvedSourceStateDeclarations($element)
+        );
+        foreach ( $declarations as $property => $value ) {
+            $declarations[$property] = CssValueInspector::comparable($this->styleResolver->resolveCssVariablesInValue($value, $element));
+        }
+        $opacity = $declarations['opacity'] ?? '';
+        $transparent = is_numeric($opacity) && 0.0 === (float) $opacity;
+        $noPaint = $transparent || (
+            ! $this->hasVisibleEmptyVisualPaint($declarations, $element)
+            && ! $this->hasStaticPseudoElementRule($element)
+            && in_array($declarations['filter'] ?? 'none', array( '', 'none' ), true)
+            && in_array($declarations['content'] ?? 'none', array( '', 'none', 'normal', '""', "''" ), true)
+        );
+        // Do not infer geometry from missing declarations: layout can supply
+        // a box (inset overlays, flex items, grid cells, and normal flow).
+        $zeroBox = false;
+        foreach ( array( 'width', 'height' ) as $axis ) {
+            if ( 1 === preg_match('/^0(?:px|em|rem|%)?$/', $declarations[$axis] ?? '')
+                && ! $this->hasVisibleEmptyVisualPaint($declarations, $element)
+                && ! $this->hasRenderableEmptyBlockBox($element)
+            ) {
+                $zeroBox = true;
+            }
+        }
+        return $noPaint && ('none' === ($declarations['pointer-events'] ?? '') || $zeroBox);
     }
 
     /** Empty in-flow flex items can reserve space without painting anything (#4065). */
@@ -8036,6 +8087,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             || $this->styleResolver->hasConditionalStyleFamily($element, 'layout')
             || $this->styleResolver->hasConditionalStyleFamily($element, 'visibility')
             || $this->styleResolver->hasConditionalStyleFamily($element, 'opacity')
+            || $this->styleResolver->hasStateStyleFamily($element, 'opacity')
+            || $this->styleResolver->hasStateStyleFamily($element, 'visibility')
+            || $this->styleResolver->hasStateStyleFamily($element, 'layout')
         ) {
             return false;
         }

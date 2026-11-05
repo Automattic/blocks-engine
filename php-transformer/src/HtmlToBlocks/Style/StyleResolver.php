@@ -5192,7 +5192,7 @@ final class StyleResolver implements ElementPresentationResolver
                     $analysis['pseudo'][] = $readingCustomProperties(array('selector' => $baseSelector, 'pseudo' => strtolower($pseudoMatch[1]), 'declarations' => $pseudoDeclarations, 'conditions' => $selectorConditions));
                 }
             }
-            if (array() === $declarations) {
+            if (array() === $declarations && array() === $rawDeclarations) {
                 continue;
             }
             $navigationStateConditions = array_filter(
@@ -6079,7 +6079,7 @@ final class StyleResolver implements ElementPresentationResolver
             'state-families' => array_map(fn (array $rule): array => array(
                 'selector' => (string) ($rule['base_selector'] ?? ''),
                 'families' => array_fill_keys(array_map(fn (int|string $property): string => $this->responsivePropertyFamily((string) $property), array_keys($rule['declarations'] ?? array())), true),
-            ), $this->context->sourceStyles()->navigationStateRules()),
+            ), $this->context->sourceStyles()->revealStateRules()),
         };
         return \Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex::build(array_map(
             fn (array $rule): array => array_merge($rule, array('parsed_selector' => $this->context->parsedCssSelector((string) ($rule['selector'] ?? '')))), $rules
