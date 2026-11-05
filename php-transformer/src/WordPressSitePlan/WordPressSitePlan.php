@@ -773,9 +773,46 @@ PHP;
             $asset['theme_write_reasons'] = self::themeWriteReasons($asset['consumers'], $asset['destination']);
         }
         unset($asset);
+        $plan = self::withContentConservation($plan, $compiled['pages']);
         $plan['plan_identity'] = self::planIdentity($plan);
         self::assertValid($plan);
         return $plan;
+    }
+
+    /**
+     * Every text run a compiled document carries must survive into the plan:
+     * its own page, or a shared surface (template part, template, pattern,
+     * menu or runtime record). Text that reaches neither was dropped, so the
+     * plan counts it as content loss instead of reporting a clean conversion.
+     *
+     * @param array<string,mixed> $plan @param array<int,mixed> $documents Compiled pages.
+     * @return array<string,mixed>
+     */
+    public static function withContentConservation(array $plan, array $documents): array
+    {
+        $text = static fn(string $markup): string => preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags(preg_replace('/<!--(.*?)-->/s', ' $1 ', $markup) ?? ''), ENT_QUOTES | ENT_HTML5)) ?? '';
+        $leaves = static function (mixed $value) use (&$leaves): string {
+            if (is_string($value)) return $value;
+            return is_array($value) ? implode("\n", array_map($leaves, $value)) : '';
+        };
+        $shared = $text($leaves(array_intersect_key($plan, array_flip(array('template_parts', 'templates', 'synced_patterns', 'menus', 'runtime_records', 'runtime_entity_records')))));
+        $pages = array();
+        foreach ($plan['pages'] as $page) $pages[$page['source_path']] = $text($leaves($page));
+        $findings = array();
+        foreach ($documents as $document) {
+            if (!is_array($document) || !is_string($document['block_markup'] ?? null) || !is_string($document['source_path'] ?? null)) continue;
+            $source = preg_replace(array('/<!--.*?-->/s', '#<(script|style|template)\b[^>]*>.*?</\1\s*>#is'), '', $document['block_markup']) ?? '';
+            $lost = array();
+            foreach (preg_split('/<[^>]*>/', $source) ?: array() as $run) {
+                $run = trim(preg_replace('/\s+/u', ' ', html_entity_decode($run, ENT_QUOTES | ENT_HTML5)) ?? '');
+                if (!preg_match('/[\p{L}\p{N}].*[\p{L}\p{N}]/u', $run) || isset($lost[$run])) continue;
+                if (!str_contains($pages[$document['source_path']] ?? '', $run) && !str_contains($shared, $run)) $lost[$run] = true;
+            }
+            if (array() === $lost) continue;
+            $findings[] = array('code' => 'wordpress_site_plan_content_lost', 'severity' => 'error', 'loss_class' => 'content_loss', 'source_path' => $document['source_path'], 'lost_text_count' => count($lost), 'lost_text' => array_slice(array_keys($lost), 0, 5), 'message' => 'Compiled document text is missing from its page and from every shared surface in the plan.');
+        }
+        $plan['quality']['metrics']['content_loss_count'] = count($findings);
+        return array() === $findings ? $plan : self::withFindings($plan, $findings);
     }
 
     /**
