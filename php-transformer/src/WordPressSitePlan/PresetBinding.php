@@ -186,6 +186,8 @@ final class PresetBinding
     private array $fontDefaults = array();
     /** Whether an author rule selects `mark` elements, which a span made a mark would join. */
     private bool $markRules = false;
+    /** Author font rules that may compete with a heading default. @var list<array{selector:string,value:?string}> */
+    private array $fontRules = array();
     /** @var array<string,string|false> Root custom properties; false when a value is scoped or conditional. */
     private array $variables = array();
     /** @var array<string,array<string,true>> Values custom properties take outside the root. */
@@ -205,6 +207,15 @@ final class PresetBinding
             $visitor->visitStyleRules($asset['content'], function (string $prelude, string $body, array $ancestors = array()): void {
                 $this->indexRule($prelude, $body);
                 $this->indexVariables($prelude, $body, $ancestors);
+                $font = self::declared(self::declarations($body), 'font-family');
+                $shorthand = self::declared(self::declarations($body), 'font');
+                if (null !== $font || null !== $shorthand || str_contains($body, '{')) {
+                    foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) {
+                        // Unconditional element defaults yield in bindStylesheet().
+                        if (array() === $ancestors && preg_match('/^(?:body|h[1-6])$/i', trim($selector))) continue;
+                        $this->fontRules[] = array('selector' => $selector, 'value' => null !== $shorthand || str_contains($body, '{') ? null : $font);
+                    }
+                }
                 if (array() === $ancestors) {
                     foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
                         // A plain class (including its projected control exclusion)
@@ -855,7 +866,8 @@ final class PresetBinding
             $value = $this->resolve($value);
             $rules = array();
             foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) {
-                $tag = strtolower(trim($selector));
+                $selector = trim($selector);
+                $tag = strtolower($selector);
                 if (1 === preg_match('/^(?::root\s+)?body\.editor-styles-wrapper$/', $tag)) $tag = 'body';
                 $kept = $body;
                 if (isset($this->fontDefaults[$tag])) {
@@ -863,7 +875,7 @@ final class PresetBinding
                 } elseif (preg_match('/^\.[a-zA-Z_][a-zA-Z0-9_-]*(?::not\(:where\(\.blocks-engine-role-(?:' . implode('|', EngineMarker::ROLE_KINDS) . ')(?:\s*,\s*\.blocks-engine-role-(?:' . implode('|', EngineMarker::ROLE_KINDS) . '))*\)\))?$/', trim($selector))) {
                     $excluded = array();
                     foreach ($this->fontDefaults as $target => $font) {
-                        if ('body' !== $target && $this->sameFont($value, $font)) $excluded[] = $target;
+                        if ('body' !== $target && $this->sameFont($value, $font) && !$this->hasCompetingFont($target, $value)) $excluded[] = $target;
                     }
                     if (array() !== $excluded) {
                         $other = self::declarationText(array_values(array_filter(self::declarations($body), static fn(array $pair): bool => 'font-family' !== $pair[0])));
@@ -924,6 +936,23 @@ final class PresetBinding
     {
         return '' !== DesignSystem::familyKey($a) && DesignSystem::familyKey($a) === DesignSystem::familyKey($b)
             && strtolower(str_replace(array(' ', '"', "'"), '', $a)) === strtolower(str_replace(array(' ', '"', "'"), '', $b));
+    }
+
+    /**
+     * Dropping an explicit class font is safe only when no different author
+     * font can replace it. Class overlap is not known here, so ambiguous,
+     * conditional and shorthand rules conservatively retain the class rule.
+     */
+    private function hasCompetingFont(string $tag, string $value): bool
+    {
+        foreach ($this->fontRules as $rule) {
+            $subject = self::subjectCompound($rule['selector']);
+            if (preg_match('/^([a-z][a-z0-9-]*)/i', $subject, $match) && strtolower($match[1]) !== $tag) continue;
+            if (null === self::subjectTokens($rule['selector'])) continue;
+            if (null !== $rule['value'] && $this->sameFont($value, $this->resolve($rule['value']))) continue;
+            return true;
+        }
+        return false;
     }
 
     private function inheritsFont(string $html, string $value): bool
