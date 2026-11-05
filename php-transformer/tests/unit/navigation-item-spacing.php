@@ -222,6 +222,16 @@ $assert(1 === count($mobileAfter), 'a `li:after` that only a narrow viewport app
 $beforeSeparator = $separators($transform($inlineMenu('#menu li{display:inline;padding-right:15px}#menu li+li:before{content:"|"}')));
 $assert(1 === count($beforeSeparator), 'an authored `li+li:before` separator does not compete with the trailing space', json_encode($beforeSeparator));
 
+// A block list packs its inline items with `text-align`. Its box renders as
+// the navigation root's flex row, so the packing is the root's justify-content,
+// under the author rule's own condition.
+$packed = $authorCss($transform($inlineMenu('#menu{display:block}#menu li{display:inline-block}@media screen and (min-width: 841px){#header #menu{text-align:end}}')));
+$assert(
+    1 === preg_match('/@media screen and \(min-width: ?841px\)\s*\{(?:[^{}]|\{[^{}]*\})*nav\.wp-block-navigation\.blocks-engine-navigation-list-box-[^{}]*\{\s*justify-content:\s*flex-end\s*\}/', $packed),
+    'a conditional text-align packs the inline items on the navigation row under the same condition',
+    $packed
+);
+
 // A wrapping nav with one list keeps the space; with two lists core gathers
 // both into one container, where the last item of the first list would gain a
 // space it did not have in the source (the lists were separate boxes).
