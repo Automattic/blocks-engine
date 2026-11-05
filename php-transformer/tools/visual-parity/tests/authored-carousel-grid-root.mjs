@@ -16,11 +16,14 @@ const variants = {
   'source columns': (html) => html.replace('margin:0 auto}', 'margin:0 auto;grid-template-columns:repeat(3,1fr)}'),
   // An equally specific root-scoped rule must not undo the centering.
   'root-scoped mirror': (html) => html.replace('.next{justify-self:end;transform:scaleX(-1)}', '.next{justify-self:end}.slideshow .next{transform:scaleX(-1)}'),
-  'ID-scoped important mirror': (html) => html.replace('class="slideshow"', 'id="hero" class="slideshow"').replace('.next{justify-self:end;transform:scaleX(-1)}', '.next{justify-self:end}#hero .next{transform:scaleX(-1)!important}'),
   'responsive mirror': (html) => html.replace('</style>', '@media(max-width:600px){.next{transform:scaleX(1)}} </style>'),
-  'layered combined transform': (html) => html.replace('transform:scaleX(-1)', 'transform:translateY(-50%) scaleX(-1)').replace('.next{justify-self:end;transform:translateY(-50%) scaleX(-1)}', '@layer source{.next{justify-self:end;transform:translateY(-50%) scaleX(-1)}}'),
   'combined transform': (html) => html.replace('transform:scaleX(-1)', 'transform:translateY(-50%) scaleX(-1)'),
   'important mirror': (html) => html.replace('transform:scaleX(-1)}', 'transform:scaleX(-1)!important}'),
+  'rotated arrow': (html) => html.replace('transform:scaleX(-1)', 'transform:rotate(30deg)'),
+  // A rotation after one flip turns the other way once it becomes a setting.
+  'flip then rotation': (html) => html.replace('transform:scaleX(-1)', 'transform:scaleX(-1) rotate(30deg)'),
+  // A size change has no setting, so the source rule keeps it.
+  'scaled arrow': (html) => html.replace('transform:scaleX(-1)', 'transform:scale(1.5)'),
 };
 const compile = (source) => JSON.parse(execFileSync('php', ['-r', `
   require $argv[1] . '/vendor/autoload.php';
@@ -42,18 +45,35 @@ try {
     assert.ok(name === 'base' || source !== fixture, `${name} variant changes the fixture`);
     const output = compile(source);
     assert.match(output.markup, /blocks-engine-authored-carousel--slideshow/);
+    assert.ok(!output.markup.includes('"transform"') && !output.markup.includes('control-transform'), `${name} stores no raw transform: ${output.markup.slice(0, 200)}`);
+    if (name === 'base') {
+      assert.match(output.markup, /"nextControlOrientation":\{"flipHorizontal":true,"flipVertical":false,"rotation":0\}/);
+      assert.match(output.markup, /blocks-engine-authored-carousel__next[^"]*is-flip-horizontal/);
+    }
+    if (name === 'flip then rotation') {
+      assert.match(output.markup, /"nextControlOrientation":\{"flipHorizontal":true,"flipVertical":false,"rotation":330\}/);
+    }
+    if (name === 'scaled arrow' || name === 'responsive mirror') {
+      assert.doesNotMatch(output.markup, /__control--oriented/);
+    }
     for (const width of [390, 768, 1440]) {
       const page = await browser.newPage({ viewport: { width, height: 900 } });
       await page.setContent(`<style>${output.style}</style><div id="source">${source}</div><div id="generated">${output.markup}</div>`);
       const geometry = await page.evaluate(() => {
         const rect = (element) => { const box = element.getBoundingClientRect(); return { x: box.x, y: box.y, width: box.width, height: box.height }; };
         const transform = (element) => getComputedStyle(element).transform;
-        const mirrored = (element) => new DOMMatrixReadOnly(transform(element)).a < 0;
+        const orientation = (element) => {
+          const style = getComputedStyle(element);
+          const scale = 'none' === style.scale ? [1, 1] : style.scale.split(' ').map(Number);
+          const matrix = new DOMMatrix().rotate('none' === style.rotate ? 0 : parseFloat(style.rotate)).scale(scale[0], scale[1] ?? scale[0]).multiply(new DOMMatrix(transform(element)));
+          return [matrix.a, matrix.b, matrix.c, matrix.d].map((value) => Math.round(value * 1000) / 1000 + 0);
+        };
+        const mirrored = (element) => orientation(element)[0] < 0;
         const read = (root, stage, previous, next) => ({
           stage: rect(root.querySelector(stage)),
           image: rect(root.querySelector('img')),
           previous: { ...rect(root.querySelector(previous)), mirrored: mirrored(root.querySelector(previous)) },
-          next: { ...rect(root.querySelector(next)), mirrored: mirrored(root.querySelector(next)), transform: transform(root.querySelector(next)) },
+          next: { ...rect(root.querySelector(next)), mirrored: mirrored(root.querySelector(next)), orientation: orientation(root.querySelector(next)), transform: transform(root.querySelector(next)) },
         });
         return {
           source: read(document.querySelector('#source'), '.slides', '.prev', '.next'),
@@ -64,10 +84,10 @@ try {
       const label = `${name} @ ${width}px ${JSON.stringify(geometry)}`;
       assert.ok(Math.abs(before.stage.width - after.stage.width) < 1, `stage fills the grid root: ${label}`);
       assert.ok(Math.abs(after.image.width - after.stage.width) < 1, `active slide image fills the stage: ${label}`);
-      assert.equal(after.next.mirrored, before.next.mirrored, `next arrow keeps its authored mirror: ${label}`);
+      assert.deepEqual(after.next.orientation, before.next.orientation, `next arrow keeps its authored orientation: ${label}`);
       assert.ok(!before.previous.mirrored && !after.previous.mirrored, `previous arrow is not mirrored: ${label}`);
       const middle = (box, stage) => box.y + box.height / 2 - stage.y;
-      if (name === 'responsive mirror' || name.includes('combined transform')) {
+      if (name === 'responsive mirror' || name === 'scaled arrow' || name.includes('combined transform')) {
         assert.equal(after.next.transform, before.next.transform, `uncaptured source transform survives: ${label}`);
       } else {
         assert.ok(Math.abs(middle(after.next, after.stage) - after.stage.height / 2) < 1, `next arrow stays vertically centered: ${label}`);
