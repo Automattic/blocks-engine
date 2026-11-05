@@ -204,8 +204,11 @@ final class WrapperCoalescer
         $chain = array($element);
         $leaf = ($this->soleElementChild)($element);
         while ($leaf instanceof DOMElement && $this->isInheritedTextWrapper($leaf)) {
+            $next = ($this->soleElementChild)($leaf);
+            // Keep the last wrapper boundary needed by descendant selectors.
+            if (! $next instanceof DOMElement || ! $this->selectorMatchingSurvivesWrapperCoalescing($element, $next, true)) break;
             $chain[] = $leaf;
-            $leaf = ($this->soleElementChild)($leaf);
+            $leaf = $next;
         }
         if (! $leaf instanceof DOMElement) return null;
         if ('core/paragraph' === ($childBlock['blockName'] ?? '') && 'p' !== strtolower($leaf->tagName)) return null;
@@ -216,7 +219,7 @@ final class WrapperCoalescer
             foreach ($this->inheritedWrapperDeclarations($node) as $name => $value) {
                 if (! $this->isInheritedTextProperty($name)) continue;
                 if (in_array(CssValueInspector::comparable($value), array('inherit', 'unset'), true)) continue;
-                $values[$name] = $value;
+                $values = $this->styleResolver->mergeCssDeclarationMaps($values, array($name => $value));
             }
         }
         $attrs = is_array($childBlock['attrs'] ?? null) ? $childBlock['attrs'] : array();
@@ -245,7 +248,7 @@ final class WrapperCoalescer
 
     private function isInheritedTextProperty(string $name): bool
     {
-        return str_starts_with($name, 'font-') || in_array($name, array('font', 'white-space', 'color', 'line-height', 'letter-spacing', 'word-spacing', 'text-align', 'text-transform', 'text-indent'), true);
+        return str_starts_with($name, 'font-') || in_array($name, array('font', 'white-space', 'text-wrap', 'text-wrap-mode', 'text-wrap-style', 'white-space-collapse', 'color', 'line-height', 'letter-spacing', 'word-spacing', 'text-align', 'text-transform', 'text-indent'), true);
     }
 
     private function isInheritedTextWrapper(DOMElement $element): bool
