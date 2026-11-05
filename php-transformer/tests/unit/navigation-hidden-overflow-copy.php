@@ -42,6 +42,15 @@ $assert(1 === $count($visible, 'navigation-submenu'), 'A visible labelled submen
 $labelled = $blocks($page('<li style="display:none"><a href="#more">More</a><ul><li><a href="/">Home</a></li></ul></li>'));
 $assert(1 === $count($labelled, 'navigation-submenu'), 'A hidden item with its own label is unchanged.');
 
+// The opener can be a labelled control whose link goes nowhere.
+$opener = '<a href="#" role="button" aria-haspopup="menu" aria-expanded="false">More</a>';
+$control = $blocks($page('<li style="display:none">' . $opener . $copies . '</li>'));
+$assert(3 === $count($control, 'navigation-link') && 0 === $count($control, 'navigation-submenu') && !str_contains($control, 'More'), 'A hidden "More" control is part of the overflow copy.');
+$controlUnique = $blocks($page('<li style="display:none">' . $opener . '<ul><li><a href="/">Home</a></li><li><a href="/only-here/">Only here</a></li></ul></li>'));
+$assert(str_contains($controlUnique, '/only-here/'), 'A destination found only behind the control must survive.');
+$shownControl = $blocks($page('<li>' . $opener . $copies . '</li>'));
+$assert(str_contains($shownControl, 'More'), 'A visible "More" control is not hidden, so it stays.');
+
 // A visible item with an empty slot is not hidden, so it is not treated as a copy.
 $shown = $blocks($page('<li><div><span></span></div>' . $copies . '</li>'));
 $assert(str_contains($shown, '/about/'), 'Visible content is never dropped.');
