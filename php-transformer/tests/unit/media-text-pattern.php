@@ -1402,8 +1402,9 @@ $findBlockByName = static function (array $blocks, array $names) use (&$findBloc
 $overlayVideoBlockNode = $findBlockByName($overlayVideoBlocks, array( 'core/video', 'core/html' ));
 $assertTrue(is_array($overlayVideoBlockNode), 'Overlay video fixture still emits a video-carrying block.');
 $overlayVideoMarkup = (string) ($overlayVideoBlockNode['innerHTML'] ?? '');
-$assertContains('width="1280"', $overlayVideoMarkup, 'Video keeps its own source width instead of a 50% media-text pane width.');
-$assertContains('height="720"', $overlayVideoMarkup, 'Video keeps its own source height instead of a media-text pane height.');
+$overlayVideoCss = implode("\n", array_column($overlayVideoResult['assets'] ?? array(), 'content'));
+$assertContains('width:1280px;height:720px;', $overlayVideoCss, 'Video keeps its source dimensions as CSS rather than media-text pane sizing.');
+$assertTrue(! str_contains($overlayVideoMarkup, 'width=') && ! str_contains($overlayVideoMarkup, 'height='), 'Video omits dimensions that core save drops.');
 $assertTrue(! str_contains($overlayVideoJson, '"mediaWidth"'), 'No mediaWidth (media-text pane share) attribute is fabricated anywhere in the tree.');
 
 $overlayButtonBlock = $findBlockByName($overlayVideoBlocks, array( 'core/button' ));

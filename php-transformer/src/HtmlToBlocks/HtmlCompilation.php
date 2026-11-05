@@ -10088,8 +10088,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'src'      => $src,
             'poster'   => 'video' === $tagName ? $this->safeImageUrl($this->attr($element, 'poster')) : '',
             'preload'  => $this->attr($element, 'preload'),
-            'width'    => $this->attr($element, 'width'),
-            'height'   => $this->attr($element, 'height'),
+            'width'    => 'video' === $tagName ? '' : $this->attr($element, 'width'),
+            'height'   => 'video' === $tagName ? '' : $this->attr($element, 'height'),
             'controls' => $element->hasAttribute('controls'),
         )), static fn (mixed $value): bool => is_bool($value) ? $value : '' !== $value);
 

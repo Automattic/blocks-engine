@@ -39,9 +39,8 @@ $assertNotContains = static function (string $needle, string $actual, string $me
  * collapses to the browser's 300x150 default intrinsic size before it can
  * load (worse still when `preload="none"` — the browser never even fetches
  * metadata, so it never learns the real aspect ratio), shifting every
- * section that follows it. core's own `save()` reads dimensions, poster,
- * and native playback state straight out of block attributes, so they must
- * survive conversion as real attrs, not just markup.
+ * section that follows it. Core save() drops raw dimensions, so sizing
+ * survives as generated CSS hints while playback remains native attributes.
  */
 $sized = ( new HtmlTransformer() )->transform(
     '<main><video src="https://example.com/clip.mp4" poster="https://example.com/clip.jpg" playsinline preload="none" width="1280" height="720" autoplay loop muted controls></video></main>'
@@ -50,8 +49,12 @@ $sizedBlock = $sized['blocks'][0] ?? array();
 $assertSame('core/video', $sizedBlock['blockName'] ?? null, 'A standalone sized video converts to core/video.');
 $assertSame('https://example.com/clip.mp4', $sizedBlock['attrs']['src'] ?? null, 'src survives as a block attribute.');
 $assertSame('https://example.com/clip.jpg', $sizedBlock['attrs']['poster'] ?? null, 'poster survives as a block attribute.');
-$assertSame('1280', $sizedBlock['attrs']['width'] ?? null, 'width survives as a block attribute.');
-$assertSame('720', $sizedBlock['attrs']['height'] ?? null, 'height survives as a block attribute.');
+$assertSame(false, isset($sizedBlock['attrs']['width']), 'Unsupported width is not a block attribute.');
+$assertSame(false, isset($sizedBlock['attrs']['height']), 'Unsupported height is not a block attribute.');
+$sizingCss = implode("\n", array_column($sized['assets'], 'content'));
+$assertContains('>video){width:1280px;height:720px;}', $sizingCss, 'Intrinsic dimensions survive as CSS hints.');
+$assertNotContains('width=', $sizedBlock['innerHTML'], 'Core video markup omits raw width.');
+$assertNotContains('height=', $sizedBlock['innerHTML'], 'Core video markup omits raw height.');
 $assertSame('none', $sizedBlock['attrs']['preload'] ?? null, 'preload survives as a block attribute.');
 $assertSame(true, $sizedBlock['attrs']['controls'] ?? null, 'controls survives as a block attribute.');
 $assertSame(true, $sizedBlock['attrs']['autoplay'] ?? null, 'autoplay survives as a block attribute.');
@@ -59,9 +62,9 @@ $assertSame(true, $sizedBlock['attrs']['loop'] ?? null, 'loop survives as a bloc
 $assertSame(true, $sizedBlock['attrs']['muted'] ?? null, 'muted survives as a block attribute.');
 $assertSame(true, $sizedBlock['attrs']['playsInline'] ?? null, 'playsinline survives as the playsInline block attribute.');
 $assertContains(
-    '<video src="https://example.com/clip.mp4" poster="https://example.com/clip.jpg" preload="none" width="1280" height="720" controls="controls" autoplay="autoplay" loop="loop" muted="muted" playsinline="playsinline">',
+    '<video src="https://example.com/clip.mp4" poster="https://example.com/clip.jpg" preload="none" controls="controls" autoplay="autoplay" loop="loop" muted="muted" playsinline="playsinline">',
     (string) ($sizedBlock['innerHTML'] ?? ''),
-    'All dimension, poster, and native playback attributes reach the saved <video> markup.'
+    'Poster and native playback attributes reach the saved <video> markup.'
 );
 $sizedValidity = ( new Runtime() )->validateBlockSerialization($sized['blocks']);
 $assertSame('pass', $sizedValidity['status'] ?? null, 'A fully-attributed core/video block passes serialization validators.');
