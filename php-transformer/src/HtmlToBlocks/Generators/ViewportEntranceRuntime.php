@@ -30,10 +30,26 @@ function replayViewportEntrances() {
         } catch (_) { continue; }
         if (element.closest('[__DEVICE_DOCUMENT__]') && !element.getClientRects().length)
             continue;
+        // Class and style poses replay only what differs between the poses, so
+        // classes and declarations the compiler emitted stay on the element.
+        const tokens = (value) => new Set(String(value ?? '').split(/\s+/).filter(Boolean));
+        const declarations = (value) => {
+            const probe = document.createElement('div').style;
+            probe.cssText = value ?? '';
+            return new Map(Array.from(probe, name => [name, [probe.getPropertyValue(name), probe.getPropertyPriority(name)]]));
+        };
         const apply = (pose) => {
             for (const [name, values] of Object.entries(state.attributes)) {
-                const value = values[pose];
-                if (value === null)
+                const value = values[pose], other = values[pose === 'before' ? 'after' : 'before'];
+                if (name === 'class') {
+                    const keep = tokens(value), drop = tokens(other);
+                    drop.forEach(token => keep.has(token) || element.classList.remove(token));
+                    keep.forEach(token => drop.has(token) || element.classList.add(token));
+                } else if (name === 'style') {
+                    const keep = declarations(value), drop = declarations(other);
+                    drop.forEach((_, property) => keep.has(property) || element.style.removeProperty(property));
+                    keep.forEach(([text, priority], property) => drop.get(property)?.join() === [text, priority].join() || element.style.setProperty(property, text, priority));
+                } else if (value === null)
                     element.removeAttribute(name);
                 else
                     element.setAttribute(name, value);
