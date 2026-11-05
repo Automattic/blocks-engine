@@ -100,6 +100,8 @@ $layoutShellBlockForElements = static function (array $elements, array $innerBlo
     );
 };
 $rowCss = '.fields-row{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem}';
+$compilation = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation();
+$ownership = (new ReflectionProperty($compilation, 'authorLayoutOwnership'))->getValue($compilation);
 $builder = new ReadableFormBlockBuilder(
     $metadataBuilder,
     $controlConverter,
@@ -107,6 +109,8 @@ $builder = new ReadableFormBlockBuilder(
     $eventMetadata,
     $isRuntimeDomTarget,
     $presentationAttributes,
+    $ownership,
+    new \Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture($presentationAttributes),
     $createBlock,
     $layoutShellBlockForElements,
     static fn (array $elements): array => array(

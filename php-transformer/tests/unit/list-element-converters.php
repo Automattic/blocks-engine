@@ -37,6 +37,9 @@ $createBlock = new SourceBlockCreatorFixture(static fn (string $name, array $att
     'sourceTag' => $source?->tagName,
 ));
 
+$compilation = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation();
+$compilation->transform('<p>Initialize layout state</p>');
+$ownership = (new ReflectionProperty($compilation, 'authorLayoutOwnership'))->getValue($compilation);
 $state = (object) array( 'mode' => 'native' );
 $listContext = new ListElementContext(
     static fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => 'pattern' === $state->mode ? array( 'blockName' => 'core/navigation' ) : null,
@@ -46,8 +49,7 @@ $listContext = new ListElementContext(
     static fn (DOMElement $element): bool => 'structural' === $state->mode,
     static fn (DOMElement $element, array &$fallbacks): ?array => array( 'blockName' => 'core/group', 'attrs' => array( 'structural' => true ) ),
     static fn (DOMElement $element, array &$fallbacks): array => 'empty' === $state->mode ? array() : array( array( 'blockName' => 'core/list-item' ) ),
-    static fn (DOMElement $element): bool => 'grid' === $state->mode,
-    static fn (DOMElement $element): array => array( 'className' => 'grid-list' ),
+    $ownership,
     new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array( 'className' => 'presented-list' )),
     $createBlock
 );
@@ -72,8 +74,8 @@ $assert('core/list' === ($native['blockName'] ?? '') && 'presented-list' === ($n
 $ordered = $listConverter->convert($elementFrom('<ol><li>One</li></ol>'), 'ol', $fallbacks)->block;
 $assert(true === ($ordered['attrs']['ordered'] ?? false), 'native-ordered-list');
 $state->mode = 'grid';
-$grid = $listConverter->convert($elementFrom('<ul><li>One</li></ul>'), 'ul', $fallbacks)->block;
-$assert('grid-list' === ($grid['attrs']['className'] ?? ''), 'css-grid-list-attributes');
+$grid = $listConverter->convert($elementFrom('<ul style="display:grid"><li>One</li></ul>'), 'ul', $fallbacks)->block;
+$assert(str_contains($grid['attrs']['className'] ?? '', 'blocks-engine-css-owned-grid'), 'css-grid-list-attributes');
 
 $state->mode = 'native';
 $descriptionContext = new DescriptionListElementContext(
@@ -81,8 +83,7 @@ $descriptionContext = new DescriptionListElementContext(
     static fn (DOMElement $element): ?array => 'description' === $state->mode ? array( 'blockName' => 'blocks-engine/description-list' ) : null,
     static fn (DOMElement $element): ?array => 'metadata' === $state->mode ? array( 'blockName' => 'core/group', 'attrs' => array( 'metadata' => true ) ) : null,
     static fn (DOMElement $element): array => 'items' === $state->mode ? array( array( 'blockName' => 'core/list-item' ) ) : array(),
-    static fn (DOMElement $element): bool => 'grid-items' === $state->mode,
-    static fn (DOMElement $element): array => array( 'className' => 'grid-description' ),
+    $ownership,
     new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array( 'className' => 'presented-' . strtolower($element->tagName) )),
     static fn (DOMElement $element, array &$fallbacks, bool $capture): array => 'empty' === $state->mode ? array() : array( array( 'blockName' => 'core/paragraph' ) ),
     $createBlock,

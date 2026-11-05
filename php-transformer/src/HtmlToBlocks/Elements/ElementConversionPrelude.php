@@ -17,6 +17,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\AddressableInlineLayoutLeaf;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorLayoutOwnership;
 use Closure;
 use DOMElement;
 
@@ -66,7 +67,6 @@ final class ElementConversionPrelude
      * @param Closure(DOMElement): array<string, mixed> $htmlPreservationBlock
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array<string, mixed> $linkedRuntimeControl
      * @param Closure(DOMElement, array<int, array<string, mixed>>&, array<int, class-string>): ?array<string, mixed> $recognizePatterns
-     * @param Closure(DOMElement): bool $requiresStandaloneInlineLayoutLeaf
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array<string, mixed> $proofBackedWrapperCoalescing
      * @param Closure(DOMElement): ?array<string, mixed> $layoutGeometryProofFor
      */
@@ -96,7 +96,7 @@ final class ElementConversionPrelude
         private readonly Closure $htmlPreservationBlock,
         private readonly Closure $linkedRuntimeControl,
         private readonly Closure $recognizePatterns,
-        private readonly Closure $requiresStandaloneInlineLayoutLeaf,
+        private readonly AuthorLayoutOwnership $authorLayoutOwnership,
         private readonly Closure $proofBackedWrapperCoalescing,
         private readonly Closure $layoutGeometryProofFor,
         private readonly Closure $adoptAsSemanticBlock,
@@ -196,7 +196,7 @@ final class ElementConversionPrelude
             return ConversionOutcome::handled(array() === $children ? null : $this->createBlock->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $children, $element));
         }
 
-        if ( ($this->requiresStandaloneInlineLayoutLeaf)($element) && $this->authorLayoutLeafSupportsRichText($element) ) {
+        if ( $this->authorLayoutOwnership->requiresStandaloneInlineLayoutLeaf($element) && $this->authorLayoutLeafSupportsRichText($element) ) {
             $leaf = $this->inlineLayoutCarrierBlock($element);
             if ( null !== $leaf ) {
                 return ConversionOutcome::handled($leaf);
