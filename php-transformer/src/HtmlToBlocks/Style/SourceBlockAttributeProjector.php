@@ -495,6 +495,9 @@ final class SourceBlockAttributeProjector
             }
             // core/button unwraps the label into RichText. Keep its selector
             // surface distinct from the link that owns the control chrome.
+            if ( '' !== $controlMarker && 'core/button' === $name && array() === $labelProjectionPaths && array() !== $labelPaths ) {
+                $this->generatedStyleProjector->registerFlattenedButtonLabelTextLayout($controlMarker, $logicalControl, $context->generatedStyles);
+            }
             if ( '' !== $controlMarker ) {
                 foreach ( $labelProjectionPaths as $labelPath ) {
                     if ( $labelPath !== $logicalControlPath && $labelPath !== $presentationPath ) {
