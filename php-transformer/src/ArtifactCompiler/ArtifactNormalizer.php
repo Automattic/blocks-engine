@@ -730,7 +730,8 @@ final class ArtifactNormalizer
             // inline bodies extracted from base64 HTML or resolved includes.
             $file['content'] = $this->normalizeContent($file['content']);
             $digest = hash('sha256', ($file['intent'] ?? '') . "\0" . ($file['type'] ?? '') . "\0" . $file['content']);
-            $path = isset($file['inline_references']) ? $file['path'] : 'inline/' . $digest . '.' . $file['kind'];
+            $kind = (string) ($file['kind'] ?? $file['type'] ?? 'html');
+            $path = isset($file['inline_references']) ? $file['path'] : 'inline/' . $digest . '.' . $kind;
             if (!isset($indexes[$path])) {
                 $indexes[$path] = count($result);
                 foreach (array('source_path', 'stylesheet_index', 'stylesheet_link_position', 'media', 'source_media', 'placement', 'selector', 'defer', 'async', 'superseded_by', 'metadata') as $field) unset($file[$field]);

@@ -1552,6 +1552,11 @@ final class CapturedDialogProjector
         $inner = $sourceRoot instanceof DOMElement && 'dialog' !== strtolower($sourceRoot->tagName) ? $this->soleElementChild($sourceRoot) : null;
         if ($inner instanceof DOMElement && 'dialog' === strtolower($inner->tagName)) {
             $sourceRoot = $inner;
+        } elseif ($sourceRoot instanceof DOMElement && 'dialog' !== strtolower($sourceRoot->tagName)) {
+            foreach ($sourceRoot->getElementsByTagName('dialog') as $nativeDialog) {
+                $sourceRoot = $nativeDialog;
+                break;
+            }
         }
         $container = $sourceRoot instanceof DOMElement ? $sourceRoot : $wrapper;
         // Captured interaction markup is runtime evidence. Keep that ownership
