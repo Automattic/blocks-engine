@@ -10,7 +10,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBl
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlAttributeName;
@@ -256,6 +255,7 @@ final class WrapperCoalescer
             || $this->sourceElementClassifier->hasMotionStructureToken($element)
             || $this->isDirectChildOfStructuralLayout($element)
             || array() !== $this->interactiveAttributes($element)
+            || $this->hasAriaAttributes($element)
         ) return false;
         foreach ($element->childNodes as $node) {
             if (XML_TEXT_NODE === $node->nodeType && '' !== trim((string) $node->nodeValue)) return false;
@@ -373,7 +373,7 @@ final class WrapperCoalescer
             array('runtime_dom_target', fn (): bool => $this->runtimeIslands->isRuntimeDomTarget($element)),
             array('structural_layout_child_without_proof', fn (): bool => null === $proof && $this->isDirectChildOfStructuralLayout($element) && ! $redundantNestedLayout),
             array('has_id_attribute', fn (): bool => '' !== trim(SourceDom::attr($element, 'id'))),
-            array('has_role_attribute', fn (): bool => '' !== trim(SourceDom::attr($element, 'role'))),
+            array('has_role_attribute', fn (): bool => $element->hasAttribute('role') || $this->hasAriaAttributes($element)),
             array('non_neutral_geometry_without_proof', fn (): bool => null === $proof && ! $fullWidthTransparentShell && ! $this->hasOnlyRenderNeutralInlineGeometry($element) && ! $redundantNestedLayout),
             array('has_interactive_attributes', fn (): bool => array() !== $this->interactiveAttributes($element)),
             array('has_data_attributes_without_proof', fn (): bool => null === $proof && array() !== $this->safeDataAttributes($element)),
@@ -415,7 +415,7 @@ final class WrapperCoalescer
             array('box_affecting_declarations_not_neutral', fn (): bool => null === $proof && ! $redundantNestedLayout && ($fullWidthTransparentShell ? ! $this->hasOnlyFullWidthTransparentBoxAffectingDeclarations($element) : ! $this->hasOnlyRenderNeutralBoxAffectingDeclarations($element))),
             array('full_width_shell_child_not_normal_flow', fn (): bool => null === $proof && $fullWidthTransparentShell && ! $this->isNormalFlowFullWidthShellChild($sourceChild)),
             array('containing_block_dependent_declarations', fn (): bool => 'core/image' !== ($childBlock['blockName'] ?? null) && ! $redundantNestedLayout && $this->hasContainingBlockDependentAuthorDeclarations($sourceChild)),
-            array('selector_matching_does_not_survive_coalescing', fn (): bool => null === $proof && ! $this->syntheticImageGeometryLeaf($childBlock) && ! $this->selectorMatchingSurvivesWrapperCoalescing($element, $sourceChild, $fullWidthTransparentShell)),
+            array('selector_matching_does_not_survive_coalescing', fn (): bool => null === $proof && ! $this->selectorMatchingSurvivesWrapperCoalescing($element, $sourceChild, true)),
         );
     }
 
@@ -443,13 +443,28 @@ final class WrapperCoalescer
         return $sourceChild;
     }
 
-    /** @param array<string, mixed> $block */
-    private function syntheticImageGeometryLeaf(array $block): bool
+    private function hasAriaAttributes(DOMElement $element): bool
     {
-        $className = (string) ($block['attrs']['className'] ?? '');
-        return 'core/image' === ($block['blockName'] ?? null)
-            && str_contains($className, SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS)
-            && (bool) preg_match('/(?:^|\s)be-inline-geometry-[a-f0-9-]+(?:\s|$)/', $className);
+        foreach ($element->attributes as $attribute) {
+            if (str_starts_with(strtolower($attribute->nodeName), 'aria-')) return true;
+        }
+        return false;
+    }
+
+    private ?bool $hasStructuralSelectors = null;
+
+    private function hasStructuralSelectors(): bool
+    {
+        if (null !== $this->hasStructuralSelectors) return $this->hasStructuralSelectors;
+        $index = $this->session->authorStyleAnalysis()->styleRuleCandidateIndex();
+        $entries = $index['universal'];
+        foreach (array('ids', 'classes', 'tags', 'attributes') as $bucket) {
+            foreach ($index[$bucket] as $group) $entries = array_merge($entries, $group);
+        }
+        foreach ($entries as $entry) {
+            if (preg_match('/[\s>+~:]/', $entry['rule']['selector'])) return $this->hasStructuralSelectors = true;
+        }
+        return $this->hasStructuralSelectors = false;
     }
 
     public function selectorMatchingSurvivesWrapperCoalescing(DOMElement $element, DOMElement $child, bool $exact = false): bool
@@ -483,6 +498,24 @@ final class WrapperCoalescer
                 $chain,
                 fn (DOMElement $node): bool => $this->session->sourceStyleResolutionState()->selectorMatchCache->matches($node, $selector['selector'], $selector['parsed'], true)['matches']
             );
+        }
+
+        // Check surviving nodes too: removing an ancestor can change child,
+        // sibling, :has(), or positional matches away from the promoted node.
+        $outsideMatches = array();
+        if ($exact && $this->hasStructuralSelectors() && $element->ownerDocument instanceof DOMDocument) {
+            $affected = array($parent);
+            foreach ($parent->getElementsByTagName('*') as $node) $affected[] = $node;
+            for ($ancestor = $parent->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) $affected[] = $ancestor;
+            foreach ($affected as $node) {
+                if (in_array($node, $chain, true)) continue;
+                $matches = array();
+                foreach ($this->authorStyleRuleCandidates($node) as $candidate) {
+                    if (! $candidate['parsed']['supported']) return false;
+                    $matches[$candidate['key']] = $this->session->sourceStyleResolutionState()->selectorMatchCache->matches($node, $candidate['selector'], $candidate['parsed'], true)['matches'];
+                }
+                $outsideMatches[] = array($node, $matches);
+            }
         }
 
         $childClass = SourceDom::attr($child, 'class');
@@ -524,6 +557,16 @@ final class WrapperCoalescer
             if ( ($matchesBefore[$key] ?? false) !== $matchesAfter && ($exact || ! $this->hasOnlyRenderNeutralDeclarations($selector['declarations'])) ) {
                 $survives = false;
                 break;
+            }
+        }
+
+        foreach ($outsideMatches as [$node, $before]) {
+            $after = array();
+            foreach ($this->authorStyleRuleCandidates($node, $temporarySelectorCache) as $candidate) {
+                $after[$candidate['key']] = $candidate['parsed']['supported'] && $temporarySelectorCache->matches($node, $candidate['selector'], $candidate['parsed'], true)['matches'];
+            }
+            foreach (array_unique(array_merge(array_keys($before), array_keys($after))) as $key) {
+                if (($before[$key] ?? false) !== ($after[$key] ?? false)) $survives = false;
             }
         }
 
@@ -646,7 +689,7 @@ final class WrapperCoalescer
     private function hasOnlyRenderNeutralBoxAffectingDeclarationMap(array $declarations): bool
     {
         foreach ($declarations as $property => $value) {
-            if (! preg_match('/^(?:align-content|align-items|align-self|background|border|bottom|column|contain|display|filter|flex|float|gap|grid|height|inset|isolation|left|margin|max-|min-|opacity|outline|overflow|padding|perspective|position|right|row-gap|top|transform|width|z-index)/', $property)) continue;
+            if (! preg_match('/^(?:align-content|align-items|align-self|backdrop-filter|background|border|box-shadow|bottom|column|contain|display|filter|flex|float|gap|grid|height|inset|isolation|left|margin|max-|min-|opacity|outline|overflow|padding|perspective|position|right|row-gap|top|transform|width|z-index)/', $property)) continue;
             if (! $this->isRenderNeutralGeometryDeclaration($property, $value)) return false;
         }
         return true;
@@ -658,7 +701,29 @@ final class WrapperCoalescer
         $value = strtolower(trim(CssValueInspector::withoutImportant($value)));
         if (preg_match('/^(?:margin|padding)(?:-(?:top|right|bottom|left))?$/', $property)) return in_array($value, array('0', '0px', '0em', '0rem', '0%'), true);
         if (str_starts_with($property, 'border') || 'outline' === $property) return in_array($value, array('0', '0 none', 'none'), true);
-        return 'text-align' === $property && 'left' === $value;
+        // Explicit initial values are as neutral as absent declarations. Do
+        // not infer neutrality from a single captured size for flex/grid,
+        // percentage sizing, clipping, or positioning contexts.
+        $neutral = array(
+            'display' => array('block'),
+            'position' => array('static'),
+            'background' => array('none', 'transparent'),
+            'background-color' => array('transparent', 'rgba(0, 0, 0, 0)'),
+            'background-image' => array('none'),
+            'box-shadow' => array('none'),
+            'text-shadow' => array('none'),
+            'filter' => array('none'),
+            'backdrop-filter' => array('none'),
+            'opacity' => array('1'),
+            'overflow' => array('visible'),
+            'overflow-x' => array('visible'),
+            'overflow-y' => array('visible'),
+            'transform' => array('none'),
+            'z-index' => array('auto'),
+            'isolation' => array('auto'),
+            'text-align' => array('left'),
+        );
+        return in_array($value, $neutral[$property] ?? array(), true);
     }
 
     /** @param array<string,string> $declarations */

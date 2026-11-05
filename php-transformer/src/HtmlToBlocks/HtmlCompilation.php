@@ -7438,6 +7438,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function shouldPreserveWrapper(DOMElement $element, ?string $asTag = null): bool
     {
         $tag = $asTag ?? $element->tagName;
+        foreach ($element->attributes as $attribute) {
+            if (str_starts_with(strtolower($attribute->nodeName), 'aria-') || in_array(strtolower($attribute->nodeName), array('id', 'role'), true)) return true;
+        }
 
         // Elide only a neutral chain, not a media shell whose positioned child
         // requires an intrinsic-size carrier. Keep identity on its real box.
