@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ResponsiveCorrespondence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
@@ -175,7 +176,7 @@ final class PresetBinding
     private array $importantRules = array();
     /** @var array<string,list<array{tokens:list<string>|null,negated:list<string>,fragment:string}>> `[style*=…]` selectors per family; null tokens reach any element. */
     private array $styleTextRules = array();
-    /** @var array<string,list<array{tokens:list<string>,negated:list<string>,attributes:list<array{0:string,1:string|null}>}>> Subjects of interaction-state rules, per family. */
+    /** @var array<string,list<array{tokens:list<string>,negated:list<string>,attributes:list<array{0:string,1:string|null}>,compound?:array<string,mixed>}>> Subjects of interaction-state rules, per family. */
     private array $stateTokens = array();
     /** @var array<string,array<string,string>> Authored class list => property => the one observation every element agreed on, or `!`. */
     private array $classStyles = array();
@@ -1487,6 +1488,7 @@ final class PresetBinding
     private function stateMatches(string $family, array $tokens): bool
     {
         foreach ($this->stateTokens[$family] ?? array() as $subject) {
+            if (isset($subject['compound']) && !self::stateSubjectMatches($subject['compound'], $tokens)) continue;
             if (array() !== array_intersect_key(array_flip($subject['negated']), $tokens)) continue;
             if (array() !== $subject['tokens'] && array() === array_intersect_key(array_flip($subject['tokens']), $tokens)) continue;
             if (isset($tokens[self::KNOWN_ATTRIBUTES])) {
@@ -1503,10 +1505,40 @@ final class PresetBinding
     private function indexState(string $prelude, string $family): void
     {
         foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) {
-            $subject = self::subjectTokens((string) preg_replace(self::STATE_PSEUDO, '', $selector));
+            $resting = (string) preg_replace(self::STATE_PSEUDO, '', $selector);
+            $subject = self::subjectTokens($resting);
             if (null === $subject) continue;
+            $parsed = CssSelectorMatcher::parse($resting);
+            if ($parsed['supported'] && array() !== $parsed['compounds']) {
+                $subject['compound'] = $parsed['compounds'][array_key_last($parsed['compounds'])];
+            }
             $this->stateTokens[$family][] = $subject + array('attributes' => self::subjectAttributes($selector));
         }
+    }
+
+    /**
+     * Necessary subject constraints, including the subject of each :is/:where
+     * alternative. Ancestor tokens inside those functions cannot establish a
+     * match on the element itself. Unknown/relational constraints stay conservative.
+     *
+     * @param array<string,mixed> $compound
+     * @param array<string,true> $tokens
+     */
+    private static function stateSubjectMatches(array $compound, array $tokens): bool
+    {
+        if (is_string($compound['type'] ?? null) && !isset($tokens['tag:' . strtolower($compound['type'])])) return false;
+        foreach (array('classes' => 'class:', 'ids' => 'id:') as $key => $prefix) {
+            foreach ($compound[$key] ?? array() as $value) if (!isset($tokens[$prefix . $value])) return false;
+        }
+        foreach ($compound['any'] ?? array() as $group) {
+            $possible = false;
+            foreach ($group['alternatives'] as $alternative) {
+                $subjects = $alternative['compounds'];
+                if (array() === $subjects || self::stateSubjectMatches($subjects[array_key_last($subjects)], $tokens)) $possible = true;
+            }
+            if (!$possible) return false;
+        }
+        return true;
     }
 
     /** Property names declared anywhere in a nested rule body, through further nesting and conditions. */
