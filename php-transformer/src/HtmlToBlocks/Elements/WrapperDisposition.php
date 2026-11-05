@@ -56,28 +56,9 @@ final class WrapperDisposition
         return new self(self::COALESCE, $reason);
     }
 
-    public static function cssOwned(string $reason): self
-    {
-        return new self(self::CSS_OWNED, $reason);
-    }
-
-    public function isPreserve(): bool
-    {
-        return self::PRESERVE === $this->kind;
-    }
-
-    public function isFold(): bool
-    {
-        return self::FOLD === $this->kind;
-    }
-
     public function isCoalesce(): bool
     {
         return self::COALESCE === $this->kind;
     }
 
-    public function isCssOwned(): bool
-    {
-        return self::CSS_OWNED === $this->kind;
-    }
 }

@@ -12,6 +12,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiag
 /** Projects HTML reports and assembles TransformerResult from explicit compilation outputs. */
 final class HtmlResultComposer
 {
+    use \Automattic\BlocksEngine\PhpTransformer\Support\CountsBlocks;
+
     /**
      * @param array<string, mixed> $provenanceFallback
      * @param array<int, array<string, mixed>> $provenance
@@ -170,21 +172,6 @@ final class HtmlResultComposer
             'style_rule_candidate_cache_peak_entries' => $selectorCache->candidateRulePeakEntries,
             'style_rule_candidate_cache_peak_rule_references' => $selectorCache->candidateRulePeakRetained,
         );
-    }
-
-    /** @param array<int, array<string, mixed>> $blocks */
-    private function countBlocks(array $blocks): int
-    {
-        $count = 0;
-
-        foreach ( $blocks as $block ) {
-            ++$count;
-            if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
-                $count += $this->countBlocks($block['innerBlocks']);
-            }
-        }
-
-        return $count;
     }
 
     /**

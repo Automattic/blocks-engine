@@ -351,7 +351,7 @@ final class InertScaffoldingSuppressor implements ElementConverter
             || '' !== trim($element->textContent ?? '')
             || 0 !== SourceDom::childElementCount($element)
             || array() !== SourceDom::eventMetadata($element)
-            || array() !== $this->safeDataAttributes($element) ) {
+            || array() !== SourceDom::safeDataAttributes($element) ) {
             return false;
         }
 
@@ -374,7 +374,7 @@ final class InertScaffoldingSuppressor implements ElementConverter
             || ! in_array(strtolower(trim(SourceDom::attr($liveRegion, 'role'))), array( 'alert', 'log', 'status' ), true)
             || ! in_array(strtolower(trim(SourceDom::attr($liveRegion, 'aria-live'))), array( 'assertive', 'polite' ), true)
             || ! $this->isVisuallyClippedLiveRegion($liveRegion)
-            || array() !== $this->safeDataAttributes($liveRegion) ) {
+            || array() !== SourceDom::safeDataAttributes($liveRegion) ) {
             return false;
         }
 
@@ -428,16 +428,4 @@ final class InertScaffoldingSuppressor implements ElementConverter
         return true;
     }
 
-    /** @return array<string, string> */
-    private function safeDataAttributes(DOMElement $element): array
-    {
-        $data = array();
-        foreach ( SourceDom::htmlAttributes($element) as $name => $value ) {
-            if ( preg_match('/^data-[a-z0-9_-]+$/i', $name) && strlen($value) <= 300 && ! preg_match('/javascript\s*:/i', $value) ) {
-                $data[$name] = $value;
-            }
-        }
-
-        return $data;
-    }
 }

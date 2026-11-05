@@ -17,6 +17,8 @@ use DOMXPath;
 /** Projects bounded captured-dialog evidence into the matching source document. */
 final class CapturedDialogProjector
 {
+    use \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CapturedDocumentScopes;
+
     private const MAX_STATES_PER_PAGE = 8;
     // Data Liberation emits at most 8 trigger dialogs plus 8 initially-open dialogs per page.
     private const MAX_DIALOG_STATES_PER_PAGE = 16;
@@ -1265,22 +1267,6 @@ final class CapturedDialogProjector
             return array('status' => 'unmatched', 'elements' => array());
         }
         return array('status' => 'matched', 'elements' => $elements);
-    }
-
-    /** @return array<int, DOMElement> */
-    private function documentScopes(DOMDocument $document): array
-    {
-        $body = $document->getElementsByTagName('body')->item(0) ?? $document->documentElement;
-        if (! $body instanceof DOMElement) {
-            return array();
-        }
-        $scopes = array();
-        foreach ($body->childNodes as $child) {
-            if ($child instanceof DOMElement && $this->isResponsiveDocumentWrapper($child)) {
-                $scopes[] = $child;
-            }
-        }
-        return array() === $scopes ? array($body) : $scopes;
     }
 
     private function isResponsiveDocumentWrapper(DOMElement $element): bool

@@ -93,11 +93,6 @@ final class ColorSchemeVariant
         return false;
     }
 
-    public static function cssEscapeIdent(string $ident): string
-    {
-        return CssIdent::escape($ident);
-    }
-
     public static function cssContainsClassSelector(string $css, string $className): bool
     {
         if ( '' === $className ) {

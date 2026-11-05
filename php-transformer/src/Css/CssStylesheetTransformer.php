@@ -50,15 +50,6 @@ final class CssStylesheetTransformer
         return $this->transformRules($stylesheet, static fn (string $prelude): string => $prelude, $transformStyleRule);
     }
 
-    /** Transform only top-level style rules, retaining nested at-rule bodies byte-for-byte. */
-    public function transformTopLevelStyleRules(string $stylesheet, callable $transformStyleRule): string
-    {
-        if ( ! $this->isWellFormedStylesheet($stylesheet) ) {
-            return $stylesheet;
-        }
-        return $this->transformRules($stylesheet, static fn (string $prelude): string => $prelude, $transformStyleRule, false);
-    }
-
     /**
      * Separate declaration runs from nested rules without interpreting values.
      * Custom-property blocks belong to their declaration, not CSS nesting.

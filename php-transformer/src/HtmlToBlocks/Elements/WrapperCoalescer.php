@@ -378,7 +378,7 @@ final class WrapperCoalescer
             array('has_role_attribute', fn (): bool => '' !== trim(SourceDom::attr($element, 'role'))),
             array('non_neutral_geometry_without_proof', fn (): bool => null === $proof && ! $fullWidthTransparentShell && ! $this->hasOnlyRenderNeutralInlineGeometry($element) && ! $redundantNestedLayout),
             array('has_interactive_attributes', fn (): bool => array() !== $this->interactiveAttributes($element)),
-            array('has_data_attributes_without_proof', fn (): bool => null === $proof && array() !== $this->safeDataAttributes($element)),
+            array('has_data_attributes_without_proof', fn (): bool => null === $proof && array() !== SourceDom::safeDataAttributes($element)),
             array('has_structure_signals_without_proof', fn (): bool => null === $proof && $this->hasBlockingStructureSignals($element, $childBlock) && ! $redundantNestedLayout),
             array('has_motion_structure_token', fn (): bool => $this->sourceElementClassifier->hasMotionStructureToken($element)),
         );
@@ -919,7 +919,7 @@ final class WrapperCoalescer
             || '' !== trim(SourceDom::attr($element, 'role'))
             || ! $this->hasOnlyRenderNeutralInlineGeometry($element)
             || array() !== $this->interactiveAttributes($element)
-            || array() !== $this->safeDataAttributes($element)
+            || array() !== SourceDom::safeDataAttributes($element)
             || array() !== ($this->structureSignals)($element)
             || $this->sourceElementClassifier->hasMotionStructureToken($element)
             || ! $this->hasOnlyRenderNeutralBoxAffectingDeclarations($element)
@@ -947,18 +947,6 @@ final class WrapperCoalescer
             'aria-controls' => SourceDom::attr($element, 'aria-controls'),
             'has_events'    => array() !== SourceDom::eventMetadata($element),
         ), static fn (mixed $value): bool => false !== $value && '' !== $value);
-    }
-
-    /** @return array<string, string> */
-    private function safeDataAttributes(DOMElement $element): array
-    {
-        $data = array();
-        foreach ( SourceDom::htmlAttributes($element) as $name => $value ) {
-            if ( preg_match('/^data-[a-z0-9_-]+$/i', $name) && strlen($value) <= 300 && ! preg_match('/javascript\s*:/i', $value) ) {
-                $data[$name] = $value;
-            }
-        }
-        return $data;
     }
 
     private function generatedBlocks(): GeneratedBlockRegistry

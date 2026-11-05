@@ -16,6 +16,8 @@ use DOMElement;
 /** Button recognition evidence, backed by real collaborators. */
 final class ButtonPatternContext
 {
+    use \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ResolvedPatternStyle;
+
     public function __construct(
         private readonly ?StyleResolver $styleResolver = null,
         private readonly ?RichTextMaterialization $richTextMaterializer = null,
@@ -83,18 +85,6 @@ final class ButtonPatternContext
         }
 
         return false;
-    }
-
-    public function resolvedStyle(DOMElement $element): string
-    {
-        if ( ! $this->styleResolver instanceof StyleResolver ) {
-            return '';
-        }
-
-        return $this->styleResolver->resolveCssVariablesInValue(
-            $this->styleResolver->specificityResolvedPresentationStyle($element),
-            $element
-        );
     }
 
     /** @return array<string, string> */
