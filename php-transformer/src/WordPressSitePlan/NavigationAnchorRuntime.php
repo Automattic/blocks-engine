@@ -11,11 +11,12 @@ final class NavigationAnchorRuntime
     {
         return <<<'PHP'
 add_filter( 'render_block', static function ( string $content, array $block ): string {
-    if ( ! isset( $block['attrs']['labelMarkup'] ) || ! str_contains( $content, 'data-blocks-engine-route-state' ) ) return $content;
+    if ( ! isset( $block['attrs']['labelMarkup'] ) && ! isset( $block['attrs']['label'] ) ) return $content;
+    if ( ! str_contains( $content, 'data-blocks-engine-route-state' ) ) return $content;
     $links = new WP_HTML_Tag_Processor( $content ); $url = '';
     while ( $links->next_tag( 'A' ) ) { $url = (string) $links->get_attribute( 'href' ); break; }
     $document = get_queried_object_id();
-    $served = is_front_page() ? '/' : ( $document && 'page' === get_post_type( $document ) ? '/' . trim( (string) get_page_uri( $document ), '/' ) : null );
+    $served = is_front_page() ? '/' : ( $document ? ( 'page' === get_post_type( $document ) ? '/' . trim( (string) get_page_uri( $document ), '/' ) : '/' . trim( (string) parse_url( (string) get_permalink( $document ), PHP_URL_PATH ), '/' ) ) : null );
     $current = '' !== $url && '/' === $url[0] && ! str_starts_with( $url, '//' ) && ! str_contains( $url, '#' ) && null !== $served && '/' . trim( (string) parse_url( $url, PHP_URL_PATH ), '/' ) === $served;
     $processor = new WP_HTML_Tag_Processor( $content );
     while ( $processor->next_tag() ) {

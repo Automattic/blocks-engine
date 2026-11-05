@@ -6346,8 +6346,8 @@ PHP;
             $lines[] = "}, 10, 2 );";
             break;
         }
-        foreach (array_merge($templates, $parts, $pages) as $document) {
-            if (str_contains((string) ($document['canonical_block_markup'] ?? ''), 'data-blocks-engine-route-state')) {
+        foreach (array_merge($templates, $parts, $pages, $menus) as $document) {
+            if (str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), 'data-blocks-engine-route-state')) {
                 $lines[] = NavigationAnchorRuntime::retainedLabelSource();
                 break;
             }

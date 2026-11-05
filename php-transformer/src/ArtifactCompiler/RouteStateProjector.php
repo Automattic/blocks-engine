@@ -115,28 +115,30 @@ final class RouteStateProjector
     }
 
     /**
-     * Compare the same single-link label across captures. Only a demonstrated
+     * Compare the same single-link item across captures. Only a demonstrated
      * current/resting pair can own a binding; unrelated label differences remain
-     * authored content. The binding travels with labelMarkup and its saved HTML.
+     * authored content. Retained labels bind attributes; ordinary navigation
+     * labels bind descendant inline paint, leaving anchor projection unchanged.
+     * The binding travels with labelMarkup or navigation-link label HTML.
      */
     private static function bindRetainedLabels(array $files): array
     {
         $documents = array();
         $groups = array();
         foreach ($files as $index => $file) {
-            if ('html' !== ($file['kind'] ?? null) || !is_string($file['content'] ?? null) || !str_contains($file['content'], '<label')) continue;
+            if ('html' !== ($file['kind'] ?? null) || !is_string($file['content'] ?? null) || !str_contains($file['content'], '<nav')) continue;
             $document = new DOMDocument('1.0', 'UTF-8');
             $previous = libxml_use_internal_errors(true);
             $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $file['content'], LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
             libxml_clear_errors(); libxml_use_internal_errors($previous);
             if (!$loaded) continue;
             $documents[$index] = $document;
-            foreach ((new DOMXPath($document))->query('//nav//label[.//input]') ?: array() as $label) {
-                if (!$label instanceof DOMElement || 1 !== $label->getElementsByTagName('a')->length) continue;
-                $link = $label->getElementsByTagName('a')->item(0);
-                if (!$link instanceof DOMElement || !$link->hasAttribute('href')) continue;
+            foreach ((new DOMXPath($document))->query('//nav//a[@href]') ?: array() as $link) {
+                if (!$link instanceof DOMElement) continue;
+                $label = $link;
+                while ($label->parentNode instanceof DOMElement && 'nav' !== strtolower($label->parentNode->tagName) && 'label' !== strtolower($label->tagName) && 1 === $label->parentNode->getElementsByTagName('a')->length) $label = $label->parentNode;
                 $nodes = array(); $shape = array(); $current = false;
-                foreach ($label->getElementsByTagName('*') as $node) {
+                foreach (array_merge(array($label), iterator_to_array($label->getElementsByTagName('*'))) as $node) {
                     if ('input' === strtolower($node->tagName)) continue;
                     $nodes[] = $node; $shape[] = $node->tagName;
                     foreach ($node->attributes as $attribute) {
@@ -150,7 +152,7 @@ final class RouteStateProjector
                 if ('' === $href || ArtifactPath::namesSection($href) || str_starts_with($href, '//') || preg_match('~^[a-z][a-z0-9+.-]*:~i', $href)) continue;
                 $target = str_starts_with($href, '/') ? ltrim(ArtifactPath::stripQueryAndFragment($href), '/') : ArtifactPath::resolveRelativePath($href, (string) ($file['path'] ?? ''));
                 $key = $target . ':' . implode('/', $shape) . ':' . trim($label->textContent);
-                $groups[$key][] = array('index' => $index, 'nodes' => $nodes, 'current' => $current);
+                $groups[$key][] = array('index' => $index, 'nodes' => $nodes, 'current' => $current, 'retained' => 'label' === strtolower($label->tagName));
             }
         }
         $changed = array();
@@ -165,6 +167,9 @@ final class RouteStateProjector
                 foreach (array_keys($names) as $name) {
                     if (!in_array($name, array('class', 'style', 'aria-current'), true) && !str_starts_with($name, 'data-')) continue;
                     if (str_starts_with($name, 'data-blocks-engine-')) continue;
+                    // Ordinary links already project anchor classes and colours.
+                    // Only descendant inline paint needs this cross-route binding.
+                    if (!$rows[0]['retained'] && ('style' !== $name || 'a' === strtolower($rows[0]['nodes'][$position]->tagName))) continue;
                     $values = static function (array $peers) use ($position, $name): array {
                         return array_values(array_unique(array_map(static fn(array $row): ?string => $row['nodes'][$position]->hasAttribute($name) ? $row['nodes'][$position]->getAttribute($name) : null, $peers), SORT_REGULAR));
                     };
