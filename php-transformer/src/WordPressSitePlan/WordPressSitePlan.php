@@ -3540,6 +3540,11 @@ PHP;
     private function decideDocuments(mixed $documents): array
     {
         if (!is_array($documents)) throw new InvalidArgumentException('Compiled site documents must be an array.');
+        // WordPress owns year/month/day archives natively. Their visible dates,
+        // article metadata and dated paths describe a query, not a publication.
+        // Keep the capture in the source catalog, but out of content, route and
+        // taxonomy inference entirely (including listing-card date inference).
+        $documents = array_values(array_filter($documents, static fn(mixed $document): bool => !is_array($document) || !self::isDateArchiveDocument($document)));
         $entryRoot = self::entryRootFromDocuments($documents);
         $routes = array();
         $evidenceByIndex = array();
@@ -3818,6 +3823,21 @@ PHP;
         }
         $paths = array_keys($catalog); $sorted = $paths; sort($sorted, SORT_STRING); if ($paths !== $sorted) throw new InvalidArgumentException('WordPress site plan source document catalog must be sorted.');
         return $catalog;
+    }
+    /** @param array<string,mixed> $document */
+    private static function isDateArchiveDocument(array $document): bool
+    {
+        $class = $document['document_metadata']['body_attributes']['class'] ?? null;
+        if (!is_string($class)) {
+            foreach (HtmlMarkupParser::htmlMarkupNodes((string) ($document['html'] ?? '')) as $node) {
+                if ('tag' === ($node['kind'] ?? null) && 'body' === ($node['name'] ?? null)) {
+                    $class = $node['attributes']['class'] ?? '';
+                    break;
+                }
+            }
+        }
+        $classes = preg_split('/[\x20\t\r\n\f]+/', trim((string) $class)) ?: array();
+        return in_array('archive', $classes, true) && in_array('date', $classes, true);
     }
     /** @param array<string,mixed> $document */
     private static function emptyRedirectDocument(array $document): bool
