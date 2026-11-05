@@ -536,6 +536,14 @@ final class StyleAttributeMapper
                 && ( '' === $resolved['width'] || ! preg_match('/^[+-]?0*(?:\.0+)?(?:[a-z%]+)?$/i', $resolved['width']) );
         }
 
+        // A zero-width reset paints no border, regardless of style or color.
+        // Keep radius independent; omitting inert support here also lets plain
+        // wrappers fold without special cases in the wrapper coalescer.
+        if ( $this->allBorderWidthsZero($declarations, $resolveValue) ) {
+            $radius = trim((string) ($declarations['border-radius'] ?? ''));
+            return '' === $radius ? array() : array( 'radius' => $radius );
+        }
+
         $width      = trim($global['width']['value']);
         $style      = strtolower(trim($global['style']['value']));
         $colorValue = $this->cssColor($global['color']['value'], $resolveValue);
@@ -642,6 +650,30 @@ final class StyleAttributeMapper
         }
 
         return $candidate;
+    }
+
+    /**
+     * Whether cascade-resolved declarations explicitly give every side zero
+     * width. Missing/unknown widths are not zero (CSS initially uses medium).
+     * Shared with wrapper neutrality checks so inert style/color cannot veto
+     * folding after being omitted from block support.
+     *
+     * @param array<string, string> $declarations
+     */
+    public function allBorderWidthsZero(array $declarations, ?callable $resolveValue = null): bool
+    {
+        $positions = array_flip(array_keys($declarations));
+        $global = $this->borderComponentCandidate($declarations, $positions, 'width', '', $resolveValue);
+        foreach ( array( 'top', 'right', 'bottom', 'left' ) as $index => $side ) {
+            $candidate = $this->borderComponentCandidate($declarations, $positions, 'width', $side, $resolveValue);
+            $winner = $candidate['index'] > $global['index'] ? $candidate : $global;
+            $value = null !== $resolveValue ? $resolveValue($winner['value']) : $winner['value'];
+            $width = trim(CssValueInspector::expandBoxShorthand($value)[ $index ]);
+            if ( '' === $width || 1 !== preg_match('/^[+-]?(?:0+(?:\.0+)?|\.0+)(?:[a-z%]+)?$/i', $width) ) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private function isMappedBorderProperty(string $name): bool
