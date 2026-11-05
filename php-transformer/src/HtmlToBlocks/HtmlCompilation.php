@@ -7779,18 +7779,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             && in_array($declarations['filter'] ?? 'none', array( '', 'none' ), true)
             && in_array($declarations['content'] ?? 'none', array( '', 'none', 'normal', '""', "''" ), true)
         );
-        // Do not infer geometry from missing declarations: layout can supply
-        // a box (inset overlays, flex items, grid cells, and normal flow).
-        $zeroBox = false;
-        foreach ( array( 'width', 'height' ) as $axis ) {
-            if ( 1 === preg_match('/^0(?:px|em|rem|%)?$/', $declarations[$axis] ?? '')
-                && ! $this->hasVisibleEmptyVisualPaint($declarations, $element)
-                && ! $this->hasRenderableEmptyBlockBox($element)
-            ) {
-                $zeroBox = true;
-            }
-        }
-        return $noPaint && ('none' === ($declarations['pointer-events'] ?? '') || $zeroBox);
+        // A box that never paints is only worth keeping when it reserves flow
+        // space or something can interact with it after import. Pointer
+        // targets alone (a cursor, a click-capture layer for a builder's own
+        // script) do not survive into WordPress.
+        $outOfFlow = in_array($declarations['position'] ?? '', array( 'absolute', 'fixed' ), true);
+        $reservesFlowSpace = ! $outOfFlow && $this->reservesEmptyFlowSpace($element);
+        return $noPaint && ! $reservesFlowSpace && array() === $this->interactiveAttributes($element);
     }
 
     /** Empty in-flow flex items can reserve space without painting anything (#4065). */
@@ -7940,7 +7935,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return false;
     }
 
-    private function hasRenderableEmptyBlockBox(DOMElement $element): bool
+    /** An empty element still occupies normal-flow space through its own height, padding or grid tracks. */
+    private function reservesEmptyFlowSpace(DOMElement $element): bool
     {
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
         if ( $this->hasAuthoredGridTracks($element) ) {
@@ -7950,6 +7946,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if ( isset($declarations[$property]) && $this->sourceElementClassifier->isPositiveCssLength($this->styleResolver->resolveCssVariablesInValue($declarations[$property], $element)) ) {
                 return true;
             }
+        }
+        return false;
+    }
+
+    private function hasRenderableEmptyBlockBox(DOMElement $element): bool
+    {
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
+        if ( $this->reservesEmptyFlowSpace($element) ) {
+            return true;
         }
         if ( $this->hasVisibleEmptyVisualPaint($declarations, $element) ) {
             return true;

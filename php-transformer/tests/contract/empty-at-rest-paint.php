@@ -12,7 +12,9 @@ foreach (array(
     'border rule' => array('border-top:1px solid black', '', true),
     'focus overlay' => array('opacity:0;background:red;pointer-events:none', '.empty:focus{opacity:1}', true),
     'resolved opacity' => array('opacity:var(--hidden);--hidden:0;background:red;pointer-events:none', '', false),
-    'unpainted box' => array('height:30px;pointer-events:none', '', false),
+    'flow spacer' => array('height:30px', '', true),
+    'click-capture overlay' => array('position:absolute;inset:0;width:100%;height:100%;z-index:1;cursor:zoom-in;opacity:0', '', false),
+    'zero-height rule' => array('height:0;pointer-events:none', '', false),
 ) as $label => [$style, $stateRule, $keep]) {
     $html = '<style>.empty{' . $style . '}' . $stateRule . '</style><div class="empty"></div>';
     $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html)))->toArray();
