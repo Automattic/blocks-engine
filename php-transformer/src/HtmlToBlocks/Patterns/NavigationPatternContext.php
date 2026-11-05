@@ -859,7 +859,45 @@ final class NavigationPatternContext
             $this->sourceTargetProjection?->record(SourceDom::elementSelector($anchor), $target, 'height:100%');
             $this->sourceTargetProjection?->record(SourceDom::elementSelector($anchor), $target . '>.wp-block-navigation-item__label', 'display:block;height:100%');
         }
+        $width = $this->absoluteLabelSizingWidth($anchor);
+        if ('' !== $width) {
+            // Out-of-flow label layers contribute no intrinsic width to Core's
+            // flex item. Restore their sizing box on the new carrier chain,
+            // without changing the already-projected placement or height.
+            $source = SourceDom::elementSelector($anchor);
+            $this->sourceTargetProjection?->record($source, '.wp-block-navigation .wp-block-navigation-item.' . $marker, 'width:' . $width . ';flex-shrink:0');
+            $this->sourceTargetProjection?->record($source, $target, 'width:' . $width);
+            $this->sourceTargetProjection?->record($source, $target . '>.wp-block-navigation-item__label', 'display:block;width:100%');
+        }
         return $marker;
+    }
+
+    /**
+     * A single label-box chain may size itself entirely outside normal flow.
+     * Do not infer a carrier width from text, siblings, percentages (which
+     * depend on the missing carrier), or an ordinary in-flow content box.
+     */
+    private function absoluteLabelSizingWidth(DOMElement $anchor): string
+    {
+        $style = $this->styleResolver->referenceViewportAuthorDeclarations($anchor, array('display', 'width'));
+        if (isset($style['width']) && 'auto' !== $style['width']) return '';
+        if (!in_array($style['display'] ?? 'inline', array('inline', 'inline-block', 'inline-flex', 'inline-grid'), true)) return '';
+        $outOfFlow = false;
+        for ($node = $anchor; ; $node = $children[0]) {
+            $children = array();
+            foreach ($node->childNodes as $child) {
+                if ($child instanceof DOMElement) $children[] = $child;
+                elseif ('' !== trim($child->textContent)) return '';
+            }
+            if (1 !== count($children)) return '';
+            $child = $children[0];
+            $style = $this->styleResolver->referenceViewportAuthorDeclarations($child, array('width', 'position', 'display'));
+            if ('none' === ($style['display'] ?? '')) return '';
+            $outOfFlow = $outOfFlow || in_array($style['position'] ?? '', array('absolute', 'fixed'), true);
+            $width = trim((string) ($style['width'] ?? ''));
+            if (CssValueInspector::isAbsoluteLength($width)) return $outOfFlow ? $width : '';
+            if ('' !== $width && !in_array($width, array('auto', '100%'), true)) return '';
+        }
     }
 
     /** Only an inline source link lets a block child's height bypass it. */
