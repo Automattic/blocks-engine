@@ -22,7 +22,18 @@ final class AuthoredButtonBlockGenerator
     public static function isRoleButton(DOMElement $element): bool
     {
         return in_array(strtolower($element->tagName), array('div', 'span'), true)
-            && ('button' === strtolower(trim(SourceDom::attr($element, 'role'))) || self::isCapturedGalleryDirectionControl($element));
+            ? ('button' === strtolower(trim(SourceDom::attr($element, 'role'))) || self::isCapturedGalleryDirectionControl($element))
+            : self::isCapturedDialogTriggerAnchor($element);
+    }
+
+    /** A captured dialog trigger anchor is a button only when its two bindings agree. */
+    public static function isCapturedDialogTriggerAnchor(DOMElement $element): bool
+    {
+        $key = trim(SourceDom::attr($element, CaptureEvidence::DIALOG_TRIGGER));
+        return 'a' === strtolower($element->tagName)
+            && 'button' === strtolower(trim(SourceDom::attr($element, 'role')))
+            && '' !== $key
+            && $key === trim(SourceDom::attr($element, 'aria-controls'));
     }
 
     /**
@@ -148,11 +159,12 @@ final class AuthoredButtonBlockGenerator
     function pressed( value ) { return [ 'true', 'false', 'mixed' ].indexOf( String( value || '' ) ) !== -1 ? String( value ) : ''; }
     function checkable( attrs ) { return attrs.role === 'checkbox' && [ 'true', 'false' ].indexOf( attrs.ariaChecked ) !== -1; }
     function safeIcon( value ) { value = String( value || '' ).trim(); if ( ! /^<svg[\s>]/i.test( value ) ) return ''; if ( /<\s*(?:script|style|foreignobject|iframe|object|embed|link)\b|\son[a-z]+\s*=|\shref\s*=|\sstyle\s*=|javascript\s*:|\burl\s*\(/i.test( value ) ) return ''; return value; }
-    function sourceAttributes( attrs ) { return ( Array.isArray( attrs.sourceAttributes ) ? attrs.sourceAttributes : [] ).filter( function( item ) { return item && isSourceAttributeName( String( item.name || '' ) ); } ).sort( function( a, b ) { return String( a.name ).localeCompare( String( b.name ) ); } ); }
+    function sourceAttributes( attrs ) { var tag = String( attrs.tagName || 'button' ).toLowerCase(); return ( Array.isArray( attrs.sourceAttributes ) ? attrs.sourceAttributes : [] ).filter( function( item ) { if ( !item || !isSourceAttributeName( String( item.name || '' ) ) ) return false; if ( item.name === 'href' ) return tag === 'a' && !!safeHref( item.value ); return true; } ).map( function( item ) { return item.name === 'href' ? { name: item.name, value: safeHref( item.value ) } : item; } ).sort( function( a, b ) { return String( a.name ).localeCompare( String( b.name ) ); } ); }
     function labelWrappers( attrs ) { return ( Array.isArray( attrs.labelWrappers ) ? attrs.labelWrappers : [] ).slice( 0, 16 ).filter( function( wrapper ) { return wrapper && labelTags.indexOf( String( wrapper.tagName || '' ).toLowerCase() ) !== -1; } ); }
     function labelProps( wrapper ) { var props = {}; Object.keys( wrapper.attributes || {} ).forEach( function( name ) { if ( /^(?:class|id|style|data-(?!wp-)[a-z0-9_.:-]+)$/.test( name ) ) props[ name ] = String( wrapper.attributes[ name ] ); } ); return props; }
-    function isSourceAttributeName( name ) { return /^(?:role|tabindex|hidden|data-(?!wp-)[a-z0-9_.:-]+|aria-(?!label$)[a-z0-9-]+)$/.test( name ) && name !== 'data-action' && name !== 'jsaction'; }
-    function rootTag( attrs ) { var tag = String( attrs.tagName || 'button' ).toLowerCase(); return [ 'div', 'span' ].indexOf( tag ) !== -1 && sourceAttributes( attrs ).some( function( item ) { return item.name === 'role' && String( item.value ).toLowerCase() === 'button'; } ) ? tag : 'button'; }
+    function isSourceAttributeName( name ) { return /^(?:href|role|tabindex|hidden|data-(?!wp-)[a-z0-9_.:-]+|aria-(?!label$)[a-z0-9-]+)$/.test( name ) && name !== 'data-action' && name !== 'jsaction'; }
+    function safeHref( value ) { value = String( value || '' ); if ( /[\x00-\x20\x7f]/.test( value ) ) return ''; return value && ( !/^[a-z][a-z0-9+.-]*:/i.test( value ) || /^(?:https?:|mailto:|tel:)/i.test( value ) ) ? value : ''; }
+    function rootTag( attrs ) { var tag = String( attrs.tagName || 'button' ).toLowerCase(); return [ 'div', 'span', 'a' ].indexOf( tag ) !== -1 && sourceAttributes( attrs ).some( function( item ) { return item.name === 'role' && String( item.value ).toLowerCase() === 'button'; } ) ? tag : 'button'; }
     function sourceAttributeMarkup( attrs ) { var output = ''; sourceAttributes( attrs ).forEach( function( item ) { output += ' ' + item.name + '="' + escapeAttribute( item.value ) + '"'; } ); return output; }
     function contentParts( attrs ) { return ( Array.isArray( attrs.contentParts ) ? attrs.contentParts : [] ).slice( 0, 32 ); }
     function labelMarkup( attrs ) { return labelWrappers( attrs ).reverse().reduce( function( content, wrapper ) { var tag = String( wrapper.tagName ).toLowerCase(); var props = labelProps( wrapper ); var opening = '<' + tag; Object.keys( props ).forEach( function( name ) { opening += ' ' + name + '="' + escapeAttribute( props[ name ] ) + '"'; } ); return opening + '>' + content + '</' + tag + '>'; }, escapeAttribute( attrs.text ) ); }
@@ -224,7 +236,7 @@ JS;
         $rootTag = strtolower((string) ($attrs['tagName'] ?? 'button'));
         $source = $this->sourceAttributes($attrs);
         $isRoleButton = (bool) array_filter($source, static fn(array $attribute): bool => 'role' === $attribute['name'] && 'button' === strtolower($attribute['value']));
-        if (!in_array($rootTag, array('div', 'span'), true) || !$isRoleButton) $rootTag = 'button';
+        if (!in_array($rootTag, array('div', 'span', 'a'), true) || !$isRoleButton) $rootTag = 'button';
         $markup = '<' . $rootTag . ('button' === $rootTag ? ' type="' . $escape($type) . '"' : '');
         foreach ( array( 'id', 'name', 'ariaLabel' ) as $key ) {
             $value = (string) ($attrs[$key] ?? '');
@@ -281,7 +293,17 @@ JS;
             if ( ! self::isSourceAttributeName($name) ) {
                 continue;
             }
-            $attributes[$name] = (string) ($attribute['value'] ?? '');
+            $value = (string) ($attribute['value'] ?? '');
+            if ( 'href' === $name ) {
+                if ( 'a' !== strtolower((string) ($attrs['tagName'] ?? 'button')) ) {
+                    continue;
+                }
+                $value = self::safeHref($value);
+                if ( '' === $value ) {
+                    continue;
+                }
+            }
+            $attributes[$name] = $value;
         }
         ksort($attributes);
         $sorted = array();
@@ -304,7 +326,13 @@ JS;
         foreach ( $element->attributes ?? array() as $attribute ) {
             $name = strtolower($attribute->nodeName);
             if ( self::isSourceAttributeName($name) ) {
-                $candidates[$name] = $attribute->nodeValue ?? '';
+                $value = $attribute->nodeValue ?? '';
+                if ('href' === $name) {
+                    if ('a' !== strtolower($element->tagName)) continue;
+                    $value = self::safeHref($value);
+                    if ('' === $value) continue;
+                }
+                $candidates[$name] = $value;
             }
         }
         if ( array() === $candidates ) {
@@ -337,9 +365,18 @@ JS;
         return array_slice(self::partsFrom($button, 0), 0, 32);
     }
 
+    private static function safeHref(string $value): string
+    {
+        // Reject browser-stripped characters before classifying a URL's scheme.
+        if ( 1 === preg_match('/[\x00-\x20\x7f]/', $value) ) {
+            return '';
+        }
+        return '' !== $value && (1 !== preg_match('/^[a-z][a-z0-9+.-]*:/i', $value) || 1 === preg_match('/^(?:https?:|mailto:|tel:)/i', $value)) ? $value : '';
+    }
+
     public static function isSourceAttributeName(string $name): bool
     {
-        return 1 === preg_match('/^(?:role|tabindex|hidden|data-(?!wp-)[a-z0-9_.:-]+|aria-(?!label$)[a-z0-9-]+)$/', $name)
+        return 1 === preg_match('/^(?:href|role|tabindex|hidden|data-(?!wp-)[a-z0-9_.:-]+|aria-(?!label$)[a-z0-9-]+)$/', $name)
             && ! in_array($name, array( 'data-action', 'jsaction' ), true);
     }
 

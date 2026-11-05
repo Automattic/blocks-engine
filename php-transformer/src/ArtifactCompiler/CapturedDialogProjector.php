@@ -1100,7 +1100,7 @@ final class CapturedDialogProjector
                 && $panel->hasAttribute(CaptureEvidence::EXISTING_PANEL)
                 && !SourceDom::hasClass($panel, CaptureEvidence::DROPDOWN_CLASS)) {
                 $snapshot = json_decode($panel->getAttribute(CaptureEvidence::EXISTING_PANEL), true);
-                if (is_array($snapshot) && is_array($snapshot['resting'] ?? null)) return true;
+                if (is_array($snapshot) && is_array($snapshot['resting'] ?? null) && true !== ($snapshot['resting']['hidden'] ?? false)) return true;
             }
         }
         return false;
