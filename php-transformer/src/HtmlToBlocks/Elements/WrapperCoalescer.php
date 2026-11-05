@@ -235,7 +235,8 @@ final class WrapperCoalescer
             }
         }
         $attrs = is_array($childBlock['attrs'] ?? null) ? $childBlock['attrs'] : array();
-        if (isset($attrs['align'], $values['text-align']) && $attrs['align'] === CssValueInspector::comparable($values['text-align'])) unset($values['text-align']);
+        $textAlign = $attrs['style']['typography']['textAlign'] ?? $attrs['align'] ?? null;
+        if (isset($textAlign, $values['text-align']) && $textAlign === CssValueInspector::comparable($values['text-align'])) unset($values['text-align']);
         if (array() === $values) return null;
         $carrier = $this->styleResolver->inheritedTextCarrier($values);
         $wrapperAttrs = $this->styleResolver->presentationAttributes($element);

@@ -2930,14 +2930,15 @@ final class StyleResolver implements ElementPresentationResolver
 
     /**
      * The text alignment a block inherits from source wrappers the conversion
-     * removes: an `align` presentational hint or an inline `text-align`. The
-     * nearest ancestor that declares alignment decides; when an author rule
-     * wins there, the stylesheet keeps owning it and nothing is stamped.
+     * removes, or which an editor reset would otherwise hide. The nearest
+     * cascaded declaration decides, including stylesheet-owned alignment.
+     * Author rules need lifting only when they differ from the editor default.
      */
     public function inheritedTextAlignmentDeclaration(DOMElement $element): string
     {
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
-            $value = CssValueInspector::comparable((string) ( $this->presentationDeclarations($node)['text-align'] ?? '' ));
+            $declarations = $this->cssDeclarations($this->specificityResolvedPresentationStyle($node));
+            $value = CssValueInspector::comparable((string) ($declarations['text-align'] ?? ''));
             if ( in_array($value, array( '', 'inherit', 'unset' ), true) ) {
                 continue;
             }
@@ -2945,7 +2946,8 @@ final class StyleResolver implements ElementPresentationResolver
                 CssValueInspector::comparable((string) ( $this->presentationalHintDeclarations($node)['text-align'] ?? '' )),
                 CssValueInspector::comparable((string) ( $this->cssDeclarations(SourceDom::attr($node, 'style'))['text-align'] ?? '' )),
             );
-            if ( ! in_array($value, $local, true) ) {
+            if ( ! in_array($value, $local, true)
+                && 'start' === $this->comparableTextAlignment($value, $this->isRightToLeftElement($element)) ) {
                 return '';
             }
 
