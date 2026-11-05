@@ -2434,16 +2434,68 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
 
+        $attributeSelectors = null;
         foreach ( $instances as $tag => $elements ) {
             if ( ! $this->isWrapperConventionTag($tag, $elements, $staticCss) ) {
                 continue;
             }
+            $attributeSelectors ??= $this->authorDataAttributeSelectors($staticCss);
             foreach ( $elements as $element ) {
-                if ( $this->isRenderNeutralWrapper($element, false) ) {
+                if ( $this->isRenderNeutralWrapper($element, false) && ! $this->authorAttributeSelectorAddresses($element, $attributeSelectors) ) {
                     $this->unwrapElement($element);
                 }
             }
         }
+    }
+
+    /**
+     * Data-attribute compounds written in author selectors, e.g. the
+     * `[data-key="a"]` of `[data-key="a"] .photo`.
+     *
+     * @return array<string, true>
+     */
+    private function authorDataAttributeSelectors(string $css): array
+    {
+        $selectors = array();
+        foreach ( $this->cssRuleBlocks($css) as $rule ) {
+            if ( ! str_contains($rule['selector'], '[data-') ) {
+                continue;
+            }
+            if ( preg_match_all('/\[\s*data-[A-Za-z][A-Za-z0-9_-]*\s*(?:[*^$|~]?=\s*(?:"(?:\\\\.|[^"\\\\])*"|\'(?:\\\\.|[^\'\\\\])*\'|[^\]\s"\']+)\s*(?:[is]\s*)?)?\]/', $rule['selector'], $matches) ) {
+                foreach ( $matches[0] as $selector ) {
+                    $selectors[$selector] = true;
+                }
+            }
+        }
+
+        return $selectors;
+    }
+
+    /**
+     * Whether an author selector keys on this instance through its own
+     * attributes. Such an instance is a selector hook, not a wrapping
+     * convention: removing it silently detaches every rule that needs it as
+     * a subject or ancestor. Equality compounds must match the instance's
+     * value; any other operator fails closed on the attribute name.
+     *
+     * @param array<string, true> $selectors
+     */
+    private function authorAttributeSelectorAddresses(DOMElement $element, array $selectors): bool
+    {
+        foreach ( array_keys($selectors) as $selector ) {
+            $parsed = \Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary::parseAttributeSelector($selector);
+            if ( null !== $parsed ) {
+                if ( \Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary::matchesElement($element, $selector, array()) ) {
+                    return true;
+                }
+                continue;
+            }
+            if ( 1 === preg_match('/^\[\s*(data-[A-Za-z][A-Za-z0-9_-]*)/', $selector, $name) && $element->hasAttribute(strtolower($name[1])) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
