@@ -777,7 +777,7 @@ final class CorpusDetectors
         }
 
         $styleResolver = new CoverStyleResolver();
-        $coverPattern = new CoverPattern();
+        $coverPattern = new CoverPattern(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation());
         $findings = array();
 
         foreach ( $nodes as $node ) {

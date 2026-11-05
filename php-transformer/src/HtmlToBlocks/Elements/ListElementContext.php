@@ -3,8 +3,6 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorLayoutOwnership;
 use Closure;
 use DOMElement;
@@ -29,9 +27,7 @@ final class ListElementContext
         private readonly Closure $containsStructuralItemContent,
         private readonly Closure $decomposeStructuralList,
         private readonly Closure $listItems,
-        public readonly AuthorLayoutOwnership $authorLayoutOwnership,
-        private readonly ElementPresentationResolver $presentationResolver,
-        private readonly SourceBlockCreator $createBlock
+        public readonly AuthorLayoutOwnership $authorLayoutOwnership
     ) {
     }
 
@@ -75,15 +71,4 @@ final class ListElementContext
         return ($this->listItems)($element, $fallbacks);
     }
 
-    /** @return array<string, mixed> */
-    public function presentationAttributes(DOMElement $element, array $excludedGeometryProperties = array(), array $forcedGeometryProperties = array()): array
-    {
-        return $this->presentationResolver->presentationAttributes($element, $excludedGeometryProperties, $forcedGeometryProperties);
-    }
-
-    /** @param array<string, mixed> $attributes @param array<int, array<string, mixed>> $innerBlocks @return array<string, mixed> */
-    public function createBlock(string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array
-    {
-        return $this->createBlock->createBlock($name, $attributes, $innerBlocks, $sourceElement);
-    }
 }

@@ -5,8 +5,6 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorLayoutOwnership;
 use Closure;
 use DOMElement;
@@ -32,7 +30,6 @@ final class FlowContainerElementContext
         private readonly Closure $proofBackedWrapperCoalescing,
         private readonly Closure $shouldPreserveEmptyVisualElement,
         private readonly Closure $isInertEmptyElement,
-        private readonly SourceBlockCreator $createBlock,
         private readonly PatternContext $patternContext,
         private readonly Closure $shouldDeferNavigationPatternToChildren,
         private readonly Closure $rememberAccordionDisclosureRoot,
@@ -53,7 +50,6 @@ final class FlowContainerElementContext
         private readonly Closure $backgroundImageBlock,
         private readonly Closure $coalescedSingleGroupWrapper,
         private readonly Closure $shouldPreserveWrapper,
-        private readonly ElementPresentationResolver $presentationResolver,
         private readonly Closure $emptyVisualSpacerBlock
     ) {
     }
@@ -68,10 +64,7 @@ final class FlowContainerElementContext
     /** @return array<string, mixed>|null */
     public function flankedSeparatorBlock(DOMElement $element): ?array { return ($this->flankedSeparatorBlock)($element); }
     public function hasExternalSvgFragmentDependencyBoundary(DOMElement $element): bool { return ($this->canCaptureExternalSvgFragmentDependency)($element) && $this->sourceElementClassifier->hasExternalSvgFragmentDependencyBoundary($element); }
-    public function hasResponsiveImageSources(DOMElement $element): bool { return $this->sourceElementClassifier->hasResponsiveImageSources($element); }
-    public function hasResponsiveMediaAlternatives(DOMElement $element): bool { return $this->sourceElementClassifier->hasResponsiveMediaAlternatives($element); }
-    public function hasGalleryMediaItems(DOMElement $element): bool { return $this->sourceElementClassifier->hasGalleryMediaItems($element); }
-    public function hasCapturedMediaContent(DOMElement $element): bool { return $this->sourceElementClassifier->hasCapturedMediaContent($element); }
+
     /** @return array<string, mixed> */
     public function responsiveMediaBlock(DOMElement $element): array { return ($this->responsiveMediaBlock)($element); }
     /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed> */
@@ -86,8 +79,7 @@ final class FlowContainerElementContext
     public function proofBackedWrapperCoalescing(DOMElement $element, array &$fallbacks): ?array { return ($this->proofBackedWrapperCoalescing)($element, $fallbacks); }
     public function shouldPreserveEmptyVisualElement(DOMElement $element): bool { return ($this->shouldPreserveEmptyVisualElement)($element); }
     public function isInertEmptyElement(DOMElement $element): bool { return ($this->isInertEmptyElement)($element); }
-    /** @param array<string, mixed> $attributes @param array<int, array<string, mixed>> $innerBlocks @return array<string, mixed> */
-    public function createBlock(string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array { return $this->createBlock->createBlock($name, $attributes, $innerBlocks, $sourceElement); }
+
     public function patternContext(): PatternContext { return $this->patternContext; }
     public function shouldDeferNavigationPatternToChildren(DOMElement $element): bool { return ($this->shouldDeferNavigationPatternToChildren)($element); }
     /** @param array<string, mixed> $block @return array<string, mixed> */
@@ -118,18 +110,13 @@ final class FlowContainerElementContext
     public function textFlowBlock(DOMElement $element): ?array { return ($this->textFlowBlock)($element); }
     /** @param array<int, array<string, mixed>> $fallbacks @return array<int, array<string, mixed>> */
     public function convertChildren(DOMElement $element, array &$fallbacks): array { return ($this->convertChildren)($element, $fallbacks); }
-    public function hasDirectMediaChild(DOMElement $element): bool { return $this->sourceElementClassifier->hasDirectMediaChild($element); }
+
     /** @return array<string, mixed>|null */
     public function backgroundImageBlock(DOMElement $element): ?array { return ($this->backgroundImageBlock)($element); }
     /** @param array<string, mixed> $child @return array<string, mixed>|null */
     public function coalescedSingleGroupWrapper(DOMElement $element, array $child): ?array { return ($this->coalescedSingleGroupWrapper)($element, $child); }
     public function shouldPreserveWrapper(DOMElement $element, ?string $asTag = null): bool { return ($this->shouldPreserveWrapper)($element, $asTag); }
-    /** @return array<string, mixed> */
-    public function presentationAttributes(DOMElement $element): array { return $this->presentationResolver->presentationAttributes($element); }
-    /** @return array<string, string> */
-    public function structuralPresentationDeclarations(DOMElement $element): array { return $this->presentationResolver->structuralPresentationDeclarations($element); }
-    /** @return array<string, string> */
-    public function authorStructuralDeclarations(DOMElement $element): array { return $this->presentationResolver->authorStructuralDeclarations($element); }
+
     /** @return array<string, mixed> */
     public function emptyVisualSpacerBlock(DOMElement $element): array { return ($this->emptyVisualSpacerBlock)($element); }
 }

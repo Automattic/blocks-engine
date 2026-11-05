@@ -24,6 +24,7 @@ final class NavigationStyleProjector
 {
 
     public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession $session,
         private readonly NavigationStyleProjectionContext $context,
         private readonly StyleResolver $styleResolver
     ) {
@@ -86,11 +87,11 @@ final class NavigationStyleProjector
             // wrapper classes, animations included. Settle those copies too, or
             // the editor keeps the source's hidden start keyframe on exactly the
             // elements the projection exists to reach.
-            foreach ( ( new RevealAnimationSettler() )->settleRules($anchorProjectionCss, $this->context->authorStyles()->combinedCss()) as $settledRule ) {
+            foreach ( ( new RevealAnimationSettler() )->settleRules($anchorProjectionCss, $this->session->authorStyleAnalysis()->combinedCss()) as $settledRule ) {
                 $rules[] = $settledRule;
             }
         }
-        if ( preg_match('/(?:^|[;{])\s*(?:-webkit-)?animation(?:-[a-z-]+)?\s*:/i', $this->context->authorStyles()->combinedCss()) ) {
+        if ( preg_match('/(?:^|[;{])\s*(?:-webkit-)?animation(?:-[a-z-]+)?\s*:/i', $this->session->authorStyleAnalysis()->combinedCss()) ) {
             // The editor shows a settled document, so every animation is wound
             // past its end. A paused play state and a scroll-driven timeline
             // both have to be overridden for that to hold: without them the
@@ -98,13 +99,13 @@ final class NavigationStyleProjector
             // element stays on whatever keyframe its fill mode paints.
             $rules[] = ':root *,:root *::before,:root *::after{animation-delay:-999999s!important;animation-iteration-count:1!important;animation-fill-mode:both!important;animation-play-state:running!important;animation-timeline:auto!important}';
         }
-        if ( $this->context->runtimeBehavior()->emptyRuntimeTargetGenerated() ) {
+        if ( $this->session->runtimeBehaviorState()->emptyRuntimeTargetGenerated() ) {
             $selector = ':root .' . HtmlTransformer::EMPTY_RUNTIME_TARGET_CLASS . '.wp-block-group__placeholder';
             $rules[] = $selector . '{flex-basis:auto!important;width:auto!important;min-width:10ch!important;min-height:1.2em!important}'
                 . $selector . '>*{display:none!important}'
                 . $selector . '::before{content:"Dynamic content";display:block;opacity:.45;white-space:nowrap}';
         }
-        if ( $this->context->runtimeBehavior()->emptyVisualGroupGenerated() ) {
+        if ( $this->session->runtimeBehaviorState()->emptyVisualGroupGenerated() ) {
             $selector = ':root .' . HtmlTransformer::EMPTY_VISUAL_GROUP_CLASS . '.wp-block-group__placeholder';
             // A painted source layer holds geometry, not authored children, so
             // core's empty-group variation picker stacks unrelated layout
@@ -125,7 +126,7 @@ final class NavigationStyleProjector
                 // than directly under a block element.
                 . ':root .editor-styles-wrapper .block-editor-block-list__block>div:not([class]):not([id]):not([style]):has(>.' . HtmlTransformer::EMPTY_VISUAL_GROUP_CLASS . '.wp-block-group__placeholder){display:contents}';
         }
-        if ( preg_match('/\bbody\b[^{}]*\{[^}]*(?:overflow\s*:\s*(?:hidden|clip)|height\s*:\s*100(?:d|s|l)?vh)/is', $this->context->authorStyles()->combinedCss()) ) {
+        if ( preg_match('/\bbody\b[^{}]*\{[^}]*(?:overflow\s*:\s*(?:hidden|clip)|height\s*:\s*100(?:d|s|l)?vh)/is', $this->session->authorStyleAnalysis()->combinedCss()) ) {
             $rules[] = ':root body{overflow:auto!important;height:auto!important;min-height:100%!important;width:auto!important}';
         }
 
@@ -139,7 +140,7 @@ final class NavigationStyleProjector
     private function editorAnchorProjectionCss(string $projectedAuthorCss = ''): string
     {
         $ids = array_fill_keys(array_filter(
-            $this->context->authorStyles()->sourceElementIds(),
+            $this->session->authorStyleAnalysis()->sourceElementIds(),
             fn (string $id): bool => '' !== SourceDom::safeAnchor($id)
         ), true);
         if ( array() === $ids ) {
@@ -150,8 +151,8 @@ final class NavigationStyleProjector
         // identities. Only restate selectors with an id it does not cover.
         // Keep the projected pass for those remaining ids: its ancestor hooks
         // may have been rewritten to classes that survive in the editor.
-        $uncoveredIds = array_diff_key($ids, ScopedAnchorSelectorProjection::identities($this->context->authorStyles()));
-        $stylesheets = array($this->context->authorStyles()->combinedCss());
+        $uncoveredIds = array_diff_key($ids, ScopedAnchorSelectorProjection::identities($this->session->authorStyleAnalysis()));
+        $stylesheets = array($this->session->authorStyleAnalysis()->combinedCss());
         if ( '' !== trim($projectedAuthorCss) ) {
             $stylesheets[] = $projectedAuthorCss;
         }
@@ -170,7 +171,7 @@ final class NavigationStyleProjector
     /** @param array<string, bool> $ids @param array<string, bool> $uncoveredIds */
     private function projectEditorAnchorStylesheet(string $stylesheet, array $ids, array $uncoveredIds): string
     {
-        $stateMarkers = $this->context->selectorProjections()->attributeNegationMarkers();
+        $stateMarkers = $this->session->authorSelectorProjectionState()->attributeNegationMarkers();
 
         // Collect repairs rather than transforming the source sheet: a
         // transform retains non-style rules (fonts, keyframes, imports) and
@@ -257,7 +258,7 @@ final class NavigationStyleProjector
      */
     private function projectAnchorIds(string $fragment, array $ids, bool $keepSourceClass = false): string
     {
-        $idSpecificity = ':not(#' . $this->context->authorStyles()->idSpecificityShim() . ')';
+        $idSpecificity = ':not(#' . $this->session->authorStyleAnalysis()->idSpecificityShim() . ')';
         $anchor = static function (string $id, string $specificity = '') use ($ids, $keepSourceClass): ?string {
             if ( ! isset($ids[$id]) ) {
                 return null;
@@ -474,7 +475,7 @@ final class NavigationStyleProjector
                 : array();
             if ( array() === $padding ) {
                 foreach ( $classes as $class ) {
-                    $fallbackPadding = $this->context->generatedSupportStyles()->listNavigationPadding($class);
+                    $fallbackPadding = $this->session->generatedSupportStylesheetState()->listNavigationPadding($class);
                     if ( array() !== $fallbackPadding ) {
                         $padding = $fallbackPadding;
                         break;
@@ -960,7 +961,7 @@ final class NavigationStyleProjector
     {
         $rules = array();
         $order = 0;
-        foreach ( $this->context->authorStyles()->styleRules() as $authorRule ) {
+        foreach ( $this->session->authorStyleAnalysis()->styleRules() as $authorRule ) {
             $declarations = $this->styleResolver->safeVisualDeclarations(
                 is_array($authorRule['declarations'] ?? null) ? $authorRule['declarations'] : array()
             );
@@ -1053,7 +1054,7 @@ final class NavigationStyleProjector
         }
 
         $anchors = array();
-        foreach ( $this->context->authorStyles()->sourceElementsByClass($class) as $element ) {
+        foreach ( $this->session->authorStyleAnalysis()->sourceElementsByClass($class) as $element ) {
             if ( $element instanceof DOMElement
                 && 'a' === strtolower($element->tagName)
                 && isset($selectors[SourceDom::elementSelector($element)])
@@ -1083,7 +1084,7 @@ final class NavigationStyleProjector
         }
 
         $anchors = array();
-        foreach ( $this->context->authorStyles()->sourceElementsByClass($class) as $item ) {
+        foreach ( $this->session->authorStyleAnalysis()->sourceElementsByClass($class) as $item ) {
             if ( ! $item instanceof DOMElement ) {
                 continue;
             }
@@ -1504,7 +1505,7 @@ final class NavigationStyleProjector
     public function navigationColorInteractionStates(DOMElement $element): array
     {
         $matched = array();
-        foreach ( $this->context->sourceStyles()->navigationStateRules() as $rule ) {
+        foreach ( $this->session->sourceStyleResolutionState()->navigationStateRules() as $rule ) {
             $conditions = is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array();
             if ( (array() !== $conditions && ! $this->navigationConditionsAreProjectable($conditions))
                 || ! isset($rule['declarations']['color'])
@@ -1552,7 +1553,7 @@ final class NavigationStyleProjector
                 if ( ! str_starts_with($class, $prefix) ) {
                     continue;
                 }
-                $declarations = $this->context->generatedSupportStyles()->navigationLinkIcon($class);
+                $declarations = $this->session->generatedSupportStylesheetState()->navigationLinkIcon($class);
                 if ( '' === $declarations ) {
                     continue;
                 }
@@ -1568,15 +1569,15 @@ final class NavigationStyleProjector
                 // selectors without entering the importance tier. Use the whole
                 // author sheet so shared route rules receive the same budget.
                 $ids = 0;
-                foreach ($this->context->authorStyles()->styleRules() as $rule) {
+                foreach ($this->session->authorStyleAnalysis()->styleRules() as $rule) {
                     $weight = CssSelectorMatcher::specificityCounts(
                         CssSelectorMatcher::parse((string) ($rule['selector'] ?? ''))
                     );
                     $ids = max($ids, $weight['ids']);
                 }
-                $content .= str_repeat(':not(#' . $this->context->authorStyles()->idSpecificityShim() . ')', $ids + 1);
+                $content .= str_repeat(':not(#' . $this->session->authorStyleAnalysis()->idSpecificityShim() . ')', $ids + 1);
                 $rules[$class] = $content . '{' . $declarations . '}'
-                    . $this->context->generatedSupportStyles()->navigationIconBoxRules($class, $content);
+                    . $this->session->generatedSupportStylesheetState()->navigationIconBoxRules($class, $content);
             }
         }
 
@@ -1621,7 +1622,7 @@ final class NavigationStyleProjector
                 if ( ! str_starts_with($class, $prefix) ) {
                     continue;
                 }
-                $box = $this->context->generatedSupportStyles()->navigationLinkBox($class);
+                $box = $this->session->generatedSupportStylesheetState()->navigationLinkBox($class);
                 if ( '' === $box['content'] ) {
                     continue;
                 }
@@ -1655,7 +1656,7 @@ final class NavigationStyleProjector
             if (!is_array($attrs)) continue;
             foreach (preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $class) {
                 if (!str_starts_with($class, $prefix)) continue;
-                $value = $this->context->generatedSupportStyles()->navigationAnchorLineHeight($class);
+                $value = $this->session->generatedSupportStylesheetState()->navigationAnchorLineHeight($class);
                 if ('' === $value) continue;
                 $rules[$class] = '.wp-block-navigation .wp-block-navigation-item.' . $class
                     . '>.wp-block-navigation-item__content{line-height:' . $value . '}';
@@ -1699,13 +1700,13 @@ final class NavigationStyleProjector
                 if ( ! str_starts_with($class, $prefix) ) {
                     continue;
                 }
-                $declarations = $this->context->generatedSupportStyles()->navigationLinkLeadingIcon($class);
+                $declarations = $this->session->generatedSupportStylesheetState()->navigationLinkLeadingIcon($class);
                 if ( '' === $declarations ) {
                     continue;
                 }
                 $content = '.wp-block-navigation-item.' . $class . '>.wp-block-navigation-item__content';
                 $rules[$class] = $content . '::before{' . $declarations . '}'
-                    . $this->context->generatedSupportStyles()->navigationIconBoxRules($class, $content . '::before');
+                    . $this->session->generatedSupportStylesheetState()->navigationIconBoxRules($class, $content . '::before');
             }
         }
 
@@ -1748,7 +1749,7 @@ final class NavigationStyleProjector
             $color = trim((string) ($attrs['style']['color']['text'] ?? ''));
             if ( '' === $color ) {
                 foreach ( preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $class ) {
-                    $fallbackColor = $this->context->generatedSupportStyles()->navigationLinkColor($class);
+                    $fallbackColor = $this->session->generatedSupportStylesheetState()->navigationLinkColor($class);
                     if ( '' !== $fallbackColor ) {
                         $color = $fallbackColor;
                         break;
@@ -2064,7 +2065,7 @@ final class NavigationStyleProjector
     public function sourceMobileNavigationOverlayBackground(): string
     {
         $background = '';
-        foreach ( array_merge($this->context->sourceStyles()->staticRules(), $this->context->sourceStyles()->conditionalRules()) as $rule ) {
+        foreach ( array_merge($this->session->sourceStyleResolutionState()->staticRules(), $this->session->sourceStyleResolutionState()->conditionalRules()) as $rule ) {
             $selector = strtolower((string) ($rule['selector'] ?? ''));
             if ( ! str_contains($selector, 'nav') || ! preg_match('/(?:^|[^a-z0-9])(?:mobile|drawer|offcanvas|overlay|menu-panel|nav-panel)(?:[^a-z0-9]|$)/', $selector) ) {
                 continue;

@@ -3,9 +3,6 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Closure;
 use DOMElement;
 
@@ -22,14 +19,11 @@ final class SvgElementContext
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array<string, mixed> $foreignObjectTextBlock
      */
     public function __construct(
-        private readonly SourceElementClassifier $sourceElementClassifier,
         private readonly Closure $isInertHiddenStorage,
         private readonly Closure $isRuntimeDomTarget,
         private readonly Closure $sanitizeMarkup,
         private readonly Closure $isSafeContent,
         private readonly Closure $hasDrawableContent,
-        private readonly ElementPresentationResolver $presentationResolver,
-        private readonly SourceBlockCreator $createBlock,
         private readonly Closure $captureFallback,
         private readonly ?Closure $omitEmptyPaint = null,
         private readonly ?Closure $foreignObjectTextBlock = null
@@ -61,26 +55,9 @@ final class SvgElementContext
         return ($this->isSafeContent)($html);
     }
 
-    public function isVisualLayerElement(DOMElement $element): bool
-    {
-        return $this->sourceElementClassifier->isVisualLayerElement($element);
-    }
-
     public function hasDrawableContent(DOMElement $element): bool
     {
         return ($this->hasDrawableContent)($element);
-    }
-
-    /** @return array<string, mixed> */
-    public function presentationAttributes(DOMElement $element): array
-    {
-        return $this->presentationResolver->presentationAttributes($element);
-    }
-
-    /** @param array<string, mixed> $attributes @param array<int, array<string, mixed>> $innerBlocks @return array<string, mixed> */
-    public function createBlock(string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array
-    {
-        return $this->createBlock->createBlock($name, $attributes, $innerBlocks, $sourceElement);
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */

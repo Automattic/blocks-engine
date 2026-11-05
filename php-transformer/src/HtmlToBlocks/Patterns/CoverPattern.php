@@ -36,7 +36,9 @@ final class CoverPattern implements PatternRecognizerInterface
     private CoverStyleResolver $styleResolver;
     private BackgroundImageExtractor $backgroundImageExtractor;
 
-    public function __construct()
+    public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock
+    )
     {
         $this->styleResolver = new CoverStyleResolver();
         $this->backgroundImageExtractor = new BackgroundImageExtractor();
@@ -59,7 +61,7 @@ final class CoverPattern implements PatternRecognizerInterface
             $media->coverStyle(...),
             SourceDom::htmlAttributes(...),
             $media->resolveImageUrl(...),
-            $context->createBlock(...)
+            $this->createBlock->createBlock(...)
         );
 
         return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);

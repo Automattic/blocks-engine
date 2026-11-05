@@ -11,7 +11,10 @@ use DOMElement;
 /** Converts ordered and unordered lists (including semantic menus) through their ordered strategies. */
 final class ListElementConverter implements ElementConverter
 {
-    public function __construct(private readonly ListElementContext $context)
+    public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver $presentationResolver,
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock,
+        private readonly ListElementContext $context)
     {
     }
 
@@ -50,9 +53,9 @@ final class ListElementConverter implements ElementConverter
 
         $attributes = $this->context->authorLayoutOwnership->isCssOwnedGridElement($element)
             ? $this->context->authorLayoutOwnership->cssOwnedGridAttributes($element)
-            : $this->context->presentationAttributes($element, array(), array( 'text-align' ));
+            : $this->presentationResolver->presentationAttributes($element, array(), array( 'text-align' ));
 
-        return ConversionOutcome::handled($this->context->createBlock(
+        return ConversionOutcome::handled($this->createBlock->createBlock(
             'core/list',
             array_merge($attributes, 'ol' === $tagName ? array( 'ordered' => true ) : array()),
             $items,

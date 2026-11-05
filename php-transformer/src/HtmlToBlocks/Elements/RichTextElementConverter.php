@@ -33,7 +33,12 @@ final class RichTextElementConverter implements ElementConverter
      */
     public const EMPTY_SOURCE_PARAGRAPH_CLASS = 'blocks-engine-empty-source-paragraph';
 
-    public function __construct(private readonly RichTextElementContext $context)
+    public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock,
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver $presentationResolver,
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMaterialization $richTextMaterializer,
+        private readonly \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime $runtime,
+        private readonly RichTextElementContext $context)
     {
     }
 
@@ -60,7 +65,7 @@ final class RichTextElementConverter implements ElementConverter
             }
             if (null !== $button && $capturedChoice) {
                 $children = $this->context->convertChildren($element, $fallbacks);
-                return ConversionOutcome::handled($this->context->createBlock('core/group', array_merge($this->context->presentationAttributes($element), array('tagName' => $tagName)), $children, $element));
+                return ConversionOutcome::handled($this->createBlock->createBlock('core/group', array_merge($this->presentationResolver->presentationAttributes($element), array('tagName' => $tagName)), $children, $element));
             }
             // A heading with no text whose only content is one media element
             // is the media block it visually is, not a heading. Anything with
@@ -116,7 +121,7 @@ final class RichTextElementConverter implements ElementConverter
                 $parent?->insertBefore($child, $next);
             }
         }
-        return $this->context->createBlock('core/group', array(
+        return $this->createBlock->createBlock('core/group', array(
             'className' => 'blocks-engine-decorated-text',
             'layout' => array('type' => 'default'),
         ), array_merge(null === $text ? array() : array($text), $decorations));
@@ -125,8 +130,8 @@ final class RichTextElementConverter implements ElementConverter
     /** @return array<string, mixed>|null */
     private function convertHeading(DOMElement $element, int $level): ?array
     {
-        $content        = $this->context->richTextContent($element);
-        $withLowered    = $this->context->richTextWithInlineSafeButtonsLowered($element, $content);
+        $content        = $this->richTextMaterializer->content($element);
+        $withLowered    = $this->richTextMaterializer->contentWithInlineSafeButtonsLowered($element, $content);
         if ( null !== $withLowered ) {
             $content = $withLowered;
         }
@@ -134,25 +139,25 @@ final class RichTextElementConverter implements ElementConverter
         // materialized image object, exactly as in a paragraph. Without this
         // step the raw `<svg>` trips the fallback gate and the whole heading
         // becomes a core/html island.
-        $withInlineSvg  = $this->context->richTextWithMaterializedSvgImages($element, $content);
+        $withInlineSvg  = $this->richTextMaterializer->contentWithMaterializedSvgImages($element, $content);
         if ( null !== $withInlineSvg ) {
             $content = $withInlineSvg;
         }
 
         // Let createBlock's structural RichText lowering convert flow children
         // before the HTML fallback gate rejects media inside their wrappers.
-        $hasStructuralHtml = $this->context->richTextContentHasStructuralHtml($content);
-        if ( ! $hasStructuralHtml && $this->context->requiresHtmlFallbackForElement($element, $content) ) {
+        $hasStructuralHtml = $this->richTextMaterializer->hasStructuralHtml($content);
+        if ( ! $hasStructuralHtml && $this->richTextMaterializer->requiresHtmlFallbackForElement($element, $content) ) {
             return $this->context->htmlPreservationBlock($element);
         }
 
-        if ( ! $hasStructuralHtml && '' === trim($this->context->stripAllTags($content))
+        if ( ! $hasStructuralHtml && '' === trim($this->runtime->stripAllTags($content))
             && ! SourceDom::carriesOnlyRichTextInlineImages($element)
-            && ! $this->context->containsNativeSvgImageObject($content) ) {
+            && ! $this->richTextMaterializer->containsNativeSvgImageObject($content) ) {
             return $this->emptySourceTextBlock($element, 'core/heading', array('level' => $level));
         }
 
-        return $this->context->createBlock(
+        return $this->createBlock->createBlock(
             'core/heading',
             array_merge(
                 $this->presentationAttributesWithBakedFontSize($element),
@@ -176,7 +181,7 @@ final class RichTextElementConverter implements ElementConverter
         }
         $attributes = $this->presentationAttributesWithBakedFontSize($element);
         $attributes['className'] = SourceDom::mergeClassNames((string) ($attributes['className'] ?? ''), self::EMPTY_SOURCE_PARAGRAPH_CLASS);
-        return $this->context->createBlock($name, array_merge($attributes, $extra, array('content' => '')), array(), $element);
+        return $this->createBlock->createBlock($name, array_merge($attributes, $extra, array('content' => '')), array(), $element);
     }
 
     /**
@@ -195,8 +200,8 @@ final class RichTextElementConverter implements ElementConverter
      */
     private function presentationAttributesWithBakedFontSize(DOMElement $element): array
     {
-        $attrs    = $this->context->presentationAttributes($element);
-        $responsiveClass = $this->context->responsiveTypographyClassName($element);
+        $attrs    = $this->presentationResolver->presentationAttributes($element);
+        $responsiveClass = $this->presentationResolver->responsiveTypographyClassName($element);
         if ( '' !== $responsiveClass ) {
             unset($attrs['style']['typography']['fontSize']);
             if ( array() === ($attrs['style']['typography'] ?? null) ) {
@@ -209,7 +214,7 @@ final class RichTextElementConverter implements ElementConverter
             return $attrs;
         }
 
-        $fontSize = $this->context->bakedTypographyFontSize($element);
+        $fontSize = $this->presentationResolver->bakedTypographyFontSize($element);
         if ( '' !== $fontSize && ! isset($attrs['style']['typography']['fontSize']) ) {
             $attrs['style']['typography']['fontSize'] = $fontSize;
         }
@@ -256,7 +261,7 @@ final class RichTextElementConverter implements ElementConverter
         }
         $flush();
 
-        return $found ? $this->context->createBlock('core/group', $this->context->presentationAttributes($element), $children, $element) : null;
+        return $found ? $this->createBlock->createBlock('core/group', $this->presentationResolver->presentationAttributes($element), $children, $element) : null;
     }
 
     /**
@@ -295,7 +300,7 @@ final class RichTextElementConverter implements ElementConverter
         }
         $fallbacks = array_merge($fallbacks, $local);
 
-        return $this->context->createBlock('core/group', $this->context->presentationAttributes($element), $children, $element);
+        return $this->createBlock->createBlock('core/group', $this->presentationResolver->presentationAttributes($element), $children, $element);
     }
 
     /** @param array<int, array<string, mixed>> $blocks */
@@ -346,10 +351,10 @@ final class RichTextElementConverter implements ElementConverter
         }
         $fallbacks = array_merge($fallbacks, $local);
 
-        $attrs = $this->context->presentationAttributes($element);
+        $attrs = $this->presentationResolver->presentationAttributes($element);
         $attrs['layout'] ??= array( 'type' => 'flex', 'flexWrap' => 'nowrap' );
 
-        return $this->context->createBlock('core/group', $attrs, $children, $element);
+        return $this->createBlock->createBlock('core/group', $attrs, $children, $element);
     }
 
     /**
@@ -375,12 +380,12 @@ final class RichTextElementConverter implements ElementConverter
             return $editableIconRow;
         }
 
-        $content         = $this->context->richTextContent($element);
-        $withLowered     = $this->context->richTextWithInlineSafeButtonsLowered($element, $content);
+        $content         = $this->richTextMaterializer->content($element);
+        $withLowered     = $this->richTextMaterializer->contentWithInlineSafeButtonsLowered($element, $content);
         if ( null !== $withLowered ) {
             $content = $withLowered;
         }
-        $withInlineSvg   = $this->context->richTextWithMaterializedSvgImages($element, $content);
+        $withInlineSvg   = $this->richTextMaterializer->contentWithMaterializedSvgImages($element, $content);
         if ( null !== $withInlineSvg ) {
             $content = $withInlineSvg;
         }
@@ -390,7 +395,7 @@ final class RichTextElementConverter implements ElementConverter
             return $emptyLayout;
         }
 
-        if ( $this->context->requiresHtmlFallbackForElement($element, $content) ) {
+        if ( $this->richTextMaterializer->requiresHtmlFallbackForElement($element, $content) ) {
             // A paragraph wrapping one anchor that mixes an image with text is
             // not RichText, but the container path already converts that anchor
             // shape natively. Lower it the same way instead of preserving a
@@ -426,13 +431,13 @@ final class RichTextElementConverter implements ElementConverter
         if ( $this->context->hasEmptyVisualInlineChild($element) && $this->context->hasBoxChromeWrapperStyling($element) ) {
             $children = $this->context->convertChildren($element, $fallbacks, true);
             if ( array() !== $children ) {
-                return $this->context->createBlock('core/group', $this->context->presentationAttributes($element), $children, $element);
+                return $this->createBlock->createBlock('core/group', $this->presentationResolver->presentationAttributes($element), $children, $element);
             }
         }
 
-        if ( '' === trim($this->context->stripAllTags($content))
+        if ( '' === trim($this->runtime->stripAllTags($content))
             && ! SourceDom::carriesOnlyRichTextInlineImages($element)
-            && ! $this->context->containsNativeSvgImageObject($content) ) {
+            && ! $this->richTextMaterializer->containsNativeSvgImageObject($content) ) {
             // An empty paragraph that scripts address by selector must keep a
             // block at that position, otherwise the runtime target disappears.
             $fragmentId = SourceDom::namedFragmentTargetId($element);
@@ -440,11 +445,11 @@ final class RichTextElementConverter implements ElementConverter
                 && SourceDom::documentReferencesFragmentId($element, $fragmentId)
                 && ! SourceDom::documentHasOtherFragmentTarget($element, $fragmentId);
             if ( $this->context->isRuntimeDomTarget($element) || $fragmentTarget ) {
-                $attributes = $this->context->presentationAttributes($element);
+                $attributes = $this->presentationResolver->presentationAttributes($element);
                 if ( $fragmentTarget ) {
                     $attributes['anchor'] = $fragmentId;
                 }
-                return $this->context->createBlock('core/group', $attributes, array(), $element);
+                return $this->createBlock->createBlock('core/group', $attributes, array(), $element);
             }
 
             $text = trim($element->textContent ?? '');
@@ -456,7 +461,7 @@ final class RichTextElementConverter implements ElementConverter
             return $this->emptySourceTextBlock($element, 'core/paragraph');
         }
 
-        return $this->context->createBlock(
+        return $this->createBlock->createBlock(
             'core/paragraph',
             array_merge($this->presentationAttributesWithBakedFontSize($element), array( 'content' => $content )),
             array(),

@@ -13,6 +13,11 @@ use DOMElement;
 final class SearchBlockConverter
 {
     public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver $presentationResolver,
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession $session,
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock,
+        private readonly SvgElementMaterializer $svgMaterializer,
+        private readonly RuntimeIslandAnalyzer $runtimeIslands,
         private readonly SearchBlockConversionContext $context,
         private readonly FormControlMetadataBuilder $formControlMetadataBuilder,
         private readonly PseudoFormAnalyzer $pseudoFormAnalyzer
@@ -93,7 +98,7 @@ final class SearchBlockConverter
             $label = trim(SourceDom::attr($textInput, 'placeholder'));
         }
 
-        $attrs = array_merge($this->context->presentationAttributes($form), array(
+        $attrs = array_merge($this->presentationResolver->presentationAttributes($form), array(
             'label'       => '' !== $label ? $label : 'Search',
             'showLabel'   => $showLabel,
             'placeholder' => SourceDom::attr($textInput, 'placeholder'),
@@ -110,7 +115,7 @@ final class SearchBlockConverter
             $attrs['style']['color']['text'] = '#000000';
             $attrs['style']['color']['background'] = 'transparent';
             $attrs['style']['border']['width'] = '0px';
-            $triggerAttrs = $this->context->presentationAttributes($searchTrigger);
+            $triggerAttrs = $this->presentationResolver->presentationAttributes($searchTrigger);
             $attrs['className'] = trim(implode(' ', array_filter(array(
                 (string) ($attrs['className'] ?? ''),
                 (string) ($triggerAttrs['className'] ?? ''),
@@ -128,22 +133,22 @@ final class SearchBlockConverter
             $marker = 'blocks-engine-search-subject-' . substr(hash('sha256', $textInput->getNodePath() ?? ''), 0, 12);
             $attrs['className'] = trim($attrs['className'] . ' ' . $marker);
             $target = ':where(.wp-block-search.' . $marker . ')';
-            $this->context->registerInnerSubject($textInput, $target . ' :where(.wp-block-search__input)');
+            ($this->session->authorSelectorProjectionState()->installInnerSubject($textInput->getNodePath() ?? '', $target . ' :where(.wp-block-search__input)', ''));
             if ( $paintedSibling instanceof DOMElement && $paintedIcon instanceof DOMElement ) {
                 $attrs['buttonUseIcon'] = true;
                 $button = $target . ' :where(.wp-block-search__button)';
-                $this->context->registerInnerSubject($paintedSibling, $button);
+                ($this->session->authorSelectorProjectionState()->installInnerSubject($paintedSibling->getNodePath() ?? '', $button, ''));
                 // The source icon paints the button in place of core's SVG.
                 $css = $target . ' .wp-block-search__button>svg{display:none}';
                 if ( $paintedIcon !== $paintedSibling ) {
-                    $this->context->registerInnerSubject($paintedIcon, $button, '::before');
+                    ($this->session->authorSelectorProjectionState()->installInnerSubject($paintedIcon->getNodePath() ?? '', $button, '::before'));
                     $css .= $target . ' .wp-block-search__button::before{content:"";display:inline-block}';
                 }
-                $this->context->generatedSupportStyles()->registerNativeSearchTrigger($marker, $css);
+                $this->session->generatedSupportStylesheetState()->registerNativeSearchTrigger($marker, $css);
             }
         }
 
-        return $this->context->createBlock('core/search', $attrs, array(), $form);
+        return $this->createBlock->createBlock('core/search', $attrs, array(), $form);
     }
 
     /** Accessible names and rendered label boxes are independent source facts. */
@@ -201,7 +206,7 @@ final class SearchBlockConverter
         }
         $className = 'blocks-engine-source-search-control-' . substr(hash('sha256', $inputCss . '|' . $buttonCss), 0, 12);
         $selector = '.wp-block-search.' . $className;
-        $this->context->generatedSupportStyles()->registerNativeSearchTrigger($className,
+        $this->session->generatedSupportStylesheetState()->registerNativeSearchTrigger($className,
             $selector . ' .wp-block-search__input{' . $inputCss . '}'
             . ('' !== $buttonCss ? $selector . ' .wp-block-search__button{' . $buttonCss . '}' : '')
         );
@@ -269,9 +274,9 @@ final class SearchBlockConverter
             return '';
         }
 
-        $svgMarkup = SvgMaterializer::ensureSvgImageNamespace($this->context->restoreSvgCasing(SourceDom::outerHtml($svg)));
+        $svgMarkup = SvgMaterializer::ensureSvgImageNamespace($this->svgMaterializer->restoreSvgCasing(SourceDom::outerHtml($svg)));
         $className = 'blocks-engine-source-search-icon-' . substr(hash('sha256', $svgMarkup), 0, 12);
-        if ( $this->context->generatedSupportStyles()->hasNativeSearchTrigger($className) ) {
+        if ( $this->session->generatedSupportStylesheetState()->hasNativeSearchTrigger($className) ) {
             return $className;
         }
 
@@ -285,7 +290,7 @@ final class SearchBlockConverter
         $buttonWidth = $this->cssNumber($triggerWidth ?? ($width + 12));
         $dataUri = 'data:image/svg+xml,' . rawurlencode($svgMarkup);
         $selector = '.wp-block-search.' . $className;
-        $this->context->generatedSupportStyles()->registerNativeSearchTrigger($className, $selector . '{display:block!important;box-sizing:border-box!important;flex:0 0 ' . $buttonWidth . 'px!important;width:' . $buttonWidth . 'px!important;' . $triggerHeight . '}'
+        $this->session->generatedSupportStylesheetState()->registerNativeSearchTrigger($className, $selector . '{display:block!important;box-sizing:border-box!important;flex:0 0 ' . $buttonWidth . 'px!important;width:' . $buttonWidth . 'px!important;' . $triggerHeight . '}'
             . $selector . ' .wp-block-search__inside-wrapper{' . $triggerHeight . 'box-sizing:border-box!important;width:100%!important}'
             . $selector . ' .wp-block-search__button{display:block!important;box-sizing:border-box!important;width:100%!important;height:100%!important;min-width:0!important;margin:0!important;padding:1px 6px!important;font:400 13.3333px Arial!important;line-height:normal!important;text-align:center!important;color:#000!important;background:none!important;border:0!important;border-radius:0!important}'
             . $selector . '.wp-block-search__icon-button .wp-block-search__button.has-icon>svg.search-icon{display:none!important}'
@@ -349,7 +354,7 @@ final class SearchBlockConverter
         if ( '' === $label ) {
             $label = trim(SourceDom::attr($input, 'placeholder'));
         }
-        $triggerAttrs = $this->context->presentationAttributes($trigger);
+        $triggerAttrs = $this->presentationResolver->presentationAttributes($trigger);
         $attrs = array_merge($triggerAttrs, array(
             'label'          => '' !== $label ? $label : 'Search',
             'showLabel'      => false,
@@ -362,7 +367,7 @@ final class SearchBlockConverter
             $this->registerNativeSearchTriggerCss($trigger),
         ))));
 
-        return $this->context->createBlock('core/search', $attrs, array(), $trigger);
+        return $this->createBlock->createBlock('core/search', $attrs, array(), $trigger);
     }
 
     public function isReplacedSearchClusterControl(DOMElement $control): bool
@@ -499,7 +504,7 @@ final class SearchBlockConverter
     /** @return array<string, mixed>|null */
     public function searchBlockFromStandaloneControl(DOMElement $element): ?array
     {
-        if ( 0 < $element->getElementsByTagName('form')->length || 0 < $element->getElementsByTagName('script')->length || array() !== SourceDom::eventMetadata($element) || $this->context->isRuntimeDomTarget($element) ) {
+        if ( 0 < $element->getElementsByTagName('form')->length || 0 < $element->getElementsByTagName('script')->length || array() !== SourceDom::eventMetadata($element) || $this->runtimeIslands->isRuntimeDomTarget($element) ) {
             return null;
         }
 
@@ -509,7 +514,7 @@ final class SearchBlockConverter
                 $inputs[] = $input;
             }
         }
-        if ( 1 !== count($inputs) || $this->context->isRuntimeDomTarget($inputs[0]) ) {
+        if ( 1 !== count($inputs) || $this->runtimeIslands->isRuntimeDomTarget($inputs[0]) ) {
             return null;
         }
         $controls = FormControlClassifier::controlElements($element);
@@ -542,7 +547,7 @@ final class SearchBlockConverter
         }
 
         $placeholder = SourceDom::attr($searchInput, 'placeholder');
-        $attrs = array_merge($this->context->presentationAttributes($element), array(
+        $attrs = array_merge($this->presentationResolver->presentationAttributes($element), array(
             'label'          => '' !== $label ? $label : 'Search',
             'showLabel'      => false,
             'placeholder'    => $placeholder,
@@ -554,7 +559,7 @@ final class SearchBlockConverter
             $attrs['buttonUseIcon'] = true;
         }
 
-        return $this->context->createBlock('core/search', $attrs, array(), $element);
+        return $this->createBlock->createBlock('core/search', $attrs, array(), $element);
     }
 
     private function hasStandaloneSearchTrigger(DOMElement $element): bool

@@ -58,12 +58,7 @@ $makeConverter = static function (array $overrides = array()): TextLeafElementCo
 
     $c = array_merge($defaults, $overrides);
 
-    return new TextLeafElementConverter(new TextLeafElementContext(
-        new SourceElementClassifier(),
-        new ElementPresentationResolverFixture($c['presentationAttributes']),
-        $c['createBlock'],
-        new RichTextMaterializationFixture(array( 'content' => $c['richTextContent'] )),
-        new Runtime(),
+    return new TextLeafElementConverter(new RichTextMaterializationFixture(array( 'content' => $c['richTextContent'] )), new Runtime(), $c['createBlock'], new ElementPresentationResolverFixture($c['presentationAttributes']), new SourceElementClassifier(), new TextLeafElementContext(
         $c['codePresentationAttributes'],
         $c['codeContent'],
         $c['convertChildren']

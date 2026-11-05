@@ -41,7 +41,7 @@ $element = static function (string $html): DOMElement {
 };
 
 $classifier = new ButtonSignalClassifier();
-$wrappedButtons = new ButtonsPattern();
+$wrappedButtons = new ButtonsPattern(new \Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture(static fn (string $name, array $attrs = array(), array $children = array()): array => array('blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $children)));
 
 $assert($classifier->hasClassSignal($element('<a class="hero-btn" href="#">Learn more</a>')), '1: class signal detects btn substring');
 $assert($classifier->hasClassSignal($element('<a id="actionButton" href="#">Learn more</a>')), '2: id signal detects button substring');

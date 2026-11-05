@@ -9,6 +9,12 @@ use DOMElement;
 /** @internal Pattern recognizers are implementation details of HtmlTransformer. */
 final class MathPattern implements PatternRecognizerInterface
 {
+    public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime $runtime,
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock
+    ) {
+    }
+
     use PatternDomHelpersTrait;
 
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
@@ -19,12 +25,12 @@ final class MathPattern implements PatternRecognizerInterface
         }
 
         $tagName = strtolower($element->tagName);
-        $content = 'math' === $tagName ? $markup->safeFallbackHtml($element) : $this->mathExpressionContent($element, SourceDom::innerHtml(...), $markup->escapeHtml(...));
+        $content = 'math' === $tagName ? $markup->safeFallbackHtml($element) : $this->mathExpressionContent($element, SourceDom::innerHtml(...), $this->runtime->escapeHtml(...));
         if ( '' === trim($content) ) {
             return null;
         }
 
-        return new PatternRecognitionResult($context->createBlock('core/math', array_merge($context->presentationAttributes($element), array( 'content' => $content )), array(), $element));
+        return new PatternRecognitionResult($this->createBlock->createBlock('core/math', array_merge($context->presentationAttributes($element), array( 'content' => $content )), array(), $element));
     }
 
     private function isMathElement(DOMElement $element): bool

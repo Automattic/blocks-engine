@@ -31,19 +31,17 @@ $dom->loadHTML('<?xml encoding="utf-8" ?><html><body><main><p class="plain">A</p
 libxml_clear_errors();
 
 $session = new HtmlTransformerSession(new Runtime(), static fn (DOMElement $node): array => array());
-$context = null;
 $context = new StyleResolutionContext(
-    $session,
     static fn (string $value): string => $value,
-    static function (string $selector) use (&$context): array {
-        return $context->sourceStyles()->parsedSelector($selector);
+    static function (string $selector) use ($session): array {
+        return $session->sourceStyleResolutionState()->parsedSelector($selector);
     },
     static fn (string $className): string => $className,
     static fn (string $url): string => $url
 );
 $analysisCache = new HtmlTransformerAnalysisCache();
-$resolver = new StyleResolver($context, $analysisCache);
-$context->sourceStyles()->installStylesheetAnalysis(
+$resolver = new StyleResolver($session, $context, $analysisCache);
+$session->sourceStyleResolutionState()->installStylesheetAnalysis(
     array(),
     ( new StylesheetAnalysisComposer($resolver, $analysisCache) )->composedStyleAnalysis(array( '.plain{color:red}#b.strong{color:blue}' ))
 );
@@ -62,7 +60,7 @@ $a->parentNode->replaceChild($replacement, $a);
 $assert(array( 1, 1, 0 ) === $specificity($replacement), 'a node replaced at a remembered path is recomputed');
 
 $b->setAttribute('class', 'other');
-$context->sourceStyles()->invalidateSelectorMatches();
+$session->sourceStyleResolutionState()->invalidateSelectorMatches();
 $assert(array( 0, 0, 0 ) === $specificity($b), 'a class change followed by invalidation is recomputed');
 
 $cloneSpecificity = static function () use ($dom, $specificity): array {

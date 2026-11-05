@@ -8,12 +8,14 @@ use DOMElement;
 
 final class ButtonAnchorPattern implements PatternRecognizerInterface
 {
-    public function __construct(private readonly ButtonsPattern $buttons) {}
+    public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock,
+        private readonly ButtonsPattern $buttons) {}
 
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
         if ( $this->buttons->requiresWrappedButtonPreservation($element) ) {
-            return new PatternRecognitionResult($context->createBlock('core/html', array( 'content' => SourceDom::outerHtml($element) ), array(), $element));
+            return new PatternRecognitionResult($this->createBlock->createBlock('core/html', array( 'content' => SourceDom::outerHtml($element) ), array(), $element));
         }
 
         $buttonContext = $context->buttonContext();

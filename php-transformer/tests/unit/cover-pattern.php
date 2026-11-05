@@ -77,7 +77,7 @@ $assetCss = static function (array $result): string {
     return $css;
 };
 
-$pattern = new CoverPattern();
+$pattern = new CoverPattern(new \Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture(static fn (string $name, array $attrs = array(), array $children = array()): array => array('blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $children)));
 
 // Frozen public callback contract.
 $matchMethod = new ReflectionMethod(CoverPattern::class, 'match');

@@ -59,17 +59,14 @@ $makeConverter = static function (array $overrides = array()): RichTextElementCo
 
     $c = array_merge($defaults, $overrides);
 
-    return new RichTextElementConverter(new RichTextElementContext(
-        new ElementPresentationResolverFixture($c['presentationAttributes']),
-        $c['createBlock'],
-        new RichTextMaterializationFixture(array(
+    return new RichTextElementConverter($c['createBlock'], new ElementPresentationResolverFixture($c['presentationAttributes']), new RichTextMaterializationFixture(array(
             'content' => $c['richTextContent'],
             'hasStructuralHtml' => $c['hasStructuralHtml'],
             'contentWithMaterializedSvgImages' => $c['richTextWithMaterializedSvgImages'],
             'contentWithInlineSafeButtonsLowered' => $c['richTextWithInlineSafeButtonsLowered'],
             'requiresHtmlFallback' => $c['requiresHtmlFallback'],
             'containsNativeSvgImageObject' => $c['containsNativeSvgImageObject'],
-        )),
+        )), new Runtime(), new RichTextElementContext(
         $c['htmlPreservationBlock'],
         $c['authoredMarqueeBlock'],
         $c['hasEmptyVisualInlineChild'],
@@ -79,7 +76,6 @@ $makeConverter = static function (array $overrides = array()): RichTextElementCo
         $c['mixedMediaLinkGroupFromParagraph'],
         $c['compactLinkedIconTextRowFromParagraph'],
         $c['convertText'],
-        new Runtime(),
         $c['convertChildren']
     ));
 };

@@ -3,11 +3,12 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
-use Closure;
 use DOMElement;
+
+use Closure;
+
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 
 final class PatternContext
 {
@@ -36,7 +37,6 @@ final class PatternContext
      */
     public function __construct(
         private readonly Closure $presentationAttributes,
-        private readonly SourceBlockCreator $createBlock,
         private readonly ?PatternTreeConverter $recursiveConverter = null,
         private readonly ?NavigationPatternContext $navigationContext = null,
         private readonly ?MediaPatternContext $mediaContext = null,
@@ -110,16 +110,6 @@ final class PatternContext
     public function presentationAttributes(DOMElement $element, array $excludedGeometryProperties = array()): array
     {
         return ($this->presentationAttributes)($element, $excludedGeometryProperties);
-    }
-
-    /**
-     * @param array<string, mixed> $attributes
-     * @param array<int, array<string, mixed>> $innerBlocks
-     * @return array<string, mixed>
-     */
-    public function createBlock(string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null, ?DOMElement $logicalSourceElement = null): array
-    {
-        return $this->createBlock->createBlock($name, $attributes, $innerBlocks, $sourceElement, $logicalSourceElement);
     }
 
     public function richTextContent(DOMElement $element): string

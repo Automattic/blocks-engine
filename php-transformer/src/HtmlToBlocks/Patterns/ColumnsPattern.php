@@ -30,6 +30,11 @@ use DOMElement;
  */
 final class ColumnsPattern implements PatternRecognizerInterface
 {
+    public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock
+    ) {
+    }
+
     use PatternDomHelpersTrait;
     use PatternGateHelpersTrait;
 
@@ -49,7 +54,7 @@ final class ColumnsPattern implements PatternRecognizerInterface
             array($converter, 'element'),
             $context->presentationAttributes(...),
             $columns->structuralStyle(...),
-            $context->createBlock(...),
+            $this->createBlock->createBlock(...),
             $columns->referenceViewportStyle(...),
             $columns->isSingleRowAtMobile(...)
         );

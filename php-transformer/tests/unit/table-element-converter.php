@@ -55,15 +55,13 @@ $makeConverter = static function (array $overrides = array()): TableElementConve
     );
     $c = array_merge($defaults, $overrides);
 
-    return new TableElementConverter(new TableElementContext(
+    return new TableElementConverter(new ElementPresentationResolverFixture($c['presentation']), $c['createBlock'], new TableElementContext(
         new TableClassificationPolicy(),
         $c['nested'],
         $c['group'],
         $c['media'],
         $c['preserve'],
-        new ElementPresentationResolverFixture($c['presentation']),
-        $c['tableAttrs'],
-        $c['createBlock']
+        $c['tableAttrs']
     ));
 };
 

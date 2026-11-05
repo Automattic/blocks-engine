@@ -4,8 +4,6 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\TableClassificationPolicy;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Closure;
 use DOMElement;
 
@@ -31,9 +29,7 @@ final class TableElementContext
         private readonly Closure $singleColumnLayoutTableGroupBlock,
         private readonly Closure $mediaLayoutTableColumnsBlock,
         private readonly Closure $htmlPreservationBlock,
-        private readonly ElementPresentationResolver $presentationResolver,
-        private readonly Closure $tableAttributes,
-        private readonly SourceBlockCreator $createBlock
+        private readonly Closure $tableAttributes
     ) {
     }
 
@@ -78,16 +74,6 @@ final class TableElementContext
     }
 
     /**
-     * @param array<int, string> $excludedProperties
-     * @param array<int, string> $excludedGeometryProperties
-     * @return array<string, mixed>
-     */
-    public function presentationAttributes(DOMElement $element, array $excludedProperties = array(), array $excludedGeometryProperties = array()): array
-    {
-        return $this->presentationResolver->presentationAttributes($element, $excludedProperties, $excludedGeometryProperties);
-    }
-
-    /**
      * @return array<string, mixed>
      */
     public function tableAttributes(DOMElement $element): array
@@ -95,13 +81,4 @@ final class TableElementContext
         return ($this->tableAttributes)($element);
     }
 
-    /**
-     * @param array<string, mixed>             $attributes
-     * @param array<int, array<string, mixed>> $innerBlocks
-     * @return array<string, mixed>
-     */
-    public function createBlock(string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array
-    {
-        return $this->createBlock->createBlock($name, $attributes, $innerBlocks, $sourceElement);
-    }
 }

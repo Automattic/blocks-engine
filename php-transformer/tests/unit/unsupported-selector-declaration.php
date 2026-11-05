@@ -29,18 +29,16 @@ $dom->loadHTML('<?xml encoding="utf-8" ?><html><body><nav>'
 libxml_clear_errors();
 
 $session = new HtmlTransformerSession(new Runtime(), static fn (DOMElement $node): array => array());
-$context = null;
 $context = new StyleResolutionContext(
-    $session,
     static fn (string $value): string => $value,
-    static function (string $selector) use (&$context): array {
-        return $context->sourceStyles()->parsedSelector($selector);
+    static function (string $selector) use ($session): array {
+        return $session->sourceStyleResolutionState()->parsedSelector($selector);
     },
     static fn (string $className): string => $className,
     static fn (string $url): string => $url
 );
 $analysisCache = new HtmlTransformerAnalysisCache();
-$resolver = new StyleResolver($context, $analysisCache);
+$resolver = new StyleResolver($session, $context, $analysisCache);
 $css = 'nav :is(.item){color:red}'
     . '.item:not(.x){color:blue}'
     . ':where(nav) .lead{color:green}'
@@ -49,7 +47,7 @@ $css = 'nav :is(.item){color:red}'
     . ':where(nav) #other{color:gray}'
     . '.item{color:black}'
     . '@media (max-width:600px){:is(#home){color:orange}}';
-$context->sourceStyles()->installStylesheetAnalysis(array(), ( new StylesheetAnalysisComposer($resolver, $analysisCache) )->composedStyleAnalysis(array( $css )));
+$session->sourceStyleResolutionState()->installStylesheetAnalysis(array(), ( new StylesheetAnalysisComposer($resolver, $analysisCache) )->composedStyleAnalysis(array( $css )));
 
 $expected = array(
     // Static rules in source order, then the conditional rule naming the id.
