@@ -46,6 +46,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\SvgArtworkBlo
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\VisualIframeBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EmptyElementFootprint;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\DesignUsageCollector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\HostBlockGapEncoder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextInlinePolicy;
@@ -283,6 +284,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private readonly RichTextElementConverter $richTextConverter;
 
     private readonly StyleResolver $styleResolver;
+    private readonly EmptyElementFootprint $emptyElementFootprint;
 
     private readonly GeneratedBlockStyleProjector $generatedBlockStyleProjector;
 
@@ -529,6 +531,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->deadProjectedSelectorReporter = new DeadProjectedSelectorReporter();
         $this->reusableComponentRecognizer = new ReusableComponentRecognizer();
         $this->styleResolver = new StyleResolver($this->createStyleResolutionContext(), $this->analysisCache);
+        $this->emptyElementFootprint = new EmptyElementFootprint($this->styleResolver, $this->sourceElementClassifier);
         $this->linkWrapperPropagator = new LinkWrapperPropagator($this->styleResolver, $this->blockFactory);
         $this->generatedBlockStyleProjector = new GeneratedBlockStyleProjector($this->runtime, $this->styleResolver);
         $this->sourceBlockAttributeProjector = new SourceBlockAttributeProjector($this->styleResolver, $this->generatedBlockStyleProjector);
@@ -4768,7 +4771,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if ( ! $this->selectorMentionsSubtreeToken($rule['selector'], $tokens) ) {
                 continue;
             }
-            if ( $this->cssDeclarationsPaintOrOccupySpace($rule['declarations']) ) {
+            if ( $this->emptyElementFootprint->cssDeclarationsPaintOrOccupySpace($rule['declarations']) ) {
                 return false;
             }
         }
@@ -4810,78 +4813,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         foreach ( $tokens as $token ) {
             if ( 1 === preg_match($this->cssTokenPattern($token), $selector) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Whether a declaration block paints or occupies space with a non-zero,
-     * non-none value: any background, border, shadow, outline, size,
-     * spacing, mask, filter, clip, or generated pseudo-element content.
-     * `width` counts only alongside a height — a lone width wraps nothing
-     * visible in an empty subtree.
-     */
-    private function cssDeclarationsPaintOrOccupySpace(string $declarations): bool
-    {
-        $declared = array();
-        foreach ( $this->styleResolver->cssDeclarations($declarations) as $property => $value ) {
-            $declared[strtolower(trim((string) $property))] = trim((string) $value);
-        }
-
-        $hasHeight = ( isset($declared['height']) && $this->cssValueIsNonZero($declared['height']) )
-            || ( isset($declared['min-height']) && $this->cssValueIsNonZero($declared['min-height']) );
-
-        foreach ( $declared as $property => $value ) {
-            if ( ! $this->cssPropertyPaintsOrOccupiesSpace($property, $hasHeight) ) {
-                continue;
-            }
-            if ( $this->cssValueIsNonZero((string) $value) ) {
-                return true;
-            }
-            // A background paints with any other value — even all-zero
-            // colors like `#000`; only `none` stays quiet.
-            $value = strtolower(trim((string) $value));
-            if ( str_starts_with($property, 'background') && ! in_array($value, array( '', 'none' ), true) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /** Whether the property name itself paints or occupies space at all. */
-    private function cssPropertyPaintsOrOccupiesSpace(string $property, bool $hasHeight): bool
-    {
-        foreach ( array( 'background', 'border', 'outline', 'padding', 'margin', 'mask' ) as $prefix ) {
-            if ( str_starts_with($property, $prefix) ) {
-                return true;
-            }
-        }
-
-        return in_array($property, array( 'aspect-ratio', 'box-shadow', 'clip-path', 'content', 'filter', 'flex-basis', 'height', 'min-height' ), true)
-            || ( in_array($property, array( 'width', 'min-width' ), true) && $hasHeight );
-    }
-
-    /**
-     * Whether a declaration value carries more than zero and `none`: any
-     * non-zero number (`1px`, `rgb(0,0,1)`), or a numberless value (`red`,
-     * `#ccc`, `thin`) — over-matching only keeps the existing diagnostic,
-     * so quiet values are just `none` and all-zero lists (`0`, `0 0 auto`).
-     */
-    private function cssValueIsNonZero(string $value): bool
-    {
-        $value = strtolower(trim($value));
-        if ( '' === $value || 'none' === $value ) {
-            return false;
-        }
-        if ( 0 === preg_match_all('/\d+(?:\.\d+)?/', $value, $numbers) ) {
-            return true;
-        }
-        foreach ( $numbers[0] as $number ) {
-            if ( 0.0 !== (float) $number ) {
                 return true;
             }
         }
@@ -5467,7 +5398,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                             || ( 'button' === $sourceTagName
                                 && ('' !== trim($this->attr($sourceElement, 'class')) || '' !== trim($this->attr($sourceElement, 'id')))))));
             $preserveGeneratedStyle = ('core/button' === $name && $this->sourceElementClassifier->hasLogoBrandSignal($sourceElement))
-                || ('core/spacer' === $name && $this->isEmptyVisualInlineCandidate($sourceElement));
+                || ('core/spacer' === $name && $this->emptyElementFootprint->isEmptyVisualInlineCandidate($sourceElement));
             $attrs = $this->sourceBlockAttributeProjector->project(
                 $name,
                 $attrs,
@@ -7684,189 +7615,33 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return false;
     }
 
-    private function shouldPreserveEmptyVisualElement(DOMElement $element): bool
+    private function shouldPreserveEmptyVisualElement(DOMElement $element): bool { return $this->emptyElementFootprint->shouldPreserveEmptyVisualElement($element, $this->emptyVisualRetentionPolicy($element)); }
+
+    /** Non-style retention decisions, evaluated only when the footprint query needs them. */
+    private function emptyVisualRetentionPolicy(DOMElement $element): iterable
     {
         if ( '' !== $this->renderedTextContent($element) ) {
-            return false;
+            yield 'drop' => true;
+            return;
         }
-
-        $inlineDeclarations = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
-        $inlineOpacity = CssValueInspector::comparable((string) ($inlineDeclarations['opacity'] ?? ''));
-        $paintDeclarations = array_merge($this->styleResolver->structuralPresentationDeclarations($element), $inlineDeclarations);
-        $hasAuthoredPaint = array() !== array_intersect_key($paintDeclarations, array_flip(array( 'background', 'background-color', 'background-image' )));
-        if ( $this->isInertHiddenEmptyElement($element)
-            && ! (is_numeric($inlineOpacity) && 0.0 === (float) $inlineOpacity && $hasAuthoredPaint)
-        ) {
-            return false;
-        }
-
+        yield 'hidden' => $this->isInertHiddenEmptyElement($element);
         if ( $this->hasSubstantiveSourceDescendant($element) && $this->shouldPreserveWrapper($element) ) {
-            return true;
+            yield 'keep' => true;
         }
-
-        if ( $this->isEmptyLayoutItemSpacer($element) ) {
-            return true;
-        }
-
+        yield 'layout' => true;
         if ( $this->sourceElementClassifier->isInlineContentElement(strtolower($element->tagName)) ) {
-            return $this->runtimeIslands->isRuntimeDomTarget($element)
+            yield 'inline' => $this->runtimeIslands->isRuntimeDomTarget($element)
                 || in_array(strtolower($this->attr($element, 'role')), array( 'presentation', 'none' ), true)
-                || 'true' === strtolower($this->attr($element, 'aria-hidden'))
-                || $this->isEmptyVisualInlineCandidate($element)
-                // CSS can give a phrasing tag a painted block box without an
-                // explicit height (for example width plus aspect-ratio).
-                || ($this->hasEmptyVisualBlockDisplay($element) && $this->hasVisibleEmptyVisualPaint($paintDeclarations, $element))
-                || $this->occupiesDefiniteGridCell($element);
+                || 'true' === strtolower($this->attr($element, 'aria-hidden'));
+            return;
         }
-
-        // A bare role, tabindex, aria-* or data-* attribute is not a reason to
-        // keep an empty element: a native group cannot save those attributes,
-        // so the kept block would be an empty box with no footprint. An
-        // aria-label alone already dropped the element; the rest now agree.
         $id = SourceDom::namedFragmentTargetId($element);
-        if ( $this->runtimeIslands->isRuntimeDomTarget($element)
+        yield 'block' => $this->runtimeIslands->isRuntimeDomTarget($element)
             || ( '' !== $id && SourceDom::documentReferencesFragmentId($element, $id) )
             || array() !== $this->eventMetadata($element)
-            || array() !== $this->structureSignals($element, array())
-            || $this->hasRenderableEmptyBlockBox($element)
-            || $this->hasStaticPseudoElementRule($element)
-            // Conditional author paint/geometry proves a visual boundary too.
-            // Keep its source identity so the retained stylesheet can own when
-            // it renders; do not flatten those facts into unconditional attrs.
-            || $this->hasRenderableEmptyBoxAtAnyViewport($element)
-            || $this->occupiesDefiniteGridCell($element)
-        ) {
-            return true;
-        }
-
-        return $this->isEmptyVisualInlineCandidate($element);
-    }
-
-    /** Empty in-flow flex items can reserve space without painting anything (#4065). */
-    private function isEmptyLayoutItemSpacer(DOMElement $element): bool
-    {
-        $parent = $element->parentNode;
-        if ( ! $parent instanceof DOMElement || 0 !== $this->childElementCount($element) ) {
-            return false;
-        }
-        $parentProperties = array( 'display', 'flex-direction' );
-        $properties = array( 'position', 'display', 'width', 'min-width', 'height', 'min-height', 'flex-basis', 'flex-grow', 'flex' );
-        $parentDeclared = $declared = array();
-        $conditions = array('' => array());
-        foreach (array(array($parent, $parentProperties), array($element, $properties)) as $index => [$node, $wanted]) {
-            foreach ($wanted as $property) {
-                $presentation = $this->styleResolver->declaredPresentation($node, $property);
-                if (0 === $index) $parentDeclared[$property] = $presentation;
-                else $declared[$property] = $presentation;
-                foreach ($presentation->conditionStacks() as $stack) {
-                    $conditions[implode("\n", $stack)] = $stack;
-                }
-            }
-        }
-        $parentBase = $this->styleResolver->structuralPresentationDeclarations($parent);
-        $base = $this->styleResolver->structuralPresentationDeclarations($element);
-        $parentInline = $this->styleResolver->cssDeclarations(SourceDom::attr($parent, 'style'));
-        $inline = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
-        foreach ($conditions as $stack) {
-            // Read both boxes in the same responsive state. Never combine a
-            // phone flex parent with a size declared only for desktop (#4276).
-            $read = static function (array $base, array $declared, array $inline) use ($stack): array {
-                foreach ($declared as $property => $presentation) {
-                    $value = $presentation->resolvedValueWhere(static fn (array $query): bool => array() === array_diff($query, $stack));
-                    if ('' !== $value) $base[$property] = $value;
-                }
-                return array_merge($base, $inline);
-            };
-            if ($this->emptyFlexItemHasFootprint($element, $read($parentBase, $parentDeclared, $parentInline), $read($base, $declared, $inline))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /** Whether an in-flow empty item reserves space in this flex state. */
-    private function emptyFlexItemHasFootprint(DOMElement $element, array $parentDeclarations, array $declarations): bool
-    {
-        $display = CssValueInspector::comparable((string) ($parentDeclarations['display'] ?? ''));
-        if ( ! in_array($display, array( 'flex', 'inline-flex' ), true) ) {
-            return false;
-        }
-        if ( in_array(CssValueInspector::comparable((string) ($declarations['position'] ?? '')), array( 'absolute', 'fixed' ), true)
-            || in_array(CssValueInspector::comparable((string) ($declarations['display'] ?? '')), array( 'none', 'contents' ), true)
-        ) {
-            return false;
-        }
-
-        $column = in_array(CssValueInspector::comparable((string) ($parentDeclarations['flex-direction'] ?? '')), array( 'column', 'column-reverse' ), true);
-        $properties = $column ? array( 'height', 'min-height', 'flex-basis' ) : array( 'width', 'min-width', 'flex-basis' );
-        $hasSize = fn (string $value): bool => $this->sourceElementClassifier->isPositiveCssLength($value)
-            || (1 === preg_match('/^\+?(\d+(?:\.\d+)?|\.\d+)%$/', trim($value), $matches) && 0 < (float) $matches[1]);
-        foreach ( $properties as $property ) {
-            $value = $this->styleResolver->resolveCssVariablesInValue((string) ($declarations[$property] ?? ''), $element);
-            if ( $hasSize($value) ) {
-                return true;
-            }
-        }
-        // Positive growth reserves free space even with a zero basis. A
-        // shrink factor alone (including the default 0 1 auto) does not.
-        $grow = CssValueInspector::comparable((string) ($declarations['flex-grow'] ?? ''));
-        if ( is_numeric($grow) && 0 < (float) $grow ) {
-            return true;
-        }
-        $flex = $this->styleResolver->resolveCssVariablesInValue((string) ($declarations['flex'] ?? ''), $element);
-        $parts = preg_split('/\s+/', trim($flex)) ?: array();
-        $basis = (string) (count($parts) >= 3 ? $parts[2] : (count($parts) === 2 && ! is_numeric($parts[1]) ? $parts[1] : ($parts[0] ?? '')));
-        return 'auto' === $flex
-            || (isset($parts[0]) && is_numeric($parts[0]) && 0 < (float) $parts[0])
-            || $hasSize($basis);
-    }
-
-    /**
-     * An empty child of a grid whose rows and columns are both definite lengths
-     * is a grid item: it fills a sized cell (so author paint on it is visible)
-     * and it holds its place in auto-placement (so dropping it, even when it is
-     * transparent, moves every later sibling into the wrong cell).
-     */
-    private function occupiesDefiniteGridCell(DOMElement $element): bool
-    {
-        $parent = $element->parentNode;
-        if ( ! $parent instanceof DOMElement || 0 !== $this->childElementCount($element) || '' !== trim($element->textContent ?? '') ) {
-            return false;
-        }
-        $parentDeclarations = $this->styleResolver->structuralPresentationDeclarations($parent);
-        if ( ! in_array(CssValueInspector::comparable((string) ($parentDeclarations['display'] ?? '')), array( 'grid', 'inline-grid' ), true) ) {
-            return false;
-        }
-        foreach ( array( 'grid-template-rows', 'grid-template-columns' ) as $property ) {
-            if ( ! $this->isDefiniteGridTrackList($this->styleResolver->resolveCssVariablesInValue((string) ($parentDeclarations[$property] ?? ''), $parent)) ) {
-                return false;
-            }
-        }
-        $declarations = array_merge(
-            $this->styleResolver->structuralPresentationDeclarations($element),
-            $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'))
-        );
-        return ! in_array(CssValueInspector::comparable((string) ($declarations['display'] ?? '')), array( 'none', 'contents' ), true)
-            && ! in_array(CssValueInspector::comparable((string) ($declarations['position'] ?? '')), array( 'absolute', 'fixed' ), true);
-    }
-
-    /** A track list made only of positive fixed lengths, optionally through repeat(<count>, ...). */
-    private function isDefiniteGridTrackList(string $tracks): bool
-    {
-        $tracks = strtolower(trim($tracks));
-        while ( 1 === preg_match('/repeat\(\s*\d+\s*,\s*([^()]*)\)/', $tracks, $match) ) {
-            $tracks = str_replace($match[0], $match[1], $tracks);
-        }
-        $sizes = preg_split('/\s+/', $tracks) ?: array();
-        if ( '' === $tracks || array() === $sizes ) {
-            return false;
-        }
-        foreach ( $sizes as $size ) {
-            if ( ! $this->sourceElementClassifier->isPositiveCssLength($size) ) {
-                return false;
-            }
-        }
-        return true;
+            || array() !== $this->structureSignals($element, array());
+        yield 'keep' => $this->hasStaticPseudoElementRule($element);
+        yield 'viewport' => $this->emptyVisualTopologyEvidence($element);
     }
 
     public function retainsEmptyRichTextInline(DOMElement $sourceInline): bool
@@ -7889,57 +7664,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return false;
     }
 
-    private function hasRenderableEmptyBlockBox(DOMElement $element): bool
-    {
-        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        if ( $this->hasAuthoredGridTracks($element) ) {
-            return true;
-        }
-        foreach ( array( 'height', 'min-height', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left' ) as $property ) {
-            if ( isset($declarations[$property]) && $this->sourceElementClassifier->isPositiveCssLength($this->styleResolver->resolveCssVariablesInValue($declarations[$property], $element)) ) {
-                return true;
-            }
-        }
-        if ( $this->hasVisibleEmptyVisualPaint($declarations, $element) ) {
-            return true;
-        }
-        $position = strtolower(trim((string) ($declarations['position'] ?? 'static')));
-        if ( ! in_array($position, array( 'absolute', 'fixed' ), true) ) {
-            return false;
-        }
-
-        foreach ( array( 'width', 'min-width', 'height', 'min-height' ) as $property ) {
-            if ( isset($declarations[$property]) && $this->sourceElementClassifier->isPositiveCssLength($this->styleResolver->resolveCssVariablesInValue($declarations[$property], $element)) ) {
-                return true;
-            }
-        }
-
-        return isset($declarations['inset'])
-            || ( isset($declarations['left']) && isset($declarations['right']) )
-            || ( isset($declarations['top']) && isset($declarations['bottom']) );
-    }
-
     private function hasStaticPseudoElementRule(DOMElement $element): bool
     {
         foreach ( $this->sourceStyles()->pseudoElementRules() as $rule ) {
             if ( $this->styleResolver->matchesCssSelector($element, $rule['selector']) ) {
                 return true;
-            }
-        }
-        return false;
-    }
-
-    private function hasRenderableEmptyBoxAtAnyViewport(DOMElement $element): bool
-    {
-        foreach ( $this->emptyVisualTopologyEvidence($element) as $evidence ) {
-            $declarations = $evidence['declarations'];
-            if ( $this->hasVisibleEmptyVisualPaint($declarations, $element) ) {
-                return true;
-            }
-            foreach ( array( 'height', 'min-height', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left' ) as $property ) {
-                if ( isset($declarations[$property]) && $this->sourceElementClassifier->isPositiveCssLength($this->styleResolver->resolveCssVariablesInValue($declarations[$property], $element)) ) {
-                    return true;
-                }
             }
         }
         return false;
@@ -8140,14 +7869,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function emptyVisualSpacerBlock(DOMElement $element): array
     {
         $attrs = $this->emptyVisualElementAttributes($element);
-        if ( ! $this->isEmptyVisualInlineCandidate($element) ) {
+        if ( ! $this->emptyElementFootprint->isEmptyVisualInlineCandidate($element) ) {
             $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::EMPTY_VISUAL_GROUP_CLASS);
             $this->runtimeBehavior()->markEmptyVisualGroupGenerated();
             // Carry complex paint, but let native background support own a
             // CSS block box's solid colour so editor recolouring can win.
             $attrs['className'] = $this->mergeClassNames(
                 (string) $attrs['className'],
-                $this->styleResolver->emptyElementBackgroundCarrierClassName($element, $this->hasEmptyVisualBlockDisplay($element) && isset($attrs['style']['color']['background']))
+                $this->styleResolver->emptyElementBackgroundCarrierClassName($element, $this->emptyElementFootprint->hasEmptyVisualBlockDisplay($element) && isset($attrs['style']['color']['background']))
             );
             // Empty, nested layout wrappers can still own measurable grid or
             // flex tracks (fluid-engine sections commonly put those tracks on
@@ -8179,23 +7908,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         foreach ( $element->getElementsByTagName('*') as $descendant ) {
             if ( $descendant instanceof DOMElement
                 && '' === $this->renderedTextContent($descendant)
-                && $this->hasAuthoredGridTracks($descendant)
+                && $this->emptyElementFootprint->hasAuthoredGridTracks($descendant)
             ) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private function hasAuthoredGridTracks(DOMElement $element): bool
-    {
-        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        if ( ! in_array(CssValueInspector::comparable((string) ($declarations['display'] ?? '')), array( 'grid', 'inline-grid' ), true) ) {
-            return false;
-        }
-        foreach ( array( 'grid-template-rows', 'grid-auto-rows' ) as $property ) {
-            $tracks = strtolower(trim((string) ($declarations[$property] ?? '')));
-            if ( '' !== $tracks && ! in_array($tracks, array( 'none', 'initial', 'unset' ), true) ) {
                 return true;
             }
         }
@@ -8271,69 +7985,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $attrs['style']['spacing']['margin'] = array_merge($attrs['style']['spacing']['margin'] ?? array(), $margins);
 
         return $this->createBlock('core/separator', $attrs, array(), $separator);
-    }
-
-    /** CSS can establish a block box on a phrasing tag; explicitly zero-sized leaves remain inert. */
-    private function hasEmptyVisualBlockDisplay(DOMElement $element): bool
-    {
-        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        foreach ( array( 'width', 'height' ) as $property ) {
-            $size = $this->styleResolver->resolveCssVariablesInValue((string) ($declarations[$property] ?? 'auto'), $element);
-            if ( 1 === preg_match('/^[+-]?0(?:\.0+)?(?:[a-z]+|%)?$/i', trim($size)) ) {
-                return false;
-            }
-        }
-        return in_array(CssValueInspector::comparable((string) ($declarations['display'] ?? '')), array( 'block', 'flow-root', 'flex', 'grid', 'inline-block', 'inline-flex', 'inline-grid' ), true);
-    }
-
-    private function isEmptyVisualInlineCandidate(DOMElement $element): bool
-    {
-        if ( '' !== trim($element->textContent ?? '') || 0 !== $this->childElementCount($element) || ! $this->sourceElementClassifier->isInlineContentElement(strtolower($element->tagName)) ) {
-            return false;
-        }
-
-        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        return $this->hasExplicitEmptyVisualDimensions($declarations) && $this->hasVisibleEmptyVisualPaint($declarations);
-    }
-
-    /** @param array<string, string> $declarations */
-    private function hasExplicitEmptyVisualDimensions(array $declarations): bool
-    {
-        foreach ( array( 'width', 'height' ) as $property ) {
-            if ( ! isset($declarations[$property]) || ! $this->sourceElementClassifier->isPositiveCssLength($this->styleResolver->resolveCssVariablesInValue($declarations[$property])) ) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /** @param array<string, string> $declarations */
-    private function hasVisibleEmptyVisualPaint(array $declarations, ?DOMElement $element = null): bool
-    {
-        if ( $element instanceof DOMElement ) {
-            foreach ( array('background', 'background-color', 'background-image', 'box-shadow', 'outline', 'border', 'border-top', 'border-right', 'border-bottom', 'border-left', 'border-color') as $property ) {
-                if ( isset($declarations[$property]) ) {
-                    $declarations[$property] = $this->styleResolver->resolveEmptyVisualPaintVariables($declarations[$property], $element);
-                }
-            }
-        }
-
-        foreach ( array( 'background', 'background-color', 'background-image', 'box-shadow', 'outline' ) as $property ) {
-            if ( isset($declarations[$property]) && $this->sourceElementClassifier->isVisibleEmptyVisualPaint($this->styleResolver->resolveCssVariablesInValue($declarations[$property], $element)) ) {
-                return true;
-            }
-        }
-
-        foreach ( array( 'border', 'border-top', 'border-right', 'border-bottom', 'border-left' ) as $property ) {
-            if ( isset($declarations[$property]) && $this->sourceElementClassifier->isVisibleEmptyVisualBorder($this->styleResolver->resolveCssVariablesInValue($declarations[$property], $element)) ) {
-                return true;
-            }
-        }
-
-        return isset($declarations['border-color'], $declarations['border-width'])
-            && $this->sourceElementClassifier->isVisibleEmptyVisualPaint($this->styleResolver->resolveCssVariablesInValue($declarations['border-color'], $element))
-            && $this->sourceElementClassifier->isPositiveCssLength($this->styleResolver->resolveCssVariablesInValue($declarations['border-width'], $element));
     }
 
     private function hasEmptyVisualInlineChild(DOMElement $element): bool
@@ -9573,7 +9224,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         if ( array() === $children ) {
-            if ( $this->shouldPreserveEmptyVisualFigure($figure) ) {
+            if ( $this->emptyElementFootprint->shouldPreserveEmptyVisualFigure($figure, $this->renderedTextContent($figure), $this->sourceStyles()->pseudoElementRules()) ) {
                 return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($figure), array(), $figure);
             }
 
@@ -9585,37 +9236,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($figure), $children, $figure);
-    }
-
-    private function shouldPreserveEmptyVisualFigure(DOMElement $figure): bool
-    {
-        if ( '' !== $this->renderedTextContent($figure) || 0 !== $this->childElementCount($figure) ) {
-            return false;
-        }
-
-        $declarations = $this->styleResolver->structuralPresentationDeclarations($figure);
-        $hasBoundedHeight = false;
-        foreach ( array( 'height', 'min-height' ) as $property ) {
-            if ( isset($declarations[$property]) && $this->sourceElementClassifier->isPositiveCssLength($this->styleResolver->resolveCssVariablesInValue($declarations[$property], $figure)) ) {
-                $hasBoundedHeight = true;
-                break;
-            }
-        }
-        if ( ! $hasBoundedHeight ) {
-            return false;
-        }
-
-        if ( $this->hasVisibleEmptyVisualPaint($declarations, $figure) ) {
-            return true;
-        }
-
-        foreach ( $this->sourceStyles()->pseudoElementRules() as $rule ) {
-            if ( $this->styleResolver->matchesCssSelector($figure, $rule['selector']) && $this->hasVisibleEmptyVisualPaint($rule['declarations'], $figure) ) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**
@@ -12624,7 +12244,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private function emptyInlineGeometryBlock(DOMElement $element, array &$fallbacks): ?array
     {
-        if ( $this->hasPaintedSourceText($element) || $this->subtreeHasPaintedPseudo($element) || $this->runtimeIslands->isRuntimeDomTarget($element) ) {
+        if ( $this->hasPaintedSourceText($element) || $this->emptyElementFootprint->subtreeHasPaintedPseudo($element, $this->sourceStyles()->pseudoElementRules()) || $this->runtimeIslands->isRuntimeDomTarget($element) ) {
             return null;
         }
         $inner = array();
@@ -12637,7 +12257,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if ( ! $this->isEmptyInlineGeometryNode($child) || $this->containsExcludedMedia($child) ) {
                 return null;
             }
-            $layout = $layout || $this->declaresEmptyInlineLayoutBox($child);
+            $layout = $layout || $this->emptyElementFootprint->declaresEmptyInlineLayoutBox($child);
             $inner[] = $this->emptyInlineGeometryShell($child);
         }
         if ( ! $layout || array() === $inner ) {
@@ -12732,83 +12352,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return false;
     }
 
-    private function subtreeHasPaintedPseudo(DOMElement $element): bool
-    {
-        $nodes = array_merge(array( $element ), SourceDom::descendantElements($element));
-        $classes = array();
-        foreach ( $nodes as $node ) {
-            foreach ( preg_split('/\s+/', trim($this->attr($node, 'class'))) ?: array() as $class ) {
-                if ( '' !== $class ) {
-                    $classes[$class] = true;
-                }
-            }
-        }
-        foreach ( $this->sourceStyles()->pseudoElementRules() as $rule ) {
-            $normalized = strtolower(trim((string) ($rule['declarations']['content'] ?? ''), " \t\"'"));
-            if ( in_array($normalized, array( '', 'none', 'normal', 'open-quote', 'close-quote', 'no-open-quote', 'no-close-quote' ), true) || 1 === preg_match('/^attr\(\s*data-text\s*\)$/', $normalized) ) {
-                continue;
-            }
-            $selector = (string) ($rule['selector'] ?? '');
-            $relevant = false;
-            foreach ( $classes as $class => $_ ) {
-                if ( str_contains($selector, $class) ) {
-                    $relevant = true;
-                    break;
-                }
-            }
-            if ( ! $relevant ) {
-                continue;
-            }
-            foreach ( $nodes as $node ) {
-                if ( $this->styleResolver->matchesCssSelector($node, $selector) ) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
     private function containsExcludedMedia(DOMElement $element): bool
     {
         foreach ( array_merge(array( $element ), SourceDom::descendantElements($element)) as $node ) {
             $tag = strtolower($node->tagName);
             if ( in_array($tag, array( 'audio', 'canvas', 'iframe', 'img', 'object', 'picture', 'svg', 'video' ), true) ) {
                 return true;
-            }
-        }
-
-        return false;
-    }
-
-    private function declaresEmptyInlineLayoutBox(DOMElement $element): bool
-    {
-        $nodes = array( $element );
-        foreach ( $element->getElementsByTagName('*') as $node ) {
-            if ( $node instanceof DOMElement ) {
-                $nodes[] = $node;
-            }
-        }
-        foreach ( $nodes as $node ) {
-            $declared = $this->styleResolver->authorDeclaredValuesAtAnyViewport($node, array( 'display', 'gap', 'column-gap', 'row-gap', 'height', 'min-height', 'overflow', 'overflow-x', 'overflow-y' ));
-            foreach ( $declared['display'] ?? array() as $value ) {
-                if ( in_array(strtolower(trim($value)), array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
-                    return true;
-                }
-            }
-            foreach ( array( 'gap', 'column-gap', 'row-gap', 'height', 'min-height' ) as $property ) {
-                foreach ( $declared[$property] ?? array() as $value ) {
-                    if ( CssValueInspector::isNonZero($value) || str_contains($value, 'calc(') ) {
-                        return true;
-                    }
-                }
-            }
-            foreach ( array( 'overflow', 'overflow-x', 'overflow-y' ) as $property ) {
-                foreach ( $declared[$property] ?? array() as $value ) {
-                    if ( in_array(strtolower(trim($value)), array( 'clip', 'hidden', 'auto', 'scroll' ), true) ) {
-                        return true;
-                    }
-                }
             }
         }
 
