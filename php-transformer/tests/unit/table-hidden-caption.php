@@ -26,9 +26,7 @@ foreach (array('sr-only', 'extra sr-only other', 'screen-reader-only', 'screen-r
     $assert(str_contains($html, '<em>homes</em>'), 'caption preserves rich text');
     $assert($hidden === str_contains($html, '<span class="screen-reader-text"'), 'only known hiding utilities map to hidden text: ' . $class);
     if ($hidden) {
-        foreach (array('position:absolute', 'width:1px', 'height:1px', 'overflow:hidden', 'clip:rect(0,0,0,0)') as $declaration) {
-            $assert(str_contains($html, $declaration), 'viewport-independent clipping: ' . $declaration);
-        }
+        $assert(str_contains($html, '<span class="screen-reader-text">Comparison of <em>homes</em></span>'), 'hidden caption uses the core class without inline styles');
     } else {
         $assert(str_contains($html, '<figcaption class="wp-element-caption">Comparison of <em>homes</em></figcaption>'), 'visible caption remains unchanged');
     }
