@@ -159,6 +159,7 @@
       "php tests/contract/engine-reset-cascade-layer.php",
       "php tests/contract/projected-inline-precedence.php",
       "php tests/contract/projected-spacing-universal-reset-specificity.php",
+      "php tests/contract/zero-width-border-reset.php",
       "php tests/contract/navigation-core-override-unlayered.php",
       "php tests/contract/navigation-margin-cascade.php",
       "php tests/contract/closed-off-canvas-navigation.php",
