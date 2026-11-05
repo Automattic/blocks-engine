@@ -19,7 +19,7 @@ $css = '.site-title{font-weight:700;text-decoration:none}'
     . '.paw-dot{display:inline-block;width:.55em;height:.55em;border-radius:50%;background:currentColor}'
     . '.brand-tag{font-size:.8em}';
 $nav = '<nav><ul><li><a href="/">Home</a></li></ul></nav>';
-$dot = '<mark class="paw-dot" style="display:inline-block;width:.55em;height:.55em;border-radius:50%;background:currentColor;color:inherit" role="none"></mark>';
+$dot = '<mark class="paw-dot has-inline-color" style="display:inline-block;width:.55em;height:.55em;border-radius:50%;background:currentColor;color:inherit" role="none"></mark>';
 
 $labelCases = array(
     'dot between words' => array(
