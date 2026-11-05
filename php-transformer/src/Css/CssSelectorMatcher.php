@@ -276,6 +276,7 @@ final class CssSelectorMatcher
             + count($compound['attributes']) - (int) ( $zero['attributes'] ?? 0 )
             + ( null !== $compound['nth_child'] ? 1 : 0 )
             + ( null !== ($compound['nth_type'] ?? null) ? 1 : 0 )
+            + (int) ($compound['empty'] ?? false)
             + (int) $compound['first_child']
             + (int) $compound['last_child']
             + (int) ( $compound['last_type'] ?? false )
@@ -715,6 +716,11 @@ final class CssSelectorMatcher
                     $hasSimple = true;
                     continue;
                 }
+                if ('empty' === $lowerName && '(' !== ($source[$offset] ?? '')) {
+                    $compound['empty'] = true;
+                    $hasSimple = true;
+                    continue;
+                }
                 if ( in_array($lowerName, array( 'first-child', 'last-child' ), true) && '(' !== ($source[ $offset ] ?? '') ) {
                     $compound['first-child' === $lowerName ? 'first_child' : 'last_child'] = true;
                     $hasSimple = true;
@@ -1122,6 +1128,11 @@ final class CssSelectorMatcher
             }
         }
         $childIndex = null;
+        if ($compound['empty'] ?? false) {
+            foreach ($element->childNodes as $child) {
+                if ($child instanceof DOMElement || ($child instanceof \DOMText && '' !== $child->textContent)) return false;
+            }
+        }
         if ( null !== $compound['nth_child'] || $compound['first_child'] || $compound['last_child'] ) {
             $childIndex = 1;
             for ( $previous = self::previousElementSibling($element); null !== $previous; $previous = self::previousElementSibling($previous) ) {

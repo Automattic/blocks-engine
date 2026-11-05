@@ -40,11 +40,11 @@ list( $markup, $css ) = $transform(
 $marker = 'blocks-engine-empty-source-paragraph';
 $editorEmpty = ':root .editor-styles-wrapper p.' . $marker . '[data-empty="true"]';
 
-$assert(1 === preg_match('/<!-- wp:paragraph \{"className":"' . $marker . '"\} --><p class="' . $marker . '"><\/p>/', $markup), 'an empty source paragraph is marked', $markup);
-$assert(1 === substr_count($markup, $marker . '"></p>') && ! str_contains($markup, $marker . '">Body'), 'only the empty paragraph is marked', $markup);
+$assert(1 === preg_match('/<!-- wp:paragraph [^>]*--><p class="' . $marker . '[^"]*"><\/p>/', $markup), 'an empty source paragraph is marked', $markup);
+$assert(1 === preg_match_all('/' . $marker . '[^"]*"><\/p>/', $markup) && ! str_contains($markup, $marker . '">Body'), 'only the empty paragraph is marked', $markup);
 $assert(str_contains($css, $editorEmpty . '{line-height:0}'), 'the editor collapses the padding line of an empty source paragraph', $css);
 $assert(str_contains($css, $editorEmpty . '>[data-rich-text-placeholder]{display:none}'), 'the editor withholds the placeholder of an empty source paragraph', $css);
-$assert(1 === preg_match('/@media \(min-width:600px\)\{[^@]*:where\(:root \.editor-styles-wrapper\) \.card p\[data-empty="true"\]\{min-height:1em\}/', $css), 'an authored :empty rule reaches the empty paragraph in the editor, inside its media query', $css);
+$assert(1 === preg_match('/@media \(min-width:600px\)\{[^@]*:where\(:root \.editor-styles-wrapper\) \.card [^{]*\[data-empty="true"\]\{min-height:1em\}/', $css), 'an authored :empty rule reaches the empty paragraph in the editor, inside its media query', $css);
 $assert(! str_contains($css, ':not([data-empty="true"])'), 'a negated :empty rule gets no editor variant', $css);
 
 list( $plainMarkup, $plainCss ) = $transform('<main><p>Only text</p></main>');

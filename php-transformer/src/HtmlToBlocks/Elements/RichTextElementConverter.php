@@ -25,7 +25,8 @@ final class RichTextElementConverter implements ElementConverter
     private const HEADING_PATTERN = '/^h([1-6])$/';
 
     /**
-     * Marks a core/paragraph lowered from an empty source `p`. Saved, it is
+     * Marks a native text block lowered from an empty source `p` or heading.
+     * The historical class name is shared by both block types. Saved, it is
      * an empty element; in the editor, RichText fills it with a padding
      * character and a placeholder, so EngineSupportCss restores its
      * empty-element geometry there.
@@ -148,7 +149,7 @@ final class RichTextElementConverter implements ElementConverter
         if ( ! $hasStructuralHtml && '' === trim($this->context->stripAllTags($content))
             && ! SourceDom::carriesOnlyRichTextInlineImages($element)
             && ! $this->context->containsNativeSvgImageObject($content) ) {
-            return null;
+            return $this->emptySourceTextBlock($element, 'core/heading', array('level' => $level));
         }
 
         return $this->context->createBlock(
@@ -163,6 +164,19 @@ final class RichTextElementConverter implements ElementConverter
             array(),
             $element
         );
+    }
+
+    /** Empty native text shares the existing footprint and source-identity path. */
+    private function emptySourceTextBlock(DOMElement $element, string $name, array $extra = array()): ?array
+    {
+        // Paragraphs retain their established source-box contract (#2802).
+        // Headings previously dropped unconditionally; retain only proven boxes.
+        if ('core/paragraph' !== $name && !$this->context->shouldPreserveEmptySourceText($element)) {
+            return null;
+        }
+        $attributes = $this->presentationAttributesWithBakedFontSize($element);
+        $attributes['className'] = SourceDom::mergeClassNames((string) ($attributes['className'] ?? ''), self::EMPTY_SOURCE_PARAGRAPH_CLASS);
+        return $this->context->createBlock($name, array_merge($attributes, $extra, array('content' => '')), array(), $element);
     }
 
     /**
@@ -439,13 +453,7 @@ final class RichTextElementConverter implements ElementConverter
 
                 return $textBlocks[0] ?? null;
             }
-            // An empty source paragraph keeps its box (`p:empty` rules size
-            // it), so it keeps its source identity too: the author `p` rules
-            // that place it address the source marker, never a bare block.
-            $attributes = $this->presentationAttributesWithBakedFontSize($element);
-            $attributes['className'] = SourceDom::mergeClassNames((string) ($attributes['className'] ?? ''), self::EMPTY_SOURCE_PARAGRAPH_CLASS);
-
-            return $this->context->createBlock('core/paragraph', array_merge($attributes, array( 'content' => '' )), array(), $element);
+            return $this->emptySourceTextBlock($element, 'core/paragraph');
         }
 
         return $this->context->createBlock(
