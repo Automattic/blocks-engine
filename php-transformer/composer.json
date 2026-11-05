@@ -270,6 +270,7 @@
       "php tests/contract/canonical-html-includes.php",
       "php tests/contract/shared-part-ancestor-scope.php",
       "php tests/contract/route-state-ancestor-projection.php",
+      "php tests/contract/device-document-shared-chrome.php",
       "php tests/contract/html-include-page-local-limits.php",
       "php tests/contract/captured-navigation-runtime.php",
       "php tests/contract/capture-receipt-routes.php",

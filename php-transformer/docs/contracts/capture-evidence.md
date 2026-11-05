@@ -69,6 +69,7 @@ Two audiences read this vocabulary:
 | ---- | ---- | ----- | ------- |
 | `data-blocks-engine-capture-document-scope` | attribute (flag) | ignored | The element is a body-equivalent document root. With `device-document` it declares a device profile. |
 | `data-blocks-engine-capture-device-document` | attribute | `[a-z][a-z0-9_-]{0,63}` | Profile id of a declared document scope. |
+| `data-blocks-engine-capture-device-visibility` | attribute (flag) on `<style>` | ignored | Capture runtime device-selection gates. Excluded whole from author presentation analysis so selected-device chrome cannot acquire a frozen hide gate. |
 | `data-blocks-engine-capture-mobile-document` | class | — | Root of the mobile copy of a responsive capture. |
 | `data-blocks-engine-capture-desktop-document` | class | — | Root of the desktop (default) copy of a responsive capture. |
 | `data-blocks-engine-capture-responsive-` | class prefix | 12 lowercase hex digits | Hooks an id-less element's width-scoped style rules. On route chrome, a hook whose every rule restates the element's own inline declarations is removed from that chrome. |
