@@ -65,6 +65,8 @@ final class AuthorStyleAnalysis
     private ?\SplObjectStorage $positionalParents = null;
     /** @var \SplObjectStorage<DOMElement, string>|null */
     private ?\SplObjectStorage $subtreeHashes = null;
+    /** @var \SplObjectStorage<DOMElement, string>|null */
+    private ?\SplObjectStorage $selectorSubtreeHashes = null;
 
     /** @param list<array{path: string, source_path: string, content: string, source_hash: string, media: string}> $stylesheetAssets */
     public function __construct(string $html, string $combinedCss, array $stylesheetAssets, DOMElement $sourceBody)
@@ -235,7 +237,8 @@ final class AuthorStyleAnalysis
      * any document that loads the rule. With document-seeded markers, a
      * stylesheet shared by N pages therefore projected to N different texts.
      * Here the seed hashes the author CSS identity, the document type, the
-     * element's full subtree (every observable attribute and text node), and
+     * element's subtree (observable attributes and text presence for semantic
+     * and RichText targets; full text for other marker contracts), and
      * every ancestor, with its siblings and position wherever a positional
      * selector observes them (positionalParents()). Two
      * documents give one element the same marker only when all of that
@@ -260,7 +263,7 @@ final class AuthorStyleAnalysis
         }
         return $this->allocateStableMarker(
             $kind,
-            "context\0" . $kind . "\0\0" . $this->authorCssIdentity . "\0" . $this->documentTypeIdentity($element) . "\0" . $this->contextHash($element) . "\0" . $this->subtreeHash($element)
+            "context\0" . $kind . "\0\0" . $this->authorCssIdentity . "\0" . $this->documentTypeIdentity($element) . "\0" . $this->contextHash($element) . "\0" . $this->subtreeHash($element, in_array($kind, array('semantic', 'richtext'), true))
         );
     }
 
@@ -478,23 +481,30 @@ final class AuthorStyleAnalysis
         return $hash;
     }
 
-    /** The element's full subtree: every start tag (as author CSS can observe it) and text node. */
-    private function subtreeHash(DOMElement $element): string
+    /** Semantic targets need CSS-observable text presence, not prose identity. */
+    private function subtreeHash(DOMElement $element, bool $ignoreText = false): string
     {
-        $this->subtreeHashes ??= new \SplObjectStorage();
-        if ( isset($this->subtreeHashes[$element]) ) {
-            return $this->subtreeHashes[$element];
+        $cache = $ignoreText
+            ? ($this->selectorSubtreeHashes ??= new \SplObjectStorage())
+            : ($this->subtreeHashes ??= new \SplObjectStorage());
+        if ( isset($cache[$element]) ) {
+            return $cache[$element];
         }
         $parts = array($this->startTagIdentity($element, true));
         foreach ( $element->childNodes as $child ) {
             if ( $child instanceof DOMElement ) {
-                $parts[] = $this->subtreeHash($child);
+                $parts[] = $this->subtreeHash($child, $ignoreText);
             } elseif ( XML_TEXT_NODE === $child->nodeType || XML_CDATA_SECTION_NODE === $child->nodeType ) {
-                $parts[] = '#text:' . (string) $child->nodeValue;
+                // CSS can distinguish an empty element, but cannot select by
+                // prose. Including text here gives identical repeated labels
+                // separate markers and repeats their selectors on every route.
+                if ( ! $ignoreText || '' !== (string) $child->nodeValue ) {
+                    $parts[] = $ignoreText ? '#text' : '#text:' . (string) $child->nodeValue;
+                }
             }
         }
         $hash = hash('sha256', implode("\0", $parts));
-        $this->subtreeHashes[$element] = $hash;
+        $cache[$element] = $hash;
         return $hash;
     }
 

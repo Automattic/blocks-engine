@@ -88,6 +88,7 @@
       "@test:packaging"
     ],
     "test:canonical": [
+      "php tests/unit/theme-css-proportionality.php",
       "php tests/contract/css-rule-tree-staged.php",
       "php tests/contract/section-listing-terms.php",
       "php tests/contract/post-headline-title.php",
