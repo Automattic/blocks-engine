@@ -32,8 +32,15 @@ final class SvgDefinitionClips
             return array();
         }
         foreach ($svg->attributes as $attr) {
-            if (!in_array(strtolower($attr->name), array('width', 'height', 'xmlns', 'style'), true)
-                || ('style' === strtolower($attr->name) && !preg_match('/^\s*position\s*:\s*absolute\s*;?\s*$/i', $attr->value))) {
+            $name = strtolower($attr->name);
+            // Carrier metadata does not change the geometry of its definitions.
+            if (str_starts_with($name, 'data-') || str_starts_with($name, 'xmlns')
+                || in_array($name, array('aria-hidden', 'focusable', 'id', 'class'), true)
+                || ('role' === $name && in_array(strtolower(trim($attr->value)), array('presentation', 'none'), true))) {
+                continue;
+            }
+            if (!in_array($name, array('width', 'height', 'style'), true)
+                || ('style' === $name && !preg_match('/^\s*position\s*:\s*absolute\s*;?\s*$/i', $attr->value))) {
                 return array();
             }
         }

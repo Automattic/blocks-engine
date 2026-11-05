@@ -10,6 +10,10 @@ use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 $path = 'M0,0.5 A0.5 0.5, 0 0 1, 1 0.5 M1,0.5 A0.5 0.5, 0 0 1, 0 0.5 Z';
 $rows = array(
     'issue 4434' => array('<path d="' . $path . '"/>', 'ellipse(50% 50% at 50% 50%)'),
+    'data-attribute carrier' => array('<path d="' . $path . '"/>', 'ellipse(50% 50% at 50% 50%)', 'objectBoundingBox', 'data-image-mask-id="m1"'),
+    'neutral carrier attributes' => array('<path d="' . $path . '"/>', 'ellipse(50% 50% at 50% 50%)', 'objectBoundingBox', 'data-mask="m1" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" id="mask-carrier" class="mask-defs" role="presentation"'),
+    'none-role carrier' => array('<path d="' . $path . '"/>', 'ellipse(50% 50% at 50% 50%)', 'objectBoundingBox', 'role="none"'),
+    'semantic role retains carrier' => array('<path d="' . $path . '"/>', 'url("#m1")', 'objectBoundingBox', 'role="img"'),
     'unrecognized transformed path' => array('<path transform="rotate(25 .5 .5)" d="M0 0 L1 0 L0 1 Z"/>', 'url("#m1")'),
     'bbox polygon' => array('<polygon points="0,0 1,0 0,1"/>', 'polygon(0% 0%, 100% 0%, 0% 100%)'),
     'mixed clips retain whole carrier' => array('<circle cx=".5" cy=".5" r=".5"/></clipPath><clipPath id="unsupported" clipPathUnits="objectBoundingBox"><path d="M0 0 C0 1 1 0 1 1 Z"/>', 'url("#m1")'),
@@ -24,7 +28,7 @@ foreach ($rows as $name => $row) {
         list($shape, $expected) = $row;
         if ($inline && 'url("#m1")' === $expected) continue;
         $units = $row[2] ?? 'objectBoundingBox';
-        $svg = null === $shape ? '<svg width="24" height="24" viewBox="0 0 24 24"><path d="M0 0 L24 0 L0 24 Z"/></svg>' : '<svg width="0" height="0" style="position:absolute"><defs><clipPath id="m1" clipPathUnits="' . $units . '">' . $shape . '</clipPath></defs></svg>';
+        $svg = null === $shape ? '<svg width="24" height="24" viewBox="0 0 24 24"><path d="M0 0 L24 0 L0 24 Z"/></svg>' : '<svg width="0" height="0" style="position: absolute" ' . ($row[3] ?? '') . '><defs><clipPath id="m1" clipPathUnits="' . $units . '">' . $shape . '</clipPath></defs></svg>';
         $html = '<!doctype html><html><body><div class="fluid"><div class="wrap"><img src="https://example.com/a.jpg" alt="I"></div>' . $svg . '</div><style>.fluid .wrap { clip-path: url("#m1"); overflow: hidden }</style></body></html>';
         if ($inline) {
             $html = str_replace('class="wrap"', 'class="wrap" style="clip-path:url(&quot;#m1&quot;);overflow:hidden"', $html);
@@ -44,7 +48,6 @@ foreach ($rows as $name => $row) {
             }
             continue;
         }
-        $css = implode("\n", array_column(array_filter($assets, static fn ($asset) => 'css' === ($asset['kind'] ?? '')), 'content'));
         $carrierMarkup = '';
         $collect = static function (array $blocks) use (&$collect, &$carrierMarkup): void {
             foreach ($blocks as $block) {
@@ -55,8 +58,7 @@ foreach ($rows as $name => $row) {
             }
         };
         $collect((new Runtime())->parseBlocks($markup));
-        if (str_contains($css, 'data:image/svg+xml,')
-            || ($retained && (!str_contains($carrierMarkup, 'id="m1"') || !str_contains($carrierMarkup, 'width="0" height="0"')))) {
+        if ($retained && (!str_contains($carrierMarkup, 'id="m1"') || !str_contains($carrierMarkup, 'width="0" height="0"'))) {
             throw new RuntimeException($name . ': unsupported clips must keep their in-document carrier, never an external resource');
         }
         $dom = new DOMDocument();
