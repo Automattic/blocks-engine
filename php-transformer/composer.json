@@ -911,6 +911,7 @@
       "php tests/unit/wordpress-70-save-shapes.php",
       "php tests/unit/shell-landmark-policy.php",
       "php tests/unit/nested-header-landmark-shell.php",
+      "php tests/unit/trailing-hidden-panel-wrapper-shell.php",
       "php tests/unit/page-edge-landmark-shell.php",
       "php tests/unit/engine-marker-grammar.php",
       "php tests/unit/shell-block-scanner.php",

@@ -594,14 +594,21 @@ final class ShellExtraction
             // Capture documents are detection roots, not chrome: descend into
             // each device document instead of claiming its route content.
             if (!str_contains($first, CaptureEvidence::DOCUMENT_SCOPE) && self::containsNavigation($first) && !self::containsMainLandmark($first) && !self::chromeSplitIsInside($index, $head)) {
+                // A hidden menu or dialog mounted after the block is not page
+                // content. When only such layers follow a block that holds the
+                // page heading, that block is the route itself, not chrome.
                 $restHasContent = false;
+                $restInFlow = false;
                 foreach (array_slice($ranges, $lead + 1) as $range) {
                     $sibling = substr($markup, $range['offset'], $range['length']);
-                    if (!self::isEmptyVisualGroup($sibling)) {
-                        $restHasContent = true;
+                    if (self::isEmptyVisualGroup($sibling)) continue;
+                    $restHasContent = true;
+                    if (!self::isOutOfFlowChrome($sibling)) {
+                        $restInFlow = true;
                         break;
                     }
                 }
+                if (!$restInFlow && 1 === preg_match('/<h1\b/i', $first)) $restHasContent = false;
                 if ($restHasContent) {
                     $headers[] = $this->nestedChromeRow($first, $head['offset'], $head['length']) + array('capture_scope' => $captureScope, 'capture_scope_shell' => $captureShell);
                     // A projected modal dialog mounts at the end of its document;
