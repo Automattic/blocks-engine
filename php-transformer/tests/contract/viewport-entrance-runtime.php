@@ -17,7 +17,7 @@ WordPressSitePlan::assertValid($plan);
 $bootstrap = '';
 foreach ($plan['writes'] as $operation) if ('theme_bootstrap' === ($operation['kind'] ?? '')) $bootstrap = $operation['canonical_payload'] ?? $operation['payload']['data'] ?? '';
 if (!str_contains($bootstrap, 'blocks-engine-viewport-entrances') || 1 !== substr_count($bootstrap, 'function replayViewportEntrances()')) throw new RuntimeException('Exactly one engine-owned runtime is emitted.');
-if (str_contains($bootstrap, 'capture plumbing must not ship')) throw new RuntimeException('Capture activator must not ship.');
+if (str_contains(json_encode(array($plan, $result['assets'])), 'capture plumbing must not ship')) throw new RuntimeException('Capture activator must not ship as a theme script.');
 if (!str_contains($result['serialized_blocks'], 'blocksEngineRuntimeAttributes')) throw new RuntimeException('Leaf entrance evidence survives in render metadata.');
 if ('pass' !== (new BlockValidityValidator())->validateBlocks($result['blocks'])['status']) throw new RuntimeException('Entrance evidence must not invalidate editor blocks.');
 echo "Viewport entrance runtime contract passed.\n";

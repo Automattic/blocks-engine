@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CaptureReplayScripts;
 use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
@@ -33,7 +34,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGr
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CapturedGlyphColor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\MonochromeGlyphColor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
@@ -3722,17 +3722,14 @@ final class ArtifactCompiler
     {
         $scripts = array();
         foreach ( HtmlTagScanner::scan($html, 'script') as $script ) {
-            // The native control replay interpreter addresses captured control
-            // state, not source behavior; its state lowers into control blocks.
-            if (NativeControlState::isReplayScript($script['tag'])) continue;
+            // Capture replay interpreters address captured evidence, not source
+            // behavior; treating their queries as dependencies would preserve
+            // every captured target as a runtime island.
+            if (CaptureReplayScripts::isReplayScript($script['tag'])) continue;
             // Device overlays replay capture presentation, not author behavior.
             // Exclude the marked script before selector evidence is extracted;
             // an author script using the same selectors must still count.
             if (array_key_exists(CaptureEvidence::DEVICE_BODY, HtmlTagScanner::attributes($script['tag']))) continue;
-            // Capture activators describe engine-owned evidence, not source
-            // runtime behavior. Treating their query as a dependency would
-            // preserve every captured target as a runtime island.
-            if (array_key_exists(CaptureEvidence::VIEWPORT_ENTRANCE_ACTIVATOR, HtmlTagScanner::attributes($script['tag']))) continue;
             $src = $this->htmlAttribute($script['tag'], 'src');
             if ( '' === $src ) {
                 $scripts[] = $script['content'];
@@ -4422,7 +4419,7 @@ final class ArtifactCompiler
     {
         $metadata = array();
         foreach ( HtmlTagScanner::scan($html, 'script') as $index => $script ) {
-            if (NativeControlState::isReplayScript($script['tag'])) continue;
+            if (CaptureReplayScripts::isReplayScript($script['tag'])) continue;
             $tag = $script['tag'];
             $src = $this->htmlAttribute((string) $tag, 'src');
             if ( '' === $src ) {
@@ -4461,7 +4458,7 @@ final class ArtifactCompiler
         $scriptIndex = 0;
         foreach ( HtmlTagScanner::scan($html, 'script') as $script ) {
             ++$scriptIndex;
-            if (NativeControlState::isReplayScript($script['tag'])) continue;
+            if (CaptureReplayScripts::isReplayScript($script['tag'])) continue;
             $src = $this->htmlAttribute($script['tag'], 'src');
             $asset = '' === $src
                 ? $this->findInlineScriptAsset($sourcePath, $scriptIndex, $files)
@@ -4594,9 +4591,9 @@ final class ArtifactCompiler
             // A static-site interpreter of the inert motion markers is replaced by
             // the view scripts of the blocks those markers lower to.
             if ($this->hasHtmlAttribute($open, 'data-blocks-engine-marker-runtime')) continue;
-            // The native control replay interpreter is discarded at normalization
-            // (its state is adapted into control blocks), so it has no asset to load.
-            if (NativeControlState::isReplayScript($open)) continue;
+            // Capture replay interpreters are discarded at normalization (their
+            // evidence lowers into blocks or the engine runtime), so they have no asset to load.
+            if (CaptureReplayScripts::isReplayScript($open)) continue;
             $async = $this->hasHtmlAttribute($open, 'async'); $defer = $this->hasHtmlAttribute($open, 'defer'); $module = 'module' === strtolower($this->htmlAttribute($open, 'type'));
             $supersededBy = $this->htmlAttribute($open, 'data-blocks-engine-superseded-by');
             $inlineBodyHash = hash('sha256', trim($script['content']));
