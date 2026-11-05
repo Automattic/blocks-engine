@@ -171,6 +171,13 @@ final class WrapperCoalescer
                 $attributes[strtolower($attribute->nodeName)] = (string) $attribute->nodeValue;
             }
         }
+        // Attribute-only carriers may project core editor styles. A shell must
+        // already render every geometry token on this exact saved wrapper.
+        preg_match_all('/(?:^|\s)(be-inline-geometry-[^\s]+)/', (string) ($block['attrs']['className'] ?? ''), $geometryClasses);
+        $savedClasses = preg_split('/\s+/', trim((string) ($attributes['class'] ?? ''))) ?: array();
+        if (array_diff($geometryClasses[1], $savedClasses)) {
+            return null;
+        }
         if (!$this->sourceElementClassifier->isLayoutShellSerializableStyle((string) ($attributes['style'] ?? ''))) {
             return null;
         }

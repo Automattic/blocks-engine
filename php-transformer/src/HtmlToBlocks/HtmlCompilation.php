@@ -6734,8 +6734,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         // A landmark stays its own group block: folded into a layout shell's
         // wrapper list, a header or footer loses its block identity
-        // for the editor and for shell extraction.
-        if (!in_array($block['blockName'] ?? null, array('core/group'), true) || isset($block['_binding_token']) || $this->session->transformationProvenanceState()->isBindingAnchor($block['_source_provenance_id'] ?? null) || $this->hasIndependentWrapperOwnership($block) || in_array(strtolower((string) ($block['attrs']['tagName'] ?? 'div')), array_merge(array('ul', 'ol', 'li'), self::LANDMARK_GROUP_TAGS), true)) return null;
+        // for the editor and for shell extraction. A native grid or flex
+        // layout is likewise an editor control the wrapper list cannot carry.
+        if (!in_array($block['blockName'] ?? null, array('core/group'), true) || in_array($block['attrs']['layout']['type'] ?? null, array('grid', 'flex'), true) || isset($block['_binding_token']) || $this->session->transformationProvenanceState()->isBindingAnchor($block['_source_provenance_id'] ?? null) || $this->hasIndependentWrapperOwnership($block) || in_array(strtolower((string) ($block['attrs']['tagName'] ?? 'div')), array_merge(array('ul', 'ol', 'li'), self::LANDMARK_GROUP_TAGS), true)) return null;
         return $this->groupWrapperDescriptor($block);
     }
 
@@ -6748,7 +6749,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             || !empty($attrs['backgroundColor'])
             || !empty($attrs['gradient'])
             || !empty($attrs['style'])
-            || str_contains((string) ($attrs['className'] ?? ''), 'be-inline-geometry-')
             || in_array($block['blockName'] ?? null, array('core/columns', 'core/column'), true);
     }
 

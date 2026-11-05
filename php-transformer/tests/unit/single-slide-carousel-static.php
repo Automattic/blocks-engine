@@ -36,7 +36,7 @@ foreach (array(
     $result = $compile($layout($host($slide)));
     $markup = $result['serialized_blocks'] ?? '';
     $assert(array() === ($result['fallbacks'] ?? array()), $label . ': static slide has no fallback');
-    $assert(str_contains($markup, '<!-- wp:group'), $label . ': static content lowers to a group');
+    $assert(str_contains($markup, '<!-- wp:group') || str_contains($markup, '<!-- wp:custom/layout-shell'), $label . ': static content lowers to static structure');
     foreach (array('a-desktop.png', 'a-mobile.png', 'a-desktop-bg.png', 'a-mobile-bg.png', '/collections/new') as $content) {
         $assert(str_contains($markup, $content), $label . ': retains ' . $content);
     }
