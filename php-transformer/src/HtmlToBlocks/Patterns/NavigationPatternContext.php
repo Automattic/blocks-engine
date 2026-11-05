@@ -957,17 +957,20 @@ final class NavigationPatternContext
         if (array() !== $boxes && $this->styleResolver instanceof StyleResolver) {
             // These carriers exist only at frontend render time. Resolve the
             // link's own cascade too, so a link override beats box inheritance.
-            $typography = array();
-            foreach (array('font-family', 'font-size', 'font-weight', 'letter-spacing', 'line-height', 'color', 'text-transform') as $property) {
-                $value = $this->styleResolver->authoredInheritedPropertyWinner($anchor, $property);
-                if ('' !== $value) $typography[$property] = $value;
-            }
-            $typography = $this->styleResolver->safeVisualDeclarations($typography);
-            if (array() !== $typography) {
-                $this->session->generatedSupportStylesheetState()->registerNavigationEditorTypography(
-                    $this->navigationSubjectMarker($anchor, 'anchor'),
-                    $this->styleResolver->cssDeclarationString($typography)
-                );
+            foreach (array_merge(array(array()), $this->styleResolver->navigationEditorTypographyConditions($anchor)) as $conditions) {
+                $typography = array();
+                foreach (array('font-family', 'font-size', 'font-weight', 'letter-spacing', 'line-height', 'color', 'text-transform') as $property) {
+                    $value = $this->styleResolver->authoredInheritedPropertyWinner($anchor, $property, true, $conditions);
+                    if ('' !== $value) $typography[$property] = $value;
+                }
+                $typography = $this->styleResolver->safeVisualDeclarations($typography);
+                if (array() !== $typography) {
+                    $this->session->generatedSupportStylesheetState()->registerNavigationEditorTypography(
+                        $this->navigationSubjectMarker($anchor, 'anchor'),
+                        $this->styleResolver->cssDeclarationString($typography),
+                        $conditions
+                    );
+                }
             }
         }
         $node = $anchor->parentNode;

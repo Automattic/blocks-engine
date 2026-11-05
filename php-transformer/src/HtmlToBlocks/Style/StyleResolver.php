@@ -4905,7 +4905,7 @@ final class StyleResolver implements ElementPresentationResolver
      * user-agent defaults are deliberately absent: callers use this only when
      * preserving a value the source CSS actually states.
      */
-    public function authoredInheritedPropertyWinner(DOMElement $element, string $property): string
+    public function authoredInheritedPropertyWinner(DOMElement $element, string $property, bool $navigationEditor = false, array $conditions = array()): string
     {
         $property = strtolower(trim($property));
         if ( ! in_array($property, array(
@@ -4923,7 +4923,7 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
-            $declarations = $this->authoredInheritedDeclarations($current);
+            $declarations = $this->authoredInheritedDeclarations($current, $navigationEditor, $conditions);
             if ( ! array_key_exists($property, $declarations) ) {
                 continue;
             }
@@ -4947,6 +4947,23 @@ final class StyleResolver implements ElementPresentationResolver
         return '';
     }
 
+    /** @return list<list<string>> Media stacks needed by omitted navigation boxes. */
+    public function navigationEditorTypographyConditions(DOMElement $element): array
+    {
+        $stacks = array();
+        for ($node = $element; $node instanceof DOMElement; $node = $node->parentNode) {
+            foreach ($this->matchingStyleRules($node, 'conditional') as $rule) {
+                $conditions = $rule['conditions'] ?? array();
+                if (array() === $conditions) continue;
+                foreach ($conditions as $condition) {
+                    if (!preg_match('/^@media\s+(.+)$/is', $condition, $match) || !CssCascade::mediaConditionTargetsScreen($match[1])) continue 2;
+                }
+                $stacks[serialize($conditions)] = $conditions;
+            }
+        }
+        return array_values($stacks);
+    }
+
     /**
      * Expand pending font substitutions before choosing inherited longhands.
      * A shorthand that cannot be expanded still owns (and resets) its family:
@@ -4956,13 +4973,20 @@ final class StyleResolver implements ElementPresentationResolver
      *
      * @return array<string, string>
      */
-    private function authoredInheritedDeclarations(DOMElement $element): array
+    private function authoredInheritedDeclarations(DOMElement $element, bool $navigationEditor = false, array $conditions = array()): array
     {
         $cascade = array();
         $sequence = 0;
-        $apply = function (array $declarations, ?string $font, array $following, bool $inline, array $specificity, ?int $layer) use (&$cascade, &$sequence, $element): void {
+        $apply = function (array $declarations, ?string $font, array $following, bool $inline, array $specificity, ?int $layer) use (&$cascade, &$sequence, $element, $navigationEditor): void {
             if (null !== $font) {
-                $expanded = CssFontShorthand::expand($this->resolveCssVariablesInValue($font, $element));
+                $resolvedFont = $this->resolveCssVariablesInValue($font, $element);
+                if ($navigationEditor) {
+                    // Preserve unresolved operands inside a fluid size while
+                    // substituting the ancestor-scoped shorthand itself.
+                    $properties = $this->cascadedCustomProperties($element);
+                    $resolvedFont = CssVariableExpander::expand($font, static fn(string $name): ?string => $properties[$name] ?? null, 0, static fn(string $name): bool => !isset($properties[$name])) ?? $resolvedFont;
+                }
+                $expanded = CssFontShorthand::expand($resolvedFont, $navigationEditor);
                 // CSS-wide values retain their inheritance semantics. Other
                 // unexpandable values deliberately stop the ancestor search.
                 $keyword = CssValueInspector::withoutImportant($font);
@@ -4977,8 +5001,18 @@ final class StyleResolver implements ElementPresentationResolver
                 $this->applyMediaTextCascadeDeclaration($cascade, (string) $property, (string) $value, $inline, $specificity, ++$sequence, $layer);
             }
         };
-        foreach ($this->matchingStyleRules($element, 'static') as $rule) {
-            $apply($rule['declarations'], $rule['pendingFont'] ?? null, $rule['pendingFontFollowingProperties'] ?? array(), false, $this->mediaTextSelectorSpecificity($rule['selector']), $rule['layerRank'] ?? null);
+        foreach ($this->matchingStyleRules($element, $navigationEditor ? 'static-conditional' : 'static') as $rule) {
+            $declarations = $rule['declarations'];
+            $font = $rule['pendingFont'] ?? null;
+            $ruleConditions = $rule['conditions'] ?? array();
+            // A conditional declaration still owns its longhands. Outside its
+            // projected condition it blocks inheritance, rather than exposing
+            // a body reset. Rank the blocker normally against base declarations.
+            if ($navigationEditor && array() !== $ruleConditions && array() !== array_diff($ruleConditions, $conditions)) {
+                $declarations = array_map(static fn(string $value): string => 'initial' . (CssValueInspector::isImportant($value) ? ' !important' : ''), $declarations);
+                if (null !== $font) $font = 'initial' . (CssValueInspector::isImportant($font) ? ' !important' : '');
+            }
+            $apply($declarations, $font, $rule['pendingFontFollowingProperties'] ?? array(), false, $this->mediaTextSelectorSpecificity($rule['selector']), $rule['layerRank'] ?? null);
         }
         $inline = $this->cssDeclarations(SourceDom::attr($element, 'style'));
         $order = array_flip(array_keys($inline));

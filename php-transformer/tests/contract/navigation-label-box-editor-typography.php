@@ -51,4 +51,18 @@ foreach (array('', '@container style(--preset: a){.w-p .item{font:14px sans-seri
         }
     }
 }
+// Real captures: ancestor-scoped fluid shorthand and a mobile-only winner.
+$fluid = 'max(0.5px, 0.0125 * (var(--scaling-factor) - var(--scrollbar-width)))';
+foreach (array(false, true) as $mobile) {
+    $rule = '#main :where(.menu-1).menu .item{font:var(--para-font)}';
+    if ($mobile) $rule = '@media screen and (max-width:1023px){' . $rule . '}';
+    $source = '<!doctype html><html><head><title>Navigation</title><style>body{font-family:Arial, Helvetica, sans-serif;font-size:10px}#main :where(.menu-1){--para-font:normal normal 400 ' . $fluid . ' /1.4em sora, sans-serif}' . $rule . '</style></head><body><div id="main"><nav class="menu-1 menu"><ul><li><div class="item"><a href="/about">About</a></div></li></ul></nav></div></body></html>';
+    $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(array('path' => 'index.html', 'kind' => 'html', 'content' => $source))))->toArray();
+    $editorCss = implode("\n", array_column(array_filter($result['assets'], static fn(array $asset): bool => 'editor' === ($asset['stylesheet_target'] ?? 'both')), 'content'));
+    if (preg_match('/Arial|10px/i', $editorCss)) throw new RuntimeException('Real capture inherited body reset: ' . $editorCss);
+    foreach (array('font-family:sora, sans-serif', 'font-size:' . $fluid, 'font-weight:400', 'line-height:1.4em') as $declaration) {
+        if (!str_contains($editorCss, $declaration)) throw new RuntimeException('Missing real-capture ' . $declaration . ': ' . $editorCss);
+    }
+    if ($mobile && !preg_match('/@media screen and \\(max-width:1023px\\)\\{[^{}]*\\{font-family:sora/', $editorCss)) throw new RuntimeException('Mobile typography lost its media condition: ' . $editorCss);
+}
 echo "Navigation label-box typography reaches editor links without changing frontend output\n";
