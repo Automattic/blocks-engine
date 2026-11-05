@@ -53,6 +53,7 @@ $operations = array(
     'isAuthorOwnedLayout' => static fn (): bool => 'author-layout' === $state->mode,
     'proofBackedWrapperCoalescing' => $null,
     'shouldPreserveEmptyVisualElement' => static fn (): bool => in_array($state->mode, array( 'visual-empty', 'author-layout-child-empty' ), true),
+    'isInertEmptyElement' => static fn (): bool => false,
     'createBlock' => new SourceBlockCreatorFixture(static fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => array(
         'blockName' => $name,
         'attrs' => $attributes,

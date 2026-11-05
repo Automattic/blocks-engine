@@ -1012,6 +1012,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             isAuthorOwnedLayout: fn (DOMElement $element): bool => $this->isAuthorOwnedLayout($element),
             proofBackedWrapperCoalescing: fn (DOMElement $element, array &$fallbacks): ?array => $this->proofBackedWrapperCoalescing($element, $fallbacks),
             shouldPreserveEmptyVisualElement: fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element),
+            isInertEmptyElement: fn (DOMElement $element): bool => $this->isInertOutOfFlowEmptyElement($element),
             createBlock: $this,
             patternContext: $this->patternContext,
             shouldDeferNavigationPatternToChildren: fn (DOMElement $element): bool => $this->shouldDeferNavigationPatternToChildren($element),
@@ -7626,7 +7627,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     /** Non-style retention decisions, evaluated only when the footprint query needs them. */
     private function emptyVisualRetentionPolicy(DOMElement $element): iterable
     {
-        if ( '' !== $this->renderedTextContent($element) ) {
+        if ( '' !== $this->renderedTextContent($element) || $this->isInertOutOfFlowEmptyElement($element) ) {
             yield 'drop' => true;
             return;
         }
@@ -7760,6 +7761,42 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
         return false;
+    }
+
+    /**
+     * Page builders lay click-capture layers over media: an empty, positioned,
+     * fully transparent box their own script listens on. It takes no flex gap
+     * or grid cell, paints nothing at rest or in any state, and nothing in
+     * WordPress interacts with it, so it is not a box the author can see or edit.
+     */
+    private function isInertOutOfFlowEmptyElement(DOMElement $element): bool
+    {
+        if ( 0 !== $this->childElementCount($element)
+            || $this->runtimeIslands->isRuntimeDomTarget($element)
+            || array() !== $this->interactiveAttributes($element)
+            || $this->hasStaticPseudoElementRule($element)
+        ) {
+            return false;
+        }
+        foreach ( array( 'opacity', 'visibility', 'background', 'border', 'outline', 'box-shadow', 'filter', 'layout' ) as $family ) {
+            if ( $this->styleResolver->hasStateStyleFamily($element, $family)
+                || $this->styleResolver->hasConditionalStyleFamily($element, $family)
+            ) {
+                return false;
+            }
+        }
+        $declarations = array_merge(
+            $this->styleResolver->structuralPresentationDeclarations($element),
+            $this->styleResolver->matchedCascadedDeclarations($element),
+            $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'))
+        );
+        $position = CssValueInspector::comparable((string) ($declarations['position'] ?? ''));
+        $opacity = CssValueInspector::comparable($this->styleResolver->resolveCssVariablesInValue((string) ($declarations['opacity'] ?? ''), $element));
+        $authoredPaint = array() !== array_intersect_key($declarations, array_flip(array( 'background', 'background-color', 'background-image', 'border', 'border-top', 'border-right', 'border-bottom', 'border-left', 'box-shadow', 'outline', 'mask', 'mask-image' )));
+
+        return in_array($position, array( 'absolute', 'fixed' ), true)
+            && is_numeric($opacity) && 0.0 === (float) $opacity
+            && ! $authoredPaint;
     }
 
     private function isInertHiddenEmptyElement(DOMElement $element): bool

@@ -200,8 +200,15 @@ final class FlowContainerElementConverter implements ElementConverter
             && $this->context->isDirectChildOfAuthorOwnedLayout($element)
             && in_array($tagName, array( 'div', 'section', 'article', 'aside', 'header', 'footer', 'main' ), true)
         ) {
-            if ( 0 === SourceDom::childElementCount($element) && '' === trim($element->textContent) && $this->context->shouldPreserveEmptyVisualElement($element) ) {
-                return ConversionOutcome::handled($this->context->emptyVisualSpacerBlock($element));
+            if ( 0 === SourceDom::childElementCount($element) && '' === trim($element->textContent) ) {
+                // An out-of-flow layout item that paints nothing in any state
+                // and takes no input is not a box the author can see or edit.
+                if ( $this->context->isInertEmptyElement($element) ) {
+                    return ConversionOutcome::handled(null);
+                }
+                if ( $this->context->shouldPreserveEmptyVisualElement($element) ) {
+                    return ConversionOutcome::handled($this->context->emptyVisualSpacerBlock($element));
+                }
             }
             // A parent's CSS-authored layout must not hide a semantic widget
             // from its recognizer. These patterns decline structurally (item
