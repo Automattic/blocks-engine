@@ -223,30 +223,32 @@ final class NavigationBlockNormalizer
 
     /**
      * Sibling phone and non-phone copies of one menu are core's collapsing
-     * navigation. Keeping one menu keeps its links editable in one place.
+     * navigation. Keeping one menu keeps its links editable in one place. It
+     * stays hidden only where both copies were hidden.
      *
      * @param array<int, array<string, mixed>> $blocks
      * @return array<int, array<string, mixed>>
      */
     private function mergeDeviceMenuPairs(array $blocks): array
     {
-        $phoneOnly = EngineMarker::DEVICE_ONLY_CLASS_PREFIX . 'mobile';
-        $notOnPhone = EngineMarker::DEVICE_HIDE_CLASS_PREFIX . 'mobile';
-        $classesOf = static fn (array $block): array => preg_split('/\s+/', trim((string) ($block['attrs']['className'] ?? ''))) ?: array();
+        $hiddenOn = static fn (array $block): array => array_keys(array_filter((array) ($block['attrs']['metadata']['blockVisibility']['viewport'] ?? array()), static fn (mixed $visible): bool => false === $visible));
+        $customProfile = '/(?:^|\s)(?:' . preg_quote(EngineMarker::DEVICE_ONLY_CLASS_PREFIX, '/') . '|' . preg_quote(EngineMarker::DEVICE_HIDE_CLASS_PREFIX, '/') . ')/';
+        $isNavigation = static fn (mixed $block): bool => is_array($block) && 'core/navigation' === ($block['blockName'] ?? '') && 1 !== preg_match($customProfile, (string) ($block['attrs']['className'] ?? ''));
         $phoneCopies = array();
         foreach ($blocks as $index => $block) {
-            if (is_array($block) && 'core/navigation' === ($block['blockName'] ?? '') && in_array($phoneOnly, $classesOf($block), true) && !in_array($notOnPhone, $classesOf($block), true)) {
+            if ($isNavigation($block) && array() !== $hiddenOn($block) && !in_array('mobile', $hiddenOn($block), true)) {
                 $phoneCopies[$this->signature($block)] ??= $index;
             }
         }
         foreach ($blocks as $index => $block) {
-            if (!is_array($block) || 'core/navigation' !== ($block['blockName'] ?? '') || !in_array($notOnPhone, $classesOf($block), true)) continue;
-            $limitedToOneDevice = array() !== array_filter($classesOf($block), static fn (string $class): bool => str_starts_with($class, EngineMarker::DEVICE_ONLY_CLASS_PREFIX));
+            if (!$isNavigation($block) || !in_array('mobile', $hiddenOn($block), true)) continue;
             $signature = $this->signature($block);
-            if ($limitedToOneDevice || '' === $signature || !isset($phoneCopies[$signature])) continue;
+            if ('' === $signature || !isset($phoneCopies[$signature])) continue;
+            $hiddenOnBoth = array_intersect($hiddenOn($block), $hiddenOn($blocks[$phoneCopies[$signature]]));
             unset($blocks[$phoneCopies[$signature]], $phoneCopies[$signature]);
-            $blocks[$index]['attrs']['className'] = implode(' ', array_diff($classesOf($block), array($notOnPhone)));
-            if ('' === $blocks[$index]['attrs']['className']) unset($blocks[$index]['attrs']['className']);
+            unset($blocks[$index]['attrs']['metadata']['blockVisibility']);
+            if (array() !== $hiddenOnBoth) $blocks[$index]['attrs']['metadata']['blockVisibility']['viewport'] = array_fill_keys(array_values($hiddenOnBoth), false);
+            if (array() === ($blocks[$index]['attrs']['metadata'] ?? array())) unset($blocks[$index]['attrs']['metadata']);
             $blocks[$index]['attrs']['overlayMenu'] = 'mobile';
         }
         return array_values($blocks);

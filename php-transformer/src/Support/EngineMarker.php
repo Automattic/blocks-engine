@@ -56,26 +56,52 @@ final class EngineMarker
         );
     }
 
-    /** Class form of the capture device-only marker on a native block: `<prefix><profile>`. */
+    /** Fallback class for a device-only marker whose profile core block visibility cannot express. */
     public const DEVICE_ONLY_CLASS_PREFIX = 'blocks-engine-device-only-';
-    /** Class form of the capture device-hide marker on a native block: `<prefix><profile>`. */
+    /** Fallback class for a device-hide marker whose profile core block visibility cannot express. */
     public const DEVICE_HIDE_CLASS_PREFIX = 'blocks-engine-device-hide-';
+    private const CORE_VIEWPORTS = array('mobile', 'tablet', 'desktop');
 
     /**
-     * Native blocks cannot save arbitrary attributes, but they do keep classes.
+     * Core block visibility for an element's device markers: each viewport the element is hidden on, set to false.
+     *
+     * @return array<string, false>
+     */
+    public static function deviceViewportVisibility(DOMElement $element): array
+    {
+        $hidden = array_intersect(self::CORE_VIEWPORTS, self::deviceHideProfiles($element));
+        $only = trim($element->getAttribute(CaptureEvidence::DEVICE_ONLY));
+        if (in_array($only, self::CORE_VIEWPORTS, true)) {
+            $hidden = array_merge($hidden, array_diff(self::CORE_VIEWPORTS, array($only)));
+        }
+        return array_fill_keys(array_values(array_unique($hidden)), false);
+    }
+
+    /**
+     * Fallback classes for device profiles outside core's mobile, tablet and desktop viewports.
      *
      * @return list<string>
      */
     public static function deviceVisibilityClasses(DOMElement $element): array
     {
-        $profile = '/^[a-z][a-z0-9_-]{0,63}$/D';
         $classes = array();
         $only = trim($element->getAttribute(CaptureEvidence::DEVICE_ONLY));
-        if (1 === preg_match($profile, $only)) $classes[] = self::DEVICE_ONLY_CLASS_PREFIX . $only;
-        foreach (preg_split('/\s+/', trim($element->getAttribute(CaptureEvidence::DEVICE_HIDE))) ?: array() as $hidden) {
-            if (1 === preg_match($profile, $hidden)) $classes[] = self::DEVICE_HIDE_CLASS_PREFIX . $hidden;
+        if (self::isCustomDeviceProfile($only)) $classes[] = self::DEVICE_ONLY_CLASS_PREFIX . $only;
+        foreach (self::deviceHideProfiles($element) as $hidden) {
+            if (self::isCustomDeviceProfile($hidden)) $classes[] = self::DEVICE_HIDE_CLASS_PREFIX . $hidden;
         }
         return $classes;
+    }
+
+    /** @return list<string> */
+    private static function deviceHideProfiles(DOMElement $element): array
+    {
+        return preg_split('/\s+/', trim($element->getAttribute(CaptureEvidence::DEVICE_HIDE)), -1, PREG_SPLIT_NO_EMPTY) ?: array();
+    }
+
+    private static function isCustomDeviceProfile(string $profile): bool
+    {
+        return 1 === preg_match('/^[a-z][a-z0-9_-]{0,63}$/D', $profile) && ! in_array($profile, self::CORE_VIEWPORTS, true);
     }
 
     public static function deviceScopeValue(DOMElement $element): string

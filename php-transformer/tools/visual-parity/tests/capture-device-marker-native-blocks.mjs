@@ -5,10 +5,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 
-// Parts tagged directly with a device marker become native blocks, and the
-// generated rule shows the same parts as the source for every device selection,
-// at every viewport width. Navigation renders on the server, so the contract
-// test and a real site cover it instead.
+// Device profiles core block visibility cannot express fall back to a class and
+// a generated rule, which shows the same parts as the source for every device
+// selection, at every viewport width. WordPress renders core block visibility
+// itself, so the contract test covers those viewports.
 const transformerRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const source = readFileSync(`${transformerRoot}/tests/fixtures/capture-device-marker-native-blocks.html`, 'utf8');
 const compiled = JSON.parse(execFileSync('php', ['-r', `
@@ -19,20 +19,17 @@ echo json_encode(array('markup' => (string) ($result['serialized_blocks'] ?? '')
 `, transformerRoot], { input: source, encoding: 'utf8' }));
 
 const selectionAttribute = 'data-blocks-engine-capture-selected-document';
-const parts = ['heading', 'image', 'text', 'button', 'tablet', 'tabs'];
+const parts = ['kiosk', 'not-kiosk'];
 const visibility = page => page.evaluate(ids => Object.fromEntries(
     ids.map(id => [id, document.getElementById(id).getClientRects().length > 0])
 ), parts);
-const expectedFor = selection => {
-    const mobile = 'mobile' === selection;
-    return { heading: mobile, image: mobile, text: !mobile, button: mobile, tablet: 'tablet' === selection, tabs: mobile };
-};
+const expectedFor = selection => ({ kiosk: 'kiosk' === selection, 'not-kiosk': 'kiosk' !== selection });
 const browser = await chromium.launch({ headless: true });
 try {
     const page = await browser.newPage();
     for (const width of [390, 768, 1440]) {
         await page.setViewportSize({ width, height: 900 });
-        for (const selection of [null, 'desktop', 'mobile', 'tablet']) {
+        for (const selection of [null, 'desktop', 'mobile', 'kiosk']) {
             const select = () => page.evaluate(([name, value]) => {
                 if (null === value) document.documentElement.removeAttribute(name);
                 else document.documentElement.setAttribute(name, value);
@@ -46,7 +43,7 @@ try {
             assert.deepEqual(await visibility(page), expectedFor(selection), `compiled parts match the source ${label}`);
         }
     }
-    console.log('PASS: directly tagged native blocks match the source for every selection at 390, 768 and 1440 px');
+    console.log('PASS: custom device profiles on native blocks match the source for every selection at 390, 768 and 1440 px');
 } finally {
     await browser.close();
 }

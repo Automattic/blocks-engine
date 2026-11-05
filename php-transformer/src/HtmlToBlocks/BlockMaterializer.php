@@ -49,7 +49,11 @@ final class BlockMaterializer
             if ( array() !== $runtimeAttributes ) {
                 $attrs['metadata'][self::RUNTIME_ATTRIBUTES_KEY] = $runtimeAttributes;
             }
-            if ('core/html' !== $name) {
+            if (str_starts_with($name, 'core/') && 'core/html' !== $name) {
+                $viewports = EngineMarker::deviceViewportVisibility($sourceFacts->sourceElement);
+                if (array() !== $viewports) {
+                    $attrs['metadata']['blockVisibility']['viewport'] = $viewports;
+                }
                 $deviceClasses = EngineMarker::deviceVisibilityClasses($sourceFacts->sourceElement);
                 if (array() !== $deviceClasses) {
                     $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), implode(' ', $deviceClasses));
