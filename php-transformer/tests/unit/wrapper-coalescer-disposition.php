@@ -184,6 +184,20 @@ $assert('missing_matching_source_child' === $missingChildReason, 'missing-source
 $motionTokenReason = $makeCoalescer()->coalescingDisposition($elementFrom('<div class="slider"><p>Copy</p></div>'), array('blockName' => 'core/group'))->reason;
 $assert('has_motion_structure_token' === $motionTokenReason, 'motion-structure-token-names-reason', $motionTokenReason);
 
+$geometry = 'be-inline-geometry-0123456789abcdef';
+$geometryGroup = array(
+    'blockName' => 'core/group',
+    'attrs' => array('className' => $geometry),
+    'innerBlocks' => array(array('blockName' => 'core/paragraph')),
+    'innerContent' => array('<div class="surface">', null, '</div>'),
+);
+$coalescer = $makeCoalescer();
+$assert(null === $coalescer->groupWrapperDescriptor($geometryGroup), 'attribute-only-geometry-keeps-core-projection');
+$geometryGroup['innerContent'][0] = '<div class="surface ' . $geometry . '">';
+$assert(null !== $coalescer->groupWrapperDescriptor($geometryGroup), 'saved-geometry-is-render-safe-to-fold');
+$geometryGroup['attrs']['className'] .= ' be-inline-geometry-fedcba9876543210';
+$assert(null === $coalescer->groupWrapperDescriptor($geometryGroup), 'every-geometry-token-must-be-saved');
+
 if ( array() !== $failures ) {
     foreach ( $failures as $failure ) {
         fwrite(STDERR, $failure . PHP_EOL);

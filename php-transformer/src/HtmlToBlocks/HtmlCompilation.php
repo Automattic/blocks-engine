@@ -6713,7 +6713,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             || !empty($attrs['backgroundColor'])
             || !empty($attrs['gradient'])
             || !empty($attrs['style'])
-            || str_contains((string) ($attrs['className'] ?? ''), 'be-inline-geometry-')
             || in_array($block['blockName'] ?? null, array('core/columns', 'core/column'), true);
     }
 

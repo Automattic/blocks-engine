@@ -42,7 +42,8 @@ $fullWidthBlock = $fullWidth['blocks'][0] ?? array();
 $assert('core/group' === ($fullWidthBlock['blockName'] ?? null) && str_contains((string) ($fullWidthBlock['attrs']['className'] ?? ''), 'surface') && str_contains((string) ($fullWidthBlock['attrs']['className'] ?? ''), 'be-inline-geometry-') && str_contains($engineCss($fullWidth), 'width:100% !important'), 'A full-width transparent normal-flow shell coalesces its generated width carrier onto the surviving group.');
 
 $priceBoxes = $transform('<div class="outer-frame" style="display:block;width:200px;height:40px;position:static"><div class="inner-surface" style="display:block;width:200px;height:40px;position:static"><p>$10.00</p></div></div>');
-$assert('core/group' === ($priceBoxes['blocks'][0]['blockName'] ?? null) && 'core/group' === ($priceBoxes['blocks'][0]['innerBlocks'][0]['blockName'] ?? null) && str_contains((string) ($priceBoxes['serialized_blocks'] ?? ''), '$10.00'), 'Descendant price text preserves content without assigning commerce identity to generic ancestor boxes.');
+// Render-safe geometry boxes fold into shell wrappers instead of separate groups.
+$assert('custom/layout-shell' === ($priceBoxes['blocks'][0]['blockName'] ?? null) && 2 === count($priceBoxes['blocks'][0]['attrs']['wrappers'] ?? array()) && str_contains((string) ($priceBoxes['serialized_blocks'] ?? ''), '$10.00'), 'Descendant price text preserves content without assigning commerce identity to generic ancestor boxes.');
 
 foreach (array(
     '<div style="width:80%"><div class="surface"><p>Copy</p></div></div>',
@@ -60,7 +61,8 @@ foreach (array(
 ) as $html) {
     $result = $transform($html);
     $root = $result['blocks'][0] ?? array();
-    $assert('core/group' === ($root['blockName'] ?? null) && array() !== ($root['innerBlocks'] ?? array()), 'Non-transparent full-width shells retain their source wrapper.');
+    // Geometry-only groups may fold into shells, which still retain both source wrappers.
+    $assert(('core/group' === ($root['blockName'] ?? null) || ('custom/layout-shell' === ($root['blockName'] ?? null) && 2 === count($root['attrs']['wrappers'] ?? array()))) && array() !== ($root['innerBlocks'] ?? array()), 'Non-transparent full-width shells retain their source wrapper.');
 }
 
 $structuralLayout = $transform('<table><tr><td><div style="width:100%"><div class="surface"><p>Copy</p></div></div></td></tr></table>');
