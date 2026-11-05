@@ -173,6 +173,47 @@ final class RouteStateProjector
                     $values = static function (array $peers) use ($position, $name): array {
                         return array_values(array_unique(array_map(static fn(array $row): ?string => $row['nodes'][$position]->hasAttribute($name) ? $row['nodes'][$position]->getAttribute($name) : null, $peers), SORT_REGULAR));
                     };
+                    if ('style' === $name) {
+                        $styles = array_map(static fn(array $row): array => self::inlineDeclarations($row['nodes'][$position]->getAttribute('style')), $rows);
+                        $properties = array_unique(array_merge(...array_map('array_keys', $styles)));
+                        $routeProperties = array();
+                        foreach ($properties as $property) {
+                            $restValues = array(); $activeValues = array();
+                            foreach ($rows as $i => $row) {
+                                if ($row['current']) $activeValues[] = $styles[$i][$property] ?? null;
+                                else $restValues[] = $styles[$i][$property] ?? null;
+                            }
+                            $restValues = array_values(array_unique($restValues, SORT_REGULAR));
+                            $activeValues = array_values(array_unique($activeValues, SORT_REGULAR));
+                            // Stacking order follows the moving current item even
+                            // on resting siblings; other paint needs a stable
+                            // current/resting pair at declaration granularity.
+                            if ((1 === count($restValues) && 1 === count($activeValues) && $restValues !== $activeValues)
+                                || ('z-index' === $property && count(array_unique(array_column($styles, $property))) > 1)) {
+                                $routeProperties[] = $property;
+                            }
+                        }
+                        if (array() === $routeProperties) continue;
+                        $bases = $styles;
+                        foreach ($bases as &$base) {
+                            foreach ($routeProperties as $property) unset($base[$property]);
+                            ksort($base, SORT_STRING);
+                        }
+                        unset($base);
+                        // Never hide a varying authored declaration behind a
+                        // route binding for a different property on this node.
+                        if (1 !== count(array_unique(array_map('serialize', $bases)))) continue;
+                        $canonical = $bases[0];
+                        $serialize = static fn(array $declarations): ?string => array() === $declarations ? null : implode(';', array_map(static fn(string $key, string $value): string => $key . ':' . $value, array_keys($declarations), $declarations));
+                        $binding['rest']['style'] = $serialize($canonical);
+                        $binding['current']['style'] = $serialize($styles[array_search(true, array_column($rows, 'current'), true)]);
+                        foreach ($rows as $i => $row) {
+                            $route = '/' . trim((string) preg_replace('~(?:^|/)index(?:\\.html?)?$|\\.html?$~i', '', (string) ($files[$row['index']]['path'] ?? '')), '/');
+                            $binding['routes'][$route]['style'] = $serialize($styles[$i]);
+                        }
+                        ksort($binding['routes'], SORT_STRING);
+                        continue;
+                    }
                     $rest = $values($resting); $active = $values($selected);
                     if (1 !== count($rest) || 1 !== count($active) || $rest === $active) continue;
                     $binding['rest'][$name] = $rest[0]; $binding['current'][$name] = $active[0];
@@ -190,6 +231,30 @@ final class RouteStateProjector
         }
         foreach (array_keys($changed) as $index) $files[$index]['content'] = HtmlSerialization::documentHtml($documents[$index]);
         return $files;
+    }
+
+    /** Split only at CSS declaration boundaries, never inside strings or functions. */
+    private static function inlineDeclarations(string $style): array
+    {
+        $state = CssSyntaxScanner::state();
+        $declarations = array(); $start = 0;
+        for ($offset = 0, $length = strlen($style); $offset <= $length;) {
+            if ($offset === $length || (';' === $style[$offset] && '' === $state['quote'] && !$state['comment'] && 0 === $state['parens'] && 0 === $state['brackets'])) {
+                $declaration = trim(substr($style, $start, $offset - $start));
+                $colon = strpos($declaration, ':');
+                if (false !== $colon) {
+                    $property = trim(substr($declaration, 0, $colon));
+                    if (!str_starts_with($property, '--')) $property = strtolower($property);
+                    $declarations[$property] = trim(substr($declaration, $colon + 1));
+                }
+                $start = ++$offset;
+                continue;
+            }
+            $next = CssSyntaxScanner::consume($style, $offset, $state);
+            if (null === $next) return array();
+            $offset = $next;
+        }
+        return $declarations;
     }
 
     public const CURRENT_SOURCES_ATTRIBUTE = 'data-blocks-engine-current-sources';

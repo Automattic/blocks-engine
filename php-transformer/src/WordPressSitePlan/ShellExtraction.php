@@ -625,7 +625,9 @@ final class ShellExtraction
             $opening = substr($markup, $range['offset'], $children[0]['offset'] - $range['offset']);
             $scope = $captureScope;
             if (str_contains($opening, CaptureEvidence::DOCUMENT_SCOPE) && preg_match('/\bclass="([^"]*)"/', $opening, $match)) {
-                $scope = $match[1];
+                $classes = array_values(array_unique(preg_split('/\s+/', trim($match[1])) ?: array()));
+                sort($classes, SORT_STRING);
+                $scope = implode(' ', $classes);
             }
             $this->collectNestedChrome($index, $children, $headers, $footers, $scope);
         }

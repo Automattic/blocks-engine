@@ -22,7 +22,7 @@ add_filter( 'render_block', static function ( string $content, array $block ): s
     while ( $processor->next_tag() ) {
         $binding = json_decode( (string) $processor->get_attribute( 'data-blocks-engine-route-state' ), true );
         if ( ! is_array( $binding ) ) continue;
-        foreach ( $binding[ $current ? 'current' : 'rest' ] ?? array() as $name => $value ) {
+        foreach ( array_replace( $binding[ $current ? 'current' : 'rest' ] ?? array(), $binding['routes'][ $served ?? '' ] ?? array() ) as $name => $value ) {
             if ( ! in_array( $name, array( 'class', 'style', 'aria-current' ), true ) && ! preg_match( '/^data-[a-z0-9_.:-]+$/D', $name ) ) continue;
             if ( null === $value ) $processor->remove_attribute( $name ); else $processor->set_attribute( $name, $value );
         }

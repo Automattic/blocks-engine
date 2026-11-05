@@ -19,13 +19,14 @@ $assert(ShellExtraction::identityMarkup($labelBlock('id1793815975744')) === Shel
 $assert(ShellExtraction::identityMarkup($labelBlock('id1793815975744')) !== ShellExtraction::identityMarkup($labelBlock('id1793815975744', 'Changed')), 'Real link labels retain identity.');
 $assert(ShellExtraction::identityMarkup($labelBlock('id1793815975744')) !== ShellExtraction::identityMarkup($labelBlock('id1793815975744', 'Home', '/changed/')), 'Real URLs retain identity.');
 $files = array();
-foreach (array('index.html' => '/', 'services/index.html' => '/services/') as $path => $current) {
+foreach (array('index.html' => '/', 'services/index.html' => '/services/', 'blog/index.html' => '/blog/') as $path => $current) {
     $items = '';
-    foreach (array('/' => 'Home', '/services/' => 'Services') as $href => $title) {
+    foreach (array('/' => 'Home', '/services/' => 'Services', '/blog/' => 'Blog') as $href => $title) {
         $active = $href === $current;
-        $items .= '<li><a href="' . $href . '"' . ($active ? ' aria-current="page"' : '') . '><span style="position:relative;z-index:' . ($active ? '14' : '6') . '"><span style="color:red' . ($active ? ';border-width:0px 0px 4px;border-radius:0px' : '') . '">' . $title . '</span></span></a></li>';
+        $zIndex = array('/' => array(14, 10, 7), '/services/' => array(6, 12, 8), '/blog/' => array(5, 9, 14))[$current][array_search($href, array('/', '/services/', '/blog/'), true)];
+        $items .= '<li><a href="' . $href . '"' . ($active ? ' aria-current="page"' : '') . '><span style="position:relative;z-index:' . $zIndex . '"><span style="background-color:rgba(255, 255, 255, 0)' . ($active ? ';border-width:0px 0px 4px' : '') . '"><span style="border-color:red;border-style:solid' . ($active ? ';border-width:0px 0px 4px' : '') . ';padding:0px;z-index:1"><span style="' . ($active ? 'border-radius:0px;' : '') . 'min-height:5px">' . $title . '</span></span></span></span></a></li>';
     }
-    $files[] = array('path' => $path, 'kind' => 'html', 'content' => '<!doctype html><html><head><title>' . $current . '</title></head><body><header><nav><ul>' . $items . '</ul></nav></header><main><h1>' . $current . '</h1><p>Page body</p></main></body></html>');
+    $files[] = array('path' => $path, 'kind' => 'html', 'content' => '<!doctype html><html><head><title>' . $current . '</title></head><body><div class="data-blocks-engine-capture-desktop-document full-screen-view ' . ('/' === $current ? 'pc-desktop-mode header-exists footer-exists' : 'header-exists footer-exists pc-desktop-mode') . '" data-blocks-engine-capture-document-scope=""><header><nav><ul>' . $items . '</ul></nav></header><main><h1>' . $current . '</h1><p>Page body</p></main></div></body></html>');
 }
 $projected = (new RouteStateProjector())->project($files)['files'];
 foreach ($projected as $file) {
@@ -70,7 +71,8 @@ function get_post_type(int $id): string { return 'page'; }
 function get_page_uri(int $id): string { return trim($GLOBALS['served'], '/'); }
 eval(NavigationAnchorRuntime::retainedLabelSource());
 
-foreach (array('/' => 'Home', '/services' => 'Services') as $route => $expected) {
+$assert(3 === count($plan['pages']), 'All three route bodies are retained.');
+foreach (array('/' => 'Home', '/services' => 'Services', '/blog' => 'Blog') as $route => $expected) {
     $GLOBALS['served'] = $route;
     $document = new DOMDocument();
     $menuHtml = '';
@@ -88,8 +90,14 @@ foreach (array('/' => 'Home', '/services' => 'Services') as $route => $expected)
         foreach ($GLOBALS['filters']['render_block'] as $filter) $html = $filter($html, array('attrs' => array('label' => $link->textContent)));
         $output .= $html;
     }
-    $assert(1 === substr_count($output, 'border-width:0px 0px 4px'), 'Only one served item has the active underline.');
+    $assert(2 === substr_count($output, 'border-width:0px 0px 4px'), 'Only one served item has the active underline.');
     $rendered = new DOMDocument();
     @$rendered->loadHTML($output);
-    foreach ($rendered->getElementsByTagName('a') as $link) $assert((trim($link->textContent) === $expected) === str_contains($rendered->saveHTML($link), 'border-width:0px 0px 4px'), 'Underline follows the matching served route only.');
+    foreach ($rendered->getElementsByTagName('a') as $index => $link) {
+        $html = $rendered->saveHTML($link);
+        $assert((trim($link->textContent) === $expected) === str_contains($html, 'border-width:0px 0px 4px'), 'Underline follows the matching served route only.');
+        $assert((trim($link->textContent) === $expected) === str_contains($html, 'border-radius:0px'), 'Active-only radius follows the matching served route only.');
+        $zIndex = array('/' => array(14, 10, 7), '/services' => array(6, 12, 8), '/blog' => array(5, 9, 14))[$route][$index];
+        $assert(str_contains($html, 'position:relative;z-index:' . $zIndex . '"'), 'Every item restores its route-specific stacking order, including resting items.');
+    }
 }
