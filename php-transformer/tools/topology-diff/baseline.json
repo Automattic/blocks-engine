@@ -789,7 +789,6 @@
         "52-css-3d-world": {
             "added p [blocks-engine-synthetic-paragraph]": 1,
             "removed button": 1,
-            "removed h2": 1,
             "removed nav": 1,
             "retagged p>div [wp-block-group]": 4,
             "retagged span>mark": 2

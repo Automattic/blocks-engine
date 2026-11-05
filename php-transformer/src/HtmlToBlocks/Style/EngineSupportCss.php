@@ -137,13 +137,15 @@ final class EngineSupportCss
                 . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '.wp-block-image{position:static}';
         }
         if ( str_contains($serializedBlocks, RichTextElementConverter::EMPTY_SOURCE_PARAGRAPH_CLASS) ) {
-            // Saved, an empty source paragraph is an empty element with no line
+            // Saved, an empty source text block is an empty element with no line
             // box. In the editor, RichText fills it with a padding character and
             // a placeholder whose line box adds a line of height. Collapse that
             // line and withhold the placeholder until the author types.
-            $emptyParagraph = ':root .editor-styles-wrapper p.' . RichTextElementConverter::EMPTY_SOURCE_PARAGRAPH_CLASS . '[data-empty="true"]';
-            $parts[] = $emptyParagraph . '{line-height:0}'
-                . $emptyParagraph . '>[data-rich-text-placeholder]{display:none}';
+            foreach (array('p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6') as $tag) {
+                $emptyText = ':root .editor-styles-wrapper ' . $tag . '.' . RichTextElementConverter::EMPTY_SOURCE_PARAGRAPH_CLASS . '[data-empty="true"]';
+                $parts[] = $emptyText . '{line-height:0}'
+                    . $emptyText . '>[data-rich-text-placeholder]{display:none}';
+            }
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS) ) {
             // The injected figure must pass the source's percentage height

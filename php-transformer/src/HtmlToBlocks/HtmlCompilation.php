@@ -1361,7 +1361,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (DOMElement $element): ?array => $this->decorativeTextSvgBlock($element),
             function (DOMElement $element, array &$fallbacks): ?array {
                 return $this->mediaBlockFromTextlessHeading($element, $fallbacks);
-            }
+            },
+            fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element)
         );
     }
 

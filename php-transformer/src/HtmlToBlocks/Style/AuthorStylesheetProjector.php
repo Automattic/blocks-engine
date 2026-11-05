@@ -2988,7 +2988,8 @@ final class AuthorStylesheetProjector
             if ( '' === $marker ) {
                 return null;
             }
-            $projected[] = ':where(.' . $marker . $attributeTarget . ')' . $this->selectorSpecificityShims($parsed, $context);
+            $projected[] = ':where(.' . $marker . $attributeTarget . ')' . $this->selectorSpecificityShims($parsed, $context)
+                . (($rightmost['empty'] ?? false) ? ':empty' : '');
         }
         return array_values(array_unique($projected));
     }
