@@ -7735,7 +7735,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return null;
         }
 
-        return $this->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+        $attrs = $this->styleResolver->presentationAttributes($element);
+        $display = CssValueInspector::comparable((string) ($this->styleResolver->resolvedPresentationDeclarations($element)['display'] ?? ''));
+        if ( in_array($display, array('flex', 'inline-flex', 'grid', 'inline-grid'), true) ) {
+            // This paragraph replaces the source layout box, not just an inline
+            // text run. Do not let synthetic RichText carrier resets neutralize
+            // its display (including when the text contains a link).
+            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS);
+        }
+        return $this->createBlock('core/paragraph', array_merge($attrs, array( 'content' => $content )), array(), $element);
     }
 
     private function inlineTokenGroupBlockFromElement(DOMElement $element, array &$fallbacks): ?array
