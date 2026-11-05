@@ -67,9 +67,7 @@ $makeRuntimeIslands = static function (array $domSelectors): RuntimeIslandAnalyz
         return $out;
     };
 
-    return new RuntimeIslandAnalyzer(new RuntimeIslandContext(
-        $session,
-        new SourceElementClassifier(),
+    return new RuntimeIslandAnalyzer($session, new SourceElementClassifier(), new RuntimeIslandContext(
         $descendants,
         static fn (DOMElement $e): array => array(),
         static fn (string $h): ?DOMElement => null,
@@ -82,14 +80,13 @@ $makeDispatcher = static function (array $overrides = array()) use ($makeRuntime
     $presentation = $overrides['presentation'] ?? static fn (DOMElement $e, array $p, array $g): array => array();
     $structural = $overrides['structural'] ?? static fn (DOMElement $e): array => array();
 
-    return new ButtonLinkDispatcher(new ButtonLinkDispatchContext(
+    return new ButtonLinkDispatcher(new SourceElementClassifier(), new ButtonLinkDispatchContext(
         new SourceElementClassifier(),
         new ElementPresentationResolverFixture($presentation, structuralPresentationDeclarations: $structural),
         $createBlock,
-        $overrides['patternRecognizers'] ?? PatternRecognizerRegistry::createDefault(),
+        $overrides['patternRecognizers'] ?? PatternRecognizerRegistry::createDefault(new \Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture(static fn (string $name, array $attrs = array(), array $children = array()): array => array('blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $children)), new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\Tests\Support\RichTextMaterializationFixture()),
         $overrides['patternContext'] ?? new PatternContext(
-            static fn (DOMElement $e, array $g = array()): array => array(),
-            $createBlock
+            static fn (DOMElement $e, array $g = array()): array => array()
         ),
         $overrides['runtimeIslands'] ?? null,
         $overrides['formRuntimeIslands'] ?? null,

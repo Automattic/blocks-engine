@@ -50,6 +50,9 @@ final class CapturedCollectionProjector
             foreach ($page['components'] as $component) {
                 if ('collection' !== ($component['kind'] ?? null)) continue;
                 $document ??= $this->document($files[$index]['content']);
+                // Membership exposed by opening a panel does not prove a
+                // collection predicate. Leave that content and its toggle alone.
+                if ($this->isDisclosureMembership($document, $component, $page['components'])) continue;
                 $candidate = clone $document;
                 if (!$this->materializeCollection($candidate, $component)) {
                     $diagnostics[] = $this->diagnostic('Collection coverage or control membership is incomplete; source controls remain unsupported.');
@@ -963,6 +966,30 @@ final class CapturedCollectionProjector
             if (!$parent) return false;
         }
         return true;
+    }
+
+    /** A collection inside a disclosure panel cannot claim its sole toggle. */
+    private function isDisclosureMembership(DOMDocument $document, array $component, array $components): bool
+    {
+        $controls = $component['collection']['controls'] ?? array();
+        if (1 !== count($controls)) return false;
+        $selector = $controls[0];
+        $trigger = $this->one($document, $selector);
+        $target = $this->one($document, $component['selector'] ?? '');
+        if (!$trigger || !$target) return false;
+        $panelId = trim($trigger->getAttribute('aria-controls'));
+        if ('' === $panelId) return false;
+        $panel = $document->getElementById($panelId);
+        if (!$panel || !$this->containsAll($panel, array($target))) return false;
+        foreach ($components as $disclosure) {
+            if ('disclosure' !== ($disclosure['kind'] ?? null)
+                || !in_array($disclosure['status'] ?? null, array('captured', 'partial'), true)) continue;
+            foreach ($disclosure['transitions'] ?? array() as $transition) {
+                if ($selector === ($transition['trigger']['selector'] ?? null)
+                    && 'click' === ($transition['trigger']['action'] ?? null)) return true;
+            }
+        }
+        return false;
     }
 
     /** Collection probes prove membership, not source pagination or a search predicate. */

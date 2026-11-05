@@ -9,6 +9,11 @@ use DOMElement;
 /** @internal Pattern recognizers are implementation details of HtmlTransformer. */
 final class SpacerPattern implements PatternRecognizerInterface
 {
+    public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock
+    ) {
+    }
+
     use PatternDomHelpersTrait;
 
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
@@ -32,7 +37,7 @@ final class SpacerPattern implements PatternRecognizerInterface
         $attrs['height'] = $height;
         unset($attrs['style']);
 
-        return new PatternRecognitionResult($context->createBlock('core/spacer', $attrs, array(), $element));
+        return new PatternRecognitionResult($this->createBlock->createBlock('core/spacer', $attrs, array(), $element));
     }
     public static function heightFromStyle(string $style): string
     {

@@ -11,6 +11,9 @@ use DOMElement;
 final class SvgElementConverter implements ElementConverter
 {
     public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock,
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier $sourceElementClassifier,
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver $presentationResolver,
         private readonly SvgElementContext $context,
         private readonly SvgElementMaterializer $materializer,
         private readonly SvgTextRunLowering $textRun
@@ -40,7 +43,7 @@ final class SvgElementConverter implements ElementConverter
         if ( $this->context->isRuntimeDomTarget($element) ) {
             $html = $this->context->sanitizeMarkup($element);
             if ( $this->context->isSafeContent($html) ) {
-                return ConversionOutcome::handled($this->context->createBlock(
+                return ConversionOutcome::handled($this->createBlock->createBlock(
                     'core/html',
                     array( 'content' => $this->materializer->restoreSvgCasing($this->materializer->ensureInlineSvgBoxStyle($html, $element)) ),
                     array(),
@@ -82,22 +85,22 @@ final class SvgElementConverter implements ElementConverter
         if ( ! $element->hasChildNodes() && $element->hasAttribute('width') && $element->hasAttribute('height') ) {
             $html = $this->context->sanitizeMarkup($element);
             if ( $this->context->isSafeContent($html) ) {
-                return ConversionOutcome::handled($this->context->createBlock('core/html', array('content' => $html), array(), $element));
+                return ConversionOutcome::handled($this->createBlock->createBlock('core/html', array('content' => $html), array(), $element));
             }
         }
 
         if ( $this->materializer->isSafeDecorativeSvgElement($element) ) {
-            $isDecorativeChrome = $this->context->isVisualLayerElement($element);
+            $isDecorativeChrome = $this->sourceElementClassifier->isVisualLayerElement($element);
             if ( ! $isDecorativeChrome && $this->context->hasDrawableContent($element) ) {
                 $drawable = $this->materializedBlock($element);
                 if ( null !== $drawable ) {
                     return ConversionOutcome::handled($drawable);
                 }
             }
-            if ( $this->context->isVisualLayerElement($element) ) {
-                return ConversionOutcome::handled($this->context->createBlock(
+            if ( $this->sourceElementClassifier->isVisualLayerElement($element) ) {
+                return ConversionOutcome::handled($this->createBlock->createBlock(
                     'core/group',
-                    $this->context->presentationAttributes($element),
+                    $this->presentationResolver->presentationAttributes($element),
                     array(),
                     $element
                 ));
@@ -159,7 +162,7 @@ final class SvgElementConverter implements ElementConverter
                 return null;
             }
             if ( null !== $imageMarkup ) {
-                return $this->context->createBlock('core/paragraph', array(
+                return $this->createBlock->createBlock('core/paragraph', array(
                     'content' => $imageMarkup,
                     'className' => SourceBlockAttributeProjector::SYNTHETIC_SVG_PARAGRAPH_CLASS,
                 ), array(), $element);

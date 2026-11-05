@@ -23,6 +23,7 @@ final class SourceBlockAttributeProjector
     public const SYNTHETIC_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure';
     public const SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-flex-image-figure';
     public const SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-inline';
+    public const INLINE_IMAGE_LEAF_CLASS = 'blocks-engine-inline-image-leaf';
     public const SYNTHETIC_IMAGE_GAP_CLASS = 'blocks-engine-synthetic-image-gap';
     /** An image unwrapped from a paragraph whose line box it sized in the source. */
     public const PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS = 'blocks-engine-paragraph-line-box-image';
@@ -128,6 +129,33 @@ final class SourceBlockAttributeProjector
             }
         }
         if ( 'core/video' === $name && 'video' === $sourceTagName ) {
+            // HTML dimensions are presentational hints, not core/video attrs.
+            // Zero-specificity rules preserve their fallback role: authored
+            // source CSS (including responsive sizing) must still win.
+            $hints = '';
+            foreach ( array( 'width', 'height' ) as $dimension ) {
+                $value = trim($sourceElement->getAttribute($dimension));
+                if ( preg_match('/^\d+$/', $value) ) {
+                    $hints .= $dimension . ':' . $value . 'px;';
+                }
+            }
+            if ( '' !== $hints ) {
+                $marker = 'blocks-engine-video-size-' . substr(md5($hints), 0, 12);
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $marker);
+                $rule = ':where(.' . $marker . '>video){' . $hints . '}';
+                $width = trim($sourceElement->getAttribute('width'));
+                $height = trim($sourceElement->getAttribute('height'));
+                // Core styles video to width:100%;height:auto. Give its new
+                // figure the intrinsic width and reserve the intrinsic ratio
+                // before metadata loads, without overriding authored CSS.
+                if ( preg_match('/^\d+$/', $width) ) {
+                    $rule .= ':where(.' . $marker . '){width:' . $width . 'px;max-width:100%}';
+                }
+                if ( preg_match('/^[1-9]\d*$/', $width) && preg_match('/^[1-9]\d*$/', $height) ) {
+                    $rule .= ':where(.' . $marker . '>video){aspect-ratio:auto ' . $width . '/' . $height . '}';
+                }
+                $context->generatedStyles->registerVideoSizeHint($marker, $rule);
+            }
             $declarations = $this->styleResolver->resolvedPresentationDeclarations($sourceElement);
             if ( '100%' === CssValueInspector::comparable((string) ($declarations['width'] ?? ''))
                 && '100%' === CssValueInspector::comparable((string) ($declarations['height'] ?? '')) ) {
@@ -494,6 +522,9 @@ final class SourceBlockAttributeProjector
             }
             // core/button unwraps the label into RichText. Keep its selector
             // surface distinct from the link that owns the control chrome.
+            if ( '' !== $controlMarker && 'core/button' === $name && array() === $labelProjectionPaths && array() !== $labelPaths ) {
+                $this->generatedStyleProjector->registerFlattenedButtonLabelTextLayout($controlMarker, $logicalControl, $context->generatedStyles);
+            }
             if ( '' !== $controlMarker ) {
                 foreach ( $labelProjectionPaths as $labelPath ) {
                     if ( $labelPath !== $logicalControlPath && $labelPath !== $presentationPath ) {

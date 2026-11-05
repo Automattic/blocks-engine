@@ -21,16 +21,8 @@ final class UnsupportedElementContext
     public function __construct(
         private readonly HtmlTransformerSession $session,
         private readonly Closure $generatedComponentBlock,
-        private readonly Closure $sourceContext,
+        private readonly Closure $sourceContext
     ) {
-    }
-
-    /**
-     * @return array<string, mixed>|null
-     */
-    public function maybeGenerateCustomBlock(DOMElement $element): ?array
-    {
-        return $this->session->fallbackEmitter()->maybeGenerateCustomBlock($element, $this->session->requireGeneratedBlockRegistry());
     }
 
     /**
@@ -48,14 +40,6 @@ final class UnsupportedElementContext
     public function sourceContext(DOMElement $element): array
     {
         return ($this->sourceContext)($element);
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    public function classifyFallbackSubtree(DOMElement $element): array
-    {
-        return $this->session->fallbackEmitter()->classifyFallbackSubtree($element);
     }
 
     public function safeFallbackHtml(DOMElement $element): string

@@ -3,13 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\AssetMaterializationState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationEvidenceState;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationProvenanceState;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutGeometryState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
 use DOMElement;
@@ -29,57 +23,10 @@ final class SvgMaterializationContext
      */
     public function __construct(
         private readonly HtmlTransformerSession $session,
-        private readonly SourceElementClassifier $sourceElementClassifier,
-        private readonly SourceBlockCreator $createBlock,
         private readonly Closure $reusableComponentFingerprintFor,
         private readonly Closure $sanitizeInlineSvgMarkup,
         private readonly Closure $svgArtworkBlock
     ) {
-    }
-
-    /**
-     * @param array<string, mixed> $attrs
-     * @param array<int, array<string, mixed>> $innerBlocks
-     * @return array<string, mixed>
-     */
-    public function createBlock(
-        string $name,
-        array $attrs = array(),
-        array $innerBlocks = array(),
-        ?DOMElement $sourceElement = null,
-        ?DOMElement $logicalSourceElement = null
-    ): array {
-        return $this->createBlock->createBlock($name, $attrs, $innerBlocks, $sourceElement, $logicalSourceElement);
-    }
-
-    public function isInlineContentElement(string $tagName): bool
-    {
-        return $this->sourceElementClassifier->isInlineContentElement($tagName);
-    }
-
-    /**
-     * Whether a source element is an anchor the lowering retains as the
-     * output's clickable container (a `custom/layout-shell` wrapper with
-     * tagName `a`), so content inside it already projects inside an anchor.
-     */
-    public function isFlowContentAnchor(DOMElement $element): bool
-    {
-        return $this->sourceElementClassifier->isFlowContentAnchor($element);
-    }
-
-    public function isVisualLayerElement(DOMElement $element): bool
-    {
-        return $this->sourceElementClassifier->isVisualLayerElement($element);
-    }
-
-    public function layoutGeometry(): LayoutGeometryState
-    {
-        return $this->session->layoutGeometryState();
-    }
-
-    public function materializedAssets(): AssetMaterializationState
-    {
-        return $this->session->assetMaterializationState();
     }
 
     public function reusableComponentFingerprintFor(DOMElement $element): ?string
@@ -103,13 +50,4 @@ final class SvgMaterializationContext
         return ($this->svgArtworkBlock)($element, $svg);
     }
 
-    public function transformationEvidence(): TransformationEvidenceState
-    {
-        return $this->session->transformationEvidenceState();
-    }
-
-    public function transformationProvenance(): TransformationProvenanceState
-    {
-        return $this->session->transformationProvenanceState();
-    }
 }

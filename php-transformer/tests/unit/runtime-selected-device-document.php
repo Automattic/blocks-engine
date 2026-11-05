@@ -100,12 +100,12 @@ $menuCss = implode("\n", array_map(
 ));
 $assert(!str_contains($menuCss, 'body:not([data-menu-open]) .promo-banner'), 'A non-device negated data attribute keeps its existing projection.');
 
-// Control: without a script that writes the root attribute, the captured state
-// is the only state, and the existing projection is unchanged.
+// The marked capture runtime sheet is never author presentation, even without
+// a runtime writer. Keep the complete live gate rather than freezing its hide.
 [$staticCss] = $compile($page(''));
 $assert(
-    !str_contains($staticCss, 'html:not([data-blocks-engine-capture-selected-document]) [data-blocks-engine-capture-device-document="desktop"]'),
-    'Without a runtime writer the root predicate keeps its captured-state projection.'
+    str_contains($staticCss, 'html:not([data-blocks-engine-capture-selected-document]) [data-blocks-engine-capture-device-document="desktop"]'),
+    'Without a runtime writer the marked runtime sheet still keeps its complete live gate.'
 );
 
 echo "runtime-selected-device-document: ok\n";

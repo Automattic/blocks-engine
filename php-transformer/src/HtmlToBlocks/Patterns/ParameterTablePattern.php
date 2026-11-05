@@ -8,6 +8,11 @@ use DOMElement;
 
 final class ParameterTablePattern implements PatternRecognizerInterface
 {
+    public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock
+    ) {
+    }
+
     use PatternDomHelpersTrait;
 
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
@@ -46,7 +51,7 @@ final class ParameterTablePattern implements PatternRecognizerInterface
             return null;
         }
 
-        return new PatternRecognitionResult($context->createBlock('core/table', array_merge($context->presentationAttributes($element), array(
+        return new PatternRecognitionResult($this->createBlock->createBlock('core/table', array_merge($context->presentationAttributes($element), array(
             'head' => array( array( 'cells' => array(
                 array( 'content' => 'Parameter', 'tag' => 'th' ),
                 array( 'content' => 'Type', 'tag' => 'th' ),

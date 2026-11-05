@@ -30,7 +30,13 @@ final class TextLeafElementConverter implements ElementConverter
      */
     private const TAGS = array('address', 'noscript', 'marquee', 'blink', 'pre', 'plaintext', 'hr', 'br');
 
-    public function __construct(private readonly TextLeafElementContext $context)
+    public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMaterialization $richTextMaterializer,
+        private readonly \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime $runtime,
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock,
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver $presentationResolver,
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier $sourceElementClassifier,
+        private readonly TextLeafElementContext $context)
     {
     }
 
@@ -68,14 +74,14 @@ final class TextLeafElementConverter implements ElementConverter
      */
     private function convertAddress(DOMElement $element): ?array
     {
-        $content = $this->context->richTextContent($element);
-        if ( '' === trim($this->context->stripAllTags($content)) ) {
+        $content = $this->richTextMaterializer->content($element);
+        if ( '' === trim($this->runtime->stripAllTags($content)) ) {
             return null;
         }
 
-        return $this->context->createBlock(
+        return $this->createBlock->createBlock(
             'core/paragraph',
-            array_merge($this->context->presentationAttributes($element), array( 'content' => $content )),
+            array_merge($this->presentationResolver->presentationAttributes($element), array( 'content' => $content )),
             array(),
             $element
         );
@@ -90,23 +96,23 @@ final class TextLeafElementConverter implements ElementConverter
         $children = $this->context->convertChildren($element, $fallbacks, true);
         if ( array() === $children ) {
             $content = SourceDom::innerHtml($element);
-            if ( '' === trim($this->context->stripAllTags($content)) ) {
+            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
                 return null;
             }
 
-            return $this->context->createBlock(
+            return $this->createBlock->createBlock(
                 'core/paragraph',
-                array_merge($this->context->presentationAttributes($element), array( 'content' => $content )),
+                array_merge($this->presentationResolver->presentationAttributes($element), array( 'content' => $content )),
                 array(),
                 $element
             );
         }
 
-        if ( 1 === count($children) && array() === $this->context->presentationAttributes($element) ) {
+        if ( 1 === count($children) && array() === $this->presentationResolver->presentationAttributes($element) ) {
             return $children[0];
         }
 
-        return $this->context->createBlock('core/group', $this->context->presentationAttributes($element), $children, $element);
+        return $this->createBlock->createBlock('core/group', $this->presentationResolver->presentationAttributes($element), $children, $element);
     }
 
     /**
@@ -115,27 +121,27 @@ final class TextLeafElementConverter implements ElementConverter
      */
     private function convertMarquee(DOMElement $element, array &$fallbacks): ?array
     {
-        if ( $this->context->hasBlockContentChildren($element) ) {
+        if ( $this->sourceElementClassifier->hasBlockContentChildren($element) ) {
             $children = $this->context->convertChildren($element, $fallbacks, true);
             if ( array() === $children ) {
                 return null;
             }
 
-            if ( 1 === count($children) && array() === $this->context->presentationAttributes($element) ) {
+            if ( 1 === count($children) && array() === $this->presentationResolver->presentationAttributes($element) ) {
                 return $children[0];
             }
 
-            return $this->context->createBlock('core/group', $this->context->presentationAttributes($element), $children, $element);
+            return $this->createBlock->createBlock('core/group', $this->presentationResolver->presentationAttributes($element), $children, $element);
         }
 
         $content = SourceDom::innerHtml($element);
-        if ( '' === trim($this->context->stripAllTags($content)) ) {
+        if ( '' === trim($this->runtime->stripAllTags($content)) ) {
             return null;
         }
 
-        return $this->context->createBlock(
+        return $this->createBlock->createBlock(
             'core/paragraph',
-            array_merge($this->context->presentationAttributes($element), array( 'content' => $content )),
+            array_merge($this->presentationResolver->presentationAttributes($element), array( 'content' => $content )),
             array(),
             $element
         );
@@ -148,7 +154,7 @@ final class TextLeafElementConverter implements ElementConverter
     {
         $code = SourceDom::firstChildElement($element, 'code');
         if ( $code instanceof DOMElement ) {
-            return $this->context->createBlock(
+            return $this->createBlock->createBlock(
                 'core/code',
                 array_merge($this->context->codePresentationAttributes($element, $code), array( 'content' => $this->context->codeContent($code) )),
                 array(),
@@ -156,9 +162,9 @@ final class TextLeafElementConverter implements ElementConverter
             );
         }
 
-        return $this->context->createBlock(
+        return $this->createBlock->createBlock(
             'core/preformatted',
-            array_merge($this->context->presentationAttributes($element), array( 'content' => SourceDom::innerHtmlPreservingWhitespace($element) )),
+            array_merge($this->presentationResolver->presentationAttributes($element), array( 'content' => SourceDom::innerHtmlPreservingWhitespace($element) )),
             array(),
             $element
         );
@@ -169,14 +175,14 @@ final class TextLeafElementConverter implements ElementConverter
      */
     private function convertPlaintext(DOMElement $element): ?array
     {
-        $content = $this->context->escapeHtml($element->textContent ?? '');
+        $content = $this->runtime->escapeHtml($element->textContent ?? '');
         if ( '' === trim($content) ) {
             return null;
         }
 
-        return $this->context->createBlock(
+        return $this->createBlock->createBlock(
             'core/preformatted',
-            array_merge($this->context->presentationAttributes($element), array( 'content' => $content )),
+            array_merge($this->presentationResolver->presentationAttributes($element), array( 'content' => $content )),
             array(),
             $element
         );
@@ -187,9 +193,9 @@ final class TextLeafElementConverter implements ElementConverter
      */
     private function convertSeparator(DOMElement $element): ?array
     {
-        return $this->context->createBlock(
+        return $this->createBlock->createBlock(
             'core/separator',
-            $this->context->presentationAttributes($element, array(), array( 'margin-left', 'margin-right' )),
+            $this->presentationResolver->presentationAttributes($element, array(), array( 'margin-left', 'margin-right' )),
             array(),
             $element
         );

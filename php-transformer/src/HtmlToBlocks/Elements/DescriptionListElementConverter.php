@@ -8,7 +8,12 @@ use DOMElement;
 /** Converts description lists and their term/detail children. */
 final class DescriptionListElementConverter implements ElementConverter
 {
-    public function __construct(private readonly DescriptionListElementContext $context)
+    public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier $sourceElementClassifier,
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock,
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver $presentationResolver,
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMaterialization $richTextMaterializer,
+        private readonly DescriptionListElementContext $context)
     {
     }
 
@@ -28,26 +33,26 @@ final class DescriptionListElementConverter implements ElementConverter
             return ConversionOutcome::handled($this->convertDescriptionList($element, $fallbacks));
         }
 
-        if ( 'dd' === $tagName && $this->context->hasBlockContentChildren($element) ) {
+        if ( 'dd' === $tagName && $this->sourceElementClassifier->hasBlockContentChildren($element) ) {
             $children = $this->context->convertChildren($element, $fallbacks, true);
             if ( array() !== $children ) {
-                return ConversionOutcome::handled($this->context->createBlock(
+                return ConversionOutcome::handled($this->createBlock->createBlock(
                     'core/group',
-                    $this->context->presentationAttributes($element),
+                    $this->presentationResolver->presentationAttributes($element),
                     $children,
                     $element
                 ));
             }
         }
 
-        $content = $this->context->richTextContent($element);
+        $content = $this->richTextMaterializer->content($element);
         if ( ! $this->context->hasVisibleText($content) ) {
             return ConversionOutcome::handled(null);
         }
 
-        return ConversionOutcome::handled($this->context->createBlock(
+        return ConversionOutcome::handled($this->createBlock->createBlock(
             'core/paragraph',
-            array_merge($this->context->presentationAttributes($element), array( 'content' => $content )),
+            array_merge($this->presentationResolver->presentationAttributes($element), array( 'content' => $content )),
             array(),
             $element
         ));
@@ -70,9 +75,9 @@ final class DescriptionListElementConverter implements ElementConverter
         if ( array() !== $items ) {
             $attributes = $this->context->authorLayoutOwnership->isCssOwnedGridElement($element)
                 ? $this->context->authorLayoutOwnership->cssOwnedGridAttributes($element)
-                : $this->context->presentationAttributes($element);
+                : $this->presentationResolver->presentationAttributes($element);
 
-            return $this->context->createBlock('core/list', $attributes, $items, $element);
+            return $this->createBlock->createBlock('core/list', $attributes, $items, $element);
         }
 
         $children = $this->context->convertChildren($element, $fallbacks, true);
@@ -80,6 +85,6 @@ final class DescriptionListElementConverter implements ElementConverter
             return null;
         }
 
-        return $this->context->createBlock('core/group', $this->context->presentationAttributes($element), $children, $element);
+        return $this->createBlock->createBlock('core/group', $this->presentationResolver->presentationAttributes($element), $children, $element);
     }
 }

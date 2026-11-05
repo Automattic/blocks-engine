@@ -67,7 +67,8 @@ $videoSource = '<main><video src="/media/clip.mp4" width="800" height="450"></vi
 $video = (new HtmlTransformer())->transform($videoSource)->toArray();
 $videoMarkup = (string) ($video['serialized_blocks'] ?? '');
 $videoCss = $cssFor($video);
-$assert(str_contains($videoMarkup, 'width="800"') && str_contains($videoMarkup, 'height="450"'), 'pixel-width video keeps authored dimensions');
+$assert(str_contains($videoCss, 'width:800px;height:450px;'), 'pixel-width video keeps authored dimensions as CSS hints');
+$assert(!str_contains($videoMarkup, 'width="800"') && !str_contains($videoMarkup, 'height="450"'), 'video save markup omits unsupported dimensions');
 $assert(
     str_contains($videoMarkup, 'max-width:100%') || str_contains($videoCss, 'video{max-width:100%}'),
     'pixel-width video is capped to its containing block'

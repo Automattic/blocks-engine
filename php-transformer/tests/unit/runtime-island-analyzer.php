@@ -89,9 +89,7 @@ $makeAnalyzer = static function (array $domSelectors = array(), array $presentat
 
     $metadataBuilder = new FormControlMetadataBuilder($c['islandSelector']);
     $pseudoFormAnalyzer = new PseudoFormAnalyzer($metadataBuilder, $c['islandSelector']);
-    return new RuntimeIslandAnalyzer(new RuntimeIslandContext(
-        $session,
-        new SourceElementClassifier(),
+    return new RuntimeIslandAnalyzer($session, new SourceElementClassifier(), new RuntimeIslandContext(
         $c['descendants'],
         $c['requiredScripts'],
         $c['preservedRoot'],

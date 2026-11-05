@@ -3335,7 +3335,7 @@ final class AuthorStylesheetProjector
     private function lineImageFigureRule(string $imagePrelude, array $declarations, AuthorStylesheetProjectionContext $context): string
     {
         $figures = array_filter(
-            array( SourceBlockAttributeProjector::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS, SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS ),
+            array( SourceBlockAttributeProjector::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS, SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS, SourceBlockAttributeProjector::INLINE_IMAGE_LEAF_CLASS ),
             static fn (string $class): bool => str_contains($context->emittedMarkup, $class)
         );
         if ( array() === $figures ) {

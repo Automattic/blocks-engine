@@ -31,6 +31,16 @@ $structure = static function (string $markup): array {
 
 $cases = array(
     'image wrapper reset' => array('html' => $fixture, 'baseline' => str_replace($reset, '', $fixture)),
+    // Empty inline styles are removed before lowering. An editor node-view
+    // wrapper must fold identically without that syntactic transparency hint.
+    'image wrapper without inline style' => array(
+        'html' => str_replace(' style=""', '', $fixture),
+        'baseline' => str_replace(array($reset, ' style=""'), '', $fixture),
+    ),
+    'image wrapper with empty declarations' => array(
+        'html' => str_replace('style=""', 'style=" ; "', $fixture),
+        'baseline' => str_replace(array($reset, 'style=""'), array('', 'style=" ; "'), $fixture),
+    ),
     'bordered card, reset first' => array('css' => $reset . '.card{border-width:2px;padding:8px}'),
     'bordered card, reset last' => array('css' => '.card{border-width:2px;padding:8px}' . $reset),
     'bordered card, layered reset' => array('css' => '@layer reset{' . $reset . '}.card{border-width:2px;padding:8px}'),

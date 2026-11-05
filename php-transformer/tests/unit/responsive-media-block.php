@@ -104,7 +104,9 @@ $assert('auto' === ($autoSelection('auto', 'lazy')['sizes'] ?? null), 'a lazy im
 $plainImage = ( new HtmlTransformer() )->transform('<img src="plain.jpg" alt="Plain">')->toArray();
 $assert(!isset($plainImage['blocks'][0]['attrs']['metadata']), 'an image without an authored family carries no selection');
 $densityWithoutWidth = ( new HtmlTransformer() )->transform('<img src="small.jpg" srcset="small.jpg 1x, large.jpg 2x" alt="Density">')->toArray();
-$assert('custom/responsive-media' === ($densityWithoutWidth['blocks'][0]['blockName'] ?? null), 'an x-descriptor family without a display width remains responsive media');
+$assert('core/image' === ($densityWithoutWidth['blocks'][0]['blockName'] ?? null), 'an x-descriptor family whose src is its 1x candidate renders at the src size and lowers without a display width');
+$densityOtherSrc = ( new HtmlTransformer() )->transform('<img src="fallback.jpg" srcset="small.jpg 1x, large.jpg 2x" alt="Density">')->toArray();
+$assert('custom/responsive-media' === ($densityOtherSrc['blocks'][0]['blockName'] ?? null), 'an x-descriptor family whose 1x candidate is not src remains responsive media without a display width');
 // A responsive capture serializes each device document's author CSS behind
 // that document's viewport branch. A width declared in the branch covers
 // every viewport its copy of the image is displayed at.
@@ -203,15 +205,16 @@ $assert('custom/layout-shell' === ($wrapped['blocks'][0]['blockName'] ?? null) &
 
 $nestedWrappedSource = '<a href="/profile"><div class="crop" style="overflow:hidden"><media-frame data-image-info="bounded"><img src="profile.png" width="30" height="30" alt="Profile"></media-frame></div></a>';
 $nestedWrapped = ( new HtmlTransformer() )->transform($nestedWrappedSource)->toArray();
-$assert('custom/responsive-media' === ($nestedWrapped['blocks'][0]['blockName'] ?? null) && str_contains((string) ($nestedWrapped['blocks'][0]['attrs']['content'] ?? ''), '<a href="/profile"><div class="crop"'), 'a linked image behind additional presentation topology remains responsive media');
+$assert('custom/layout-shell' === ($nestedWrapped['blocks'][0]['blockName'] ?? null) && str_contains($nestedWrapped['serialized_blocks'], 'href="/profile"') && str_contains($nestedWrapped['serialized_blocks'], 'crop') && str_contains($nestedWrapped['serialized_blocks'], 'profile.png'), 'a linked image through an accepted nested custom host lowers natively with its crop class and link');
+$refusedNestedHost = ( new HtmlTransformer() )->transform('<a href="/profile"><div class="crop"><media-frame data-foo="x"><img src="profile.png" width="30" height="30" alt="Profile"></media-frame></div></a>')->toArray();
+$assert('custom/responsive-media' === ($refusedNestedHost['blocks'][0]['blockName'] ?? null), 'a nested custom host refused by native-host policy remains responsive media');
 
 $artDirectedWrapper = ( new HtmlTransformer() )->transform('<a href="/profile"><media-frame><picture><source media="(min-width: 800px)" srcset="profile-wide.png 800w"><img src="profile.png" alt="Profile"></picture></media-frame></a>')->toArray();
 $artDirectedContent = (string) ($artDirectedWrapper['blocks'][0]['attrs']['content'] ?? '');
 $assert('custom/responsive-media' === ($artDirectedWrapper['blocks'][0]['blockName'] ?? null) && str_contains($artDirectedContent, '<source media="(min-width: 800px)" srcset="profile-wide.png 800w">'), 'art-directed custom wrappers remain responsive media because core/image cannot preserve picture source selection');
 
 $srcsetWrapper = ( new HtmlTransformer() )->transform('<a href="/profile"><media-frame><img src="profile.png" srcset="profile.png 1x, profile-2x.png 2x" sizes="30px" alt="Profile"></media-frame></a>')->toArray();
-$srcsetContent = (string) ($srcsetWrapper['blocks'][0]['attrs']['content'] ?? '');
-$assert('custom/responsive-media' === ($srcsetWrapper['blocks'][0]['blockName'] ?? null) && str_contains($srcsetContent, 'srcset="profile.png 1x, profile-2x.png 2x"') && str_contains($srcsetContent, 'sizes="30px"'), 'responsive candidates remain responsive media because core/image cannot serialize srcset or sizes');
+$assert('custom/layout-shell' === ($srcsetWrapper['blocks'][0]['blockName'] ?? null) && str_contains($srcsetWrapper['serialized_blocks'], 'href="/profile"') && str_contains($srcsetWrapper['serialized_blocks'], '"blocksEngineImageSelection":{"src":"profile.png","srcset":"profile.png 1x, profile-2x.png 2x","sizes":"30px"}'), 'a density family in a linked custom wrapper lowers like a plain image and keeps its authored selection in core/image metadata');
 
 $selectorDependentWrapper = ( new HtmlTransformer() )->transform('<style>.media-frame .media-image{border-radius:50%}</style><a href="/profile"><media-frame class="media-frame"><img class="media-image" src="profile.png" alt="Profile"></media-frame></a>')->toArray();
 $assert('custom/layout-shell' === ($selectorDependentWrapper['blocks'][0]['blockName'] ?? null), 'a custom wrapper keeps descendant selector identity around native image content');

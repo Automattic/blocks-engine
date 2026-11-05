@@ -14,6 +14,14 @@ inside the part remains unchanged, including its tag and sticky/fixed rules.
 The editor retains Core's selection element. Generated PHP no longer strips
 outer HTML using a slug allowlist.
 
+When the source has no area landmark, extraction adds a semantic header/footer
+Group marked `blocks-engine-shell-landmark`. The same frontend-only transport
+stylesheet makes this synthetic landmark boxless too: source children remain
+items of their original flex/grid parent, and percentage widths resolve against
+that parent. Authored landmarks keep their boxes and styling; the editor keeps
+the synthetic Group's selection box. This avoids copying only selected sizing
+properties and preserves landmark markup without adding layout geometry.
+
 The seven-route public compiler regression covers identical chrome beneath an
 app root, shared stylesheet scope, lifecycle templates, route-template collapse,
 and sticky positioning after a real browser scroll. The shared-shell tests

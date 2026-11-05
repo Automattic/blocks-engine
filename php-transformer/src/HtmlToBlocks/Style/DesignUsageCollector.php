@@ -109,7 +109,7 @@ final class DesignUsageCollector
     public function collect(DOMElement $body, array $buttonElements = array()): array
     {
         $this->buttonElements = new \SplObjectStorage();
-        foreach ($buttonElements as $element) $this->buttonElements->attach($element);
+        foreach ($buttonElements as $element) $this->buttonElements->offsetSet($element);
         $this->text = $this->backgrounds = $this->spacing = $this->widths = $this->classStyles = array();
         $this->elements = 0;
         $this->headingTypography = $this->buttonLooks = array();
@@ -213,7 +213,7 @@ final class DesignUsageCollector
             $context['background'] = (string) CssColor::hex($background);
             if ($control) $context['role'] = 'button';
         }
-        if ($this->buttonElements->contains($element) && isset($declarations['border-radius'], $declarations['font-size'])) {
+        if ($this->buttonElements->offsetExists($element) && isset($declarations['border-radius'], $declarations['font-size'])) {
             $lookDeclarations = array_map(self::clean(...), $declarations);
             $padding = $this->paddingObservations($lookDeclarations, (float) $context['size']);
             if (array() === array_filter($padding, static fn(string $value): bool => '' === $value || str_starts_with($value, '!'))) $lookDeclarations['padding'] = ($padding['padding-top'] === $padding['padding-bottom'] && $padding['padding-right'] === $padding['padding-left'])

@@ -368,7 +368,7 @@ final class CommerceStructureRecognizer
     {
         $links = $card->getElementsByTagName('a');
         foreach ( $links as $link ) {
-            if ( 1 !== $links->length && $this->collapsedText($link) !== $name && SourceDom::attr($link, 'title') !== $name ) {
+            if ( 1 !== $links->length && $this->collapsedText($link) !== $name && SourceDom::attr($link, 'title') !== $name && ! $this->linkContainsProductName($link, $name) ) {
                 continue;
             }
             $href = trim(SourceDom::attr($link, 'href'));
@@ -433,7 +433,32 @@ final class CommerceStructureRecognizer
             return $this->collapsedText($candidate);
         }
 
-        return '';
+        // A detail link may wrap a paragraph title alongside a price. Accept
+        // only an unambiguous, standalone text carrier inside a real link;
+        // arbitrary card prose is not evidence of a product name.
+        $linkedNames = array();
+        foreach ( $card->getElementsByTagName('a') as $link ) {
+            $href = trim(SourceDom::attr($link, 'href'));
+            if ( '' === $href || preg_match('/^(?:#|javascript:|mailto:|tel:)/i', $href) ) {
+                continue;
+            }
+            foreach ( $link->getElementsByTagName('p') as $paragraph ) {
+                if ( $this->isProductNameElement($paragraph) ) {
+                    $linkedNames[$this->collapsedText($paragraph)] = true;
+                }
+            }
+        }
+        return 1 === count($linkedNames) ? (string) array_key_first($linkedNames) : '';
+    }
+
+    private function linkContainsProductName(DOMElement $link, string $name): bool
+    {
+        foreach ( $link->getElementsByTagName('*') as $descendant ) {
+            if ( $this->collapsedText($descendant) === $name && $this->isProductNameElement($descendant) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function isProductNameElement(DOMElement $element): bool

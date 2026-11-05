@@ -896,7 +896,12 @@ final class SourceElementClassifier
     }
 
     /**
-     * A plain w-descriptor family is one image at several resolutions.
+     * A plain w- or x-descriptor family is one image at several resolutions.
+     *
+     * A candidate without a descriptor is the 1x candidate. When `src` is what
+     * an x family renders at 1x (it is the 1x candidate, or the family has none
+     * and `src` becomes it), every density renders at the src's own size, so no
+     * author display width is needed.
      *
      * @param callable(): bool $hasDisplayWidth Resolved only for a lowerable descriptor family.
      */
@@ -911,14 +916,24 @@ final class SourceElementClassifier
             return true;
         }
         $family = null;
+        $oneX = null;
         foreach ( $candidates as $candidate ) {
-            if ( 1 !== preg_match('/^\d+(w|x)$/', $candidate['descriptor'], $matches) ) {
+            $descriptor = '' === $candidate['descriptor'] ? '1x' : strtolower($candidate['descriptor']);
+            if ( 1 !== preg_match('/^(?:\d+w|(?:\d+(?:\.\d+)?|\.\d+)x)$/', $descriptor) ) {
                 return true;
             }
-            if ( null !== $family && $family !== $matches[1] ) {
+            $kind = substr($descriptor, -1);
+            if ( null !== $family && $family !== $kind ) {
                 return true;
             }
-            $family = $matches[1];
+            $family = $kind;
+            if ( 'x' === $kind && null === $oneX && 1.0 === (float) $descriptor ) {
+                $oneX = $candidate['url'];
+            }
+        }
+        $src = SourceDom::attr($image, 'src');
+        if ( 'x' === $family && '' !== $src && ( null === $oneX || $src === $oneX ) ) {
+            return false;
         }
         return ! $hasDisplayWidth();
     }

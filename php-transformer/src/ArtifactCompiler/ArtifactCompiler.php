@@ -1818,7 +1818,7 @@ final class ArtifactCompiler
         }
 
         $themePreferenceOwnership = $this->themePreferenceOwnershipForSource($runtimeDeclarations, $sourcePath);
-        $stylesheetAssets = $this->stylesheetAssetsForSource($html, $sourcePath, $files);
+        $stylesheetAssets = $this->stylesheetAssetsForSource($html, $sourcePath, $files, true);
         $stylesheetPayloads = $this->linkedStylesheetPayloads($stylesheetAssets, $sourcePath, $files);
         $layerOrderCss = implode("\n", array_map(fn(array $stylesheet): string => $this->compatibilityStylesheetContent($stylesheet['content'], $stylesheet['path'], $files), $stylesheetAssets));
         $analysisCache = $this->cacheHtmlAnalysis
@@ -2235,7 +2235,7 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $files
      * @return list<array{path: string, content: string, source_hash: string}>
      */
-    private function stylesheetAssetsForSource(string $html, string $sourcePath, array $files): array
+    private function stylesheetAssetsForSource(string $html, string $sourcePath, array $files, bool $excludeDeviceRuntime = false): array
     {
         $files = ArtifactNormalizer::inlineOccurrences($files);
         $byPath = array();
@@ -2249,7 +2249,8 @@ final class ArtifactCompiler
                 $inline[(int) ($file['stylesheet_index'] ?? 0)] = $file;
             }
         }
-        $cacheKey = hash('sha256', $sourcePath . "\0" . $html);
+        $excludeDeviceRuntime = $excludeDeviceRuntime && str_contains($html, CaptureEvidence::DEVICE_VISIBILITY);
+        $cacheKey = hash('sha256', $sourcePath . "\0" . (int) $excludeDeviceRuntime . "\0" . $html);
         if (isset($this->stylesheetOccurrenceCache[$cacheKey])) {
             // Cache occurrence identity/order, not projected declaration bytes.
             // The replay reads the final payload after source-selector projection.
@@ -2285,6 +2286,10 @@ final class ArtifactCompiler
                     continue;
                 }
                 ++$inlineIndex;
+                // Device carriers own output visibility. Capture's selection
+                // runtime must not project a frozen hide gate onto their shells.
+                if (array_key_exists(CaptureEvidence::DEVICE_VISIBILITY, HtmlTagScanner::attributes($attributes))
+                    && $excludeDeviceRuntime) continue;
                 $file = $inline[$inlineIndex] ?? null;
                 if ( is_array($file) ) {
                     $assets[] = array( 'path' => $file['path'], 'source_path' => $file['source_path'] ?? $file['path'], 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content']) ), 'media' => StyleTagScanner::authorMedia($attributes), 'type' => (string) ($file['type'] ?? '') );
@@ -3720,6 +3725,10 @@ final class ArtifactCompiler
             // The native control replay interpreter addresses captured control
             // state, not source behavior; its state lowers into control blocks.
             if (NativeControlState::isReplayScript($script['tag'])) continue;
+            // Device overlays replay capture presentation, not author behavior.
+            // Exclude the marked script before selector evidence is extracted;
+            // an author script using the same selectors must still count.
+            if (array_key_exists(CaptureEvidence::DEVICE_BODY, HtmlTagScanner::attributes($script['tag']))) continue;
             // Capture activators describe engine-owned evidence, not source
             // runtime behavior. Treating their query as a dependency would
             // preserve every captured target as a runtime island.
@@ -3818,7 +3827,7 @@ final class ArtifactCompiler
             };
             $walk($body);
             foreach ($rows as &$areaRows) foreach ($areaRows as &$row) {
-                $row['source_identity'] = 'markup:' . hash('sha256', $row['identity']);
+                $row['source_identity'] = 'markup:' . hash('sha256', \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ChromeStackingIdentity::normalize($row['identity']));
                 foreach ($file['metadata']['compilation']['html_include_sources'] ?? array() as $path => $fragment) {
                     if (self::normalizeSourceShellIdentity($fragment) === $row['identity']) {
                         $row['source_identity'] = 'include:' . $path . ':' . hash('sha256', $row['identity']);

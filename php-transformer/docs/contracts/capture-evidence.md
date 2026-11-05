@@ -69,6 +69,9 @@ Two audiences read this vocabulary:
 | ---- | ---- | ----- | ------- |
 | `data-blocks-engine-capture-document-scope` | attribute (flag) | ignored | The element is a body-equivalent document root. With `device-document` it declares a device profile. |
 | `data-blocks-engine-capture-device-document` | attribute | `[a-z][a-z0-9_-]{0,63}` | Profile id of a declared document scope. |
+| `data-blocks-engine-capture-device-only` | attribute | device profile id (for example `mobile`) | Folded device-specific subtree, rather than a separate document. Its host, attributes and classes survive compilation so capture visibility CSS can select it. |
+| `data-blocks-engine-capture-device-hide` | attribute | device profile id (for example `mobile`) | Subtree hidden on this device profile by capture visibility CSS; preserved on its emitted host like `device-only`. |
+| `data-blocks-engine-capture-device-visibility` | attribute (flag) on `<style>` | ignored | Capture runtime device-selection gates. Excluded whole from author presentation analysis so selected-device chrome cannot acquire a frozen hide gate. |
 | `data-blocks-engine-capture-mobile-document` | class | — | Root of the mobile copy of a responsive capture. |
 | `data-blocks-engine-capture-desktop-document` | class | — | Root of the desktop (default) copy of a responsive capture. |
 | `data-blocks-engine-capture-responsive-` | class prefix | 12 lowercase hex digits | Hooks an id-less element's width-scoped style rules. On route chrome, a hook whose every rule restates the element's own inline declarations is removed from that chrome. |
@@ -175,7 +178,7 @@ See [Native control state](../native-control-state.md).
 | `data-blocks-engine-capture-glyph-color` | attribute | `#rrggbb` (any case) | Rendered glyph colour of an icon; read and removed. See [Social icon glyph colour](../glyph-color.md). |
 | `data-blocks-engine-capture-anchor-unresolved` | attribute | text | An anchor the capture could not resolve; ignored when comparing render-equivalent markup. |
 | `data-blocks-engine-capture-anchor-target` | attribute | fragment | On an empty placeholder: the fragment a route's link scrolls to. Inside route chrome it moves to just before the chrome landmark, so it stays with that route rather than the shared part. |
-| `data-blocks-engine-capture-viewport-entrance` | attribute | JSON | Recorded entrance states of an element the source reveals as it scrolls into view; layout shells carrying it are labelled "Scroll reveal". Shared source-shell identity ignores this evidence and attributes matching its recorded `after` states. The emitted shared part prefers a member with observed entrance evidence and retains it for replay. |
+| `data-blocks-engine-capture-viewport-entrance` | attribute | JSON | Recorded entrance states of an element the source reveals as it scrolls into view; layout shells carrying it are labelled "Scroll reveal". Shared source-shell identity ignores this evidence and attributes matching its recorded `after` states. The emitted shared part prefers a member with observed entrance evidence and retains it for replay. Native leaf blocks carry the evidence in render metadata so their saved markup remains Gutenberg-valid. One engine-owned front-end runtime replays the capture activator's attribute poses, observer options and repeat semantics; it is not loaded in the editor. Saved markup stays in its final state without JavaScript, with reduced motion, or without IntersectionObserver. |
 | `data-blocks-engine-capture-viewport-entrances` | attribute | presence | Marks the capture's own entrance activator `<script>`. It addresses entrance evidence, not source behavior, so runtime-selector analysis excludes it. |
 
 ### Component replay
@@ -349,6 +352,19 @@ an application-shell runtime target. A single-item native accordion additionally
 requires an author accordion container signal; the marker alone is insufficient.
 Native details retain their authored open state.
 
+### Device overlay ownership
+
+| Name | Form | Treatment | Meaning |
+| --- | --- | --- | --- |
+| `data-blocks-engine-capture-device-body` | attribute (flag) on `<script>` | excluded from runtime evidence | Capture-owned device overlay. |
+| `data-blocks-engine-capture-device-inline` | attribute (JSON) | retained in render metadata | Per-device inline styles. |
+
+`data-blocks-engine-capture-device-body` marks the capture-owned device overlay
+script. Blocks Engine excludes it from author runtime selector evidence; an
+unmarked author script selecting the same elements remains runtime evidence.
+`data-blocks-engine-capture-device-inline` holds per-device inline styles. Native
+blocks retain this attribute through render metadata so the overlay still works.
+
 ### Published for downstream importers
 
 Blocks Engine does not read these names. Downstream importers do.
@@ -357,7 +373,6 @@ Blocks Engine does not read these names. Downstream importers do.
 | ---- | ---- | ----- | ------- |
 | `data-blocks-engine-capture-component-disclosure-runtime` | attribute on `<script>` | ignored | Portable non-native disclosure helper. |
 | `data-blocks-engine-capture-device-selection` | attribute (flag) on `<script>` | ignored | The capture's device-selection bootstrap in `<head>`. |
-| `data-blocks-engine-capture-device-body` | attribute (flag) on `<script>` | ignored | The capture's device-document overlay script at the start of `<body>`. |
 | `data-blocks-engine-capture-selected-document` | attribute on `<html>` | profile id | The device profile the selection runtime chose. Written at runtime, so author selectors on it stay live. |
 | `data-blocks-engine-capture-document-unavailable` | attribute (flag) on `<html>` | ignored | Set at runtime when no captured document applies to the device. |
 | `data-blocks-engine-capture-member-login` | attribute | provider `[a-z0-9_-]+` | The link leads to a member login with that provider. |

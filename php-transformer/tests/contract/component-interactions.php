@@ -54,4 +54,19 @@ $legacy = array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'p
 $assert(!str_contains($markup($compile($legacy, $bare)), '<!-- wp:custom/captured-dialog'), 'Retired schema is not a parallel reader.');
 $legacy['schema'] = CaptureEvidence::CAPTURED_INTERACTIONS_SCHEMA;
 $assert(!str_contains($markup($compile($legacy, $bare)), '<!-- wp:custom/captured-dialog'), 'V2 never falls back to a flat trigger inventory.');
+// Membership observed through a disclosure is static panel content, not a filter.
+$nested = array('schema' => CaptureEvidence::CAPTURED_INTERACTIONS_SCHEMA, 'pages' => array(array('sourceUrl' => 'https://example.test/', 'components' => array())));
+$source = '<html><body><main>';
+foreach (array(108, 150) as $id) {
+    $item = '<section id="item-' . $id . '"><h3><button id="accordion-button-' . $id . '" aria-expanded="false" aria-controls="panel-' . $id . '">Question ' . $id . '</button></h3><div id="panel-' . $id . '" class="bde-accordion__panel" style="display:none"><div id="columns-' . $id . '"><p>Left ' . $id . '</p><p>Right ' . $id . '</p></div></div></section>';
+    $source .= $item . '<p>Between items ' . $id . '</p>';
+    $nested['pages'][0]['components'][] = array('kind' => 'disclosure', 'selector' => '#item-' . $id, 'status' => 'captured', 'initial' => 'closed', 'states' => array(array('id' => 'closed', 'html' => $item), array('id' => 'open', 'html' => str_replace(array('aria-expanded="false"', 'display:none'), array('aria-expanded="true"', 'display:block'), $item))), 'transitions' => array(array('from' => 'closed', 'to' => 'open', 'trigger' => array('selector' => '#accordion-button-' . $id, 'action' => 'click'))));
+}
+$nested['pages'][0]['components'][] = array('kind' => 'collection', 'selector' => '#columns-150', 'status' => 'captured', 'states' => array(), 'collection' => array('coverage' => 'complete', 'replay' => 'unsupported', 'reason' => 'Collection membership captured; collection control replay unsupported', 'controls' => array('#accordion-button-150'), 'members' => array(array('key' => 'left', 'html' => '<p>Left 150</p>'), array('key' => 'right', 'html' => '<p>Right 150</p>')), 'states' => array(array('id' => 'opened', 'members' => array('left', 'right'), 'trigger' => array('selector' => '#accordion-button-150', 'action' => 'click')))));
+$nestedHtml = $markup($compile($nested, $source . '</main></body></html>'));
+$assert(2 === substr_count($nestedHtml, '<!-- wp:details '), 'Both captured disclosures compile to native details despite nested collection membership.');
+preg_match_all('/<details\\b([^>]*)>(.*?)<\/details>/s', $nestedHtml, $details);
+$assert(2 === count($details[0]) && !preg_match('/\\bopen(?:\\s|=|$)/', implode(' ', $details[1])), 'Both details remain closed.');
+$assert(str_contains($details[2][1], 'Left 150') && str_contains($details[2][1], 'Right 150'), 'Nested collection content stays inside the second details body.');
+$assert(!str_contains($nestedHtml, 'wp:custom/collection'), 'Disclosure membership does not invent collection filtering.');
 echo "Component interactions public compiler contract passed.\n";

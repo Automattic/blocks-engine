@@ -154,21 +154,6 @@ final class ButtonLinkDispatchContext
         return LinkUrlSanitizer::sanitize($href);
     }
 
-    public function hasBlockContentChildren(DOMElement $element): bool
-    {
-        return $this->sourceElementClassifier->hasBlockContentChildren($element);
-    }
-
-    public function hasBlockLevelDescendant(DOMElement $element): bool
-    {
-        return $this->sourceElementClassifier->hasBlockLevelDescendant($element);
-    }
-
-    public function isInlineContentElement(string $tagName): bool
-    {
-        return $this->sourceElementClassifier->isInlineContentElement($tagName);
-    }
-
     /**
      * @return array<string, mixed>
      */

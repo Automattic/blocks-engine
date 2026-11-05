@@ -68,20 +68,18 @@ $resolvedAuthorColor = static function (string $html, string $css, string $xpath
     }
 
     $session = new HtmlTransformerSession(new Runtime(), static fn (DOMElement $node): array => array());
-    $context = null;
     $context = new StyleResolutionContext(
-        $session,
         static fn (string $value): string => $value,
-        static function (string $selector) use (&$context): array {
-            return $context->sourceStyles()->parsedSelector($selector);
+        static function (string $selector) use ($session): array {
+            return $session->sourceStyleResolutionState()->parsedSelector($selector);
         },
         static fn (string $className): string => $className,
         static fn (string $url): string => $url
     );
 
     $analysisCache = new HtmlTransformerAnalysisCache();
-    $resolver = new StyleResolver($context, $analysisCache);
-    $context->sourceStyles()->installStylesheetAnalysis(
+    $resolver = new StyleResolver($session, $context, $analysisCache);
+    $session->sourceStyleResolutionState()->installStylesheetAnalysis(
         array(),
         ( new StylesheetAnalysisComposer($resolver, $analysisCache) )->composedStyleAnalysis(array( $css ))
     );

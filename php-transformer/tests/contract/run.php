@@ -390,11 +390,11 @@ $assert(
 
 $responsiveImageResult = ( new HtmlTransformer() )->transform('<img src="hero.jpg" srcset="hero.jpg 1x, hero-2x.jpg 2x" sizes="100vw" alt="Hero">')->toArray();
 $assert(
-    'custom/responsive-media' === ($responsiveImageResult['blocks'][0]['blockName'] ?? null)
-        && str_contains($responsiveImageResult['blocks'][0]['attrs']['content'] ?? '', 'srcset="hero.jpg 1x, hero-2x.jpg 2x"')
-        && str_contains($responsiveImageResult['blocks'][0]['attrs']['content'] ?? '', 'sizes="100vw"')
+    'core/image' === ($responsiveImageResult['blocks'][0]['blockName'] ?? null)
+        && 'hero.jpg 1x, hero-2x.jpg 2x' === ($responsiveImageResult['blocks'][0]['attrs']['metadata']['blocksEngineImageSelection']['srcset'] ?? null)
+        && '100vw' === ($responsiveImageResult['blocks'][0]['attrs']['metadata']['blocksEngineImageSelection']['sizes'] ?? null)
         && array() === ($responsiveImageResult['fallbacks'] ?? array()),
-    'responsive img sources retain authored selection in the existing editable media boundary'
+    'a density family whose src is its 1x candidate lowers to core/image and retains its authored selection'
 );
 $customImageResult = ( new HtmlTransformer() )->transform('<media-image id="hero" class="media-frame"><img class="photo" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP" data-src="hero.jpg" srcset="hero-small.jpg 340w, hero.jpg 680w" sizes="100vw" alt="Hero"></media-image>')->toArray();
 $assert(
@@ -750,8 +750,7 @@ $registry = new PatternRecognizerRegistry(array(
     },
 ));
 $registryContext = new PatternContext(
-    static fn (DOMElement $element): array => array(),
-    new \Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture(static fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => array('blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $innerBlocks))
+    static fn (DOMElement $element): array => array()
 );
 $assert($registryElement instanceof DOMElement, 'pattern registry fixture element parses');
 $assert('core/group' === ($registry->firstMatch($registryElement, $registryContext)?->block()['blockName'] ?? null), 'pattern registry returns the first recognizer match');
@@ -1999,7 +1998,7 @@ $emptyVisualCss = implode("\n", array_map(static fn (array $asset): string => 'c
 $assert(3 === count($emptyVisualItems), 'classless empty inline items in a decorative cluster remain native blocks');
 $assert(! array_filter($emptyVisualItems, static fn (array $block): bool => 'core/spacer' !== ($block['blockName'] ?? '') || '10px' !== ($block['attrs']['height'] ?? '') || '10px' !== ($block['attrs']['width'] ?? '')), 'decorative cluster items use direct native spacer carriers with source dimensions');
 $assert(str_contains($emptyVisualCss, 'blocks-engine-semantic-') && str_contains($emptyVisualCss, '{width:10px;height:10px;border-radius:50%}') && str_contains($emptyVisualCss, 'background:#ff5f57') && str_contains($emptyVisualCss, 'background:#ffbd2e') && str_contains($emptyVisualCss, 'background:#28ca41'), 'decorative cluster items preserve projected selectors, dimensions, and background paint through author CSS');
-$assert(str_contains($emptyVisualCss, 'blocks-engine-css-owned-flow') && str_contains($emptyVisualCss, 'margin-block-start:0'), 'decorative cluster neutralizes only the marked core group flow defaults');
+$assert(str_contains($emptyVisualCss, 'blocks-engine-css-owned-flow') && str_contains($emptyVisualCss, 'margin-block-start:revert'), 'decorative cluster neutralizes only the marked core group flow defaults');
 
 $cssSizedInlineSvgArtwork = ( new HtmlTransformer() )->transform(
     '<style>.album-cover{width:100%;max-width:380px;aspect-ratio:1;display:block;box-shadow:0 40px 80px rgba(0,0,0,.6)}</style><main><div class="album-card"><svg class="album-cover" viewBox="0 0 500 500" role="img" aria-label="Album cover"><rect width="500" height="500" fill="#111"/></svg></div></main>'

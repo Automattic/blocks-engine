@@ -45,6 +45,9 @@ final class GeneratedSupportStylesheetState
     private array $syntheticHeaderAnchorRules = array();
 
     /** @var array<string, string> */
+    private array $videoSizeHintRules = array();
+
+    /** @var array<string, string> */
     private array $headerRichTextRules = array();
 
     /** @var array<string, string> */
@@ -61,6 +64,25 @@ final class GeneratedSupportStylesheetState
 
     /** @var array<string, string> */
     private array $navigationAnchorLineHeights = array();
+
+    /** @var array<string, string> Editor-only inheritance across omitted label boxes. */
+    private array $navigationEditorTypography = array();
+
+    public function registerNavigationEditorTypography(string $marker, string $declarations): void
+    {
+        $this->navigationEditorTypography[$marker] = $declarations;
+    }
+
+    /** @return list<string> */
+    public function navigationEditorTypographyRules(): array
+    {
+        $rules = array();
+        foreach ($this->navigationEditorTypography as $marker => $declarations) {
+            $rules[] = '.wp-block-navigation .wp-block-navigation-item.' . $marker
+                . ' .wp-block-navigation-item__content{' . $declarations . '}';
+        }
+        return $rules;
+    }
 
     /** @var array<string, string> */
     private array $navigationLinkIcons = array();
@@ -160,6 +182,11 @@ final class GeneratedSupportStylesheetState
     public function registerNativeNavigationOverlay(string $marker, string $rule): void
     {
         $this->nativeNavigationOverlayRules[$marker] = $rule;
+    }
+
+    public function registerVideoSizeHint(string $className, string $rule): void
+    {
+        $this->videoSizeHintRules[$className] = $rule;
     }
 
     public function registerSyntheticHeaderAnchor(string $className, string $rule): void
@@ -431,7 +458,10 @@ final class GeneratedSupportStylesheetState
                 } else {
                     // Native list-item labels are inline content, not a second
                     // box, even when retained source hooks still match rules.
-                    $parts[] = $summary . $carrier . '{display:inline!important;padding:0!important;border:0!important;margin:0!important;background:none!important;box-shadow:none!important;width:auto!important;height:auto!important;min-width:0!important;min-height:0!important;max-width:none!important;max-height:none!important;position:static!important;float:none!important}';
+                    // The carrier holds the summary's own hooks, so a size the
+                    // summary rule already states would apply twice when relative.
+                    $inheritSize = preg_match('/(?:^|;)font-size:/', $declarations) ? 'font-size:inherit!important;' : '';
+                    $parts[] = $summary . $carrier . '{' . $inheritSize . 'display:inline!important;padding:0!important;border:0!important;margin:0!important;background:none!important;box-shadow:none!important;width:auto!important;height:auto!important;min-width:0!important;min-height:0!important;max-width:none!important;max-height:none!important;position:static!important;float:none!important}';
                 }
             }
         }
@@ -505,6 +535,11 @@ final class GeneratedSupportStylesheetState
         foreach ($this->buttonWrapperSpacing as $className => $declarations) {
             if (str_contains($serializedBlocks, $className)) {
                 $parts[] = '.wp-block-buttons.' . $className . '{' . $declarations . '}';
+            }
+        }
+        foreach ($this->videoSizeHintRules as $className => $rule) {
+            if (str_contains($serializedBlocks, $className)) {
+                $parts[] = $rule;
             }
         }
         foreach ($this->syntheticHeaderAnchorRules as $className => $rule) {

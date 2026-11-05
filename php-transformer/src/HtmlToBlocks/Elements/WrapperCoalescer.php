@@ -139,6 +139,11 @@ final class WrapperCoalescer
     /** @param array<string, mixed> $block @return array{tagName: string, attributes: array<string, string>, opening: string, closing: string}|null */
     public function groupWrapperDescriptor(array $block): ?array
     {
+        // Selector-hook hosts must stay independently editable, not become a
+        // generated layout-shell together with their grid/flex item child.
+        if ( ! empty($block['_native_custom_wrapper_hook']) ) {
+            return null;
+        }
         $content = is_array($block['innerContent'] ?? null) ? $block['innerContent'] : array();
         $opening = is_string($content[0] ?? null) ? $content[0] : '';
         $last = array() === $content ? null : $content[array_key_last($content)];
@@ -204,8 +209,11 @@ final class WrapperCoalescer
         $chain = array($element);
         $leaf = ($this->soleElementChild)($element);
         while ($leaf instanceof DOMElement && $this->isInheritedTextWrapper($leaf)) {
+            $next = ($this->soleElementChild)($leaf);
+            // Keep the last wrapper boundary needed by descendant selectors.
+            if (! $next instanceof DOMElement || ! $this->selectorMatchingSurvivesWrapperCoalescing($element, $next, true)) break;
             $chain[] = $leaf;
-            $leaf = ($this->soleElementChild)($leaf);
+            $leaf = $next;
         }
         if (! $leaf instanceof DOMElement) return null;
         if ('core/paragraph' === ($childBlock['blockName'] ?? '') && 'p' !== strtolower($leaf->tagName)) return null;
@@ -216,7 +224,7 @@ final class WrapperCoalescer
             foreach ($this->inheritedWrapperDeclarations($node) as $name => $value) {
                 if (! $this->isInheritedTextProperty($name)) continue;
                 if (in_array(CssValueInspector::comparable($value), array('inherit', 'unset'), true)) continue;
-                $values[$name] = $value;
+                $values = $this->styleResolver->mergeCssDeclarationMaps($values, array($name => $value));
             }
         }
         $attrs = is_array($childBlock['attrs'] ?? null) ? $childBlock['attrs'] : array();
@@ -245,7 +253,7 @@ final class WrapperCoalescer
 
     private function isInheritedTextProperty(string $name): bool
     {
-        return str_starts_with($name, 'font-') || in_array($name, array('font', 'white-space', 'color', 'line-height', 'letter-spacing', 'word-spacing', 'text-align', 'text-transform', 'text-indent'), true);
+        return str_starts_with($name, 'font-') || in_array($name, array('font', 'white-space', 'text-wrap', 'text-wrap-mode', 'text-wrap-style', 'white-space-collapse', 'color', 'line-height', 'letter-spacing', 'word-spacing', 'text-align', 'text-transform', 'text-indent'), true);
     }
 
     private function isInheritedTextWrapper(DOMElement $element): bool
@@ -268,7 +276,15 @@ final class WrapperCoalescer
             if (str_contains($rule['selector'], '>')) return false;
         }
         $declarations = $this->inheritedWrapperDeclarations($element);
-        if (array() === $declarations && ! $element->hasAttribute('data-node-view-content-inner') && ! $element->hasAttribute('style')) return false;
+        // Editor node-view wrappers remain transparent after source normalization
+        // removes an empty style attribute. Do not use reset declarations as the
+        // only evidence that such a wrapper can fold.
+        if (array() === $declarations
+            && ! ($this->soleElementChild)($element)->hasAttribute('data-node-view-wrapper')
+            && ! $element->hasAttribute('data-node-view-wrapper')
+            && ! $element->hasAttribute('data-node-view-content')
+            && ! $element->hasAttribute('data-node-view-content-inner')
+            && ! $element->hasAttribute('style')) return false;
         foreach ($declarations as $name => $value) {
             // This invalid spelling has no rendering effect and no carrier.
             if ('whitespace' === $name || $this->isInheritedTextProperty($name)) continue;

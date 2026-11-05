@@ -61,7 +61,7 @@ $operations = array(
         'innerBlocks' => $innerBlocks,
         'sourceTag' => $sourceElement?->tagName,
     )),
-    'patternContext' => new PatternContext($null, new SourceBlockCreatorFixture(static fn (): array => array())),
+    'patternContext' => new PatternContext($null),
     'shouldDeferNavigationPatternToChildren' => $false,
     'rememberAccordionDisclosureRoot' => static fn (array $block): array => $block,
     'metadataGridBlock' => $null,
@@ -92,7 +92,9 @@ $operations = array(
     'presentationResolver' => new ElementPresentationResolverFixture(static fn (): array => array( 'className' => 'flow' )),
     'emptyVisualSpacerBlock' => static fn (): array => array( 'blockName' => 'core/spacer' ),
 );
-$converter = new FlowContainerElementConverter(new FlowContainerElementContext(...$operations));
+$services = array_intersect_key($operations, array_flip(array('sourceElementClassifier', 'createBlock', 'presentationResolver')));
+$operations = array_diff_key($operations, array_flip(array('createBlock', 'presentationResolver')));
+$converter = new FlowContainerElementConverter($services['sourceElementClassifier'], $services['createBlock'], $services['presentationResolver'], new FlowContainerElementContext(...$operations));
 $fallbacks = array();
 $div = $elementFrom('<div></div>');
 

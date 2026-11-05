@@ -22,11 +22,17 @@ use DOMElement;
 /** Converts flow containers through their ordered runtime, pattern, layout, and child strategies. */
 final class FlowContainerElementConverter implements ElementConverter
 {
+    private readonly NavigationPattern $navigationPattern;
+
     public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier $sourceElementClassifier,
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock,
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver $presentationResolver,
         private readonly FlowContainerElementContext $context,
-        private readonly NavigationPattern $navigationPattern = new NavigationPattern()
+        ?NavigationPattern $navigationPattern = null
     )
     {
+        $this->navigationPattern = $navigationPattern ?? new NavigationPattern($this->createBlock);
     }
 
     public function handles(string $tagName): bool
@@ -129,7 +135,7 @@ final class FlowContainerElementConverter implements ElementConverter
 
         // Sibling img srcsets describe independent images, not alternatives
         // for one media unit. Responsive alternatives still own their carrier.
-        if ( $this->context->hasResponsiveMediaAlternatives($element) && $this->context->hasGalleryMediaItems($element) ) {
+        if ( $this->sourceElementClassifier->hasResponsiveMediaAlternatives($element) && $this->sourceElementClassifier->hasGalleryMediaItems($element) ) {
             return ConversionOutcome::handled($this->context->responsiveMediaBlock($element));
         }
         $block = $this->context->authoredCarouselBlock($element);
@@ -143,7 +149,7 @@ final class FlowContainerElementConverter implements ElementConverter
             }
             return ConversionOutcome::handled($this->context->authorLayoutBlock($element, $fallbacks));
         }
-        if ( in_array($tagName, array( 'div', 'section', 'article' ), true) && ! $this->context->hasResponsiveImageSources($element) ) {
+        if ( in_array($tagName, array( 'div', 'section', 'article' ), true) && ! $this->sourceElementClassifier->hasResponsiveImageSources($element) ) {
             $block = $this->context->recognizePatterns($element, $fallbacks, array( MediaTextPattern::class ));
             if ( null !== $block ) {
                 return ConversionOutcome::handled($block);
@@ -247,7 +253,7 @@ final class FlowContainerElementConverter implements ElementConverter
             // A broad container can contain a real social cluster plus unrelated
             // media. Let its children be converted instead of dropping that media.
             $patterns = array( AccordionPattern::class, NavigationPattern::class );
-            if ( ! $this->context->hasCapturedMediaContent($element) ) {
+            if ( ! $this->sourceElementClassifier->hasCapturedMediaContent($element) ) {
                 $patterns[] = SocialLinksPattern::class;
             }
             $block = $this->context->recognizePatterns($element, $fallbacks, $patterns);
@@ -330,7 +336,7 @@ final class FlowContainerElementConverter implements ElementConverter
         }
 
         $children = $this->context->convertChildren($element, $fallbacks);
-        if ( array() === $children && ! $this->context->hasDirectMediaChild($element) ) {
+        if ( array() === $children && ! $this->sourceElementClassifier->hasDirectMediaChild($element) ) {
             $backgroundImage = $this->context->backgroundImageBlock($element);
             if ( null !== $backgroundImage ) {
                 // A background group already owns the source element's box.
@@ -420,7 +426,7 @@ final class FlowContainerElementConverter implements ElementConverter
     /** @param array<int, array<string, mixed>> $children @return array<string, mixed> */
     private function group(DOMElement $element, array $children): array
     {
-        return $this->context->createBlock('core/group', $this->context->presentationAttributes($element), $children, $element);
+        return $this->createBlock->createBlock('core/group', $this->presentationResolver->presentationAttributes($element), $children, $element);
     }
 
     private function hasInlineFormWrapper(DOMElement $element): bool
@@ -477,14 +483,14 @@ final class FlowContainerElementConverter implements ElementConverter
 
     private function structuralDeclarationString(DOMElement $element): string
     {
-        return $this->declarationString($this->context->structuralPresentationDeclarations($element));
+        return $this->declarationString($this->presentationResolver->structuralPresentationDeclarations($element));
     }
 
     private function clipDeclarationString(DOMElement $element): string
     {
         return $this->declarationString(array_merge(
-            $this->context->authorStructuralDeclarations($element),
-            $this->context->structuralPresentationDeclarations($element)
+            $this->presentationResolver->authorStructuralDeclarations($element),
+            $this->presentationResolver->structuralPresentationDeclarations($element)
         ));
     }
 

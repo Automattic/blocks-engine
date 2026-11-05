@@ -30,7 +30,9 @@ final class ButtonLinkDispatcher
     /** Marks an empty, externally labelled link whose source box is carried by its host. */
     public const ACCESSIBLE_EMPTY_LINK_CLASS = 'blocks-engine-accessible-empty-link';
 
-    public function __construct(private readonly ButtonLinkDispatchContext $context)
+    public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier $sourceElementClassifier,
+        private readonly ButtonLinkDispatchContext $context)
     {
     }
 
@@ -59,7 +61,7 @@ final class ButtonLinkDispatcher
 
         // Flow content must not reach label/image projections that flatten its
         // descendants. Keep one real anchor around the editable inner blocks.
-        if ( '' !== trim($element->textContent) && $this->context->hasBlockLevelDescendant($element) ) {
+        if ( '' !== trim($element->textContent) && $this->sourceElementClassifier->hasBlockLevelDescendant($element) ) {
             $container = $this->context->convertLinkWrapperGroup($element, $fallbacks);
             if ( null !== $container ) {
                 return $container;
@@ -147,7 +149,7 @@ final class ButtonLinkDispatcher
     {
         foreach ( $element->childNodes as $child ) {
             if ( $child instanceof DOMElement
-                && ( ! $this->context->isInlineContentElement(strtolower($child->tagName))
+                && ( ! $this->sourceElementClassifier->isInlineContentElement(strtolower($child->tagName))
                     || ! $this->hasOnlyEmptyInlineDecoration($child) ) ) {
                 return false;
             }
@@ -172,7 +174,7 @@ final class ButtonLinkDispatcher
             }
 
             $tagName = strtolower($child->tagName);
-            if ( in_array($tagName, array( 'br', 'img', 'svg' ), true) || $this->context->isInlineContentElement($tagName) ) {
+            if ( in_array($tagName, array( 'br', 'img', 'svg' ), true) || $this->sourceElementClassifier->isInlineContentElement($tagName) ) {
                 continue;
             }
 

@@ -418,6 +418,23 @@ final class AuthoredFormControlBlockConverter
         $generator = new AuthoredButtonBlockGenerator();
         $registry = $this->session->requireGeneratedBlockRegistry();
         $registry->register(AuthoredButtonBlockGenerator::class, $generator->definition($registry->namespace()));
+        $attrs = AuthoredButtonBlockGenerator::isCapturedDialogCloseIcon($button)
+            ? AuthoredButtonBlockGenerator::capturedDialogCloseIconAttributes($button)
+            : $this->runtimeButtonAttributes($button);
+        $markup = $generator->markup($attrs);
+
+        return array(
+            'blockName' => $registry->blockName(AuthoredButtonBlockGenerator::LOCAL_NAME),
+            'attrs' => $attrs,
+            'innerBlocks' => array(),
+            'innerHTML' => $markup,
+            'innerContent' => array( $markup ),
+        );
+    }
+
+    /** @return array<string, mixed> */
+    private function runtimeButtonAttributes(DOMElement $button): array
+    {
         $type = FormControlClassifier::controlType($button);
         if ( ! in_array($type, array( 'button', 'reset', 'submit' ), true) ) {
             $type = 'submit';
@@ -436,7 +453,7 @@ final class AuthoredFormControlBlockConverter
         foreach ($safeAttributes as $name => $value) {
             $sourceAttributes[] = array('name' => $name, 'value' => $value);
         }
-        $attrs = array_filter(array(
+        return array_filter(array(
             'tagName' => AuthoredButtonBlockGenerator::isRoleButton($button) ? strtolower($button->tagName) : '',
             'type' => $type,
             'id' => SourceDom::attr($button, 'id'),
@@ -450,15 +467,6 @@ final class AuthoredFormControlBlockConverter
             'sourceAttributes' => $sourceAttributes,
             'disabled' => $button->hasAttribute('disabled'),
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : (is_bool($value) ? $value : '' !== $value));
-        $markup = $generator->markup($attrs);
-
-        return array(
-            'blockName' => $registry->blockName(AuthoredButtonBlockGenerator::LOCAL_NAME),
-            'attrs' => $attrs,
-            'innerBlocks' => array(),
-            'innerHTML' => $markup,
-            'innerContent' => array( $markup ),
-        );
     }
 
     /** @return array<string, string> */
