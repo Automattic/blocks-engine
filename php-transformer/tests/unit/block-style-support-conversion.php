@@ -67,7 +67,7 @@ $dimensionBorderColor = $colorDomainMapper->map(
     static fn (string $value): string => '0'
 );
 $resolvedVariableBorderColor = $colorDomainMapper->map(
-    array( 'border-color' => 'var(--border-color,#123456)' ),
+    array( 'border-style' => 'solid', 'border-color' => 'var(--border-color,#123456)' ),
     static fn (string $value): string => '#123456'
 );
 $assert(
@@ -460,6 +460,37 @@ $assert(
 );
 
 $borderMapper = new StyleAttributeMapper();
+$colorOnlyMapped = $borderMapper->map(array( 'border-color' => '#1da1f2', 'width' => '40px', 'height' => '40px' ));
+$assert(
+    ! isset($colorOnlyMapped['style']['border']['color'])
+        && '' === $borderMapper->serialize($colorOnlyMapped['style'])['classes'],
+    'a color-only border keeps the CSS initial none style and zero used width',
+    json_encode($colorOnlyMapped)
+);
+foreach ( array( '', 'border-style:none;', 'border-style:hidden;', 'border-style:solid;border-width:0;', 'border-style:solid;border-width:0px 0em;' ) as $invisibleBorder ) {
+    $colorOnlyResult = ( new HtmlTransformer() )->transform(
+        '<style>.b{border-color:#1da1f2;' . $invisibleBorder . 'width:40px;height:40px}</style><div class="b">x</div>',
+        array()
+    )->toArray();
+    $colorOnlyMarkup = (string) ($colorOnlyResult['serialized_blocks'] ?? '');
+    $assert(
+        ! isset($colorOnlyResult['blocks'][0]['attrs']['style']['border']['color'])
+            && ! str_contains($colorOnlyMarkup, 'has-border-color')
+            && ! str_contains($colorOnlyMarkup, 'border-color:'),
+        'non-painting border colors do not activate Core border support: ' . $invisibleBorder,
+        json_encode($colorOnlyResult)
+    );
+}
+$paintingBorderResult = ( new HtmlTransformer() )->transform(
+    '<style>.b{border:2px solid #1da1f2;width:40px;height:40px}</style><section class="b"><p>x</p></section>',
+    array()
+)->toArray();
+$assert(
+    '#1da1f2' === ($paintingBorderResult['blocks'][0]['attrs']['style']['border']['color'] ?? '')
+        && str_contains((string) ($paintingBorderResult['serialized_blocks'] ?? ''), 'has-border-color'),
+    'a painting border retains Core border-color support',
+    json_encode($paintingBorderResult)
+);
 $shorthandBorder = $borderMapper->map(array( 'border' => '2px solid red' ));
 $leftBorder = $borderMapper->map(array( 'border-left' => '2px solid var(--secondary)' ));
 $individualBorder = $borderMapper->map(array(
@@ -519,7 +550,7 @@ $assert(
     json_encode($globalThenNoLeftBorder)
 );
 $assert(
-    array( 'width' => 'medium', 'style' => 'none', 'color' => 'red' ) === ($globalThenColorOnlyLeftBorder['style']['border']['left'] ?? array()),
+    array( 'width' => 'medium', 'style' => 'none' ) === ($globalThenColorOnlyLeftBorder['style']['border']['left'] ?? array()),
     'N2: a partial side shorthand resets omitted components instead of inheriting the global border',
     json_encode($globalThenColorOnlyLeftBorder)
 );
@@ -645,7 +676,7 @@ $assert(
     json_encode($colorlessSideShorthandBorder)
 );
 $assert(
-    array( 'width' => 'medium', 'style' => 'none', 'color' => 'red' ) === ($globalThenColorOnlyLeftBorder['style']['border']['left'] ?? array()),
+    array( 'width' => 'medium', 'style' => 'none' ) === ($globalThenColorOnlyLeftBorder['style']['border']['left'] ?? array()),
     'N6: substituted initial values still cancel a global border this mapper emits',
     json_encode($globalThenColorOnlyLeftBorder)
 );
