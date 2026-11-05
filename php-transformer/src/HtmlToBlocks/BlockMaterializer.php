@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationProvenanceState;
 
@@ -36,6 +37,12 @@ final class BlockMaterializer
             $this->recordStructureSignal($name, $sourceFacts, $provenance);
             $runtimeOwned = $this->runtimeIslands->recordBlockRuntimeDomContract($sourceFacts->sourceElement, $name);
             $runtimeAttributes = $this->runtimeIslands->runtimeAttributesCarriedBy($sourceFacts->sourceElement, $name);
+            // Capture presentation hooks survive independently of author runtime
+            // targeting. The render filter restores them on native block roots.
+            $deviceInline = CaptureEvidence::DEVICE_INLINE;
+            if ($sourceFacts->sourceElement->hasAttribute($deviceInline)) {
+                $runtimeAttributes[$deviceInline] = $sourceFacts->sourceElement->getAttribute($deviceInline);
+            }
             if ( array() !== $runtimeAttributes ) {
                 $attrs['metadata'][self::RUNTIME_ATTRIBUTES_KEY] = $runtimeAttributes;
             }
