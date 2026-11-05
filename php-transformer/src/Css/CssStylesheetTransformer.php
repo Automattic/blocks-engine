@@ -557,8 +557,11 @@ final class CssStylesheetTransformer
                         // Preserve that open-world complement with a negative set.
                         $negative = isset($routes[$baseOwner]);
                         $owners = array_keys($negative ? $outside : $routes);
-                        $class = $routeSetClass(array_map($routeClass, $owners));
-                        $scope = ':where(:root' . ($negative ? ':not(.' . $class . ')' : '.' . $class) . ')';
+                        $classes = array_map($routeClass, $owners);
+                        // Singleton sets already have a materialized identity.
+                        // Retain the compact legacy form for their complements too.
+                        $class = 1 === count($classes) ? $classes[0] : $routeSetClass($classes);
+                        $scope = ':where(:root' . ($negative ? ':not(.' . $class . ')' : (1 === count($classes) ? ':is(.' . $class . ')' : '.' . $class)) . ')';
                     } elseif (isset($routes[$baseOwner])) {
                         $scope = ':where(:root:not(' . implode(',', array_map(static fn ($owner): string => '.' . $routeClass($owner), array_keys($outside))) . '))';
                     } else {
@@ -579,9 +582,9 @@ final class CssStylesheetTransformer
                 $unit = $prototype;
                 if ('' !== $scope) {
                     $reason = null;
-                    $arms = null === $routeSetClass
+                    $arms = null === $routeSetClass || !str_contains($scope, '.be-rs-')
                         ? self::scopeRouteArms($arms, $scope, $reason, $parsedArms)
-                        : self::scopeRouteSubjects($arms, $scope);
+                        : self::scopeRouteSubjects($arms, $scope, $reason, $parsedArms);
                 }
                 $unit['text'] = $lead . implode(',', $arms) . $body;
                 $output[] = $unit;
@@ -717,7 +720,7 @@ final class CssStylesheetTransformer
     }
 
     /** @param list<string> $arms @return list<string> */
-    private static function scopeRouteSubjects(array $arms, string $scope): array
+    private static function scopeRouteSubjects(array $arms, string $scope, ?string &$reason, array &$parsedArms): array
     {
         // Test document membership on the subject, not on an assumed ancestor.
         // A class-led first compound can be either the root or a descendant;
@@ -728,6 +731,17 @@ final class CssStylesheetTransformer
         $guard = ':where(' . $root . ',' . $root . ' *)';
         foreach ($arms as &$arm) {
             $tokens = CssSelectorTokenizer::tokenize($arm);
+            $first = $tokens['compounds'][0];
+            // Definite root anchors can merge the scope (including inside a
+            // functional root arm); definite non-root types use an ancestor.
+            // Both forms retain prefix factoring across selector groups.
+            if (!preg_match('/^[*.#\[:]/', $first) || preg_match('/(?<![\w-])(?:html|:root)\b/i', $first)) {
+                $scoped = self::scopeRouteArms(array($arm), $scope, $reason, $parsedArms);
+                if (null !== $scoped) {
+                    $arm = implode(',', $scoped);
+                    continue;
+                }
+            }
             $last = count($tokens['compounds']) - 1;
             $span = $tokens['compound_spans'][$last];
             $pseudo = self::pseudoElementOffset($tokens['compounds'][$last]);
