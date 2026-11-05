@@ -12,6 +12,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProj
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Support\RenderEquivalentMarkup;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 use DOMDocument;
 use DOMElement;
 use DOMXPath;
@@ -56,9 +57,9 @@ final class RouteStateProjector
      * @param array<int, array<string, mixed>> $files
      * @return array{files:array<int, array<string, mixed>>}
      */
-    public function project(array $files): array
+    public function project(array $files, string $entryPath = ''): array
     {
-        $files = self::bindNavigationRuns(self::bindRetainedLabels($files));
+        $files = self::bindNavigationRuns(self::bindRetainedLabels($files, $entryPath));
         $files = self::bindCurrentNavigationSources($files);
         $files = self::withRestingChrome($files);
         foreach ($files as &$file) {
@@ -66,6 +67,18 @@ final class RouteStateProjector
                 continue;
             }
             $file['content'] = self::normalize($file['content'], true);
+            // Lowering can move inline paint to generated CSS classes. Carry
+            // sibling order explicitly so removing generated class hashes from
+            // shell identity cannot hide a genuine stacking reorder.
+            $identity = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ChromeStackingIdentity::normalize($file['content']);
+            preg_match_all('/<[^>]+style="[^"]*\bz-index\s*:\s*([+-]?\d+)[^"]*"[^>]*>/i', $identity, $stacking);
+            $position = 0;
+            $file['content'] = preg_replace_callback('/<[^>]+style="[^"]*\bz-index\s*:\s*([+-]?\d+)[^"]*"[^>]*>/i', static function (array $match) use ($stacking, &$position): string {
+                $rank = $stacking[1][$position++] ?? $match[1];
+                $class = 'be-stacking-order-' . str_replace('-', 'negative-', $rank);
+                if (preg_match('/\bclass="/', $match[0])) return preg_replace('/\bclass="/', 'class="' . $class . ' ', $match[0], 1) ?? $match[0];
+                return substr_replace($match[0], ' class="' . $class . '"', -1, 0);
+            }, $file['content']) ?? $file['content'];
         }
         unset($file);
 
@@ -121,11 +134,12 @@ final class RouteStateProjector
      * labels bind descendant inline paint, leaving anchor projection unchanged.
      * The binding travels with labelMarkup or navigation-link label HTML.
      */
-    private static function bindRetainedLabels(array $files): array
+    private static function bindRetainedLabels(array $files, string $entryPath): array
     {
         $documents = array();
         $groups = array();
         $menus = array();
+        $root = WordPressSitePlan::entryRootFromDocuments(array(array('entrypoint' => true, 'source_path' => $entryPath)));
         foreach ($files as $index => $file) {
             if ('html' !== ($file['kind'] ?? null) || !is_string($file['content'] ?? null) || !str_contains($file['content'], '<nav')) continue;
             $document = new DOMDocument('1.0', 'UTF-8');
@@ -151,7 +165,7 @@ final class RouteStateProjector
                 // must keep the same link text as well as structural ownership.
                 $href = trim($link->getAttribute('href'));
                 if ('' === $href || ArtifactPath::namesSection($href) || str_starts_with($href, '//') || preg_match('~^[a-z][a-z0-9+.-]*:~i', $href)) continue;
-                $target = str_starts_with($href, '/') ? ltrim(ArtifactPath::stripQueryAndFragment($href), '/') : ArtifactPath::resolveRelativePath($href, (string) ($file['path'] ?? ''));
+                $target = ArtifactPath::resolveRelativePath(ltrim($href, '/'), str_starts_with($href, '/') ? $entryPath : (string) ($file['path'] ?? ''));
                 $navigation = $link->parentNode;
                 while ($navigation instanceof DOMElement && 'nav' !== strtolower($navigation->tagName)) $navigation = $navigation->parentNode;
                 $menu = (string) $navigation->getNodePath();
@@ -224,7 +238,8 @@ final class RouteStateProjector
                         $binding['rest']['style'] = $serialize($canonical);
                         $binding['current']['style'] = $serialize($styles[array_search(true, array_column($rows, 'current'), true)]);
                         foreach ($rows as $i => $row) {
-                            $route = self::labelRoute((string) ($files[$row['index']]['path'] ?? ''));
+                            $path = (string) ($files[$row['index']]['path'] ?? '');
+                            $route = self::labelRoute(WordPressSitePlan::stripEntryRoot($path, $root));
                             $binding['routes'][$route]['style'] = $serialize($styles[$i]);
                         }
                         ksort($binding['routes'], SORT_STRING);

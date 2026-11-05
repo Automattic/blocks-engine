@@ -3338,7 +3338,7 @@ final class ShellExtraction
         // Block comments were canonicalized as JSON above; only the rendered HTML
         // between them is read as tags.
         $markup = implode('', array_map(static fn (string $piece): string => str_starts_with($piece, '<!--') ? $piece : RenderEquivalentMarkup::canonical($piece), preg_split('/(<!--.*?-->)/s', $markup, -1, PREG_SPLIT_DELIM_CAPTURE) ?: array($markup)));
-        return ShellLandmarkPolicy::withoutResponsiveCorrespondenceMarkup($markup);
+        return ChromeStackingIdentity::normalize(ShellLandmarkPolicy::withoutResponsiveCorrespondenceMarkup($markup));
     }
 
     /**

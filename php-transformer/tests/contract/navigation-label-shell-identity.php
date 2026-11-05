@@ -6,6 +6,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RouteStateProjector;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ChromeStackingIdentity;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\NavigationAnchorRuntime;
 
 $assert = static function (bool $condition, string $message): void { if (!$condition) throw new RuntimeException($message); };
@@ -18,6 +19,13 @@ $labelBlock = static fn(string $id, string $title = 'Home', string $url = '/'): 
 $assert(ShellExtraction::identityMarkup($labelBlock('id1793815975744')) === ShellExtraction::identityMarkup($labelBlock('id1793816196670')), 'Label HTML uses the same render-id normalization.');
 $assert(ShellExtraction::identityMarkup($labelBlock('id1793815975744')) !== ShellExtraction::identityMarkup($labelBlock('id1793815975744', 'Changed')), 'Real link labels retain identity.');
 $assert(ShellExtraction::identityMarkup($labelBlock('id1793815975744')) !== ShellExtraction::identityMarkup($labelBlock('id1793815975744', 'Home', '/changed/')), 'Real URLs retain identity.');
+$stack = static fn(string $a, string $b): string => '<div><span style="position:relative;z-index:' . $a . '">A</span><span style="position:relative;z-index:' . $b . '">B</span></div>';
+$assert(ChromeStackingIdentity::normalize($stack('1', '6')) === ChromeStackingIdentity::normalize($stack('2', '14')), 'Sibling rank ignores counter magnitude.');
+$assert(ChromeStackingIdentity::normalize($stack('1', '6')) !== ChromeStackingIdentity::normalize($stack('14', '2')), 'Sibling reorder retains identity.');
+$assert(ChromeStackingIdentity::normalize($stack('-6', '-1')) === ChromeStackingIdentity::normalize($stack('-14', '-2')), 'Negative sibling rank ignores magnitude too.');
+$assert(ChromeStackingIdentity::normalize($stack('-6', '-1')) !== ChromeStackingIdentity::normalize($stack('1', '6')), 'Sign classes remain distinct.');
+$assert(ChromeStackingIdentity::normalize($stack('0', '1')) !== ChromeStackingIdentity::normalize($stack('1', '6')), 'Zero remains distinct from positive.');
+$assert(ChromeStackingIdentity::normalize($stack('2', '2')) !== ChromeStackingIdentity::normalize($stack('2', '14')), 'Stacking ties remain distinct from ordered peers.');
 $files = array();
 foreach (array('index.html' => '/', 'services/index.html' => '/services/', 'blog/index.html' => '/blog/') as $path => $current) {
     $items = '';
@@ -48,7 +56,31 @@ $projected = (new RouteStateProjector())->project($files)['files'];
 foreach ($projected as $file) {
     $assert(str_contains($file['content'], 'data-blocks-engine-route-state'), 'Inline current paint is bound to route state.');
 }
-$plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toWordPressSitePlanView()['wordpress_site_plan'];
+// The DLA layout places the site under the entrypoint directory. Root-absolute
+// hrefs and route-state replay must still name the public routes, not /website.
+$rooted = $files;
+foreach ($rooted as $index => &$file) {
+    $file['path'] = 'website/' . $file['path'];
+    [$first, $second, $cta, $mobile] = array(array(1, 2, 6, 12), array(1, 2, 6, 9), array(2, 9, 14, 10))[$index];
+    $file['content'] = str_replace('</nav>', '</nav><div class="stacking"><div style="position:relative;z-index:' . $first . '">Brand</div><div style="position:relative;z-index:' . $second . '">Phone</div><div class="skin-button-element" data-element-id="id1747787815319"><!-- placeholder --></div></div><div class="mobile"><div style="position:relative;z-index:' . $mobile . '">Mobile CTA</div></div>', $file['content']);
+    // The CTA and its stacking peers share a parent, including the CTA box.
+    $file['content'] = str_replace('<div class="skin-button-element" data-element-id="id1747787815319"><!-- placeholder --></div>', '<div class="skin-button-element element-main-box" data-element-id="id1747787815319" style="position:relative;z-index:' . $cta . '">Contact us</div>', $file['content']);
+}
+unset($file);
+$rootedProjection = (new RouteStateProjector())->project($rooted, 'website/index.html')['files'];
+foreach ($rootedProjection as $file) $assert(str_contains($file['content'], 'data-blocks-engine-route-state'), 'Root-absolute self targets infer state under the artifact site root.');
+$assert(str_contains($rootedProjection[0]['content'], 'z-index:6'), 'Identity annotations leave representative CTA paint untouched.');
+$assert(str_contains($rootedProjection[2]['content'], 'z-index:14'), 'Identity annotations leave every source counter untouched.');
+$plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => $rooted))->toWordPressSitePlanView()['wordpress_site_plan'];
+$swapped = $rooted[2];
+$swapped['path'] = 'website/swapped/index.html';
+$swapped['content'] = str_replace(array(';border-width:0px 0px 4px', 'border-radius:0px;'), '', $swapped['content']);
+$swapped['content'] = str_replace(array('z-index:2"', 'z-index:14"'), array('z-index:20"', 'z-index:3"'), $swapped['content']);
+$swappedPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => array_merge($rooted, array($swapped))))->toWordPressSitePlanView()['wordpress_site_plan'];
+$swappedHeaders = array_values(array_filter($swappedPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
+$assert(1 === count($swappedHeaders), 'Counter magnitudes share one header even alongside a reordered route.');
+$assert(!in_array($swapped['path'], $swappedHeaders[0]['placement']['source_paths'], true), 'Swapped stacking order is excluded.');
+foreach ($swappedPlan['pages'] as $page) $assert(($page['source_path'] === $swapped['path']) === str_contains($page['canonical_block_markup'], '<header'), 'Only the swapped route keeps its header.');
 $bootstrap = current(array_filter($plan['writes'], static fn(array $write): bool => 'functions.php' === $write['target_path']));
 $assert(str_contains($bootstrap['payload']['data'], NavigationAnchorRuntime::retainedLabelSource()), 'Menu-only route bindings install the rendering filter.');
 $headers = array_values(array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));

@@ -282,7 +282,7 @@ final class ArtifactCompiler
         $selectableSets = (new CapturedSelectableSetProjector())->project($collections['files'], $collections['consumed_selectable_bindings'] ?? array());
         $choiceGroups = (new CapturedChoiceGroupProjector())->project($selectableSets['files']);
         $scrollStates = (new ScrollStateProjector())->project($choiceGroups['files']);
-        $normalized['files'] = (new RouteStateProjector())->project($scrollStates['files'])['files'];
+        $normalized['files'] = (new RouteStateProjector())->project($scrollStates['files'], $normalized['entrypoints'][0] ?? '')['files'];
         return $this->finalizeArtifact($artifact, array(
             'normalized' => $normalized,
             'inline_compilation' => true,
@@ -3815,7 +3815,7 @@ final class ArtifactCompiler
             };
             $walk($body);
             foreach ($rows as &$areaRows) foreach ($areaRows as &$row) {
-                $row['source_identity'] = 'markup:' . hash('sha256', $row['identity']);
+                $row['source_identity'] = 'markup:' . hash('sha256', \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ChromeStackingIdentity::normalize($row['identity']));
                 foreach ($file['metadata']['compilation']['html_include_sources'] ?? array() as $path => $fragment) {
                     if (self::normalizeSourceShellIdentity($fragment) === $row['identity']) {
                         $row['source_identity'] = 'include:' . $path . ':' . hash('sha256', $row['identity']);
