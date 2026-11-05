@@ -1187,24 +1187,24 @@ final class ShellExtraction
             $anchor = is_array($attrs) && is_string($attrs['anchor'] ?? null) ? $attrs['anchor'] : '';
             $variantScopeClasses = array();
             $scopeClassNames = array($className);
+            $variantScopeShells = array();
             foreach ((array) ($attrs['wrappers'] ?? array()) as $wrapper) {
                 if (!is_array($wrapper)) continue;
                 $wa = is_array($wrapper['attributes'] ?? null) ? $wrapper['attributes'] : array();
                 $scopeClassNames[] = (string) ($wa['class'] ?? '');
-                if (isset($wa[CaptureEvidence::DEVICE_ONLY])) $scopeClassNames[] = 'site-document-variant-' . $wa[CaptureEvidence::DEVICE_ONLY];
-                if (isset($wa[CaptureEvidence::DEVICE_HIDE])) $scopeClassNames[] = CaptureEvidence::DESKTOP_DOCUMENT_CLASS;
+                // A nested device-only subtree and its device-hidden sibling are
+                // the two device variants of one landmark. Their wrapper is the
+                // gate the capture's visibility CSS selects, so it is the shell.
+                $scope = isset($wa[CaptureEvidence::DEVICE_ONLY]) ? 'site-document-variant-' . $wa[CaptureEvidence::DEVICE_ONLY] : (isset($wa[CaptureEvidence::DEVICE_HIDE]) ? CaptureEvidence::DESKTOP_DOCUMENT_CLASS : null);
+                if (null === $scope) continue;
+                $scopeClassNames[] = $scope;
+                if (str_ends_with($name, '/layout-shell')) $variantScopeShells[$scope] = array('block' => $name, 'wrapper' => array('tagName' => is_string($wrapper['tagName'] ?? null) ? $wrapper['tagName'] : 'div', 'attributes' => array_intersect_key($wa, array_flip(array('class', CaptureEvidence::DEVICE_ONLY, CaptureEvidence::DEVICE_HIDE)))));
             }
             foreach ($scopeClassNames as $scopeClassName) {
                 $scopeClasses = array_values(array_filter(preg_split('/\s+/', trim($scopeClassName)) ?: array()));
                 foreach ($scopeClasses as $scopeClass) {
                     if (self::isResponsiveVariantClass($scopeClass)) $variantScopeClasses[$scopeClass] = $scopeClasses;
                 }
-            }
-            $variantScopeShells = array();
-            if (str_ends_with($name, '/layout-shell')) foreach ((array) ($attrs['wrappers'] ?? array()) as $wrapper) {
-                $wa = is_array($wrapper) && is_array($wrapper['attributes'] ?? null) ? $wrapper['attributes'] : array();
-                $scope = isset($wa[CaptureEvidence::DEVICE_ONLY]) ? 'site-document-variant-' . $wa[CaptureEvidence::DEVICE_ONLY] : (isset($wa[CaptureEvidence::DEVICE_HIDE]) ? CaptureEvidence::DESKTOP_DOCUMENT_CLASS : null);
-                if (null !== $scope) $variantScopeShells[$scope] = array('block' => $name, 'wrapper' => array('tagName' => is_string($wrapper['tagName'] ?? null) ? $wrapper['tagName'] : 'div', 'attributes' => array_intersect_key($wa, array_flip(array('class', CaptureEvidence::DEVICE_ONLY, CaptureEvidence::DEVICE_HIDE)))));
             }
             foreach (array_keys($variantScopeClasses) as $scopeClass) {
                 if (isset($variantScopeShells[$scopeClass])) continue;
@@ -3105,7 +3105,7 @@ final class ShellExtraction
         foreach ((array) ($attrs['wrappers'] ?? array()) as $wrapper) {
             $attributes = is_array($wrapper) && is_array($wrapper['attributes'] ?? null) ? $wrapper['attributes'] : array();
             if (!in_array($scopeClass, preg_split('/\s+/', trim((string) ($attributes['class'] ?? ''))) ?: array(), true)) continue;
-            $kept = array_intersect_key($attributes, array_flip(array('class', EngineMarker::DEVICE_SCOPE_ATTRIBUTE, CaptureEvidence::DEVICE_DOCUMENT, CaptureEvidence::DEVICE_ONLY, CaptureEvidence::DEVICE_HIDE)));
+            $kept = array_intersect_key($attributes, array_flip(array('class', EngineMarker::DEVICE_SCOPE_ATTRIBUTE, CaptureEvidence::DEVICE_DOCUMENT)));
             if (!isset($kept[EngineMarker::DEVICE_SCOPE_ATTRIBUTE]) && !isset($kept[CaptureEvidence::DEVICE_DOCUMENT])) return null;
             return array('block' => $blockName, 'wrapper' => array('tagName' => is_string($wrapper['tagName'] ?? null) ? $wrapper['tagName'] : 'div', 'attributes' => $kept));
         }
