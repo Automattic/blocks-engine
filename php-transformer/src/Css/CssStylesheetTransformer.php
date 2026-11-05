@@ -398,9 +398,9 @@ final class CssStylesheetTransformer
             return $keys[$id] = serialize(array($unit['context'], $selector ? substr($rule, $brace) : $normal($unit)));
         };
         $value = static fn (array $unit): string => serialize(array($unit['context'], $normal($unit)));
-        $positions = $baseDefinitions = $defined = $baseValues = array();
+        $baseDefinitions = $defined = $baseValues = array();
+        $baseKeys = array_map($key, $base);
         foreach ($base as $i => $unit) {
-            $positions[$key($unit)][] = $i;
             $baseDefinitions[$i] = $this->routeIndependentDefinition($unit);
             if (null === $baseDefinitions[$i]) continue;
             $defined[$baseDefinitions[$i]][$value($unit)] = true;
@@ -442,11 +442,10 @@ final class CssStylesheetTransformer
             }
             $cursor = 0;
             $localChanges = $localInsertions = $localSite = array();
-            foreach ($units as $unit) {
-                $match = null;
-                foreach ($positions[$key($unit)] ?? array() as $position) {
-                    if ($position >= $cursor) { $match = $position; break; }
-                }
+            $matches = array();
+            self::alignKeys(array_map($key, $units), $baseKeys, 0, count($units), 0, count($baseKeys), $matches);
+            foreach ($units as $j => $unit) {
+                $match = $matches[$j] ?? null;
                 if (null === $match) {
                     if (null !== $this->routeIndependentDefinition($unit)) $localSite[$cursor][] = $unit;
                     else $localInsertions[$cursor][] = $unit;
@@ -637,6 +636,64 @@ final class CssStylesheetTransformer
      * @param list<array{context:list<string>,text:string,dedupable:bool}> $units
      * @return list<array{context:list<string>,text:string,dedupable:bool}>
      */
+    /**
+     * Align a route's unit keys with the shared ones by patience diff: match the
+     * common prefix and suffix, anchor on the longest ordered run of keys unique
+     * to both windows, and recurse between anchors. A key repeated later in the
+     * shared sheet can no longer pull every intervening unit out of alignment.
+     *
+     * @param list<string>     $route
+     * @param list<string>     $base
+     * @param array<int, int>  $matches Route index => shared index.
+     */
+    private static function alignKeys(array $route, array $base, int $from, int $to, int $baseFrom, int $baseTo, array &$matches): void
+    {
+        while ($from < $to && $baseFrom < $baseTo && $route[$from] === $base[$baseFrom]) $matches[$from++] = $baseFrom++;
+        while ($from < $to && $baseFrom < $baseTo && $route[$to - 1] === $base[$baseTo - 1]) $matches[--$to] = --$baseTo;
+        if ($from >= $to || $baseFrom >= $baseTo) return;
+        $routeCounts = $baseCounts = $basePositions = array();
+        for ($j = $from; $j < $to; $j++) $routeCounts[$route[$j]] = ($routeCounts[$route[$j]] ?? 0) + 1;
+        for ($i = $baseFrom; $i < $baseTo; $i++) {
+            $baseCounts[$base[$i]] = ($baseCounts[$base[$i]] ?? 0) + 1;
+            $basePositions[$base[$i]] = $i;
+        }
+        $anchors = array();
+        for ($j = $from; $j < $to; $j++) {
+            if (1 === $routeCounts[$route[$j]] && 1 === ($baseCounts[$route[$j]] ?? 0)) $anchors[] = array($j, $basePositions[$route[$j]]);
+        }
+        if (!$anchors) {
+            $cursor = $baseFrom;
+            for ($j = $from; $j < $to; $j++) {
+                for ($i = $cursor; $i < $baseTo; $i++) {
+                    if ($route[$j] === $base[$i]) { $matches[$j] = $i; $cursor = $i + 1; break; }
+                }
+            }
+            return;
+        }
+        // Longest increasing run of shared positions (patience sorting).
+        $tails = $previous = array();
+        foreach ($anchors as $a => [, $position]) {
+            $low = 0;
+            $high = count($tails);
+            while ($low < $high) {
+                $middle = ($low + $high) >> 1;
+                if ($anchors[$tails[$middle]][1] < $position) $low = $middle + 1;
+                else $high = $middle;
+            }
+            $previous[$a] = $low > 0 ? $tails[$low - 1] : -1;
+            $tails[$low] = $a;
+        }
+        $chain = array();
+        for ($a = (int) end($tails); $a >= 0; $a = $previous[$a]) $chain[] = $anchors[$a];
+        foreach (array_reverse($chain) as [$j, $i]) {
+            self::alignKeys($route, $base, $from, $j, $baseFrom, $i, $matches);
+            $matches[$j] = $i;
+            $from = $j + 1;
+            $baseFrom = $i + 1;
+        }
+        self::alignKeys($route, $base, $from, $to, $baseFrom, $baseTo, $matches);
+    }
+
     private static function withoutIgnoredImports(array $units): array
     {
         $top = true;

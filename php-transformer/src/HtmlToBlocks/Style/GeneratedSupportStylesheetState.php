@@ -45,6 +45,9 @@ final class GeneratedSupportStylesheetState
     private array $syntheticHeaderAnchorRules = array();
 
     /** @var array<string, string> */
+    private array $videoSizeHintRules = array();
+
+    /** @var array<string, string> */
     private array $headerRichTextRules = array();
 
     /** @var array<string, string> */
@@ -179,6 +182,11 @@ final class GeneratedSupportStylesheetState
     public function registerNativeNavigationOverlay(string $marker, string $rule): void
     {
         $this->nativeNavigationOverlayRules[$marker] = $rule;
+    }
+
+    public function registerVideoSizeHint(string $className, string $rule): void
+    {
+        $this->videoSizeHintRules[$className] = $rule;
     }
 
     public function registerSyntheticHeaderAnchor(string $className, string $rule): void
@@ -527,6 +535,11 @@ final class GeneratedSupportStylesheetState
         foreach ($this->buttonWrapperSpacing as $className => $declarations) {
             if (str_contains($serializedBlocks, $className)) {
                 $parts[] = '.wp-block-buttons.' . $className . '{' . $declarations . '}';
+            }
+        }
+        foreach ($this->videoSizeHintRules as $className => $rule) {
+            if (str_contains($serializedBlocks, $className)) {
+                $parts[] = $rule;
             }
         }
         foreach ($this->syntheticHeaderAnchorRules as $className => $rule) {

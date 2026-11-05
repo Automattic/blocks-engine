@@ -100,6 +100,57 @@ $assert(
     json_encode($headingStyles($conditionalCalculation, 'h2'))
 );
 
+// Live Tailwind repro: promoting either base declaration would override the
+// utilities on h3 and change 36px/400 back to 30px/800 at every viewport.
+$css = '@layer base{h1,h2,h3{line-height:1;font-weight:800}}'
+    . '@layer utilities{.text-3xl{font-size:30px;line-height:1.2}.font-normal{font-weight:400}}';
+$reduced = $project(array($cssAsset($css)));
+foreach (array('h1', 'h2', 'h3') as $tag) {
+    $assert(!isset($headingStyles($reduced, $tag)['lineHeight']), $tag . ' contested line-height stays source-owned');
+    $assert(!isset($headingStyles($reduced, $tag)['fontWeight']), $tag . ' contested weight stays source-owned');
+}
+$assert($reduced['assets'][0]['content'] === $css, 'the complete layered source remains intact');
+
+// Each property written by projection participates, independent of value
+// representability, selector specificity, or conditional activation.
+foreach (array(
+    'line-height' => '1', 'font-weight' => '800', 'letter-spacing' => '-.02em',
+    'font-family' => 'Georgia', 'font-size' => '32px', 'font-style' => 'italic',
+    'text-transform' => 'uppercase', 'color' => 'red', 'background-color' => 'red',
+    'padding' => '10px', 'margin' => '10px', 'gap' => '10px', 'max-width' => '960px',
+) as $property => $value) {
+    $tag = 'max-width' === $property ? 'main' : 'body';
+    $base = '@layer base{' . $tag . '{' . $property . ':' . $value . '}}';
+    $plain = $project(array($cssAsset($base)));
+    $assert(1 === count($plain['provenance']), $property . ' uncontested default projects');
+    $contested = $project(array($cssAsset($base . '@layer utilities{@media(min-width:390px){.utility{' . $property . ':var(--other)}}}')));
+    $assert(array() === $contested['provenance'], $property . ' conditional utility contests the default');
+}
+
+foreach (array('font', 'all') as $shorthand) {
+    $result = $project(array($cssAsset('@layer base{h3{line-height:1;font-weight:800;font-family:Georgia}}@layer utilities{.utility{' . $shorthand . ':initial}}')));
+    $assert(array() === $result['provenance'], $shorthand . ' contests its projected longhands');
+}
+$background = $project(array($cssAsset('@layer base{h3{background-color:red}}@layer utilities{.utility{background:blue}}')));
+$assert(array() === $background['provenance'], 'background shorthand contests background-color');
+
+// Registration, not block order, determines rank; unrelated subject types
+// should not suppress an editable heading default.
+foreach (array(
+    '@layer utilities,base;@layer base{h3{line-height:1}}@layer utilities{.utility{line-height:2}}',
+    '@layer base{h3{line-height:1}}@layer utilities{p.utility{line-height:2}}',
+    '@layer base{h3{line-height:1}}@layer utilities{h3 p{line-height:2}}',
+) as $uncontestedCss) {
+    $result = $project(array($cssAsset($uncontestedCss)));
+    $assert('1' === ($headingStyles($result, 'h3')['lineHeight'] ?? null), 'lower layers and unrelated subjects leave heading editable');
+}
+foreach (array('h3.utility', 'p h3', ':is(h3,.utility)', '[data-heading]', '*') as $selector) {
+    $result = $project(array($cssAsset('@layer base,utilities;@layer utilities{' . $selector . '{line-height:2}}@layer base{h3{line-height:1}}')));
+    $assert(!isset($headingStyles($result, 'h3')['lineHeight']), $selector . ' may contest a heading');
+}
+$crossAsset = $project(array($cssAsset('@layer base,utilities;@layer base{h3{line-height:1}}'), $cssAsset('@layer utilities{.utility{line-height:2}}')));
+$assert(!isset($headingStyles($crossAsset, 'h3')['lineHeight']), 'contenders are indexed across stylesheets');
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "theme.json layered deferral projection: {$failures} failed, {$passes} passed\n");
     exit(1);
