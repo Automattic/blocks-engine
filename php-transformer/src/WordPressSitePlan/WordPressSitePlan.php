@@ -6349,8 +6349,10 @@ PHP;
         }
         // Keep the source landmark intact. The marked Core transport contributes
         // no layout box on the frontend; the editor retains its selection box.
+        // Synthetic landmarks likewise must not replace source flex/grid items.
+        // Authored landmark boxes remain intact.
         if (array() !== $parts) {
-            $transportCss = ':where(body:not(.editor-styles-wrapper):not(.wp-admin)) :where(.blocks-engine-shell-transport){display:contents}';
+            $transportCss = ':where(body:not(.editor-styles-wrapper):not(.wp-admin)) :where(.blocks-engine-shell-transport){display:contents}:where(body:not(.editor-styles-wrapper):not(.wp-admin)) :where(.blocks-engine-shell-landmark){display:contents}';
             $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_style( 'blocks-engine-shell-transport', false, array(), null ); wp_enqueue_style( 'blocks-engine-shell-transport' ); wp_add_inline_style( 'blocks-engine-shell-transport', " . var_export($transportCss, true) . " ); } );";
         }
         // A page's layout frame sits in its template around post-content. Core's
@@ -6437,6 +6439,12 @@ PHP;
             $lines[] = "    return preg_replace( '/(<a\\b[^>]*\\bclass=\"[^\"]*\\bwp-block-navigation-item__content\\b[^\"]*\")/', '\$1 aria-current=\"page\"', \$content, 1 ) ?? \$content;";
             $lines[] = "}, 10, 2 );";
             }
+        }
+        foreach (array_merge($templates, $parts, $pages) as $document) {
+            if (!str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), CaptureEvidence::VIEWPORT_ENTRANCE)) continue;
+            $entranceScript = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ViewportEntranceRuntime::script();
+            $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_script( 'blocks-engine-viewport-entrances', false, array(), null, true ); wp_enqueue_script( 'blocks-engine-viewport-entrances' ); wp_add_inline_script( 'blocks-engine-viewport-entrances', " . var_export($entranceScript, true) . " ); } );";
+            break;
         }
         $breadcrumbLabels = BreadcrumbLabelRuntime::labels(array_merge($templates, $parts, $pages), $pages);
         $breadcrumbPostTrails = BreadcrumbLabelRuntime::postTrails($pages);

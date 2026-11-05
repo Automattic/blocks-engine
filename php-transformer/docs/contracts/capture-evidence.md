@@ -69,6 +69,8 @@ Two audiences read this vocabulary:
 | ---- | ---- | ----- | ------- |
 | `data-blocks-engine-capture-document-scope` | attribute (flag) | ignored | The element is a body-equivalent document root. With `device-document` it declares a device profile. |
 | `data-blocks-engine-capture-device-document` | attribute | `[a-z][a-z0-9_-]{0,63}` | Profile id of a declared document scope. |
+| `data-blocks-engine-capture-device-only` | attribute | device profile id (for example `mobile`) | Folded device-specific subtree, rather than a separate document. Its host, attributes and classes survive compilation so capture visibility CSS can select it. |
+| `data-blocks-engine-capture-device-hide` | attribute | device profile id (for example `mobile`) | Subtree hidden on this device profile by capture visibility CSS; preserved on its emitted host like `device-only`. |
 | `data-blocks-engine-capture-device-visibility` | attribute (flag) on `<style>` | ignored | Capture runtime device-selection gates. Excluded whole from author presentation analysis so selected-device chrome cannot acquire a frozen hide gate. |
 | `data-blocks-engine-capture-mobile-document` | class | — | Root of the mobile copy of a responsive capture. |
 | `data-blocks-engine-capture-desktop-document` | class | — | Root of the desktop (default) copy of a responsive capture. |
@@ -176,7 +178,7 @@ See [Native control state](../native-control-state.md).
 | `data-blocks-engine-capture-glyph-color` | attribute | `#rrggbb` (any case) | Rendered glyph colour of an icon; read and removed. See [Social icon glyph colour](../glyph-color.md). |
 | `data-blocks-engine-capture-anchor-unresolved` | attribute | text | An anchor the capture could not resolve; ignored when comparing render-equivalent markup. |
 | `data-blocks-engine-capture-anchor-target` | attribute | fragment | On an empty placeholder: the fragment a route's link scrolls to. Inside route chrome it moves to just before the chrome landmark, so it stays with that route rather than the shared part. |
-| `data-blocks-engine-capture-viewport-entrance` | attribute | JSON | Recorded entrance states of an element the source reveals as it scrolls into view; layout shells carrying it are labelled "Scroll reveal". Shared source-shell identity ignores this evidence and attributes matching its recorded `after` states. The emitted shared part prefers a member with observed entrance evidence and retains it for replay. |
+| `data-blocks-engine-capture-viewport-entrance` | attribute | JSON | Recorded entrance states of an element the source reveals as it scrolls into view; layout shells carrying it are labelled "Scroll reveal". Shared source-shell identity ignores this evidence and attributes matching its recorded `after` states. The emitted shared part prefers a member with observed entrance evidence and retains it for replay. Native leaf blocks carry the evidence in render metadata so their saved markup remains Gutenberg-valid. One engine-owned front-end runtime replays the capture activator's attribute poses, observer options and repeat semantics; it is not loaded in the editor. Saved markup stays in its final state without JavaScript, with reduced motion, or without IntersectionObserver. |
 | `data-blocks-engine-capture-viewport-entrances` | attribute | presence | Marks the capture's own entrance activator `<script>`. It addresses entrance evidence, not source behavior, so runtime-selector analysis excludes it. |
 
 ### Component replay

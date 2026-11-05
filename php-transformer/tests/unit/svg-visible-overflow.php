@@ -3,6 +3,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticCssCascade;
 
 $source = file_get_contents(dirname(__DIR__) . '/fixtures/svg-overflow.html');
 $check = static function (bool $ok, string $message): void {
@@ -55,6 +56,32 @@ foreach (array(-25.48008, -13.92505, 248.444535, 65.48008) as $i => $expected) {
 $check(str_contains($css, 'width:248.4445px;height:65.4801px;left:-25.4801px;top:-13.9251px'), 'linked SVG painted size and offset');
 $check(str_contains($css, 'width:197.48px;height:37.63px;overflow:visible'), 'linked SVG retains ancestor-sized layout box');
 $check(str_contains(json_encode($out), 'wp:image') && str_contains(json_encode($out), 'Get in touch'), 'linked SVG remains editable beside its label');
+// Resolve the served cascade, with engine support before the linked author
+// sheet. Merely finding expanded dimensions in the carrier misses a later
+// width:100%;height:100%;max-width:100% shrinking the painted image again.
+$dom = new DOMDocument();
+$dom->loadHTML($out['serialized_blocks']);
+$figure = $dom->getElementsByTagName('figure')->item(0);
+$image = $figure->getElementsByTagName('img')->item(0);
+$cascade = new StaticCssCascade($dom, $css);
+$box = $cascade->resolve($figure, array('position', 'width', 'height'), array());
+$check($box['position'] === 'relative' && $box['width'] === '197.48px' && $box['height'] === '37.63px', 'figure retains original containing box');
+// Check both core/image save forms: direct media and linked media.
+foreach (array(false, true) as $linked) {
+    if ($linked) {
+        $anchor = $dom->createElement('a');
+        $anchor->setAttribute('href', '/contact');
+        $figure->replaceChild($anchor, $image);
+        $anchor->appendChild($image);
+    }
+    $effective = (new StaticCssCascade($dom, $css))->resolve($image, array('position', 'width', 'height', 'max-width', 'max-height', 'left', 'top', 'margin'), array());
+    $check(($effective['position'] ?? '') === 'absolute', 'painted image is positioned relative to figure');
+    foreach (array('width' => 248.4445, 'height' => 65.4801, 'left' => -25.4801, 'top' => -13.9251) as $property => $expected) {
+        $value = $effective[$property] ?? '';
+        $check(str_ends_with($value, 'px') && abs((float) $value - $expected) < 0.0001, 'effective ' . ($linked ? 'linked ' : '') . 'image ' . $property . ': expected ' . $expected . 'px, got ' . $value);
+    }
+    $check($effective['max-width'] === 'none' && $effective['max-height'] === 'none' && $effective['margin'] === '0', 'painted image is not clamped or displaced by margins');
+}
 $files['_assets/style.css'] = str_replace('overflow:visible', 'overflow:hidden', $files['_assets/style.css']);
 $hiddenOut = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray();
 foreach ($hiddenOut['assets'] ?? array() as $asset) {

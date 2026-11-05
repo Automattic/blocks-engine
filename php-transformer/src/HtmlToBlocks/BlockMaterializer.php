@@ -39,9 +39,10 @@ final class BlockMaterializer
             $runtimeAttributes = $this->runtimeIslands->runtimeAttributesCarriedBy($sourceFacts->sourceElement, $name);
             // Capture presentation hooks survive independently of author runtime
             // targeting. The render filter restores them on native block roots.
-            $deviceInline = CaptureEvidence::DEVICE_INLINE;
-            if ($sourceFacts->sourceElement->hasAttribute($deviceInline)) {
-                $runtimeAttributes[$deviceInline] = $sourceFacts->sourceElement->getAttribute($deviceInline);
+            foreach (array(CaptureEvidence::DEVICE_INLINE, CaptureEvidence::VIEWPORT_ENTRANCE) as $evidenceAttribute) {
+                if ($sourceFacts->sourceElement->hasAttribute($evidenceAttribute)) {
+                    $runtimeAttributes[$evidenceAttribute] = $sourceFacts->sourceElement->getAttribute($evidenceAttribute);
+                }
             }
             if ( array() !== $runtimeAttributes ) {
                 $attrs['metadata'][self::RUNTIME_ATTRIBUTES_KEY] = $runtimeAttributes;

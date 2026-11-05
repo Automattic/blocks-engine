@@ -15,6 +15,18 @@ $block = static function (string $id): string {
 };
 $assert(ShellExtraction::identityMarkup($block('id1793815975744')) === ShellExtraction::identityMarkup($block('id1793816196670')), 'Render ids in nested block metadata and anchors do not split identity.');
 $assert(ShellExtraction::identityMarkup($block('authored-one')) !== ShellExtraction::identityMarkup($block('authored-two')), 'Authored ids retain identity.');
+$reactHeader = static function (string $a, string $b): array {
+    $files = array();
+    foreach (array('index.html' => 'Home', 'about/index.html' => 'About', 'contact/index.html' => 'Contact') as $path => $title) {
+        [$x, $y] = 'about/index.html' === $path ? array($b, $a) : array($a, $b);
+        $files[] = array('path' => $path, 'kind' => 'html', 'content' => '<!doctype html><html><head><title>' . $title . '</title></head><body><header><a href="/">Brand</a><nav aria-label="Main"><ul><li><a href="/about/">About</a></li><li><button id="radix-' . $x . '-trigger-radix-' . $y . '" aria-expanded="false" aria-controls="radix-' . $x . '-content-radix-' . $y . '">More</button></li><li><a href="/contact/">Contact</a></li></ul></nav></header><main><h1>' . $title . '</h1><p>Content.</p></main><footer><p>Footer</p></footer></body></html>');
+    }
+    return (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toWordPressSitePlanView()['wordpress_site_plan'];
+};
+$headers = static fn(array $plan): int => count(array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
+foreach (array(array('_r_1_', '_r_2_', 1), array(':r1:', ':r2:', 1), array('«r1»', '«r2»', 1), array('authored-a', 'authored-b', 1)) as [$a, $b, $expected]) {
+    $assert($expected === $headers($reactHeader($a, $b)), "Header ids {$a}/{$b} yield {$expected} header part(s).");
+}
 $labelBlock = static fn(string $id, string $title = 'Home', string $url = '/'): string => '<!-- wp:navigation-link ' . json_encode(array('label' => '<span id="' . $id . '" data-element-id="' . $id . '">' . $title . '</span>', 'url' => $url)) . ' /-->';
 $assert(ShellExtraction::identityMarkup($labelBlock('id1793815975744')) === ShellExtraction::identityMarkup($labelBlock('id1793816196670')), 'Label HTML uses the same render-id normalization.');
 $assert(ShellExtraction::identityMarkup($labelBlock('id1793815975744')) !== ShellExtraction::identityMarkup($labelBlock('id1793815975744', 'Changed')), 'Real link labels retain identity.');

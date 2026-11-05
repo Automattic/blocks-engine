@@ -45,6 +45,9 @@ final class GeneratedSupportStylesheetState
     private array $syntheticHeaderAnchorRules = array();
 
     /** @var array<string, string> */
+    private array $videoSizeHintRules = array();
+
+    /** @var array<string, string> */
     private array $headerRichTextRules = array();
 
     /** @var array<string, string> */
@@ -61,6 +64,25 @@ final class GeneratedSupportStylesheetState
 
     /** @var array<string, string> */
     private array $navigationAnchorLineHeights = array();
+
+    /** @var array<string, string> Editor-only inheritance across omitted label boxes. */
+    private array $navigationEditorTypography = array();
+
+    public function registerNavigationEditorTypography(string $marker, string $declarations): void
+    {
+        $this->navigationEditorTypography[$marker] = $declarations;
+    }
+
+    /** @return list<string> */
+    public function navigationEditorTypographyRules(): array
+    {
+        $rules = array();
+        foreach ($this->navigationEditorTypography as $marker => $declarations) {
+            $rules[] = '.wp-block-navigation .wp-block-navigation-item.' . $marker
+                . ' .wp-block-navigation-item__content{' . $declarations . '}';
+        }
+        return $rules;
+    }
 
     /** @var array<string, string> */
     private array $navigationLinkIcons = array();
@@ -160,6 +182,11 @@ final class GeneratedSupportStylesheetState
     public function registerNativeNavigationOverlay(string $marker, string $rule): void
     {
         $this->nativeNavigationOverlayRules[$marker] = $rule;
+    }
+
+    public function registerVideoSizeHint(string $className, string $rule): void
+    {
+        $this->videoSizeHintRules[$className] = $rule;
     }
 
     public function registerSyntheticHeaderAnchor(string $className, string $rule): void
@@ -508,6 +535,11 @@ final class GeneratedSupportStylesheetState
         foreach ($this->buttonWrapperSpacing as $className => $declarations) {
             if (str_contains($serializedBlocks, $className)) {
                 $parts[] = '.wp-block-buttons.' . $className . '{' . $declarations . '}';
+            }
+        }
+        foreach ($this->videoSizeHintRules as $className => $rule) {
+            if (str_contains($serializedBlocks, $className)) {
+                $parts[] = $rule;
             }
         }
         foreach ($this->syntheticHeaderAnchorRules as $className => $rule) {

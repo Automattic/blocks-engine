@@ -36,7 +36,12 @@ final class CaptureEvidence
     /** Profile identifier (`[a-z][a-z0-9_-]{0,63}`) of a declared document scope. */
     public const DEVICE_DOCUMENT = 'data-blocks-engine-capture-device-document';
 
-    /** Capture runtime stylesheet selecting which device document is shown. */
+    /** Device profile whose folded subtree this element represents. */
+    public const DEVICE_ONLY = 'data-blocks-engine-capture-device-only';
+    /** Device profile on which this element's subtree is hidden. */
+    public const DEVICE_HIDE = 'data-blocks-engine-capture-device-hide';
+
+    /** Capture runtime stylesheet selecting which device document or subtree is shown. */
     public const DEVICE_VISIBILITY = 'data-blocks-engine-capture-device-visibility';
     /** Class on the root of the mobile copy of a responsive capture. */
     public const MOBILE_DOCUMENT_CLASS = 'data-blocks-engine-capture-mobile-document';

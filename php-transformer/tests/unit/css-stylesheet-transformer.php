@@ -339,6 +339,15 @@ foreach (array(
     $assert(array() === $result['reasons'] && in_array('b', $result['scoped'], true), 'a commented-out rule in a group does not block route scoping');
 }
 
+// A route rule whose body repeats a late shared rule must not pull the rest
+// of the route out of alignment: only the extra rule is route scoped.
+$base = '.a{color:red}.b{color:blue}.c{margin:0}.z{padding:1px}';
+$result = $transformer->scopeRouteVariants(array($base), array(
+    'a' => array($base),
+    'b' => array('.extra{padding:1px}' . $base),
+), array(), null, array(), null, array('a' => 'be-r-a', 'b' => 'be-r-b'));
+$assert(str_ends_with($result['stylesheet'], '{padding:1px}' . $base) && !str_contains($result['stylesheet'], ':not(.be-r-b)'), 'a repeated declaration block keeps the rest of the route aligned', $result['stylesheet']);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "CssStylesheetTransformer unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);

@@ -4913,6 +4913,7 @@ final class StyleResolver implements ElementPresentationResolver
             'font-family',
             'font-size',
             'font-style',
+            'font-weight',
             'letter-spacing',
             'line-height',
             'text-transform',
@@ -5688,6 +5689,8 @@ final class StyleResolver implements ElementPresentationResolver
             'flex-basis',
             'flex-grow',
             'flex-wrap',
+            // Unexpanded variable/system shorthands still own typography.
+            'font',
             'font-family',
             'font-size',
             'font-style',

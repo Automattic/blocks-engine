@@ -332,6 +332,8 @@ final class RouteStateProjector
 
     public const CURRENT_SOURCES_ATTRIBUTE = 'data-blocks-engine-current-sources';
 
+    private const NAVIGATION_ROOT = "self::nav or @role='navigation' or ((self::ul or self::ol) and (@role='menu' or @role='menubar'))";
+
     /**
      * A navigation item the source marks current (a current-state class token
      * or aria-current on the item or its own link) on some captures and at rest
@@ -340,7 +342,9 @@ final class RouteStateProjector
      * stays current on its child pages), the served URL cannot re-derive it, so
      * every capture's copy of the item records the captures that marked it.
      * An item is the same item across captures at the same position in the
-     * same-ordered navigation, with the same label.
+     * same-ordered navigation, with the same label. A navigation is a `<nav>`,
+     * a `role="navigation"` landmark, or a WAI-ARIA `menu`/`menubar` list
+     * outside one: builders mark a header menu up as either.
      *
      * @param array<int, array<string, mixed>> $files
      * @return array<int, array<string, mixed>>
@@ -350,7 +354,7 @@ final class RouteStateProjector
         $documents = array();
         $items = array();
         foreach ($files as $index => $file) {
-            if ('html' !== ($file['kind'] ?? null) || !is_string($file['content'] ?? null) || !str_contains($file['content'], '<nav')) continue;
+            if ('html' !== ($file['kind'] ?? null) || !is_string($file['content'] ?? null) || 1 !== preg_match('/<nav\b|\brole=["\']?(?:navigation|menu|menubar)\b/i', $file['content'])) continue;
             $document = new DOMDocument('1.0', 'UTF-8');
             $previous = libxml_use_internal_errors(true);
             $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $file['content'], LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
@@ -358,7 +362,7 @@ final class RouteStateProjector
             if (!$loaded) continue;
             $documents[$index] = $document;
             $xpath = new DOMXPath($document);
-            foreach ($xpath->query('//nav') ?: array() as $position => $navigation) {
+            foreach ($xpath->query('//*[' . self::NAVIGATION_ROOT . '][not(ancestor::*[' . self::NAVIGATION_ROOT . '])]') ?: array() as $position => $navigation) {
                 if (!$navigation instanceof DOMElement) continue;
                 $root = (string) $navigation->getNodePath();
                 foreach ($xpath->query('.//li | .//a[not(ancestor::li)]', $navigation) ?: array() as $item) {

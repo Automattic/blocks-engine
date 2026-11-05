@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\AuthorCascadeLayerOrder;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
@@ -60,6 +62,15 @@ final class ThemeJsonProjection
         // would keep its values active after the source selects another set.
         $assets = array_filter($assets, static fn(array $asset): bool => StylesheetActivation::active($asset) && '' === ($asset['stylesheet_activation']['title'] ?? ''));
         $variables = $this->customProperties($assets, $documentPaths);
+        // Registration order, including order-only statements, precedes rule order.
+        $layerRanks = array();
+        foreach ($assets as $asset) {
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
+            foreach ((new AuthorCascadeLayerOrder())->names($asset['content']) as $name) {
+                if (!isset($layerRanks[$name])) $layerRanks[$name] = count($layerRanks);
+            }
+        }
+        $contenders = array();
         $candidates = array();
         $conditionalProperties = array();
         $unrepresentableProperties = array();
@@ -69,7 +80,7 @@ final class ThemeJsonProjection
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
             $path = (string) ($asset['source_path'] ?? $asset['path'] ?? '');
             $hash = (string) ($asset['content_hash'] ?? $asset['hash'] ?? hash('sha256', $asset['content']));
-            $visitor->visitStyleRules($asset['content'], function (string $prelude, string $body, array $ancestors) use (&$candidates, &$conditionalProperties, &$unrepresentableProperties, &$fontFamilyStacks, $assetIndex, $path, $hash, $variables): void {
+            $visitor->visitStyleRules($asset['content'], function (string $prelude, string $body, array $ancestors) use (&$candidates, &$contenders, &$conditionalProperties, &$unrepresentableProperties, &$fontFamilyStacks, $assetIndex, $path, $hash, $variables, $layerRanks): void {
                 // Cascade layers qualify where a declaration sits in the source
                 // cascade but leave it unconditional; media, supports, container,
                 // scope, and starting-style ancestors make it cascade-conditional.
@@ -78,7 +89,16 @@ final class ThemeJsonProjection
                 foreach ($ancestors as $ancestor) {
                     if (1 === preg_match('/^@layer(?:\s|$)/', $ancestor)) { $layer[] = $ancestor; continue; }
                     $conditional = true;
-                    break;
+                }
+                $rank = $this->layerRank($layer, $layerRanks);
+                // Index every rule, not just global projection targets. A class,
+                // state or responsive rule may win on some of the same elements.
+                $properties = $this->contendingProperties($body);
+                if (array() !== $properties) {
+                    $subjects = $this->subjectTypes($prelude);
+                    foreach ($properties as $property) foreach ($subjects as $subject) {
+                        $contenders[$property][$subject] = max($contenders[$property][$subject] ?? -1, $rank);
+                    }
                 }
                 $resolved = array();
                 foreach ($this->declarations($body) as $name => $value) {
@@ -113,7 +133,7 @@ final class ThemeJsonProjection
                             $unrepresentableProperties[$target . "\n" . $name] = true;
                             continue;
                         }
-                        $candidates[] = array('asset' => $assetIndex, 'path' => $path, 'hash' => $hash, 'selector' => strtolower(trim($prelude)), 'target' => $target, 'property' => $name, 'value' => $value, 'layer' => implode('>', $layer));
+                        $candidates[] = array('asset' => $assetIndex, 'path' => $path, 'hash' => $hash, 'selector' => strtolower(trim($prelude)), 'target' => $target, 'property' => $name, 'value' => $value, 'layer' => implode('>', $layer), 'rank' => $rank);
                     }
                 }
             });
@@ -126,15 +146,89 @@ final class ThemeJsonProjection
         foreach ($candidates as $candidate) $layers[$candidate['target'] . "\n" . $candidate['property']][$candidate['layer']] = true;
         $candidates = array_values(array_filter($candidates, static fn(array $candidate): bool => 1 === count($layers[$candidate['target'] . "\n" . $candidate['property']])));
 
+        // Constant-time lookups per candidate: never rescan or retokenize the
+        // stylesheet for each projected declaration (large galleries depend on it).
+        $contestedProperties = array();
+        $candidates = array_values(array_filter($candidates, static function (array $candidate) use ($contenders, &$contestedProperties): bool {
+            if ('' === $candidate['layer']) return true;
+            $tag = match ($candidate['target']) {
+                'body' => 'body', 'layout' => 'main', default => substr($candidate['target'], 8),
+            };
+            $ranks = $contenders[$candidate['property']] ?? array();
+            $safe = max($ranks[$tag] ?? -1, $ranks['*'] ?? -1) <= $candidate['rank'];
+            if (!$safe) $contestedProperties[$candidate['target'] . "\n" . $candidate['property']] = array('var(--source-owned)');
+            return $safe;
+        }));
+
         $counts = array_count_values(array_map(static fn(array $candidate): string => $candidate['property'] . "\n" . strtolower($candidate['value']), $candidates));
         $selected = array_values(array_filter($candidates, static fn(array $candidate): bool => !isset($conditionalProperties[$candidate['target'] . "\n" . $candidate['property']]) && !isset($unrepresentableProperties[$candidate['target'] . "\n" . $candidate['property']]) && (1 < $counts[$candidate['property'] . "\n" . strtolower($candidate['value'])] || 'body' === $candidate['target'] || 'layout' === $candidate['target'] || str_starts_with($candidate['target'], 'element:'))));
         $presets = null === $system ? $this->presets($selected, $fontFamilyStacks) : $this->systemPresets($system);
         $selected = $this->sharedDefaults($selected, $assets, $documentPaths);
         $responsiveBreakpoints = ResponsiveBreakpoints::fromAssets($assets);
         $theme = $this->theme($selected, $presets, $this->fontFaces($assets), $responsiveBreakpoints['viewport'], $system);
-        if (null !== $system) $theme = $this->withSystem($theme, $system, $presets, $this->authoredElementProperties($deliveryAssets, $variables));
+        if (null !== $system) $theme = $this->withSystem($theme, $system, $presets, array_replace($this->authoredElementProperties($deliveryAssets, $variables), $contestedProperties));
 
         return array('assets' => $deliveryAssets, 'theme' => $theme, 'provenance' => array_values(array_map(static fn(array $candidate): array => array('source_path' => $candidate['path'], 'source_hash' => $candidate['hash'], 'selector' => $candidate['selector'], 'property' => $candidate['property'], 'value' => $candidate['value']), $selected)), 'presets' => $presets, 'responsive_breakpoints' => $responsiveBreakpoints['report']);
+    }
+
+    /** @param list<string> $layers @param array<string,int> $ranks */
+    private function layerRank(array $layers, array $ranks): int
+    {
+        if (array() === $layers) return PHP_INT_MAX;
+        $name = trim(substr($layers[0], 6));
+        $top = explode('.', $name)[0];
+        // An anonymous or otherwise undecidable layer must not be assumed below
+        // a named layer. Conservatively let it contest any named candidate.
+        return $ranks[$top] ?? PHP_INT_MAX;
+    }
+
+    /**
+     * Possible rightmost subject types, with * for an unconstrained/unknown
+     * subject. Ancestor types do not constrain the element a rule styles.
+     * Functional selectors without an explicit type stay conservative.
+     *
+     * @return list<string>
+     */
+    private function subjectTypes(string $prelude): array
+    {
+        $subjects = array();
+        foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) {
+            $tokens = CssSelectorTokenizer::tokenize($selector);
+            $subject = '*';
+            if ($tokens['supported'] && preg_match('/^([a-zA-Z][a-zA-Z0-9-]*)(?=[.#:\\[\\s]|$)/', $tokens['rightmost_compound'], $match)) $subject = strtolower($match[1]);
+            $subjects[$subject] = true;
+        }
+        return array_keys($subjects);
+    }
+
+    /**
+     * A shorthand contests every projected longhand it resets, even when its
+     * value cannot be represented by theme.json. Important declarations also
+     * contest: ignoring them here would let a normal reset be promoted.
+     *
+     * @return list<string>
+     */
+    private function contendingProperties(string $body): array
+    {
+        $properties = array();
+        foreach (CssValueSplitter::splitTopLevel($body, array(';')) as $declaration) {
+            $parts = explode(':', $declaration, 2);
+            if (2 !== count($parts) || '' === trim($parts[1])) continue;
+            $name = strtolower(trim($parts[0]));
+            $expanded = match ($name) {
+                'all' => array('color', 'background-color', 'font-family', 'font-size', 'line-height', 'font-weight', 'letter-spacing', 'text-transform', 'font-style', 'padding', 'margin', 'gap', 'max-width'),
+                'font' => array('font-family', 'font-size', 'line-height', 'font-weight', 'font-style'),
+                'background' => array('background-color'),
+                'grid-gap' => array('gap'),
+                'row-gap', 'column-gap' => array('gap'),
+                default => array($name),
+            };
+            // Partial spacing overrides also make projecting the whole shorthand
+            // unsafe: Global Styles writes all four sides at once.
+            if (preg_match('/^(padding|margin)-(?:top|right|bottom|left|block(?:-start|-end)?|inline(?:-start|-end)?)$/', $name, $match)) $expanded[] = $match[1];
+            foreach ($expanded as $property) $properties[$property] = true;
+        }
+        return array_keys($properties);
     }
 
     /**
@@ -549,7 +643,7 @@ final class ThemeJsonProjection
             'hover_background' => array(array(':hover', 'color', 'background'), $color),
         );
         foreach (array('text_transform' => array('typography', 'textTransform'), 'letter_spacing' => array('typography', 'letterSpacing'), 'radius' => array('border', 'radius'), 'padding' => array('spacing', 'padding')) as $field => $path) $paths[$field] = array($path, static fn(string $value): string => $value);
-        $properties = array('color' => array('color'), 'background' => array('background', 'background-color'), 'font_family' => array('font-family', 'font'), 'font_size' => array('font-size', 'font'), 'font_weight' => array('font-weight', 'font'), 'line_height' => array('line-height', 'font'));
+        $properties = array('color' => array('color'), 'background' => array('background', 'background-color'), 'font_family' => array('font-family', 'font'), 'font_size' => array('font-size', 'font'), 'font_weight' => array('font-weight', 'font'), 'line_height' => array('line-height', 'font'), 'letter_spacing' => array('letter-spacing'), 'text_transform' => array('text-transform'));
         $elements = $system->elements;
         if (null !== $system->buttonVariationSlug()) $elements['button'] = $system->buttonVariation;
         foreach ($elements as $element => $values) {

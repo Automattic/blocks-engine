@@ -335,6 +335,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     /** @var list<string> Hosts the current source document declares as its own. */
     private array $sourceDocumentHosts = array();
 
+    /** @var list<DOMElement> Neutral convention instances retained as author selector hooks. */
+    private array $retainedCustomWrapperHooks = array();
+
     private readonly ElementConversionPrelude $elementPrelude;
 
     private readonly WrapperCoalescer $wrapperCoalescer;
@@ -2268,6 +2271,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private function unwrapRenderNeutralCustomElements(DOMElement $body, string $staticCss): void
     {
+        $this->retainedCustomWrapperHooks = array();
         $instances = array();
         foreach ( $body->getElementsByTagName('*') as $element ) {
             if ( $element instanceof DOMElement && str_contains(strtolower($element->tagName), '-') ) {
@@ -2282,8 +2286,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
             $attributeSelectors ??= $this->authorDataAttributeSelectors($staticCss);
             foreach ( $elements as $element ) {
-                if ( $this->isRenderNeutralWrapper($element, false) && ! $this->authorAttributeSelectorAddresses($element, $attributeSelectors) ) {
-                    $this->unwrapElement($element);
+                if ( $this->isRenderNeutralWrapper($element, false) ) {
+                    if ( $this->authorAttributeSelectorAddresses($element, $attributeSelectors) ) {
+                        $this->retainedCustomWrapperHooks[] = $element;
+                    } else {
+                        $this->unwrapElement($element);
+                    }
                 }
             }
         }
@@ -4062,6 +4070,19 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function convertElement(DOMElement $element, array &$fallbacks, bool $captureUnsupported = false): ?array
     {
         $tagName = strtolower($element->tagName);
+
+        // A boxless host is not a cohesive component: keep its selector identity
+        // on a native Group, without folding its child (the actual grid/flex
+        // item) into that Group. Author projection carries display:contents and
+        // attribute compounds onto the native carrier's selector classes.
+        if ( str_contains($tagName, '-') && $this->isSafeTransparentCustomElement($element)
+            && ( in_array($element, $this->retainedCustomWrapperHooks, true)
+                || 'contents' === strtolower(trim((string) ($this->styleResolver->structuralPresentationDeclarations($element)['display'] ?? ''))) )
+        ) {
+            $block = $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $this->convertChildren($element, $fallbacks, $captureUnsupported), $element);
+            $block['_native_custom_wrapper_hook'] = true;
+            return $block;
+        }
 
         // WordPress post navigation is a dynamic post primitive, not a menu.
         $classes = preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array();
@@ -7231,7 +7252,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( '' !== $tagMarker ) {
             $classes[] = $tagMarker;
         }
-        if ($element->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) && SourceDom::isDocumentVariantRoot($element)) return SourceDom::mergeClassNames(SourceDom::attr($element, 'class'), implode(' ', $classes));
+        if ($this->isCaptureDeviceVisibilityCarrier($element)) return SourceDom::mergeClassNames(SourceDom::attr($element, 'class'), implode(' ', $classes));
         $runtime = array();
         foreach ( $this->runtimeIslands->runtimeDomSelectorsForElement($element) as $selector ) {
             if ( str_starts_with($selector, '.') ) {
@@ -7247,9 +7268,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return implode(' ', array_values(array_unique(array_filter($classes, static fn (string $class): bool => '' !== $class))));
     }
 
+    /** Capture runtime CSS owns these hosts, outside author selector analysis. */
+    private function isCaptureDeviceVisibilityCarrier(DOMElement $element): bool
+    {
+        return ($element->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) && SourceDom::isDocumentVariantRoot($element))
+            || $element->hasAttribute(CaptureEvidence::DEVICE_ONLY)
+            || $element->hasAttribute(CaptureEvidence::DEVICE_HIDE);
+    }
+
     private function preservesScriptStateWrapper(DOMElement $element): bool
     {
-        if ($element->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) && SourceDom::isDocumentVariantRoot($element)) return true;
+        if ($this->isCaptureDeviceVisibilityCarrier($element)) return true;
         if ( $this->isInertHiddenEmptyElement($element) ) {
             return false;
         }
@@ -7706,7 +7735,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return null;
         }
 
-        return $this->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+        $attrs = $this->styleResolver->presentationAttributes($element);
+        $display = CssValueInspector::comparable((string) ($this->styleResolver->resolvedPresentationDeclarations($element)['display'] ?? ''));
+        if ( in_array($display, array('flex', 'inline-flex', 'grid', 'inline-grid'), true) ) {
+            // This paragraph replaces the source layout box, not just an inline
+            // text run. Do not let synthetic RichText carrier resets neutralize
+            // its display (including when the text contains a link).
+            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS);
+        }
+        return $this->createBlock('core/paragraph', array_merge($attrs, array( 'content' => $content )), array(), $element);
     }
 
     private function inlineTokenGroupBlockFromElement(DOMElement $element, array &$fallbacks): ?array
@@ -10059,8 +10096,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'src'      => $src,
             'poster'   => 'video' === $tagName ? $this->safeImageUrl($this->attr($element, 'poster')) : '',
             'preload'  => $this->attr($element, 'preload'),
-            'width'    => $this->attr($element, 'width'),
-            'height'   => $this->attr($element, 'height'),
+            'width'    => 'video' === $tagName ? '' : $this->attr($element, 'width'),
+            'height'   => 'video' === $tagName ? '' : $this->attr($element, 'height'),
             'controls' => $element->hasAttribute('controls'),
         )), static fn (mixed $value): bool => is_bool($value) ? $value : '' !== $value);
 
