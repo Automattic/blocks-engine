@@ -162,6 +162,8 @@ final class TaxonomyProjection
         foreach ($pages as $page) {
             if ('post' !== ($page['post_type'] ?? null) || !empty($page['synthetic'])) continue;
             $parent = dirname($page['route']['path']);
+            // Calendar permalink parents are core date archives, not categories.
+            if (preg_match('~^/[0-9]{4}(?:/(?:0[1-9]|1[0-2])(?:/(?:0[1-9]|[12][0-9]|3[01]))?)?$~', $parent)) continue;
             $sections[$parent][] = $page['source_path'];
         }
         if (count($sections) < 2) return array();
