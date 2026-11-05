@@ -641,7 +641,8 @@ final class StyleResolver implements ElementPresentationResolver
                 continue;
             }
             foreach ($rule['declarations'] as $property => $value) {
-                if ($this->conditionalValueMatchesRestingValue($element, $property, $value)) {
+                if (!$this->conditionalRuleCanOverrideRestingValue($element, $rule, $property, $value)
+                    || $this->conditionalValueMatchesRestingValue($element, $property, $value)) {
                     continue;
                 }
                 $families[$this->responsivePropertyFamily($property)] = true;
@@ -690,7 +691,8 @@ final class StyleResolver implements ElementPresentationResolver
             }
             foreach ($rule['declarations'] as $property => $value) {
                 if ($matches
-                    && $this->conditionalValueMatchesRestingValue($element, $property, $value)
+                    && (!$this->conditionalRuleCanOverrideRestingValue($element, $rule, $property, $value)
+                        || $this->conditionalValueMatchesRestingValue($element, $property, $value))
                 ) {
                     continue;
                 }
@@ -718,6 +720,24 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         return $conditionalFamilies;
+    }
+
+    /**
+     * Conditional membership gates applicability, not cascade priority. Only
+     * potential winners need stylesheet ownership; losing rules must not strip
+     * the base value from native supports. Unknown conditions stay in CSS.
+     *
+     * @param array<string, mixed> $rule
+     */
+    private function conditionalRuleCanOverrideRestingValue(DOMElement $element, array $rule, string $property, string $value): bool
+    {
+        $candidate = $this->cascadeEntry($property, $value, false, $this->mediaTextSelectorSpecificity((string) $rule['selector']), (int) ($rule['cascadeOrder'] ?? 0), $rule['layerRank'] ?? null);
+        foreach ($this->matchingStyleRules($element, 'static') as $base) {
+            if (!isset($base['declarations'][$property])) continue;
+            $current = $this->cascadeEntry($property, $base['declarations'][$property], false, $this->mediaTextSelectorSpecificity((string) $base['selector']), (int) ($base['cascadeOrder'] ?? 0), $base['layerRank'] ?? null);
+            if (!CssCascade::wins($candidate, $current)) return false;
+        }
+        return true;
     }
 
     /**
