@@ -290,9 +290,9 @@ final class SvgMaterializer implements SvgElementMaterializer
             // grows; absolute positioning prevents overflow from moving siblings.
             $figure = '{position:relative;margin:0;width:' . $overflow['boxWidth'] . 'px;height:' . $overflow['boxHeight'] . 'px;overflow:visible;line-height:0}';
             $image = '{position:absolute;display:block;max-width:none;max-height:none;width:' . $overflow['width'] . 'px;height:' . $overflow['height'] . 'px;left:' . $overflow['left'] . 'px;top:' . $overflow['top'] . 'px;margin:0}';
-            $carrier = $this->context->layoutGeometry()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $figure . $image);
+            $carrier = $this->session->layoutGeometryState()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $figure . $image);
             $selector = '.wp-block-image.' . $carrier;
-            $this->context->layoutGeometry()->registerRule($carrier, $selector . $figure . $selector . '>img,' . $selector . '>a>img' . $image);
+            $this->session->layoutGeometryState()->registerRule($carrier, $selector . $figure . $selector . '>img,' . $selector . '>a>img' . $image);
             return array('url' => $url, 'alt' => $this->svgImageAlt($element), 'className' => $this->styleResolver->mergePresentationClassNames(SourceDom::attr($element, 'class'), $carrier));
         }
 
