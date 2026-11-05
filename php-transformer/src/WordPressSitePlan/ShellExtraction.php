@@ -555,7 +555,7 @@ final class ShellExtraction
                 $pieces = array();
                 foreach ($scoped as $scopeRows) {
                     $variant = $scopeRows[0];
-                    $pieces[] = self::variantVisibilityGroup($variant['capture_scope'], self::landmarkPartMarkup(self::withoutCurrentNavigationState($variant['markup']), $area));
+                    $pieces[] = self::variantVisibilityGroup($variant['capture_scope'], self::landmarkPartMarkup(self::withoutCurrentNavigationState($variant['markup']), $area), $variant['capture_scope_shell'] ?? null);
                 }
                 $partMarkup = implode("\n", $pieces);
                 $identity = json_encode($identities, JSON_THROW_ON_ERROR);
@@ -581,7 +581,7 @@ final class ShellExtraction
      * @param array<int,array<string,mixed>> $headers
      * @param array<int,array<string,mixed>> $footers
      */
-    private function collectNestedChrome(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, array $ranges, array &$headers, array &$footers, string $captureScope = ''): void
+    private function collectNestedChrome(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, array $ranges, array &$headers, array &$footers, string $captureScope = '', ?array $captureShell = null): void
     {
         $markup = $index->markup;
         // Empty decoration groups ahead of the header do not move it: the first
@@ -603,7 +603,7 @@ final class ShellExtraction
                     }
                 }
                 if ($restHasContent) {
-                    $headers[] = $this->nestedChromeRow($first, $head['offset'], $head['length']) + array('capture_scope' => $captureScope);
+                    $headers[] = $this->nestedChromeRow($first, $head['offset'], $head['length']) + array('capture_scope' => $captureScope, 'capture_scope_shell' => $captureShell);
                     // A projected modal dialog mounts at the end of its document;
                     // it renders in the top layer, so the footer is the last
                     // sibling before it.
@@ -612,7 +612,7 @@ final class ShellExtraction
                     $last = $ranges[$lastIndex];
                     $lastMarkup = substr($markup, $last['offset'], $last['length']);
                     if ($last !== $head && self::isFooterChrome($lastMarkup)) {
-                        $footers[] = $this->nestedChromeRow($lastMarkup, $last['offset'], $last['length']) + array('capture_scope' => $captureScope);
+                        $footers[] = $this->nestedChromeRow($lastMarkup, $last['offset'], $last['length']) + array('capture_scope' => $captureScope, 'capture_scope_shell' => $captureShell);
                     }
                     return;
                 }
@@ -623,12 +623,20 @@ final class ShellExtraction
             if (array() === $children) continue;
             $opening = substr($markup, $range['offset'], $children[0]['offset'] - $range['offset']);
             $scope = $captureScope;
+            $shell = $captureShell;
             if (str_contains($opening, CaptureEvidence::DOCUMENT_SCOPE) && preg_match('/\bclass="([^"]*)"/', $opening, $match)) {
                 $classes = array_values(array_unique(preg_split('/\s+/', trim($match[1])) ?: array()));
                 sort($classes, SORT_STRING);
                 $scope = implode(' ', $classes);
+                $shell = null;
+                if (preg_match('/^<!--\s*wp:(\S+)\s+(\{.*?\})\s*-->/s', $opening, $comment)) {
+                    $attrs = json_decode($comment[2], true);
+                    foreach ($classes as $class) {
+                        if (self::isResponsiveVariantClass($class) && is_array($attrs)) $shell = self::deviceDocumentShell($comment[1], $attrs, $class);
+                    }
+                }
             }
-            $this->collectNestedChrome($index, $children, $headers, $footers, $scope);
+            $this->collectNestedChrome($index, $children, $headers, $footers, $scope, $shell);
         }
     }
 
@@ -1181,6 +1189,11 @@ final class ShellExtraction
                     if (self::isResponsiveVariantClass($scopeClass)) $variantScopeClasses[$scopeClass] = $scopeClasses;
                 }
             }
+            $variantScopeShells = array();
+            foreach (array_keys($variantScopeClasses) as $scopeClass) {
+                $shell = self::deviceDocumentShell($name, is_array($attrs) ? $attrs : array(), $scopeClass);
+                if (null !== $shell) $variantScopeShells[$scopeClass] = $shell;
+            }
             $hasShellWrapperContract = false;
             if (is_array($attrs) && is_array($attrs['wrappers'] ?? null)) {
                 $hasShellWrapperContract = true;
@@ -1216,7 +1229,7 @@ final class ShellExtraction
                 $preceded = preg_match_all('/<!--\s*wp:/', $between) > count($stack) || 0 < preg_match_all('/<!--\s*\/wp:/', $between);
                 if ($preceded) $backdropIds = self::backdropAncestorIds($markup, $stack, $offset);
             }
-            if (!$selfClosing) $stack[] = array('document_edge' => $edgeLandmark && (array() !== $mainAncestors || $disallowedAncestor), 'offset' => $offset, 'inner_offset' => $offset + strlen($token['token']), 'tag_name' => $tagName, 'candidate' => $candidate, 'named_footer' => $candidate && $namedFooter, 'document_end' => $stack[0]['document_end'] ?? $documentEnds[$offset] ?? strlen($markup), 'main_ancestors' => $edgeLandmark ? array() : $mainAncestors, 'wrapper_contract_shell' => $candidate && $hasShellWrapperContract && 'footer' === $area && 'footer' === $footerClass, 'preceded' => $preceded, 'backdrop_ids' => $backdropIds, 'static_start_ids' => $candidate ? self::precedingStaticStartIds($index, $stack, $offset) : array(), 'anchor' => $anchor, 'class_name' => $className, 'variant_scope_classes' => $variantScopeClasses);
+            if (!$selfClosing) $stack[] = array('document_edge' => $edgeLandmark && (array() !== $mainAncestors || $disallowedAncestor), 'offset' => $offset, 'inner_offset' => $offset + strlen($token['token']), 'tag_name' => $tagName, 'candidate' => $candidate, 'named_footer' => $candidate && $namedFooter, 'document_end' => $stack[0]['document_end'] ?? $documentEnds[$offset] ?? strlen($markup), 'main_ancestors' => $edgeLandmark ? array() : $mainAncestors, 'wrapper_contract_shell' => $candidate && $hasShellWrapperContract && 'footer' === $area && 'footer' === $footerClass, 'preceded' => $preceded, 'backdrop_ids' => $backdropIds, 'static_start_ids' => $candidate ? self::precedingStaticStartIds($index, $stack, $offset) : array(), 'anchor' => $anchor, 'class_name' => $className, 'variant_scope_classes' => $variantScopeClasses, 'variant_scope_shells' => $variantScopeShells);
         }
         $rows = array_values(array_filter($rows, static fn(array $row): bool => array() === array_diff($row['main_ancestors'], $shellMains ?? array())));
         usort($rows, static fn(array $left, array $right): int => $left['offset'] <=> $right['offset']);
@@ -1309,11 +1322,11 @@ final class ShellExtraction
      * reached it through them need re-anchoring (see WordPressSitePlan).
      *
      * @param array<int,array<string,mixed>> $stack
-     * @return array{ids:array<int,string>,classes:array<int,string>,variant_classes:array<string,list<string>>}
+     * @return array{ids:array<int,string>,classes:array<int,string>,variant_classes:array<string,list<string>>,variant_shells:array<string,array{block:string,wrapper:array{tagName:string,attributes:array<string,mixed>}}>}
      */
     private static function ancestorContext(array $stack): array
     {
-        $ids = array(); $classes = array(); $variantClasses = array();
+        $ids = array(); $classes = array(); $variantClasses = array(); $variantShells = array();
         foreach ($stack as $ancestor) {
             if (empty($ancestor['candidate']) && '' !== ($ancestor['anchor'] ?? '')) $ids[] = (string) $ancestor['anchor'];
             if (!empty($ancestor['candidate'])) continue;
@@ -1326,8 +1339,11 @@ final class ShellExtraction
             foreach ($ancestor['variant_scope_classes'] ?? array() as $scope => $scopeClasses) {
                 $variantClasses[$scope] = $scopeClasses;
             }
+            foreach ($ancestor['variant_scope_shells'] ?? array() as $scope => $shell) {
+                $variantShells[$scope] = $shell;
+            }
         }
-        return array('ids' => array_values(array_unique($ids)), 'classes' => array_values(array_unique($classes)), 'variant_classes' => $variantClasses);
+        return array('ids' => array_values(array_unique($ids)), 'classes' => array_values(array_unique($classes)), 'variant_classes' => $variantClasses, 'variant_shells' => $variantShells);
     }
 
     /**
@@ -2871,7 +2887,7 @@ final class ShellExtraction
             foreach ((array) ($scoped[0]['ancestor_context']['backdrop_ids'] ?? array()) as $id) $backdropIds[(string) $id] = true;
             foreach ((array) ($scoped[0]['ancestor_context']['static_start_ids'] ?? array()) as $id) $staticStartIds[(string) $id] = true;
             $scopeClasses = $scoped[0]['ancestor_context']['variant_classes'][$class] ?? array($class);
-            $pieces[$class] = self::variantVisibilityGroup(implode(' ', $scopeClasses), $inner);
+            $pieces[$class] = self::variantVisibilityGroup(implode(' ', $scopeClasses), $inner, $scoped[0]['ancestor_context']['variant_shells'][$class] ?? null);
         }
         if (null === $primaryContext) {
             $firstClass = $variantClasses[0];
@@ -3034,11 +3050,47 @@ final class ShellExtraction
         return 2;
     }
 
-    private static function variantVisibilityGroup(string $variantClass, string $innerMarkup): string
+    /**
+     * A hoisted variant's device-document wrapper. Its rules and visibility
+     * CSS select the device attributes, so a class-only group would detach
+     * every device-gated rule from the part.
+     *
+     * @param array{block:string,wrapper:array{tagName:string,attributes:array<string,mixed>}}|null $shell
+     */
+    private static function variantVisibilityGroup(string $variantClass, string $innerMarkup, ?array $shell = null): string
     {
+        if (null !== $shell) {
+            $tag = $shell['wrapper']['tagName'];
+            $opening = '<' . $tag;
+            foreach ($shell['wrapper']['attributes'] as $name => $value) {
+                $opening .= true === $value ? ' ' . $name . '=""' : ' ' . $name . '="' . htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+            }
+            return '<!-- wp:' . $shell['block'] . ' ' . BlockAttributes::encode(array('wrappers' => array($shell['wrapper']))) . ' -->' . $opening . '>' . $innerMarkup . '</' . $tag . '><!-- /wp:' . $shell['block'] . ' -->';
+        }
         $class = htmlspecialchars($variantClass, ENT_QUOTES | ENT_HTML5, 'UTF-8');
         $attrs = json_encode(array('className' => $variantClass), JSON_UNESCAPED_SLASHES);
         return '<!-- wp:group ' . $attrs . ' -->' . "\n" . '<div class="wp-block-group ' . $class . '">' . $innerMarkup . '</div>' . "\n" . '<!-- /wp:group -->';
+    }
+
+    /**
+     * The layout-shell wrapper that carries a capture device document, as a
+     * shared part may repeat it: its tag, classes and device attributes. The
+     * document id and scope marker stay with the page's own document.
+     *
+     * @param array<string,mixed> $attrs
+     * @return array{block:string,wrapper:array{tagName:string,attributes:array<string,mixed>}}|null
+     */
+    private static function deviceDocumentShell(string $blockName, array $attrs, string $scopeClass): ?array
+    {
+        if (!str_ends_with($blockName, '/layout-shell')) return null;
+        foreach ((array) ($attrs['wrappers'] ?? array()) as $wrapper) {
+            $attributes = is_array($wrapper) && is_array($wrapper['attributes'] ?? null) ? $wrapper['attributes'] : array();
+            if (!in_array($scopeClass, preg_split('/\s+/', trim((string) ($attributes['class'] ?? ''))) ?: array(), true)) continue;
+            $kept = array_intersect_key($attributes, array_flip(array('class', EngineMarker::DEVICE_SCOPE_ATTRIBUTE, CaptureEvidence::DEVICE_DOCUMENT)));
+            if (!isset($kept[EngineMarker::DEVICE_SCOPE_ATTRIBUTE]) && !isset($kept[CaptureEvidence::DEVICE_DOCUMENT])) return null;
+            return array('block' => $blockName, 'wrapper' => array('tagName' => is_string($wrapper['tagName'] ?? null) ? $wrapper['tagName'] : 'div', 'attributes' => $kept));
+        }
+        return null;
     }
 
     /** @param array<string,mixed> $candidate */
