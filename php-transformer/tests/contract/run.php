@@ -479,12 +479,15 @@ $assert(
 );
 $responsiveGallery = ( new HtmlTransformer() )->transform('<div class="gallery"><figure><img src="one.jpg" srcset="one-2x.jpg 2x"></figure><figure><img src="two.jpg"></figure></div>')->toArray();
 $assert(
-    'custom/responsive-media' === ($responsiveGallery['blocks'][0]['blockName'] ?? null)
-        && 1 === count($responsiveGallery['source_reports']['generated_blocks'] ?? array())
+    'core/group' === ($responsiveGallery['blocks'][0]['blockName'] ?? null)
+        && array('core/image', 'core/image') === array_column($responsiveGallery['blocks'][0]['innerBlocks'] ?? array(), 'blockName')
+        && array() === ($responsiveGallery['source_reports']['generated_blocks'] ?? array())
         && array() === ($responsiveGallery['fallbacks'] ?? array())
-        && str_contains($responsiveGallery['blocks'][0]['attrs']['content'] ?? '', '<div class="gallery">')
-        && ! str_contains((string) ($responsiveGallery['serialized_blocks'] ?? ''), '<!-- wp:gallery'),
-    'responsive gallery media is preserved as one reusable editable block instead of a gallery with unsupported children'
+        && 'one-2x.jpg 2x' === ($responsiveGallery['blocks'][0]['innerBlocks'][0]['attrs']['metadata']['blocksEngineImageSelection']['srcset'] ?? null)
+        && str_contains((string) ($responsiveGallery['serialized_blocks'] ?? ''), '"srcset":"one-2x.jpg 2x"')
+        && ! str_contains((string) ($responsiveGallery['serialized_blocks'] ?? ''), 'custom/responsive-media')
+        && ! str_contains((string) ($responsiveGallery['serialized_blocks'] ?? ''), '<!-- wp:html'),
+    'responsive gallery figures lower to native editable images with serialized source selection and no companions or fallbacks'
 );
 $carouselSource = '<div class="service-carousel"><button aria-label="Previous slide">Previous</button><div role="list"><div role="listitem" aria-label="Back pain"><img src="back.jpg" alt="Back pain"><div class="title">Back pain</div><div class="description">Treatment for back pain.</div></div><div role="listitem" aria-label="Sciatica"><img src="sciatica.jpg" alt="Sciatica"><div class="title">Sciatica</div><div class="description">Treatment for sciatica.</div></div></div><button aria-label="Next slide">Next</button><div class="expanded-gallery"><div role="list"><div role="listitem"><img src="back-expanded.jpg" alt="Back pain expanded"></div><div role="listitem"><img src="sciatica-expanded.jpg" alt="Sciatica expanded"></div></div></div></div>';
 $carouselResult = ( new HtmlTransformer() )->transform($carouselSource)->toArray();

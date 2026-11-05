@@ -5182,8 +5182,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
         if ( $this->sourceElementClassifier->hasResponsiveImageSources($element) ) {
             // GalleryPattern probes child conversions before it knows whether it
-            // has enough images. Preserve the collection as one companion block.
-            return $this->sourceElementClassifier->hasGalleryMediaItems($element) ? $this->responsiveMediaBlock($element) : null;
+            // has enough images. Keep independent img srcsets out of the gallery
+            // recognizer, but let each image lower natively in its own group.
+            return $this->sourceElementClassifier->hasResponsiveMediaAlternatives($element)
+                && $this->sourceElementClassifier->hasGalleryMediaItems($element)
+                ? $this->responsiveMediaBlock($element) : null;
         }
 
         return $this->recognizePatterns($element, $fallbacks, array(GalleryPattern::class));
@@ -11557,7 +11560,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // attachment. Preserve x families (whose rendered width depends on
         // density without a known display width) and other non-lowerable sources.
         $hasDisplayWidth = fn (): bool => $this->imageDimensions()->hasAuthorDisplayWidth($image);
-        if ( ! $nativeImage && $this->sourceElementClassifier->requiresResponsiveImageCarrier($image, $hasDisplayWidth) ) {
+        // Independent gallery figures are editable images, not responsive
+        // alternatives. Their authored selection travels in image metadata,
+        // just as it does for native images without a figure wrapper.
+        $mediaParent = ($figure ?? $image)->parentNode;
+        $independentGalleryImage = $mediaParent instanceof DOMElement
+            && $this->sourceElementClassifier->hasGalleryMediaItems($mediaParent)
+            && ! $this->sourceElementClassifier->hasResponsiveMediaAlternatives($mediaParent);
+        if ( ! $nativeImage && ! $independentGalleryImage && $this->sourceElementClassifier->requiresResponsiveImageCarrier($image, $hasDisplayWidth) ) {
             return $this->responsiveMediaBlock($link ?? $figure ?? $picture ?? $image);
         }
 

@@ -197,8 +197,22 @@ $responsiveBase = home_url('/wp-content/themes/' . $theme . '/assets/assets/');
 $responsiveBlocks = parse_blocks($responsiveSaved);
 $responsivePicture = $responsiveBlocks[0]['innerBlocks'][0] ?? array();
 $responsiveGallery = $responsiveBlocks[0]['innerBlocks'][1] ?? array();
-$responsiveContent = (string) (($responsivePicture['attrs']['content'] ?? '') . ($responsiveGallery['attrs']['content'] ?? ''));
-$assert('core/group' === ($responsiveBlocks[0]['blockName'] ?? null) && str_starts_with((string) ($responsivePicture['blockName'] ?? ''), 'custom/') && str_starts_with((string) ($responsiveGallery['blockName'] ?? ''), 'custom/') && str_contains($responsiveContent, '<picture>') && str_contains($responsiveContent, 'media="(min-width: 800px)"') && str_contains($responsiveContent, $responsiveBase . 'hero-large.jpg 1200w') && str_contains($responsiveContent, $responsiveBase . 'hero.jpg 600w, ' . $responsiveBase . 'hero-2x.jpg 1200w') && str_contains($responsiveContent, 'sizes="(max-width: 799px) 100vw, 50vw"') && str_contains($responsiveContent, $responsiveBase . 'gallery-one-2x.jpg 2x') && str_contains($responsiveContent, 'class="gallery"') && !str_contains($responsiveSaved, '<!-- wp:html') && !str_contains($responsiveSaved, '<!-- wp:gallery'), 'WordPress persists, reloads, and parses materialized picture source selection and mixed responsive gallery markup through generated companion blocks.');
+$responsiveContent = (string) ($responsivePicture['attrs']['content'] ?? '');
+$assert('core/group' === ($responsiveBlocks[0]['blockName'] ?? null) && str_starts_with((string) ($responsivePicture['blockName'] ?? ''), 'custom/') && str_contains($responsiveContent, '<picture>') && str_contains($responsiveContent, 'media="(min-width: 800px)"') && str_contains($responsiveContent, $responsiveBase . 'hero-large.jpg 1200w') && str_contains($responsiveContent, $responsiveBase . 'hero.jpg 600w, ' . $responsiveBase . 'hero-2x.jpg 1200w') && str_contains($responsiveContent, 'sizes="(max-width: 799px) 100vw, 50vw"'), 'WordPress persists, reloads, and parses materialized picture source selection through its generated companion block.');
+$responsiveGallerySaved = serialize_block($responsiveGallery);
+$assert(
+    'core/group' === ($responsiveGallery['blockName'] ?? null)
+        && array('core/image', 'core/image') === array_column($responsiveGallery['innerBlocks'] ?? array(), 'blockName')
+        && $responsiveBase . 'gallery-one.jpg' === ($responsiveGallery['innerBlocks'][0]['attrs']['metadata']['blocksEngineImageSelection']['src'] ?? null)
+        && $responsiveBase . 'gallery-one-2x.jpg 2x' === ($responsiveGallery['innerBlocks'][0]['attrs']['metadata']['blocksEngineImageSelection']['srcset'] ?? null)
+        && str_contains($responsiveGallerySaved, '"srcset":"' . $responsiveBase . 'gallery-one-2x.jpg 2x"')
+        && str_contains($responsiveGallery['innerBlocks'][1]['innerHTML'] ?? '', $responsiveBase . 'gallery-two.jpg')
+        && str_contains($responsiveGallerySaved, 'gallery')
+        && !str_contains($responsiveGallerySaved, '<!-- wp:custom/')
+        && !str_contains($responsiveSaved, '<!-- wp:html')
+        && array() === ($responsiveArtifact['fallbacks'] ?? array()),
+    'WordPress persists, reloads, and parses mixed responsive gallery figures as native images with srcset intact and no gallery companions or fallbacks.'
+);
 $videoMarkup = (string) ((new HtmlTransformer())->transform('<media-host class="bg-video"><video class="player" src="hero.mp4" poster="hero.jpg" autoplay loop muted playsinline controls><track kind="captions" src="captions.vtt" srclang="en" label="English" default></video><div><img src="hero.jpg" alt=""></div></media-host>')->toArray()['serialized_blocks'] ?? '');
 $videoId = wp_insert_post(array('post_type' => 'page', 'post_status' => 'draft', 'post_title' => 'Custom video', 'post_content' => serialize_blocks(parse_blocks($videoMarkup))), true);
 if (is_wp_error($videoId)) throw new RuntimeException($videoId->get_error_message());

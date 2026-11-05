@@ -875,6 +875,26 @@ final class SourceElementClassifier
         );
     }
 
+    /** Whether sibling media must stay together as responsive alternatives. */
+    public function hasResponsiveMediaAlternatives(DOMElement $element): bool
+    {
+        if ( $this->hasPictureSourceSelection($element) ) {
+            return true;
+        }
+
+        // Capture duplicates are alternatives, not independent gallery items.
+        // Keep the existing boundary for the capture variant ID convention.
+        foreach ( $element->getElementsByTagName('*') as $child ) {
+            if ( $child instanceof DOMElement
+                && str_contains(SourceDom::attr($child, 'id'), CaptureEvidence::VARIANT_ID_SUFFIX_PREFIX)
+                && $this->hasResponsiveImageSources($element) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public function hasResponsiveImageSources(DOMElement $element): bool
     {
         if ( 'img' === strtolower($element->tagName) ) {
