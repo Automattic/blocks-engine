@@ -1072,7 +1072,12 @@ final class DesignSystem
                     $observe($element, 'color', true === ($row['color_authored'] ?? false) ? ($row['color'] ?? null) : null, $row);
                     if ('link' === $element || 'button' === $element) $observe($element, 'hover_color', $row['hover_color'] ?? null, $row);
                     if ('link' === $element) continue;
-                    $observe($element, 'font_family', self::familyKey((string) ($row['font_family'] ?? '')) . "\n" . (string) ($row['font_family'] ?? ''), $row);
+                    // Compare preset identities, not fallback variants, when
+                    // deciding whether all instances share an element default.
+                    $stack = (string) ($row['font_family'] ?? '');
+                    $slug = $system->fontFamilySlug($stack);
+                    foreach ($system->fontFamilies as $family) if ($family['slug'] === $slug) $stack = $family['fontFamily'];
+                    $observe($element, 'font_family', self::familyKey($stack) . "\n" . $stack, $row);
                     $observe($element, 'font_weight', $row['font_weight'] ?? null, $row);
                     if ('heading' !== $element) $observe($element, 'font_size', $row['font_size_px'] ?? null, $row);
                 }

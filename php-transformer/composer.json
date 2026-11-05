@@ -655,6 +655,7 @@
       "php tests/unit/theme-json-projection-blockgap-optin.php",
       "php tests/unit/theme-json-projection-typography-families.php",
       "php tests/unit/global-styles-font-ownership.php",
+      "php tests/unit/font-stack-fallbacks.php",
       "php tests/unit/heading-competing-font.php",
       "php tests/unit/theme-json-projection-layered-deferral.php",
       "php tests/unit/theme-json-projection-route-defaults.php",
