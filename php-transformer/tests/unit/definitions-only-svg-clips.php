@@ -6,10 +6,12 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips;
 
 $path = 'M0,0.5 A0.5 0.5, 0 0 1, 1 0.5 M1,0.5 A0.5 0.5, 0 0 1, 0 0.5 Z';
 $rows = array(
     'issue 4434' => array('<path d="' . $path . '"/>', 'ellipse(50% 50% at 50% 50%)'),
+    'unclosed path with source whitespace' => array('<path d="M0,0.5 A0.5 0.5, 0 0 1, 1 0.5 M1,0.5 A0.5 0.5, 0 0 1, 0 0.5 Z">' . " \n\n  \n " . '</path>', 'ellipse(50% 50% at 50% 50%)', 'objectBoundingBox', 'data-image-mask-id="m1"'),
     'data-attribute carrier' => array('<path d="' . $path . '"/>', 'ellipse(50% 50% at 50% 50%)', 'objectBoundingBox', 'data-image-mask-id="m1"'),
     'neutral carrier attributes' => array('<path d="' . $path . '"/>', 'ellipse(50% 50% at 50% 50%)', 'objectBoundingBox', 'data-mask="m1" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" id="mask-carrier" class="mask-defs" role="presentation"'),
     'none-role carrier' => array('<path d="' . $path . '"/>', 'ellipse(50% 50% at 50% 50%)', 'objectBoundingBox', 'role="none"'),
@@ -76,6 +78,18 @@ foreach ($rows as $name => $row) {
             });
         }
         if (!$matched) throw new RuntimeException($name . ': missing exact crop on wrapper selector');
+    }
+}
+// Check neutrality at every child boundary without HTML's self-closing-tag recovery.
+foreach (array('svg', 'defs', 'clipPath', 'path') as $parent) {
+    foreach (array(" \n\n  \n <!-- source formatting -->" => true, 'meaningful text' => false, '<g/>' => false) as $content => $expected) {
+        $source = '<svg width="0" height="0"><defs><clipPath id="m1" clippathunits="objectBoundingBox"><path d="' . $path . '"></path></clipPath></defs></svg>';
+        $source = str_replace('</' . $parent . '>', $content . '</' . $parent . '>', $source);
+        $dom = new DOMDocument();
+        $dom->loadXML($source);
+        if ($expected !== SvgDefinitionClips::isCarrier($dom->documentElement)) {
+            throw new RuntimeException($parent . ': only whitespace and comments may be ignored');
+        }
     }
 }
 echo "Definitions-only SVG compiler contracts passed\n";

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
 use DOMElement;
+use DOMNode;
 
 /** Lower only definition carriers whose clips all have exact native equivalents. */
 final class SvgDefinitionClips
@@ -46,15 +47,24 @@ final class SvgDefinitionClips
         }
         $result = array();
         foreach ($svg->childNodes as $defs) {
-            if (!$defs instanceof DOMElement || in_array(strtolower($defs->tagName), array('title', 'desc', 'metadata'), true)) {
+            if (self::isNeutralNode($defs)) {
+                continue;
+            }
+            if (!$defs instanceof DOMElement) {
+                return array();
+            }
+            if (in_array(strtolower($defs->tagName), array('title', 'desc', 'metadata'), true)) {
                 continue;
             }
             if ($defs->attributes->length > 0) {
                 return array();
             }
             foreach ($defs->childNodes as $clip) {
-                if (!$clip instanceof DOMElement) {
+                if (self::isNeutralNode($clip)) {
                     continue;
+                }
+                if (!$clip instanceof DOMElement) {
+                    return array();
                 }
                 if ('clippath' !== strtolower($clip->tagName) || '' === $clip->getAttribute('id')
                     || null === ($native = self::native($clip))) {
@@ -76,16 +86,22 @@ final class SvgDefinitionClips
         }
         $children = array();
         foreach ($clip->childNodes as $child) {
-            if ($child instanceof DOMElement) {
-                $children[] = $child;
+            if (self::isNeutralNode($child)) {
+                continue;
             }
+            if (!$child instanceof DOMElement) {
+                return null;
+            }
+            $children[] = $child;
         }
         if (1 !== count($children)) {
             return null;
         }
         $shape = $children[0];
-        if (0 < $shape->childNodes->length) {
-            return null;
+        foreach ($shape->childNodes as $child) {
+            if (!self::isNeutralNode($child)) {
+                return null;
+            }
         }
         $tag = strtolower($shape->tagName);
         foreach ($shape->attributes as $attr) {
@@ -130,6 +146,13 @@ final class SvgDefinitionClips
             return 'polygon(' . implode(', ', $points) . ')';
         }
         return null;
+    }
+
+    /** Source formatting and comments do not change clip geometry. */
+    private static function isNeutralNode(DOMNode $node): bool
+    {
+        return XML_COMMENT_NODE === $node->nodeType
+            || (XML_TEXT_NODE === $node->nodeType && '' === trim($node->textContent ?? ''));
     }
 
     /** Two axis-aligned half arcs, optionally separated by a redundant moveto. */
