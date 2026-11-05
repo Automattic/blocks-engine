@@ -292,7 +292,12 @@ final class SvgMaterializer implements SvgElementMaterializer
             $image = '{position:absolute;display:block;max-width:none;max-height:none;width:' . $overflow['width'] . 'px;height:' . $overflow['height'] . 'px;left:' . $overflow['left'] . 'px;top:' . $overflow['top'] . 'px;margin:0}';
             $carrier = $this->session->layoutGeometryState()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $figure . $image);
             $selector = '.wp-block-image.' . $carrier;
-            $this->session->layoutGeometryState()->registerRule($carrier, $selector . $figure . $selector . '>img,' . $selector . '>a>img' . $image);
+            // The author SVG-to-image bridge comes later and sizes the original
+            // box (e.g. .pill.wp-block-image > img { width:100% }). Repeat
+            // the carrier on the painted leaf to outrank that bridge without
+            // raising the specificity of the original figure's layout box.
+            $paintSelector = $selector . '.' . $carrier;
+            $this->session->layoutGeometryState()->registerRule($carrier, $selector . $figure . $paintSelector . '>img,' . $paintSelector . '>a>img' . $image);
             return array('url' => $url, 'alt' => $this->svgImageAlt($element), 'className' => $this->styleResolver->mergePresentationClassNames(SourceDom::attr($element, 'class'), $carrier));
         }
 
