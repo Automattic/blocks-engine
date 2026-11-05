@@ -35,6 +35,11 @@ final class NavigationProjectionState
     /** @var array<string, CapturedMenuDialogFold> hamburger path => the fold it opens */
     private array $foldsByTriggerPath = array();
 
+    /** @var array<string, DOMElement> toggle path => the captured panel the mirror replaces */
+    private array $mirrorPanelsByControlPath = array();
+
+    private bool $buildingMirror = false;
+
     public function hasProjection(): bool
     {
         return array() !== $this->targetsByControlPath;
@@ -53,6 +58,38 @@ final class NavigationProjectionState
     public function projectTarget(DOMElement $control, DOMElement $navigation): void
     {
         $this->targetsByControlPath[$control->getNodePath()] = $navigation;
+    }
+
+    /**
+     * A toggle whose row swaps with a separate row of links keeps those links
+     * in place and gets its own navigation in its slot.
+     */
+    public function projectMirror(DOMElement $control, DOMElement $navigation, DOMElement $panel): void
+    {
+        $this->projectTarget($control, $navigation);
+        $this->mirrorPanelsByControlPath[$control->getNodePath()] = $panel;
+        $this->suppress($panel);
+    }
+
+    public function mirrorPanel(DOMElement $control): ?DOMElement
+    {
+        return $this->mirrorPanelsByControlPath[$control->getNodePath()] ?? null;
+    }
+
+    public function isMirrorControl(DOMElement $control): bool
+    {
+        return isset($this->mirrorPanelsByControlPath[$control->getNodePath()]);
+    }
+
+    /** Whether the navigation for a mirror control's slot is being built right now. */
+    public function isBuildingMirror(): bool
+    {
+        return $this->buildingMirror;
+    }
+
+    public function setBuildingMirror(bool $building): void
+    {
+        $this->buildingMirror = $building;
     }
 
     public function suppress(DOMElement $element): void
