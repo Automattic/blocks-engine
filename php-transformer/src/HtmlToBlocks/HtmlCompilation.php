@@ -10335,8 +10335,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                     $image = $this->imageOnlyCarrierElement($carrier);
                     $safe = true;
                     for ( $node = $image?->parentNode; $node instanceof DOMElement && ! $node->isSameNode($anchor); $node = $node->parentNode ) {
-                        if ( ! in_array(strtolower($node->tagName), array('div', 'span'), true)
-                            || $this->runtimeIslands->isRuntimeDomTarget($node)
+                        $customHost = ! in_array(strtolower($node->tagName), array('div', 'span'), true);
+                        if ( $customHost && ( null === SourceDom::imageOnlyCustomElement($node)
+                            || null === $this->nativeImageInCustomHost($node, $image) ) ) {
+                            $safe = false;
+                            break;
+                        }
+                        if ( $this->runtimeIslands->isRuntimeDomTarget($node)
                             || array() !== $this->eventMetadata($node)
                             || array() !== $this->interactiveAttributes($node)
                             || $this->hasRouteBearingDataAttributes($node) ) {
@@ -10345,6 +10350,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                         }
                     }
                     if ( $safe && $image instanceof DOMElement ) {
+                        $host = $image->parentNode;
+                        if ( $host instanceof DOMElement && null !== SourceDom::imageOnlyCustomElement($host) ) {
+                            $media = $this->nativeImageInCustomHost($host, $image);
+                            if ( null !== $media ) {
+                                return $this->layoutShellBlockForElements(array($anchor, $carrier), array($media), $anchor);
+                            }
+                        }
                         return $this->convertImageElement($image, $carrier, null, $anchor);
                     }
                 }
