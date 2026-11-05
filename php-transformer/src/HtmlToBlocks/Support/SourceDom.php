@@ -1307,7 +1307,7 @@ final class SourceDom
                     'attribute' => strtolower($name),
                 );
             }
-            if ( \Automattic\BlocksEngine\PhpTransformer\Support\SourceAttribute::isDeclaredEventAttribute($name) && '' !== trim($value) ) {
+            if ( \Automattic\BlocksEngine\PhpTransformer\Support\SourceAttribute::hasDeclaredEvent($name, $value) ) {
                 $events[] = array(
                     'type'      => 'declared',
                     'attribute' => $name,
