@@ -4534,13 +4534,22 @@ final class AuthorStylesheetProjector
     /**
      * Whether an authored rule already generates `::after` content on one of
      * the items (`#menu li:after{content:"|"}`). That rule stays live on the
-     * rendered item, and the space must not replace its content.
+     * rendered item, and the space must not replace its content. The space is
+     * measured at the desktop reference viewport, so only rules that apply
+     * there count: a mobile menu's `li:after` does not own the desktop row.
      *
      * @param list<DOMElement> $items
      */
     private function authorsItemAfterContent(array $items, AuthorStylesheetProjectionContext $context): bool
     {
         foreach ( $context->authorStyles->styleRules() as $rule ) {
+            $conditions = array_values(array_filter(array_map(
+                static fn ($condition): string => trim((string) preg_replace('#/\*.*?\*/#s', '', (string) $condition)),
+                is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array()
+            )));
+            if ( array() !== $conditions && ! $this->styleResolver->conditionsApplyAtViewport($conditions, StyleResolver::DESKTOP_REFERENCE_WIDTH) ) {
+                continue;
+            }
             foreach ( is_array($rule['selectors'] ?? null) ? $rule['selectors'] : array() as $record ) {
                 $selector = trim((string) ( $record['selector'] ?? '' ));
                 if ( 1 !== preg_match('/^(.+?)::?after$/i', $selector, $subject) ) {

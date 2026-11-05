@@ -217,6 +217,8 @@ $keepsNoSpace($transform($inlineMenu('#menu{white-space:pre}#menu li{display:inl
 $keepsNoSpace($transform($inlineMenu('#menu{font-size:12px}#menu li{display:inline;font-size:16px;padding-right:15px}')), 'padding-right:15px', 'an item font that differs from the list font would size the space wrongly');
 
 $keepsNoSpace($transform($inlineMenu('#menu li{display:inline;padding-right:15px}#menu li:after{content:"|";padding-left:15px}')), 'padding-right:15px', 'an authored `li:after` separator keeps its own content');
+$mobileAfter = $separators($transform($inlineMenu('#menu li{display:inline-block;margin:0 4px}@media screen and (max-width: 840px){#menu li:after{content:""}}')));
+$assert(1 === count($mobileAfter), 'a `li:after` that only a narrow viewport applies does not own the desktop row', json_encode($mobileAfter));
 $beforeSeparator = $separators($transform($inlineMenu('#menu li{display:inline;padding-right:15px}#menu li+li:before{content:"|"}')));
 $assert(1 === count($beforeSeparator), 'an authored `li+li:before` separator does not compete with the trailing space', json_encode($beforeSeparator));
 
