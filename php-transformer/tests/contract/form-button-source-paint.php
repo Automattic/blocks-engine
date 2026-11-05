@@ -75,6 +75,10 @@ foreach ($compile($preflight)['source_reports']['wordpress_site_plan']['writes']
 $assert(is_array($themeJson), 'The reset variant still produces a theme.json.');
 $buttonElement = $themeJson['styles']['elements']['button'] ?? array();
 $background = $buttonElement['color']['background'] ?? null;
+if (is_string($background) && str_starts_with($background, 'var:preset|color|')) {
+    $palette = array_column($themeJson['settings']['color']['palette'] ?? array(), 'color', 'slug');
+    $background = $palette[substr($background, strlen('var:preset|color|'))] ?? $background;
+}
 $assert(null === $background || (is_string($background) && CssColor::opaque($background)), 'The element button style never states a transparent background: ' . json_encode($background));
 $assert('#004488' === ($buttonElement['color']['text'] ?? null), 'An opaque element button default still projects: ' . json_encode($buttonElement));
 

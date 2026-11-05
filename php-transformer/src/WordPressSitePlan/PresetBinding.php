@@ -651,7 +651,7 @@ final class PresetBinding
         $style = $attributes->style ?? new \stdClass();
 
         $variation = $isLink && null !== $this->system->buttonVariationSlug() && $this->matchesButtonVariation($style);
-        $buttonLook = $isLink && (isset($this->system->elements['button']['padding']) || $variation);
+        $buttonLook = $isLink && (isset($this->system->elements['button']) || $variation);
         if ($variation) {
             $class = 'is-style-' . $this->system->buttonVariationSlug();
             $attributes->className = trim(($attributes->className ?? '') . ' ' . $class);

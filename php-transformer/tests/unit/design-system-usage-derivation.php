@@ -80,6 +80,7 @@ foreach (array('xx-small' => '12.48px', 'x-small' => '13.12px', 'small' => '13.7
 $assert(json_encode($trunkSizes) === json_encode(array_slice($solvedTheme['settings']['typography']['fontSizes'], 0, 8)), 'solved architecture: original body presets remain byte-identical to trunk');
 $solvedTypography = array();
 foreach ($solvedTheme['styles']['elements'] as $level => $element) {
+    if (1 !== preg_match('/^h[1-6]$/', $level)) continue;
     $fields = array_intersect_key($element['typography'] ?? array(), array_flip(array('fontSize', 'fontWeight', 'lineHeight')));
     if (array() !== $fields) $solvedTypography[$level] = $fields;
 }

@@ -653,6 +653,7 @@
       "php tests/unit/design-usage-font-shorthand-family.php",
       "php tests/unit/design-system-source-css-bytes.php",
       "php tests/unit/dominant-button-element.php",
+      "php tests/contract/inherited-logical-button-element.php",
       "php tests/unit/hover-variant-buttons.php",
       "php tests/unit/wrapped-hover-variant-buttons.php",
       "php tests/unit/non-palette-hover-buttons.php",
