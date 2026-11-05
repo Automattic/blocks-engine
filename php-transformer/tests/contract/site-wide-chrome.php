@@ -43,7 +43,10 @@ if ('' !== $chrome) {
     unlink($temporary);
     preg_match("/'(:where\\(body[^']+blocks-engine-shell-transport[^']+)'/", $bootstrap, $transport);
     $assert(isset($transport[1]), 'The generated bootstrap carries the transport rule.');
-    file_put_contents($file, '<!doctype html><style>body{margin:0}' . $transport[1] . $global . '</style><div id="root"><div class="wp-block-template-part blocks-engine-shell-transport">' . $html . '</div><main style="height:2500px"></main></div><script>scrollTo(0,500);requestAnimationFrame(()=>{const h=document.querySelector("header");document.body.dataset.sticky=JSON.stringify([h.tagName,getComputedStyle(h).position,h.getBoundingClientRect().top]);});</script>');
+    // Headless --dump-dom can finish without a rendering frame, even with a
+    // virtual-time budget. Measure on load instead: getBoundingClientRect forces
+    // layout after scrolling, so this still checks the real sticky geometry.
+    file_put_contents($file, '<!doctype html><style>body{margin:0}' . $transport[1] . $global . '</style><div id="root"><div class="wp-block-template-part blocks-engine-shell-transport">' . $html . '</div><main style="height:2500px"></main></div><script>addEventListener("load",()=>{scrollTo(0,500);const h=document.querySelector("header");document.body.dataset.sticky=JSON.stringify([h.tagName,getComputedStyle(h).position,h.getBoundingClientRect().top]);});</script>');
     try {
         $output = shell_exec(escapeshellarg($chrome) . ' --headless --no-sandbox --disable-gpu --virtual-time-budget=1000 --dump-dom ' . escapeshellarg('file://' . $file) . ' 2>/dev/null');
         preg_match('/data-sticky="([^"]+)"/', (string) $output, $match);

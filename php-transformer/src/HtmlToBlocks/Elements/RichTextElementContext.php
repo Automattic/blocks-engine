@@ -53,7 +53,8 @@ final class RichTextElementContext
         private readonly ?Closure $emptyInlineGeometryBlock = null,
         private readonly ?Closure $nativeDisclosureBlock = null,
         private readonly ?Closure $decorativeSvgBlock = null,
-        private readonly ?Closure $mediaBlockFromTextlessHeading = null
+        private readonly ?Closure $mediaBlockFromTextlessHeading = null,
+        private readonly ?Closure $shouldPreserveEmptySourceText = null
     ) {
     }
 
@@ -145,6 +146,11 @@ final class RichTextElementContext
     public function authoredMarqueeBlock(DOMElement $element): ?array
     {
         return ($this->authoredMarqueeBlock)($element);
+    }
+
+    public function shouldPreserveEmptySourceText(DOMElement $element): bool
+    {
+        return null !== $this->shouldPreserveEmptySourceText && ($this->shouldPreserveEmptySourceText)($element);
     }
 
     public function hasEmptyVisualInlineChild(DOMElement $element): bool
