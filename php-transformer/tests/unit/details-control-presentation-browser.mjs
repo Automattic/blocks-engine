@@ -10,6 +10,27 @@ assert.equal(fixture.responsiveValidity.status, 'pass');
 
 const browser = await chromium.launch();
 try {
+	for (const width of [390, 1440]) {
+		const boxes = {};
+		for (const stage of ['nativeSource', 'nativeCandidate']) {
+			const page = await browser.newPage({ viewport: { width, height: 500 } });
+			await page.setContent(fixture[stage]);
+			boxes[stage] = await page.locator('summary').evaluate((summary) => {
+				const carrier = summary.querySelector('span');
+				if (carrier) assertInline(carrier);
+				function assertInline(element) {
+					if (getComputedStyle(element).display !== 'inline') throw new Error('Summary label must be inline');
+				}
+				const range = document.createRange();
+				range.selectNodeContents(carrier || summary);
+				const text = range.getBoundingClientRect();
+				const box = summary.getBoundingClientRect();
+				return { height: box.height, textTop: text.top - box.top, textHeight: text.height, display: getComputedStyle(summary).display };
+			});
+			await page.close();
+		}
+		assert.deepEqual(boxes.nativeCandidate, boxes.nativeSource, `native summary marker and label retain one-line geometry at ${width}px`);
+	}
 	const neutralGeometry = {};
 	const neutralPaint = {};
 	for (const stage of ['source', 'candidate']) {

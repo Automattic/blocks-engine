@@ -425,7 +425,14 @@ final class GeneratedSupportStylesheetState
                 if ( $this->disclosureSummaryMarkerSuppression[$className] ?? false ) {
                     $parts[] = $summary . '::-webkit-details-marker{display:none}';
                 }
-                $parts[] = $summary . ':has(' . $carrier . '){padding:0!important;border:0!important;background:none!important;box-shadow:none!important}';
+                $carrierCss = $this->disclosureSummaryContentCarrierPresentation[$className] ?? '';
+                if ( preg_match('/(?:^|;)display:/', $carrierCss) ) {
+                    $parts[] = $summary . ':has(' . $carrier . '){padding:0!important;border:0!important;background:none!important;box-shadow:none!important}';
+                } else {
+                    // Native list-item labels are inline content, not a second
+                    // box, even when retained source hooks still match rules.
+                    $parts[] = $summary . $carrier . '{display:inline!important;padding:0!important;border:0!important;margin:0!important;background:none!important;box-shadow:none!important;width:auto!important;height:auto!important;min-width:0!important;min-height:0!important;max-width:none!important;max-height:none!important;position:static!important;float:none!important}';
+                }
             }
         }
         foreach ($this->disclosureSummaryContentCarrierPresentation as $className => $declarations) {
