@@ -465,6 +465,21 @@ $variantPlan = $variantResult['source_reports']['wordpress_site_plan'];
 $variantDiagnostic = current(array_filter($variantPlan['diagnostics'], static fn(array $diagnostic): bool => 'wordpress_site_plan_shell_retained_ambiguous' === ($diagnostic['code'] ?? null) && 'header' === ($diagnostic['area'] ?? null)));
 $assert(array() === array_values(array_filter($variantPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null))) && 'non_equivalent' === ($variantDiagnostic['provenance']['reason'] ?? null), 'A non-current navigation presentation difference prevents false shared-header equivalence.');
 
+// Restating inherited label typography is neutral; a different family is not.
+$inheritedLabelShell = static fn(string $style): string => '<header><div class="logo">Brand</div><nav style="font-family:&quot;Open Sans&quot;;font-size:15px"><a href="about.html"><div><div class="rich-text-content"' . $style . '><div>Request Free Analysis<br></div></div></div></a><a href="index.html">Home</a></nav></header><main><h1>Content</h1></main>';
+$inheritedLabelResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $inheritedLabelShell(''),
+    'about.html' => $inheritedLabelShell(' style="font-family: &apos;open   sans&apos; "'),
+    'different.html' => $inheritedLabelShell(' style="font-family:Georgia"'),
+)))->toArray();
+$inheritedLabelPlan = $inheritedLabelResult['source_reports']['wordpress_site_plan'];
+$inheritedLabelHeaders = array_values(array_filter($inheritedLabelPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
+$inheritedLabelDiagnostic = current(array_filter($inheritedLabelPlan['diagnostics'], static fn(array $diagnostic): bool => 'wordpress_site_plan_shell_extracted' === ($diagnostic['code'] ?? null) && 'header' === ($diagnostic['area'] ?? null)));
+$inheritedLabelMarkup = ($inheritedLabelHeaders[0]['canonical_block_markup'] ?? '') . implode('', array_column($inheritedLabelPlan['menus'], 'block_markup'));
+$assert(1 === count($inheritedLabelHeaders) && 2 === ($inheritedLabelDiagnostic['page_count'] ?? null) && !str_contains($inheritedLabelMarkup, 'blocks-engine-label-typography'), 'An absent and a restated inherited navigation-label font share one header without a label typography wrapper.');
+$inheritedLabelPages = array_column($inheritedLabelResult['source_reports']['compiled_site']['pages'], null, 'source_path');
+$assert(array(array('source_path' => 'different.html', 'reason' => 'non_equivalent')) === ($inheritedLabelDiagnostic['exclusions'] ?? null) && str_contains($inheritedLabelPages['different.html']['block_markup'] ?? '', 'blocks-engine-label-typography') && str_contains($inheritedLabelPages['different.html']['block_markup'] ?? '', 'Georgia'), 'A navigation label that changes its inherited font remains wrapped and excluded from the shared header.');
+
 // Shared preparation must see the same linked stylesheet occurrences as page
 // workers, including repeated links with distinct media conditions.
 $linkedShellDocument = static fn(string $title): string => '<!doctype html><html><head><link rel="stylesheet" href="assets/site.css"><link rel="stylesheet" href="assets/site.css" media="print"></head><body><div class="site"><main><h1>' . $title . '</h1></main><footer class="site-footer"><div class="grid"><div><p>Contact</p></div><div><p>Social links</p></div></div></footer></div></body></html>';

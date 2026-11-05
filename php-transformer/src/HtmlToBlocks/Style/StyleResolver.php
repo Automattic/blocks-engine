@@ -3481,9 +3481,67 @@ final class StyleResolver implements ElementPresentationResolver
         if ( $this->isCssAllResetValue((string) ($declarations['all'] ?? '')) ) {
             unset($declarations['all']);
         }
-        $cache->declarations[$cacheKey] = $declarations;
+        $cache->declarations[$cacheKey] = $this->withoutRedundantInheritedTypography($element, $declarations);
 
         return $cache->declarations[$cacheKey];
+    }
+
+    /**
+     * @param array<string, string> $declarations
+     * @return array<string, string>
+     */
+    public function withoutRedundantInheritedTypography(DOMElement $element, array $declarations): array
+    {
+        $parent = $element->parentNode;
+        if ( $parent instanceof DOMElement ) {
+            foreach ( array( 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform', 'color' ) as $property ) {
+                if ( ! isset($declarations[$property]) ) {
+                    continue;
+                }
+                $inherited = $this->resolvedInheritedTypographyValue($parent, $property);
+                $value = $this->resolveCssVariablesInValue(CssValueInspector::withoutImportant($declarations[$property]), $element);
+                // Equal relative expressions need not compute equally at two
+                // levels (for example font-size:120% or font-weight:bolder).
+                if ( ('font-size' === $property && preg_match('/(?:%|[0-9.](?:em|ex|ch)\b)|^(?:larger|smaller)$/i', $value))
+                    || ('font-weight' === $property && in_array(strtolower(trim($value)), array( 'bolder', 'lighter' ), true)) ) {
+                    continue;
+                }
+                if ( '' !== $inherited && $this->comparableInheritedTypography($value) === $this->comparableInheritedTypography($inherited) ) {
+                    unset($declarations[$property]);
+                }
+            }
+        }
+        return $declarations;
+    }
+
+    private function comparableInheritedTypography(string $value): string
+    {
+        $value = $this->context->cssComparableValue($value);
+        $value = str_replace(array( '"', "'" ), '', $value);
+
+        return trim(preg_replace('/\s+/', ' ', $value) ?? $value);
+    }
+
+    /** Read the source cascade, not the presentation declarations we prune. */
+    private function resolvedInheritedTypographyValue(DOMElement $element, string $property): string
+    {
+        for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
+            $declarations = $this->cssDeclarations($this->specificityResolvedPresentationStyle($current));
+            $value = CssValueInspector::withoutImportant((string) ($declarations[$property] ?? ''));
+            $value = $this->resolveCssVariablesInValue($value, $current);
+            $keyword = strtolower(trim($value));
+            if ( '' === $keyword || in_array($keyword, array( 'inherit', 'unset' ), true) ) {
+                continue;
+            }
+            // Do not guess defaults or compare unresolved values as computed ones.
+            if ( in_array($keyword, array( 'initial', 'revert', 'revert-layer' ), true) || str_contains($value, 'var(') ) {
+                return '';
+            }
+
+            return $value;
+        }
+
+        return '';
     }
 
     /**
