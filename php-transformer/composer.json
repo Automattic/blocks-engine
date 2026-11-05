@@ -992,6 +992,7 @@
       "php tests/unit/linked-image-link-name.php",
       "php tests/unit/social-links-hidden-labels.php",
       "php tests/unit/social-links-icon-font.php",
+      "php tests/unit/social-links-native-svg-artwork.php",
       "php tests/unit/monochrome-glyph-color.php",
       "php tests/unit/captured-glyph-color.php",
       "php tests/unit/social-anchor-colors.php",
