@@ -203,6 +203,15 @@ final class EditabilityReport
                     }
                     $signals[] = $this->signal($emptyKind, $sourcePath, $blockPath, $name);
                 }
+            } elseif ($this->isLayoutShell($name) && array() === $innerBlocks && '' === trim(strip_tags((string) ($block['innerHTML'] ?? '')))) {
+                // A folded chain around nothing is classified like the empty group it replaced.
+                $wrappers = is_array($attrs['wrappers'] ?? null) ? $attrs['wrappers'] : array();
+                $innermost = end($wrappers);
+                $innermostClass = is_array($innermost) ? (string) ($innermost['attributes']['class'] ?? '') : '';
+                $emptyKind = $this->emptyGroupKind('core/group', array('className' => $innermostClass), $generatedCarrierCss, isset($runtimeBlockPaths['blocks.' . implode('.', $blockPath)]), isset($visualBlockPaths['blocks.' . implode('.', $blockPath)]));
+                $metrics['wrapper_block_count']++;
+                $metrics[$emptyKind . '_count']++;
+                $signals[] = $this->signal($emptyKind, $sourcePath, $blockPath, $name);
             } else {
                 $metrics['content_block_count']++;
             }
