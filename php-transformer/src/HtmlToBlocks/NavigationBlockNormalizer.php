@@ -173,7 +173,7 @@ final class NavigationBlockNormalizer
      */
     private function normalizeRecursive(array $blocks, array &$seen, array $sourceProvenance, array $sourceBaseHiddenStates, bool $preserveDisclosureNavigation): array
     {
-        if (!$preserveDisclosureNavigation) $blocks = $this->preferVisibleSiblings($blocks, $sourceBaseHiddenStates);
+        if (!$preserveDisclosureNavigation) $blocks = $this->preferVisibleSiblings($this->mergeDeviceMenuPairs($blocks), $sourceBaseHiddenStates);
         $deduplicated = array();
         foreach ( $blocks as $block ) {
             if ( ! is_array($block) ) {
@@ -219,6 +219,37 @@ final class NavigationBlockNormalizer
         }
 
         return $deduplicated;
+    }
+
+    /**
+     * Sibling phone and non-phone copies of one menu are core's collapsing
+     * navigation. Keeping one menu keeps its links editable in one place.
+     *
+     * @param array<int, array<string, mixed>> $blocks
+     * @return array<int, array<string, mixed>>
+     */
+    private function mergeDeviceMenuPairs(array $blocks): array
+    {
+        $phoneOnly = EngineMarker::DEVICE_ONLY_CLASS_PREFIX . 'mobile';
+        $notOnPhone = EngineMarker::DEVICE_HIDE_CLASS_PREFIX . 'mobile';
+        $classesOf = static fn (array $block): array => preg_split('/\s+/', trim((string) ($block['attrs']['className'] ?? ''))) ?: array();
+        $phoneCopies = array();
+        foreach ($blocks as $index => $block) {
+            if (is_array($block) && 'core/navigation' === ($block['blockName'] ?? '') && in_array($phoneOnly, $classesOf($block), true) && !in_array($notOnPhone, $classesOf($block), true)) {
+                $phoneCopies[$this->signature($block)] ??= $index;
+            }
+        }
+        foreach ($blocks as $index => $block) {
+            if (!is_array($block) || 'core/navigation' !== ($block['blockName'] ?? '') || !in_array($notOnPhone, $classesOf($block), true)) continue;
+            $limitedToOneDevice = array() !== array_filter($classesOf($block), static fn (string $class): bool => str_starts_with($class, EngineMarker::DEVICE_ONLY_CLASS_PREFIX));
+            $signature = $this->signature($block);
+            if ($limitedToOneDevice || '' === $signature || !isset($phoneCopies[$signature])) continue;
+            unset($blocks[$phoneCopies[$signature]], $phoneCopies[$signature]);
+            $blocks[$index]['attrs']['className'] = implode(' ', array_diff($classesOf($block), array($notOnPhone)));
+            if ('' === $blocks[$index]['attrs']['className']) unset($blocks[$index]['attrs']['className']);
+            $blocks[$index]['attrs']['overlayMenu'] = 'mobile';
+        }
+        return array_values($blocks);
     }
 
     /** Native disclosures own their panels regardless of capture provenance. */

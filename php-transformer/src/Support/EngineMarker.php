@@ -56,6 +56,28 @@ final class EngineMarker
         );
     }
 
+    /** Class form of the capture device-only marker on a native block: `<prefix><profile>`. */
+    public const DEVICE_ONLY_CLASS_PREFIX = 'blocks-engine-device-only-';
+    /** Class form of the capture device-hide marker on a native block: `<prefix><profile>`. */
+    public const DEVICE_HIDE_CLASS_PREFIX = 'blocks-engine-device-hide-';
+
+    /**
+     * Native blocks cannot save arbitrary attributes, but they do keep classes.
+     *
+     * @return list<string>
+     */
+    public static function deviceVisibilityClasses(DOMElement $element): array
+    {
+        $profile = '/^[a-z][a-z0-9_-]{0,63}$/D';
+        $classes = array();
+        $only = trim($element->getAttribute(CaptureEvidence::DEVICE_ONLY));
+        if (1 === preg_match($profile, $only)) $classes[] = self::DEVICE_ONLY_CLASS_PREFIX . $only;
+        foreach (preg_split('/\s+/', trim($element->getAttribute(CaptureEvidence::DEVICE_HIDE))) ?: array() as $hidden) {
+            if (1 === preg_match($profile, $hidden)) $classes[] = self::DEVICE_HIDE_CLASS_PREFIX . $hidden;
+        }
+        return $classes;
+    }
+
     public static function deviceScopeValue(DOMElement $element): string
     {
         return $element->getAttribute(self::DEVICE_SCOPE_ATTRIBUTE) ?: $element->getAttribute(CaptureEvidence::DEVICE_DOCUMENT);

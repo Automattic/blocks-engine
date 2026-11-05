@@ -6,6 +6,8 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationProvenanceState;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
 /** Records source ownership and builds the final canonical block representation. */
 final class BlockMaterializer
@@ -46,6 +48,12 @@ final class BlockMaterializer
             }
             if ( array() !== $runtimeAttributes ) {
                 $attrs['metadata'][self::RUNTIME_ATTRIBUTES_KEY] = $runtimeAttributes;
+            }
+            if ('core/html' !== $name) {
+                $deviceClasses = EngineMarker::deviceVisibilityClasses($sourceFacts->sourceElement);
+                if (array() !== $deviceClasses) {
+                    $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), implode(' ', $deviceClasses));
+                }
             }
             $provenanceId = $provenance->registerSource($sourceFacts->sourceEntry, $sourceFacts->startsHidden, $sourceFacts->wrapperHiddenAtCollapsedViewport);
             $provenance->recordSourceElement($provenanceId, $sourceFacts->sourceElement);
