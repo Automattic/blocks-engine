@@ -1754,6 +1754,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // conversion and keeps every downstream pass — style matching, selector
         // projection, rich-text materialization — from ever observing it.
         $this->pruneNonRenderedMetadataElements($body);
+        // Prune before selector/layout analysis so neither frames nor emptied
+        // checkout wrappers can contribute a block or captured box geometry.
+        $paymentWidgetFindings = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\PaymentProcessorWidgetPruner::prune($body);
         // Saved block markup re-enters as source; invert save shapes that moved
         // source identity onto synthesized wrappers before anything reads them.
         OwnSaveShapeInverter::invert($body, function (DOMElement $element): bool {
@@ -1781,7 +1784,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->reusableComponents()->installRecognition($this->reusableComponentRecognizer->recognize($body));
 
         $timer->start('transform.conversion');
-        $fallbacks   = array();
+        $fallbacks = array_map(
+            fn (array $finding): array => FallbackDiagnostic::build($finding, $this->transformationProvenance()->fallback()),
+            $paymentWidgetFindings
+        );
         \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DocumentReferenceIndex::install($document);
         \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\InteractiveSurface::indexDocument($document);
         try {
