@@ -33,9 +33,10 @@ final class TableSelectorProjectionPolicy
             }
         }
 
-        if ( in_array(strtolower($element->tagName), array( 'td', 'th' ), true)
-            && array() === $classes && array() === $ids && array() === $attributes
-        ) {
+        // Lift every matching cell rule, including rules scoped by ancestors
+        // that survive serialization. Mixing native and structural selectors
+        // would let the structural path outrank a more specific source rule.
+        if ( in_array(strtolower($element->tagName), array( 'td', 'th' ), true) ) {
             return true;
         }
 
