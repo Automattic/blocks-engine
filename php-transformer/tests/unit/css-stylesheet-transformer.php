@@ -328,6 +328,17 @@ $result = $transformer->scopeRouteVariants(array(), array(
 );
 $assert(!$registered && str_contains($result['stylesheet'], ':where(:root:is(.be-r-a))'), 'singleton membership reuses the exact route identity');
 
+// A commented-out rule inside a group is inert, so a route that keeps or
+// drops the group around it is still scoped.
+$group = static fn(string $rules): string => '@media (max-width:840px){' . $rules . '/* .old{top:0} */}';
+foreach (array(
+    array($group('.x{color:red}'), '@media (max-width:840px){.x{color:red}}'),
+    array('.x{color:red}', '.x{color:red}' . $group('.y{color:blue}')),
+) as [$base, $route]) {
+    $result = $transformer->scopeRouteVariants(array($base), array('a' => array($base), 'b' => array($route)));
+    $assert(array() === $result['reasons'] && in_array('b', $result['scoped'], true), 'a commented-out rule in a group does not block route scoping');
+}
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "CssStylesheetTransformer unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);
