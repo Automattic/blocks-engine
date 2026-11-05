@@ -1729,8 +1729,29 @@ final class NavigationToggleSuppressor
                 continue;
             }
             if ( $signature === $this->sourceNavigationSignature($candidate)
-                && ($this->hasMobileNavigationSignal($navigationRoot) || $this->hasMobileNavigationSignal($candidate))
+                && ( $this->isHiddenAtMobileViewport($navigationRoot) || $this->isHiddenAtMobileViewport($candidate) )
             ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isHiddenAtMobileViewport(DOMElement $element): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( SourceDom::isDocumentVariantRoot($node) || in_array(strtolower($node->tagName), array( 'body', 'html' ), true) ) {
+                break;
+            }
+            $declarations = $this->styleResolver->collapsedViewportAuthorDeclarations($node, array('display', 'visibility', 'opacity'));
+            $display = CssValueInspector::comparable($this->styleResolver->resolveCssVariablesAtViewport((string) ($declarations['display'] ?? ''), $node, StyleResolver::MOBILE_REFERENCE_WIDTH));
+            $visibility = CssValueInspector::comparable((string) ($declarations['visibility'] ?? ''));
+            $opacity = CssValueInspector::comparable((string) ($declarations['opacity'] ?? ''));
+            if ( $this->sourceElementIsHiddenByMarkup($node, $display, true)
+                || 'none' === $display
+                || in_array($visibility, array('hidden', 'collapse'), true)
+                || (is_numeric($opacity) && 0.0 === (float) $opacity) ) {
                 return true;
             }
         }

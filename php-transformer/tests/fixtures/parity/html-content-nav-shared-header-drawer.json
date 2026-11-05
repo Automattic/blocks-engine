@@ -1,0 +1,12 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-content-nav-shared-header-drawer",
+  "description": "Content navigation stays visible despite a separate header drawer sharing its destinations.",
+  "source_reference": {"repo": "Automattic/blocks-engine", "path": "https://github.com/Automattic/blocks-engine/issues/4511", "notes": "Reduced issue page, normalized as fixture."},
+  "legacy_comparison": {"skip": true, "reason": "Regression fixture."},
+  "operation": "html_transformer.transform",
+  "input": {"content": "<header><button aria-label=\"Open menu\" aria-expanded=\"false\" aria-controls=\"mobile-menu\" class=\"md-hidden\">☰</button><nav aria-label=\"Main\" class=\"desktop-only\"><a href=\"/\">Home</a><a href=\"/contact\">Contact</a></nav><div id=\"mobile-menu\" hidden><nav aria-label=\"Mobile\"><a href=\"/areas/a\">Alpha</a><a href=\"/areas/b\">Beta</a></nav></div></header><main><h2>Find your city</h2><nav aria-label=\"Service areas\" class=\"flex flex-wrap\"><a href=\"/areas/a\">Alpha</a><a href=\"/areas/b\">Beta</a></nav></main>"},
+  "expected_blocks": [{"path":"blocks.1","name":"core/group"}],
+  "expected_fallbacks": [],
+  "expect": [{"path":"status","assert":"equals","value":"success"},{"path":"serialized_blocks","assert":"contains","value":"\"overlayMenu\":\"never\""}]
+}
