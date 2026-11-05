@@ -720,6 +720,7 @@
       "php tests/unit/paragraph-inline-picture-text.php",
       "php tests/unit/richtext-type-selector-preservation.php",
       "php tests/unit/richtext-class-selector-projection.php",
+      "php tests/unit/richtext-font-shorthand.php",
       "php tests/unit/richtext-mark-carrier-role.php",
       "php tests/unit/richtext-unknown-inline-element.php",
       "php tests/unit/unknown-block-position-element.php",

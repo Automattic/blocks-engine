@@ -275,6 +275,10 @@ final class RichTextMaterializer implements RichTextMaterialization
             'box-shadow',
             'color',
             'display',
+            // Keep pending shorthands (including var() and system fonts) intact.
+            // Filtering these loses all of their font resets and values; parsing
+            // them here would also change their ordering against longhands.
+            'font',
             'font-family',
             'font-size',
             'font-style',
