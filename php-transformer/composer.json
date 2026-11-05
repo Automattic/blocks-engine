@@ -179,6 +179,8 @@
       "php tests/contract/run.php",
       "php tests/contract/custom-property-state-paint.php",
       "php tests/contract/data-attribute-grid-projection.php",
+      "php tests/contract/custom-element-wrapper-attribute-selector.php",
+      "php tests/contract/custom-element-wrapper-native-grid.php",
       "php tests/contract/finding-contract.php",
       "php tests/contract/wordpress-site-plan.php",
       "php tests/contract/wrapper-class-post-date.php",

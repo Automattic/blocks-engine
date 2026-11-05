@@ -139,6 +139,11 @@ final class WrapperCoalescer
     /** @param array<string, mixed> $block @return array{tagName: string, attributes: array<string, string>, opening: string, closing: string}|null */
     public function groupWrapperDescriptor(array $block): ?array
     {
+        // Selector-hook hosts must stay independently editable, not become a
+        // generated layout-shell together with their grid/flex item child.
+        if ( ! empty($block['_native_custom_wrapper_hook']) ) {
+            return null;
+        }
         $content = is_array($block['innerContent'] ?? null) ? $block['innerContent'] : array();
         $opening = is_string($content[0] ?? null) ? $content[0] : '';
         $last = array() === $content ? null : $content[array_key_last($content)];
