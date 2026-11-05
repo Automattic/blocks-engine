@@ -35,6 +35,9 @@ final class CaptureEvidence
     public const DOCUMENT_SCOPE = 'data-blocks-engine-capture-document-scope';
     /** Profile identifier (`[a-z][a-z0-9_-]{0,63}`) of a declared document scope. */
     public const DEVICE_DOCUMENT = 'data-blocks-engine-capture-device-document';
+
+    /** Capture runtime stylesheet selecting which device document is shown. */
+    public const DEVICE_VISIBILITY = 'data-blocks-engine-capture-device-visibility';
     /** Class on the root of the mobile copy of a responsive capture. */
     public const MOBILE_DOCUMENT_CLASS = 'data-blocks-engine-capture-mobile-document';
     /** Class on the root of the desktop (default) copy of a responsive capture. */
