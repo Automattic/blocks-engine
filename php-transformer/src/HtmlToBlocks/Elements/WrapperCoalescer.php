@@ -12,6 +12,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlAttributeName;
 use Closure;
@@ -657,7 +658,9 @@ final class WrapperCoalescer
     /** @param array<string,string> $declarations */
     private function hasOnlyRenderNeutralBoxAffectingDeclarationMap(array $declarations): bool
     {
+        $zeroWidthBorder = (new StyleAttributeMapper())->allBorderWidthsZero($declarations);
         foreach ($declarations as $property => $value) {
+            if ($zeroWidthBorder && preg_match('/^border(?:-(?:top|right|bottom|left))?(?:-(?:width|style|color))?$/', $property)) continue;
             if (! preg_match('/^(?:align-content|align-items|align-self|background|border|bottom|column|contain|display|filter|flex|float|gap|grid|height|inset|isolation|left|margin|max-|min-|opacity|outline|overflow|padding|perspective|position|right|row-gap|top|transform|width|z-index)/', $property)) continue;
             if (! $this->isRenderNeutralGeometryDeclaration($property, $value)) return false;
         }
