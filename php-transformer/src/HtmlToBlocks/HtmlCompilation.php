@@ -190,6 +190,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttribu
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjectionFacts;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SocialSourceStyleProjector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LinkedImageSourceStyleProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceStyleResolutionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StylesheetAnalysisComposer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StylesheetAssetStage;
@@ -11445,6 +11446,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->imageNeedsSeparateFigureBox($image, $figure)
                 ? $this->session->authorSelectorProjectionState()->imageWrapperMarker($image->getNodePath() ?? '') : ''
         );
+        if ($figure instanceof DOMElement && $link instanceof DOMElement && '' !== ($marker = $this->session->authorSelectorProjectionState()->semanticMarker($link->getNodePath() ?? ''))) {
+            (new LinkedImageSourceStyleProjector($this->styleResolver))->project($image, $link, $figure, (string) ($block['attrs']['className'] ?? ''), $marker, $this->authorStyles(), $this->session->sourceTargetProjectionState());
+        }
         if ( '' !== $linkAnchor ) {
             // A native image has only one anchor. Keep an existing figure/image
             // identity and the link's fragment target on separate native hosts.
