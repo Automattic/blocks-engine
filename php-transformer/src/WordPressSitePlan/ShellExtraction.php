@@ -3389,9 +3389,12 @@ final class ShellExtraction
         };
         $names = static fn (array $attrs, string $route): bool => is_string($attrs['url'] ?? null) && !str_contains($attrs['url'], '#')
             && ('' === ($path = rtrim(explode('?', $attrs['url'])[0], '/')) ? '/' : $path) === $route;
+        // An item's attributes as the shell identity sees them, without
+        // generated markers (a label's per-document semantic class).
+        $asIdentity = static fn (array $attrs): array => json_decode(preg_replace('/^<!-- wp:navigation-submenu (.*) -->$/s', '$1', self::normalizeNestedChromeMarkup('<!-- wp:navigation-submenu ' . BlockAttributes::encode($attrs) . ' -->')) ?? '', true) ?: array();
         // Each menu item of a candidate, in order: its key, attributes, comment
         // range, and whether it names the route or (a submenu) holds one that does.
-        $items = static function (string $markup, string $area, string $route) use ($item, $names): array {
+        $items = static function (string $markup, string $area, string $route) use ($item, $names, $asIdentity): array {
             preg_match_all($item, $markup, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
             $rows = array(); $open = array(); $seen = array();
             foreach ($matches as $match) {
@@ -3401,7 +3404,7 @@ final class ShellExtraction
                 }
                 $attrs = json_decode($match[3][0] ?? '', true);
                 if (!is_array($attrs)) $attrs = array();
-                $identity = json_encode(array($match[2][0], $attrs['label'] ?? null, rtrim((string) ($attrs['url'] ?? ''), '/')));
+                $identity = json_encode(array($match[2][0], isset($attrs['label']) ? ($asIdentity(array('label' => $attrs['label']))['label'] ?? null) : null, rtrim((string) ($attrs['url'] ?? ''), '/')));
                 $seen[$identity] = ($seen[$identity] ?? 0) + 1;
                 $current = $names($attrs, $route);
                 $rows[] = array('kind' => $match[2][0], 'key' => $area . "\0" . $identity . "\0" . $seen[$identity], 'attrs' => $attrs, 'offset' => $match[0][1], 'length' => strlen($match[0][0]), 'current' => $current, 'holds' => false, 'closed' => '' !== ($match[4][0] ?? ''), 'valid' => isset($match[3][0]) && '' !== $match[3][0] && is_array(json_decode($match[3][0], true)));
@@ -3430,16 +3433,16 @@ final class ShellExtraction
         // the item or its anchor, so when one observed look is contained in
         // every other, it is the rest. Looks compare as the shell identity
         // sees them, without generated markers.
-        $contained = static function (array $look, array $other) use ($classes): bool {
-            $seen = static function (array $attrs) use ($classes): array {
-                $attrs = json_decode(preg_replace('/^<!-- wp:navigation-submenu (.*) -->$/s', '$1', self::normalizeNestedChromeMarkup('<!-- wp:navigation-submenu ' . BlockAttributes::encode($attrs) . ' -->')) ?? '', true) ?: array();
+        $contained = static function (array $look, array $other) use ($classes, $asIdentity): bool {
+            $parts = static function (array $attrs) use ($classes, $asIdentity): array {
+                $attrs = $asIdentity($attrs);
                 $anchor = $classes($attrs['metadata']['blocksEngineNavigationAnchor'] ?? array());
                 $item = $classes($attrs);
                 unset($attrs['className'], $attrs['metadata']['blocksEngineNavigationAnchor']['className']);
                 return array($item, $anchor, $attrs);
             };
-            [$lookItem, $lookAnchor, $lookRest] = $seen($look);
-            [$otherItem, $otherAnchor, $otherRest] = $seen($other);
+            [$lookItem, $lookAnchor, $lookRest] = $parts($look);
+            [$otherItem, $otherAnchor, $otherRest] = $parts($other);
             return array() === array_diff($lookItem, $otherItem) && array() === array_diff($lookAnchor, $otherAnchor) && $lookRest === $otherRest;
         };
         foreach ($held as $key => $looks) {
@@ -3462,6 +3465,8 @@ final class ShellExtraction
                     $rest = $resting[$row['key']] ?? array();
                     if (1 !== count($rest)) continue;
                     $rest = reset($rest);
+                    // The item keeps its own label; only its markers are per document.
+                    if (isset($row['attrs']['label'])) $rest['label'] = $row['attrs']['label'];
                     if ($rest === $atRest($row['attrs'])) continue;
                     $markers = array_values(array_filter($classes($row['attrs']), $isMarker));
                     if (array() !== $markers) $rest['className'] = trim(($rest['className'] ?? '') . ' ' . implode(' ', $markers));
