@@ -41,6 +41,23 @@ $runtimeMarkup = (string) ($runtime['serialized_blocks'] ?? '');
 $assert(str_contains($runtimeMarkup, '<!-- wp:navigation'), 'runtime-targeted overlay and toggle chrome do not abort list-backed navigation');
 $assert(str_contains($runtimeMarkup, '"overlayMenu":"mobile"'), 'runtime-targeted overlay chrome still yields a native mobile overlay menu');
 
+// A content nav shown at every width keeps its links on phones even when a
+// hidden header drawer lists the same destinations (#4511).
+$sharedDestinations = '<a href="/areas/a">Alpha</a><a href="/areas/b">Beta</a>';
+$contentNav = ( new HtmlTransformer() )->transform('<header><button aria-label="Open menu" aria-expanded="false" aria-controls="mobile-menu">Menu</button>'
+    . '<div id="mobile-menu" hidden><nav aria-label="Mobile">' . $sharedDestinations . '</nav></div></header>'
+    . '<main><nav aria-label="Service areas" class="city-links">' . $sharedDestinations . '</nav></main>')->toArray();
+$contentNavBlock = null;
+preg_match_all('/<!-- wp:navigation (\{.*?\}) \/?-->/s', (string) ($contentNav['serialized_blocks'] ?? ''), $navigationComments);
+foreach ( $navigationComments[1] as $json ) {
+    $attrs = json_decode($json, true);
+    if ( str_contains((string) ($attrs['className'] ?? ''), 'city-links') ) {
+        $contentNavBlock = $attrs;
+    }
+}
+$assert(is_array($contentNavBlock), 'the content nav converts to core/navigation');
+$assert('mobile' !== ($contentNavBlock['overlayMenu'] ?? 'mobile'), 'a content nav visible at every width does not collapse behind the mobile overlay');
+
 if ( 0 !== $failures ) {
     exit(1);
 }

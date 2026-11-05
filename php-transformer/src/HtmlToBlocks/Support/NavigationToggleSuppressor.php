@@ -1729,7 +1729,11 @@ final class NavigationToggleSuppressor
                 continue;
             }
             if ( $signature === $this->sourceNavigationSignature($candidate)
-                && ( $this->isHiddenAtMobileViewport($navigationRoot) || $this->isHiddenAtMobileViewport($candidate) )
+                && ($this->hasMobileNavigationSignal($navigationRoot) || $this->hasMobileNavigationSignal($candidate))
+                // A desktop variant is one the source hides on phones. A nav it
+                // shows at every width is its own content, whatever else lists
+                // the same destinations.
+                && $this->isHiddenAtMobileViewport($navigationRoot)
             ) {
                 return true;
             }
