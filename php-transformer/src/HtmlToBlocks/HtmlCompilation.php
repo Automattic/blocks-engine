@@ -1009,7 +1009,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             isAuthorOwnedLayout: fn (DOMElement $element): bool => $this->isAuthorOwnedLayout($element),
             proofBackedWrapperCoalescing: fn (DOMElement $element, array &$fallbacks): ?array => $this->proofBackedWrapperCoalescing($element, $fallbacks),
             shouldPreserveEmptyVisualElement: fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element),
-            isInertEmptyElement: fn (DOMElement $element): bool => $this->emptyElementHasNoPaintOrInteraction($element),
+            isInertEmptyElement: fn (DOMElement $element): bool => $this->isOutOfFlow($element) && $this->emptyElementHasNoPaintOrInteraction($element),
             createBlock: $this,
             patternContext: $this->patternContext,
             shouldDeferNavigationPatternToChildren: fn (DOMElement $element): bool => $this->shouldDeferNavigationPatternToChildren($element),
@@ -7874,6 +7874,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * and it holds its place in auto-placement (so dropping it, even when it is
      * transparent, moves every later sibling into the wrong cell).
      */
+    /** An absolutely or fixed positioned element takes no flex gap or grid cell from its siblings. */
+    private function isOutOfFlow(DOMElement $element): bool
+    {
+        $declarations = array_merge(
+            $this->styleResolver->structuralPresentationDeclarations($element),
+            $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'))
+        );
+        return in_array(CssValueInspector::comparable((string) ($declarations['position'] ?? '')), array( 'absolute', 'fixed' ), true);
+    }
+
     private function occupiesDefiniteGridCell(DOMElement $element): bool
     {
         $parent = $element->parentNode;

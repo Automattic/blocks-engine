@@ -34,4 +34,10 @@ $markup = (string) (new ArtifactCompiler())->compile(array('entrypoint' => 'inde
 if (str_contains($markup, 'zoom') || !str_contains($markup, 'wp:image')) {
     throw new RuntimeException('layout-item click-capture overlay must drop while its sibling image stays. ' . $markup);
 }
+$html = '<style>.grid{display:grid;grid-template-columns:repeat(4,1fr)}.cell{grid-area:3/1/auto/span 1;cursor:default}</style>'
+    . '<div class="grid"><p>One</p><p>Two</p><div class="cell"></div></div>';
+$markup = (string) (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html)))->toArray()['serialized_blocks'];
+if (!str_contains($markup, 'cell')) {
+    throw new RuntimeException('an empty in-flow grid item shapes its tracks and must stay. ' . $markup);
+}
 echo "Empty at-rest paint contract passed.\n";

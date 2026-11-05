@@ -204,8 +204,9 @@ final class FlowContainerElementConverter implements ElementConverter
                 if ( $this->context->shouldPreserveEmptyVisualElement($element) ) {
                     return ConversionOutcome::handled($this->context->emptyVisualSpacerBlock($element));
                 }
-                // A layout item that paints nothing, holds no flow space and
-                // takes no input is not a box the author can see or edit.
+                // An out-of-flow layout item that paints nothing and takes no
+                // input is not a box the author can see or edit. In-flow empty
+                // items still take a grid cell or flex gap, so they stay.
                 if ( $this->context->isInertEmptyElement($element) ) {
                     return ConversionOutcome::handled(null);
                 }
