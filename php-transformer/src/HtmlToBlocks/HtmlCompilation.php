@@ -10297,7 +10297,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
         if ( $this->runtimeIslands->isRuntimeDomTarget($anchor)
             || array() !== $this->eventMetadata($anchor)
-            || array() !== $this->interactiveAttributes($anchor)
+            || ( array() !== $this->interactiveAttributes($anchor) && ! $this->isUnfocusableImageLink($anchor) )
             || $this->hasRouteBearingDataAttributes($anchor)
         ) {
             return $this->responsiveMediaBlock($anchor);
@@ -10789,6 +10789,21 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return $this->createBlock('core/group', $attrs, $children, $anchor);
+    }
+
+    /**
+     * Card thumbnails mark their link tabindex="-1" so keyboard users meet only
+     * the title link to the same URL. core/image cannot store a link tabindex,
+     * so an image-only link that opts out of focus lowers natively and drops it.
+     * A link also hidden from assistive technology stays retained: lowering it
+     * would expose a hidden duplicate link, not just add a tab stop.
+     */
+    private function isUnfocusableImageLink(DOMElement $anchor): bool
+    {
+        return 'a' === strtolower($anchor->tagName)
+            && '-1' === trim($this->attr($anchor, 'tabindex'))
+            && 'true' !== strtolower(trim($this->attr($anchor, 'aria-hidden')))
+            && 1 === $anchor->getElementsByTagName('img')->length;
     }
 
     private function isImageOnlyAnchor(DOMElement $anchor): bool
