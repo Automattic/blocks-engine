@@ -63,6 +63,26 @@ final class DocumentRootContext
         return $classes;
     }
 
+    /** Register one deterministic, order-independent set of route classes. */
+    public static function routeSetClass(array $classes, array &$sets): string
+    {
+        $classes = array_values(array_unique($classes));
+        sort($classes);
+        $class = 'be-rs-' . substr(hash('sha256', implode("\n", $classes)), 0, 16);
+        if (isset($sets[$class]) && $sets[$class] !== $classes) throw new \LogicException('Route set hash collision.');
+        $sets[$class] = $classes;
+        return $class;
+    }
+
+    /** Add set membership wherever a root's route class is written. */
+    public static function withRouteSets(array $metadata, array $sets): array
+    {
+        $classes = preg_split('/\s+/', trim($metadata['root_attributes']['class'] ?? ''), -1, PREG_SPLIT_NO_EMPTY) ?: array();
+        foreach ($sets as $set => $members) if (array_intersect($classes, $members)) $classes[] = $set;
+        if ($classes) $metadata['root_attributes']['class'] = implode(' ', array_unique($classes));
+        return $metadata;
+    }
+
     public static function assertValid(mixed $attributes): void
     {
         if (!is_array($attributes)) throw new InvalidArgumentException('Document root context must be an attribute map.');
