@@ -390,11 +390,11 @@ $assert(
 
 $responsiveImageResult = ( new HtmlTransformer() )->transform('<img src="hero.jpg" srcset="hero.jpg 1x, hero-2x.jpg 2x" sizes="100vw" alt="Hero">')->toArray();
 $assert(
-    'custom/responsive-media' === ($responsiveImageResult['blocks'][0]['blockName'] ?? null)
-        && str_contains($responsiveImageResult['blocks'][0]['attrs']['content'] ?? '', 'srcset="hero.jpg 1x, hero-2x.jpg 2x"')
-        && str_contains($responsiveImageResult['blocks'][0]['attrs']['content'] ?? '', 'sizes="100vw"')
+    'core/image' === ($responsiveImageResult['blocks'][0]['blockName'] ?? null)
+        && 'hero.jpg 1x, hero-2x.jpg 2x' === ($responsiveImageResult['blocks'][0]['attrs']['metadata']['blocksEngineImageSelection']['srcset'] ?? null)
+        && '100vw' === ($responsiveImageResult['blocks'][0]['attrs']['metadata']['blocksEngineImageSelection']['sizes'] ?? null)
         && array() === ($responsiveImageResult['fallbacks'] ?? array()),
-    'responsive img sources retain authored selection in the existing editable media boundary'
+    'a density family whose src is its 1x candidate lowers to core/image and retains its authored selection'
 );
 $customImageResult = ( new HtmlTransformer() )->transform('<media-image id="hero" class="media-frame"><img class="photo" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP" data-src="hero.jpg" srcset="hero-small.jpg 340w, hero.jpg 680w" sizes="100vw" alt="Hero"></media-image>')->toArray();
 $assert(
