@@ -24,7 +24,8 @@ use DOMElement;
  *
  * Two source shapes qualify: a CSS-animated track whose children repeat as two
  * identical halves under an infinite linear translate keyframe, and a track
- * that declares its motion through `data-marquee-animation`.
+ * that declares its motion through `data-marquee-animation` or JSON items plus
+ * animation speed/direction data. Runtime SVG/measure copies are not content.
  * {@see AuthoredMarqueeBlockGenerator} owns the block definition and markup.
  */
 final class AuthoredMarqueeRecognizer
@@ -41,6 +42,11 @@ final class AuthoredMarqueeRecognizer
     /** @return array<string, mixed>|null */
     public function cssAuthoredMarqueeBlock(DOMElement $element): ?array
     {
+        $declared = $this->declaredItemsMarqueeBlock($element);
+        if ( null !== $declared ) {
+            return $declared;
+        }
+
         if ( ! $this->sourceElementClassifier->hasMotionStructureToken($element) ) {
             return null;
         }
@@ -296,6 +302,11 @@ final class AuthoredMarqueeRecognizer
     /** @return array<string, mixed>|null */
     public function authoredMarqueeBlock(DOMElement $element): ?array
     {
+        $declared = $this->declaredItemsMarqueeBlock($element);
+        if ( null !== $declared ) {
+            return $declared;
+        }
+
         $track = null;
         foreach ( $element->getElementsByTagName('*') as $candidate ) {
             if ( $candidate instanceof DOMElement && in_array($this->attr($candidate, 'data-marquee-animation'), array( 'left', 'right' ), true) ) {
@@ -348,6 +359,81 @@ final class AuthoredMarqueeRecognizer
         );
         $markup = ( new AuthoredMarqueeBlockGenerator() )->markup($attributes);
 
+        return array(
+            'blockName' => $this->generatedBlocks()->blockName(AuthoredMarqueeBlockGenerator::LOCAL_NAME),
+            'attrs' => $attributes,
+            'innerBlocks' => array(),
+            'innerHTML' => $markup,
+            'innerContent' => array( $markup ),
+        );
+    }
+
+    /**
+     * Runtime textPath marquees keep their editable source in a JSON declaration
+     * and use hidden measure headings for typography. Do not depend on the
+     * runtime's class names, or copy its hidden/duplicated SVG presentation.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function declaredItemsMarqueeBlock(DOMElement $element): ?array
+    {
+        if ( ! $element->hasAttribute('data-marquee-items') ) {
+            return null;
+        }
+        $declared = json_decode($this->attr($element, 'data-marquee-items'));
+        $direction = $this->attr($element, 'data-animation-direction');
+        $speed = $this->attr($element, 'data-animation-speed');
+        $wave = $this->attr($element, 'data-wave-intensity');
+        if ( ! is_array($declared) || array() === $declared
+            || ! in_array($direction, array( 'left', 'right' ), true)
+            || ! is_numeric($speed) || ! is_finite((float) $speed) || 0 >= (float) $speed
+            || ('' !== $wave && (! is_numeric($wave) || 0.0 !== (float) $wave))
+        ) {
+            return null;
+        }
+        foreach ( SourceDom::descendantElements($element) as $node ) {
+            if ( FormControlClassifier::isControlElement($node) ) {
+                return null;
+            }
+        }
+
+        $items = array();
+        foreach ( $declared as $entry ) {
+            if ( ! $entry instanceof \stdClass || ! isset($entry->text) || ! is_string($entry->text) || '' === trim($entry->text) ) {
+                return null;
+            }
+            $measure = null;
+            foreach ( $element->getElementsByTagName('*') as $candidate ) {
+                if ( $candidate instanceof DOMElement
+                    && in_array(strtolower($candidate->tagName), array( 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span' ), true)
+                    && 0 === $candidate->childElementCount
+                    && trim($candidate->textContent ?? '') === trim($entry->text)
+                ) {
+                    $measure = $candidate;
+                    break;
+                }
+            }
+            if ( ! $measure instanceof DOMElement ) {
+                return null;
+            }
+            $items[] = array(
+                'content' => $this->runtime->escapeHtml($entry->text),
+                'tagName' => strtolower($measure->tagName),
+                'className' => trim($this->attr($measure, 'class')),
+                'marker' => trim($this->attr($measure, 'data-blocks-engine-richtext-marker')),
+            );
+        }
+
+        $generator = new AuthoredMarqueeBlockGenerator();
+        $this->generatedBlocks()->register(AuthoredMarqueeBlockGenerator::class, $generator->definition($this->generatedBlocks()->namespace()));
+        $attributes = array(
+            'items' => $items,
+            'direction' => $direction,
+            // The declared speed is a multiplier, not a duration in seconds.
+            'duration' => min(600, max(1, 40 / (float) $speed)),
+            'decorative' => SourceDom::hasAriaHiddenAncestor($element),
+        );
+        $markup = $generator->markup($attributes);
         return array(
             'blockName' => $this->generatedBlocks()->blockName(AuthoredMarqueeBlockGenerator::LOCAL_NAME),
             'attrs' => $attributes,

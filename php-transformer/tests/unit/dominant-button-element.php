@@ -90,7 +90,7 @@ foreach ($variantMatches[1] as $json) {
     }
 }
 $assert($styled > 0 && $close > 0, 'variation and icon covered');
-// Neither a tie nor a viewport-dependent button system establishes a look.
+// Tied and viewport-dependent fields stay local; shared fields still vote.
 foreach (array('tie', 'responsive', 'unstyled') as $case) {
     $input = $fixture;
     foreach ($input['files'] as &$html) {
@@ -102,7 +102,9 @@ foreach (array('tie', 'responsive', 'unstyled') as $case) {
     foreach ($compile($input)['writes'] as $write) {
         if ('theme.json' !== $write['target_path']) continue;
         $negative = json_decode($write['payload']['data'], true, 512, JSON_THROW_ON_ERROR);
-        $assert(!isset($negative['styles']['elements']['button']['spacing']['padding']), $case . ': no unproven dominant look');
+        if ('unstyled' === $case) $assert(!isset($negative['styles']['elements']['button']['spacing']['padding']), 'unstyled: no unproven dominant look');
+        else $assert('13px 22px' === ($negative['styles']['elements']['button']['spacing']['padding'] ?? null), $case . ': shared padding survives');
+        if ('responsive' === $case) $assert(!isset($negative['styles']['elements']['button']['typography']['fontSize']), 'responsive size stays local');
         $assert(!isset($negative['styles']['blocks']['core/button']['variations']), $case . ': no variation');
     }
 }

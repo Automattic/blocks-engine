@@ -563,7 +563,7 @@ final class ThemeJsonProjection
                 if (!isset($paths[$field])) continue;
                 $differs = false;
                 foreach ($tags as $tag) foreach ($properties[$field] ?? array() as $property) foreach ($authored['element:' . $tag . "\n" . $property] ?? array() as $declared) $differs = $differs || !(self::sameElementValue($property, $declared, $value) || (1 === preg_match('/^h[1-6]$/', $element) && in_array($field, array('font_size', 'font_weight', 'line_height'), true) && in_array(trim($declared), array('inherit', 'unset'), true)));
-                $dominantButton = 'button' === $element && isset($values['padding']);
+                $dominantButton = 'button' === $element;
                 if ($differs && !$dominantButton && !('button' === $element && 'color' === $field)) continue;
                 [$path, $reference] = $paths[$field];
                 if ('button' === $element && null !== ($slug = $system->buttonVariationSlug())) $target = &$styles['blocks']['core/button']['variations'][$slug];

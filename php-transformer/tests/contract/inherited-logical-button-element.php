@@ -51,13 +51,36 @@ foreach (array('physical', 'focus', 'media', 'conditional-variable', 'unsupporte
     foreach ($variant['writes'] as $write) {
         if ('theme.json' !== $write['target_path']) continue;
         $styles = json_decode($write['payload']['data'], true, 512, JSON_THROW_ON_ERROR)['styles']['elements']['button'] ?? array();
-        if (in_array($case, array('media', 'conditional-variable', 'relative-size'), true)) $assert(!isset($styles['spacing']['padding']), $case . ' disqualifies the look');
+        if (in_array($case, array('media', 'conditional-variable'), true)) $assert(!isset($styles['spacing']['padding']), $case . ' disqualifies padding');
         else {
             $assert('7.5px 15px' === ($styles['spacing']['padding'] ?? null), $case . ' preserves the look');
+            if ('relative-size' === $case) $assert(!isset($styles['typography']['fontSize']), 'relative size disqualifies only size');
             if ('original' === $case) $assert('700' === ($styles['typography']['fontWeight'] ?? null), $case . ' weight');
             if ('unsupported-state' === $case) $assert(!isset($styles[':hover']), 'unsupported hover drops only the state');
             if ('focus' === $case) $assert(isset($styles[':focus']['color']['text']), 'focus colour emitted');
         }
     }
 }
+$input = require dirname(__DIR__) . '/fixtures/design-system/per-field-button-looks.php';
+$variant = (new ArtifactCompiler())->compile($input)->toArray()['source_reports']['wordpress_site_plan'];
+$radii = array();
+foreach ($variant['writes'] as $write) {
+    if ('theme.json' === $write['target_path']) {
+        $styles = json_decode($write['payload']['data'], true, 512, JSON_THROW_ON_ERROR)['styles']['elements']['button'] ?? array();
+        $shared = $button;
+        unset($shared['border']);
+        $assert($shared === $styles, 'radius tie preserves every shared element field and no radius');
+        continue;
+    }
+    preg_match_all('/<!-- wp:button(?: (\{.*?\}))? -->/', $write['payload']['data'], $matches);
+    foreach ($matches[1] as $json) {
+        $attrs = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+        $radius = $attrs['style']['border']['radius'] ?? null;
+        $assert(in_array($radius, array('8px', '999px'), true), 'each button keeps its own radius');
+        $radii[$radius] = true;
+        $assert(array('border' => array('radius' => $radius)) === $attrs['style'], 'radius is the only inline style');
+        foreach (array('textColor', 'backgroundColor', 'fontSize', 'fontFamily') as $key) $assert(!isset($attrs[$key]), 'shared preset is not repeated');
+    }
+}
+$assert(2 === count($radii), 'both radius looks covered');
 echo "Inherited logical button element contract passed\n";

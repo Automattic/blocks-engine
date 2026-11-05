@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\ResponsiveCorrespondence;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
@@ -15,7 +16,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
 final class ResponsiveDocumentVariants
 {
     /** Class prefix marking a block as one side of a declared responsive correspondence pair. */
-    public const CORRESPONDENCE_CLASS_PREFIX = 'be-responsive-counterpart-';
+    public const CORRESPONDENCE_CLASS_PREFIX = ResponsiveCorrespondence::TOKEN_CLASS_PREFIX;
 
     /**
      * Class prefix marking a composed document as one side of a declared
