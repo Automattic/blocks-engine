@@ -6180,7 +6180,7 @@ PHP;
     // wrapper around `website/index.html` must not become a `/website` route with
     // every other page nested beneath it. Strip that shared root so `index.html`
     // maps to `/` and its siblings map to top-level routes (`/contact`, `/music`).
-    private static function stripEntryRoot(string $sourcePath, string $entryRoot): string { if ('' === $entryRoot) return $sourcePath; $prefix = rtrim($entryRoot, '/') . '/'; return str_starts_with($sourcePath, $prefix) ? substr($sourcePath, strlen($prefix)) : $sourcePath; }
+    public static function stripEntryRoot(string $sourcePath, string $entryRoot): string { if ('' === $entryRoot) return $sourcePath; $prefix = rtrim($entryRoot, '/') . '/'; return str_starts_with($sourcePath, $prefix) ? substr($sourcePath, strlen($prefix)) : $sourcePath; }
     // Resolve the site root directory from the entrypoint document/page so route
     // derivation and validation agree on the same web root without shared state.
     /** @internal Shared artifact-root semantics for document-head asset resolution. */
@@ -6364,8 +6364,8 @@ PHP;
             $lines[] = "}, 10, 2 );";
             break;
         }
-        foreach (array_merge($templates, $parts, $pages) as $document) {
-            if (str_contains((string) ($document['canonical_block_markup'] ?? ''), 'data-blocks-engine-route-state')) {
+        foreach (array_merge($templates, $parts, $pages, $menus) as $document) {
+            if (str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), 'data-blocks-engine-route-state')) {
                 $lines[] = NavigationAnchorRuntime::retainedLabelSource();
                 break;
             }

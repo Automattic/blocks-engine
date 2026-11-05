@@ -624,7 +624,9 @@ final class ShellExtraction
             $opening = substr($markup, $range['offset'], $children[0]['offset'] - $range['offset']);
             $scope = $captureScope;
             if (str_contains($opening, CaptureEvidence::DOCUMENT_SCOPE) && preg_match('/\bclass="([^"]*)"/', $opening, $match)) {
-                $scope = $match[1];
+                $classes = array_values(array_unique(preg_split('/\s+/', trim($match[1])) ?: array()));
+                sort($classes, SORT_STRING);
+                $scope = implode(' ', $classes);
             }
             $this->collectNestedChrome($index, $children, $headers, $footers, $scope);
         }
@@ -3528,6 +3530,7 @@ final class ShellExtraction
     private static function normalizeNestedChromeMarkup(string $markup): string
     {
         $markup = self::withoutCurrentNavigationState($markup, true);
+        $markup = self::normalizeRenderIds($markup);
         $markup = self::withoutScrollStateCarrierIdentity($markup);
         $markup = preg_replace('/\s*' . EngineMarker::patternBody() . '/', '', $markup) ?? $markup;
         $markup = preg_replace('/\s*(?:' . EngineMarker::specificityPatternBody('specificity-class') . '|blocks-engine-disclosure-summary-[a-f0-9]{6,}(?:-\d+)?)/', '', $markup) ?? $markup;
@@ -3552,7 +3555,7 @@ final class ShellExtraction
         // Block comments were canonicalized as JSON above; only the rendered HTML
         // between them is read as tags.
         $markup = implode('', array_map(static fn (string $piece): string => str_starts_with($piece, '<!--') ? $piece : RenderEquivalentMarkup::canonical($piece), preg_split('/(<!--.*?-->)/s', $markup, -1, PREG_SPLIT_DELIM_CAPTURE) ?: array($markup)));
-        return ShellLandmarkPolicy::withoutResponsiveCorrespondenceMarkup($markup);
+        return ChromeStackingIdentity::normalize(ShellLandmarkPolicy::withoutResponsiveCorrespondenceMarkup($markup));
     }
 
     /**
@@ -3646,6 +3649,29 @@ final class ShellExtraction
             $html = preg_replace('/\sstyle="[^"]*"/', '', $match[2]) ?? $match[2];
             return '' !== $encoded ? '<!-- wp:group ' . $encoded . ' -->' . $html . '<!-- /wp:group -->' : $match[0];
         }, $markup) ?? $markup;
+    }
+
+    /** Timestamp-like builder ids are render noise, not authored anchors. */
+    private static function isPerRenderId(string $value): bool
+    {
+        return 1 === preg_match('/^id[0-9]{13}$/D', $value);
+    }
+
+    private static function normalizeRenderIds(string $markup): string
+    {
+        $html = static fn(string $value): string => preg_replace_callback('/\\b(id|data-element-id)=("|\')([^"\']*)\\2/i', static fn(array $m): string => $m[1] . '=' . $m[2] . (self::isPerRenderId($m[3]) ? 'id-render' : $m[3]) . $m[2], $value) ?? $value;
+        $normalize = static function (array $attrs) use (&$normalize, $html): array {
+            foreach ($attrs as $key => $value) {
+                if (is_array($value)) $attrs[$key] = $normalize($value);
+                elseif (is_string($value)) $attrs[$key] = in_array($key, array('anchor', 'id', 'data-element-id'), true) && self::isPerRenderId($value) ? 'id-render' : $html($value);
+            }
+            return $attrs;
+        };
+        $markup = preg_replace_callback('/<!--\\s*wp:(\\S+)\\s+(\\{.*?\\})\\s*(\\/?)-->/s', static function (array $m) use ($normalize): string {
+            $attrs = json_decode($m[2], true);
+            return is_array($attrs) ? '<!-- wp:' . $m[1] . ' ' . BlockAttributes::encode($normalize($attrs)) . ' ' . $m[3] . '-->' : $m[0];
+        }, $markup) ?? $markup;
+        return $html($markup);
     }
 
     public static function identityMarkup(string $markup): string

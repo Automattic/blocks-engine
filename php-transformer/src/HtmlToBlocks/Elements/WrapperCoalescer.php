@@ -271,7 +271,15 @@ final class WrapperCoalescer
             if (str_contains($rule['selector'], '>')) return false;
         }
         $declarations = $this->inheritedWrapperDeclarations($element);
-        if (array() === $declarations && ! $element->hasAttribute('data-node-view-content-inner') && ! $element->hasAttribute('style')) return false;
+        // Editor node-view wrappers remain transparent after source normalization
+        // removes an empty style attribute. Do not use reset declarations as the
+        // only evidence that such a wrapper can fold.
+        if (array() === $declarations
+            && ! ($this->soleElementChild)($element)->hasAttribute('data-node-view-wrapper')
+            && ! $element->hasAttribute('data-node-view-wrapper')
+            && ! $element->hasAttribute('data-node-view-content')
+            && ! $element->hasAttribute('data-node-view-content-inner')
+            && ! $element->hasAttribute('style')) return false;
         foreach ($declarations as $name => $value) {
             // This invalid spelling has no rendering effect and no carrier.
             if ('whitespace' === $name || $this->isInheritedTextProperty($name)) continue;

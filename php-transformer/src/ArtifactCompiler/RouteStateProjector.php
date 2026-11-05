@@ -13,6 +13,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProj
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Support\RenderEquivalentMarkup;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 use DOMDocument;
 use DOMElement;
 use DOMXPath;
@@ -58,9 +59,19 @@ final class RouteStateProjector
      * @param array<int, array<string, mixed>> $files
      * @return array{files:array<int, array<string, mixed>>}
      */
-    public function project(array $files): array
+    public function project(array $files, string $entryPath = ''): array
     {
-        $files = self::bindNavigationRuns(self::bindRetainedLabels($files));
+        // Normalized artifacts carry their entrypoint on the files themselves,
+        // including when projection is invoked by the staged transport.
+        if ('' === $entryPath) {
+            foreach ($files as $file) {
+                if (!empty($file['entrypoint'])) {
+                    $entryPath = (string) $file['path'];
+                    break;
+                }
+            }
+        }
+        $files = self::bindNavigationRuns(self::bindRetainedLabels($files, $entryPath));
         $files = self::bindCurrentNavigationSources($files);
         $files = self::withRestingChrome($files);
         foreach ($files as &$file) {
@@ -68,6 +79,18 @@ final class RouteStateProjector
                 continue;
             }
             $file['content'] = self::normalize($file['content'], true);
+            // Lowering can move inline paint to generated CSS classes. Carry
+            // sibling order explicitly so removing generated class hashes from
+            // shell identity cannot hide a genuine stacking reorder.
+            $identity = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ChromeStackingIdentity::normalize($file['content']);
+            preg_match_all('/<[^>]+style="[^"]*\bz-index\s*:\s*([+-]?\d+)[^"]*"[^>]*>/i', $identity, $stacking);
+            $position = 0;
+            $file['content'] = preg_replace_callback('/<[^>]+style="[^"]*\bz-index\s*:\s*([+-]?\d+)[^"]*"[^>]*>/i', static function (array $match) use ($stacking, &$position): string {
+                $rank = $stacking[1][$position++] ?? $match[1];
+                $class = 'be-stacking-order-' . str_replace('-', 'negative-', $rank);
+                if (preg_match('/\bclass="/', $match[0])) return preg_replace('/\bclass="/', 'class="' . $class . ' ', $match[0], 1) ?? $match[0];
+                return substr_replace($match[0], ' class="' . $class . '"', -1, 0);
+            }, $file['content']) ?? $file['content'];
         }
         unset($file);
 
@@ -117,28 +140,32 @@ final class RouteStateProjector
     }
 
     /**
-     * Compare the same single-link label across captures. Only a demonstrated
+     * Compare the same single-link item across captures. Only a demonstrated
      * current/resting pair can own a binding; unrelated label differences remain
-     * authored content. The binding travels with labelMarkup and its saved HTML.
+     * authored content. Retained labels bind attributes; ordinary navigation
+     * labels bind descendant inline paint, leaving anchor projection unchanged.
+     * The binding travels with labelMarkup or navigation-link label HTML.
      */
-    private static function bindRetainedLabels(array $files): array
+    private static function bindRetainedLabels(array $files, string $entryPath): array
     {
         $documents = array();
         $groups = array();
+        $menus = array();
+        $root = WordPressSitePlan::entryRootFromDocuments(array(array('entrypoint' => true, 'source_path' => $entryPath)));
         foreach ($files as $index => $file) {
-            if ('html' !== ($file['kind'] ?? null) || !is_string($file['content'] ?? null) || !str_contains($file['content'], '<label')) continue;
+            if ('html' !== ($file['kind'] ?? null) || !is_string($file['content'] ?? null) || !str_contains($file['content'], '<nav')) continue;
             $document = new DOMDocument('1.0', 'UTF-8');
             $previous = libxml_use_internal_errors(true);
             $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $file['content'], LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
             libxml_clear_errors(); libxml_use_internal_errors($previous);
             if (!$loaded) continue;
             $documents[$index] = $document;
-            foreach ((new DOMXPath($document))->query('//nav//label[.//input]') ?: array() as $label) {
-                if (!$label instanceof DOMElement || 1 !== $label->getElementsByTagName('a')->length) continue;
-                $link = $label->getElementsByTagName('a')->item(0);
-                if (!$link instanceof DOMElement || !$link->hasAttribute('href')) continue;
+            foreach ((new DOMXPath($document))->query('//nav//a[@href]') ?: array() as $link) {
+                if (!$link instanceof DOMElement) continue;
+                $label = $link;
+                while ($label->parentNode instanceof DOMElement && 'nav' !== strtolower($label->parentNode->tagName) && 'label' !== strtolower($label->tagName) && 1 === $label->parentNode->getElementsByTagName('a')->length) $label = $label->parentNode;
                 $nodes = array(); $shape = array(); $current = false;
-                foreach ($label->getElementsByTagName('*') as $node) {
+                foreach (array_merge(array($label), iterator_to_array($label->getElementsByTagName('*'))) as $node) {
                     if ('input' === strtolower($node->tagName)) continue;
                     $nodes[] = $node; $shape[] = $node->tagName;
                     foreach ($node->attributes as $attribute) {
@@ -150,13 +177,28 @@ final class RouteStateProjector
                 // must keep the same link text as well as structural ownership.
                 $href = trim($link->getAttribute('href'));
                 if ('' === $href || ArtifactPath::namesSection($href) || str_starts_with($href, '//') || preg_match('~^[a-z][a-z0-9+.-]*:~i', $href)) continue;
-                $target = str_starts_with($href, '/') ? ltrim(ArtifactPath::stripQueryAndFragment($href), '/') : ArtifactPath::resolveRelativePath($href, (string) ($file['path'] ?? ''));
-                $key = $target . ':' . implode('/', $shape) . ':' . trim($label->textContent);
-                $groups[$key][] = array('index' => $index, 'nodes' => $nodes, 'current' => $current);
+                $target = ArtifactPath::resolveRelativePath(ltrim($href, '/'), str_starts_with($href, '/') ? $entryPath : (string) ($file['path'] ?? ''));
+                $navigation = $link->parentNode;
+                while ($navigation instanceof DOMElement && 'nav' !== strtolower($navigation->tagName)) $navigation = $navigation->parentNode;
+                $menu = (string) $navigation->getNodePath();
+                $self = self::labelRoute($target) === self::labelRoute((string) ($file['path'] ?? ''));
+                $menus[$menu][$index]['self'] = ($menus[$menu][$index]['self'] ?? 0) + (int) $self;
+                $menus[$menu][$index]['explicit'] = ($menus[$menu][$index]['explicit'] ?? false) || $current;
+                $key = $menu . ':' . $target . ':' . implode('/', $shape) . ':' . trim($label->textContent);
+                $groups[$key][] = array('index' => $index, 'nodes' => $nodes, 'current' => $current, 'self' => $self, 'menu' => $menu, 'retained' => 'label' === strtolower($label->tagName));
             }
         }
         $changed = array();
         foreach ($groups as $rows) {
+            // Explicit state owns the menu. Href inference is only a candidate:
+            // every capture must have at most one self-targeting peer, and the
+            // same item's descendant paint must demonstrate a stable pair.
+            $menuRows = $menus[$rows[0]['menu']];
+            if (!array_filter($menuRows, static fn(array $menu): bool => $menu['explicit'] || $menu['self'] > 1)
+                && self::hasSelfTargetPaintPair($rows)) {
+                foreach ($rows as &$row) $row['current'] = $row['self'];
+                unset($row);
+            }
             $resting = array_values(array_filter($rows, static fn(array $row): bool => !$row['current']));
             $selected = array_values(array_filter($rows, static fn(array $row): bool => $row['current']));
             if (array() === $resting || array() === $selected) continue;
@@ -167,9 +209,54 @@ final class RouteStateProjector
                 foreach (array_keys($names) as $name) {
                     if (!in_array($name, array('class', 'style', 'aria-current'), true) && !str_starts_with($name, 'data-')) continue;
                     if (str_starts_with($name, 'data-blocks-engine-')) continue;
+                    // Ordinary links already project anchor classes and colours.
+                    // Only descendant inline paint needs this cross-route binding.
+                    if (!$rows[0]['retained'] && ('style' !== $name || 'a' === strtolower($rows[0]['nodes'][$position]->tagName))) continue;
                     $values = static function (array $peers) use ($position, $name): array {
                         return array_values(array_unique(array_map(static fn(array $row): ?string => $row['nodes'][$position]->hasAttribute($name) ? $row['nodes'][$position]->getAttribute($name) : null, $peers), SORT_REGULAR));
                     };
+                    if ('style' === $name) {
+                        $styles = array_map(static fn(array $row): array => self::inlineDeclarations($row['nodes'][$position]->getAttribute('style')), $rows);
+                        $properties = array_unique(array_merge(...array_map('array_keys', $styles)));
+                        $routeProperties = array();
+                        foreach ($properties as $property) {
+                            $restValues = array(); $activeValues = array();
+                            foreach ($rows as $i => $row) {
+                                if ($row['current']) $activeValues[] = $styles[$i][$property] ?? null;
+                                else $restValues[] = $styles[$i][$property] ?? null;
+                            }
+                            $restValues = array_values(array_unique($restValues, SORT_REGULAR));
+                            $activeValues = array_values(array_unique($activeValues, SORT_REGULAR));
+                            // Stacking order follows the moving current item even
+                            // on resting siblings; other paint needs a stable
+                            // current/resting pair at declaration granularity.
+                            if ((1 === count($restValues) && 1 === count($activeValues) && $restValues !== $activeValues)
+                                || ('z-index' === $property && count(array_unique(array_column($styles, $property))) > 1)) {
+                                $routeProperties[] = $property;
+                            }
+                        }
+                        if (array() === $routeProperties) continue;
+                        $bases = $styles;
+                        foreach ($bases as &$base) {
+                            foreach ($routeProperties as $property) unset($base[$property]);
+                            ksort($base, SORT_STRING);
+                        }
+                        unset($base);
+                        // Never hide a varying authored declaration behind a
+                        // route binding for a different property on this node.
+                        if (1 !== count(array_unique(array_map('serialize', $bases)))) continue;
+                        $canonical = $bases[0];
+                        $serialize = static fn(array $declarations): ?string => array() === $declarations ? null : implode(';', array_map(static fn(string $key, string $value): string => $key . ':' . $value, array_keys($declarations), $declarations));
+                        $binding['rest']['style'] = $serialize($canonical);
+                        $binding['current']['style'] = $serialize($styles[array_search(true, array_column($rows, 'current'), true)]);
+                        foreach ($rows as $i => $row) {
+                            $path = (string) ($files[$row['index']]['path'] ?? '');
+                            $route = self::labelRoute(WordPressSitePlan::stripEntryRoot($path, $root));
+                            $binding['routes'][$route]['style'] = $serialize($styles[$i]);
+                        }
+                        ksort($binding['routes'], SORT_STRING);
+                        continue;
+                    }
                     $rest = $values($resting); $active = $values($selected);
                     if (1 !== count($rest) || 1 !== count($active) || $rest === $active) continue;
                     $binding['rest'][$name] = $rest[0]; $binding['current'][$name] = $active[0];
@@ -187,6 +274,60 @@ final class RouteStateProjector
         }
         foreach (array_keys($changed) as $index) $files[$index]['content'] = HtmlSerialization::documentHtml($documents[$index]);
         return $files;
+    }
+
+    /** Use the same route identity for self-target evidence and replay bindings. */
+    private static function labelRoute(string $path): string
+    {
+        return '/' . trim((string) preg_replace('~(?:^|/)index(?:\\.html?)?$|\\.html?$~i', '', ArtifactPath::stripQueryAndFragment($path)), '/');
+    }
+
+    /** Href alone (or capture-varying stacking order alone) is not state evidence. */
+    private static function hasSelfTargetPaintPair(array $rows): bool
+    {
+        $selected = array_filter($rows, static fn(array $row): bool => $row['self']);
+        $resting = array_filter($rows, static fn(array $row): bool => !$row['self']);
+        if (array() === $selected || array() === $resting) return false;
+        foreach ($rows[0]['nodes'] as $position => $node) {
+            if (0 === $position || 'a' === strtolower($node->tagName)) continue;
+            $styles = array_map(static fn(array $row): array => self::inlineDeclarations($row['nodes'][$position]->getAttribute('style')), $rows);
+            foreach (array_unique(array_merge(...array_map('array_keys', $styles))) as $property) {
+                if ('z-index' === $property) continue;
+                $active = array(); $rest = array();
+                foreach ($rows as $i => $row) {
+                    if ($row['self']) $active[] = $styles[$i][$property] ?? null;
+                    else $rest[] = $styles[$i][$property] ?? null;
+                }
+                $active = array_values(array_unique($active, SORT_REGULAR));
+                $rest = array_values(array_unique($rest, SORT_REGULAR));
+                if (1 === count($active) && 1 === count($rest) && $active !== $rest) return true;
+            }
+        }
+        return false;
+    }
+
+    /** Split only at CSS declaration boundaries, never inside strings or functions. */
+    private static function inlineDeclarations(string $style): array
+    {
+        $state = CssSyntaxScanner::state();
+        $declarations = array(); $start = 0;
+        for ($offset = 0, $length = strlen($style); $offset <= $length;) {
+            if ($offset === $length || (';' === $style[$offset] && '' === $state['quote'] && !$state['comment'] && 0 === $state['parens'] && 0 === $state['brackets'])) {
+                $declaration = trim(substr($style, $start, $offset - $start));
+                $colon = strpos($declaration, ':');
+                if (false !== $colon) {
+                    $property = trim(substr($declaration, 0, $colon));
+                    if (!str_starts_with($property, '--')) $property = strtolower($property);
+                    $declarations[$property] = trim(substr($declaration, $colon + 1));
+                }
+                $start = ++$offset;
+                continue;
+            }
+            $next = CssSyntaxScanner::consume($style, $offset, $state);
+            if (null === $next) return array();
+            $offset = $next;
+        }
+        return $declarations;
     }
 
     public const CURRENT_SOURCES_ATTRIBUTE = 'data-blocks-engine-current-sources';
@@ -483,7 +624,7 @@ final class RouteStateProjector
      */
     public static function normalize(string $html, bool $preserveNavigationPresentation = false): string
     {
-        if (! preg_match('/\saria-current\s*=|\sdata-status\s*=\s*["\']?active/i', $html)) {
+        if (! preg_match('/\saria-current\s*=|\sdata-status\s*=\s*["\']?active|\sstyle\s*=\s*(?:"[\s;]*"|\'[\s;]*\')/i', $html)) {
             return $html;
         }
         $previous = libxml_use_internal_errors(true);
@@ -495,9 +636,19 @@ final class RouteStateProjector
             return $html;
         }
 
+        $changed = false;
+        $xpath = new DOMXPath($document);
+        // An inline style with no declarations has no resting presentation.
+        // Remove it on the source DOM, before labels or identities serialize it.
+        foreach ($xpath->query('//*[@style]') ?: array() as $element) {
+            if ('' === trim($element->getAttribute('style'), "; \t\n\r\0\x0B")) {
+                $element->removeAttribute('style');
+                $changed = true;
+            }
+        }
         $current = array();
         $resting = array();
-        foreach ((new DOMXPath($document))->query('//a[@href]') ?: array() as $link) {
+        foreach ($xpath->query('//a[@href]') ?: array() as $link) {
             if (! $link instanceof DOMElement) {
                 continue;
             }
@@ -508,10 +659,9 @@ final class RouteStateProjector
             }
         }
         if (array() === $current) {
-            return $html;
+            return $changed ? HtmlSerialization::documentHtml($document) : $html;
         }
 
-        $changed = false;
         if (array() !== $resting) {
             $restingClasses = array();
             foreach ($resting as $chain) {

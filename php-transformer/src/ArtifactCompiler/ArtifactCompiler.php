@@ -3827,7 +3827,7 @@ final class ArtifactCompiler
             };
             $walk($body);
             foreach ($rows as &$areaRows) foreach ($areaRows as &$row) {
-                $row['source_identity'] = 'markup:' . hash('sha256', $row['identity']);
+                $row['source_identity'] = 'markup:' . hash('sha256', \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ChromeStackingIdentity::normalize($row['identity']));
                 foreach ($file['metadata']['compilation']['html_include_sources'] ?? array() as $path => $fragment) {
                     if (self::normalizeSourceShellIdentity($fragment) === $row['identity']) {
                         $row['source_identity'] = 'include:' . $path . ':' . hash('sha256', $row['identity']);
