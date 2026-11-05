@@ -251,7 +251,7 @@ final class ButtonsPattern
         if ( $hasAuthoredStyleRules && ($presentationElement === $anchor || $presentationElement->parentNode === $anchor) ) {
             $this->removeSourceControlClasses($attrs, $presentationElement);
         }
-        $attrs = array_replace_recursive($attrs, $this->buttonLabelTextAttributes($anchor, $buttons));
+        $attrs = array_replace_recursive($attrs, $this->buttonLabelPresentationAttributes($anchor, $buttons, ! $retainsDescendants));
         if ( $nativeWrapper instanceof DOMElement ) {
             // The saved wrapper owns width/alignment, while descendant author
             // rules paint the link. Neither is an authored outer Group.
@@ -274,14 +274,23 @@ final class ButtonsPattern
         )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $presentationElement, $anchor);
     }
 
-    /** The box and a whole-label descendant can have different source owners. */
-    private function buttonLabelTextAttributes(DOMElement $anchor, ButtonPatternContext $buttons): array
+    /**
+     * Whole-label boxes can own paint as well as text. When their markup is
+     * absorbed into the control, carry their native supports too; otherwise
+     * their author selectors no longer have a subject. Retained descendants
+     * still own separate boxes and must not paint the enclosing link.
+     */
+    private function buttonLabelPresentationAttributes(DOMElement $anchor, ButtonPatternContext $buttons, bool $absorbsBoxes): array
     {
         $text = $this->plainText(SourceDom::innerHtml($anchor));
         $style = array();
         foreach ($anchor->getElementsByTagName('*') as $label) {
             if (!$label instanceof DOMElement || '' === $text || $this->plainText(SourceDom::innerHtml($label)) !== $text) continue;
             $native = $this->styleResolver->nativeAttributes($buttons->nativePresentationStyle($label))['style'] ?? array();
+            if ($absorbsBoxes) {
+                $style = array_replace_recursive($style, $native);
+                continue;
+            }
             if (isset($native['typography'])) $style['typography'] = array_replace($style['typography'] ?? array(), $native['typography']);
             if (isset($native['color']['text'])) $style['color']['text'] = $native['color']['text'];
         }

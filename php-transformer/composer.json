@@ -849,6 +849,7 @@
       "php tests/unit/button-conditional-border.php",
       "php tests/unit/button-custom-property-chain.php",
       "php tests/unit/anchor-owned-button-surface.php",
+      "php tests/unit/absorbed-button-box.php",
       "php tests/unit/brand-link-button-semantics.php",
       "php tests/unit/device-style-synthetic-anchor-carrier.php",
       "php tests/unit/ancestor-attribute-state-projection.php",
