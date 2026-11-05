@@ -9,12 +9,12 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 final class CssFontShorthand
 {
     /** @return array<string, string> Empty when the value cannot safely be expanded. */
-    public static function expand(string $value): array
+    public static function expand(string $value, bool $allowFluidSize = false): array
     {
         $important = CssValueInspector::isImportant($value) ? ' !important' : '';
         $value = trim(preg_replace('/\s*!important\s*$/i', '', $value) ?? $value);
         // Substitution and system/CSS-wide keywords require computed-value data.
-        if (preg_match('/\bvar\s*\(/i', $value)) return array();
+        if (!$allowFluidSize && preg_match('/\bvar\s*\(/i', $value)) return array();
         $tokens = CssValueSplitter::splitTopLevelWhitespace($value);
         $result = array('font-style' => 'normal', 'font-variant' => 'normal', 'font-weight' => 'normal');
         $seen = array();
@@ -22,7 +22,7 @@ final class CssFontShorthand
             $token = array_shift($tokens);
             $lower = strtolower($token);
             $size = CssValueSplitter::splitTopLevel($token, array('/'));
-            if (preg_match('/^(?:0|(?:\d*\.)?\d+(?:px|pt|pc|in|cm|mm|q|em|rem|ex|ch|vw|vh|vmin|vmax|%)|xx-small|x-small|small|medium|large|x-large|xx-large|xxx-large|smaller|larger)$/i', $size[0] ?? '')) {
+            if (($allowFluidSize && preg_match('/^(?:calc|min|max|clamp)\(.+\)$/is', $size[0] ?? '')) || preg_match('/^(?:0|(?:\d*\.)?\d+(?:px|pt|pc|in|cm|mm|q|em|rem|ex|ch|vw|vh|vmin|vmax|%)|xx-small|x-small|small|medium|large|x-large|xx-large|xxx-large|smaller|larger)$/i', $size[0] ?? '')) {
                 $result['font-size'] = $size[0];
                 $lineHeight = $size[1] ?? 'normal';
                 if (count($size) > 2) return array();
