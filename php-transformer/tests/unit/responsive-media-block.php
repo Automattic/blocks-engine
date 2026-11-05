@@ -203,7 +203,9 @@ $assert('custom/layout-shell' === ($wrapped['blocks'][0]['blockName'] ?? null) &
 
 $nestedWrappedSource = '<a href="/profile"><div class="crop" style="overflow:hidden"><media-frame data-image-info="bounded"><img src="profile.png" width="30" height="30" alt="Profile"></media-frame></div></a>';
 $nestedWrapped = ( new HtmlTransformer() )->transform($nestedWrappedSource)->toArray();
-$assert('custom/responsive-media' === ($nestedWrapped['blocks'][0]['blockName'] ?? null) && str_contains((string) ($nestedWrapped['blocks'][0]['attrs']['content'] ?? ''), '<a href="/profile"><div class="crop"'), 'a linked image behind additional presentation topology remains responsive media');
+$assert('custom/layout-shell' === ($nestedWrapped['blocks'][0]['blockName'] ?? null) && str_contains($nestedWrapped['serialized_blocks'], 'href="/profile"') && str_contains($nestedWrapped['serialized_blocks'], 'crop') && str_contains($nestedWrapped['serialized_blocks'], 'profile.png'), 'a linked image through an accepted nested custom host lowers natively with its crop class and link');
+$refusedNestedHost = ( new HtmlTransformer() )->transform('<a href="/profile"><div class="crop"><media-frame data-foo="x"><img src="profile.png" width="30" height="30" alt="Profile"></media-frame></div></a>')->toArray();
+$assert('custom/responsive-media' === ($refusedNestedHost['blocks'][0]['blockName'] ?? null), 'a nested custom host refused by native-host policy remains responsive media');
 
 $artDirectedWrapper = ( new HtmlTransformer() )->transform('<a href="/profile"><media-frame><picture><source media="(min-width: 800px)" srcset="profile-wide.png 800w"><img src="profile.png" alt="Profile"></picture></media-frame></a>')->toArray();
 $artDirectedContent = (string) ($artDirectedWrapper['blocks'][0]['attrs']['content'] ?? '');
