@@ -19,6 +19,7 @@ final class AuthorSelectorSemanticPreparer
     private array $runtimeScriptSources = array();
 
     public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier $sourceElementClassifier,
         private readonly AuthorSelectorSemanticContext $context,
         private readonly StylesheetAnalysisComposer $stylesheetAnalysisComposer,
         private readonly StyleResolver $styleResolver,
@@ -201,7 +202,7 @@ final class AuthorSelectorSemanticPreparer
                 // `span` and `font` are replaced by a `<mark>` RichText carrier,
                 // so an author rule naming them needs a marker hook to keep
                 // matching after conversion.
-                if ( ! $this->context->isInlineContentElement($inlineTag) || (! in_array($inlineTag, array( 'span', 'font' ), true) && ! $directAuthorLayoutItem) ) {
+                if ( ! $this->sourceElementClassifier->isInlineContentElement($inlineTag) || (! in_array($inlineTag, array( 'span', 'font' ), true) && ! $directAuthorLayoutItem) ) {
                     continue;
                 }
                 if ( '' === $path ) {
@@ -953,7 +954,7 @@ final class AuthorSelectorSemanticPreparer
             if ( 1 === preg_match('/^h[1-6]$/', $tag) ) {
                 return true;
             }
-            if ( ! $this->context->isInlineContentElement($tag) ) {
+            if ( ! $this->sourceElementClassifier->isInlineContentElement($tag) ) {
                 return false;
             }
         }

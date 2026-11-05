@@ -8,6 +8,11 @@ use DOMElement;
 
 final class TabsPattern implements PatternRecognizerInterface
 {
+    public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock
+    ) {
+    }
+
     use PatternDomHelpersTrait;
 
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
@@ -61,7 +66,7 @@ final class TabsPattern implements PatternRecognizerInterface
             if ( array() === $children ) {
                 return null;
             }
-            $panelBlocks[] = $context->createBlock('core/tab-panel', array_filter(array_merge(
+            $panelBlocks[] = $this->createBlock->createBlock('core/tab-panel', array_filter(array_merge(
                 $context->presentationAttributes($panel),
                 array(
                     'anchor' => $this->trimmedAttribute($panel, 'id'),
@@ -85,9 +90,9 @@ final class TabsPattern implements PatternRecognizerInterface
         }
 
         return new PatternRecognitionResult(
-            $context->createBlock('core/tabs', $tabsAttributes, array(
-                $context->createBlock('core/tab-list', $tabListAttributes, array(), $tabListSource),
-                $context->createBlock('core/tab-panels', array(), $panelBlocks),
+            $this->createBlock->createBlock('core/tabs', $tabsAttributes, array(
+                $this->createBlock->createBlock('core/tab-list', $tabListAttributes, array(), $tabListSource),
+                $this->createBlock->createBlock('core/tab-panels', array(), $panelBlocks),
             ), $element),
             $fallbacks
         );

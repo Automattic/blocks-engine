@@ -10,11 +10,16 @@ use DOMElement;
 
 final class AccordionPattern implements PatternRecognizerInterface
 {
+    public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock
+    ) {
+    }
+
     use PatternDomHelpersTrait;
 
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
-        $createBlock = $context->createBlock(...);
+        $createBlock = $this->createBlock->createBlock(...);
         $converter = $context->recursiveConverter();
         $presentationAttributes = $context->presentationAttributes(...);
         $innerHtml = SourceDom::innerHtml(...);

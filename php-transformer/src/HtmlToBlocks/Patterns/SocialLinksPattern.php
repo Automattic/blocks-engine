@@ -13,6 +13,11 @@ use DOMElement;
 /** Lowers explicit social-profile clusters to the core social-links family. */
 final class SocialLinksPattern implements PatternRecognizerInterface
 {
+    public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock
+    ) {
+    }
+
     use PatternDomHelpersTrait;
 
     /** @var array<string,string> */
@@ -73,7 +78,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         ) {
             $row = $this->recognizeCluster($children[0], $context, $explicit);
             if ( null !== $row ) {
-                return new PatternRecognitionResult($context->createBlock(
+                return new PatternRecognitionResult($this->createBlock->createBlock(
                     'core/group',
                     $context->presentationAttributes($element),
                     array($row->block()),
@@ -146,7 +151,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                 if (!$item->isSameNode($anchor)) {
                     $itemAttrs = $context->presentationAttributes($item);
                     if ('li' === strtolower($item->tagName)) $itemAttrs['tagName'] = 'li';
-                    $link = $context->createBlock('core/group', $itemAttrs, array($link), $item);
+                    $link = $this->createBlock->createBlock('core/group', $itemAttrs, array($link), $item);
                 }
                 $artworkLinks[] = $link;
             }
@@ -159,7 +164,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             } else {
                 $attrs['layout'] ??= array('type' => 'flex', 'flexWrap' => 'wrap');
             }
-            return new PatternRecognitionResult($context->createBlock('core/group', $attrs, $artworkLinks, $element));
+            return new PatternRecognitionResult($this->createBlock->createBlock('core/group', $attrs, $artworkLinks, $element));
         }
 
         $links = array();
@@ -194,7 +199,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             $linkAnchors[] = $anchor;
             $linkAttrs = $context->presentationAttributes($sourceElement);
             if ($sourceRow) $linkAttrs['className'] = trim((string) ($linkAttrs['className'] ?? '') . ' blocks-engine-social-source-item');
-            $links[] = $context->createBlock('core/social-link', array_merge(
+            $links[] = $this->createBlock->createBlock('core/social-link', array_merge(
                 $linkAttrs,
                 array_filter(array(
                 'url' => $url,
@@ -255,13 +260,13 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             // no extra boxes or browser list defaults to its authored layout.
             $nativeAttrs = array_intersect_key($attrs, array_flip(array('layout', 'showLabels', 'size', 'iconColor', 'iconColorValue', 'customIconColor', 'iconBackgroundColor', 'iconBackgroundColorValue', 'customIconBackgroundColor')));
             $nativeAttrs['className'] = 'blocks-engine-social-source-row' . ($iconOnly ? ' is-style-logos-only' : '');
-            $native = $context->createBlock('core/social-links', $nativeAttrs, $links);
-            return new PatternRecognitionResult($context->createBlock('core/group', $context->presentationAttributes($element), array($native), $element));
+            $native = $this->createBlock->createBlock('core/social-links', $nativeAttrs, $links);
+            return new PatternRecognitionResult($this->createBlock->createBlock('core/group', $context->presentationAttributes($element), array($native), $element));
         }
         if (!in_array(strtolower($element->tagName), array('ul', 'ol'), true)) {
             $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' blocks-engine-social-source-non-list');
         }
-        return new PatternRecognitionResult($context->createBlock('core/social-links', $attrs, $links, $element));
+        return new PatternRecognitionResult($this->createBlock->createBlock('core/social-links', $attrs, $links, $element));
     }
 
     /**

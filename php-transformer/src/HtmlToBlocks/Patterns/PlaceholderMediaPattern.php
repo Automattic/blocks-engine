@@ -9,6 +9,12 @@ use DOMElement;
 /** @internal Pattern recognizers are implementation details of HtmlTransformer. */
 final class PlaceholderMediaPattern implements PatternRecognizerInterface
 {
+    public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock,
+        private readonly \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime $runtime
+    ) {
+    }
+
     use PatternDomHelpersTrait;
 
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
@@ -30,9 +36,9 @@ final class PlaceholderMediaPattern implements PatternRecognizerInterface
         unset($attrs['style']);
 
         $label = $this->placeholderLabel($element);
-        $children = '' !== $label ? array( $context->createBlock('core/paragraph', array( 'content' => $markup->escapeHtml($label) )) ) : array();
+        $children = '' !== $label ? array( $this->createBlock->createBlock('core/paragraph', array( 'content' => $this->runtime->escapeHtml($label) )) ) : array();
 
-        return new PatternRecognitionResult($context->createBlock('core/group', array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value)), $children, $element));
+        return new PatternRecognitionResult($this->createBlock->createBlock('core/group', array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value)), $children, $element));
     }
 
     private function isPlaceholderMediaElement(DOMElement $element): bool

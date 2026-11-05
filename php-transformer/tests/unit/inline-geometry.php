@@ -43,7 +43,6 @@ $elementFrom = static function (string $html): DOMElement {
 $session = new HtmlTransformerSession(new Runtime(), static fn (DOMElement $element): array => array());
 $session->installLayoutGeometryState(new LayoutGeometryState());
 $context = new StyleResolutionContext(
-    $session,
     static fn (string $value): string => $value,
     static fn (string $selector): array => array(),
     static fn (string $className): string => $className,
@@ -66,7 +65,7 @@ $parseDeclarations = static function (string $style): array {
     return $declarations;
 };
 
-$geometry = new InlineGeometry(
+$geometry = new InlineGeometry($session,
     $context,
     $parseDeclarations,
     static fn (DOMElement $element, array $declarations): array => $declarations,

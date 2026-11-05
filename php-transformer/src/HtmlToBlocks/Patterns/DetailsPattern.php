@@ -10,6 +10,11 @@ use DOMElement;
 
 final class DetailsPattern implements PatternRecognizerInterface
 {
+    public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock
+    ) {
+    }
+
     use PatternDomHelpersTrait;
 
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
@@ -29,7 +34,7 @@ final class DetailsPattern implements PatternRecognizerInterface
                 },
                 $context->presentationAttributes(...),
                 $context->richTextContent(...),
-                $context->createBlock(...),
+                $this->createBlock->createBlock(...),
                 $this->summaryMarker($element, $context)
             );
         } else {
@@ -40,7 +45,7 @@ final class DetailsPattern implements PatternRecognizerInterface
                 },
                 $context->presentationAttributes(...),
                 SourceDom::innerHtml(...),
-                $context->createBlock(...),
+                $this->createBlock->createBlock(...),
                 $context->disclosureSummaryMarker(...)
             );
         }

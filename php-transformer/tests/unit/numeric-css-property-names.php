@@ -70,17 +70,15 @@ $run('name rule', static function () use ($assert): void {
 
 // Style resolver declaration maps (inline styles and every stylesheet rule).
 $session = new HtmlTransformerSession(new Runtime(), static fn (DOMElement $node): array => array());
-$context = null;
 $context = new StyleResolutionContext(
-    $session,
     static fn (string $value): string => $value,
-    static function (string $selector) use (&$context): array {
-        return $context->sourceStyles()->parsedSelector($selector);
+    static function (string $selector) use ($session): array {
+        return $session->sourceStyleResolutionState()->parsedSelector($selector);
     },
     static fn (string $className): string => $className,
     static fn (string $url): string => $url
 );
-$resolver = new StyleResolver($context, new HtmlTransformerAnalysisCache());
+$resolver = new StyleResolver($session, $context, new HtmlTransformerAnalysisCache());
 $broken = '0: ;0: none;12: 1px; padding-inline: 4px 8px;-1: x;color: red;1px: 0';
 $expectedVerbatim = array('padding-inline' => '4px 8px', 'color' => 'red');
 $expectedPhysical = array('padding-left' => '4px', 'padding-right' => '8px', 'color' => 'red');

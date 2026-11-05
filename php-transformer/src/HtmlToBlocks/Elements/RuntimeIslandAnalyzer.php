@@ -50,6 +50,8 @@ final class RuntimeIslandAnalyzer
     );
 
     public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession $session,
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier $sourceElementClassifier,
         private readonly RuntimeIslandContext $context,
         private readonly PseudoFormAnalyzer $pseudoFormAnalyzer
     ) {
@@ -60,12 +62,12 @@ final class RuntimeIslandAnalyzer
      */
     public function captureCanvasFallback(DOMElement $element, array &$fallbacks): void
     {
-        $this->context->fallbackEmitter()->captureCanvasFallback($element, $fallbacks, $this->context->runtimeDom());
+        $this->session->fallbackEmitter()->captureCanvasFallback($element, $fallbacks, $this->session->runtimeDomState());
     }
 
     public function isRuntimeCanvasTarget(DOMElement $element): bool
     {
-        return $this->context->fallbackEmitter()->isRuntimeCanvasTarget($element);
+        return $this->session->fallbackEmitter()->isRuntimeCanvasTarget($element);
     }
 
     /**
@@ -81,17 +83,17 @@ final class RuntimeIslandAnalyzer
     {
         if ('' !== trim(SourceDom::attr($element, CaptureEvidence::DIALOG_CLOSE))) return true;
         $id = trim(SourceDom::attr($element, 'id'));
-        if ( '' !== $id && $this->context->runtimeSelectors()->hasDom('#' . $id) && ! $this->isPresentationalRuntimeSelector('#' . $id) ) {
+        if ( '' !== $id && $this->session->runtimeSelectorState()->hasDom('#' . $id) && ! $this->isPresentationalRuntimeSelector('#' . $id) ) {
             return true;
         }
 
         foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $class ) {
-            if ( '' !== $class && $this->context->runtimeSelectors()->hasDom('.' . $class) && ! $this->isPresentationalRuntimeSelector('.' . $class) ) {
+            if ( '' !== $class && $this->session->runtimeSelectorState()->hasDom('.' . $class) && ! $this->isPresentationalRuntimeSelector('.' . $class) ) {
                 return true;
             }
         }
 
-        foreach ( array_keys($this->context->runtimeSelectors()->domSelectors()) as $selector ) {
+        foreach ( array_keys($this->session->runtimeSelectorState()->domSelectors()) as $selector ) {
             if ( ! $this->isPresentationalRuntimeSelector((string) $selector) && $this->elementMatchesRuntimeSelector($element, (string) $selector) ) {
                 return true;
             }
@@ -105,9 +107,9 @@ final class RuntimeIslandAnalyzer
     {
         $selectors = array();
         $id = trim(SourceDom::attr($element, 'id'));
-        if ( '' !== $id && $this->context->runtimeSelectors()->hasDom('#' . $id) ) $selectors[] = '#' . $id;
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $class ) if ( '' !== $class && $this->context->runtimeSelectors()->hasDom('.' . $class) ) $selectors[] = '.' . $class;
-        foreach ( array_keys($this->context->runtimeSelectors()->domSelectors()) as $selector ) {
+        if ( '' !== $id && $this->session->runtimeSelectorState()->hasDom('#' . $id) ) $selectors[] = '#' . $id;
+        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $class ) if ( '' !== $class && $this->session->runtimeSelectorState()->hasDom('.' . $class) ) $selectors[] = '.' . $class;
+        foreach ( array_keys($this->session->runtimeSelectorState()->domSelectors()) as $selector ) {
             if ( str_starts_with((string) $selector, '.') || str_starts_with((string) $selector, '#') || strtolower((string) $selector) === strtolower($element->tagName) ) continue;
             if ( ! $this->isPresentationalRuntimeSelector((string) $selector) && $this->elementMatchesRuntimeSelector($element, (string) $selector) ) $selectors[] = (string) $selector;
         }
@@ -134,7 +136,7 @@ final class RuntimeIslandAnalyzer
 
     public function shouldPreserveRuntimeAppShell(DOMElement $element): bool
     {
-        if ( ! $this->context->runtimeSelectors()->hasRuntimeTargets() ) {
+        if ( ! $this->session->runtimeSelectorState()->hasRuntimeTargets() ) {
             return false;
         }
 
@@ -214,15 +216,15 @@ final class RuntimeIslandAnalyzer
         }
 
         $id = trim(SourceDom::attr($element, 'id'));
-        if ( '' !== $id && $this->context->runtimeSelectors()->hasDom('#' . $id) && ! $this->isPresentationalRuntimeSelector('#' . $id) ) {
+        if ( '' !== $id && $this->session->runtimeSelectorState()->hasDom('#' . $id) && ! $this->isPresentationalRuntimeSelector('#' . $id) ) {
             return false;
         }
         foreach ( SourceDom::classNames($element) as $class ) {
-            if ( $this->context->runtimeSelectors()->hasDom('.' . $class) && ! $this->isPresentationalRuntimeSelector('.' . $class) ) {
+            if ( $this->session->runtimeSelectorState()->hasDom('.' . $class) && ! $this->isPresentationalRuntimeSelector('.' . $class) ) {
                 return false;
             }
         }
-        foreach ( array_keys($this->context->runtimeSelectors()->domSelectors()) as $selector ) {
+        foreach ( array_keys($this->session->runtimeSelectorState()->domSelectors()) as $selector ) {
             $selector = (string) $selector;
             if ( $this->isPresentationalRuntimeSelector($selector) || ! $this->elementMatchesRuntimeSelector($element, $selector) ) {
                 continue;
@@ -420,7 +422,7 @@ final class RuntimeIslandAnalyzer
     {
         return $this->isDataAttributeRuntimeTarget($element)
             && $this->isRuntimeDomTarget($element)
-            && $this->canRetainRuntimeDomContractNatively($element, $this->context->generatedBlockName('layout-shell'));
+            && $this->canRetainRuntimeDomContractNatively($element, ($this->session->generatedBlockRegistry()?->blockName('layout-shell') ?? ''));
     }
 
     private function isDataAttributeRuntimeTarget(DOMElement $element): bool
@@ -436,7 +438,7 @@ final class RuntimeIslandAnalyzer
             if (LayoutShellBlockGenerator::isBooleanAttribute(strtolower($attribute->name))) return false;
         }
 
-        foreach ( array_keys($this->context->runtimeSelectors()->domSelectors()) as $selector ) {
+        foreach ( array_keys($this->session->runtimeSelectorState()->domSelectors()) as $selector ) {
             if ( str_contains((string) $selector, '[') && $this->elementMatchesRuntimeSelector($element, (string) $selector) ) {
                 return true;
             }
@@ -447,7 +449,7 @@ final class RuntimeIslandAnalyzer
 
     public function isPresentationalRuntimeSelector(string $selector): bool
     {
-        return $this->context->isPresentationalAnimationSelector($selector) && ! $this->context->runtimeSelectors()->hasBehavioral($selector);
+        return $this->sourceElementClassifier->isPresentationalAnimationSelector($selector) && ! $this->session->runtimeSelectorState()->hasBehavioral($selector);
     }
 
     public function elementMatchesRuntimeSelector(DOMElement $element, string $selector): bool
@@ -460,7 +462,7 @@ final class RuntimeIslandAnalyzer
      */
     public function recordRuntimeIsland(DOMElement $element, string $kind, string $reason, string $runtimeRequirement, array $metadata = array()): void
     {
-        $this->context->fallbackEmitter()->recordRuntimeIsland($element, $kind, $reason, $runtimeRequirement, $metadata, $this->context->runtimeDom());
+        $this->session->fallbackEmitter()->recordRuntimeIsland($element, $kind, $reason, $runtimeRequirement, $metadata, $this->session->runtimeDomState());
     }
 
     public function recordNativeRuntimeDomPreservation(DOMElement $element, string $blockName, bool $includeRichTextDescendants = false): void
@@ -468,14 +470,14 @@ final class RuntimeIslandAnalyzer
         $elements = array($element);
         if ($includeRichTextDescendants) {
             foreach ($this->context->descendantElements($element) as $descendant) {
-                if ($this->context->isInlineContentElement(strtolower($descendant->tagName))) {
+                if ($this->sourceElementClassifier->isInlineContentElement(strtolower($descendant->tagName))) {
                     $elements[] = $descendant;
                 }
             }
         }
         foreach ($elements as $target) {
             foreach ($this->runtimeDomSelectorsForElement($target) as $selector) {
-                $this->context->runtimeDom()->recordPreservation($blockName, strtolower($target->tagName), $selector);
+                $this->session->runtimeDomState()->recordPreservation($blockName, strtolower($target->tagName), $selector);
             }
         }
     }
@@ -483,7 +485,7 @@ final class RuntimeIslandAnalyzer
     public function recordRuntimeDomFallback(DOMElement $element, string $blockName): void
     {
         foreach ($this->runtimeDomSelectorsForElement($element) as $selector) {
-            $this->context->runtimeDom()->recordFallback($blockName, strtolower($element->tagName), $selector);
+            $this->session->runtimeDomState()->recordFallback($blockName, strtolower($element->tagName), $selector);
         }
     }
 
@@ -539,7 +541,7 @@ final class RuntimeIslandAnalyzer
     private function hasBlockLevelChildElement(DOMElement $element): bool
     {
         foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && ! $this->context->isInlineContentElement(strtolower($child->tagName)) ) {
+            if ( $child instanceof DOMElement && ! $this->sourceElementClassifier->isInlineContentElement(strtolower($child->tagName)) ) {
                 return true;
             }
         }
@@ -550,7 +552,7 @@ final class RuntimeIslandAnalyzer
     /** Inline text saves its script-addressed source element verbatim in rich text. */
     public function retainsRuntimeTextLeafInRichText(DOMElement $element): bool
     {
-        return $this->context->isInlineContentElement(strtolower($element->tagName))
+        return $this->sourceElementClassifier->isInlineContentElement(strtolower($element->tagName))
             && $this->isRuntimeDomTarget($element)
             && ((SourceDom::isStandaloneTextLeaf($element) && $this->isAddressedOnlyByAttributes($element))
                 || $this->hasTextOnlyRuntimeContent($element));
@@ -570,7 +572,7 @@ final class RuntimeIslandAnalyzer
         foreach ($element->childNodes as $child) {
             if ($child instanceof DOMElement && 'br' !== strtolower($child->tagName)) return false;
         }
-        $scripts = array_column($this->context->runtimeScriptAssets(), 'content');
+        $scripts = array_column($this->session->runtimeBehaviorState()->runtimeProjectionScriptAssets(), 'content');
         foreach ($element->ownerDocument?->getElementsByTagName('script') ?? array() as $script) {
             $scripts[] = $script->textContent;
         }
@@ -596,12 +598,12 @@ final class RuntimeIslandAnalyzer
 
     public function canRetainRuntimeDomContractNatively(DOMElement $element, string $blockName): bool
     {
-        if ($blockName === $this->context->generatedBlockName('authored-button') && AuthoredButtonBlockGenerator::isRoleButton($element)) return true;
+        if ($blockName === ($this->session->generatedBlockRegistry()?->blockName('authored-button') ?? '') && AuthoredButtonBlockGenerator::isRoleButton($element)) return true;
         // Responsive media saves the source element verbatim, so every id, class
         // and attribute a runtime selector addresses survives on the frontend.
-        $responsiveMedia = $this->context->generatedBlockName(ResponsiveMediaBlockGenerator::LOCAL_NAME);
+        $responsiveMedia = ($this->session->generatedBlockRegistry()?->blockName(ResponsiveMediaBlockGenerator::LOCAL_NAME) ?? '');
         if ('' !== $responsiveMedia && $blockName === $responsiveMedia) return true;
-        if ($blockName === $this->context->generatedBlockName('layout-shell') && in_array(strtolower($element->tagName), array('div', 'span', 'article', 'aside', 'header', 'footer', 'main', 'section', 'nav'), true)) {
+        if ($blockName === ($this->session->generatedBlockRegistry()?->blockName('layout-shell') ?? '') && in_array(strtolower($element->tagName), array('div', 'span', 'article', 'aside', 'header', 'footer', 'main', 'section', 'nav'), true)) {
             $root = SourceDom::documentVariantRoot($element);
             if ($root && $root->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE)) return true;
             // A captured gallery frame is the gallery runtime's own contract:
@@ -612,14 +614,14 @@ final class RuntimeIslandAnalyzer
         // The authored hidden marker is the exact save() DOM contract for these
         // companion blocks. A native editable marker is not a runtime island.
         if ('span' === strtolower($element->tagName) && $element->hasAttribute('hidden') && (
-            ($blockName === $this->context->generatedBlockName('live-clock') && $element->hasAttribute('data-blocks-engine-live-clock'))
-            || ($blockName === $this->context->generatedBlockName('motion-sequence') && $element->hasAttribute('data-blocks-engine-motion-steps'))
+            ($blockName === ($this->session->generatedBlockRegistry()?->blockName('live-clock') ?? '') && $element->hasAttribute('data-blocks-engine-live-clock'))
+            || ($blockName === ($this->session->generatedBlockRegistry()?->blockName('motion-sequence') ?? '') && $element->hasAttribute('data-blocks-engine-motion-steps'))
         )) return true;
         // Core navigation renders its <nav> dynamically: the anchor and aria-label
         // supports carry id and label, and the remaining hooks travel as
         // render-time attributes (see runtimeAttributesCarriedBy()).
         if ('core/navigation' === $blockName && 'nav' === strtolower($element->tagName)) return true;
-        $isLayoutShell = $blockName === $this->context->generatedBlockName('layout-shell');
+        $isLayoutShell = $blockName === ($this->session->generatedBlockRegistry()?->blockName('layout-shell') ?? '');
         if ( ! $isLayoutShell && ! in_array($blockName, array('core/group', 'core/paragraph', 'core/heading'), true) ) {
             return false;
         }

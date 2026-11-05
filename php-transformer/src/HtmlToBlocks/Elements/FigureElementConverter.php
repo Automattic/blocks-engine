@@ -11,7 +11,10 @@ use DOMElement;
 /** Converts figures and their captions through the ordered figure strategies. */
 final class FigureElementConverter implements ElementConverter
 {
-    public function __construct(private readonly FigureElementContext $context)
+    public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock,
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver $presentationResolver,
+        private readonly FigureElementContext $context)
     {
     }
 
@@ -33,9 +36,9 @@ final class FigureElementConverter implements ElementConverter
                 return ConversionOutcome::handled(null);
             }
 
-            return ConversionOutcome::handled($this->context->createBlock(
+            return ConversionOutcome::handled($this->createBlock->createBlock(
                 'core/paragraph',
-                array_merge($this->context->presentationAttributes($element), array( 'content' => $content )),
+                array_merge($this->presentationResolver->presentationAttributes($element), array( 'content' => $content )),
                 array(),
                 $element
             ));

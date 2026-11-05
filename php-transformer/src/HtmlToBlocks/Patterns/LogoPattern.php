@@ -14,6 +14,12 @@ use DOMElement;
 
 final class LogoPattern implements PatternRecognizerInterface
 {
+    public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMaterialization $richTextMaterializer,
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock
+    ) {
+    }
+
     /** Inline formatting a logo label keeps; every other element is unwrapped. */
     private const LABEL_TAGS = array( 'a', 'em', 'i', 'strong', 'b', 'mark', 'small', 'sub', 'sup', 'br' );
 
@@ -49,10 +55,10 @@ final class LogoPattern implements PatternRecognizerInterface
         $block = $this->match(
             $element,
             $context->presentationAttributes(...),
-            fn (DOMElement $source): string => $logo->richText($source),
+            fn (DOMElement $source): string => $this->richTextMaterializer->content($source),
             fn (DOMElement $source): string => SourceDom::outerHtml($source),
-            fn (DOMElement $source, string $content): ?string => $logo->materializeSvgImages($source, $content),
-            $context->createBlock(...),
+            fn (DOMElement $source, string $content): ?string => $this->richTextMaterializer->contentWithMaterializedSvgImages($source, $content),
+            $this->createBlock->createBlock(...),
             $captureDroppedSvg
         );
 

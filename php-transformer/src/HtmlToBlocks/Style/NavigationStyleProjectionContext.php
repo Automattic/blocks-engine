@@ -3,11 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeBehaviorState;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationEvidenceState;
 use Closure;
-use DOMElement;
 
 /**
  * Explicit collaborator surface for {@see NavigationStyleProjector}.
@@ -25,40 +21,9 @@ final class NavigationStyleProjectionContext
      * @param Closure(array<int, string>, string, string, string, string): void $materializeStylesheetAsset
      */
     public function __construct(
-        private readonly HtmlTransformerSession $session,
         private readonly Closure $parsedCssSelector,
         private readonly Closure $materializeStylesheetAsset
     ) {
-    }
-
-    public function authorStyles(): AuthorStyleAnalysis
-    {
-        return $this->session->authorStyleAnalysis();
-    }
-
-    public function sourceStyles(): SourceStyleResolutionState
-    {
-        return $this->session->sourceStyleResolutionState();
-    }
-
-    public function selectorProjections(): AuthorSelectorProjectionState
-    {
-        return $this->session->authorSelectorProjectionState();
-    }
-
-    public function generatedSupportStyles(): GeneratedSupportStylesheetState
-    {
-        return $this->session->generatedSupportStylesheetState();
-    }
-
-    public function runtimeBehavior(): RuntimeBehaviorState
-    {
-        return $this->session->runtimeBehaviorState();
-    }
-
-    public function transformationEvidence(): TransformationEvidenceState
-    {
-        return $this->session->transformationEvidenceState();
     }
 
     /**

@@ -26,10 +26,9 @@ if ( ! $spacerElement instanceof DOMElement ) {
     throw new RuntimeException('Spacer fixture did not produce a DOM element.');
 }
 $spacerContext = new PatternContext(
-    static fn (DOMElement $source, array $excluded = array()): array => array( 'style' => array( 'dimensions' => array( 'minHeight' => '1rem' ) ) ),
-    new SourceBlockCreatorFixture(static fn (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null): array => array( 'blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $children ))
+    static fn (DOMElement $source, array $excluded = array()): array => array( 'style' => array( 'dimensions' => array( 'minHeight' => '1rem' ) ) )
 );
-$spacerResult = (new PatternRecognizerRegistry(array( new SpacerPattern() )))->firstMatch($spacerElement, $spacerContext, array( SpacerPattern::class ));
+$spacerResult = (new PatternRecognizerRegistry(array( new SpacerPattern(new SourceBlockCreatorFixture(static fn (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null): array => array( 'blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $children ))) )))->firstMatch($spacerElement, $spacerContext, array( SpacerPattern::class ));
 $assert('core/spacer' === ($spacerResult?->block()['blockName'] ?? null), 'Spacer is dispatched directly by class through the pattern registry.');
 $assert('3rem' === ($spacerResult?->block()['attrs']['height'] ?? null), 'Direct spacer dispatch preserves its native height attribute.');
 $assert(! isset($spacerResult?->block()['attrs']['style']), 'Direct spacer dispatch preserves spacer ownership of serialized height.');
@@ -134,7 +133,7 @@ $assert(array() === ($declinedDisclosure['fallbacks'] ?? array()), 'A declined d
 $assert('Question?' === ($declinedDisclosure['blocks'][0]['innerBlocks'][0]['innerBlocks'][0]['attrs']['text'] ?? null), 'A declined disclosure retains its toggle through lower-priority button lowering.');
 $assert('Ordinary content.' === ($declinedDisclosure['blocks'][0]['innerBlocks'][1]['attrs']['content'] ?? null), 'A declined disclosure retains ordinary sibling content through lower-priority conversion.');
 
-$detailsPattern = new DetailsPattern();
+$detailsPattern = new DetailsPattern(new \Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture(static fn (string $name, array $attrs = array(), array $children = array()): array => array('blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $children)));
 $detailsMethod = new ReflectionMethod(DetailsPattern::class, 'match');
 $disclosureMethod = new ReflectionMethod(DetailsPattern::class, 'matchDisclosure');
 $assert($detailsMethod->isPublic() && $disclosureMethod->isPublic(), 'DetailsPattern retains its released public lowering methods.');
@@ -171,16 +170,15 @@ $navigationConverter = new class implements PatternTreeConverter {
 };
 $navigationContext = new PatternContext(
     static fn (DOMElement $source, array $excluded = array()): array => array(),
-    $createBlock,
     $navigationConverter,
     new NavigationPatternContext()
 );
-$navigationResult = (new NavigationPattern())->recognize($navigationElement, $navigationContext);
+$navigationResult = (new NavigationPattern($createBlock))->recognize($navigationElement, $navigationContext);
 $assert('core/group' === ($navigationResult?->block()['blockName'] ?? null), 'Navigation brand carrier wins with a recursively converted brand.');
 $assert('brand_fallback' === ($navigationResult?->fallbacks()[0]['diagnostic_code'] ?? null), 'Navigation commits recursive brand diagnostics through its winning carrier.');
 
-$probeContext = new PatternContext(static fn (DOMElement $source): array => array(), $createBlock);
-(new NavigationPattern())->recognize($navigationElement, $probeContext);
+$probeContext = new PatternContext(static fn (DOMElement $source): array => array());
+(new NavigationPattern($createBlock))->recognize($navigationElement, $probeContext);
 $assert(1 === $navigationConverter->calls, 'Navigation probe context performs no recursive conversion side effects.');
 
 $labeledNavigation = (new HtmlTransformer())->transform('<div class="footer-links"><h3>Resources</h3><a href="/docs">Docs</a><a href="/help">Help</a></div>')->toArray();

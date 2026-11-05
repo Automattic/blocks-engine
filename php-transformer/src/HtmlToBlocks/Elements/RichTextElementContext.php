@@ -3,10 +3,6 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMaterialization;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
-use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Closure;
 use DOMElement;
 
@@ -36,9 +32,6 @@ final class RichTextElementContext
      * @param Closure(DOMElement, array<int, array<string, mixed>>): ?array<string, mixed>                   $mediaBlockFromTextlessHeading
      */
     public function __construct(
-        private readonly ElementPresentationResolver $presentationResolver,
-        private readonly SourceBlockCreator $createBlock,
-        private readonly RichTextMaterialization $richTextMaterializer,
         private readonly Closure $htmlPreservationBlock,
         private readonly Closure $authoredMarqueeBlock,
         private readonly Closure $hasEmptyVisualInlineChild,
@@ -48,7 +41,6 @@ final class RichTextElementContext
         private readonly Closure $mixedMediaLinkGroupFromParagraph,
         private readonly Closure $compactLinkedIconTextRowFromParagraph,
         private readonly Closure $convertText,
-        private readonly Runtime $runtime,
         private readonly Closure $convertChildren,
         private readonly ?Closure $emptyInlineGeometryBlock = null,
         private readonly ?Closure $nativeDisclosureBlock = null,
@@ -58,78 +50,10 @@ final class RichTextElementContext
     ) {
     }
 
-    /**
-     * @param array<int, string> $excludedProperties
-     * @param array<int, string> $excludedGeometryProperties
-     * @return array<string, mixed>
-     */
-    public function presentationAttributes(DOMElement $element, array $excludedProperties = array(), array $excludedGeometryProperties = array()): array
-    {
-        return $this->presentationResolver->presentationAttributes($element, $excludedProperties, $excludedGeometryProperties);
-    }
-
-    public function bakedTypographyFontSize(DOMElement $element): string
-    {
-        return $this->presentationResolver->bakedTypographyFontSize($element);
-    }
-
-    public function responsiveTypographyClassName(DOMElement $element): string
-    {
-        return $this->presentationResolver->responsiveTypographyClassName($element);
-    }
-
-    /**
-     * @param array<string, mixed>             $attributes
-     * @param array<int, array<string, mixed>> $innerBlocks
-     * @return array<string, mixed>
-     */
-    public function createBlock(string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array
-    {
-        return $this->createBlock->createBlock($name, $attributes, $innerBlocks, $sourceElement);
-    }
-
-    /**
-     * @param array<int, string> $excludedTags
-     */
-    public function richTextContent(DOMElement $element, array $excludedTags = array()): string
-    {
-        return $this->richTextMaterializer->content($element, $excludedTags);
-    }
-
-    public function richTextContentHasStructuralHtml(string $content): bool
-    {
-        return $this->richTextMaterializer->hasStructuralHtml($content);
-    }
-
-    public function richTextWithMaterializedSvgImages(DOMElement $element, string $content): ?string
-    {
-        return $this->richTextMaterializer->contentWithMaterializedSvgImages($element, $content);
-    }
-
-    public function richTextWithInlineSafeButtonsLowered(DOMElement $element, string $content): ?string
-    {
-        return $this->richTextMaterializer->contentWithInlineSafeButtonsLowered($element, $content);
-    }
-
-    public function requiresHtmlFallback(string $content): bool
-    {
-        return $this->richTextMaterializer->requiresHtmlFallbackWithoutNativeSvgImageObjects($content);
-    }
-
-    public function requiresHtmlFallbackForElement(DOMElement $element, string $content): bool
-    {
-        return $this->richTextMaterializer->requiresHtmlFallbackForElement($element, $content);
-    }
-
     /** @return array<string, mixed>|null */
     public function decorativeSvgBlock(DOMElement $element): ?array
     {
         return null === $this->decorativeSvgBlock ? null : ($this->decorativeSvgBlock)($element);
-    }
-
-    public function containsNativeSvgImageObject(string $content): bool
-    {
-        return $this->richTextMaterializer->containsNativeSvgImageObject($content);
     }
 
     /**
@@ -195,11 +119,6 @@ final class RichTextElementContext
     public function convertText(string $text): array
     {
         return ($this->convertText)($text);
-    }
-
-    public function stripAllTags(string $html): string
-    {
-        return $this->runtime->stripAllTags($html);
     }
 
     /**

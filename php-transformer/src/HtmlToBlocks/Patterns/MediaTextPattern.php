@@ -32,6 +32,11 @@ use DOMElement;
  */
 final class MediaTextPattern implements PatternRecognizerInterface
 {
+    public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock
+    ) {
+    }
+
     use PatternDomHelpersTrait;
     use PatternGateHelpersTrait;
 
@@ -53,7 +58,7 @@ final class MediaTextPattern implements PatternRecognizerInterface
             $media->mediaTextStyle(...),
             SourceDom::htmlAttributes(...),
             $media->resolveImageUrl(...),
-            $context->createBlock(...),
+            $this->createBlock->createBlock(...),
             $media->coverStyle(...),
             $media->documentRootFontSize(...),
             $media->imageFixedPixelSize(...)

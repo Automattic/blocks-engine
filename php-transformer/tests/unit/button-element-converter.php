@@ -34,8 +34,11 @@ $mode = 'generic';
 $genericCalls = 0;
 $captureUnsupported = null;
 $genericBlock = array( 'blockName' => 'core/buttons' );
-$converter = new ButtonElementConverter(new ButtonElementContext(
-    new SourceElementClassifier(),
+$converter = new ButtonElementConverter(new SourceElementClassifier(), new SourceBlockCreatorFixture(static fn (string $name, array $attributes, array $innerBlocks, DOMElement $element): array => array(
+        'blockName' => $name,
+        'attrs' => $attributes,
+        'innerBlocks' => $innerBlocks,
+    )), new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array( 'className' => 'carrier' )), new ButtonElementContext(
     static function (DOMElement $element) use (&$mode): bool {
         return 'search' === $mode;
     },
@@ -53,12 +56,6 @@ $converter = new ButtonElementConverter(new ButtonElementContext(
         }
         return array();
     },
-    new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array( 'className' => 'carrier' )),
-    new SourceBlockCreatorFixture(static fn (string $name, array $attributes, array $innerBlocks, DOMElement $element): array => array(
-        'blockName' => $name,
-        'attrs' => $attributes,
-        'innerBlocks' => $innerBlocks,
-    )),
     static function (DOMElement $element) use (&$genericCalls, &$genericBlock): ?array {
         ++$genericCalls;
         return $genericBlock;

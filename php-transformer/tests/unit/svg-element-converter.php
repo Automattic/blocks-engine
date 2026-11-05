@@ -34,19 +34,11 @@ $elementFrom = static function (string $html): DOMElement {
 $state = (object) array( 'mode' => 'block' );
 $fallbackCaptures = 0;
 $context = new SvgElementContext(
-    new SourceElementClassifier(),
     static fn (DOMElement $element): bool => 'inert' === $state->mode,
     static fn (DOMElement $element): bool => str_starts_with($state->mode, 'runtime-'),
     static fn (DOMElement $element): string => '<svg viewbox="0 0 1 1"></svg>',
     static fn (string $html): bool => 'runtime-safe' === $state->mode,
     static fn (DOMElement $element): bool => str_starts_with($state->mode, 'drawable-'),
-    new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array( 'className' => 'visual-svg' )),
-    new SourceBlockCreatorFixture(static fn (string $name, array $attrs, array $innerBlocks, ?DOMElement $source): array => array(
-        'blockName' => $name,
-        'attrs' => $attrs,
-        'innerBlocks' => $innerBlocks,
-        'sourceTag' => $source?->tagName,
-    )),
     static function (DOMElement $element, array &$fallbacks) use (&$fallbackCaptures): void {
         ++$fallbackCaptures;
         $fallbacks[] = array( 'diagnostic_code' => 'html_inline_svg_fallback' );
@@ -95,7 +87,12 @@ $textRun = new SvgTextRunLowering(
     new SourceBlockCreatorFixture(static fn (string $name, array $attrs, array $innerBlocks, ?DOMElement $source): array => array( 'blockName' => $name, 'attrs' => $attrs, 'sourceTag' => $source?->tagName )),
     new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession(new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime(), static fn (DOMElement $element): array => array())
 );
-$converter = new SvgElementConverter($context, $materializer, $textRun);
+$converter = new SvgElementConverter(new SourceBlockCreatorFixture(static fn (string $name, array $attrs, array $innerBlocks, ?DOMElement $source): array => array(
+        'blockName' => $name,
+        'attrs' => $attrs,
+        'innerBlocks' => $innerBlocks,
+        'sourceTag' => $source?->tagName,
+    )), new SourceElementClassifier(), new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array( 'className' => 'visual-svg' )), $context, $materializer, $textRun);
 $svg = $elementFrom('<svg><path d="M0 0"></path></svg>');
 $fallbacks = array();
 

@@ -23,6 +23,11 @@ use DOMElement;
 
 final class NavigationPattern implements PatternRecognizerInterface
 {
+    public function __construct(
+        private readonly ?\Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock = null
+    ) {
+    }
+
     use PatternDomHelpersTrait;
 
     public const BLOCK_LEVEL_LABEL_TAGS = 'address|article|aside|blockquote|div|dl|fieldset|figcaption|figure|footer|form|h[1-6]|header|hr|main|nav|ol|p|pre|section|table|ul';
@@ -240,7 +245,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     {
         $presentationAttributes = $context->presentationAttributes(...);
         $innerHtml = SourceDom::innerHtml(...);
-        $createBlock = $context->createBlock(...);
+        $createBlock = $this->createBlock->createBlock(...);
         $navigationContext = $context->navigationContext();
 
         // A breadcrumb trail is the route's own ancestry, not one site menu:
@@ -865,7 +870,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         $blocks = array($converter->element($heading, $discardedFallbacks, true));
         $links = array();
         foreach ( $anchors as $anchor ) {
-            $links[] = $context->createBlock('core/navigation-link', array_filter(array(
+            $links[] = $this->createBlock->createBlock('core/navigation-link', array_filter(array(
                 'label' => SourceDom::innerHtmlWithProjectedMarkers(
                     $anchor,
                     static fn (DOMElement $labelElement): array => $context->navigationContext()?->sourcePresentationMarkers($labelElement) ?? array()
@@ -880,10 +885,10 @@ final class NavigationPattern implements PatternRecognizerInterface
             $navigationAttrs['className'] = 'blocks-engine-native-responsive-navigation';
             $navigationAttrs = $this->withResponsiveOverlayMarker($navigationAttrs, $element, $context->navigationContext());
         }
-        $blocks[] = $context->createBlock('core/navigation', $navigationAttrs, $links, $element);
+        $blocks[] = $this->createBlock->createBlock('core/navigation', $navigationAttrs, $links, $element);
 
         return new PatternRecognitionResult(
-            $context->createBlock('core/group', $context->presentationAttributes($element), array_values(array_filter($blocks)), $element)
+            $this->createBlock->createBlock('core/group', $context->presentationAttributes($element), array_values(array_filter($blocks)), $element)
         );
     }
 

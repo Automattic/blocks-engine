@@ -3,8 +3,6 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Closure;
 use DOMElement;
 
@@ -29,9 +27,7 @@ final class FigureElementContext
         private readonly Closure $convertImage,
         private readonly Closure $mediaElement,
         private readonly Closure $convertGeneric,
-        private readonly Closure $hasVisibleText,
-        private readonly ElementPresentationResolver $presentationResolver,
-        private readonly SourceBlockCreator $createBlock
+        private readonly Closure $hasVisibleText
     ) {
     }
 
@@ -84,19 +80,4 @@ final class FigureElementContext
         return ($this->hasVisibleText)($html);
     }
 
-    /** @return array<string, mixed> */
-    public function presentationAttributes(DOMElement $element): array
-    {
-        return $this->presentationResolver->presentationAttributes($element);
-    }
-
-    /**
-     * @param array<string, mixed> $attributes
-     * @param array<int, array<string, mixed>> $innerBlocks
-     * @return array<string, mixed>
-     */
-    public function createBlock(string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array
-    {
-        return $this->createBlock->createBlock($name, $attributes, $innerBlocks, $sourceElement);
-    }
 }

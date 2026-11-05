@@ -49,11 +49,9 @@ $listContext = new ListElementContext(
     static fn (DOMElement $element): bool => 'structural' === $state->mode,
     static fn (DOMElement $element, array &$fallbacks): ?array => array( 'blockName' => 'core/group', 'attrs' => array( 'structural' => true ) ),
     static fn (DOMElement $element, array &$fallbacks): array => 'empty' === $state->mode ? array() : array( array( 'blockName' => 'core/list-item' ) ),
-    $ownership,
-    new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array( 'className' => 'presented-list' )),
-    $createBlock
+    $ownership
 );
-$listConverter = new ListElementConverter($listContext);
+$listConverter = new ListElementConverter(new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array( 'className' => 'presented-list' )), $createBlock, $listContext);
 $fallbacks = array();
 $assert($listConverter->handles('ul') && $listConverter->handles('ol') && ! $listConverter->handles('dl'), 'list-handles-tags');
 $assert(! $listConverter->convert($elementFrom('<div></div>'), 'div', $fallbacks)->handled, 'list-unhandled-outcome');
@@ -79,18 +77,14 @@ $assert(str_contains($grid['attrs']['className'] ?? '', 'blocks-engine-css-owned
 
 $state->mode = 'native';
 $descriptionContext = new DescriptionListElementContext(
-    new SourceElementClassifier(),
     static fn (DOMElement $element): ?array => 'description' === $state->mode ? array( 'blockName' => 'blocks-engine/description-list' ) : null,
     static fn (DOMElement $element): ?array => 'metadata' === $state->mode ? array( 'blockName' => 'core/group', 'attrs' => array( 'metadata' => true ) ) : null,
     static fn (DOMElement $element): array => 'items' === $state->mode ? array( array( 'blockName' => 'core/list-item' ) ) : array(),
     $ownership,
-    new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array( 'className' => 'presented-' . strtolower($element->tagName) )),
     static fn (DOMElement $element, array &$fallbacks, bool $capture): array => 'empty' === $state->mode ? array() : array( array( 'blockName' => 'core/paragraph' ) ),
-    $createBlock,
-    new RichTextMaterializationFixture(array( 'content' => static fn (DOMElement $element): string => $element->textContent ?? '' )),
     static fn (string $text): bool => '' !== trim(strip_tags($text))
 );
-$descriptionConverter = new DescriptionListElementConverter($descriptionContext);
+$descriptionConverter = new DescriptionListElementConverter(new SourceElementClassifier(), $createBlock, new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array( 'className' => 'presented-' . strtolower($element->tagName) )), new RichTextMaterializationFixture(array( 'content' => static fn (DOMElement $element): string => $element->textContent ?? '' )), $descriptionContext);
 $assert($descriptionConverter->handles('dl') && $descriptionConverter->handles('dt') && $descriptionConverter->handles('dd') && ! $descriptionConverter->handles('ul'), 'description-handles-tags');
 $assert(! $descriptionConverter->convert($elementFrom('<div></div>'), 'div', $fallbacks)->handled, 'description-unhandled-outcome');
 $state->mode = 'description';

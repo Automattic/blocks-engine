@@ -8,6 +8,11 @@ use DOMElement;
 
 final class CodeWindowPattern implements PatternRecognizerInterface
 {
+    public function __construct(
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock
+    ) {
+    }
+
     use PatternDomHelpersTrait;
 
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
@@ -23,7 +28,7 @@ final class CodeWindowPattern implements PatternRecognizerInterface
             SourceDom::innerHtml(...),
             fn (DOMElement $pre, DOMElement $code): array => $codeWindow->presentationAttributes($pre, $code),
             fn (DOMElement $code): string => $codeWindow->content($code),
-            $context->createBlock(...)
+            $this->createBlock->createBlock(...)
         );
 
         return null === $block ? null : new PatternRecognitionResult($block);
