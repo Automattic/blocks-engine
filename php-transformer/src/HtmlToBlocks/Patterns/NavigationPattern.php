@@ -1364,7 +1364,13 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function menuRowBesideControls(DOMElement $row, PatternContext $context, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?NavigationPatternContext $navigationContext): ?PatternRecognitionResult
     {
         $converter = $context->recursiveConverter();
-        if ( null === $converter || ! $this->hasButtonDropdownChild($row) ) {
+        $trailingControl = $this->hasTrailingNavigationControl($row, $navigationContext);
+        if ( null === $converter ) {
+            // Toggle ownership probes have no recursive converter. The strict
+            // item-set check still proves this landmark owns one native menu.
+            return $trailingControl ? new PatternRecognitionResult($createBlock('core/group', array( 'tagName' => 'nav' ), array($createBlock('core/navigation', array(), array(), $row)), $row)) : null;
+        }
+        if ( ! $this->hasButtonDropdownChild($row) && ! $trailingControl ) {
             return null;
         }
 
@@ -1378,6 +1384,39 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return $result;
+    }
+
+    /** A landmark's link run may end in one native CTA, not arbitrary content. */
+    private function hasTrailingNavigationControl(DOMElement $row, ?NavigationPatternContext $navigationContext): bool
+    {
+        if ( 'nav' !== strtolower($row->tagName) ) {
+            return false;
+        }
+        $children = array();
+        foreach ( $row->childNodes as $child ) {
+            if ( XML_COMMENT_NODE === $child->nodeType || ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                return false;
+            }
+            $children[] = $child;
+        }
+        $control = array_pop($children);
+        if ( ! $control instanceof DOMElement || 2 > count($children)
+            || $this->isNavigationChromeElement($control)
+            || ( 'button' !== strtolower($control->tagName)
+                && ! ( 'a' === strtolower($control->tagName)
+                    && (new ButtonSignalClassifier())->hasTransformSignal($control, $navigationContext?->resolvedStyle($control) ?? '') ) ) ) {
+            return false;
+        }
+        foreach ( $children as $child ) {
+            if ( 'a' !== strtolower($child->tagName) || '' === trim($child->getAttribute('href'))
+                || (new ButtonSignalClassifier())->hasTransformSignal($child, $navigationContext?->resolvedStyle($child) ?? '') ) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private function menuRowSlots(DOMElement $row, PatternTreeConverter $converter, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?NavigationPatternContext $navigationContext, ?CapturedMenuDialogFold $fold): ?PatternRecognitionResult
@@ -1415,6 +1454,9 @@ final class NavigationPattern implements PatternRecognizerInterface
         $collected = array();
         $linkSets = array();
         $foldMarker = '';
+        $trailingControl = $this->hasTrailingNavigationControl($row, $navigationContext);
+        $trailingResponsive = null === $fold && $trailingControl
+            && 'mobile' === $this->overlayMenu($row, $navigationContext);
         foreach ( $slots as $slot ) {
             if ( 'control' === $slot['kind'] ) {
                 $block = $converter->element($slot['elements'][0], $fallbacks, true);
@@ -1424,7 +1466,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 // The dialog lists this control too, and carries its own copy
                 // into the overlay, so the row's copy is hidden below the
                 // breakpoint where the hamburger takes over.
-                if ( $fold instanceof CapturedMenuDialogFold && $fold->listsControl($slot['elements'][0]) ) {
+                if ( $trailingResponsive || ( $fold instanceof CapturedMenuDialogFold && $fold->listsControl($slot['elements'][0]) ) ) {
                     $block = $this->withBlockClassName($block, self::MENU_FOLD_HIDE_CLASS, $createBlock, $slot['elements'][0]);
                 }
                 $children[] = $block;
@@ -1446,7 +1488,12 @@ final class NavigationPattern implements PatternRecognizerInterface
                     $itemLinks[CapturedMenuDialogFold::signature('link', CapturedMenuDialogFold::label($item), trim($item->getAttribute('href')))] = true;
                 }
             }
-            $attrs = array( 'overlayMenu' => 'never' );
+            $attrs = array( 'overlayMenu' => $trailingControl ? $this->overlayMenu($row, $navigationContext) : 'never' );
+            if ( 'mobile' === $attrs['overlayMenu'] ) {
+                $attrs = $this->withClassName($attrs, 'blocks-engine-native-responsive-navigation');
+                $attrs = $this->withResponsiveToggleMarker($attrs, $row, $navigationContext);
+                $attrs = $this->withResponsiveOverlayMarker($attrs, $row, $navigationContext);
+            }
             $gap = trim((string) ( $this->resolvedNavigationSpacing($navigationContext?->resolvedStyle($row) ?? '')['blockGap'] ?? '' ));
             if ( '' !== $gap ) {
                 $attrs['style']['spacing']['blockGap'] = $gap;
@@ -1472,6 +1519,20 @@ final class NavigationPattern implements PatternRecognizerInterface
         $this->recordNavigationSources(array(), array(), $collected, $row, $navigationContext);
 
         $groupAttrs = array_merge($presentationAttributes($row), array( 'tagName' => 'div' ));
+        if ( $trailingControl ) {
+            $groupAttrs['tagName'] = 'nav';
+            $groupAttrs['layout'] = array( 'type' => 'flex', 'flexWrap' => 'nowrap' );
+        }
+        if ( $trailingResponsive ) {
+            // The source hides this whole row on phones. Once its toggle is
+            // owned by the inner navigation, expose the row but not the CTA.
+            $toggle = $navigationContext?->navigationToggleControl($row);
+            $boundary = $toggle instanceof DOMElement ? $navigationContext?->menuCollapseBreakpoint($row, $toggle) : null;
+            $below = null === $boundary || $boundary <= 600 ? 599 : (int) floor($boundary);
+            $rule = '@media(max-width:' . $below . 'px){.wp-block-group.%s{display:flex!important}.wp-block-group.%s>.' . self::MENU_FOLD_HIDE_CLASS . '{display:none!important}}';
+            $foldMarker = 'blocks-engine-menu-fold-' . substr(hash('sha256', $rule), 0, 12);
+            $navigationContext?->registerMenuFoldRule($foldMarker, str_replace('%s', $foldMarker, $rule));
+        }
         if ( '' !== $foldMarker ) {
             $groupAttrs = $this->withClassName($groupAttrs, $foldMarker);
         }

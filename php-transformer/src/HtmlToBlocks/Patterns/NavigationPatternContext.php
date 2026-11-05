@@ -1248,6 +1248,11 @@ final class NavigationPatternContext
         $this->session?->generatedSupportStylesheetState()->registerNativeNavigationOverlay($marker, $rule);
     }
 
+    public function navigationToggleControl(DOMElement $element): ?DOMElement
+    {
+        return $this->navigationToggleSuppressor?->navigationToggleControl($element);
+    }
+
     public function responsiveToggleMarker(DOMElement $element): string
     {
         return $this->projectedNavigation?->responsiveNavigationToggleMarker($element) ?? '';
