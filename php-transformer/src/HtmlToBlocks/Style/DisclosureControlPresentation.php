@@ -403,6 +403,16 @@ final class DisclosureControlPresentation
         // restating it on the summary reaches the label again, and any rule the
         // label still owns keeps winning over it.
         $isNativeSummary = 'summary' === strtolower($control->tagName);
+        // A native summary's marker is its list-item marker. Its list-style
+        // belongs on the summary box: on the carried label it styles nothing.
+        if ( $isNativeSummary ) {
+            $resolved = $this->styles->resolvedPresentationDeclarations($summary);
+            $carried = array_merge($carried, array_filter(
+                $resolved,
+                static fn (string $property): bool => (bool) preg_match('/^list-style(?:-(?:type|position|image))?$/', $property),
+                ARRAY_FILTER_USE_KEY
+            ));
+        }
         if ( ! $isNativeSummary ) {
             $carried = array_merge($this->disclosureSummaryLabelTypography($summary), $carried);
         }
