@@ -1769,7 +1769,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (array $finding): array => FallbackDiagnostic::build($finding, $this->transformationProvenance()->fallback()),
             $paymentWidgetFindings
         );
-        \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DocumentReferenceIndex::install($document);
+        \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DocumentReferenceIndex::install($document, $this->documentAuthorCss);
         \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\InteractiveSurface::indexDocument($document);
         try {
             $interactionCandidates = $this->interactionFallbackReporter->interactionCandidates($body);

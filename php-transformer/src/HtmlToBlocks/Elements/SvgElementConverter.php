@@ -49,7 +49,11 @@ final class SvgElementConverter implements ElementConverter
             }
         }
 
-        // A definition carrier is document content even when aria-hidden or
+        if (SourceDom::isUnreferencedDefinitionsSvg($element)) {
+            return ConversionOutcome::handled(null);
+        }
+
+        // A referenced definition carrier is document content even when aria-hidden or
         // positioned as decoration; do not discard it or wrap it as an image.
         if (SourceDom::isDefinitionsOnlySvg($element)) {
             $block = $this->materializer->inlineSvgBlockFromElement($element);

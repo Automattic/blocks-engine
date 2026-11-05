@@ -210,6 +210,7 @@
       "php tests/contract/empty-at-rest-paint.php",
       "php tests/contract/background-image-sized.php",
       "php tests/contract/definitions-only-svg.php",
+      "php tests/contract/unused-svg-definitions.php",
       "php tests/contract/staged-artifact-compilation.php",
       "php tests/contract/staged-shared-inline-projection.php",
       "php tests/unit/author-projection-path-identity.php",
