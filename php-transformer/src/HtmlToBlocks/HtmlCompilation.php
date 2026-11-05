@@ -7174,7 +7174,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function wrapperBoundaryReason(array $block): string
     {
         if (!in_array($block['blockName'] ?? null, array('core/group', 'core/columns', 'core/column'), true)) return 'non_wrapper_terminal';
-        if (isset($block['_binding_token'])) return 'binding_boundary';
+        if (isset($block['_binding_token']) || $this->transformationProvenance()->isBindingAnchor($block['_source_provenance_id'] ?? null)) return 'binding_boundary';
         if ($this->hasIndependentWrapperOwnership($block)) return 'owned_wrapper';
         if (in_array(strtolower((string) ($block['attrs']['tagName'] ?? 'div')), array('ul', 'ol', 'li'), true)) return 'list_semantics';
         if (in_array(strtolower((string) ($block['attrs']['tagName'] ?? 'div')), self::LANDMARK_GROUP_TAGS, true)) return 'landmark_semantics';
@@ -7187,7 +7187,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // A landmark stays its own group block: folded into a layout shell's
         // wrapper list, a header or footer loses its block identity
         // for the editor and for shell extraction.
-        if (!in_array($block['blockName'] ?? null, array('core/group'), true) || isset($block['_binding_token']) || $this->hasIndependentWrapperOwnership($block) || in_array(strtolower((string) ($block['attrs']['tagName'] ?? 'div')), array_merge(array('ul', 'ol', 'li'), self::LANDMARK_GROUP_TAGS), true)) return null;
+        if (!in_array($block['blockName'] ?? null, array('core/group'), true) || isset($block['_binding_token']) || $this->transformationProvenance()->isBindingAnchor($block['_source_provenance_id'] ?? null) || $this->hasIndependentWrapperOwnership($block) || in_array(strtolower((string) ($block['attrs']['tagName'] ?? 'div')), array_merge(array('ul', 'ol', 'li'), self::LANDMARK_GROUP_TAGS), true)) return null;
         return $this->groupWrapperDescriptor($block);
     }
 
@@ -7454,7 +7454,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $proof = $this->wrapperCoalescer->layoutGeometryProofFor($element);
         if (null === $proof || $this->runtimeIslands->isRuntimeDomTarget($element) || '' !== trim($this->attr($element, 'id')) || '' !== trim($this->attr($element, 'role')) || array() !== $this->interactiveAttributes($element) || $this->sourceElementClassifier->hasMotionStructureToken($element)) return null;
         $children = $this->convertChildren($element, $fallbacks, true);
-        if (1 !== count($children) || !in_array($children[0]['blockName'] ?? null, array('core/group', 'core/image'), true)) return null;
+        if (1 !== count($children) || !in_array($children[0]['blockName'] ?? null, array('core/group', 'core/image'), true) || $this->transformationProvenance()->isBindingAnchor($children[0]['_source_provenance_id'] ?? null)) return null;
         $sourceChild = $this->soleElementChild($element);
         if (!$sourceChild instanceof DOMElement || $this->elementSelector($sourceChild) !== ($proof['target_selector'] ?? null)) return null;
         $childAttrs = is_array($children[0]['attrs'] ?? null) ? $children[0]['attrs'] : array();
@@ -8940,7 +8940,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return array();
         }
         $binding = array('schema' => 'generic/block-binding/v1', 'search_block_markup' => $markup, 'occurrence' => 1, 'role' => $role);
-        if ( is_int($provenanceId) ) $binding['_binding_provenance_id'] = $provenanceId;
+        if ( is_int($provenanceId) ) {
+            $binding['_binding_provenance_id'] = $provenanceId;
+            $this->transformationProvenance()->markBindingAnchor($provenanceId);
+        }
         if ( '' !== $anchorSelector ) $binding['_binding_anchor_selector'] = $anchorSelector;
         $supersededRuntimeSelectors = array_values(array_unique(array_filter($supersededRuntimeSelectors, static fn(mixed $selector): bool => is_string($selector) && '' !== trim($selector))));
         if ( array() !== $supersededRuntimeSelectors ) $binding['superseded_runtime_selectors'] = $supersededRuntimeSelectors;

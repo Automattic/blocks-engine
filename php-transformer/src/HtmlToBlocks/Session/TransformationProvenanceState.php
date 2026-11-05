@@ -29,6 +29,9 @@ final class TransformationProvenanceState
     /** @var array<int, \DOMElement> Source element each registered block was materialized from. */
     private array $sourceElements = array();
 
+    /** @var array<int, true> Source ids a fallback binding anchors on. */
+    private array $bindingAnchors = array();
+
     private int $nextSourceId = 1;
 
     /** @param array<string, mixed> $fallback */
@@ -83,6 +86,21 @@ final class TransformationProvenanceState
         if ( isset($this->sources[$id]) ) {
             $this->sourceElements[$id] = $element;
         }
+    }
+
+    /**
+     * A binding anchor is the block a provider replaces wholesale, so it must
+     * keep its own block boundary: no ancestor wrapper may coalesce into it or
+     * fold it into a layout shell.
+     */
+    public function markBindingAnchor(int $id): void
+    {
+        $this->bindingAnchors[$id] = true;
+    }
+
+    public function isBindingAnchor(mixed $id): bool
+    {
+        return is_int($id) && isset($this->bindingAnchors[$id]);
     }
 
     public function sourceElement(int $id): ?\DOMElement
