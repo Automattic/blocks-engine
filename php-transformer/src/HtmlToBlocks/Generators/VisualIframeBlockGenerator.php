@@ -244,6 +244,13 @@ JS;
                 'type'             => $this->embedTypeForSlug($providerNameSlug),
                 'providerNameSlug' => $providerNameSlug,
             ));
+            if ( $this->inheritsPreservedWhitespace($surface, $styleResolver) ) {
+                // Core serializes newlines around the iframe; an inherited pre-wrap would paint them.
+                $embedAttrs['className'] = SourceDom::mergeClassNames(
+                    (string) ($embedAttrs['className'] ?? ''),
+                    SourceBlockAttributeProjector::EMBED_NORMAL_WHITESPACE_CLASS
+                );
+            }
             $sizingClassName = null !== $fluidRatio
                 ? $this->nearestEmbedAspectRatioClassName($fluidRatio)
                 : $this->embedSizingClassName($surface, $styleResolver);
@@ -559,6 +566,18 @@ JS;
             || 1 === preg_match('/(?:^|;)\s*(?:width|height|aspect-ratio|position)\s*:/i', SourceDom::attr($iframe, 'style'));
     }
 
+
+    /** Whether the nearest ancestor declaring `white-space` preserves whitespace at the reference viewport. */
+    private function inheritsPreservedWhitespace(DOMElement $surface, StyleResolver $styleResolver): bool
+    {
+        for ( $node = $surface->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $value = strtolower(trim((string) ($styleResolver->referenceViewportAuthorDeclarations($node, array( 'white-space' ))['white-space'] ?? '')));
+            if ( '' !== $value && 'inherit' !== $value ) {
+                return 1 === preg_match('/\b(?:pre|pre-wrap|pre-line|break-spaces|preserve)\b/', $value);
+            }
+        }
+        return false;
+    }
     /**
      * The ratio of a frame whose only sizing is an unconditional inline "fill
      * the width at a core embed ratio" (`width:100%;height:auto;aspect-ratio:16/9`).

@@ -393,6 +393,10 @@ final class EngineSupportCss
                 $parts[] = ':root :where(.' . $marker . '){margin-top:0;margin-bottom:0}';
             }
         }
+        // Core's embed wrapper holds serialization whitespace, not authored text.
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::EMBED_NORMAL_WHITESPACE_CLASS) ) {
+            $parts[] = ':root :where(.' . SourceBlockAttributeProjector::EMBED_NORMAL_WHITESPACE_CLASS . ' > .wp-block-embed__wrapper){white-space:normal}';
+        }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS) ) {
             $parts[] = '.' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS . '{margin:0}';
         }
