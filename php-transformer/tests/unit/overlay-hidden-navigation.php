@@ -42,21 +42,16 @@ $assert(str_contains($runtimeMarkup, '<!-- wp:navigation'), 'runtime-targeted ov
 $assert(str_contains($runtimeMarkup, '"overlayMenu":"mobile"'), 'runtime-targeted overlay chrome still yields a native mobile overlay menu');
 
 // A content nav shown at every width keeps its links on phones even when a
-// hidden header drawer lists the same destinations (#4511).
-$sharedDestinations = '<a href="/areas/a">Alpha</a><a href="/areas/b">Beta</a>';
-$contentNav = ( new HtmlTransformer() )->transform('<header><button aria-label="Open menu" aria-expanded="false" aria-controls="mobile-menu">Menu</button>'
-    . '<div id="mobile-menu" hidden><nav aria-label="Mobile">' . $sharedDestinations . '</nav></div></header>'
-    . '<main><nav aria-label="Service areas" class="city-links">' . $sharedDestinations . '</nav></main>')->toArray();
-$contentNavBlock = null;
+// closed header drawer lists the same destinations (#4511).
+$contentNav = ( new HtmlTransformer() )->transform((string) file_get_contents(dirname(__DIR__) . '/fixtures/content-nav-shared-header-drawer.html'))->toArray();
+$overlayByClass = array();
 preg_match_all('/<!-- wp:navigation (\{.*?\}) \/?-->/s', (string) ($contentNav['serialized_blocks'] ?? ''), $navigationComments);
 foreach ( $navigationComments[1] as $json ) {
     $attrs = json_decode($json, true);
-    if ( str_contains((string) ($attrs['className'] ?? ''), 'city-links') ) {
-        $contentNavBlock = $attrs;
-    }
+    $overlayByClass[ strtok((string) ($attrs['className'] ?? ''), ' ') ] = $attrs['overlayMenu'] ?? 'mobile';
 }
-$assert(is_array($contentNavBlock), 'the content nav converts to core/navigation');
-$assert('mobile' !== ($contentNavBlock['overlayMenu'] ?? 'mobile'), 'a content nav visible at every width does not collapse behind the mobile overlay');
+$assert('mobile' === ($overlayByClass['desktop-only'] ?? null), 'the header nav still collapses behind the mobile overlay');
+$assert('never' === ($overlayByClass['city-links'] ?? null), 'a content nav visible at every width does not collapse behind the mobile overlay');
 
 if ( 0 !== $failures ) {
     exit(1);

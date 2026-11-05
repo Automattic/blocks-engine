@@ -1729,11 +1729,8 @@ final class NavigationToggleSuppressor
                 continue;
             }
             if ( $signature === $this->sourceNavigationSignature($candidate)
-                && ($this->hasMobileNavigationSignal($navigationRoot) || $this->hasMobileNavigationSignal($candidate))
-                // A desktop variant is one the source hides on phones. A nav it
-                // shows at every width is its own content, whatever else lists
-                // the same destinations.
-                && $this->isHiddenAtMobileViewport($navigationRoot)
+                && ($this->hasMobileNavigationSignal($navigationRoot)
+                    || ($this->hasMobileNavigationSignal($candidate) && ! $this->isContentNavigationBesideChromeVariant($navigationRoot, $candidate)))
             ) {
                 return true;
             }
@@ -1742,20 +1739,20 @@ final class NavigationToggleSuppressor
         return false;
     }
 
-    private function isHiddenAtMobileViewport(DOMElement $element): bool
+    /**
+     * A nav in the page's main content is not the desktop half of a site-chrome
+     * drawer. It is content that shares destinations with that drawer, and it
+     * stays inline on phones.
+     */
+    private function isContentNavigationBesideChromeVariant(DOMElement $navigation, DOMElement $mobileVariant): bool
+    {
+        return $this->isInsideMainContent($navigation) && ! $this->isInsideMainContent($mobileVariant);
+    }
+
+    private function isInsideMainContent(DOMElement $element): bool
     {
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
-            if ( SourceDom::isDocumentVariantRoot($node) || in_array(strtolower($node->tagName), array( 'body', 'html' ), true) ) {
-                break;
-            }
-            $declarations = $this->styleResolver->collapsedViewportAuthorDeclarations($node, array('display', 'visibility', 'opacity'));
-            $display = CssValueInspector::comparable($this->styleResolver->resolveCssVariablesAtViewport((string) ($declarations['display'] ?? ''), $node, StyleResolver::MOBILE_REFERENCE_WIDTH));
-            $visibility = CssValueInspector::comparable((string) ($declarations['visibility'] ?? ''));
-            $opacity = CssValueInspector::comparable((string) ($declarations['opacity'] ?? ''));
-            if ( $this->sourceElementIsHiddenByMarkup($node, $display, true)
-                || 'none' === $display
-                || in_array($visibility, array('hidden', 'collapse'), true)
-                || (is_numeric($opacity) && 0.0 === (float) $opacity) ) {
+            if ( 'main' === strtolower($node->tagName) || 'main' === strtolower(SourceDom::attr($node, 'role')) ) {
                 return true;
             }
         }
