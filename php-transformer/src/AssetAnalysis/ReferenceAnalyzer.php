@@ -141,7 +141,7 @@ final class ReferenceAnalyzer
 
         $candidates = array();
 
-        if ( preg_match_all('/@import\s+(?:url\(\s*)?(["\']?)([^"\'\)\s;]+)\1\s*\)?[^;]*;/i', $css, $matches, PREG_SET_ORDER) ) {
+        if ( preg_match_all('/@import\s+(?:url\(\s*)?(["\']?)([^"\'\)\s;]+)\1\s*\)?[^;]*;/i', \Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner::withoutComments($css), $matches, PREG_SET_ORDER) ) {
             foreach ( $matches as $index => $match ) {
                 $url = html_entity_decode(trim((string) $match[2]), ENT_QUOTES | ENT_HTML5);
                 $candidates[] = array(
