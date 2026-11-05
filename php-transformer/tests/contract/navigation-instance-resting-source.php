@@ -31,11 +31,14 @@ $page = static fn(bool $current): string => '<html><head><link rel="stylesheet" 
 // discloses it (`expanded`) and marks its link `aria-current="true"`; that
 // state does not rename the resting menu.
 $builderPage = static function (bool $current): string {
-    $item = static fn(string $href, string $label, bool $served): string => '<li role="none"' . ($served ? ' class="selected current-item expanded"' : '') . '><a href="' . $href . '" class="menu-link" role="menuitem"' . ($served ? ' aria-current="true"' : '') . '>' . $label . '</a></li>';
+    // The builder renders the served item in place, laid out differently
+    // from the items it includes.
+    $item = static fn(string $href, string $label, bool $served): string => '<li role="none"' . ($served ? ' class="selected current-item expanded">' . "\n  " : '>') . '<a href="' . $href . '" class="menu-link" role="menuitem"' . ($served ? ' aria-current="true"' : '') . '>' . $label . '</a></li>';
     return '<html><head><link rel="stylesheet" href="/menu.css"></head><body><header><div class="menu" id="menu" aria-label="Main"><ul role="menu">' . "\n" . $item('/a', 'A', !$current) . "\n" . $item('/b', 'B', $current) . "\n" . '</ul></div></header><main><h1>' . ($current ? 'B' : 'A') . '</h1></main></body></html>';
 };
 // Compile together (shared CSS) and independently (no cross-route baseline).
 foreach (array('WordPress' => $page, 'site builder' => $builderPage) as $flavor => $route) {
+$css .= 'site builder' === $flavor ? '@media (min-width:841px){#menu > ul{display:block;text-align:end}#menu > ul > li{display:inline-block}}' : '';
 $artifacts = array(
     array('a.html' => $route(false), 'b.html' => $route(true)),
     array('a.html' => $route(false)),
@@ -52,6 +55,8 @@ foreach ($artifacts as $files) {
     $projected = implode("\n", array_column($plan['assets'], 'content'));
     preg_match_all('/blocks-engine-navigation-instance-[a-f0-9]{12}-[0-9]+/', $markup, $instances);
     $assert(1 === count(array_unique($instances[0])), 'Both routes carry one resting navigation instance.');
+    preg_match_all('/blocks-engine-navigation-list-box-[a-f0-9]{12}-[0-9]+/', $markup . $projected, $boxes);
+    $assert('site builder' !== $flavor || 1 === count(array_unique($boxes[0])), 'The served item does not rename the list box.');
     $instance = $instances[0][0];
     $assert(1 === preg_match('/[^{}]*' . preg_quote($instance, '/') . '[^{}]*wp-block-navigation-item__content[^{}]*\{[^{}]*display:flex[^{}]*padding:20px/', $projected), 'Author link box targets the emitted instance.');
     $assert(array() === NavigationInstanceDiagnostics::collect($plan['assets'], $markup), 'No projection targets an absent instance.');

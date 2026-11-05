@@ -126,7 +126,9 @@ final class NavigationPatternContext
             return '';
         }
 
-        return $this->session->authorSelectorProjectionState()->installNavigationListBoxSubject($list->getNodePath() ?? '', $columns ? 'block' : 'flex');
+        // Named like the menu's items: by the list and the rules that match
+        // it, so the shared header's list carries one marker on every route.
+        return $this->session->authorSelectorProjectionState()->installNavigationListBoxSubject($list->getNodePath() ?? '', $columns ? 'block' : 'flex', $this->navigationSubjectMarker($list, 'list-box'));
     }
 
     /**

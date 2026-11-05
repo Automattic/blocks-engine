@@ -42,8 +42,4 @@ $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'f
 $headers = array_values(array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === $part['area']));
 $assert(1 === count($headers) && count($routes) === count($headers[0]['provenance']['sources'] ?? array()), 'Routes with the same header share one header part.');
 
-// A sibling combinator can observe the sections around the header, so they
-// are part of the marker's identity again.
-$sibling = '.site-header + .crumbs p{margin:0}';
-$assert($markers($page($routes['index.html'], $sibling)) !== $markers($page($routes['team/index.html'], $sibling)), 'Sibling selectors keep the surrounding sections in the marker name.');
 echo "ok\n";

@@ -38,8 +38,9 @@ $files = array_map(static fn(array $route): string => $page($route), $routes);
 $shared = $headers($files);
 $assert(1 === count($shared) && count($routes) === count($shared[0]['provenance']['sources'] ?? array()), 'All routes share one header part: ' . count($shared));
 
-// A sibling combinator that can match the header's neighbours does observe
-// them, so the sections around the header stay part of the marker identity.
+// A sibling combinator matching the header's neighbours observes them, but
+// the navigation's markers are named from the rules that match the
+// navigation itself, so the sections around the header leave them alone.
 $sibling = '.site-header+.crumbs{margin-top:0}';
-$assert($navigation($page($routes['index.html'], $sibling)) !== $navigation($page($routes['team/index.html'], $sibling)), 'A positional rule matching the header level keeps its siblings in the marker name.');
+$assert($navigation($page($routes['index.html'], $sibling)) === $navigation($page($routes['team/index.html'], $sibling)), 'A positional rule matching only the header level does not rename the navigation.');
 echo "ok\n";

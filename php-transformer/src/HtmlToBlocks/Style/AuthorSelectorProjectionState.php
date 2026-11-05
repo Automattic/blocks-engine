@@ -182,10 +182,10 @@ final class AuthorSelectorProjectionState
      * A dedicated marker kind, so the root receives only the list's box rules
      * and never becomes a semantic carrier of the list or its landmark.
      * `$shownDisplay` is the root's display wherever the source shows the list.
+     * `$marker` names the list as every route shows it.
      */
-    public function installNavigationListBoxSubject(string $path, string $shownDisplay): string
+    public function installNavigationListBoxSubject(string $path, string $shownDisplay, string $marker): string
     {
-        $marker = $this->allocatePathMarker('navigation-list-box', $path);
         $this->navigationListBoxSubjects[$path] = ':where(nav.wp-block-navigation.' . $marker . ')';
         $this->navigationListShownDisplays[$path] = $shownDisplay;
 
