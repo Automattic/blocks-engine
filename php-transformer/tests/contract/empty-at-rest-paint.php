@@ -26,4 +26,12 @@ foreach (array(
         throw new RuntimeException($label . ': inert empty element must not emit a group.');
     }
 }
+// Inside a CSS-owned layout the empty child reaches the layout-item path, which
+// must apply the same proof instead of lowering it to an empty group.
+$html = '<style>.frame{display:flex;position:relative;width:300px;border-radius:8px;overflow:hidden}.zoom{position:absolute;inset:0;width:100%;height:100%;z-index:1;cursor:zoom-in;opacity:0}</style>'
+    . '<div class="frame"><div class="zoom"></div><img src="a.jpg" alt="Boat"></div>';
+$markup = (string) (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html)))->toArray()['serialized_blocks'];
+if (str_contains($markup, 'zoom') || !str_contains($markup, 'wp:image')) {
+    throw new RuntimeException('layout-item click-capture overlay must drop while its sibling image stays. ' . $markup);
+}
 echo "Empty at-rest paint contract passed.\n";
