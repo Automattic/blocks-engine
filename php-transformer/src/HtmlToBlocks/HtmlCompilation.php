@@ -8674,8 +8674,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private function interactiveAttributes(DOMElement $element): array
     {
+        $tabindex = $this->attr($element, 'tabindex');
+        // A link with href already participates in sequential focus order.
+        // Explicit zero adds no behavior that needs a retained media boundary.
+        if ( '0' === trim($tabindex) && 'a' === strtolower($element->tagName) && $element->hasAttribute('href') ) {
+            $tabindex = '';
+        }
         return array_filter(array(
-            'tabindex'      => $this->attr($element, 'tabindex'),
+            'tabindex'      => $tabindex,
             'aria-expanded' => $this->attr($element, 'aria-expanded'),
             'aria-controls' => $this->attr($element, 'aria-controls'),
             'has_events'    => array() !== $this->eventMetadata($element),
