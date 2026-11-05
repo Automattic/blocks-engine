@@ -291,6 +291,7 @@ final class ButtonsPattern
             if (!$label instanceof DOMElement || '' === $text || $this->plainText(SourceDom::innerHtml($label)) !== $text) continue;
             $native = $this->styleResolver->nativeAttributes($buttons->nativePresentationStyle($label))['style'] ?? array();
             if ($absorbsBoxes) {
+                $native = $this->withoutNonPresentationalValues($native);
                 $style = array_replace_recursive($style, $native);
                 continue;
             }
@@ -298,6 +299,29 @@ final class ButtonsPattern
             if (isset($native['color']['text'])) $style['color']['text'] = $native['color']['text'];
         }
         return array() === $style ? array() : array('style' => $style);
+    }
+
+    /**
+     * Absorbed labels may declare inherited/default values (or zero dimensions)
+     * that describe no presentation of their own. Do not let these replace the
+     * authored values on the outer link.
+     *
+     * @param array<string, mixed> $style
+     * @return array<string, mixed>
+     */
+    private function withoutNonPresentationalValues(array $style): array
+    {
+        foreach ($style as $key => $value) {
+            if (is_array($value)) {
+                $style[$key] = $this->withoutNonPresentationalValues($value);
+                if (array() === $style[$key]) unset($style[$key]);
+                continue;
+            }
+            if (is_string($value) && (preg_match('/^(?:initial|inherit|unset|revert|revert-layer)$/i', trim($value)) || preg_match('/^0(?:\\.0+)?(?:[a-z%]+)?$/i', trim($value)))) {
+                unset($style[$key]);
+            }
+        }
+        return $style;
     }
 
     /**
