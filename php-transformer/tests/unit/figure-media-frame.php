@@ -35,7 +35,7 @@ $dom = new DOMDocument();
 @$dom->loadHTML($result['serialized_blocks']);
 foreach ($dom->getElementsByTagName('img') as $image) {
     $assert(! $image->hasAttribute('height'), 'no rendered height attribute competes with the frame');
-    $assert(! preg_match('/(?:^|;)\s*height\s*:/i', $image->getAttribute('style')), 'no inline height competes with the frame');
+    $assert(! preg_match('/(?:^|;)\s*height\s*:(?!\s*auto(?:\s*;|\s*$))/i', $image->getAttribute('style')), 'no fixed inline height competes with the frame');
 }
 
 echo "Figure media frame passed.\n";
