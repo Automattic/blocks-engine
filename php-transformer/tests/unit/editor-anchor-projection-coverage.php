@@ -26,6 +26,11 @@ foreach (require dirname(__DIR__) . '/fixtures/editor-anchor-projection-pages.ph
         }
     }
     $bytes += strlen($editor);
+    foreach (array('@font-face', '@keyframes', '@charset', '@import', 'font-family:Shared', 'font-family:Nested', 'body{margin:0}', 'h1{font-size:2em}', 'body{display:grid}') as $authorRule) {
+        $assert(!str_contains($editor, $authorRule), 'Editor repairs never copy unrelated author CSS: ' . $authorRule);
+    }
+    $assert(str_contains($projected, '@font-face') && str_contains($projected, '@keyframes'), 'Shared author CSS retains font and animation definitions.');
+    $assert((bool) preg_match('/@supports\\(display:grid\\)\\{@media\\(min-width:2px\\)\\{[^{}]*blocks-engine-editor-anchor-ordinary[^{}]*\\{padding-right:23px\\}\\}\\}/', $editor), 'Repair rules retain their nested conditions without unrelated siblings.');
     $assert(str_contains($projected, ':is(#panel,.blocks-engine-editor-anchor-panel)'), 'The main projection covers the duplicated id.');
     $assert(str_contains($projected, ':is([id="panel"],.blocks-engine-editor-anchor-panel)'), 'The main projection covers attribute ids too.');
     foreach (array('rgb(12,34,56)', 'padding-left:17px', 'border-top-width:3px') as $body) {
@@ -37,6 +42,21 @@ foreach (require dirname(__DIR__) . '/fixtures/editor-anchor-projection-pages.ph
     $assert(!preg_match('/[^{}]*blocks-engine-editor-anchor-panel[^{}]*\{letter-spacing:2px/', $editor), 'Covered selector-list arms are omitted independently.');
     $assert(str_contains($editor, 'letter-spacing:2px'), 'The uncovered selector-list arm remains.');
     $assert((bool) preg_match('/blocks-engine-editor-anchor-ordinary[^{}]*\{[^}]*animation:none!important;opacity:1!important/', $editor), 'Remaining anchor animation copies are settled.');
+}
+// Exercise the same contract through a two-route import with a shared file.
+$files = array('shared.css' => '@font-face{font-family:Shared;src:url(shared.woff2)}html{font-family:Shared}body{margin:0}#content{padding:13px}');
+foreach (array('index.html', 'about.html') as $route) {
+    $files[$route] = '<link rel="stylesheet" href="shared.css"><main id="content"><p>' . $route . '</p></main><nav><ul><li><a href="index.html">Home</a></li><li><a href="about.html">About</a></li></ul></nav>';
+}
+$compiled = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray();
+$plan = $compiled['source_reports']['wordpress_site_plan'] ?? array();
+$assert(2 === count($plan['pages'] ?? array()), 'The shared-stylesheet fixture imports both routes.');
+$editorAssets = array_filter($plan['assets'] ?? array(), static fn (array $asset): bool => 'editor-static-state' === ($asset['source'] ?? ''));
+$assert(array() !== $editorAssets, 'The site import retains editor anchor repairs.');
+foreach ($editorAssets as $asset) {
+    $css = $asset['content'] ?? '';
+    $assert(str_contains($css, 'blocks-engine-editor-anchor-content') && str_contains($css, 'padding:13px'), 'Each repair sheet retains the uncovered id rule.');
+    $assert(!str_contains($css, '@font-face') && !str_contains($css, 'body{margin:0}') && !str_contains($css, 'font-family:Shared'), 'Page repair sheets do not carry the shared author stylesheet.');
 }
 fwrite(STDOUT, 'Multi-page fixture editor-static-state bytes: ' . $bytes . PHP_EOL);
 exit($failures ? 1 : 0);
