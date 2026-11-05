@@ -54,4 +54,11 @@ foreach ($cases as $name => [$rule, $attributes, $expected]) {
         throw new RuntimeException($name . ': own summary typography was not carried');
     }
 }
+// The native marker is the summary's list-item marker: its list-style is
+// summary box presentation, so it must reach `> summary`, not the label carrier.
+$result = (new HtmlTransformer())->transform(sprintf($fixture, '', ' style="list-style-position:outside"'))->toArray();
+$css = implode('', array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $result['assets'] ?? array()));
+if (!preg_match('/\.blocks-engine-disclosure-summary-[a-f0-9]+\s*>\s*summary\s*\{[^}]*list-style-position:\s*outside/', $css)) {
+    throw new RuntimeException('summary list-style-position was not carried to the summary box');
+}
 echo "Native summary typography contract passed\n";
