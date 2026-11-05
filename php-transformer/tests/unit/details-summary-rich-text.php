@@ -31,4 +31,15 @@ foreach ($cases as $name => [$content, $label]) {
     if ('text unchanged' === $name && '<span class="trigger">Menu</span>' !== $html) throw new RuntimeException($name . ': changed text output: ' . $html);
     if (in_array($name, array('visual icon', 'unnamed icon'), true) && !preg_match('/<mark[^>]*class="icon\b/', $html)) throw new RuntimeException($name . ': lost visual carrier: ' . $html);
 }
+// A native marker and its text must share one line: list-item belongs only
+// to summary, never to the span carrying the source styling hooks.
+$result = (new HtmlTransformer())->transform('<style>.t{font-family:serif;cursor:pointer}</style><details><summary class="t">Title</summary><p>Body</p></details>')->toArray();
+$css = implode('', array_map(static fn(array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $result['assets'] ?? array()));
+if (!str_contains($result['serialized_blocks'], 'blocks-engine-summary-content-carrier')) throw new RuntimeException('Missing summary content carrier');
+if (!preg_match_all('/[^{}]*>span\.blocks-engine-summary-content-carrier\)?\{([^}]*)\}/', $css, $rules)) throw new RuntimeException('Missing carrier presentation');
+foreach ($rules[1] as $declarations) {
+    if (preg_match('/(?:^|;)display:(?!inline(?:!important)?(?:;|$))/', $declarations)) throw new RuntimeException('Carrier must stay inline: ' . $declarations);
+}
+if (str_contains($css, 'display:list-item')) throw new RuntimeException('Default summary display need not be restated');
+if (!str_contains($css, 'font-family:serif')) throw new RuntimeException('Summary typography lost');
 echo "Details summary RichText tests passed\n";

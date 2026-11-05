@@ -156,8 +156,9 @@ final class DetailsPattern implements PatternRecognizerInterface
             return $html;
         }
         // Keep the source control's styling hooks and interactive paint on one
-        // carrier. The native summary retains its semantic/click ownership but
-        // generated presentation neutralizes its extra chrome around this box.
+        // carrier. The native summary retains semantic/click ownership and its
+        // list-item box; generated presentation keeps native marker labels inline.
+        // Button/flex-like controls retain their authored carrier layout instead.
         if ( $hasPresentationMarker ) {
             $attributes['class'] = SourceDom::mergeClassNames((string) ($attributes['class'] ?? ''), DisclosureControlPresentation::SUMMARY_CONTENT_CARRIER_CLASS);
         }
