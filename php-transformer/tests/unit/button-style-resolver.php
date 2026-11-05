@@ -436,8 +436,8 @@ $unpaintedStyle = $unpaintedButton['blocks'][0]['innerBlocks'][0]['attrs']['styl
 $unpaintedMarkup = (string) ($unpaintedButton['serialized_blocks'] ?? '');
 
 $assert(
-    ! isset($unpaintedStyle['color']) && ! isset($unpaintedStyle['border']),
-    'a button with no authored colour or border gains neither attribute',
+    ! isset($unpaintedStyle['color']) && array('radius' => '0px') === ($unpaintedStyle['border'] ?? null),
+    'a button with no authored colour or border gains only its square source radius',
     (string) json_encode($unpaintedStyle)
 );
 $assert(

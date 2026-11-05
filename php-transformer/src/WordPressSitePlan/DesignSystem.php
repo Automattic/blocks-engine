@@ -343,6 +343,18 @@ final class DesignSystem
         if (!isset($this->elements['button'])) return $this;
         $dominant = isset($this->elements['button']['padding']) || isset($this->elements['button']['radius']);
         $owned = array('color' => true, 'background' => true, 'font_family' => true, 'font_size' => true, 'font_weight' => true);
+<<<<<<< ours
+=======
+        $unstyled = false;
+        foreach ($markups as $markup) {
+            preg_match_all('/<!-- wp:button(?: (\{.*?\}))? \/?-->/s', $markup, $buttons);
+            foreach ($buttons[1] as $json) {
+                $attributes = json_decode($json, true);
+                // A square source default is not an authored button system.
+                if (empty($attributes['style']) || array('border' => array('radius' => '0px')) === $attributes['style']) $unstyled = true;
+            }
+        }
+>>>>>>> theirs
         foreach ($markups as $markup) {
             if (!preg_match_all('/<!-- wp:button(?: (\{.*?\}))? \/?-->/s', $markup, $matches)) continue;
             foreach ($matches[1] as $json) {
