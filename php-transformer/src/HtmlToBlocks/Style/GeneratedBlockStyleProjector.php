@@ -444,6 +444,41 @@ final class GeneratedBlockStyleProjector
         $generatedStyles->registerNativeButton($marker, $outerWrapperRule . $wrapperRule . $intrinsicWrapperRule . $linkRules . $wrapperDisplayRules);
     }
 
+    /**
+     * A label chain flattened into the button's plain RichText leaves no
+     * element for its author rules to reach. Its white-space family is
+     * inherited text layout, so it moves to the link that now holds the text.
+     */
+    public function registerFlattenedButtonLabelTextLayout(string $marker, DOMElement $sourceControl, GeneratedSupportStylesheetState $generatedStyles): void
+    {
+        $label = trim($sourceControl->textContent ?? '');
+        if ( '' === $label ) return;
+        $family = array( 'white-space', 'white-space-collapse', 'text-wrap', 'text-wrap-mode', 'text-wrap-style' );
+        $resets = array( 'white-space' => array( 'white-space-collapse', 'text-wrap', 'text-wrap-mode', 'text-wrap-style' ), 'text-wrap' => array( 'text-wrap-mode', 'text-wrap-style' ) );
+        $resolved = array();
+        foreach ( $sourceControl->getElementsByTagName('*') as $element ) {
+            if ( ! $element instanceof DOMElement || trim($element->textContent ?? '') !== $label ) continue;
+            $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($element));
+            foreach ( $declarations as $property => $value ) {
+                if ( ! in_array($property, $family, true) ) continue;
+                $value = trim(preg_replace('/\s*!important\s*$/i', '', (string) $value) ?? '');
+                // Custom properties resolve on the source element; one that does not
+                // resolve there is invalid at computed-value time and would only reset
+                // the family on the link, so it is not presentation.
+                if ( str_contains($value, 'var(') ) $value = trim($this->styleResolver->resolveCssVariablesInValue($value, $element));
+                if ( str_contains($value, 'var(') ) continue;
+                if ( '' === $value || preg_match('/[{}<>;]/', $value) || in_array(strtolower($value), array( 'inherit', 'unset', 'revert', 'revert-layer' ), true) ) continue;
+                foreach ( $resets[$property] ?? array() as $longhand ) unset($resolved[$longhand]);
+                unset($resolved[$property]);
+                $resolved[$property] = $value;
+            }
+        }
+        if ( array() === $resolved ) return;
+        $rule = array();
+        foreach ( $resolved as $property => $value ) $rule[] = $property . ':' . $value . '!important';
+        $generatedStyles->appendNativeButton($marker, '.' . $marker . '.' . $marker . '>.wp-block-button__link{' . implode(';', $rule) . '}');
+    }
+
     public function registerNativeButtonDefaultBackgroundGuard(string $marker, DOMElement $sourceControl, GeneratedSupportStylesheetState $generatedStyles, bool $blockHasInlineBackground = false): bool
     {
         if ( $blockHasInlineBackground ) return false;
