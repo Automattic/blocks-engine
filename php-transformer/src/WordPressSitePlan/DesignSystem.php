@@ -675,7 +675,7 @@ final class DesignSystem
             if (false !== $index) $ordered[] = $index;
         }
         $token = static fn(string $slug, string $color, int $weight): array => array(
-            'slug' => $slug,
+            'slug' => self::presetSlug($slug),
             'name' => ucwords(str_replace('-', ' ', $slug)),
             'color' => $color,
             'role' => preg_replace('/-\d+$/', '', $slug) ?? $slug,
@@ -823,7 +823,7 @@ final class DesignSystem
         $sizes = array();
         foreach ($clusters as $index => $cluster) {
             $step = $index - $medium;
-            $slug = 0 === $step ? 'medium' : ((abs($step) > 1 ? str_repeat('x', abs($step) - 1) . '-' : '') . ($step < 0 ? 'small' : 'large'));
+            $slug = self::presetSlug(0 === $step ? 'medium' : ((abs($step) > 1 ? str_repeat('x', abs($step) - 1) . '-' : '') . ($step < 0 ? 'small' : 'large')));
             $sizes[] = array('slug' => $slug, 'name' => ucwords(str_replace('-', ' ', (string) preg_replace_callback('/^x+(?=-)/', static fn(array $m): string => strtoupper($m[0]), $slug))), 'size' => self::lengthText($cluster['px'], $rootPx), 'px' => $cluster['px'], 'weight' => $cluster['weight']);
         }
         // Do not re-cluster or rename the established scale: existing source
@@ -836,7 +836,7 @@ final class DesignSystem
             // digits: "heading-28px" would save as has-heading-28px-font-size
             // and re-render as has-heading-28-px-font-size, so the editor
             // rejects the block. Keep the bare number, decimals dashed.
-            $slug = 'heading-' . str_replace('.', '-', rtrim((string) $px, 'px'));
+            $slug = self::presetSlug('heading-' . rtrim((string) $px, 'px'));
             $sizes[] = array('slug' => $slug, 'name' => 'Heading ' . $px, 'size' => self::lengthText((float) $px, $rootPx), 'px' => (float) $px, 'weight' => $weight);
         }
         return $sizes;
@@ -862,7 +862,7 @@ final class DesignSystem
             $choices = $spellings[CssLength::format($cluster['px'])] ?? array();
             uksort($choices, static fn(string $a, string $b): int => ($choices[$b] <=> $choices[$a]) ?: strcmp($a, $b));
             $value = (string) (array_key_first($choices) ?? CssLength::format($cluster['px']));
-            $slug = (string) (($index + 2) * 10);
+            $slug = self::presetSlug((string) (($index + 2) * 10));
             $steps[] = array('slug' => $slug, 'name' => $value, 'size' => $value, 'px' => $cluster['px'], 'weight' => $cluster['weight']);
         }
         return $steps;
@@ -890,6 +890,17 @@ final class DesignSystem
             if ((float) $key > (float) $content) { $layout['wide'] = array('value' => $values[$key], 'px' => (float) $key); break; }
         }
         return $layout;
+    }
+
+    /**
+     * Preset classes and variables must survive WordPress's kebab-case unchanged.
+     * Lowercase first to preserve established name slugs, then separate both
+     * letter/digit boundaries (including those inside opaque font identifiers).
+     */
+    private static function presetSlug(string $value): string
+    {
+        $slug = trim((string) preg_replace('/[^a-z0-9]+/', '-', strtolower($value)), '-');
+        return (string) preg_replace('/(?<=[a-z])(?=[0-9])|(?<=[0-9])(?=[a-z])/', '-', $slug);
     }
 
     /**
@@ -930,7 +941,7 @@ final class DesignSystem
             $name = self::familyName($stack);
             $slug = $roles[$key] ?? null;
             if (null === $slug) {
-                $base = trim((string) preg_replace('/[^a-z0-9]+/', '-', strtolower($name)), '-');
+                $base = self::presetSlug($name);
                 $slug = '' === $base ? 'family' : $base;
                 for ($suffix = 2; isset($used[$slug]); $suffix++) $slug = $base . '-' . $suffix;
             }
