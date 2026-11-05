@@ -398,9 +398,9 @@ $opacity = '.text-x{--tw-text-opacity:1;color:rgb(225 29 72 / var(--tw-text-opac
 $assert(str_contains($sheet($opacity), 'color:var(--wp--preset--color--' . $slug . ',rgb(225 29 72 / var(--tw-text-opacity, 1)))'), 'a Tailwind opacity variable every rule sets to its fallback resolves');
 $assert(!str_contains($sheet($opacity . '.text-opacity-50{--tw-text-opacity:.5}'), '--wp--preset--color--'), 'an opacity variable another rule sets differently keeps the literal');
 $assert(!str_contains($sheet('.a{color:hsl(var(--x))}', array(array('kind' => 'css', 'content' => ':root{--x:347 77% 50%}.dark{--x:0 0% 7%}'))), '--wp--preset--color--'), 'a colour read from a custom property a scope redefines keeps the literal');
-$assert('.a{font-family:var(--wp--preset--font-family--body,Inter, sans-serif)}.b{font-family:Inter,Arial}' === $sheet('.a{font-family:Inter, sans-serif}.b{font-family:Inter,Arial}'), 'only the preset\'s own font stack binds, so fallbacks do not change');
+$assert('.a{font-family:var(--wp--preset--font-family--body,Inter, sans-serif)}.b{font-family:var(--wp--preset--font-family--body,Inter,Arial)}' === $sheet('.a{font-family:Inter, sans-serif}.b{font-family:Inter,Arial}'), 'stacks with the same primary bind while retaining their original fallback');
 $fontVariables = ':root{--family:Inter, sans-serif;--other:Inter,Arial}.a{font-family:var(--family)}.b{font-family:var(--other)}';
-$assert(str_contains($sheet($fontVariables), '.a{font-family:var(--wp--preset--font-family--body,var(--family))}') && str_contains($sheet($fontVariables), '.b{font-family:var(--other)}'), 'resolved font declarations bind only an exact stack and retain the original variable fallback');
+$assert(str_contains($sheet($fontVariables), '.a{font-family:var(--wp--preset--font-family--body,var(--family))}') && str_contains($sheet($fontVariables), '.b{font-family:var(--wp--preset--font-family--body,var(--other))}'), 'resolved font declarations bind their primary family and retain the original variable fallback');
 $assert('.a{font-family:var(--wp--preset--font-family--body,"Inter",sans-serif)}.b{font-family:"In ter",sans-serif}' === $sheet('.a{font-family:"Inter",sans-serif}.b{font-family:"In ter",sans-serif}'), 'font stack comparison preserves spaces inside family names');
 
 // Compound colour values follow the palette without interpreting positions,
