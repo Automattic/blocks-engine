@@ -159,7 +159,7 @@ final class ProjectedNavigationConverter implements ElementConverter
                 'blocks-engine-list-navigation blocks-engine-native-responsive-navigation',
                 (string) ($block['attrs']['className'] ?? ''),
                 $this->responsiveNavigationToggleMarker($navigation),
-                null === $panel ? '' : $this->responsiveNavigationOverlayMarker($panel),
+                null === $panel ? $this->mirrorRowPaintMarker($control, $navigation) : $this->responsiveNavigationOverlayMarker($panel),
                 null === $panel ? '' : $this->mirrorPanelLinkMarker($panel)
             );
             $block['attrs']['overlayMenu'] = 'always';
@@ -174,6 +174,44 @@ final class ProjectedNavigationConverter implements ElementConverter
         $this->supersedeRuntimeSelectorsForControl($control);
 
         return ConversionOutcome::handled($block);
+    }
+
+    /**
+     * With no captured panel to copy, the overlay takes the paint around the
+     * toggle, so links drawn for the header stay readable once it opens.
+     */
+    private function mirrorRowPaintMarker(DOMElement $control, DOMElement $navigation): string
+    {
+        $background = '';
+        for ( $node = $control->parentNode; $node instanceof DOMElement && '' === $background; $node = $node->parentNode ) {
+            $values = $this->styleResolver->collapsedViewportDeclarations($node, array('background', 'background-color'));
+            $background = $this->portableCollapsedPaint($node, $this->backgroundColorLayer($node, (string) ($values['background-color'] ?? $values['background'] ?? '')));
+            // A translucent header relies on what is behind it; the overlay covers the page.
+            $parsed = '' === $background ? null : CssColor::parse($background);
+            if ( null !== $parsed && 1.0 > $parsed[3] ) {
+                $background = '';
+            }
+            if ( 'html' === strtolower($node->tagName) ) {
+                break;
+            }
+        }
+        $anchor = $navigation->getElementsByTagName('a')->item(0);
+        $color = $anchor instanceof DOMElement
+            ? $this->portableCollapsedPaint($anchor, (string) ($this->styleResolver->collapsedViewportDeclarations($anchor, array('color'))['color'] ?? ''))
+            : '';
+        $marker = 'blocks-engine-navigation-row-paint-' . substr(hash('sha256', $background . '|' . $color), 0, 12);
+        $open = '.wp-block-navigation.blocks-engine-native-responsive-navigation.' . $marker
+            . ' .wp-block-navigation__responsive-container.is-menu-open:not(.disable-default-overlay)';
+        $this->session->generatedSupportStylesheetState()->registerNativeNavigationOverlay(
+            $marker,
+            ( '' === $background ? '' : $open . '{background:' . $background . '!important}' )
+                . $open . ' .wp-block-navigation__container{padding-inline-start:2rem!important}'
+                . $open . ' .wp-block-navigation-item{margin:0!important;padding:0!important}'
+                . $open . ' .wp-block-navigation-item__content{margin:0!important}'
+                . ( '' === $color ? '' : $open . ' .wp-block-navigation__responsive-container-close{color:' . $color . '!important}' )
+        );
+
+        return $marker;
     }
 
     /**

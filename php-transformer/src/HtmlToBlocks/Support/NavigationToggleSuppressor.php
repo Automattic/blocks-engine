@@ -136,6 +136,13 @@ final class NavigationToggleSuppressor
                     $this->session->navigationProjectionState()->markImplicitDialogControl($control);
                 }
                 $this->recordProjectedNavigationRelationship($control, $relationship['target'], $relationship['navigation']);
+                continue;
+            }
+
+            // The capture opens a shared header's drawer on only some pages.
+            $swapped = $this->visibilitySwappedNavigation($control);
+            if ( $swapped instanceof DOMElement ) {
+                $this->session->navigationProjectionState()->projectMirror($control, $swapped);
             }
         }
     }
@@ -210,7 +217,8 @@ final class NavigationToggleSuppressor
         $destinations = static function (DOMElement $container): array {
             $found = array();
             foreach ( $container->getElementsByTagName('a') as $anchor ) {
-                if ( $anchor instanceof DOMElement && '' !== trim($anchor->getAttribute('href')) ) {
+                // A placeholder href is a control inside the menu, not a destination.
+                if ( $anchor instanceof DOMElement && '' !== trim($anchor->getAttribute('href')) && ! str_starts_with(trim($anchor->getAttribute('href')), '#') ) {
                     $found[CapturedMenuDialogFold::label($anchor) . '|' . preg_replace('#/?(index\.html?)?$#', '', trim($anchor->getAttribute('href')))] = true;
                 }
             }
@@ -468,6 +476,12 @@ final class NavigationToggleSuppressor
                     continue;
                 }
 
+                // Hidden items inside a menu the page shows belong to that menu
+                // (a "More" list, say); they are not this control's panel.
+                if ( $this->isInsideVisibleNavigation($candidate, $control) ) {
+                    continue;
+                }
+
                 // A capture can retain only the initially closed menu while the
                 // source creates its dialog after a click. A unique hidden nav
                 // in the control's bounded scope is its static counterpart.
@@ -498,6 +512,19 @@ final class NavigationToggleSuppressor
         }
 
         return null;
+    }
+
+    private function isInsideVisibleNavigation(DOMElement $candidate, DOMElement $control): bool
+    {
+        for ( $node = $candidate->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( $this->isNavigationLandmark($node)
+                && ! SourceDom::elementContains($node, $control)
+                && ! $this->isHiddenAtDefaultViewport($node) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

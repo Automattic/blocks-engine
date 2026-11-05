@@ -35,7 +35,7 @@ final class NavigationProjectionState
     /** @var array<string, CapturedMenuDialogFold> hamburger path => the fold it opens */
     private array $foldsByTriggerPath = array();
 
-    /** @var array<string, DOMElement> toggle path => the captured panel the mirror replaces */
+    /** @var array<string, DOMElement|null> toggle path => the captured panel the mirror replaces, if the page has one */
     private array $mirrorPanelsByControlPath = array();
 
     private bool $buildingMirror = false;
@@ -64,11 +64,13 @@ final class NavigationProjectionState
      * A toggle whose row swaps with a separate row of links keeps those links
      * in place and gets its own navigation in its slot.
      */
-    public function projectMirror(DOMElement $control, DOMElement $navigation, DOMElement $panel): void
+    public function projectMirror(DOMElement $control, DOMElement $navigation, ?DOMElement $panel = null): void
     {
         $this->projectTarget($control, $navigation);
         $this->mirrorPanelsByControlPath[$control->getNodePath()] = $panel;
-        $this->suppress($panel);
+        if ( null !== $panel ) {
+            $this->suppress($panel);
+        }
     }
 
     public function mirrorPanel(DOMElement $control): ?DOMElement
@@ -78,7 +80,7 @@ final class NavigationProjectionState
 
     public function isMirrorControl(DOMElement $control): bool
     {
-        return isset($this->mirrorPanelsByControlPath[$control->getNodePath()]);
+        return array_key_exists($control->getNodePath(), $this->mirrorPanelsByControlPath);
     }
 
     /** Whether the navigation for a mirror control's slot is being built right now. */
