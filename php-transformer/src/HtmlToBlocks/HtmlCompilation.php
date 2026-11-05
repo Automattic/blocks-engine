@@ -1680,6 +1680,20 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // Resolve against emitted blocks while the existing source provenance
         // IDs are still attached. Declaration-addressed classes are rewritten below.
         $authorLayoutTopologyFindings = $this->session->transformationEvidenceState()->authorLayoutTopologyFindings($blocks);
+        // Capture ownership before resolveBlockPaths consumes the internal IDs.
+        // Shared-shell compilation can materialize a source control more than
+        // once; the collector observes each DOM identity only once.
+        $buttonElements = array();
+        $collectButtonElements = function (array $tree) use (&$collectButtonElements, &$buttonElements): void {
+            foreach ($tree as $block) {
+                if ('core/button' === ($block['blockName'] ?? '')) {
+                    $element = $this->session->transformationProvenanceState()->sourceElement((int) ($block['_source_provenance_id'] ?? 0));
+                    if ($element instanceof DOMElement) $buttonElements[] = $element;
+                }
+                $collectButtonElements($block['innerBlocks'] ?? array());
+            }
+        };
+        $collectButtonElements($blocks);
         $sourceProvenance = $this->session->transformationProvenanceState()->resolveBlockPaths($blocks);
         $responsiveCounterpartContracts = (new ResponsiveCorrespondence())->declare($blocks, $sourceProvenance);
         $this->session->authorSelectorProjectionState()->confirmRichTextCarriers($serializedBlocks);
@@ -1816,7 +1830,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // resolver's caches.
         $conversionSelectorCache = clone $selectorCache;
         $timer->start('transform.validation.design_usage');
-        $designUsage = (new DesignUsageCollector($this->styleResolver))->collect($body);
+        $designUsage = (new DesignUsageCollector($this->styleResolver))->collect($body, $buttonElements);
         $timer->start('transform.validation.editability');
         $editabilityReport = (new EditabilityReport())->fromBlocks($blocks, (string) ($options['source'] ?? ''), $serializedBlocks, $generatedCarrierCss, $ownershipPaths['runtime'], $ownershipPaths['visual'], $sourceProvenance, $this->session->requireGeneratedBlockRegistry()->definitions());
         $timer->start('transform.result_composition');

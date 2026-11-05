@@ -5326,7 +5326,7 @@ final class StyleResolver implements ElementPresentationResolver
                     $analysis['pseudo'][] = $readingCustomProperties(array('selector' => $baseSelector, 'pseudo' => strtolower($pseudoMatch[1]), 'declarations' => $pseudoDeclarations, 'conditions' => $selectorConditions));
                 }
             }
-            if (array() === $declarations) {
+            if (array() === $declarations && array() === array_filter(array_keys($rawDeclarations), static fn(string $name): bool => str_starts_with($name, '--'))) {
                 continue;
             }
             $navigationStateConditions = array_filter(
@@ -5341,8 +5341,11 @@ final class StyleResolver implements ElementPresentationResolver
                 $state = strtolower((string) $stateMatches[1][0][0]);
                 $offset = (int) $stateMatches[0][0][1];
                 $baseSelector = trim(substr_replace($selector, '', $offset, strlen((string) $stateMatches[0][0][0])));
+                // Disabled gates on authored button states are resting
+                // attribute constraints, not interaction states themselves.
+                $baseSelector = str_ireplace(':not(:disabled)', ':not([disabled])', $baseSelector);
                 if ('' !== $baseSelector && ! $this->selectorCarriesPseudoState($baseSelector) && $this->isSupportedCssSelector($baseSelector)) {
-                    $analysis['navigation_state'][] = array('selector' => $selector, 'base_selector' => $baseSelector, 'state' => $state, 'declarations' => $declarations);
+                    $analysis['navigation_state'][] = array('selector' => $selector, 'base_selector' => $baseSelector, 'state' => $state, 'declarations' => $declarations, 'customProperties' => array_filter($rawDeclarations, static fn(string $name): bool => str_starts_with($name, '--'), ARRAY_FILTER_USE_KEY));
                     $analysis['reveal_state'][] = array('base_selector' => $baseSelector, 'state' => $state, 'state_subject_selector' => trim(substr($selector, 0, $offset)), 'declarations' => $rawDeclarations);
                 }
             }
@@ -5776,6 +5779,9 @@ final class StyleResolver implements ElementPresentationResolver
         static $cascadeProperties = array(
             'box-sizing' => true,
             'color' => true,
+            // Keep paint readers before substitution for state-local token swaps.
+            'background-color' => true,
+            'background' => true,
             // Anchor carriers must resolve authored decoration even when the
             // general presentation demand filter skips an ordinary text link.
             'text-decoration' => true,
@@ -6472,6 +6478,36 @@ final class StyleResolver implements ElementPresentationResolver
             $this->resolvedPresentationDeclarations($element),
             $this->cssDeclarations($this->resolveCssVariablesInValue($this->resolvedCascadeStyle($element, 'cascaded-values'), $element))
         );
+    }
+
+    /** State paint can change solely through a token read by resting paint. */
+    public function statePaintValue(DOMElement $element, string $state, string $property): ?string
+    {
+        // Presentation declarations may already contain substituted tokens.
+        // Read the unfiltered author cascade so state overrides can replace
+        // a custom property before the resting paint reader is evaluated.
+        $resting = $this->cssDeclarations($this->resolvedCascadeStyle($element, 'cascaded-values'))[$property] ?? null;
+        $declared = $this->stateDeclaredValue($element, $state, $property);
+        if (null !== $declared) return $this->resolveStateCssVariablesInValue($declared, $element, $state);
+        if (null === $resting || !str_contains($resting, 'var(')) return null;
+        $value = $this->resolveStateCssVariablesInValue($resting, $element, $state);
+        return $value !== $this->resolveCssVariablesInValue($resting, $element) ? $value : null;
+    }
+
+    /** Resolve state-local tokens as well as the resting inherited tokens. */
+    public function resolveStateCssVariablesInValue(string $value, DOMElement $element, string $state): string
+    {
+        $properties = $this->cascadedCustomProperties($element, true);
+        $cascade = array();
+        $sequence = 0;
+        foreach ($this->session->sourceStyleResolutionState()->navigationStateRules() as $rule) {
+            if ($state !== $rule['state'] || !$this->matchesCssSelector($element, (string) $rule['base_selector'])) continue;
+            foreach ($rule['customProperties'] ?? array() as $name => $declared) {
+                $this->applyMediaTextCascadeDeclaration($cascade, $name, $declared, false, $this->mediaTextSelectorSpecificity((string) $rule['selector']), ++$sequence, null);
+            }
+        }
+        foreach ($cascade as $name => $winner) $properties[$name] = $winner['value'];
+        return $this->expandCssVariableReferences($value, $properties);
     }
 
     public function resolveCssVariablesInValue(string $value, ?DOMElement $element = null): string
