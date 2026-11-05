@@ -5117,7 +5117,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->formRuntimeIslandRecorder->recordControl($element);
         // The authored control saves its descendants as source markup, not
         // semantic/RichText carriers. Keep author selectors addressing those
-        // actual nodes (including empty CSS-painted icons).
+        // actual nodes (including empty CSS-painted icons). A lone close icon is
+        // itself saved inside its inline host.
+        if ( AuthoredButtonBlockGenerator::isCapturedDialogCloseIcon($element) ) {
+            $this->session->authorSelectorProjectionState()->markRetainedSourcePath($element->getNodePath() ?? '');
+        }
         foreach ( $element->getElementsByTagName('*') as $descendant ) {
             $this->session->authorSelectorProjectionState()->markRetainedSourcePath($descendant->getNodePath() ?? '');
         }

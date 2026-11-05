@@ -157,5 +157,17 @@ foreach (array('hidden resting snapshot' => true, 'visible resting snapshot' => 
     }
 }
 }
+// The panel's captured close control can be a lone icon SVG with button
+// semantics. It lowers to an editable native control whose clickable host
+// keeps the close binding the disclosure runtime looks up, and the icon.
+$closePath = 'M17.999 4l-6.293 6.293L5.413 4 4 5.414l6.292 6.293L4 18l1.413 1.414 6.293-6.292 6.293 6.292L19.414 18l-6.294-6.293 6.294-6.293z';
+$closeIcon = '<div class="cb"><svg viewBox="0 0 24 24" fill="currentColor" width="40px" height="40px" data-close="true" class="close-icon" data-blocks-engine-capture-dialog-close="menu-panel" role="button" tabindex="0"><path fill-rule="evenodd" d="' . $closePath . '"></path></svg></div>';
+$closePanel = preg_replace('/(data-blocks-engine-capture-existing-panel="[^"]*">)/', '$1' . $closeIcon, $anchorPanel(true), 1);
+foreach ($compileBoth($artifact($page('<main><div>' . $anchorTrigger . $closePanel . '</div></main>'), array())) as $result) {
+    $markup = (string) ($result['serialized_blocks'] ?? '');
+    $assert(!str_contains($markup, '<!-- wp:html'), 'captured icon close control has no core/html block');
+    $assert(1 === preg_match('/<span\b[^>]*data-blocks-engine-capture-dialog-close="menu-panel"[^>]*role="button"[^>]*tabindex="0"[^>]*><svg\b/', $markup), 'icon close host retains its close binding and button semantics');
+    $assert(str_contains($markup, 'd="' . $closePath . '"') && str_contains($markup, 'class="close-icon"'), 'icon close control keeps its svg artwork and presentation hooks');
+}
 if (0 < $failures) { fwrite(STDERR, "captured navigation runtime FAILED: {$passes} passed, {$failures} failed\n"); exit(1); }
 echo "captured navigation runtime passed: {$passes} assertions\n";

@@ -23,7 +23,48 @@ final class AuthoredButtonBlockGenerator
     {
         return in_array(strtolower($element->tagName), array('div', 'span'), true)
             ? ('button' === strtolower(trim(SourceDom::attr($element, 'role'))) || self::isCapturedGalleryDirectionControl($element))
-            : self::isCapturedDialogTriggerAnchor($element);
+            : self::isCapturedDialogTriggerAnchor($element) || self::isCapturedDialogCloseIcon($element);
+    }
+
+    /**
+     * A captured dialog close drawn by a lone SVG is a button by capture
+     * evidence: the capture observed it closing its dialog.
+     */
+    public static function isCapturedDialogCloseIcon(DOMElement $element): bool
+    {
+        return 'svg' === strtolower($element->tagName)
+            && '' !== trim(SourceDom::attr($element, CaptureEvidence::DIALOG_CLOSE))
+            && in_array(strtolower(trim(SourceDom::attr($element, 'role'))), array('', 'button'), true);
+    }
+
+    /**
+     * An SVG cannot be the control root, so an inline host carries the button
+     * semantics and close binding while the icon keeps its own presentation
+     * (class, data hooks, geometry) for the page stylesheet.
+     *
+     * @return array<string, mixed>
+     */
+    public static function capturedDialogCloseIconAttributes(DOMElement $svg): array
+    {
+        $isHostAttribute = static fn (string $name): bool => in_array($name, array('role', 'tabindex', CaptureEvidence::DIALOG_CLOSE), true) || str_starts_with($name, 'aria-');
+        $host = array_filter(self::sourceSafeAttributes($svg), $isHostAttribute, ARRAY_FILTER_USE_KEY) + array('role' => 'button', 'tabindex' => '0');
+        ksort($host);
+        $sourceAttributes = array();
+        foreach ($host as $name => $value) {
+            $sourceAttributes[] = array('name' => $name, 'value' => $value);
+        }
+        $icon = $svg->cloneNode(true);
+        foreach (iterator_to_array($svg->attributes) as $attribute) {
+            if ($icon instanceof DOMElement && $isHostAttribute(strtolower($attribute->nodeName))) $icon->removeAttribute($attribute->nodeName);
+        }
+        $html = $icon instanceof DOMElement ? self::safeMarkup(SourceDom::outerHtml($icon)) : '';
+        return array_filter(array(
+            'tagName' => 'span',
+            'type' => 'button',
+            'ariaLabel' => SourceDom::attr($svg, 'aria-label'),
+            'contentParts' => '' === $html ? array() : array(array('html' => $html)),
+            'sourceAttributes' => $sourceAttributes,
+        ), static fn (mixed $value): bool => array() !== $value && '' !== $value);
     }
 
     /** A captured dialog trigger anchor is a button only when its two bindings agree. */
