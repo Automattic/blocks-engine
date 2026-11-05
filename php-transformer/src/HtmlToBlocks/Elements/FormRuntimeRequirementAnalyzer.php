@@ -50,6 +50,16 @@ final class FormRuntimeRequirementAnalyzer
         return false;
     }
 
+    /**
+     * Forms made only of bounded choices keep their real controls as editable
+     * blocks, whether or not they submit, because there is nothing to collect
+     * that a contact provider could stand in for.
+     */
+    public static function collectsOnlyChoices(DOMElement $form): bool
+    {
+        return in_array(self::formIntent($form), array( 'preference', 'choice_submission' ), true);
+    }
+
     /** Classifies source semantics only; classes and vendor attributes are not intent. */
     public static function formIntent(DOMElement $form): string
     {
@@ -77,6 +87,7 @@ final class FormRuntimeRequirementAnalyzer
         $hasChoice = false;
         $onlyChoices = true;
         $hasSubmit = false;
+        $choiceGroupSizes = array();
         // Submission controls count even when they are not rendered/authored
         // fields in the provider inventory (for example a hidden submit button).
         foreach ( $form->getElementsByTagName('*') as $control ) {
@@ -94,6 +105,9 @@ final class FormRuntimeRequirementAnalyzer
             $controlType = FormControlClassifier::controlType($control);
             if ( 'select' === $tag || ('input' === $tag && in_array($controlType, array( 'radio', 'checkbox' ), true)) ) {
                 $hasChoice = true;
+                if ( 'select' !== $tag && '' !== $name ) {
+                    $choiceGroupSizes[$name] = ($choiceGroupSizes[$name] ?? 0) + 1;
+                }
             } elseif ( ('button' === $tag && in_array(strtolower(SourceDom::attr($control, 'role')), array( 'radio', 'checkbox', 'switch' ), true))
                 || ('button' !== $tag && ! in_array($controlType, array( 'submit', 'reset', 'button', 'image' ), true)) ) {
                 // Custom stateful widgets are not plain button/reset controls;
@@ -136,6 +150,15 @@ final class FormRuntimeRequirementAnalyzer
         // Keep existing GET search/filter intents, but recognize bounded choice
         // state without a submit control independently of method or destination.
         if ( $hasChoice && $onlyChoices && ! $hasSubmit && ! $email ) return 'preference';
+        // One question answered by picking among named options, such as a poll,
+        // needs a handler the source site owned. A lone consent checkbox or a
+        // select with a submit may belong to a larger flow, and so may anything
+        // that buys, registers, or searches, so those stay unknown.
+        if ( $onlyChoices && $hasSubmit && ! $select && ! $email && ! $search && ! $hiddenItem
+            && ! self::hasCommerceSubmissionSignal($form)
+            && array() !== array_filter($choiceGroupSizes, static fn (int $size): bool => $size > 1) ) {
+            return 'choice_submission';
+        }
 
         return 'unknown';
     }

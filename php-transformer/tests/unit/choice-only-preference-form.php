@@ -21,6 +21,14 @@ $cases = array(
     'choice with submit input' => array('post', $select . '<input type="submit" value="Send">', 'unknown', true),
     'choice with image input' => array('post', $select . '<input type="image" src="send.png" alt="Send">', 'unknown', true),
     'choice with hidden submit' => array('post', $select . '<button hidden>Send</button>', 'unknown', true),
+    'radios with submit and disabled button' => array('post', '<label><input type="radio" name="choice" value="A" checked>A</label><label><input type="radio" name="choice" value="B">B</label><input type="submit" value="Send"><input type="button" value="Result" disabled>', 'choice_submission', false),
+    'radios with hidden submit' => array('post', '<input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B"><button hidden>Send</button>', 'choice_submission', false),
+    'checkbox group with submit' => array('post', '<input type="checkbox" name="topics[]" value="A"><input type="checkbox" name="topics[]" value="B"><button>Send</button>', 'choice_submission', false),
+    'radios and select with submit' => array('post', $select . '<input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B"><button>Send</button>', 'unknown', true),
+    'unrelated checkboxes with submit' => array('post', '<input type="checkbox" name="terms"><input type="checkbox" name="updates"><button>Send</button>', 'unknown', true),
+    'radios with buy button' => array('post', '<input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B"><button>Buy now</button>', 'unknown', true),
+    'radios with register button' => array('post', '<input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B"><button>Register</button>', 'unknown', true),
+    'radios with hidden product' => array('post', '<input type="hidden" name="product_id" value="9"><input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B"><button>Send</button>', 'unknown', true),
     'choice with custom radio widget' => array('post', '<button type="button" role="radio"><input type="radio" name="choice" value="A">A</button>', 'unknown', true),
     'choice with type=button' => array('post', $select . '<button type="button">Apply</button>', 'preference', false),
     'choice with reset button' => array('post', $select . '<button type="reset">Reset</button>', 'preference', false),
@@ -50,13 +58,18 @@ foreach ( $cases as $label => [$method, $controls, $intent, $fallback] ) {
     $assert(($fallback ? 2 : 1) === count($findings), $label . ' fallback count');
     $contactFinding = $findings[count($findings) - 1] ?? array();
     $assert('contact' === ($contactFinding['form_intent'] ?? '') && 'form_provider' === ($contactFinding['materialization_target']['provider_role'] ?? ''), $label . ' contact unchanged');
-    if ( 'preference' === $intent ) {
+    if ( in_array($intent, array( 'preference', 'choice_submission' ), true) ) {
         $islands = array_values(array_filter($result['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => '/settings/update' === ($island['form']['action'] ?? '')));
         $assert(1 === count($islands), $label . ' one bounded island');
         $island = $islands[0] ?? array();
         $assert('form_requires_runtime' === ($island['preservation_reason'] ?? '') && !empty($island['readable_blocks']), $label . ' runtime retains readable blocks');
         $assert(str_contains($island['source_snippet'] ?? '', 'name="return_to"') && str_contains($island['source_snippet'] ?? '', $controls), $label . ' hidden and selected source state retained');
         $assert(str_contains($result['serialized_blocks'] ?? '', 'wp:group'), $label . ' readable group emitted');
+        $alone = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<!doctype html><html><head><title>Preferences</title></head><body><main>' . $form . '</main></body></html>')))->toArray();
+        $assert($intent === ($island['form_intent'] ?? ''), $label . ' island names its form intent');
+        $diagnostics = array_values(array_filter($alone['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'preserved_runtime_island' === ($diagnostic['code'] ?? '') && 'form' === ($diagnostic['kind'] ?? '')));
+        $assert($intent === ($diagnostics[0]['form_intent'] ?? ''), $label . ' diagnostic names its form intent');
+        $assert(! str_contains($alone['serialized_blocks'] ?? '', 'wp:html'), $label . ' keeps every control editable');
     }
 }
 if ( $failures ) {
