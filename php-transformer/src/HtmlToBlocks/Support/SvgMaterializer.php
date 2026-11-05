@@ -1992,11 +1992,6 @@ final class SvgMaterializer implements SvgElementMaterializer
      */
     public function restoreSvgCasing(string $html): string
     {
-        return self::restoreMarkupCasing($html);
-    }
-
-    public static function restoreMarkupCasing(string $html): string
-    {
         static $camelCaseAttributes = array(
             'viewBox', 'preserveAspectRatio', 'baseProfile', 'attributeName', 'attributeType',
             'repeatCount', 'repeatDur', 'calcMode', 'keyPoints', 'keySplines', 'keyTimes',

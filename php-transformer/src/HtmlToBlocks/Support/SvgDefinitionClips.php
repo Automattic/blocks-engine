@@ -5,14 +5,12 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
 use DOMElement;
 
-/** Non-painting definition carriers belong to CSS resources, never the block tree. */
+/** Lower only definition carriers whose clips all have exact native equivalents. */
 final class SvgDefinitionClips
 {
     public static function isCarrier(DOMElement $svg): bool
     {
-        return SourceDom::isDefinitionsOnlySvg($svg)
-            && preg_match('/^0(?:\.0+)?(?:px)?$/', trim($svg->getAttribute('width'))) === 1
-            && preg_match('/^0(?:\.0+)?(?:px)?$/', trim($svg->getAttribute('height'))) === 1;
+        return array() !== self::carrierReplacements($svg);
     }
 
     /** @return array<string, string> */
@@ -20,32 +18,42 @@ final class SvgDefinitionClips
     {
         $result = array();
         foreach ($body->getElementsByTagName('svg') as $svg) {
-            if (!self::isCarrier($svg) || !SvgMaterializer::isPassiveSvgMarkup($svg)) {
+            $result = array_replace($result, self::carrierReplacements($svg));
+        }
+        return $result;
+    }
+
+    /** All-or-nothing: unsupported definitions must keep their in-document carrier. */
+    private static function carrierReplacements(DOMElement $svg): array
+    {
+        if (!SourceDom::isDefinitionsOnlySvg($svg)
+            || preg_match('/^0(?:\.0+)?(?:px)?$/', trim($svg->getAttribute('width'))) !== 1
+            || preg_match('/^0(?:\.0+)?(?:px)?$/', trim($svg->getAttribute('height'))) !== 1) {
+            return array();
+        }
+        foreach ($svg->attributes as $attr) {
+            if (!in_array(strtolower($attr->name), array('width', 'height', 'xmlns', 'style'), true)
+                || ('style' === strtolower($attr->name) && !preg_match('/^\s*position\s*:\s*absolute\s*;?\s*$/i', $attr->value))) {
+                return array();
+            }
+        }
+        $result = array();
+        foreach ($svg->childNodes as $defs) {
+            if (!$defs instanceof DOMElement || in_array(strtolower($defs->tagName), array('title', 'desc', 'metadata'), true)) {
                 continue;
             }
-            // Retain the complete resource: shapes can reference sibling definitions.
-            $markup = $svg->ownerDocument->saveHTML($svg);
-            if (!$svg->hasAttribute('xmlns')) {
-                $markup = str_replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ', $markup);
+            if ($defs->attributes->length > 0) {
+                return array();
             }
-            $markup = SvgMaterializer::restoreMarkupCasing($markup);
-            foreach ($svg->getElementsByTagName('*') as $clip) {
-                if ('' === $clip->getAttribute('id')) {
+            foreach ($defs->childNodes as $clip) {
+                if (!$clip instanceof DOMElement) {
                     continue;
                 }
-                $id = $clip->getAttribute('id');
-                $resource = 'url("data:image/svg+xml,' . rawurlencode($markup) . '#' . rawurlencode($id) . '")';
-                $plainAncestors = true;
-                for ($ancestor = $clip->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
-                    foreach (array('class', 'style', 'transform', 'clip-rule') as $attribute) {
-                        if ($ancestor->hasAttribute($attribute) && !($ancestor === $svg && 'style' === $attribute && preg_match('/^\s*position\s*:\s*absolute\s*;?\s*$/i', $ancestor->getAttribute('style')))) {
-                            $plainAncestors = false;
-                        }
-                    }
-                    if ($ancestor === $svg) break;
+                if ('clippath' !== strtolower($clip->tagName) || '' === $clip->getAttribute('id')
+                    || null === ($native = self::native($clip))) {
+                    return array();
                 }
-                $result[$id] = ($plainAncestors && 'clippath' === strtolower($clip->tagName) ? self::native($clip) : null) ?? $resource;
-                $result['@' . $id] = $resource;
+                $result[$clip->getAttribute('id')] = $native;
             }
         }
         return $result;
@@ -69,6 +77,9 @@ final class SvgDefinitionClips
             return null;
         }
         $shape = $children[0];
+        if (0 < $shape->childNodes->length) {
+            return null;
+        }
         $tag = strtolower($shape->tagName);
         foreach ($shape->attributes as $attr) {
             if (!in_array(strtolower($attr->name), array('d', 'points', 'cx', 'cy', 'r', 'rx', 'ry'), true)) {
@@ -89,6 +100,9 @@ final class SvgDefinitionClips
                 if (!is_numeric($value)) {
                     return null;
                 }
+                if (in_array($attr, array('r', 'rx', 'ry'), true) && (float) $value <= 0) {
+                    return null;
+                }
                 $values[] = (float) $value * 100 . '%';
             }
             // A circle in a non-square object box scales independently on both axes.
@@ -107,9 +121,6 @@ final class SvgDefinitionClips
                 $points[] = $bbox ? ((float) $numbers[$i] * 100) . '% ' . ((float) $numbers[$i + 1] * 100) . '%' : $numbers[$i] . 'px ' . $numbers[$i + 1] . 'px';
             }
             return 'polygon(' . implode(', ', $points) . ')';
-        }
-        if (!$bbox && 'path' === $tag && preg_match('/^[MmZzLlHhVvCcSsQqTtAa0-9eE+.,\s-]+$/', $shape->getAttribute('d'))) {
-            return 'path("' . $shape->getAttribute('d') . '")';
         }
         return null;
     }
@@ -148,8 +159,8 @@ final class SvgDefinitionClips
         }
         $parts = \Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter::splitTopLevel($css, array(';'));
         foreach ($parts as &$part) {
-            $part = preg_replace_callback('/^(\s*(clip-path|mask|mask-image|filter|fill|stroke)\s*:\s*)url\(\s*([\'"]?)#([^\s\'"()]+)\3\s*\)(\s*(?:!\s*important)?\s*)$/i', static function (array $m) use ($replacements): string {
-                $key = ('clip-path' === strtolower($m[2]) ? '' : '@') . $m[4];
+            $part = preg_replace_callback('/^(\s*(clip-path)\s*:\s*)url\(\s*([\'"]?)#([^\s\'"()]+)\3\s*\)(\s*(?:!\s*important)?\s*)$/i', static function (array $m) use ($replacements): string {
+                $key = $m[4];
                 return isset($replacements[$key]) ? $m[1] . $replacements[$key] . $m[5] : $m[0];
             }, $part) ?? $part;
         }
