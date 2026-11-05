@@ -27,7 +27,7 @@ $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'f
 $footers = array_values(array_filter($plan['template_parts'], static fn(array $part): bool => 'footer' === ($part['area'] ?? null)));
 $assert(1 === count($footers), 'Both routes share one footer part.');
 $markup = $footers[0]['canonical_block_markup'];
-foreach ($plan['pages'] as $planPage) $assert(!str_contains($planPage['canonical_block_markup'], 'Example Studio'), 'The footer is not duplicated in page content.');
+foreach ($plan['pages'] as $planPage) $assert(!str_contains($planPage['canonical_block_markup'], 'Example Name'), 'The footer is not duplicated in page content.');
 
 // A dynamic navigation block renders its className on the server.
 $rendered = preg_replace_callback('/<!--\s*wp:navigation\s+(\{.*?\})\s*\/-->/s', static function (array $match): string {
