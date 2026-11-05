@@ -31,14 +31,18 @@ final class StandaloneSvgAsset
         // A standalone SVG renders as its own image document, so its own CSS
         // styles only itself. Accept that CSS when it reaches nothing outside
         // the document, and every element belongs to this SVG document.
+        foreach ( $document->childNodes as $node ) {
+            if ( XML_PI_NODE === $node->nodeType && 'xml' !== strtolower($node->target) ) {
+                return array( 'status' => 'unsupported_svg_context' );
+            }
+        }
+        $root = $root->cloneNode(true);
+        if ( ! $root instanceof DOMElement || ! self::removeEditorMetadata($root) ) {
+            return array( 'status' => 'unsupported_svg_content' );
+        }
         $nodes = array( $root );
         foreach ( $root->getElementsByTagName('*') as $child ) {
             $nodes[] = $child;
-        }
-        foreach ( $document->childNodes as $node ) {
-            if ( XML_PI_NODE === $node->nodeType ) {
-                return array( 'status' => 'unsupported_svg_context' );
-            }
         }
         foreach ( $nodes as $node ) {
             if ( 'http://www.w3.org/2000/svg' !== $node->namespaceURI || 'metadata' === strtolower($node->localName) ) {
@@ -50,20 +54,11 @@ final class StandaloneSvgAsset
             ) {
                 return array( 'status' => 'unsupported_svg_context' );
             }
-            foreach ( $node->attributes as $attribute ) {
-                if ( str_starts_with($attribute->nodeName, 'xmlns:') || in_array($attribute->namespaceURI, array( 'http://www.w3.org/1999/xlink', 'http://www.w3.org/XML/1998/namespace' ), true) || null === $attribute->namespaceURI ) {
-                    continue;
-                }
-            }
             foreach ( $node->childNodes as $child ) {
                 if ( XML_PI_NODE === $child->nodeType ) {
                     return array( 'status' => 'unsupported_svg_context' );
                 }
             }
-        }
-        $root = $root->cloneNode(true);
-        if ( ! $root instanceof DOMElement || ! self::removeEditorMetadata($root) ) {
-            return array( 'status' => 'unsupported_svg_content' );
         }
         if ( ! SvgMaterializer::isPassiveSvgMarkup($root) || ! SourceDom::svgHasDrawableContent($root) ) {
             return array( 'status' => 'unsupported_svg_content' );
