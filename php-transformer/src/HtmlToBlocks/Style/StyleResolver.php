@@ -700,13 +700,13 @@ final class StyleResolver implements ElementPresentationResolver
         foreach ($this->session->sourceStyleResolutionState()->conditionalRules() as $rule) {
             $selector = (string) ($rule['selector'] ?? '');
             // Matching candidates already use the shared equal-value decision.
-            // A supported negation-only selector can also prove a non-match
-            // (span.label:not(...) cannot own a p.label's color). Keep the
-            // conservative fallback for relational/alternative functions,
-            // whose ancestor or alternative hooks may evade the index.
+            // Functional selectors may evade the candidate index. Keep their
+            // conservative class/id fallback unless the subject itself proves
+            // a non-match (for example a different data-id).
             if ( isset($matchingSelectors[$selector])
                 || ( $this->isSupportedCssSelector($selector)
                     && ! preg_match('/:(?:is|where|has)\s*\(/i', $selector) )
+                || $this->selectorSubjectProvesNonMatch($selector, $element)
                 || 1 !== preg_match('/:(?:is|where|not|has)\s*\(/i', $selector)
                 || ! $this->unsupportedSelectorReferencesElement($selector, $element)
             ) {
@@ -1706,6 +1706,21 @@ final class StyleResolver implements ElementPresentationResolver
             }
         }
         return $index;
+    }
+
+    /** A supported subject can reject a rule even when its ancestor hooks are uncertain. */
+    private function selectorSubjectProvesNonMatch(string $selector, DOMElement $element): bool
+    {
+        $parsed = $this->context->parsedCssSelector($selector);
+        $span = $parsed['rightmost_compound_span'] ?? null;
+        if (! is_array($span)) {
+            return false;
+        }
+        $subject = substr($selector, (int) $span['start'], (int) $span['end'] - (int) $span['start']);
+        // Preserve the conservative fallback for relational/alternative subjects.
+        return ! preg_match('/:(?:is|where|has)\s*\(/i', $subject)
+            && $this->isSupportedCssSelector($subject)
+            && ! $this->matchesCssSelector($element, $subject);
     }
 
     private function unsupportedSelectorReferencesElement(string $selector, DOMElement $element): bool
