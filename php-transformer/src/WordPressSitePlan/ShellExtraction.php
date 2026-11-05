@@ -3657,16 +3657,21 @@ final class ShellExtraction
     /** Timestamp-like builder ids are render noise, not authored anchors. */
     private static function isPerRenderId(string $value): bool
     {
-        return 1 === preg_match('/^id[0-9]{13}$/D', $value);
+        return 1 === preg_match('/(?:^id[0-9]{13}$|:r[0-9a-z]+:|«r[0-9a-z]+»|_r_[0-9a-z]+_)/i', $value);
+    }
+
+    private static function normalizePerRenderIdTokens(string $value): string
+    {
+        return preg_replace('/(?:id[0-9]{13}|:r[0-9a-z]+:|«r[0-9a-z]+»|_r_[0-9a-z]+_)/i', 'id-render', $value) ?? $value;
     }
 
     private static function normalizeRenderIds(string $markup): string
     {
-        $html = static fn(string $value): string => preg_replace_callback('/\\b(id|data-element-id)=("|\')([^"\']*)\\2/i', static fn(array $m): string => $m[1] . '=' . $m[2] . (self::isPerRenderId($m[3]) ? 'id-render' : $m[3]) . $m[2], $value) ?? $value;
+        $html = static fn(string $value): string => preg_replace_callback('/\\b(id|for|aria-controls|aria-labelledby|aria-describedby|data-element-id)=("|\')([^"\']*)\\2/i', static fn(array $m): string => $m[1] . '=' . $m[2] . self::normalizePerRenderIdTokens($m[3]) . $m[2], $value) ?? $value;
         $normalize = static function (array $attrs) use (&$normalize, $html): array {
             foreach ($attrs as $key => $value) {
                 if (is_array($value)) $attrs[$key] = $normalize($value);
-                elseif (is_string($value)) $attrs[$key] = in_array($key, array('anchor', 'id', 'data-element-id'), true) && self::isPerRenderId($value) ? 'id-render' : $html($value);
+                elseif (is_string($value)) $attrs[$key] = in_array($key, array('anchor', 'id', 'for', 'aria-controls', 'aria-labelledby', 'aria-describedby', 'data-element-id'), true) ? self::normalizePerRenderIdTokens($value) : $html($value);
             }
             return $attrs;
         };
