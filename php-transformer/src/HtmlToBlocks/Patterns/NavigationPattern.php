@@ -222,12 +222,27 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
         $copies = 0;
         foreach ( $item->getElementsByTagName('a') as $anchor ) {
+            // The script's "More" button opens the copies and goes nowhere itself.
+            if ( ! $this->hasListAncestor($anchor, $item) && $this->isPlaceholderMenuOpener($anchor) ) {
+                continue;
+            }
             if ( ! $this->hasListAncestor($anchor, $item) || ! isset($visible[$this->attr($anchor, 'href')]) ) {
                 return false;
             }
             $copies++;
         }
         return 0 < $copies;
+    }
+
+    /** A link that declares itself a menu control, with no destination of its own. */
+    private function isPlaceholderMenuOpener(DOMElement $anchor): bool
+    {
+        $href = trim($this->attr($anchor, 'href'));
+        $popup = strtolower(trim($this->attr($anchor, 'aria-haspopup')));
+        return in_array($href, array( '', '#' ), true)
+            && ( 'button' === strtolower(trim($this->attr($anchor, 'role')))
+                || $anchor->hasAttribute('aria-expanded')
+                || ! in_array($popup, array( '', 'false' ), true) );
     }
 
     /** Collapsed menu content is handled by the ordinary submenu recognizer. */
