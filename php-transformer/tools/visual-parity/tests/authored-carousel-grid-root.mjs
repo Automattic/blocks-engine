@@ -1,0 +1,52 @@
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { chromium } from 'playwright';
+
+// A slideshow whose own root is a grid keeps that display in WordPress. Its
+// absolutely positioned slides must still fill the source stage.
+const here = path.dirname(fileURLToPath(import.meta.url));
+const transformerRoot = path.resolve(here, '../../..');
+const source = readFileSync(path.join(here, 'fixtures/grid-slideshow-root.html'), 'utf8');
+const output = JSON.parse(execFileSync('php', ['-r', `
+  require $argv[1] . '/vendor/autoload.php';
+  $result = (new Automattic\\BlocksEngine\\PhpTransformer\\ArtifactCompiler\\ArtifactCompiler())->compile(array(
+      'entrypoint' => 'index.html',
+      'files' => array('index.html' => base64_decode($argv[2])),
+  ))->toArray();
+  $plan = $result['source_reports']['wordpress_site_plan'] ?? array();
+  $markup = (string) ($plan['pages'][0]['canonical_block_markup'] ?? '');
+  $definition = (new Automattic\\BlocksEngine\\PhpTransformer\\HtmlToBlocks\\Generators\\AuthoredCarouselBlockGenerator())->definition('custom');
+  $styles = implode("\\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $plan['assets'] ?? array()));
+  echo json_encode(array('markup' => $markup, 'style' => (string) ($definition['assets']['style.css'] ?? '') . "\\n" . $styles));
+`, transformerRoot, Buffer.from(source).toString('base64')], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }));
+assert.match(output.markup, /blocks-engine-authored-carousel--slideshow/);
+
+const browser = await chromium.launch({ headless: true });
+try {
+  for (const width of [390, 1440]) {
+    const page = await browser.newPage({ viewport: { width, height: 900 } });
+    await page.setContent(`<style>${output.style}</style><div id="source">${source}</div><div id="generated">${output.markup}</div>`);
+    const geometry = await page.evaluate(() => {
+      const rect = (element) => { const box = element.getBoundingClientRect(); return { x: box.x, y: box.y, width: box.width, height: box.height }; };
+      const read = (root, stage) => ({
+        stage: rect(root.querySelector(stage)),
+        image: rect(root.querySelector('img')),
+      });
+      return {
+        source: read(document.querySelector('#source'), '.slides'),
+        generated: read(document.querySelector('#generated'), '.blocks-engine-authored-carousel__viewport'),
+      };
+    });
+    const { source: before, generated: after } = geometry;
+    const label = `${width}px ${JSON.stringify(geometry)}`;
+    assert.ok(Math.abs(before.stage.width - after.stage.width) < 1, `stage fills the grid root: ${label}`);
+    assert.ok(Math.abs(after.image.width - after.stage.width) < 1, `active slide image fills the stage: ${label}`);
+    await page.close();
+  }
+} finally {
+  await browser.close();
+}
+console.log('Authored slideshow on a grid source root keeps its stage width');
