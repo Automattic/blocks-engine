@@ -197,6 +197,39 @@ final class NavigationPattern implements PatternRecognizerInterface
         return false;
     }
 
+    /**
+     * A menu can keep a hidden "More" item for links a script moves there when
+     * the row runs out of room. With no label of its own and only destinations
+     * its visible siblings already have, it holds nothing for native navigation.
+     */
+    private function isHiddenNavigationOverflowCopy(DOMElement $item, DOMElement $list, ?NavigationPatternContext $navigationContext): bool
+    {
+        if ( 'li' !== strtolower($item->tagName) ) {
+            return false;
+        }
+        $style = strtolower(preg_replace('/\s+/', '', $this->attr($item, 'style')) ?? '');
+        if ( ! $item->hasAttribute('hidden') && ! str_contains($style, 'display:none')
+            && ! ( $navigationContext?->isHiddenAtReferenceViewport($item) ?? false ) ) {
+            return false;
+        }
+        $visible = array();
+        foreach ( $list->childNodes as $sibling ) {
+            if ( $sibling instanceof DOMElement && ! $sibling->isSameNode($item) ) {
+                foreach ( $sibling->getElementsByTagName('a') as $anchor ) {
+                    $visible[$this->attr($anchor, 'href')] = true;
+                }
+            }
+        }
+        $copies = 0;
+        foreach ( $item->getElementsByTagName('a') as $anchor ) {
+            if ( ! $this->hasListAncestor($anchor, $item) || ! isset($visible[$this->attr($anchor, 'href')]) ) {
+                return false;
+            }
+            $copies++;
+        }
+        return 0 < $copies;
+    }
+
     /** Collapsed menu content is handled by the ordinary submenu recognizer. */
     private function isWithinOwnedSubmenu(DOMElement $element, DOMElement $landmark): bool
     {
@@ -2813,7 +2846,8 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
 
             if ( $item instanceof DOMElement && ( $this->isNavigationChromeElement($item)
-                || $this->isHiddenNavigationOverflowControl($item) ) ) {
+                || $this->isHiddenNavigationOverflowControl($item)
+                || $this->isHiddenNavigationOverflowCopy($item, $list, $navigationContext) ) ) {
                 continue;
             }
 
