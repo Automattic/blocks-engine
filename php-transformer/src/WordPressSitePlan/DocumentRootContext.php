@@ -111,13 +111,13 @@ final class DocumentRootContext
         }
         if (array() === $rows) return '';
         $code = <<<'PHP'
-$blocks_engine_document_attributes = static function ( string $element ) use ( &$blocks_engine_document_roots ): array {
+$blocks_engine_document_attributes = static function ( string $element ) use ( &$blocks_engine_document_roots, &$blocks_engine_document_fallback ): array {
     $id = (int) apply_filters( 'blocks_engine_document_id', is_singular() ? get_queried_object_id() : 0 );
     $identity = $id ? get_post_meta( $id, '_blocks_engine_reconciliation_identity', true ) : '';
     foreach ( $blocks_engine_document_roots as $row ) {
         if ( '' !== $identity ? $identity === $row['identity'] : ( ( $row['front_page'] && is_front_page() ) || ( 0 !== $id && 'page' === get_post_type( $id ) && $row['path'] === trim( get_page_uri( $id ), '/' ) ) ) ) return $row[ 'body' === $element ? 'body_attributes' : 'attributes' ];
     }
-    return array();
+    return $blocks_engine_document_fallback[ 'body' === $element ? 'body_attributes' : 'attributes' ];
 };
 add_filter( 'language_attributes', static function ( string $output ) use ( $blocks_engine_document_attributes ): string {
     $attributes = $blocks_engine_document_attributes( 'html' );
@@ -160,9 +160,33 @@ PHP;
         // their combined route registry. Each authoritative identity replaces
         // its earlier record, including empty state, without dropping other
         // routes or replacing the canvas resolver.
-        return "global \$blocks_engine_document_roots, \$blocks_engine_document_attributes;\n"
+        return "global \$blocks_engine_document_roots, \$blocks_engine_document_attributes, \$blocks_engine_document_fallback;\n"
+            . '$blocks_engine_document_fallback = ' . var_export(array('attributes' => self::sharedAttributes(array_column($rows, 'attributes')), 'body_attributes' => self::sharedAttributes(array_column($rows, 'body_attributes'))), true) . ";\n"
             . '$blocks_engine_document_roots = array_replace( array_column( $blocks_engine_document_roots ?? array(), null, \'identity\' ), array_column( ' . var_export($rows, true) . ', null, \'identity\' ) );' . "\n"
             . "if ( ! isset( \$blocks_engine_document_attributes ) ) {\n" . $code . "\n}\n";
+    }
+
+    /**
+     * Compute once while emitting the plan, never while serving a request.
+     * Missing attributes participate as empty maps; classes intersect by token,
+     * while all other selector attributes require identical values.
+     *
+     * @param list<array<string,string>> $roots
+     * @return array<string,string>
+     */
+    private static function sharedAttributes(array $roots): array
+    {
+        $shared = array_shift($roots) ?? array();
+        $classes = preg_split('/\s+/', trim($shared['class'] ?? ''), -1, PREG_SPLIT_NO_EMPTY) ?: array();
+        unset($shared['class']);
+        foreach ($roots as $attributes) {
+            foreach ($shared as $name => $value) {
+                if (!isset($attributes[$name]) || $attributes[$name] !== $value) unset($shared[$name]);
+            }
+            $classes = array_intersect($classes, preg_split('/\s+/', trim($attributes['class'] ?? ''), -1, PREG_SPLIT_NO_EMPTY) ?: array());
+        }
+        if ($classes) $shared['class'] = implode(' ', array_unique($classes));
+        return $shared;
     }
 
     public static function editorScript(): string

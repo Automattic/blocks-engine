@@ -556,7 +556,6 @@ PHP;
         $assets = self::orderPageStylesheetProjections($assets);
         $assets = self::placeSharedStylesheetProjections($assets, $pages);
         $assets = self::mergeIdenticalPageStylesheets($assets, array_merge($pages, $parts, $frameParts));
-        $assets = self::withChromeStylesheetFallbacks($assets, array_merge($parts, $frameParts));
         $tokens = $this->tokens($assets);
         if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
         $runtimeDeclarations = $shells['runtime_declarations'];
@@ -6529,50 +6528,6 @@ PHP;
     }
 
     /**
-     * Native views render the same converted parts but have no document scope.
-     * Retain whole resources here (rather than widening their route scopes):
-     * route-kept hooks can occur in both the chrome and a page body, and support
-     * sheets include structural rules whose selectors need not name a hook.
-     *
-     * @param array<int,array<string,mixed>> $assets
-     * @param array<int,array<string,mixed>> $parts
-     * @return array<int,array<string,mixed>>
-     */
-    private static function withChromeStylesheetFallbacks(array $assets, array $parts): array
-    {
-        $hooks = array();
-        $hasChrome = false;
-        foreach ($parts as $part) {
-            if (!in_array($part['placement']['kind'] ?? '', array('shared_shell', 'inline_shared_shell', 'entry_shell'), true)) continue;
-            $hasChrome = true;
-            $markup = (string) ($part['canonical_block_markup'] ?? '');
-            preg_match_all('/(?:class|id)="([^"]+)"|"(?:className|anchor)"\s*:\s*"([^"]+)"/', $markup, $matches, PREG_SET_ORDER);
-            foreach ($matches as $match) {
-                foreach (preg_split('/\s+/', html_entity_decode($match[1] ?: ($match[2] ?? ''), ENT_QUOTES | ENT_HTML5)) ?: array() as $hook) {
-                    if ('' !== $hook) $hooks[$hook] = true;
-                }
-            }
-        }
-        if (!$hasChrome) return $assets;
-        $patterns = array_map(static fn(string $hook): string => '/[.#]' . preg_quote(CssIdent::escape($hook), '/') . '(?![a-zA-Z0-9_-])/', array_keys($hooks));
-        foreach ($assets as &$asset) {
-            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
-            // Already-global resources have their own native-view enqueue.
-            if (array_filter($asset['scopes'] ?? array(), static fn(array $scope): bool => 'global' === ($scope['kind'] ?? null))) continue;
-            $required = in_array($asset['source'] ?? '', array('engine-support', 'wordpress-compat'), true);
-            if (!$required) {
-                (new CssStylesheetTransformer())->visitStyleRules($asset['content'], static function (string $selector) use ($patterns, &$required): void {
-                    if ($required) return;
-                    foreach ($patterns as $pattern) if (preg_match($pattern, self::positiveSelector($selector))) { $required = true; break; }
-                });
-            }
-            if ($required) $asset['frame_fallback'] = true;
-        }
-        unset($asset);
-        return $assets;
-    }
-
-    /**
      * Resource identity owns bytes; a document occurrence owns an enqueue handle.
      * Keep generated support on its existing side of the authored sequence and
      * join projected slices at their source occurrence, including repeated links.
@@ -6585,7 +6540,7 @@ PHP;
     {
         $pagesBySource = array_column($pages, null, 'source_path');
         $assetsBySource = array_column($assets, null, 'source_path');
-        $before = $after = $instances = $fallbackBefore = array();
+        $before = $after = $instances = array();
         $firstManaged = count($assets);
         foreach ($assets as $index => $asset) if (!empty($asset['stylesheet_instances'])) $firstManaged = min($firstManaged, $index);
         foreach ($assets as $index => $asset) {
@@ -6602,7 +6557,7 @@ PHP;
             }
             if (!empty($asset['frame_fallback'])) {
                 $row = array('asset' => $asset, 'scope' => array('kind' => 'global'), 'condition' => 'true', 'media' => (string) ($asset['media'] ?? ''), 'handle' => 'blocks-engine-frame-fallback-' . substr(hash('sha256', $asset['target_path']), 0, 12), 'fallback' => true);
-                if ('before-author' === ($asset['stylesheet_placement'] ?? '')) $fallbackBefore[] = $row; else $after[] = $row;
+                if ('before-author' === ($asset['stylesheet_placement'] ?? '')) $before[] = $row; else $after[] = $row;
             }
             foreach ($asset['scopes'] as $scope) {
                 if (array() !== $occurrences && 'global' !== $scope['kind']) continue;
@@ -6620,7 +6575,7 @@ PHP;
             usort($rows, static fn(array $left, array $right): int => $left['order'] <=> $right['order'] ?: $left['resource_order'] <=> $right['resource_order']);
             array_push($ordered, ...$rows);
         }
-        return array_merge($ordered, $fallbackBefore, $after);
+        return array_merge($ordered, $after);
     }
 
     /**
