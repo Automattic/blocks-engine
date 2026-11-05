@@ -3439,12 +3439,14 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
         }
 
-        // Native anchor metadata is filtered by WordPress at render time; an
-        // inline hsl(var(...)) colour may not survive that filter. Carry its
-        // resolved resting value through the existing state-aware colour rules.
+        // The carried anchor style renders through safecss_filter_attr(), which
+        // accepts var()/calc()-style functions but drops a declaration that
+        // still holds a colour function: `color:hsl(var(--x))` renders as
+        // nothing. Carry that resting colour through the state-aware colour
+        // rules instead; colours core keeps inline stay on the anchor.
         if (null !== $navigationContext && '' !== $subjectMarker
             && 0 !== $this->navigationColorStateMask($anchor, $navigationContext)
-            && preg_match('/(?:^|;)\s*color\s*:/i', $anchor->getAttribute('style'))
+            && preg_match('/(?:^|;)\s*color\s*:[^;]*\(/i', $anchor->getAttribute('style'))
         ) {
             $resolvedTextColor = $this->navigationTextColorFromStyle($navigationContext->resolvedStyle($anchor));
             if ('' !== $resolvedTextColor) $itemAttrs['style']['color']['text'] = $resolvedTextColor;
