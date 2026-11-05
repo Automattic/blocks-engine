@@ -112,6 +112,22 @@ final class WrapperCoalescer
      */
     public function foldWrapperChain(array $chain, array $terminal): array
     {
+        // Compression must not trade native structure editing for a generated
+        // block. These entries already have canonical core/group save shapes;
+        // retain those boundaries and their source attributes verbatim.
+        if (! $this->sourceElementClassifier->isLayoutShellBlock($terminal)) {
+            $children = 'core/freeform' === ($terminal['blockName'] ?? null)
+                ? ($terminal['innerBlocks'] ?? array()) : array($terminal);
+            foreach (array_reverse($chain) as $entry) {
+                $group = $entry['block'];
+                $wrapper = $entry['descriptor'];
+                $group['innerBlocks'] = $children;
+                $group['innerHTML'] = $wrapper['opening'] . $wrapper['closing'];
+                $group['innerContent'] = array_merge(array($wrapper['opening']), array_fill(0, count($children), null), array($wrapper['closing']));
+                $children = array($group);
+            }
+            if (isset($children[0])) return $children[0];
+        }
         $terminalIsShell = $this->sourceElementClassifier->isLayoutShellBlock($terminal);
         $terminalBlocks = $terminalIsShell ? $terminal['innerBlocks'] : (is_array($terminal['innerBlocks'] ?? null) && 'core/freeform' === ($terminal['blockName'] ?? null) ? $terminal['innerBlocks'] : array($terminal));
         $wrappers = array_column($chain, 'descriptor');
