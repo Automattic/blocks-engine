@@ -314,6 +314,20 @@ foreach (array(
     $assert(array('safe') === $result['scoped'] && array('unsafe' => $reason, 'unsafe-again' => $reason) === $result['reasons'], 'probe cache preserves route-local failures and successful validation');
 }
 
+// A singleton set uses the existing route identity, not a redundant set
+// class or subject guard. Its positive scope must exclude unknown documents.
+$registered = array();
+$result = $transformer->scopeRouteVariants(array(), array(
+    'a' => array('.sample{color:red}'),
+    'b' => array(),
+), array(), null, array(), null, array('a' => 'be-r-a', 'b' => 'be-r-b'), null,
+    static function (array $classes) use (&$registered): string {
+        $registered[] = $classes;
+        return 'be-rs-test';
+    }
+);
+$assert(!$registered && str_contains($result['stylesheet'], ':where(:root:is(.be-r-a))'), 'singleton membership reuses the exact route identity');
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "CssStylesheetTransformer unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);

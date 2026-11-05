@@ -372,21 +372,22 @@ final class CssStylesheetTransformer
      * @param list<string> $shared
      * @param array<string,list<string>> $pages
      * Aligned rules are expanded into arms, each with its own route set.
-     * Arms proven inert outside that set stay unscoped; all others use the
-     * shortest base-excluding scope for variant-only arms, or a complementary
-     * negative scope for arms retained by the virtual base document. Only validated lists
+     * Arms proven inert outside that set stay unscoped; all others use a
+     * base-excluding scope for variant-only arms, or a complementary negative
+     * scope for arms retained by the virtual base document. Only validated lists
      * are split, preserving invalid-selector isolation and source order.
      *
      * @param array<string,string> $routeIdentities Route identities by compilation owner.
      * @param array<string,string> $markup Canonical markup by compilation owner.
      * @param array<string,string> $routeClasses Site-wide collision-free classes by route identity.
      * @param ?string $sharedMarkup Shared template-part markup; null means no carrier evidence.
+     * @param ?callable(list<string>):string $routeSetClass Registers a set of route classes and returns its root class. Callers must materialize membership on every member root. Without it, standalone callers retain enumerated guards.
      * `route_bytes` counts shipped growth after serialization and recompaction
      * over the unscoped arm-union sheet (including inserted arms).
      *
      * @return array{stylesheet:string, scoped:list<string>, reasons:array<string,string>, route_bytes:int}
      */
-    public function scopeRouteVariants(array $shared, array $pages, array $routeIdentities = array(), ?string $unsafeReason = null, array $markup = array(), ?RouteSelectorMatchIndex $matchIndex = null, array $routeClasses = array(), ?string $sharedMarkup = null): array
+    public function scopeRouteVariants(array $shared, array $pages, array $routeIdentities = array(), ?string $unsafeReason = null, array $markup = array(), ?RouteSelectorMatchIndex $matchIndex = null, array $routeClasses = array(), ?string $sharedMarkup = null, ?callable $routeSetClass = null): array
     {
         $base = array();
         foreach ($shared as $css) $this->collectRuleUnits($css, array(), $base);
@@ -516,7 +517,7 @@ final class CssStylesheetTransformer
         $allRoutes[$baseOwner] = true;
         if (null !== $sharedMarkup) $markup[$baseOwner] = $sharedMarkup;
         $carriers = self::markerCarriers($markup);
-        $emitArms = function (array $units, array $prototype) use (&$output, &$unionOutput, &$armLists, &$parsedArms, $routeClass, $allRoutes, $baseOwner, $carriers, $markup, $matchIndex): void {
+        $emitArms = function (array $units, array $prototype) use (&$output, &$unionOutput, &$armLists, &$parsedArms, $routeClass, $routeSetClass, $allRoutes, $baseOwner, $carriers, $markup, $matchIndex): void {
             [$lead, $rule] = self::splitLeadingComments($prototype['text']);
             $brace = (int) $this->nextRuleBoundary($rule, 0);
             $body = substr($rule, $brace);
@@ -551,7 +552,17 @@ final class CssStylesheetTransformer
                 }
                 $scope = '';
                 if (!$inert) {
-                    if (isset($routes[$baseOwner])) {
+                    if (null !== $routeSetClass) {
+                        // The virtual base includes unknown, non-plan documents.
+                        // Preserve that open-world complement with a negative set.
+                        $negative = isset($routes[$baseOwner]);
+                        $owners = array_keys($negative ? $outside : $routes);
+                        $classes = array_map($routeClass, $owners);
+                        // Singleton sets already have a materialized identity.
+                        // Retain the compact legacy form for their complements too.
+                        $class = 1 === count($classes) ? $classes[0] : $routeSetClass($classes);
+                        $scope = ':where(:root' . ($negative ? ':not(.' . $class . ')' : (1 === count($classes) ? ':is(.' . $class . ')' : '.' . $class)) . ')';
+                    } elseif (isset($routes[$baseOwner])) {
                         $scope = ':where(:root:not(' . implode(',', array_map(static fn ($owner): string => '.' . $routeClass($owner), array_keys($outside))) . '))';
                     } else {
                         $positive = ':where(:root:is(' . implode(',', array_map(static fn ($owner): string => '.' . $routeClass($owner), array_keys($routes))) . '))';
@@ -571,7 +582,9 @@ final class CssStylesheetTransformer
                 $unit = $prototype;
                 if ('' !== $scope) {
                     $reason = null;
-                    $arms = self::scopeRouteArms($arms, $scope, $reason, $parsedArms);
+                    $arms = null === $routeSetClass || !str_contains($scope, '.be-rs-')
+                        ? self::scopeRouteArms($arms, $scope, $reason, $parsedArms)
+                        : self::scopeRouteSubjects($arms, $scope, $reason, $parsedArms);
                 }
                 $unit['text'] = $lead . implode(',', $arms) . $body;
                 $output[] = $unit;
@@ -706,13 +719,42 @@ final class CssStylesheetTransformer
         self::scopeRouteArms($arms, ':where(:root:is(.be-route-probe))', $reason, $parsedArms);
     }
 
+    /** @param list<string> $arms @return list<string> */
+    private static function scopeRouteSubjects(array $arms, string $scope, ?string &$reason, array &$parsedArms): array
+    {
+        // Test document membership on the subject, not on an assumed ancestor.
+        // A class-led first compound can be either the root or a descendant;
+        // prefixing the scope forks it into two arms for no semantic reason.
+        // This zero-weight predicate covers both cases once, retaining every
+        // authored compound, combinator and specificity (including :is()).
+        $root = substr($scope, strlen(':where('), -1);
+        $guard = ':where(' . $root . ',' . $root . ' *)';
+        foreach ($arms as &$arm) {
+            $tokens = CssSelectorTokenizer::tokenize($arm);
+            $first = $tokens['compounds'][0];
+            // Definite root anchors can merge the scope (including inside a
+            // functional root arm); definite non-root types use an ancestor.
+            // Both forms retain prefix factoring across selector groups.
+            if (!preg_match('/^[*.#\[:]/', $first) || preg_match('/(?<![\w-])(?:html|:root)\b/i', $first)) {
+                $scoped = self::scopeRouteArms(array($arm), $scope, $reason, $parsedArms);
+                if (null !== $scoped) {
+                    $arm = implode(',', $scoped);
+                    continue;
+                }
+            }
+            $last = count($tokens['compounds']) - 1;
+            $span = $tokens['compound_spans'][$last];
+            $pseudo = self::pseudoElementOffset($tokens['compounds'][$last]);
+            $insert = null === $pseudo ? $span['end'] : $span['start'] + $pseudo;
+            $arm = substr($arm, 0, $insert) . $guard . substr($arm, $insert);
+        }
+        unset($arm);
+        return $arms;
+    }
+
     /**
-     * Restrict each comment-free selector arm to documents whose root matches
-     * $scope, a zero-specificity `:where(:root…)`. The scope prefixes the arm
-     * as an ancestor; arms whose first compound can be the root also keep a
-     * copy with the scope merged into that compound. A first compound that
-     * tests the root inside `:is()`/`:where()` is scoped inside that argument.
-     *
+     * Standalone enumerated scopes and validation probes. Prefix as an ancestor
+     * and retain a merged-root alternative for compounds that can match html.
      * @param list<string> $arms
      * @return list<string>|null
      */
