@@ -91,6 +91,7 @@
     "test:canonical": [
       "php tests/contract/standalone-font-glyph.php",
       "php tests/contract/responsive-inherited-text-alignment.php",
+      "php tests/contract/shared-shell-generated-blocks.php",
       "php tests/contract/lowered-text-type-presentation.php",
       "php tests/unit/theme-css-proportionality.php",
       "php tests/contract/css-rule-tree-staged.php",

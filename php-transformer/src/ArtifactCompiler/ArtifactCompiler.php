@@ -447,7 +447,7 @@ final class ArtifactCompiler
                 'diagnostic_class' => 'content_loss',
             ));
         }
-        $allGeneratedBlocks = $entryBlocks['generated_blocks'];
+        $allGeneratedBlocks = array_merge($entryBlocks['generated_blocks'], $inlineShellCompilation['generated_blocks'] ?? array());
         $allGutenbergGaps = $entryBlocks['gutenberg_gaps'];
         $coreHtmlFallbackEvidence = array($entryBlocks['core_html_fallback_evidence']);
         // A projection belongs to the page that produced it. Template surfaces
@@ -3931,6 +3931,7 @@ final class ArtifactCompiler
 
         $artifacts = array();
         $assets = array();
+        $generatedBlocks = array();
         $authorStylesheetProjections = array();
         $runtimeScriptProjections = array();
         foreach (array('header', 'footer') as $area) {
@@ -3972,6 +3973,7 @@ final class ArtifactCompiler
                 foreach (array_slice($context, 2) as $ancestor) { $open .= '<' . $ancestor['tag'] . self::sourceShellAttributes($ancestor['attributes']) . '>'; $close = '</' . $ancestor['tag'] . '>' . $close; }
                 $synthetic = '<!doctype html><html' . self::sourceShellAttributes($context[0]['attributes'] ?? array()) . '><head>' . $head . '</head><body' . self::sourceShellAttributes($context[1]['attributes'] ?? array()) . '>' . $open . $canonicalMarkup . $close . '</body></html>';
                 $compiled = $this->compileHtmlDocumentBlocks($synthetic, $sourcePath, $files, 'artifact-shared-shell', $generatedBlockNamespace, true, array(), max(0, count($context) - 2));
+                $generatedBlocks = array_merge($generatedBlocks, $compiled['generated_blocks'] ?? array());
                 $shell = current(array_filter($compiled['shell_artifacts'], static fn(array $candidate): bool => $area === ($candidate['area'] ?? null)));
                 if (!is_array($shell)) continue;
                 $slug = 1 === count($groups) ? $area : $area . '-' . ($variant + 1);
@@ -4020,6 +4022,7 @@ final class ArtifactCompiler
         return array(
             'artifacts' => $artifacts,
             'assets' => $assets,
+            'generated_blocks' => $generatedBlocks,
             'author_stylesheet_projections' => $authorStylesheetProjections,
             'runtime_script_projections' => $runtimeScriptProjections,
         );
