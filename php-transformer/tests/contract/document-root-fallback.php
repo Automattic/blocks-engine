@@ -11,6 +11,11 @@ function is_singular(): bool { return $GLOBALS['captured_request']; }
 function get_queried_object_id(): int { return 1; }
 function get_post_meta(int $id, string $key, bool $single): string { return $GLOBALS['captured_identity']; }
 function is_front_page(): bool { return false; }
+function is_category(): bool { return false; }
+function is_tag(): bool { return false; }
+function is_tax(): bool { return false; }
+function is_author(): bool { return false; }
+function is_date(): bool { return false; }
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
