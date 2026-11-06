@@ -213,6 +213,19 @@ $pathHeader = $pathDocument->getElementsByTagName('header')->item(0);
 $directDivs = array_values(array_filter(iterator_to_array($pathHeader->childNodes), static fn ($node): bool => $node instanceof DOMElement && 'div' === $node->tagName));
 $assert('progress' === ($directDivs[1] ?? null)?->getAttribute('class'), 'the anchored path names the header\'s own second div (the progress bar), not the nested wordmark');
 
+// A toggle is behavior of the element it targets. Capture may record it on
+// only some routes; every route rendering the identical target (shared
+// chrome) receives it too, so the shared header compiles the same way on
+// every route. A route whose target differs, and duplicate records, add
+// nothing.
+$chrome = static fn (string $nav): string => '<html><body><header><div class="bg"><div class="fill"></div></div><nav>' . $nav . '</nav></header><main>page</main></body></html>';
+$sharedResult = $project($files(
+    array('https://example.test/' => $chrome('Home'), 'https://example.test/about' => $chrome('Home'), 'https://example.test/other' => str_replace('class="fill"', 'class="fill alt"', $chrome('Home'))),
+    array('https://example.test/' => array($toggle(array('selector' => 'body > header > div:nth-of-type(1)', 'tag' => 'div')), $toggle(array('selector' => 'body > header > div:nth-of-type(1)', 'tag' => 'div'))))
+));
+$sharedMarkers = array_map(static fn (array $file): int => substr_count((string) ($file['content'] ?? ''), 'data-blocks-engine-scroll-state="true"'), array_slice($sharedResult['files'], 0, 3));
+$assert(array(1, 1, 0) === $sharedMarkers, 'a toggle captured on one route projects once onto every route with the identical target and not onto a route whose target differs: ' . json_encode($sharedMarkers));
+
 if (0 !== $failures) {
     fwrite(STDERR, "scroll-state-projector failed: {$failures} failure(s), {$passes} pass(es)\n");
     exit(1);
