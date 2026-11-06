@@ -114,6 +114,8 @@ $malformed = '.before { content: "unterminated';
 $assert($malformed === $transformer->transform($malformed, $rename), 'truncated stylesheet is preserved exactly');
 $malformedSelector = '.before:is(.x { color:red }';
 $assert($malformedSelector === $transformer->transform($malformedSelector, $rename), 'unbalanced selector prelude is preserved exactly');
+$badUrl = '.dots { background: url(data:image/svg+xml,%3Csvg fill=%27%23var(--c)%27%3E) } @media (min-width:1280px) { .before { display:none } }';
+$assert(str_contains($transformer->transform($badUrl, $rename), '.after { display:none }'), 'rules after a bad url() token with a stray close paren are still transformed');
 $unmatchedClose = '} .before { color:red }';
 $assert($unmatchedClose === $transformer->transform($unmatchedClose, $rename), 'top-level unmatched close preserves the entire stylesheet');
 $unmatchedCloseAfterRule = '.before { color:red } } .before { color:blue }';
