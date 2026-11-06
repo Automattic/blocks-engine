@@ -3980,6 +3980,12 @@ final class ShellExtraction
         // part serves every route, so that page-scoped state is neither part of
         // the chrome's identity nor frozen into the part.
         $markup = preg_replace('/(<a\b[^>]*?)\s+aria-current\s*=\s*(["\'])page\2/i', '$1', $markup) ?? $markup;
+        // Rich mega-menu panels can retain a rendered navigation root rather
+        // than navigation-link blocks. Its lifted current colour is still
+        // page state, just like the marker on a core navigation comment.
+        if ($semanticIdentity) {
+            $markup = preg_replace('/\s*blocks-engine-navigation-current-color-[a-f0-9]{64}\b/', '', $markup) ?? $markup;
+        }
         $markup = self::withoutListItemDisclosureState($markup);
         return self::withoutMenuSelectionState($markup, true);
     }

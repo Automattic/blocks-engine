@@ -523,7 +523,7 @@ final class CapturedDialogProjector
                 continue;
             }
 
-            $identity = substr(hash('sha256', $sourcePath . "\n" . ($state['trigger']['selector'] ?? '') . "\n" . $dialogHtml), 0, 16);
+            $identity = substr(hash('sha256', $sourcePath . "\n" . ($state['trigger']['selector'] ?? '') . "\n" . self::identityHtml($dialogHtml)), 0, 16);
             if ('listbox' === ($state['kind'] ?? '') || 'listbox' === strtolower(trim((string) ($dialog['role'] ?? '')))) {
                 $key = 'blocks-engine-listbox-' . $identity;
                 foreach ($triggers as $trigger) {
@@ -658,6 +658,17 @@ final class CapturedDialogProjector
             $this->nativeGalleryPanels[] = $panel;
         }
         return $count;
+    }
+
+    /** Current-page selection is render state, not a dialog's identity. */
+    private static function identityHtml(string $html): string
+    {
+        $html = preg_replace('/(<a\b[^>]*?)\s+aria-current\s*=\s*(["\'])page\2/i', '$1', $html) ?? $html;
+        return preg_replace_callback('/\bclass\s*=\s*(["\'])(.*?)\1/s', static function (array $match): string {
+            $classes = preg_split('/\s+/', trim($match[2])) ?: array();
+            $classes = array_values(array_filter($classes, static fn(string $class): bool => !preg_match('/^blocks-engine-(?:current-navigation-(?:item|underline)|navigation-current-color-[a-f0-9]{64})$/', $class)));
+            return 'class=' . $match[1] . implode(' ', $classes) . $match[1];
+        }, $html) ?? $html;
     }
 
     /**
@@ -831,7 +842,7 @@ final class CapturedDialogProjector
                 // itself, at its resting presentation, is the dialog content.
                 $fragment = array() !== $resting ? $this->safeDialogFragment('<div>' . $this->restPanel($document, $panel, $resting, $triggers[0]) . '</div>') : $this->safeDialogFragment($html, (string) $key);
                 if (null === $fragment) continue;
-                $identity = substr(hash('sha256', $sourcePath . "\n" . $key . "\n" . $scopeIndex . "\n" . $html), 0, 16);
+                $identity = substr(hash('sha256', $sourcePath . "\n" . $key . "\n" . $scopeIndex . "\n" . self::identityHtml($html)), 0, 16);
                 $triggerIds = array();
                 $menu = false;
                 foreach ($triggers as $triggerIndex => $trigger) {
