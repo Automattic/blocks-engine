@@ -270,7 +270,7 @@ final class DesignUsageCollector
         if ($opaque) $this->addBackground((string) CssColor::hex($background), $control || 'input' === $tag ? 'cta' : 'surface', $mass + 1, $background, $control ? $this->hoverColor($element, array('background-color', 'background')) : null, $control && ($this->resolver->hasConditionalStyleFamily($element, 'background') || $this->resolver->readsConditionalCustomProperty($element, array('background', 'background-color'))));
         $this->spacingFrom($element, $declarations, $context['size']);
         $this->widthFrom($declarations, $context['size'], $mass);
-        $this->recordClassStyles($element, $declarations, $parent['size_known'] ? $parent['size'] : null, $context['size']);
+        $this->recordClassStyles($element, $declarations, $parent['size_known'] ? $parent['size'] : null, $context['size'], in_array('font-size', $parent['conditional'], true));
         return $mass;
     }
 
@@ -507,11 +507,14 @@ final class DesignUsageCollector
      * the reason when the value cannot be bound: `!important`, `!transparent` (paints nothing), `!state` (a `:hover`/`:focus` style changes it),
      * `!breakpoint` (a media condition changes it in a way an observation
      * cannot record, or it reads a custom property one redefines) or
-     * `!value` (not a plain colour, absolute length or family stack).
+     * `!value` (not a plain colour, absolute length or family stack). A
+     * font size relative to the parent's (`inherit`, `unset`, `em`, `%`,
+     * `smaller`, `larger`) carries the parent's `!breakpoint` when a media
+     * condition changes the size the parent passes down.
      *
      * @param array<string,string> $declarations
      */
-    private function recordClassStyles(DOMElement $element, array $declarations, ?float $parentPx, float $fontPx): void
+    private function recordClassStyles(DOMElement $element, array $declarations, ?float $parentPx, float $fontPx, bool $parentSizeConditional = false): void
     {
         $classes = array_values(array_unique(array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn(string $class): bool => '' !== $class)));
         if (array() === $classes) return;
@@ -526,6 +529,7 @@ final class DesignUsageCollector
         foreach ($resting as $property => $observation) {
             if ('' !== $observation && !str_starts_with($observation, '!')) $observation = $this->withVariants($element, $property, $observation, $parentPx);
             if ('' !== $observation && !str_starts_with($observation, '!') && $this->readsConditionalVariable($element, $property)) $observation = '!breakpoint';
+            if ('font-size' === $property && $parentSizeConditional && '' !== $observation && !str_starts_with($observation, '!') && self::parentRelativeFontSize($declarations['font-size'])) $observation = '!breakpoint';
             $this->classStyles[$key][$property][$observation] = true;
         }
     }
@@ -613,10 +617,16 @@ final class DesignUsageCollector
         return 1 === count($tokens) ? self::colorObservation($tokens[0]) : '!value';
     }
 
+    /** Whether a font-size value is computed from the parent's size. */
+    private static function parentRelativeFontSize(string $value): bool
+    {
+        return 1 === preg_match('/^(?:inherit|unset|smaller|larger|(?:\d+\.?\d*|\.\d+)(?:%|em))$/i', trim($value));
+    }
+
     private function fontSizeObservation(string $value, ?float $parentPx): string
     {
         if (1 === preg_match('/!\s*important\s*$/i', $value)) return '!important';
-        if (null === $parentPx && 1 === preg_match('/^(?:inherit|unset|smaller|larger|(?:\d+\.?\d*|\.\d+)(?:%|em))$/i', trim($value))) return '!value';
+        if (null === $parentPx && self::parentRelativeFontSize($value)) return '!value';
         $px = $this->fontSize($value, $parentPx ?? 16.0);
         return null === $px ? '!value' : CssLength::format($px);
     }

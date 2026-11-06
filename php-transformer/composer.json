@@ -722,6 +722,7 @@
       "php tests/unit/design-usage-media-font-shorthand.php",
       "php tests/unit/responsive-font-size-not-baked.php",
       "php tests/unit/inherited-font-size-preset-binding.php",
+      "php tests/unit/relative-font-size-under-responsive-parent.php",
       "php tests/unit/hoisted-font-size.php",
       "php tests/unit/heading-block-span-font-size.php",
       "php tests/unit/color-scheme-variant.php",
