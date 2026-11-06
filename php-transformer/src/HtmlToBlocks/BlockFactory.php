@@ -21,6 +21,9 @@ final class BlockFactory
      */
     private const GROUP_TAG_NAMES = array( 'div', 'header', 'nav', 'section', 'article', 'aside', 'footer', 'main', 'search', 'ul', 'ol', 'menu', 'li', 'form' );
 
+    /** Wrapper elements core/cover's HTML element control offers. */
+    public const COVER_TAG_NAMES = array( 'div', 'header', 'main', 'section', 'article', 'aside', 'footer' );
+
     private ?StyleAttributeMapper $styleMapper = null;
 
     private ?Runtime $runtime = null;
@@ -600,12 +603,14 @@ final class BlockFactory
             'style'       => implode(';', $overlayStyles),
         )) . '></span>';
 
+        $tag = in_array($attrs['tagName'] ?? null, self::COVER_TAG_NAMES, true) ? (string) $attrs['tagName'] : 'div';
+
         return array(
-            'opening' => '<div' . $this->blockSupportAttrs($wrapperAttrs, 'wp-block-cover') . '>'
+            'opening' => '<' . $tag . $this->blockSupportAttrs($wrapperAttrs, 'wp-block-cover') . '>'
                 . $imageHtml
                 . $overlayHtml
                 . '<div class="wp-block-cover__inner-container">',
-            'closing' => '</div></div>',
+            'closing' => '</div></' . $tag . '>',
         );
     }
 

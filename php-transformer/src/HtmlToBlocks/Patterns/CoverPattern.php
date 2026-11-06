@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
@@ -230,6 +231,11 @@ final class CoverPattern implements PatternRecognizerInterface
             }
         } catch ( Throwable ) {
             // Omit underivable focal-point attributes.
+        }
+
+        $sourceTag = strtolower($element->tagName);
+        if ( 'div' !== $sourceTag && in_array($sourceTag, BlockFactory::COVER_TAG_NAMES, true) ) {
+            $attrs['tagName'] = $sourceTag;
         }
 
         try {

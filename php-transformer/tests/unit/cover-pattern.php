@@ -39,6 +39,8 @@ foreach ( array( 'block', 'flex', 'grid' ) as $display ) {
         $hero = $result['blocks'][0] ?? array();
         $assertSame('core/cover', $hero['blockName'] ?? null, $display . ' hero is editable.');
         $assertSame(25, $hero['attrs']['dimRatio'] ?? null, 'Source overlay is not rounded to tens.');
+        $assertSame('section', $hero['attrs']['tagName'] ?? null, 'Cover keeps the source landmark element.');
+        $assertTrue(str_contains($result['serialized_blocks'], '<section class="wp-block-cover') && str_contains($result['serialized_blocks'], '</div></section>'), 'Cover saves its tagName wrapper.');
         $assertTrue(! str_contains($result['serialized_blocks'], 'opacity:'), 'Saved overlay omits inline opacity, as core save does.');
         $assertTrue(str_contains($result['serialized_blocks'], 'has-background-dim-30 has-background-dim'), 'Saved overlay expresses dimRatio through the rounded core class.');
         if ( 'block' !== $display ) {
