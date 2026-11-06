@@ -1314,6 +1314,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $this->svgArtworkBlock($element, $this->svgMaterializer->restoreSvgCasing($this->svgMaterializer->sanitizeInlineSvgMarkup($element)));
     }
 
+    private ?\Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CodePresentation $codePresentation = null;
+
     /**
      * Collaborator surface for {@see TextLeafElementConverter}. Enumerating the
      * operations here is the point: the converter cannot reach transformer
@@ -1322,8 +1324,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private function createTextLeafElementContext(): TextLeafElementContext
     {
         return new TextLeafElementContext(
-            fn (DOMElement $pre, DOMElement $code): array => $this->codePresentationAttributes($pre, $code),
-            fn (DOMElement $code): string => $this->codeContent($code),
+            $this->codePresentation ??= new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CodePresentation($this->styleResolver),
             function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
                 return $this->convertChildren($element, $fallbacks, $captureUnsupported);
             }
@@ -3958,10 +3959,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             new QuotePatternContext(
                 fn (DOMElement $sourceElement): string => $this->citationFromElement($sourceElement)
             ),
-            new CodeWindowPatternContext(
-                fn (DOMElement $sourcePre, DOMElement $sourceCode): array => $this->codePresentationAttributes($sourcePre, $sourceCode),
-                fn (DOMElement $sourceCode): string => $this->codeContent($sourceCode)
-            ),
+            new CodeWindowPatternContext($this->codePresentation ??= new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CodePresentation($this->styleResolver)),
             new LogoPatternContext(
                 $this->styleResolver,
                 function (DOMElement $element, array &$fallbacks): void { $this->captureInlineSvgFallback($element, $fallbacks); }
@@ -4056,10 +4054,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             markupContext: new MarkupPatternContext(
                 $this->session
             ),
-            codeWindowContext: new CodeWindowPatternContext(
-                fn (DOMElement $sourcePre, DOMElement $sourceCode): array => $this->codePresentationAttributes($sourcePre, $sourceCode),
-                fn (DOMElement $sourceCode): string => $this->codeContent($sourceCode)
-            ),
+            codeWindowContext: new CodeWindowPatternContext($this->codePresentation ??= new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CodePresentation($this->styleResolver)),
             logoContext: new LogoPatternContext(
                 $this->styleResolver
             ),
@@ -12526,62 +12521,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         });
 
         return implode(' ', $classes);
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function codePresentationAttributes(DOMElement $pre, DOMElement $code): array
-    {
-        $attrs = $this->styleResolver->presentationAttributes($pre);
-        $codeClassName = $this->attr($code, 'class');
-        if ( '' !== trim($codeClassName) ) {
-            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $codeClassName);
-        }
-
-        return array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
-    }
-
-    /**
-     * core/code content is a RichText value: always HTML. Plain code text is
-     * escaped here, so text that mentions markup (`&lt;span&gt;`) stays text.
-     */
-    private function codeContent(DOMElement $code): string
-    {
-        foreach ( $code->childNodes as $child ) {
-            if ( $child instanceof DOMElement ) {
-                return $this->sanitizedSyntaxHtml($code);
-            }
-        }
-
-        return htmlspecialchars($code->textContent ?? '', ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8');
-    }
-
-    private function sanitizedSyntaxHtml(DOMElement $element): string
-    {
-        $html = '';
-        foreach ( $element->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType ) {
-                $html .= htmlspecialchars($child->textContent ?? '', ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8');
-                continue;
-            }
-
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-
-            $tagName = strtolower($child->tagName);
-            if ( in_array($tagName, array( 'span', 'mark', 'b', 'strong', 'i', 'em' ), true) ) {
-                $attrs = array_intersect_key($this->htmlAttributes($child), array_flip(array( 'class', 'data-token', 'title' )));
-                $attrs = array_filter($attrs, static fn (string $value): bool => '' !== $value && strlen($value) <= 200 && ! preg_match('/javascript\s*:/i', $value));
-                $html .= '<' . $tagName . $this->htmlAttributeString($attrs) . '>' . $this->sanitizedSyntaxHtml($child) . '</' . $tagName . '>';
-                continue;
-            }
-
-            $html .= htmlspecialchars($child->textContent ?? '', ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8');
-        }
-
-        return $html;
     }
 
 }

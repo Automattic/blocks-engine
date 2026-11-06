@@ -15,6 +15,7 @@ require __DIR__ . '/../../vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TextLeafElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TextLeafElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CodePresentation;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\RichTextMaterializationFixture;
@@ -49,8 +50,6 @@ $makeConverter = static function (array $overrides = array()): TextLeafElementCo
             }
             return null;
         },
-        'codePresentationAttributes'    => static fn (DOMElement $pre, DOMElement $code): array => array('code' => true),
-        'codeContent'                   => static fn (DOMElement $c): string => (string) $c->textContent,
         'convertChildren'               => static function (DOMElement $e, array &$f, bool $c): array {
             return array();
         },
@@ -59,8 +58,7 @@ $makeConverter = static function (array $overrides = array()): TextLeafElementCo
     $c = array_merge($defaults, $overrides);
 
     return new TextLeafElementConverter(new RichTextMaterializationFixture(array( 'content' => $c['richTextContent'] )), new Runtime(), $c['createBlock'], new ElementPresentationResolverFixture($c['presentationAttributes']), new SourceElementClassifier(), new TextLeafElementContext(
-        $c['codePresentationAttributes'],
-        $c['codeContent'],
+        new CodePresentation(new ElementPresentationResolverFixture(static fn (DOMElement $pre): array => array('code' => true))),
         $c['convertChildren']
     ));
 };
