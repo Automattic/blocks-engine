@@ -44,10 +44,12 @@ final class FormDispatcher
 
         // Choice-only state needs runtime behavior, not provider substitution.
         // Reuse the button-only preference path: readable blocks and one island.
-        if ( 'preference' === FormRuntimeRequirementAnalyzer::formIntent($element) ) {
+        if ( FormRuntimeRequirementAnalyzer::collectsOnlyChoices($element) ) {
             $readableFormBlock = $this->context->buildReadableFormBlock($element, true, $fallbacks);
-            $this->context->recordForm($element, $readableFormBlock);
-            return $readableFormBlock;
+            if ( null !== $readableFormBlock ) {
+                $this->context->recordForm($element, $readableFormBlock);
+                return $readableFormBlock;
+            }
         }
 
         $hasChoiceGroups = FormControlClassifier::hasCapturedChoiceGroups($element);
