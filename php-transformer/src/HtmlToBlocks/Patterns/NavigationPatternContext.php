@@ -638,20 +638,26 @@ final class NavigationPatternContext
      */
     public function recordNavigationSubjects(array &$blocks, DOMElement $source): void
     {
-        // Item classes live in a shared wp_navigation post. Qualify those
-        // shared target classes by the per-reference host, not item positions:
-        // repeated subjects then share one address, including in submenus.
-        $targets = array();
-        $collect = static function (array $items) use (&$collect, &$targets): void {
+        // Keep distinct source presentations on their structural carriers.
+        // Equally styled sibling runs share one structural address, which
+        // survives menu consolidation even when placement markers differ.
+        $targets = $levelCounts = array();
+        $collect = static function (array $items, string $parent) use (&$collect, &$targets, &$levelCounts): void {
+            $position = 0;
+            $levelCounts[$parent] = count(array_filter($items, static fn(array $item): bool => in_array($item['blockName'] ?? '', array('core/navigation-link', 'core/navigation-submenu'), true)));
             foreach ($items as $block) {
                 if (!in_array($block['blockName'] ?? '', array('core/navigation-link', 'core/navigation-submenu'), true)) continue;
+                $item = $parent . '>.wp-block-navigation-item:nth-child(' . (++$position) . ')';
                 foreach (preg_split('/\s+/', trim($block['attrs']['className'] ?? '')) ?: array() as $marker) {
-                    if (str_starts_with($marker, 'blocks-engine-navigation-')) $targets[$marker][] = ' .wp-block-navigation-item.' . $marker;
+                    if (!str_starts_with($marker, 'blocks-engine-navigation-')) continue;
+                    $targets[$marker][] = $item;
                 }
+                $boxTarget = $item;
                 foreach ($block['attrs']['metadata']['blocksEngineNavigationAnchor']['boxes'] ?? array() as $box) {
-                    $targets[$box['marker']][] = ' .wp-block-navigation-item .' . $box['marker'];
+                    $boxTarget .= '>' . $box['tag'];
+                    $targets[$box['marker']][] = $boxTarget;
                 }
-                $collect($block['innerBlocks'] ?? array());
+                $collect($block['innerBlocks'] ?? array(), $item . '>.wp-block-navigation__submenu-container');
             }
         };
         foreach ($blocks as &$block) {
@@ -662,8 +668,25 @@ final class NavigationPatternContext
                 continue;
             }
             $current = $this->withoutCurrentItemPresentation($block);
-            $targets = array();
-            $collect($block['innerBlocks'] ?? array());
+            $targets = $levelCounts = array();
+            $collect($block['innerBlocks'] ?? array(), '');
+            foreach ($targets as $marker => $paths) {
+                foreach (array_reverse($levelCounts, true) as $parent => $count) {
+                    $pattern = '/^' . preg_quote($parent, '/') . '>\\.wp-block-navigation-item:nth-child\\([0-9]+\\)(.*)$/';
+                    $groups = array();
+                    foreach ($paths as $path) {
+                        if (preg_match($pattern, $path, $match)) $groups[$match[1]][] = $path;
+                    }
+                    foreach ($groups as $suffix => $members) {
+                        if (count($members) !== $count || $count < 2) continue;
+                        $paths = array_values(array_diff($paths, $members));
+                        $paths[] = $parent . '>.wp-block-navigation-item' . $suffix;
+                    }
+                }
+                $targets[$marker] = str_starts_with($marker, 'blocks-engine-navigation-anchor-') && count($targets[$marker]) > 1
+                    ? array(' .wp-block-navigation-item.' . $marker)
+                    : $paths;
+            }
             if (array() === $targets && array() === $current) {
                 $this->publishInheritedNavigationPresentation($block, $source, '');
                 continue;
@@ -674,6 +697,11 @@ final class NavigationPatternContext
             // An ancestor may record this same emitted block again. Its first
             // correspondence owns the instance and all subsequent projections.
             preg_match('/(?:^|\s)(blocks-engine-navigation-instance-[a-f0-9]{12}-[0-9]+)(?:\s|$)/', (string) ($block['attrs']['className'] ?? ''), $existing);
+            // Instance identity describes resting subjects, not how many of
+            // their structural addresses collapsed on this captured route.
+            foreach ($resting as $marker => $addresses) {
+                $resting[$marker] = array(' .wp-block-navigation-item' . (str_starts_with($marker, 'blocks-engine-navigation-box-') ? ' .' : '.') . $marker);
+            }
             $scope = $existing[1] ?? $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-instance', $this->navigationSourceIdentity($source) . json_encode($resting));
             $block['attrs']['className'] = SourceDom::mergeClassNames($block['attrs']['className'] ?? '', $scope);
             $this->recordCurrentItemPresentation($current, $scope, $source);

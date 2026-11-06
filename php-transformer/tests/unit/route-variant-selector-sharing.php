@@ -47,4 +47,23 @@ foreach (array(2, 24, 80) as $count) {
     $assert(strlen($css) < 512, 'repeated targets use a constant-size shared selector');
     echo 'navigation ' . $count . ': ' . strlen($css) . " bytes\n";
 }
+// A positional source rule makes otherwise identical links distinct subjects.
+// Preserve those per-item addresses and verify the compiled cascade, including
+// retained source wrappers, rather than merely checking selector spelling.
+$source = '<html><head><style>nav li a:focus{outline:none}nav li:nth-child(2) a{color:blue}nav li:nth-child(1) a{color:red}.label{font-size:18px}</style></head><body><nav><ul><li><div class="label"><a href="/a">A</a></div></li><li><div class="label"><a href="/b">B</a></div></li></ul></nav></body></html>';
+$result = (new ArtifactCompiler())->compile(array('files' => array(array('path' => 'index.html', 'kind' => 'html', 'content' => $source))))->toArray();
+$html = \Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($result['serialized_blocks']);
+$dom = new DOMDocument();
+@$dom->loadHTML($html);
+$css = implode("\n", array_column(array_filter($result['assets'], static fn(array $asset): bool => 'editor' !== ($asset['stylesheet_target'] ?? 'both')), 'content'));
+$cascade = new \Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticCssCascade($dom, $css);
+$colors = array();
+foreach ($dom->getElementsByTagName('a') as $link) {
+    $style = $cascade->resolve($link, array('color', 'font-size'), array('font-size'));
+    $colors[] = $style['color'] ?? '';
+
+}
+$assert(str_contains($result['serialized_blocks'], '"boxes":[{"tag":"div"') && str_contains($css, '.wp-block-navigation-item>div') && str_contains($css, 'font-size:18px'), 'shared typography stays on retained label wrappers');
+$assert(array('red', 'blue') === $colors, 'different source styling retains separate per-item targets');
+$assert(str_contains($css, 'nth-child(1)') && str_contains($css, 'nth-child(2)'), 'only distinct subjects retain positional addresses');
 exit($failures ? 1 : 0);
