@@ -4463,6 +4463,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return array( 'handled' => false, 'block' => null );
         }
         if ( 'unproven' === $decision['disposition'] ) {
+            // A host the source cascade hides at every viewport renders
+            // nothing there, so omitting it loses no content or behavior.
+            if ( $this->styleResolver->isDisplayNoneAtEveryViewport($element) ) {
+                return array( 'handled' => true, 'block' => null );
+            }
             $fallbacks[] = FallbackDiagnostic::build(array(
                 'type'            => 'missing_functional_content',
                 'reason'          => CustomElementRuntimeDependency::UNPROVEN_REASON,
