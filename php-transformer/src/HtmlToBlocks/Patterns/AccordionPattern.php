@@ -293,7 +293,16 @@ final class AccordionPattern implements PatternRecognizerInterface
         if ( 0 === $offset ) {
             return array();
         }
-        $items = $this->itemRun(array_slice($children, $offset), $signalRoots);
+        // Native <details> already map 1:1 to core/details, so a heading-led
+        // run of them stays as authored; only scripted disclosures need the
+        // accordion to keep their collapsed state.
+        $run = array_slice($children, $offset);
+        foreach ( $run as $child ) {
+            if ( 'details' === strtolower($child->tagName) ) {
+                return array();
+            }
+        }
+        $items = $this->itemRun($run, $signalRoots);
         if ( array() !== $items ) {
             $leading = array_slice($children, 0, $offset);
         }

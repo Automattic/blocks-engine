@@ -4,7 +4,8 @@ declare(strict_types=1);
 // A disclosure group whose items follow a leading heading is still recognized
 // as core/accordion: the heading stays an ordinary heading before the
 // accordion and the CSS-collapsed, inert panels start closed. Non-items
-// interleaved with or trailing the items do not form an accordion (#4765).
+// interleaved with or trailing the items do not form an accordion, and a
+// heading-led run of native <details> stays core/details (#4765).
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
@@ -37,6 +38,7 @@ foreach (array(
 foreach (array(
     'interleaved' => $first . '<h3>More</h3>' . $second,
     'trailing' => '<h3>General</h3>' . $first . $second . '<p>Still stuck? Contact us.</p>',
+    'native details' => '<h3>General</h3><details><summary>First?</summary><p>One.</p></details><details><summary>Second?</summary><p>Two.</p></details>',
 ) as $label => $group) {
     if (str_contains($transform($group), '<!-- wp:accordion')) $fail("{$label}: non-items outside a leading run do not form an accordion", $transform($group));
 }
