@@ -862,6 +862,111 @@ final class NavigationPatternContext
         return $marker;
     }
 
+    /** Carry an out-of-flow label's sizing independently of anchor subject splitting. */
+    public function navigationLabelWidthMarker(DOMElement $anchor): string
+    {
+        if (!$this->session instanceof HtmlTransformerSession || !$this->styleResolver instanceof StyleResolver
+            || $this->isRuntimeDomTarget($anchor)) return '';
+        $width = $this->absoluteLabelSizingWidth($anchor);
+        if ('' === $width) return '';
+        $marker = $this->navigationSubjectMarker($anchor, 'label-width');
+        $target = '.wp-block-navigation .wp-block-navigation-item.' . $marker . ' :where(.wp-block-navigation-item__content)';
+        // Out-of-flow layers contribute no intrinsic width to Core's flex
+        // item. Size the new carriers without changing placement or height.
+        $source = SourceDom::elementSelector($anchor);
+        $this->sourceTargetProjection?->record($source, '.wp-block-navigation .wp-block-navigation-item.' . $marker, 'width:' . $width . ';flex-shrink:0');
+        $this->sourceTargetProjection?->record($source, $target, 'width:' . $width);
+        $this->sourceTargetProjection?->record($source, $target . '>.wp-block-navigation-item__label', 'display:block;width:100%');
+        return $marker;
+    }
+
+    /**
+     * Restore an authored sizing box only when the label has no intrinsic
+     * in-flow content. Reach an item-local ancestor through stretching boxes,
+     * never crossing a list boundary or a box shared with another item.
+     */
+    private function absoluteLabelSizingWidth(DOMElement $anchor): string
+    {
+        $anchorStyle = $this->styleResolver->referenceViewportAuthorDeclarations($anchor, array('width'));
+        if (isset($anchorStyle['width']) && 'auto' !== $anchorStyle['width']) return '';
+        $outOfFlow = false;
+        if ($this->labelHasIntrinsicContent($anchor, $outOfFlow) || !$outOfFlow) return '';
+        for ($node = $anchor; $node instanceof DOMElement; $node = $node->parentNode) {
+            $style = $this->styleResolver->referenceViewportAuthorDeclarations($node, array('display', 'width', 'position', 'left', 'right'));
+            $width = trim((string) ($style['width'] ?? ''));
+            if (CssValueInspector::isAbsoluteLength($width)) return $width;
+            if (!$this->isStretchingLabelBox($node, $style)) break;
+            $parent = $node->parentNode;
+            if (!$parent instanceof DOMElement
+                || in_array(strtolower($parent->tagName), array('nav', 'ul', 'ol', 'menu', 'body', 'header'), true)
+                || in_array(strtolower($parent->getAttribute('role')), array('navigation', 'menubar', 'menu', 'list'), true)) break;
+            // A wrapper with another element or in-flow text is not an
+            // exclusive sizing box for this item, even if it has a width.
+            foreach ($parent->childNodes as $child) {
+                if ($child->isSameNode($node) || XML_COMMENT_NODE === $child->nodeType) continue;
+                if ($child instanceof DOMElement && 'none' === ($this->styleResolver->referenceViewportAuthorDeclarations($child, array('display'))['display'] ?? '')) continue;
+                if ($child instanceof DOMElement || '' !== trim($child->textContent)) break 2;
+            }
+        }
+        // Some captures put the definite sizing box inside the anchor instead.
+        return $this->absoluteDescendantLabelWidth($anchor, false);
+    }
+
+    /** Ignore out-of-flow paint, but never force a width over in-flow text or artwork. */
+    private function labelHasIntrinsicContent(DOMElement $node, bool &$outOfFlow): bool
+    {
+        foreach ($node->childNodes as $child) {
+            if (!$child instanceof DOMElement) {
+                if ('' !== trim($child->textContent)) return true;
+                continue;
+            }
+            $style = $this->styleResolver->referenceViewportAuthorDeclarations($child, array('position', 'display'));
+            if ('none' === ($style['display'] ?? '')) continue;
+            if (in_array($style['position'] ?? '', array('absolute', 'fixed'), true)) {
+                $outOfFlow = true;
+                continue;
+            }
+            if (in_array(strtolower($child->tagName), array('img', 'svg', 'video', 'canvas', 'input'), true)
+                || $this->labelHasIntrinsicContent($child, $outOfFlow)) return true;
+        }
+        return false;
+    }
+
+    /** @param array<string, string> $style */
+    private function isStretchingLabelBox(DOMElement $node, array $style): bool
+    {
+        $width = trim((string) ($style['width'] ?? ''));
+        if ('100%' === $width) return true;
+        if (!in_array($width, array('', 'auto'), true)) return false;
+        if (in_array($style['position'] ?? '', array('absolute', 'fixed'), true)) {
+            return in_array($style['left'] ?? '', array('0', '0px'), true) && in_array($style['right'] ?? '', array('0', '0px'), true);
+        }
+        $display = $style['display'] ?? (1 === preg_match('/^(?:' . NavigationPattern::BLOCK_LEVEL_LABEL_TAGS . ')$/i', $node->tagName) ? 'block' : 'inline');
+        return in_array($display, array('block', 'flex', 'grid', 'flow-root'), true);
+    }
+
+    /** Find a definite descendant sizing box without assuming a single-child chain. */
+    private function absoluteDescendantLabelWidth(DOMElement $node, bool $outOfFlow): string
+    {
+        $widths = array();
+        foreach ($node->childNodes as $child) {
+            if (!$child instanceof DOMElement) continue;
+            $style = $this->styleResolver->referenceViewportAuthorDeclarations($child, array('width', 'position', 'display'));
+            if ('none' === ($style['display'] ?? '')) continue;
+            $absolute = $outOfFlow || in_array($style['position'] ?? '', array('absolute', 'fixed'), true);
+            $width = trim((string) ($style['width'] ?? ''));
+            if (CssValueInspector::isAbsoluteLength($width)) {
+                if ($absolute) $widths[] = $width;
+                continue;
+            }
+            if (!in_array($width, array('', 'auto', '100%'), true)) continue;
+            $width = $this->absoluteDescendantLabelWidth($child, $absolute);
+            if ('' !== $width) $widths[] = $width;
+        }
+        $widths = array_values(array_unique($widths));
+        return 1 === count($widths) ? $widths[0] : '';
+    }
+
     /** Only an inline source link lets a block child's height bypass it. */
     private function inlineAnchorCarriesPercentageHeight(DOMElement $anchor): bool
     {
