@@ -47,6 +47,19 @@ final class CaptureEvidence
     public const MOBILE_DOCUMENT_CLASS = 'data-blocks-engine-capture-mobile-document';
     /** Class on the root of the desktop (default) copy of a responsive capture. */
     public const DESKTOP_DOCUMENT_CLASS = 'data-blocks-engine-capture-desktop-document';
+
+    /** Device profile named by a capture document class (`data-blocks-engine-capture-<profile>-document`), or null. */
+    public static function deviceDocumentProfile(string $class): ?string
+    {
+        return 1 === preg_match('/^' . preg_quote(self::ATTRIBUTE_PREFIX, '/') . '([a-z][a-z0-9_-]{0,63})-document$/', $class, $match) ? $match[1] : null;
+    }
+
+    /** Whether a class is the root class of one device document of a responsive capture. */
+    public static function isDeviceDocumentClass(string $class): bool
+    {
+        return null !== self::deviceDocumentProfile($class);
+    }
+
     /** Class prefix hooking an id-less element's width-scoped style rules; followed by 12 lowercase hex digits. */
     public const RESPONSIVE_PROJECTION_CLASS_PREFIX = 'data-blocks-engine-capture-responsive-';
     /** Class prefix pairing responsive counterparts; followed by 12 lowercase hex digits. */
