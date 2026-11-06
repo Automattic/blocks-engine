@@ -20,6 +20,11 @@ foreach ( $fixture['cases'] ?? array() as $case ) {
     // scope key to the editor's otherwise byte-identical save shape.
     if ( 'core/image' === $case['block_name'] ) {
         $expected = preg_replace('/(<figure class="[^"]*)(")/', '$1 blocks-engine-image$2', (string) $expected);
+        // Preserve the historical fixture's provenance, but apply the 7.1.4
+        // image save contract: width with no height always emits height:auto.
+        if ( isset($case['attributes']['width']) && ! isset($case['attributes']['height']) ) {
+            $expected = str_replace('style="width:100%"', 'style="width:100%;height:auto"', (string) $expected);
+        }
     }
     if ( $expected !== ($block['innerHTML'] ?? null) ) {
         throw new RuntimeException('WordPress 7.0.4 save shape mismatch for ' . (string) ($case['name'] ?? 'unknown') . '.');
@@ -47,8 +52,8 @@ $image = ( new HtmlTransformer() )->transform(
     '<main><svg width="100%" viewBox="0 0 620 380" role="img" aria-label="Responsive map"><rect width="620" height="380"/></svg></main>'
 )->toArray();
 $imageMarkup = (string) ($image['serialized_blocks'] ?? '');
-if ( ! str_contains($imageMarkup, 'style="width:100%"') || str_contains($imageMarkup, 'height:auto') || str_contains($imageMarkup, 'height:380px') ) {
-    throw new RuntimeException('Percentage-width core/image must match the WordPress 7.0.4 width-only save shape.');
+if ( ! str_contains($imageMarkup, 'style="width:100%;height:auto"') || str_contains($imageMarkup, 'height:380px') ) {
+    throw new RuntimeException('Percentage-width core/image must match the WordPress 7.1.4 width-only save shape.');
 }
 
 $viewportImage = ( new HtmlTransformer() )->transform(

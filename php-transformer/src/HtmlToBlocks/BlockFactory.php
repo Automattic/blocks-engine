@@ -229,10 +229,8 @@ final class BlockFactory
             unset($attrs['minHeightUnit']);
         }
         if ( 'core/image' === $name ) {
-            // Internal-only: consumed by imageHtml() to build the caption
-            // figcaption's class list, but not a real core/image attribute —
-            // core's save() never reads it back, so it never belongs in the
-            // serialized comment.
+            // Legacy internal channel, not a core/image attribute. Core save
+            // keeps only wp-element-caption; author styles use figure carriers.
             unset($attrs['captionClassName']);
         }
         if ( 'core/media-text' === $name ) {
