@@ -34,6 +34,22 @@ trait ArtifactDiagnostics
         $seen = array();
         $deduped = array();
         foreach ( $diagnostics as $diagnostic ) {
+            if ( 'dead_projected_author_selector' === ($diagnostic['code'] ?? '') ) {
+                $key = ($diagnostic['path'] ?? '') . "\0" . ($diagnostic['source_selector'] ?? '');
+                if ( isset($seen[$key]) ) {
+                    $index = $seen[$key];
+                    foreach ( array('scopes', 'projected_selectors') as $field ) {
+                        $deduped[$index]['context'][$field] = array_values(array_unique(array_merge(
+                            $deduped[$index]['context'][$field] ?? array(),
+                            $diagnostic['context'][$field] ?? array()
+                        )));
+                    }
+                    continue;
+                }
+                $seen[$key] = count($deduped);
+                $deduped[] = $diagnostic;
+                continue;
+            }
             $key = json_encode($diagnostic, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR) ?: serialize($diagnostic);
             if ( isset($seen[$key]) ) {
                 continue;
