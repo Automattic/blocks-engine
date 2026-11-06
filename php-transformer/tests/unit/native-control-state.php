@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CaptureReplayScripts;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredControlState;
@@ -80,7 +81,7 @@ $assert('proven' === $replayPlan['reference_semantics']['dynamic_client_assets']
 $sourceWithScripts = '<script>window.before=1;</script>' . $sourceWithReplay . '<script>window.after=1;</script>';
 $scriptsPlan = (new ArtifactCompiler())->compile(array('block_namespace' => 'neutral', 'files' => array('index.html' => $sourceWithScripts)))->toArray()['source_reports']['wordpress_site_plan'];
 $assert(2 === count($scriptsPlan['pages'][0]['document_metadata']['scripts']) && 'proven' === $scriptsPlan['reference_semantics']['dynamic_client_assets']['status'], 'scripts around the discarded replay keep their own bound assets');
-$assert('<textarea>&lt;script data-blocks-engine-capture-native-control-runtime&gt;text&lt;/script&gt;</textarea>' === NativeControlState::withoutReplayScript('<textarea>&lt;script data-blocks-engine-capture-native-control-runtime&gt;text&lt;/script&gt;</textarea>'), 'source-preserving scan keeps script examples in textarea context');
+$assert('<textarea>&lt;script data-blocks-engine-capture-native-control-runtime&gt;text&lt;/script&gt;</textarea>' === CaptureReplayScripts::withoutReplayScripts('<textarea>&lt;script data-blocks-engine-capture-native-control-runtime&gt;text&lt;/script&gt;</textarea>'), 'source-preserving scan keeps script examples in textarea context');
 $assert(!str_contains(AuthoredControlState::viewScript(), 'eval(') && !str_contains(AuthoredControlState::viewScript(), 'new Function'), 'owned interpreter has no dynamic code execution');
 // A1: typed state never admits a form; submission semantics alone decide native ownership.
 $text = static fn (string $type, string $value, string $default): array => array('version' => 1, 'kind' => 'input', 'type' => $type, 'value' => $value, 'defaultValue' => $default, 'checked' => false, 'defaultChecked' => false, 'indeterminate' => false);

@@ -1159,7 +1159,7 @@ final class BlockFactory
      */
     private function textAlignmentClasses(array $attrs): string
     {
-        $align = strtolower(trim((string) ($attrs['align'] ?? '')));
+        $align = strtolower(trim((string) ($attrs['style']['typography']['textAlign'] ?? $attrs['align'] ?? '')));
         return in_array($align, array( 'left', 'center', 'right' ), true) ? 'has-text-align-' . $align : '';
     }
 

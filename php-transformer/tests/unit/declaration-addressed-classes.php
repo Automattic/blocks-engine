@@ -14,7 +14,7 @@ $address = static function (string $marker, string $css, array $context = array(
     return $identity->replacements(array(array('content' => str_replace('CONTROL', $marker, $css)) + $context))[$marker];
 };
 $base = '.CONTROL>.wp-block-button__link{COLOR: red; padding: 2px 4px;}';
-foreach (array('control', 'native-button') as $kind) {
+foreach (array('control', 'native-button', 'richtext', 'semantic') as $kind) {
     $marker = str_replace('control', $kind, $a);
     $other = str_replace('control', $kind, $b);
     foreach (array(
@@ -92,4 +92,13 @@ $largeResult = $identity->rewrite($largeFacts, $largeMap);
 foreach ($largeResult as $fact) {
     $assert($a === $fact['attrs']['className'] && $map[$path] === $fact['attrs']['stylesheet'] && 'Unchanged' === $fact['attrs']['label'], 'Nested facts share marker and path replacements without rewriting replacement values twice.');
 }
+// Repeated carriers under one positional author rule share one address, so the
+// rule keeps one arm; a carrier any other rule reaches keeps its own. Markup
+// follows, including a carrier inside JSON-escaped label HTML.
+[$first, $second, $third] = array_map(static fn (string $seed): string => 'blocks-engine-semantic-' . str_repeat($seed, 12) . '-0', array('a', 'b', 'c'));
+$sheet = ':where(.' . $first . ',.' . $second . ',.' . $third . '){margin-top:0}.' . $third . '{color:red}';
+$map = $identity->replacements(array(array('content' => $sheet)));
+$assert($map[$first] === $map[$second] && $map[$first] !== $map[$third], 'Carriers coalesce exactly when every rule reaching them agrees.');
+$label = '{"label":"Gallery \u003cspan class=\u0022' . $second . '\u0022\u003e"}';
+$assert(str_contains((string) $identity->rewrite($label, $map), '\u0022' . $map[$first] . '\u0022'), 'A carrier inside JSON-escaped label HTML follows its address.');
 echo "declaration-addressed-classes unit passed\n";

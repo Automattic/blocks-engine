@@ -13,9 +13,12 @@ $assert = static function (bool $condition, string $message): void { if (! $cond
 // route, the served route's link marked only by a class swap, and the More
 // trigger underlined (extra anchor classes) when the served route is one of
 // the overflowed links. The front page has a header of its own design whose
-// links rest differently.
+// links rest differently. The More label is a stylesheet-styled span, so its
+// projected label carries a generated semantic marker that differs by route.
+// The bar's served link also swaps atomic utility classes (no state word in
+// them): the linked stylesheet underlines it through a class.
 // The three routes share one header design, so they share one header part.
-$link = static fn (string $href, string $label, string $route, string $copy): string => '<li><a href="' . $href . '" class="' . ($href === $route ? "{$copy}-on" : "{$copy}-off") . '">' . $label . '</a></li>';
+$link = static fn (string $href, string $label, string $route, string $copy): string => '<li><a href="' . $href . '" class="' . ($href === $route ? "{$copy}-on" : "{$copy}-off") . ('bar' === $copy ? ($href === $route ? ' x-a x-u' : ' x-a x-r') : '') . '">' . $label . '</a></li>';
 $page = static function (string $route, string $title, int $number, bool $overflowed) use ($link): string {
     $links = array('/' => 'Home', '/a/' => 'Route A', '/b/' => 'Route B', '/c/' => 'Route C');
     $bar = ''; $drawer = '';
@@ -23,7 +26,7 @@ $page = static function (string $route, string $title, int $number, bool $overfl
     $header = '/' === $route
         ? '<header class="hero"><div class="hero-inner"><a href="/" class="brand">Acme</a><nav><ul>' . $bar . '</ul></nav></div></header>'
         : '<header class="bar"><a href="/" id="logo-' . $number . '" data-track="Logo.Link.' . $number . '.click" class="brand"><p>Acme</p></a>'
-            . '<nav><ul>' . $bar . '<li class="more"><a href="#" class="more-link' . ($overflowed ? ' u-line u-pad' : '') . '">More</a><ul>' . $drawer . '</ul></li></ul></nav></header>';
+            . '<nav><ul>' . $bar . '<li class="more"><a href="#" class="more-link' . ($overflowed ? ' u-line u-pad' : '') . '"><span class="more-label">More</span></a><ul>' . $drawer . '</ul></li></ul></nav></header>';
     return '<!doctype html><html><head><meta charset="utf-8"><title>' . $title . '</title><link rel="stylesheet" href="/style.css"></head><body>'
         . $header . '<main class="content"><h1>' . $title . '</h1><p>' . $title . ' body text.</p></main>'
         . '<footer class="foot"><p>Copyright 2026 Acme. All rights reserved.</p></footer></body></html>';
@@ -34,7 +37,7 @@ $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'f
     'b/index.html' => $page('/b/', 'Route B', 303, true),
     'c/index.html' => $page('/c/', 'Route C', 404, true),
     'style.css' => '.bar,.hero{display:flex;padding:16px;background:#222}.hero-inner{display:flex;gap:8px}.brand{color:#fff}'
-        . '.hero-off{color:#eee}.hero-on{color:#0ff}.bar-off{color:#fff}.bar-on{color:#ff0}.drawer-off{color:#ccc}.drawer-on{color:#f0f}.more-link{color:#fff}.u-line{border-bottom:1px solid}.u-pad{padding-bottom:4px}',
+        . '.hero-off{color:#eee}.hero-on{color:#0ff}.bar-off{color:#fff}.bar-on{color:#ff0}.drawer-off{color:#ccc}.drawer-on{color:#f0f}.more-link{color:#fff}.u-line{border-bottom:1px solid}.u-pad{padding-bottom:4px}.more-label{margin-right:4px}.x-a{line-height:1.5}.x-r{padding-bottom:6px}.x-u{border-bottom:2px solid #f00}',
 )))->toArray()['source_reports']['wordpress_site_plan'];
 WordPressSitePlan::assertValid($plan);
 
@@ -53,4 +56,17 @@ $menus = array_values(array_filter(array_column($plan['menus'], 'block_markup'),
 $assert(1 === count($menus), 'One overflow navigation entity serves its routes, got ' . count($menus));
 $assert(!str_contains($menus[0], '-on') && !str_contains($menus[0], 'u-line') && !str_contains($menus[0], 'u-pad'), 'Every menu item carries its resting presentation: ' . $menus[0]);
 $assert(str_contains($menus[0], 'more-link') && str_contains($menus[0], 'drawer-off'), 'The overflow trigger and its links keep their own resting classes.');
+
+// The part was taken from one route, yet its stylesheet underlines no item by
+// position: the served link's class-borne underline follows Core's current item.
+$underlines = array();
+foreach ($plan['assets'] as $asset) {
+    if ('css' !== ($asset['kind'] ?? null)) continue;
+    preg_match_all('/([^{}]+)\{[^{}]*border-bottom:\s*2px solid #f00[^{}]*\}/i', (string) ($asset['content'] ?? ''), $matches);
+    array_push($underlines, ...array_filter($matches[1], static fn(string $selector): bool => str_contains($selector, "wp-block-navigation")));
+}
+$assert(array() !== $underlines, 'The served link keeps its class-borne underline.');
+foreach ($underlines as $selector) {
+    $assert(!str_contains($selector, ':nth-child(') && (str_contains($selector, 'aria-current') || str_contains($selector, 'current-menu-item')), 'The underline follows the served route, not one captured item: ' . trim($selector));
+}
 echo "overflow-menu-route-state-shared-header: ok\n";

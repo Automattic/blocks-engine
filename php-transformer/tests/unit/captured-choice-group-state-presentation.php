@@ -60,7 +60,7 @@ $assert(str_contains($viewJs, "'data-blocks-engine-choice-active'"), 'the runtim
 
 // The baseline still renders the source state (the static inline paint), so
 // the state rules must be able to outrank it once a selection is made.
-$assert(str_contains($markup, 'style="color:#fff;background-color:#122a4d">One<'), 'before any selection the source state is rendered');
+$assert(str_contains($markup, 'style="border-radius:0px;color:#fff;background-color:#122a4d">One<'), 'before any selection the source state is rendered');
 
 $groupClass = '';
 if (1 === preg_match('/<div id="g" class="([^"]*)" data-blocks-engine-choice-group="true"/', $markup, $match)) {

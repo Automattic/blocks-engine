@@ -192,6 +192,20 @@ final class AuthorSelectorProjectionState
         return $marker;
     }
 
+    /** @var array<string, true> Source items whose native item renders Core's submenu toggle in their row. */
+    private array $navigationToggleRowItems = array();
+
+    /** Record a source item whose disclosure glyph Core's toggle replaces beside its content. */
+    public function markNavigationToggleRowItem(string $path): void
+    {
+        $this->navigationToggleRowItems[$path] = true;
+    }
+
+    public function isNavigationToggleRowItem(string $path): bool
+    {
+        return isset($this->navigationToggleRowItems[$path]);
+    }
+
     public function navigationListShownDisplay(string $path): string
     {
         return $this->navigationListShownDisplays[$path] ?? 'flex';

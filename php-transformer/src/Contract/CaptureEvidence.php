@@ -40,6 +40,8 @@ final class CaptureEvidence
     public const DEVICE_ONLY = 'data-blocks-engine-capture-device-only';
     /** Device profile on which this element's subtree is hidden. */
     public const DEVICE_HIDE = 'data-blocks-engine-capture-device-hide';
+    /** On `<html>`: the profile the device-selection runtime selected; written at runtime. */
+    public const SELECTED_DOCUMENT = 'data-blocks-engine-capture-selected-document';
 
     /** Capture runtime stylesheet selecting which device document or subtree is shown. */
     public const DEVICE_VISIBILITY = 'data-blocks-engine-capture-device-visibility';
@@ -47,6 +49,19 @@ final class CaptureEvidence
     public const MOBILE_DOCUMENT_CLASS = 'data-blocks-engine-capture-mobile-document';
     /** Class on the root of the desktop (default) copy of a responsive capture. */
     public const DESKTOP_DOCUMENT_CLASS = 'data-blocks-engine-capture-desktop-document';
+
+    /** Device profile named by a capture document class (`data-blocks-engine-capture-<profile>-document`), or null. */
+    public static function deviceDocumentProfile(string $class): ?string
+    {
+        return 1 === preg_match('/^' . preg_quote(self::ATTRIBUTE_PREFIX, '/') . '([a-z][a-z0-9_-]{0,63})-document$/', $class, $match) ? $match[1] : null;
+    }
+
+    /** Whether a class is the root class of one device document of a responsive capture. */
+    public static function isDeviceDocumentClass(string $class): bool
+    {
+        return null !== self::deviceDocumentProfile($class);
+    }
+
     /** Class prefix hooking an id-less element's width-scoped style rules; followed by 12 lowercase hex digits. */
     public const RESPONSIVE_PROJECTION_CLASS_PREFIX = 'data-blocks-engine-capture-responsive-';
     /** Class prefix pairing responsive counterparts; followed by 12 lowercase hex digits. */
@@ -263,8 +278,6 @@ final class CaptureEvidence
 
     /** Marker on the capture's device-selection bootstrap `<script>` in `<head>`. */
     public const DEVICE_SELECTION = 'data-blocks-engine-capture-device-selection';
-    /** On `<html>`: the profile the device-selection runtime selected; written at runtime. */
-    public const SELECTED_DOCUMENT = 'data-blocks-engine-capture-selected-document';
     /** On `<html>`: set at runtime when no captured document applies to the device. */
     public const DOCUMENT_UNAVAILABLE = 'data-blocks-engine-capture-document-unavailable';
     /** On `<style>`/`<link>`: the device profile the stylesheet belongs to. */
@@ -278,7 +291,6 @@ final class CaptureEvidence
     public const PUBLISHED_FOR_DOWNSTREAM = array(
         'COMPONENT_DISCLOSURE_RUNTIME',
         'DEVICE_SELECTION',
-        'SELECTED_DOCUMENT',
         'DOCUMENT_UNAVAILABLE',
         'MEMBER_LOGIN',
         'MEMBER_LOGIN_CLASS_PREFIX',

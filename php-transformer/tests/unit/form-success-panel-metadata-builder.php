@@ -29,7 +29,7 @@ $selector = static function (DOMElement $element): string {
     $id = $element->getAttribute('id');
     return '' !== $id ? '#' . $id : strtolower($element->tagName);
 };
-$session = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession(new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime(), static fn (DOMElement $element): array => array());
+$session = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession(new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()));
 $innerHtml = static function (DOMElement $element): string {
     $html = '';
     foreach ( $element->childNodes as $child ) {

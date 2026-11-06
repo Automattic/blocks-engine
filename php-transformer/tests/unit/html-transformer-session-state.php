@@ -110,7 +110,7 @@ foreach ( array('__get', '__set', '__isset') as $magicAccessor ) {
     $assert(! $transformerReflection->hasMethod($magicAccessor), 'HtmlTransformer must not delegate state through ' . $magicAccessor . '.');
 }
 
-$unpreparedSession = new HtmlTransformerSession(new Runtime(), static fn (DOMElement $element): array => array());
+$unpreparedSession = new HtmlTransformerSession(new Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()));
 foreach ( array(
     'authorStyleAnalysis' => 'Author styles have not been prepared for this transform.',
     'layoutGeometryState' => 'Layout geometry state has not been prepared for this transform.',

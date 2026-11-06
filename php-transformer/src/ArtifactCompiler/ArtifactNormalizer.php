@@ -4,11 +4,11 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CaptureReplayScripts;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Support\InlineBodyStyle;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
 
 /**
@@ -757,6 +757,10 @@ final class ArtifactNormalizer
     {
         $rows = array();
         foreach ($files as $file) {
+            // Direct projector inputs can be unnormalized occurrence records.
+            if (in_array($file['source'] ?? '', array('inline-style', 'inline-script'), true)) {
+                $file['kind'] = 'inline-style' === $file['source'] ? 'css' : 'js';
+            }
             if (!isset($file['inline_references'])) { $rows[] = $file; continue; }
             $references = $file['inline_references'];
             unset($file['inline_references']);
@@ -802,7 +806,7 @@ final class ArtifactNormalizer
             $scriptIndex = 0;
             foreach ( HtmlTagScanner::scan($content, 'script') as $script ) {
                 ++$scriptIndex;
-                if (NativeControlState::isReplayScript($script['tag'])) continue;
+                if (CaptureReplayScripts::isReplayScript($script['tag'])) continue;
                 $attributes = $script['attributes'];
                 $body = trim($script['content']);
                 if ( '' === $body || '' !== $this->htmlAttribute($attributes, 'src') || ! $this->isExecutableScriptType($this->htmlAttribute($attributes, 'type')) ) {

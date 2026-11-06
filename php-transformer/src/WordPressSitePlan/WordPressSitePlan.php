@@ -773,9 +773,59 @@ PHP;
             $asset['theme_write_reasons'] = self::themeWriteReasons($asset['consumers'], $asset['destination']);
         }
         unset($asset);
+        $plan = self::withContentConservation($plan, $compiled['pages']);
         $plan['plan_identity'] = self::planIdentity($plan);
         self::assertValid($plan);
         return $plan;
+    }
+
+    /**
+     * Every text run a compiled document carries must survive into the plan:
+     * its own page, or a shared surface (template part, template, pattern,
+     * menu or runtime record). Text that reaches neither was dropped, so the
+     * plan counts it as content loss instead of reporting a clean conversion.
+     *
+     * @param array<string,mixed> $plan @param array<int,mixed> $documents Compiled pages.
+     * @return array<string,mixed>
+     */
+    public static function withContentConservation(array $plan, array $documents): array
+    {
+        $text = static fn(string $markup): string => preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags(preg_replace('/<!--(.*?)-->/s', ' $1 ', $markup) ?? ''), ENT_QUOTES | ENT_HTML5)) ?? '';
+        $leaves = static function (mixed $value) use (&$leaves): string {
+            if (is_string($value)) return $value;
+            return is_array($value) ? implode("\n", array_map($leaves, $value)) : '';
+        };
+        $shared = $text($leaves(array_intersect_key($plan, array_flip(array('template_parts', 'templates', 'synced_patterns', 'menus', 'runtime_records', 'runtime_entity_records')))));
+        $pages = array();
+        $byType = array();
+        foreach ($plan['pages'] as $page) {
+            $pages[$page['source_path']] = $text($leaves($page));
+            $byType[(string) ($page['post_type'] ?? '')][] = $pages[$page['source_path']];
+        }
+        // A query loop renders the titles, excerpts and bound meta of the
+        // entries it queries, so their text is carried by the listing page.
+        foreach ($plan['pages'] as $page) {
+            if (!preg_match_all('/<!-- wp:query (\{.*?\}) \/?-->/s', (string) ($page['canonical_block_markup'] ?? ''), $queries)) continue;
+            foreach ($queries[1] as $json) {
+                $type = json_decode($json, true)['query']['postType'] ?? null;
+                if (is_string($type)) $pages[$page['source_path']] .= "\n" . implode("\n", $byType[$type] ?? array());
+            }
+        }
+        $findings = array();
+        foreach ($documents as $document) {
+            if (!is_array($document) || !is_string($document['block_markup'] ?? null) || !is_string($document['source_path'] ?? null)) continue;
+            $source = preg_replace(array('/<!--.*?-->/s', '#<(script|style|template)\b[^>]*>.*?</\1\s*>#is'), '', $document['block_markup']) ?? '';
+            $lost = array();
+            foreach (preg_split('/<[^>]*>/', $source) ?: array() as $run) {
+                $run = trim(preg_replace('/\s+/u', ' ', html_entity_decode($run, ENT_QUOTES | ENT_HTML5)) ?? '');
+                if (!preg_match('/[\p{L}\p{N}].*[\p{L}\p{N}]/u', $run) || isset($lost[$run])) continue;
+                if (!str_contains($pages[$document['source_path']] ?? '', $run) && !str_contains($shared, $run)) $lost[$run] = true;
+            }
+            if (array() === $lost) continue;
+            $findings[] = array('code' => 'wordpress_site_plan_content_lost', 'severity' => 'error', 'loss_class' => 'content_loss', 'source_path' => $document['source_path'], 'lost_text_count' => count($lost), 'lost_text' => array_slice(array_keys($lost), 0, 5), 'message' => 'Compiled document text is missing from its page and from every shared surface in the plan.');
+        }
+        $plan['quality']['metrics']['content_loss_count'] = count($findings);
+        return array() === $findings ? $plan : self::withFindings($plan, $findings);
     }
 
     /**
@@ -3159,7 +3209,7 @@ PHP;
             $collect($reference);
             return $reference;
         });
-        if (preg_match_all('/@import\s+(?:url\(\s*)?(?:"([^"]*)"|\'([^\']*)\'|([^\s\)"\';]+))/i', $css, $matches, PREG_SET_ORDER)) foreach ($matches as $match) $collect((string) (($match[1] ?? '') ?: ($match[2] ?? '') ?: ($match[3] ?? '')));
+        if (preg_match_all('/@import\s+(?:url\(\s*)?(?:"([^"]*)"|\'([^\']*)\'|([^\s\)"\';]+))/i', \Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner::withoutComments($css), $matches, PREG_SET_ORDER)) foreach ($matches as $match) $collect((string) (($match[1] ?? '') ?: ($match[2] ?? '') ?: ($match[3] ?? '')));
         return $references;
     }
 
@@ -3540,6 +3590,11 @@ PHP;
     private function decideDocuments(mixed $documents): array
     {
         if (!is_array($documents)) throw new InvalidArgumentException('Compiled site documents must be an array.');
+        // WordPress owns year/month/day archives natively. Their visible dates,
+        // article metadata and dated paths describe a query, not a publication.
+        // Keep the capture in the source catalog, but out of content, route and
+        // taxonomy inference entirely (including listing-card date inference).
+        $documents = array_values(array_filter($documents, static fn(mixed $document): bool => !is_array($document) || !self::isDateArchiveDocument($document)));
         $entryRoot = self::entryRootFromDocuments($documents);
         $routes = array();
         $evidenceByIndex = array();
@@ -3818,6 +3873,21 @@ PHP;
         }
         $paths = array_keys($catalog); $sorted = $paths; sort($sorted, SORT_STRING); if ($paths !== $sorted) throw new InvalidArgumentException('WordPress site plan source document catalog must be sorted.');
         return $catalog;
+    }
+    /** @param array<string,mixed> $document */
+    private static function isDateArchiveDocument(array $document): bool
+    {
+        $class = $document['document_metadata']['body_attributes']['class'] ?? null;
+        if (!is_string($class)) {
+            foreach (HtmlMarkupParser::htmlMarkupNodes((string) ($document['html'] ?? '')) as $node) {
+                if ('tag' === ($node['kind'] ?? null) && 'body' === ($node['name'] ?? null)) {
+                    $class = $node['attributes']['class'] ?? '';
+                    break;
+                }
+            }
+        }
+        $classes = preg_split('/[\x20\t\r\n\f]+/', trim((string) $class)) ?: array();
+        return in_array('archive', $classes, true) && in_array('date', $classes, true);
     }
     /** @param array<string,mixed> $document */
     private static function emptyRedirectDocument(array $document): bool
@@ -4938,15 +5008,18 @@ PHP;
             && ($dateContext || 'date' === $this->classifyPostChromeBlock($slice, $post, $route, $postIndex));
         foreach ($children as $child) {
             $transformed = $this->transformPostChromeRange($index, $postIndex, $child, $post, $route, $shared, $childDateContext, $featuredOffset, $contentRange);
-            $foundShared = $foundShared || $transformed['shared'];
-            $body .= $transformed['body'];
-            $retained = array_merge($retained, $transformed['retained']);
             if ($transformed['content'] && $emittedContent) {
                 // The subtree leaves the template, and with it any title or
-                // date it placed: neither is found.
+                // date it placed: neither is found. Shared blocks inside it
+                // leave too, so the body keeps the complete subtree.
+                $body .= substr($markup, $child['offset'], $child['length']);
+                $retained[] = array('offset' => $child['offset'], 'length' => $child['length']);
                 $replacements[] = array('offset' => $child['offset'], 'length' => $child['length'], 'markup' => '');
                 continue;
             }
+            $foundShared = $foundShared || $transformed['shared'];
+            $body .= $transformed['body'];
+            $retained = array_merge($retained, $transformed['retained']);
             $foundTitle = $foundTitle || $transformed['title'];
             $foundDate = $foundDate || $transformed['date'];
             if ($transformed['content']) {
@@ -5518,7 +5591,9 @@ PHP;
             }
             if ($excerptLength > 0 && 'paragraph' === self::listingBlockName($slice) && ListingExcerptProjection::matches($slice, $post)) {
                 $attrs = self::listingBlockAttributes($slice);
+                $blockVisibility = $attrs['metadata']['blockVisibility'] ?? null;
                 unset($attrs['metadata']);
+                if (null !== $blockVisibility) $attrs['metadata']['blockVisibility'] = $blockVisibility;
                 $attrs['excerptLength'] = $excerptLength;
                 $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' blocks-engine-authored-excerpt');
                 return array('markup' => '<!-- wp:post-excerpt ' . BlockAttributes::encode($attrs) . ' /-->', 'title' => false, 'content' => false);
@@ -5753,6 +5828,7 @@ PHP;
         }
         $classes = array_values(array_filter(preg_split('/\s+/', (string) ($source['className'] ?? '')) ?: array(), static fn(string $class): bool => '' !== $class && 'is-resized' !== $class));
         if (array() !== $classes) $attrs['className'] = implode(' ', $classes);
+        self::keepBlockVisibility($attrs, $source);
         return '<!-- wp:post-featured-image ' . BlockAttributes::encode($attrs) . ' /-->';
     }
     private static function listingQueryMarkup(int $perPage, string $template, bool $inherit = false, ?string $sectionSlug = null): string
@@ -5795,7 +5871,16 @@ PHP;
             $attrs['className'] = $className;
         }
         foreach (HtmlMarkupParser::htmlMarkupNodes($slice) as $node) if ('a' === ($node['name'] ?? '') && is_string($node['attributes']['class'] ?? null)) $attrs['metadata']['blocksEngineLinkClass'] = $node['attributes']['class'];
+        self::keepBlockVisibility($attrs, $blockAttrs);
         return '<!-- wp:post-title ' . BlockAttributes::encode($attrs) . ' /-->';
+    }
+    /**
+     * @param array<string,mixed> $attrs
+     * @param array<string,mixed> $source
+     */
+    private static function keepBlockVisibility(array &$attrs, array $source): void
+    {
+        if (isset($source['metadata']['blockVisibility'])) $attrs['metadata']['blockVisibility'] = $source['metadata']['blockVisibility'];
     }
     private static function postDateMarkup(string $slice): string
     {
@@ -5810,6 +5895,7 @@ PHP;
         if (null !== $className) {
             $attrs['className'] = $className;
         }
+        self::keepBlockVisibility($attrs, $blockAttrs);
         $encoded = array() === $attrs ? '' : ' ' . BlockAttributes::encode($attrs);
         return '<!-- wp:post-date' . $encoded . ' /-->';
     }
@@ -7451,7 +7537,7 @@ PHP;
     private static function assertNoLocalBrowserReferences(string $content, string $sourcePath = '', string $context = 'markup', ?callable $report = null): void
     {
         $assertReference = static function (string $candidate, string $attribute, string $element = '', bool $documentLink = false) use ($sourcePath, $context, $report): void { $url = trim(preg_split('/\s+/', trim(html_entity_decode($candidate, ENT_QUOTES | ENT_HTML5, 'UTF-8')))[0] ?? ''); $route = str_starts_with($url, '/') && (str_starts_with($attribute, 'json:route_') || ('href' === $attribute && (in_array($element, array('a', 'area'), true) || $documentLink)) || ('action' === $attribute && 'form' === $element)); if ('' !== $url && !str_starts_with($url, self::TOKEN_PREFIX) && !$route && !preg_match('~^(?:[a-z][a-z0-9+.-]*:|//|#|\?)~i', $url)) { if (null !== $report) { $report($url, $attribute); return; } throw new ValidationException(sprintf('WordPress site plan contains unresolved local browser reference %s.', $url), array('source_path' => $sourcePath, 'document_kind' => $context, 'declaration_kind' => 'browser_reference', 'declaration_index' => 0, 'reason' => 'unresolved_local_browser_reference', 'fields' => array('context' => $context, 'attribute' => $attribute, 'value' => $url))); } };
-        $assertCss = static function (string $css, string $cssContext) use ($assertReference): void { \Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter::rewrite(html_entity_decode($css, ENT_QUOTES | ENT_HTML5, 'UTF-8'), static function (string $url) use ($assertReference, $cssContext): string { $assertReference($url, $cssContext . ':url'); return $url; }); if (preg_match_all('/@import\s+(?:url\(\s*)?(?:"([^"]*)"|\'([^\']*)\'|([^\s\)"\';]+))/i', html_entity_decode($css, ENT_QUOTES | ENT_HTML5, 'UTF-8'), $matches, PREG_SET_ORDER)) foreach ($matches as $match) $assertReference((string) (($match[1] ?? '') ?: ($match[2] ?? '') ?: ($match[3] ?? '')), $cssContext . ':@import'); };
+        $assertCss = static function (string $css, string $cssContext) use ($assertReference): void { \Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter::rewrite(html_entity_decode($css, ENT_QUOTES | ENT_HTML5, 'UTF-8'), static function (string $url) use ($assertReference, $cssContext): string { $assertReference($url, $cssContext . ':url'); return $url; }); if (preg_match_all('/@import\s+(?:url\(\s*)?(?:"([^"]*)"|\'([^\']*)\'|([^\s\)"\';]+))/i', \Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner::withoutComments(html_entity_decode($css, ENT_QUOTES | ENT_HTML5, 'UTF-8')), $matches, PREG_SET_ORDER)) foreach ($matches as $match) $assertReference((string) (($match[1] ?? '') ?: ($match[2] ?? '') ?: ($match[3] ?? '')), $cssContext . ':@import'); };
         $assertJsonAttributes = null;
         $assertJsonAttributes = static function (array $attributes, bool $route) use (&$assertJsonAttributes, $assertReference, $sourcePath, $context, $report): void {
             foreach ($attributes as $name => $value) {

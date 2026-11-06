@@ -12,8 +12,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutGeometryStat
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\PresentationResolutionCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceStyleResolutionState;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
-use Closure;
-use DOMElement;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription;
 
 /**
  * Mutable data accumulated while converting one HTML document.
@@ -44,10 +43,9 @@ final class HtmlTransformerSession
     private ?LayoutGeometryState $layoutGeometryState = null;
     private readonly FallbackEmitter $fallbackEmitter;
 
-    /** @param Closure(DOMElement): array<string, mixed> $sourceContextResolver */
-    public function __construct(Runtime $runtime, Closure $sourceContextResolver)
+    public function __construct(Runtime $runtime, SourceElementDescription $sourceElementDescription)
     {
-        $this->fallbackEmitter = new FallbackEmitter($runtime, $sourceContextResolver);
+        $this->fallbackEmitter = new FallbackEmitter($runtime, $sourceElementDescription);
         $this->presentationResolutionCache = new PresentationResolutionCache();
         $this->sourceStyleResolutionState = new SourceStyleResolutionState();
         $this->runtimeDomState = new RuntimeDomState();

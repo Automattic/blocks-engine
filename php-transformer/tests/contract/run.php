@@ -432,15 +432,17 @@ $assert(
 );
 $visualLayerImageResult = ( new HtmlTransformer() )->transform('<style>.media-column{position:relative}.visual-layer{position:absolute}</style><div class="media-column"><div class="visual-layer"><media-image><img src="hero.jpg" style="width:320px;height:281px" width="320" height="281" alt="Hero"></media-image></div></div>')->toArray();
 $visualLayerImageCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $visualLayerImageResult['assets'] ?? array()));
+// Render-safe geometry wrappers now fold into a shell without losing their CSS.
 $assert(
-    str_contains((string) ($visualLayerImageResult['serialized_blocks'] ?? ''), '<!-- wp:group')
+    str_contains((string) ($visualLayerImageResult['serialized_blocks'] ?? ''), '<!-- wp:custom/layout-shell')
         && str_contains($visualLayerImageCss, 'min-height:281px')
         && str_contains($visualLayerImageCss, 'position:relative'),
     'a media-only container retains intrinsic height when its visual layer is out of flow'
 );
 $staticVisualMediaWrapperResult = ( new HtmlTransformer() )->transform('<style>.visual-layer{position:absolute}</style><div class="media-shell"><div class="visual-layer"><media-image><img src="hero.jpg" style="width:320px;height:281px" width="320" height="281" alt="Hero"></media-image></div></div>')->toArray();
 $staticVisualMediaWrapperCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $staticVisualMediaWrapperResult['assets'] ?? array()));
-$staticVisualMediaWrapperClass = (string) ($staticVisualMediaWrapperResult['blocks'][0]['attrs']['className'] ?? '');
+// The geometry carrier now lives on the folded shell's outer wrapper.
+$staticVisualMediaWrapperClass = (string) ($staticVisualMediaWrapperResult['blocks'][0]['attrs']['wrappers'][0]['attributes']['class'] ?? '');
 preg_match('/(?:^|\s)(be-inline-geometry-[a-f0-9]+)(?:\s|$)/', $staticVisualMediaWrapperClass, $staticVisualMediaWrapperCarrier);
 $assert(
     isset($staticVisualMediaWrapperCarrier[1])
@@ -795,7 +797,7 @@ $styledTableCss = implode("\n", array_map(static fn (array $asset): string => 'c
 $assert(3 === count(array_filter($styledTableResult['blocks'] ?? array(), static fn (array $block): bool => 'core/table' === ($block['blockName'] ?? ''))), 'class-addressed native tables remain core/table blocks');
 $assert(3 === count(array_filter($styledTableResult['blocks'] ?? array(), static fn (array $block): bool => str_contains((string) ($block['attrs']['className'] ?? ''), 'blocks-engine-table-'))) && ! str_contains($styledTableMarkup, '<td class=') && ! str_contains($styledTableMarkup, '<th class='), 'native table wrappers carry isolated projection markers without unsupported cell classes');
 $assert(str_contains($styledTableCss, '>table>tbody>tr:nth-child(1)>td:nth-child(2)') && str_contains($styledTableCss, '>table>thead>tr:nth-child(1)>th:nth-child(2)'), 'cell-owned author selectors project to exact native table structure');
-$assert(str_contains($styledTableCss, ':hover{color:#456}') && str_contains($styledTableCss, '.services-table tbody tr:last-child td:first-child{padding:12px}'), 'projected table selectors retain pseudo-state while already-valid structural selectors stay compact');
+$assert(str_contains($styledTableCss, ':hover{color:#456}') && 1 === preg_match('/>table>tbody>tr:nth-child\(2\)>td:nth-child\(1\)(?::not\([^)]*\))*\{padding:12px\}/', $styledTableCss), 'projected table selectors retain pseudo-state and lift ancestor-scoped cell rules onto the same structural baseline');
 $assert(str_contains($styledTableCss, '>table>tbody>tr:nth-child(2)>td:nth-child(1)') && str_contains($styledTableCss, '{background:#eee}'), 'section-position selectors retain the matched source rows when native table bodies merge');
 $assert(3 === count(array_unique(array_map(static fn (array $block): string => (string) ($block['attrs']['className'] ?? ''), $styledTableResult['blocks'] ?? array()))), 'table projection markers isolate same-shaped native tables');
 $assert('pass' === ($styledTableResult['source_reports']['wp_block_validity']['status'] ?? ''), 'structurally projected native tables remain editor-valid');
@@ -2297,7 +2299,7 @@ $fullWidthNativeButtonAttrs = $fullWidthNativeButton['blocks'][0]['innerBlocks']
 $fullWidthNativeButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $fullWidthNativeButton['assets'] ?? array()));
 $assert(! isset($fullWidthNativeButtonAttrs['width']) && str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'blocks-engine-control-') && ! str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'selector-submit'), 'styled full-width native button omits the legacy width attribute and uses a generated marker instead of source root classes');
 $assert(! str_contains($fullWidthNativeButtonMarkup, 'wp-block-button selector-submit') && ! str_contains($fullWidthNativeButtonMarkup, 'wp-element-button selector-submit'), 'styled full-width native button keeps source root classes out of canonical markup');
-$assert(! str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'is-style-outline') && '#123456' === ($fullWidthNativeButtonAttrs['style']['color']['background'] ?? null) && str_contains($fullWidthNativeButtonMarkup, 'style="background-color:#123456;') && str_contains($fullWidthNativeButtonCss, ':not([style*="background"]){background:none}'), 'a filled button variant carries its fill after an earlier native-button background reset without becoming an outline control');
+$assert(! str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'is-style-outline') && '#123456' === ($fullWidthNativeButtonAttrs['style']['color']['background'] ?? null) && str_contains($fullWidthNativeButtonMarkup, 'border-radius:0px;background-color:#123456;') && str_contains($fullWidthNativeButtonCss, ':not([style*="background"]){background:none}'), 'a filled button variant carries its fill after an earlier native-button background reset without becoming an outline control');
 $assert(str_contains($fullWidthNativeButtonMarkup, 'class="wp-block-button__link has-background wp-element-button"') && str_contains($fullWidthNativeButtonMarkup, 'background-color:#123456'), 'a filled button variant serializes its fill on the link, as core/button save() does');
 $assert(str_contains($fullWidthNativeButtonCss, '.wp-block-buttons){display:block!important;gap:0!important;width:100%!important}') && str_contains($fullWidthNativeButtonCss, '.wp-block-button__link){box-sizing:border-box;width:100%!important}'), 'styled full-width native button projects root geometry through the wrapper chain without overriding source wrapper margins');
 $assert('pass' === ($fullWidthNativeButton['source_reports']['wp_block_validity']['status'] ?? ''), 'styled full-width native button wrapper chain remains editor-valid');
@@ -6896,7 +6898,7 @@ $assert(is_array($paragraph), 'styled paragraph block is emitted');
 $assert(is_array($paragraph['attrs']['style'] ?? null), 'paragraph style is a canonical object');
 assertSame('#222', $paragraph['attrs']['style']['color']['text'] ?? null, 'paragraph color maps to style.color.text');
 assertSame('var(--font-mono)', $paragraph['attrs']['style']['typography']['fontFamily'] ?? null, 'paragraph font-family maps to style.typography.fontFamily');
-assertSame('center', $paragraph['attrs']['align'] ?? null, 'paragraph text-align maps to native align attribute');
+assertSame('center', $paragraph['attrs']['style']['typography']['textAlign'] ?? null, 'paragraph text-align maps to native typography text alignment');
 $assert(str_contains((string) ($paragraph['innerHTML'] ?? ''), 'has-text-align-center'), 'paragraph saved markup carries native text alignment class');
 $assert(str_contains((string) ($paragraph['innerHTML'] ?? ''), 'font-family:var(--font-mono)'), 'paragraph saved markup carries canonical font-family style');
 

@@ -8,7 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerS
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StylesheetAssetStage;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
-$session = new HtmlTransformerSession(new Runtime(), static fn (DOMElement $element): array => array());
+$session = new HtmlTransformerSession(new Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()));
 $state = new AssetMaterializationState('', array());
 $session->installAssetMaterializationState($state);
 $stage = new StylesheetAssetStage($session);

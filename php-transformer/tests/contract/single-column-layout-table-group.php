@@ -17,7 +17,7 @@ $cases = array(
     'taller cell centers'     => array('<table width="300"><tr><td height="57">Title</td></tr><tr><td>Body</td></tr></table>', '<!-- wp:group {"style":{"spacing":{"padding":{"top":"1px","right":"1px","bottom":"1px","left":"1px"}},"dimensions":{"minHeight":"57px"}},"layout":{"type":"flex","orientation":"vertical","justifyContent":"stretch","verticalAlignment":"center"}} --><div class="wp-block-group is-layout-flex wp-block-group-is-layout-flex" style="min-height:57px;padding-top:1px;padding-right:1px;padding-bottom:1px;padding-left:1px"><!-- wp:group --><div class="wp-block-group"><!-- wp:paragraph'),
     'row valign bottom'       => array('<table width="300"><tr valign="bottom"><td height="80">Bottom</td></tr></table>', '<!-- wp:group {"style":{"dimensions":{"minHeight":"78px"}},"layout":{"type":"flex","orientation":"vertical","justifyContent":"stretch","verticalAlignment":"bottom"}} -->'),
     'top cell keeps its flow' => array('<table width="300"><tr><td height="80" valign="top">Top</td></tr></table>', '<!-- wp:group {"style":{"dimensions":{"minHeight":"78px"}}} --><div class="wp-block-group" style="min-height:78px"><!-- wp:paragraph'),
-    'centered paragraph'      => array('<center><p>Para</p></center>', '<!-- wp:paragraph {"align":"center"} -->'),
+    'centered paragraph'      => array('<center><p>Para</p></center>', '<!-- wp:paragraph {"style":{"typography":{"textAlign":"center"}}} -->'),
     'data table stays native' => array('<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>', '<!-- wp:table'),
     'unboxed one-column table stays native' => array('<table><tr><td>Ada</td></tr><tr><td>Grace</td></tr></table>', '<!-- wp:table'),
 );

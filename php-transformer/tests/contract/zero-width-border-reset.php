@@ -52,7 +52,8 @@ foreach ($cases as $label => $case) {
         $baseline = $structure($compile($case['baseline']));
         $assert($structure($markup) === $baseline, $label . ': reset must not change block structure');
         $counts = array_count_values($baseline);
-        $assert(($counts['group'] ?? 0) === 2 && ($counts['image'] ?? 0) === 1 && ($counts['custom/layout-shell'] ?? 0) === 1 && array_sum($counts) === 4, $label . ': two groups, layout-shell and image');
+        // The editor wrappers fold into one layout shell around the image.
+        $assert(($counts['image'] ?? 0) === 1 && ($counts['custom/layout-shell'] ?? 0) === 1 && array_sum($counts) === 2, $label . ': layout-shell and image');
         $assert(! str_contains($markup, '"border":{"style":"solid"}'), $label . ': no inert solid border support');
         continue;
     }

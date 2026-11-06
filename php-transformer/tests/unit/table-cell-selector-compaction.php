@@ -64,15 +64,20 @@ if ($large > $small * 1.2) {
     $fail("projected table CSS stays flat as rows are added ({$small} bytes for 3 rows, {$large} for 30)", '');
 }
 
-// Universal resets must stay below native author selectors; structural rules
-// must still reach cells after core/table discards source row/cell identity.
+// Universal resets and generic cell rules must stay below more specific
+// author selectors, even when the winning scope survives serialization.
+$compactHtml = (string) file_get_contents(dirname(__DIR__) . '/fixtures/compact-table-cell-padding.html');
 foreach (array(
     'universal reset first' => array('*{padding:0}.content table td{padding:16px}', array('16px', '16px', '16px', '16px')),
     'universal reset last' => array('.content table td{padding:16px}*{padding:0}', array('16px', '16px', '16px', '16px')),
     'reset selector list' => array('*,:after,:before,::backdrop{padding:0}.content table td{padding:16px}', array('16px', '16px', '16px', '16px')),
     'structural first column' => array('*{padding:0}.content table td{padding:16px}table tr td:first-child{padding:24px}', array('24px', '16px', '24px', '16px')),
+    'compact table fixture' => array(null, array_fill(0, 6, '4px 16px')),
+    'ancestor scope before generic' => array('.content td{padding:4px 16px}td{padding:8px 16px}', array_fill(0, 4, '4px 16px')),
+    'important generic' => array('td{padding:8px 16px!important}.content td{padding:4px 16px}', array_fill(0, 4, '8px 16px')),
+    'equal specificity source order' => array('.content td{padding:8px 16px}.content td{padding:4px 16px}', array_fill(0, 4, '4px 16px')),
 ) as $label => [$sourceCss, $expected]) {
-    $html = '<!doctype html><html><head><style>' . $sourceCss . '</style></head><body><main class="content"><table><tbody>'
+    $html = null === $sourceCss ? $compactHtml : '<!doctype html><html><head><style>' . $sourceCss . '</style></head><body><main class="content"><table><tbody>'
         . '<tr><td>One</td><td>Two</td></tr><tr><td>Three</td><td>Four</td></tr>'
         . '</tbody></table></main></body></html>';
     $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html)))->toArray();
@@ -83,8 +88,8 @@ foreach (array(
     $dom->loadHTML($markup);
     libxml_clear_errors();
     libxml_use_internal_errors($previous);
-    if (!str_contains($markup, '<!-- wp:table') || 4 !== $dom->getElementsByTagName('td')->length) {
-        $fail($label . ': fixture compiles to a native four-cell table', $markup);
+    if (!str_contains($markup, '<!-- wp:table') || count($expected) !== $dom->getElementsByTagName('td')->length) {
+        $fail($label . ': fixture compiles to a native table with all cells', $markup);
     }
     // The static probe only supports integer nth-child arguments. Replace
     // the all-position predicate with an equally specific always-true one.

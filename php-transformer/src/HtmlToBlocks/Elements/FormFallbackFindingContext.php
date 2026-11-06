@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription;
 use Closure;
 use DOMElement;
 
@@ -14,7 +15,6 @@ final class FormFallbackFindingContext
 {
     /**
      * @param Closure(DOMElement): array<int, string>                                               $runtimeDomSelectors
-     * @param Closure(DOMElement): array<string, mixed>                                             $sourceContext
      * @param Closure(array<string, mixed>, string, array<int, string>, ?DOMElement): array<string, mixed> $blockBinding
      * @param (Closure(DOMElement, string): string)|null                                            $resolvePresentationValue
      * @param (Closure(DOMElement): string)|null                                                    $sanitizeInlineSvgMarkup
@@ -22,7 +22,7 @@ final class FormFallbackFindingContext
     public function __construct(
         private readonly HtmlTransformerSession $session,
         private readonly Closure $runtimeDomSelectors,
-        private readonly Closure $sourceContext,
+        public readonly SourceElementDescription $sourceElementDescription,
         private readonly Closure $blockBinding,
         private readonly ?Closure $resolvePresentationValue = null,
         private readonly ?Closure $sanitizeInlineSvgMarkup = null
@@ -39,12 +39,6 @@ final class FormFallbackFindingContext
     public function runtimeDomSelectors(DOMElement $element): array
     {
         return ($this->runtimeDomSelectors)($element);
-    }
-
-    /** @return array<string, mixed> */
-    public function sourceContext(DOMElement $element): array
-    {
-        return ($this->sourceContext)($element);
     }
 
     /**

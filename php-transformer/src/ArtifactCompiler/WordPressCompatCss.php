@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\Css\ClassAttributeSelectorProjection;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CoreSelectorScoping;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
@@ -20,6 +21,9 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EditorShellBoundar
  */
 final class WordPressCompatCss
 {
+    /** Class tokens a script sets to reveal a menu list; the replay materializes them. */
+    private const REVEAL_STATE = '(?:is-)?(?:visible|shown|open|opened|active|ready|loaded|expanded)';
+
     /** @var array<string, string> */
     private array $cssCache = array();
     /** @var array{string, string, string}|null */
@@ -29,6 +33,12 @@ final class WordPressCompatCss
     /** @var array<string, string> */
     private array $documentSiteMarkers = array();
     private ?ClassAttributeSelectorProjection $classAttributeSelectors = null;
+    /** @var list<\DOMDocument>|null Source documents an authored replay must match in. */
+    private ?array $sourceDocuments = null;
+    /** @var array<string, true> Identifier tokens any page script names. */
+    private array $scriptTokens = array();
+    /** @var array<string, bool> */
+    private array $sourceLiveness = array();
 
     /**
      * @param array<int, array<string, mixed>> $files
@@ -37,10 +47,11 @@ final class WordPressCompatCss
     public function css(string $authoredCss, array $files, array $scriptContents): string
     {
         $this->prepareSpecificityContext($authoredCss, $files);
-        $cacheKey = hash('sha256', $authoredCss . "\0" . implode("\0", $this->specificityShims));
+        $cacheKey = hash('sha256', $authoredCss . "\0" . implode("\0", $this->specificityShims) . "\0" . hash('sha256', implode("\0", $scriptContents)));
         if ( array_key_exists($cacheKey, $this->cssCache) ) {
             return $this->cssCache[$cacheKey];
         }
+        $this->prepareSourceLiveness($scriptContents);
         // Replayed selectors land on projected blocks, which carry engine class
         // tokens; authored class substrings must not start matching those.
         return $this->cssCache[$cacheKey] = EngineMarker::compactDeviceScope($this->classAttributeSelectors()->stylesheet($this->navigationCompatCss($authoredCss)
@@ -81,12 +92,74 @@ final class WordPressCompatCss
             $this->siteMarkerDocuments = $htmlTexts;
             $this->documentSiteMarkers = array();
             $this->classAttributeSelectors = null;
+            $this->sourceDocuments = null;
         }
         $this->specificityShims = array(
             $this->siteMarker('specificity', $css, $htmlTexts),
             $this->siteMarker('specificity-class', $css, $htmlTexts),
             $this->siteMarker('specificity-id', $css, $htmlTexts)
         );
+    }
+
+    /**
+     * Replays are tested against the documents they will style. Scripts can
+     * add any class or id they name, so their tokens count as possible.
+     *
+     * @param array<int, string> $scriptContents
+     */
+    private function prepareSourceLiveness(array $scriptContents): void
+    {
+        $tokens = array();
+        foreach ($scriptContents as $script) {
+            preg_match_all('/[A-Za-z_][\w-]*/', $script, $matches);
+            $tokens += array_fill_keys($matches[0], true);
+        }
+        if (null !== $this->sourceDocuments && $tokens === $this->scriptTokens) return;
+        $this->scriptTokens = $tokens;
+        $this->sourceLiveness = array();
+        $this->sourceDocuments = array();
+        foreach ($this->siteMarkerDocuments ?? array() as $html) {
+            $document = new \DOMDocument();
+            $previous = libxml_use_internal_errors(true);
+            $document->loadHTML('<?xml encoding="utf-8" ?>' . $html, LIBXML_NOERROR | LIBXML_NOWARNING);
+            libxml_clear_errors();
+            libxml_use_internal_errors($previous);
+            $this->sourceDocuments[] = $document;
+        }
+    }
+
+    /**
+     * An authored arm replays onto native navigation only when it can style a
+     * source element. A static arm (plain type, class, id and structural
+     * parts, none of them named by a script or a route state) that matches no element in any
+     * source document styles nothing in the converted site either: a theme
+     * stylesheet shared by many sites carries rules for markup this site never
+     * renders. Arms the matcher cannot evaluate are replayed as before.
+     */
+    private function mayMatchSource(string $selector): bool
+    {
+        if (null === $this->sourceDocuments || array() === $this->sourceDocuments) return true;
+        $selector = trim($this->selectorWithoutComments($selector));
+        if (isset($this->sourceLiveness[$selector])) return $this->sourceLiveness[$selector];
+        $static = 1 !== preg_match('/[\[\\\\]|:(?!first-child|last-child|nth-child\(|hover|focus|active|visited|focus-visible|focus-within|link)/', preg_replace('/:(?:hover|focus|active|visited|focus-visible|focus-within|link)$/', '', $selector) ?? $selector);
+        if ($static) {
+            preg_match_all('/[.#]([A-Za-z_][\w-]*)/', $selector, $tokens);
+            foreach ($tokens[1] as $token) {
+                // Route-state projection strips the served item's state
+                // classes from the documents, and the structure replay
+                // materializes reveal states; neither is in the documents.
+                if (isset($this->scriptTokens[$token]) || SourceClassIdentity::containsCurrentStateToken($token) || 1 === preg_match('/^' . self::REVEAL_STATE . '$/i', $token)) $static = false;
+            }
+        }
+        $parsed = $static ? CssSelectorMatcher::parse($selector) : array('supported' => false);
+        if (!($parsed['supported'] ?? false)) return $this->sourceLiveness[$selector] = true;
+        $subject = preg_match('/(?:^|[\s>+~])([a-z][a-z0-9]*)(?=[^\s>+~]*$)/i', $selector, $type) ? strtolower($type[1]) : '*';
+        foreach ($this->sourceDocuments as $document) {
+            foreach ($document->getElementsByTagName($subject) as $element) {
+                if (CssSelectorMatcher::matches($element, $parsed, true)['matches']) return $this->sourceLiveness[$selector] = true;
+            }
+        }
+        return $this->sourceLiveness[$selector] = false;
     }
 
     /** Class attribute predicates bound to the class tokens of every source document. */
@@ -225,6 +298,7 @@ final class WordPressCompatCss
         if (str_contains(strtolower($body), 'url(') || (str_contains($selectorList, EditorShellBoundary::EDITOR_SCOPE) && str_contains($body, '{'))) return $none;
         $mapped = array();
         foreach ($this->splitSelectorList($selectorList) as $selector) {
+            if (!$this->mayMatchSource($selector)) continue;
             $targets = array();
             if (preg_match('/(?:^|;)\s*display\s*:/i', $body)) {
                 $container = $this->mapNavigationContainerSelector($selector);
@@ -561,10 +635,10 @@ final class WordPressCompatCss
         $tail = substr($selector, $matchStart + $matchLength);
         if ( '' === trim($tail) ) {
             if ( ! preg_match('/(?:^|;)\s*(?:visibility\s*:\s*visible\b|opacity\s*:\s*1(?:\.0+)?\b|display\s*:\s*(?!none\b)[^;}]+)/i', $body)
-                || ! preg_match('/\.(?:is-)?(?:visible|shown|open|opened|active|ready|loaded|expanded)\b/i', $listClasses) ) {
+                || ! preg_match('/\.' . self::REVEAL_STATE . '\b/i', $listClasses) ) {
                 return array();
             }
-            $stableListClasses = preg_replace('/\.(?:is-)?(?:visible|shown|open|opened|active|ready|loaded|expanded)\b/i', '', $listClasses);
+            $stableListClasses = preg_replace('/\.' . self::REVEAL_STATE . '\b/i', '', $listClasses);
             if ( ! is_string($stableListClasses) || $stableListClasses === $listClasses || ! preg_match('/(?:nav|menu)/i', $stableListClasses) ) {
                 return array();
             }

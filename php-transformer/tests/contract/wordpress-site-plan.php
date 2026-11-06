@@ -1354,6 +1354,25 @@ $blogRoute = $blogPostTypes(array('blog/index.html' => '<main>Blog</main>', 'blo
 $assert('post' === ($blogRoute['blog/one/index.html'] ?? null) && 'post' === ($blogRoute['blog/two/index.html'] ?? null), 'Undated Article JSON-LD under a blog-like route segment stays posts.');
 $blogCards = $blogPostTypes(array('stories-a/index.html' => $cards, 'stories-a/one/index.html' => $undatedArticle('One'), 'stories-a/two/index.html' => $undatedArticle('Two')));
 $assert('post' === ($blogCards['stories-a/one/index.html'] ?? null) && 'post' === ($blogCards['stories-a/two/index.html'] ?? null), 'Undated Article JSON-LD under a parent listing of article cards with read-more links stays posts.');
+$dateArchiveFiles = array(
+    'index.html' => '<main>Home</main>',
+    '2023/04/01/first/index.html' => '<meta property="article:published_time" content="2023-04-01T12:00:00Z"><main><article><h1>First</h1><p>First body.</p></article></main>',
+    '2023/04/02/second/index.html' => '<meta property="article:published_time" content="2023-04-02T12:00:00Z"><main><article><h1>Second</h1><p>Second body.</p></article></main>',
+    '2023/04/02/index.html' => '<html><head><title>April 2, 2023 – Site</title></head><body class="archive date"><main><h1>April 2, 2023</h1></main></body></html>',
+);
+$dateArchiveResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $dateArchiveFiles))->toArray();
+$dateArchivePlan = $dateArchiveResult['source_reports']['wordpress_site_plan'];
+$dateArchivePages = array_column($dateArchivePlan['pages'], null, 'source_path');
+$assert(2 === count(array_filter($dateArchivePages, static fn(array $page): bool => 'post' === $page['post_type'])) && !isset($dateArchivePages['2023/04/02/index.html']), 'A WordPress date archive is never materialized as a page or post beside its two dated posts.');
+$assert(array() === $dateArchivePlan['taxonomy_entities'], 'Date route segments must not invent taxonomy terms.');
+$assert(!in_array('2023/04/02/index.html', array_column($dateArchivePlan['routes'], 'source_path'), true), 'The native date archive route has no imported route override or redirect.');
+$assert(in_array('archive', array_column($dateArchivePlan['templates'], 'slug'), true), 'Core date archives retain the native archive template.');
+$assert(in_array('2023/04/02/index.html', array_column($dateArchivePlan['source']['source_documents'], 'source_path'), true), 'The omitted date archive retains its captured source provenance.');
+foreach ($dateArchiveResult['source_reports']['compiled_site']['pages'] as &$dateArchiveDocument) unset($dateArchiveDocument['html']);
+unset($dateArchiveDocument);
+$dateArchiveResult['source_reports']['conversion_report']['core_html_fallback_evidence'] = $dateArchiveResult['source_reports']['core_html_fallback_evidence'] ?? array();
+$dateArchiveStagedPlan = (new WordPressSitePlan())->fromResult($dateArchiveResult);
+$assert(!in_array('2023/04/02/index.html', array_column($dateArchiveStagedPlan['pages'], 'source_path'), true), 'Retained WordPress body metadata also excludes date archives when staged documents omit source HTML.');
 $feedHead = '<link rel="alternate" type="application/rss+xml" href="/feed.xml">';
 $blogFeed = $blogPostTypes(array('hub/index.html' => '<main>Hub</main>', 'hub/one/index.html' => $feedHead . $undatedArticle('One'), 'hub/two/index.html' => $feedHead . $undatedArticle('Two')));
 $assert('post' === ($blogFeed['hub/one/index.html'] ?? null) && 'post' === ($blogFeed['hub/two/index.html'] ?? null), 'Undated Article JSON-LD on pages that advertise a feed stays posts.');

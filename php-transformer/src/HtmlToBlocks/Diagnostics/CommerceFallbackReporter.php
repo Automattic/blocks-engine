@@ -43,7 +43,8 @@ final class CommerceFallbackReporter
         private readonly CommerceStructureRecognizer $recognizer,
         private readonly Runtime $runtime,
         private readonly TransformationProvenanceState $provenance,
-        private readonly RuntimeIslandAnalyzer $runtimeIslands
+        private readonly RuntimeIslandAnalyzer $runtimeIslands,
+        private readonly SourceElementDescription $sourceElementDescription
     ) {
     }
 
@@ -184,7 +185,7 @@ final class CommerceFallbackReporter
                 'tag'               => strtolower($element->tagName),
                 'selector'          => SourceDom::elementSelector($element),
                 'container_selector' => SourceDom::elementSelector($element),
-                'context'           => $this->sourceContext($element),
+                'context'           => $this->sourceElementDescription->sourceContext($element, includeStructureSignals: false, retainLinkTabindex: true),
                 'products'          => $products,
                 'product_count'     => count($products),
                 // The whole grid as one provider-replaceable region. Its
@@ -301,7 +302,8 @@ final class CommerceFallbackReporter
      * Describe one product card as a provider-neutral item template.
      *
      * `$cardMarkups[i]` is the final serialized block markup of the card that
-     * shows `$products[i]`. The template is the card with the most leaf blocks;
+     * shows `$products[i]`. Media regions with different image cardinalities
+     * are read whole before choosing the card with the most leaf blocks;
      * every other card must fit inside it (a card may leave a container empty,
      * which makes the slots below it optional). A slot is a leaf block whose
      * markup differs between cards, or that shows a recognized product field:
@@ -335,6 +337,13 @@ final class CommerceFallbackReporter
             }
             $cards[] = $leaves;
         }
+        // Galleries are atomic, while the same region with a single image may
+        // contain several leaves (media + Quick View). Read both whole before
+        // counting leaves so that image cardinality cannot select the template.
+        $mediaPaths = $this->mediaGroupPaths($cards);
+        foreach ( $cards as $index => $leaves ) {
+            $cards[$index] = $this->mergedLeaves($leaves, $mediaPaths);
+        }
         $templateIndex = 0;
         foreach ( $cards as $index => $leaves ) {
             if ( count($leaves) > count($cards[$templateIndex]) ) {
@@ -366,7 +375,7 @@ final class CommerceFallbackReporter
                 }
                 // A leaf the template lacks is only acceptable as an empty
                 // container whose children the template does have.
-                $isEmptyContainer = '' === trim(strip_tags($leaves[$path]['inner'])) && array() !== array_filter($templatePaths, static fn (string $templatePath): bool => str_starts_with($templatePath, $path . '.'));
+                $isEmptyContainer = ! $this->isMediaLeaf($leaves[$path]) && '' === trim(strip_tags($leaves[$path]['inner'])) && array() !== array_filter($templatePaths, static fn (string $templatePath): bool => str_starts_with($templatePath, $path . '.'));
                 if ( ! $isEmptyContainer ) {
                     return array();
                 }
@@ -441,6 +450,77 @@ final class CommerceFallbackReporter
             ),
             'items'         => $items,
         );
+    }
+
+    /**
+     * Textless image blocks are content, including dynamic galleries whose
+     * images live in block attributes rather than inner HTML. Generated media
+     * blocks carry the consumer's block namespace, so match their local name.
+     *
+     * @param array<string,mixed> $leaf
+     */
+    private function isMediaLeaf(array $leaf): bool
+    {
+        return 1 === preg_match('~^(?:core/(?:image|gallery)|[a-z0-9-]+/(?:responsive-media|gallery(?:-[a-f0-9]+)?))$~', $leaf['block_name'])
+            || 1 === preg_match('/<img\\b/i', $leaf['inner']);
+    }
+
+    /**
+     * An atomic media leaf may be a whole media region in another card.
+     * Merge only paths that hold media in every card, and only when at least
+     * one card expands that path into descendants. Unrelated optional rows
+     * and single-card templates retain their existing leaf boundaries.
+     *
+     * @param list<array<string,array<string,mixed>>> $cards
+     * @return array<string,true>
+     */
+    private function mediaGroupPaths(array $cards): array
+    {
+        $paths = array();
+        foreach ( $cards as $leaves ) {
+            foreach ( $leaves as $path => $leaf ) {
+                if ( ! $this->isMediaLeaf($leaf) ) {
+                    continue;
+                }
+                $path = (string) $path;
+                $mediaPath = $path;
+                // An atomic gallery can also absorb a sibling overlay control.
+                // Include its wrapper when that wrapper contains only this
+                // media leaf, but never absorb the card's name/price rows.
+                $parent = str_contains($path, '.') ? substr($path, 0, (int) strrpos($path, '.')) : '';
+                if ( '' !== $parent && 1 === count(array_filter(array_keys($leaves), static fn (int|string $key): bool => str_starts_with((string) $key, $parent . '.'))) ) {
+                    $path = $parent;
+                }
+                $expanded = false;
+                foreach ( $cards as $other ) {
+                    $hasMedia = false;
+                    foreach ( $other as $otherPath => $otherLeaf ) {
+                        $descendant = str_starts_with((string) $otherPath, $path . '.');
+                        if ( ((string) $otherPath === $path || $descendant) && $this->isMediaLeaf($otherLeaf) ) {
+                            $hasMedia = true;
+                            $expanded = $expanded || str_starts_with((string) $otherPath, $mediaPath . '.');
+                        }
+                    }
+                    if ( ! $hasMedia ) {
+                        continue 2;
+                    }
+                }
+                if ( $expanded ) {
+                    $paths[$path] = true;
+                }
+            }
+        }
+        // Keep the shallowest region if media candidates are nested.
+        foreach ( array_keys($paths) as $path ) {
+            foreach ( array_keys($paths) as $other ) {
+                if ( str_starts_with((string) $path, $other . '.') ) {
+                    unset($paths[$path]);
+                    break;
+                }
+            }
+        }
+
+        return $paths;
     }
 
     /**
@@ -788,7 +868,7 @@ final class CommerceFallbackReporter
                 'tag'               => strtolower($element->tagName),
                 'selector'          => SourceDom::elementSelector($element),
                 'container_selector' => SourceDom::elementSelector($element),
-                'context'           => $this->sourceContext($element),
+                'context'           => $this->sourceElementDescription->sourceContext($element, includeStructureSignals: false, retainLinkTabindex: true),
                 'controls'          => $controlGroups,
                 'control_count'     => count($controlGroups),
             ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->provenance->fallback());
@@ -903,7 +983,7 @@ final class CommerceFallbackReporter
                 'source_format' => 'html',
                 'tag' => strtolower($element->tagName),
                 'selector' => SourceDom::elementSelector($element),
-                'context' => $this->sourceContext($element),
+                'context' => $this->sourceElementDescription->sourceContext($element, includeStructureSignals: false, retainLinkTabindex: true),
                 'binding' => $binding,
             ), $this->provenance->fallback());
         }
@@ -918,7 +998,17 @@ final class CommerceFallbackReporter
     private function insideChromeOrForm(DOMElement $node): bool
     {
         for ( $ancestor = $node->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
-            if ( in_array(strtolower($ancestor->tagName), array('form', 'header', 'footer', 'nav'), true) ) {
+            $tag = strtolower($ancestor->tagName);
+            if ( in_array($tag, array('form', 'nav'), true) ) {
+                return true;
+            }
+            if ( in_array($tag, array('header', 'footer'), true) ) {
+                // Section-owned headers/footers are content, not page chrome.
+                for ( $scope = $ancestor->parentNode; $scope instanceof DOMElement; $scope = $scope->parentNode ) {
+                    if ( ShellLandmarkPolicy::isContentRegionTag($scope->tagName) || in_array(strtolower($scope->tagName), array('main', 'nav'), true) ) {
+                        continue 2;
+                    }
+                }
                 return true;
             }
         }
@@ -970,7 +1060,7 @@ final class CommerceFallbackReporter
                 'summary_selector'  => SourceDom::elementSelector($summary),
                 'placement'         => $this->cartViewPlacement($scope),
                 'runtime_selectors' => $runtimeSelectors,
-                'context'           => $this->sourceContext($scope),
+                'context'           => $this->sourceElementDescription->sourceContext($scope, includeStructureSignals: false, retainLinkTabindex: true),
                 'binding'           => $this->blockBinding(array(), 'commerce_cart', $runtimeSelectors, $scope),
             ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->provenance->fallback());
         }
@@ -1020,7 +1110,7 @@ final class CommerceFallbackReporter
                 'tag'               => strtolower($region['element']->tagName),
                 'selector'          => $region['selector'],
                 'runtime_selectors' => $region['runtime_selectors'],
-                'context'           => $this->sourceContext($region['element']),
+                'context'           => $this->sourceElementDescription->sourceContext($region['element'], includeStructureSignals: false, retainLinkTabindex: true),
                 'binding'           => $this->blockBinding(array(), 'commerce_checkout', $region['runtime_selectors'], $region['element']),
             ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->provenance->fallback());
         }
@@ -1231,47 +1321,4 @@ final class CommerceFallbackReporter
         return $binding;
     }
 
-    /**
-     * @return array<string, mixed>
-     */
-    private function sourceContext(DOMElement $element): array
-    {
-        $parent = $element->parentNode;
-        return array_filter(array(
-            'selector'                => SourceDom::elementSelector($element),
-            'parent_tag'              => $parent instanceof DOMElement && 'body' !== strtolower($parent->tagName) ? strtolower($parent->tagName) : '',
-            'ancestor_tags'           => SourceDom::ancestorTags($element),
-            'nearest_heading'         => SourceDom::nearestPreviousHeadingText($element),
-            'role'                    => SourceDom::attr($element, 'role'),
-            'id'                      => SourceDom::attr($element, 'id'),
-            'class_names'             => SourceDom::classNames($element),
-            'ancestor_class_names'    => $this->ancestorClassNames($element),
-            'data_attributes'         => SourceDom::safeDataAttributes($element),
-            'interactive_attributes'  => $this->interactiveAttributes($element),
-        ), static fn (mixed $value): bool => '' !== $value && array() !== $value);
-    }
-
-    /** @return list<string> */
-    private function ancestorClassNames(DOMElement $element): array
-    {
-        $classes = array();
-        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement && 'body' !== strtolower($ancestor->tagName); $ancestor = $ancestor->parentNode ) {
-            array_push($classes, ...SourceDom::classNames($ancestor));
-        }
-
-        return array_values(array_unique($classes));
-    }
-
-    /**
-     * @return array<string, bool|string>
-     */
-    private function interactiveAttributes(DOMElement $element): array
-    {
-        return array_filter(array(
-            'tabindex'      => SourceDom::attr($element, 'tabindex'),
-            'aria-expanded' => SourceDom::attr($element, 'aria-expanded'),
-            'aria-controls' => SourceDom::attr($element, 'aria-controls'),
-            'has_events'    => array() !== SourceDom::eventMetadata($element),
-        ), static fn (mixed $value): bool => false !== $value && '' !== $value);
-    }
 }

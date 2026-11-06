@@ -65,21 +65,24 @@ final class GeneratedSupportStylesheetState
     /** @var array<string, string> */
     private array $navigationAnchorLineHeights = array();
 
-    /** @var array<string, string> Editor-only inheritance across omitted label boxes. */
+    /** @var array<string, array{marker: string, declarations: string, conditions: list<string>}> Editor-only inheritance across omitted label boxes. */
     private array $navigationEditorTypography = array();
 
-    public function registerNavigationEditorTypography(string $marker, string $declarations): void
+    /** @param list<string> $conditions */
+    public function registerNavigationEditorTypography(string $marker, string $declarations, array $conditions = array()): void
     {
-        $this->navigationEditorTypography[$marker] = $declarations;
+        $this->navigationEditorTypography[$marker . serialize($conditions)] = compact('marker', 'declarations', 'conditions');
     }
 
     /** @return list<string> */
     public function navigationEditorTypographyRules(): array
     {
         $rules = array();
-        foreach ($this->navigationEditorTypography as $marker => $declarations) {
-            $rules[] = '.wp-block-navigation .wp-block-navigation-item.' . $marker
-                . ' .wp-block-navigation-item__content{' . $declarations . '}';
+        foreach ($this->navigationEditorTypography as $entry) {
+            $rule = '.wp-block-navigation .wp-block-navigation-item.' . $entry['marker']
+                . ' .wp-block-navigation-item__content{' . $entry['declarations'] . '}';
+            foreach (array_reverse($entry['conditions']) as $condition) $rule = $condition . '{' . $rule . '}';
+            $rules[] = $rule;
         }
         return $rules;
     }

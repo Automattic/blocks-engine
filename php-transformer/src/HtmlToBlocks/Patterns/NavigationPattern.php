@@ -445,16 +445,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         // than written onto the block, so documents that share this shell keep
         // identical markup and continue to collapse into one template part.
         $authorClasses = $this->authorClassNames((string) ($navigationAttrs['className'] ?? ''));
-        if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
-            $defaultTextColorClass = $this->defaultNavigationTextColorClass($links);
-            if ( '' !== $defaultTextColorClass ) {
-                $navigationAttrs = $this->withClassName($navigationAttrs, $defaultTextColorClass);
-            }
-        }
-        $currentTextColorClass = $this->currentNavigationTextColorClass($links);
-        if ( '' !== $currentTextColorClass ) {
-            $navigationAttrs['className'] = trim((string) ($navigationAttrs['className'] ?? '') . ' ' . $currentTextColorClass);
-        }
+        $navigationAttrs = $this->withNavigationLinkColorClasses($navigationAttrs, $links);
 
         $navigationAttrs = $this->withProjectedFontFamily($navigationAttrs, $navigationSource, $navigationContext);
         $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext?->navigationListHostIdentity($navigationSource, 'never' === ($navigationAttrs['overlayMenu'] ?? '') ? $listSource : null, 'default' === ($navigationAttrs['layout']['type'] ?? '') ? ($navigationAttrs['style']['spacing']['blockGap'] ?? null) : null) ?? '');
@@ -873,7 +864,8 @@ final class NavigationPattern implements PatternRecognizerInterface
             $links[] = $this->createBlock->createBlock('core/navigation-link', array_filter(array(
                 'label' => SourceDom::innerHtmlWithProjectedMarkers(
                     $anchor,
-                    static fn (DOMElement $labelElement): array => $context->navigationContext()?->sourcePresentationMarkers($labelElement) ?? array()
+                    static fn (DOMElement $labelElement): array => $context->navigationContext()?->sourcePresentationMarkers($labelElement) ?? array(),
+                    static fn (DOMElement $labelElement): string => $context->navigationContext()?->serializedInlineStyle($labelElement) ?? SourceDom::attr($labelElement, 'style')
                 ),
                 'url' => SourceDom::safeNavigationUrl(SourceDom::attr($anchor, 'href')),
                 'kind' => 'custom',
@@ -1274,16 +1266,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             unset($commonTextAttrs['style']['typography']);
         }
         $navigationAttrs = array_replace_recursive($navigationAttrs, $commonTextAttrs);
-        if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
-            $defaultTextColorClass = $this->defaultNavigationTextColorClass($links);
-            if ( '' !== $defaultTextColorClass ) {
-                $navigationAttrs = $this->withClassName($navigationAttrs, $defaultTextColorClass);
-            }
-        }
-        $currentTextColorClass = $this->currentNavigationTextColorClass($links);
-        if ( '' !== $currentTextColorClass ) {
-            $navigationAttrs['className'] = trim((string) ($navigationAttrs['className'] ?? '') . ' ' . $currentTextColorClass);
-        }
+        $navigationAttrs = $this->withNavigationLinkColorClasses($navigationAttrs, $links);
 
         $navigationAttrs = $this->withProjectedFontFamily($navigationAttrs, $cluster, $navigationContext);
         $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext?->navigationListHostIdentity($cluster) ?? '');
@@ -1364,7 +1347,13 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function menuRowBesideControls(DOMElement $row, PatternContext $context, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?NavigationPatternContext $navigationContext): ?PatternRecognitionResult
     {
         $converter = $context->recursiveConverter();
-        if ( null === $converter || ! $this->hasButtonDropdownChild($row) ) {
+        $trailingControl = $this->hasTrailingNavigationControl($row, $navigationContext);
+        if ( null === $converter ) {
+            // Toggle ownership probes have no recursive converter. The strict
+            // item-set check still proves this landmark owns one native menu.
+            return $trailingControl ? new PatternRecognitionResult($createBlock('core/group', array( 'tagName' => 'nav' ), array($createBlock('core/navigation', array(), array(), $row)), $row)) : null;
+        }
+        if ( ! $this->hasButtonDropdownChild($row) && ! $trailingControl ) {
             return null;
         }
 
@@ -1378,6 +1367,39 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return $result;
+    }
+
+    /** A landmark's link run may end in one native CTA, not arbitrary content. */
+    private function hasTrailingNavigationControl(DOMElement $row, ?NavigationPatternContext $navigationContext): bool
+    {
+        if ( 'nav' !== strtolower($row->tagName) ) {
+            return false;
+        }
+        $children = array();
+        foreach ( $row->childNodes as $child ) {
+            if ( XML_COMMENT_NODE === $child->nodeType || ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                return false;
+            }
+            $children[] = $child;
+        }
+        $control = array_pop($children);
+        if ( ! $control instanceof DOMElement || 2 > count($children)
+            || $this->isNavigationChromeElement($control)
+            || ( 'button' !== strtolower($control->tagName)
+                && ! ( 'a' === strtolower($control->tagName)
+                    && (new ButtonSignalClassifier())->hasTransformSignal($control, $navigationContext?->resolvedStyle($control) ?? '') ) ) ) {
+            return false;
+        }
+        foreach ( $children as $child ) {
+            if ( 'a' !== strtolower($child->tagName) || '' === trim($child->getAttribute('href'))
+                || (new ButtonSignalClassifier())->hasTransformSignal($child, $navigationContext?->resolvedStyle($child) ?? '') ) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private function menuRowSlots(DOMElement $row, PatternTreeConverter $converter, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?NavigationPatternContext $navigationContext, ?CapturedMenuDialogFold $fold): ?PatternRecognitionResult
@@ -1415,6 +1437,9 @@ final class NavigationPattern implements PatternRecognizerInterface
         $collected = array();
         $linkSets = array();
         $foldMarker = '';
+        $trailingControl = $this->hasTrailingNavigationControl($row, $navigationContext);
+        $trailingResponsive = null === $fold && $trailingControl
+            && 'mobile' === $this->overlayMenu($row, $navigationContext);
         foreach ( $slots as $slot ) {
             if ( 'control' === $slot['kind'] ) {
                 $block = $converter->element($slot['elements'][0], $fallbacks, true);
@@ -1424,7 +1449,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 // The dialog lists this control too, and carries its own copy
                 // into the overlay, so the row's copy is hidden below the
                 // breakpoint where the hamburger takes over.
-                if ( $fold instanceof CapturedMenuDialogFold && $fold->listsControl($slot['elements'][0]) ) {
+                if ( $trailingResponsive || ( $fold instanceof CapturedMenuDialogFold && $fold->listsControl($slot['elements'][0]) ) ) {
                     $block = $this->withBlockClassName($block, self::MENU_FOLD_HIDE_CLASS, $createBlock, $slot['elements'][0]);
                 }
                 $children[] = $block;
@@ -1446,7 +1471,12 @@ final class NavigationPattern implements PatternRecognizerInterface
                     $itemLinks[CapturedMenuDialogFold::signature('link', CapturedMenuDialogFold::label($item), trim($item->getAttribute('href')))] = true;
                 }
             }
-            $attrs = array( 'overlayMenu' => 'never' );
+            $attrs = array( 'overlayMenu' => $trailingControl ? $this->overlayMenu($row, $navigationContext) : 'never' );
+            if ( 'mobile' === $attrs['overlayMenu'] ) {
+                $attrs = $this->withClassName($attrs, 'blocks-engine-native-responsive-navigation');
+                $attrs = $this->withResponsiveToggleMarker($attrs, $row, $navigationContext);
+                $attrs = $this->withResponsiveOverlayMarker($attrs, $row, $navigationContext);
+            }
             $gap = trim((string) ( $this->resolvedNavigationSpacing($navigationContext?->resolvedStyle($row) ?? '')['blockGap'] ?? '' ));
             if ( '' !== $gap ) {
                 $attrs['style']['spacing']['blockGap'] = $gap;
@@ -1461,9 +1491,16 @@ final class NavigationPattern implements PatternRecognizerInterface
             // Shared link text settings are read from the menu's own items; the
             // overlay-only extras are not items and must not dilute them.
             $attrs = array_replace_recursive($attrs, $this->commonNavigationLinkTextAttributes($links));
+            $attrs = $this->withNavigationLinkColorClasses($attrs, $links);
             $linkSets[] = $links;
             $attrs = $this->withSourceSubmenuIndicator($attrs, $row, $navigationContext);
-            $children[] = $createBlock('core/navigation', $attrs, array_merge($links, $overlayExtras), $slot['elements'][0]);
+            $navigation = $createBlock('core/navigation', $attrs, array_merge($links, $overlayExtras), $slot['elements'][0]);
+            if ( $trailingControl ) {
+                // The landmark's classes stay on the row group, so the link
+                // presentation the items inherit is scoped to this block.
+                $navigationContext?->recordInheritedPresentation($row, $this->scopedNavigationClasses(array(), $navigation));
+            }
+            $children[] = $navigation;
         }
         if ( array() === $linkSets ) {
             return null;
@@ -1472,6 +1509,20 @@ final class NavigationPattern implements PatternRecognizerInterface
         $this->recordNavigationSources(array(), array(), $collected, $row, $navigationContext);
 
         $groupAttrs = array_merge($presentationAttributes($row), array( 'tagName' => 'div' ));
+        if ( $trailingControl ) {
+            $groupAttrs['tagName'] = 'nav';
+            $groupAttrs['layout'] = array( 'type' => 'flex', 'flexWrap' => 'nowrap' );
+        }
+        if ( $trailingResponsive ) {
+            // The source hides this whole row on phones. Once its toggle is
+            // owned by the inner navigation, expose the row but not the CTA.
+            $toggle = $navigationContext?->navigationToggleControl($row);
+            $boundary = $toggle instanceof DOMElement ? $navigationContext?->menuCollapseBreakpoint($row, $toggle) : null;
+            $below = null === $boundary || $boundary <= 600 ? 599 : (int) floor($boundary);
+            $rule = '@media(max-width:' . $below . 'px){.wp-block-group.%s{display:flex!important}.wp-block-group.%s>.' . self::MENU_FOLD_HIDE_CLASS . '{display:none!important}}';
+            $foldMarker = 'blocks-engine-menu-fold-' . substr(hash('sha256', $rule), 0, 12);
+            $navigationContext?->registerMenuFoldRule($foldMarker, str_replace('%s', $foldMarker, $rule));
+        }
         if ( '' !== $foldMarker ) {
             $groupAttrs = $this->withClassName($groupAttrs, $foldMarker);
         }
@@ -2458,6 +2509,27 @@ final class NavigationPattern implements PatternRecognizerInterface
         return null;
     }
 
+    /**
+     * Scope the items' link-colour rules to this navigation: the overlay menu's
+     * resting colour, and the current item's colour.
+     *
+     * @param array<string, mixed> $navigationAttrs
+     * @param array<int, array<string, mixed>> $links
+     * @return array<string, mixed>
+     */
+    private function withNavigationLinkColorClasses(array $navigationAttrs, array $links): array
+    {
+        $classes = array(
+            'mobile' === ($navigationAttrs['overlayMenu'] ?? '') ? $this->defaultNavigationTextColorClass($links) : '',
+            $this->currentNavigationTextColorClass($links),
+        );
+        foreach ( array_filter($classes) as $className ) {
+            $navigationAttrs = $this->withClassName($navigationAttrs, $className);
+        }
+
+        return $navigationAttrs;
+    }
+
     /** @param array<int, array<string, mixed>> $links */
     private function defaultNavigationTextColorClass(array $links): string
     {
@@ -3226,12 +3298,13 @@ final class NavigationPattern implements PatternRecognizerInterface
             static fn (DOMElement $element): array => array_merge(
                 $navigationContext->labelPresentationMarkers($element),
                 $navigationContext->ownsLabelTypography($element) ? array( NavigationPatternContext::LABEL_TYPOGRAPHY_BOX_CLASS ) : array()
-            )
+            ),
+            $navigationContext->serializedInlineStyle(...)
         );
 
         // The transformer's own serializer performs rich-text lowering the plain
         // clone cannot. Prefer it whenever no marker had to be carried.
-        $html = $markered === SourceDom::innerHtml($anchor) ? $innerHtml($anchor) : $markered;
+        $html = $markered === SourceDom::innerHtml($anchor, $navigationContext->serializedInlineStyle(...)) ? $innerHtml($anchor) : $markered;
         return preg_replace('/<!--[\s\S]*?-->/', '', $html) ?? $html;
     }
 
@@ -3359,7 +3432,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             || (null !== $navigationContext && $navigationContext->targetsCurrentDocument($anchor->getAttribute('href')));
         $itemAttrs = $item->isSameNode($anchor) ? array() : $this->withoutCoreNavigationClasses($presentationAttributes($item));
         $anchorAttrs = $this->withoutCoreNavigationClasses($presentationAttributes($anchor));
-        if ($hasAuthoredCurrentState) $navigationContext?->recordCurrentNavigationItem($item, $anchor);
+        if ($isCurrentNavigationItem) $navigationContext?->recordCurrentNavigationItem($item, $anchor);
         // Submenu toggles (buttons, or links declared as buttons) have their
         // own rendered content subject, just like ordinary links. Leave the
         // existing linked-submenu path unchanged.
@@ -3415,7 +3488,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
         $itemClasses = preg_split('/\s+/', trim((string) ($itemAttrs['className'] ?? ''))) ?: array();
         $anchorClasses = preg_split('/\s+/', trim((string) ($anchorAttrs['className'] ?? ''))) ?: array();
-        $classes = array_values(array_unique(array_filter(array_merge($itemClasses, $anchorClasses, array($subjectMarker)))));
+        $classes = array_values(array_unique(array_filter(array_merge($itemClasses, $anchorClasses, array($subjectMarker, $navigationContext?->navigationLabelWidthMarker($anchor) ?? '')))));
         if ( ! $item->isSameNode($anchor) && null !== $navigationContext ) {
             $classes = array_values(array_unique(array_merge($classes, $navigationContext->sourcePresentationMarkers($item))));
         }
@@ -3442,6 +3515,19 @@ final class NavigationPattern implements PatternRecognizerInterface
                     $itemAttrs['style']['color']['background'] = $resolvedBackgroundColor;
                 }
             }
+        }
+
+        // The carried anchor style renders through safecss_filter_attr(), which
+        // accepts var()/calc()-style functions but drops a declaration that
+        // still holds a colour function: `color:hsl(var(--x))` renders as
+        // nothing. Carry that resting colour through the state-aware colour
+        // rules instead; colours core keeps inline stay on the anchor.
+        if (null !== $navigationContext && '' !== $subjectMarker
+            && 0 !== $this->navigationColorStateMask($anchor, $navigationContext)
+            && preg_match('/(?:^|;)\s*color\s*:[^;]*\(/i', $anchor->getAttribute('style'))
+        ) {
+            $resolvedTextColor = $this->navigationTextColorFromStyle($navigationContext->resolvedStyle($anchor));
+            if ('' !== $resolvedTextColor) $itemAttrs['style']['color']['text'] = $resolvedTextColor;
         }
 
         $textColor = trim((string) ($itemAttrs['style']['color']['text'] ?? ''));
@@ -4375,25 +4461,37 @@ final class NavigationPattern implements PatternRecognizerInterface
             $key = trim($trigger->getAttribute(CaptureEvidence::DIALOG_TRIGGER));
             if ($key !== trim($trigger->getAttribute('aria-controls')) || !$this->navigationWillClaimItem($node)) continue;
             foreach ($this->submenuContainers($node, $anchor) as $container) {
-                if ($this->elementCarriesDialogPanel($container, $key)) return true;
+                $panel = $this->dialogPanelIn($container, $key);
+                // A panel declared as a modal dialog is an overlay the trigger
+                // opens, not a submenu of the trigger's item: the dialog
+                // projection keeps it working instead of a submenu that the
+                // navigation recognizer never emits.
+                if ($panel instanceof DOMElement && !$this->isModalDialogPanel($panel)) return true;
             }
         }
         return false;
+    }
+
+    private function dialogPanelIn(DOMElement $element, string $key): ?DOMElement
+    {
+        if ($element->getAttribute(CaptureEvidence::DIALOG_PANEL) === $key || $element->getAttribute('id') === $key) return $element;
+        foreach ($element->getElementsByTagName('*') as $descendant) {
+            if ($descendant instanceof DOMElement && ($descendant->getAttribute(CaptureEvidence::DIALOG_PANEL) === $key || $descendant->getAttribute('id') === $key)) return $descendant;
+        }
+        return null;
+    }
+
+    private function isModalDialogPanel(DOMElement $panel): bool
+    {
+        return 'true' === strtolower(trim($panel->getAttribute('aria-modal')))
+            || in_array(strtolower(trim($panel->getAttribute('role'))), array('dialog', 'alertdialog'), true)
+            || 'dialog' === strtolower($panel->tagName);
     }
 
     private function navigationWillClaimItem(DOMElement $item): bool
     {
         for ($node = $item; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null) {
             if ($this->claimsBeforeAuthorOwnedLayout($node) || $this->hasNavigationSignal($node)) return true;
-        }
-        return false;
-    }
-
-    private function elementCarriesDialogPanel(DOMElement $element, string $key): bool
-    {
-        if ($element->getAttribute(CaptureEvidence::DIALOG_PANEL) === $key || $element->getAttribute('id') === $key) return true;
-        foreach ($element->getElementsByTagName('*') as $descendant) {
-            if ($descendant instanceof DOMElement && ($descendant->getAttribute(CaptureEvidence::DIALOG_PANEL) === $key || $descendant->getAttribute('id') === $key)) return true;
         }
         return false;
     }

@@ -269,15 +269,16 @@ JS;
         return trigger.matches( 'button,a,[role="button"]' ) ? trigger : trigger.querySelector( 'button,a,[role="button"]' ) || trigger;
     }
     // A source close control is a native button once converted, so it is
-    // recognized by its accessible name as well as the explicit marker.
+    // recognized by its accessible name as well as the explicit marker. A
+    // control the capture bound as its panel's close keeps that binding.
     // The source's own declared close controls (for example a popover's
     // `popovertargetaction="hide"` button) are bound by id, whatever their label.
     function closeControl( target, dialog ) {
         var declared = ( dialog.getAttribute( 'data-blocks-engine-closers' ) || '' ).split( /\s+/ ).map( function( id ) { return id && document.getElementById( id ); } ).filter( Boolean );
         for ( var i = 0; i < declared.length; i++ ) if ( declared[ i ].contains( target ) ) return declared[ i ];
-        var control = target.closest && target.closest( '[data-blocks-engine-dialog-close],button,a,[role="button"]' );
+        var control = target.closest && target.closest( '[data-blocks-engine-dialog-close],[__DIALOG_CAPTURE_CLOSE__],button,a,[role="button"]' );
         if ( ! control ) return null;
-        if ( control.hasAttribute( 'data-blocks-engine-dialog-close' ) ) return control;
+        if ( control.hasAttribute( 'data-blocks-engine-dialog-close' ) || control.hasAttribute( '__DIALOG_CAPTURE_CLOSE__' ) ) return control;
         var label = ( ( control.getAttribute( 'aria-label' ) || '' ) + ' ' + ( control.getAttribute( 'title' ) || '' ) ).toLowerCase();
         var text = ( control.textContent || '' ).trim().toLowerCase();
         return label.indexOf( 'close' ) > -1 || [ 'close', 'x', '\u00d7' ].indexOf( text ) > -1 ? control : null;
@@ -415,7 +416,7 @@ JS;
                 'style.css' => $style,
                 'index.js' => str_replace(array('__BLOCK_NAME__', '__ATTRIBUTES__', '__DIALOG_ANCESTOR_UNVERIFIED__'), array($blockName, json_encode($attributes, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), CaptureEvidence::DIALOG_ANCESTOR_UNVERIFIED), $editor),
             ),
-            'view_js' => str_replace(array('__ANCESTOR_ATTRIBUTE_PATTERN__', '__DIALOG_TRIGGER_STATE__'), array(self::ANCESTOR_ATTRIBUTE_PATTERN, CaptureEvidence::DIALOG_TRIGGER_STATE), $view),
+            'view_js' => str_replace(array('__ANCESTOR_ATTRIBUTE_PATTERN__', '__DIALOG_TRIGGER_STATE__', '__DIALOG_CAPTURE_CLOSE__'), array(self::ANCESTOR_ATTRIBUTE_PATTERN, CaptureEvidence::DIALOG_TRIGGER_STATE, CaptureEvidence::DIALOG_CLOSE), $view),
             'script_dependencies' => array('index.js' => array('wp-blocks', 'wp-block-editor', 'wp-element', 'wp-data')),
         );
     }

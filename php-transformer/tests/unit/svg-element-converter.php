@@ -85,7 +85,7 @@ $textRun = new SvgTextRunLowering(
     new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array()),
     static fn (string $value, DOMElement $element): string => $value,
     new SourceBlockCreatorFixture(static fn (string $name, array $attrs, array $innerBlocks, ?DOMElement $source): array => array( 'blockName' => $name, 'attrs' => $attrs, 'sourceTag' => $source?->tagName )),
-    new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession(new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime(), static fn (DOMElement $element): array => array())
+    new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession(new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()))
 );
 $converter = new SvgElementConverter(new SourceBlockCreatorFixture(static fn (string $name, array $attrs, array $innerBlocks, ?DOMElement $source): array => array(
         'blockName' => $name,

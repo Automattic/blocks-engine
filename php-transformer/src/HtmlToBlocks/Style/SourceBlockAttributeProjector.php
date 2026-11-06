@@ -24,12 +24,16 @@ final class SourceBlockAttributeProjector
     public const SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-flex-image-figure';
     public const SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-inline';
     public const INLINE_IMAGE_LEAF_CLASS = 'blocks-engine-inline-image-leaf';
+    public const BASELINE_IMAGE_LEAF_CLASS = 'blocks-engine-baseline-image-leaf';
+    public const INLINE_IMAGE_LINK_CLASS = 'blocks-engine-inline-image-link';
     public const SYNTHETIC_IMAGE_GAP_CLASS = 'blocks-engine-synthetic-image-gap';
     /** An image unwrapped from a paragraph whose line box it sized in the source. */
     public const PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS = 'blocks-engine-paragraph-line-box-image';
     public const SYNTHETIC_FILL_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-fill';
     public const SYNTHETIC_FILL_VIDEO_FIGURE_CLASS = 'blocks-engine-synthetic-video-figure-fill';
     public const SYNTHETIC_EMBED_FIGURE_CLASS = 'blocks-engine-synthetic-embed-figure';
+    /** A core/embed under inherited whitespace preservation its wrapper must not apply. */
+    public const EMBED_NORMAL_WHITESPACE_CLASS = 'blocks-engine-embed-normal-whitespace';
     public const CSS_OWNED_INLINE_FLOW_CLASS = 'blocks-engine-css-owned-inline-flow';
     public const CSS_OWNED_LAYOUT_ITEM_CLASS = 'blocks-engine-css-owned-layout-item';
     public const LAYOUT_NEUTRAL_BUTTONS_CLASS = 'blocks-engine-layout-neutral-buttons';
@@ -502,6 +506,25 @@ final class SourceBlockAttributeProjector
                         $context->generatedStyles,
                         '' !== trim((string) ($blockColor['background'] ?? ''))
                     );
+                    // A collapsed surface can own dimensions even when the
+                    // logical anchor is inline and unsized. Its geometry carrier
+                    // lives on Core's display:contents wrapper, so size the painted
+                    // link instead and opt out of the layout-neutral axis resets.
+                    if ( $sourceElement !== $logicalControl && $participation instanceof LayoutParticipation && $participation->neutralizeButtonWrapper() ) {
+                        $surface = $this->styleResolver->cssDeclarations($this->styleResolver->mergedPresentationStyle($sourceElement));
+                        $dimensions = array();
+                        foreach ( array( 'width', 'height' ) as $axis ) {
+                            $value = trim((string) ($surface[$axis] ?? ''));
+                            if ( '' !== $value && ! in_array(CssValueInspector::comparable($value), array( 'auto', 'initial', 'inherit', 'unset', 'revert', 'revert-layer' ), true) ) {
+                                $dimensions[] = $axis . ':' . $value;
+                                $attrs['className'] = SourceDom::mergeClassNames((string) $attrs['className'], self::LAYOUT_NEUTRAL_BUTTON_CLASS . '-author-' . $axis);
+                            }
+                        }
+                        if ( array() !== $dimensions ) {
+                            $attrs['className'] = SourceDom::mergeClassNames((string) $attrs['className'], self::LAYOUT_NEUTRAL_BUTTON_CLASS . '-display-inline-block');
+                            $context->generatedStyles->appendNativeButton($controlMarker, '.' . $controlMarker . '.' . $controlMarker . '>.wp-block-button__link{box-sizing:border-box;' . implode(';', $dimensions) . '}');
+                        }
+                    }
                     $childOwnedOffsets = $participation instanceof LayoutParticipation && $participation->positioned;
                     if ( $participation instanceof LayoutParticipation && $participation->needsDirectFlexRepair() ) {
                         $this->generatedStyleProjector->registerDirectFlexButton($controlMarker, $logicalControl, $context->generatedStyles);

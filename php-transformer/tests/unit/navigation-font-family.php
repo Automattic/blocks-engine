@@ -33,6 +33,11 @@ foreach ( $fixtures as $name => $html ) {
     foreach ( $matches[1] as $json ) {
         $attrs = json_decode($json, true);
         $assert(! isset($attrs['style']['typography']['fontFamily']), $name . ': does not trigger the legacy font-family migration');
+        if ('brand carrier' === $name) {
+            $assert(!isset($attrs['style']['typography']['fontWeight']) && str_contains($markup, 'font-weight:600'), $name . ': inherits supported typography from the retained carrier');
+            $assert(!isset($attrs['style']['typography']['fontFamily']) && str_contains($markup, 'font-family:Georgia,serif'), $name . ': inherits the authored family without restating it on the native host');
+            continue;
+        }
         $assert('600' === (string) ($attrs['style']['typography']['fontWeight'] ?? ''), $name . ': retains other supported typography');
         preg_match('/\bblocks-engine-navigation-font-family-[a-f0-9]+\b/', (string) ($attrs['className'] ?? ''), $marker);
         $family = 'variable direct links' === $name ? 'var(--menu-font)' : 'Georgia,serif';

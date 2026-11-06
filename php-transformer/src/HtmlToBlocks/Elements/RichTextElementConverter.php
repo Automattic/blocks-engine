@@ -265,9 +265,8 @@ final class RichTextElementConverter implements ElementConverter
     }
 
     /**
-     * Lowers a paragraph whose whole content is one `<button>` the RichText
-     * lowering declined (a dialog trigger, a toggle with `aria-controls`, a
-     * control labelled like a submit) through the container path, which
+     * Lowers a paragraph whose whole content is one `<button>` through the
+     * container path before RichText can turn it into an inline mark, which
      * already converts that button natively with its runtime attributes, as
      * it does when the same button sits in a `<div>`. The paragraph keeps its
      * box as a group. Inline `<span>` wrappers between the paragraph and the
@@ -380,6 +379,11 @@ final class RichTextElementConverter implements ElementConverter
             return $editableIconRow;
         }
 
+        $soleControl = $this->soleButtonParagraph($element, $fallbacks);
+        if ( null !== $soleControl ) {
+            return $soleControl;
+        }
+
         $content         = $this->richTextMaterializer->content($element);
         $withLowered     = $this->richTextMaterializer->contentWithInlineSafeButtonsLowered($element, $content);
         if ( null !== $withLowered ) {
@@ -415,11 +419,6 @@ final class RichTextElementConverter implements ElementConverter
             $pictureRow = $this->pictureWithTextRow($element, $fallbacks);
             if ( null !== $pictureRow ) {
                 return $pictureRow;
-            }
-
-            $soleControl = $this->soleButtonParagraph($element, $fallbacks);
-            if ( null !== $soleControl ) {
-                return $soleControl;
             }
 
             return $this->context->htmlPreservationBlock($element);
