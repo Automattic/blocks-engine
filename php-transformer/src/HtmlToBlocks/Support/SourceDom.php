@@ -42,6 +42,17 @@ use DOMText;
  */
 final class SourceDom
 {
+    /**
+     * A text label that is read but not painted. It gives a text-less control
+     * its accessible name as content, which core blocks require to render.
+     * The clip is inline so it holds without theme CSS.
+     */
+    public static function visuallyHiddenLabel(string $label): string
+    {
+        return '<span class="screen-reader-text" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0">'
+            . htmlspecialchars($label, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</span>';
+    }
+
     public static function anchorIsHeadingWrapped(DOMElement $anchor, DOMElement $boundary): bool
     {
         for ( $node = $anchor; $node instanceof DOMElement && ! $node->isSameNode($boundary); $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
