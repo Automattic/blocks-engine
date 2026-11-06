@@ -481,7 +481,20 @@ PHP;
             if ('page' === ($asset['compilation']['scope'] ?? null) && isset($surfaceSources[$asset['compilation']['id'] ?? ''])) $asset['compilation'] = array('scope' => 'shared');
         }
         unset($asset);
-        $assets = $this->scopeAssets($assets, $pages);
+        // Root selector context belongs to captured documents, not only to
+        // entities that survive as pages (terms, authors and dates do not).
+        $rootDocuments = array();
+        $nativeArchiveSources = array_fill_keys(array_column(array_column($taxonomyProjection['entities'], 'archive'), 'source_path'), true);
+        $assetPages = array_values(array_filter($pages, static fn(array $page): bool => !isset($nativeArchiveSources[$page['source_path']])));
+        $pageSources = array_fill_keys(array_column($assetPages, 'source_path'), true);
+        $entryRoot = self::entryRootFromDocuments($compiled['pages']);
+        foreach ($compiled['pages'] as $document) {
+            if (isset($pageSources[$document['source_path']]) || isset($paginationOwners[$document['source_path']]) || isset($paginationSources[$document['source_path']])) continue;
+            $path = $routeBySource[$document['source_path']] ?? $document['metadata']['route_path'] ?? self::pageRoutePath($document['source_path'], $entryRoot);
+            $metadata = $document['document_metadata'] ?? array();
+            $rootDocuments[] = array('source_path' => $document['source_path'], 'reconciliation_identity' => self::identity('page', $document['source_path'], $document['source_path']), 'route' => array('path' => $path), 'document_metadata' => array_intersect_key($metadata, array('root_attributes' => true, 'body_attributes' => true)));
+        }
+        $assets = $this->scopeAssets($assets, self::assetOwnerDocuments($assetPages, $rootDocuments));
         $projector = new ThemeJsonProjection();
         $themeProjection = $projector->project($assets, array_column($pages, 'source_path'), $this->designSystem);
         $assets = $themeProjection['assets'];
@@ -690,17 +703,6 @@ PHP;
         $pages = $integrity->documents($pages);
         $parts = $integrity->documents($parts);
         $scriptLoading = $this->scriptLoading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
-        // Root selector context belongs to captured documents, not only to
-        // entities that survive as pages (terms, authors and dates do not).
-        $rootDocuments = array();
-        $pageSources = array_fill_keys(array_column($pages, 'source_path'), true);
-        $entryRoot = self::entryRootFromDocuments($compiled['pages']);
-        foreach ($compiled['pages'] as $document) {
-            if (isset($pageSources[$document['source_path']]) || isset($paginationOwners[$document['source_path']]) || isset($paginationSources[$document['source_path']])) continue;
-            $path = $routeBySource[$document['source_path']] ?? $document['metadata']['route_path'] ?? self::pageRoutePath($document['source_path'], $entryRoot);
-            $metadata = $document['document_metadata'] ?? array();
-            $rootDocuments[] = array('source_path' => $document['source_path'], 'reconciliation_identity' => self::identity('page', $document['source_path'], $document['source_path']), 'route' => array('path' => $path), 'document_metadata' => array_intersect_key($metadata, array('root_attributes' => true, 'body_attributes' => true)));
-        }
         $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens, $pages, $menus, $runtimeEmoji, $rootDocuments), $assetWrites);
         $unitFindings = array_merge($this->unitFindingDiagnostics(), NavigationInstanceDiagnostics::collect($assets, $emittedMarkup . "\n" . implode("\n", self::markups($menus))));
         $recoveryDiagnostics = array_merge($this->routeCollisionDiagnostics(), $this->unresolvedNavigationDiagnostics(), $this->unresolvedScriptReferenceDiagnostics(), $this->omittedLinkDeclarationDiagnostics(), $unitFindings, $this->missingMedia->diagnostics(), $missingFonts->diagnostics(), $eventDiagnostics, $paginationDiagnostics);
@@ -1050,15 +1052,10 @@ PHP;
         self::assertAuthorEntities($plan['author_entities'], $pagesBySource);
         $expectedCandidatePages = self::attachWholePageCandidates(array_map(static function (array $page): array { unset($page['whole_page_candidates']); return $page; }, $plan['pages']), RuntimeDeclarations::materialize($plan['runtime_declarations'], $runtimeRecords), $records);
         foreach ($plan['pages'] as $index => $page) if (($expectedCandidatePages[$index]['whole_page_candidates'] ?? null) !== ($page['whole_page_candidates'] ?? null)) throw new InvalidArgumentException('Whole-page candidates are stale, duplicated, or detached from their canonical source pages.');
-        $rootDocumentsBySource = array_column($plan['theme']['document_roots'] ?? array(), null, 'source_path');
-        foreach ($rootDocumentsBySource as $source => $document) $archiveDocuments[$source] ??= $document;
+        $documentsBySource = self::assetOwnerDocuments($plan['pages'], $plan['theme']['document_roots'] ?? array());
         foreach ($plan['assets'] as $asset) foreach ($asset['scopes'] ?? array() as $scope) if ('global' !== $scope['kind']) {
-            if ('archive' === $scope['kind']) {
-                if (!isset($rootDocumentsBySource[$scope['source_path']]) || $scope['route_path'] !== trim($rootDocumentsBySource[$scope['source_path']]['route']['path'], '/')) throw new InvalidArgumentException('An archive asset scope does not match its captured document.');
-                continue;
-            }
-            $page = $pagesBySource[$scope['source_path']] ?? $archiveDocuments[$scope['source_path']] ?? null;
-            if (!is_array($page) || $scope['kind'] !== ('post' === $page['post_type'] ? 'post' : 'page') || $scope['route_path'] !== trim($page['route']['path'], '/') || $scope['reconciliation_identity'] !== $page['reconciliation_identity'] || $scope['front_page'] !== ('/' === $page['route']['path'])) throw new InvalidArgumentException('A page asset scope does not match its canonical page.');
+            $document = $documentsBySource[$scope['source_path']] ?? null;
+            if (!is_array($document) || $scope != self::stylesheetDocumentScope($document)) throw new InvalidArgumentException('An asset scope does not match its canonical document.');
         }
         // A document position holds exactly one stylesheet instance, across
         // every resource, so each route replays one unambiguous sequence.
@@ -1066,7 +1063,7 @@ PHP;
         foreach ($plan['assets'] as $asset) {
             if (isset($asset['stylesheet_instances']) && ('css' !== $asset['kind'] || !is_array($asset['stylesheet_instances']))) throw new InvalidArgumentException('Only stylesheet resources may declare ordered instances.');
             foreach ($asset['stylesheet_instances'] ?? array() as $instance) {
-                if (!is_array($instance) || array('source_path', 'order', 'media', 'type') !== array_keys(array_diff_key($instance, array_flip(array(CaptureEvidence::DEVICE_STYLE, CaptureEvidence::SOURCE_MEDIA)))) || (!isset($pagesBySource[$instance['source_path'] ?? '']) && !isset($archiveDocuments[$instance['source_path'] ?? ''])) || !is_int($instance['order'] ?? null) || $instance['order'] < 0 || !is_string($instance['media'] ?? null) || !is_string($instance['type'] ?? null) || array_filter(self::stylesheetDeviceAttributes($instance), static fn(mixed $value): bool => !is_string($value))) throw new InvalidArgumentException('Stylesheet instance must identify a canonical document, order and conditions.');
+                if (!is_array($instance) || array('source_path', 'order', 'media', 'type') !== array_keys(array_diff_key($instance, array_flip(array(CaptureEvidence::DEVICE_STYLE, CaptureEvidence::SOURCE_MEDIA)))) || !isset($documentsBySource[$instance['source_path'] ?? '']) || !is_int($instance['order'] ?? null) || $instance['order'] < 0 || !is_string($instance['media'] ?? null) || !is_string($instance['type'] ?? null) || array_filter(self::stylesheetDeviceAttributes($instance), static fn(mixed $value): bool => !is_string($value))) throw new InvalidArgumentException('Stylesheet instance must identify a canonical document, order and conditions.');
                 // A frontend-only and an editor-only copy share their position:
                 // each context still replays exactly one resource there.
                 foreach (array('frontend', 'editor') as $context) {
@@ -1475,10 +1472,9 @@ PHP;
         return $prior;
     }
 
-    /** @param array<int,array<string,mixed>> $assets @param array<int,array<string,mixed>> $pages @return array<int,array<string,mixed>> */
-    private function scopeAssets(array $assets, array $pages): array
+    /** @param array<int,array<string,mixed>> $assets @param array<string,array<string,mixed>> $documentsBySource @return array<int,array<string,mixed>> */
+    private function scopeAssets(array $assets, array $documentsBySource): array
     {
-        $pagesBySource = array_column($pages, null, 'source_path');
         $stylesheetSets = array();
         foreach ($assets as $asset) {
             $state = $asset['stylesheet_activation'] ?? null;
@@ -1496,21 +1492,21 @@ PHP;
             // Explicit page ownership wins over inherited occurrence records.
             if (isset($asset['inline_references']) && 'page' !== ($compilation['scope'] ?? null)) {
                 $referencedPages = array();
-                foreach ($asset['inline_references'] as $reference) if (isset($pagesBySource[$reference['source_path']])) $referencedPages[$reference['source_path']] = $pagesBySource[$reference['source_path']];
-                $asset['scopes'] = array_values(array_map(static fn(array $page): array => array('kind' => 'post' === $page['post_type'] ? 'post' : 'page', 'source_path' => $page['source_path'], 'route_path' => trim($page['route']['path'], '/'), 'reconciliation_identity' => $page['reconciliation_identity'], 'front_page' => '/' === $page['route']['path']), $referencedPages));
+                foreach ($asset['inline_references'] as $reference) if (isset($documentsBySource[$reference['source_path']])) $referencedPages[$reference['source_path']] = $documentsBySource[$reference['source_path']];
+                $asset['scopes'] = array_values(array_map(static fn(array $page): array => self::stylesheetDocumentScope($page), $referencedPages));
                 if (array() === $asset['scopes']) $asset['scopes'] = array(array('kind' => 'global'));
                 continue;
             }
             if ('shared' === ($compilation['scope'] ?? null)) {
                 $sources = $compilation['source_paths'] ?? null;
-                $consumers = is_array($sources) ? array_intersect_key($pagesBySource, array_fill_keys($sources, true)) : array();
+                $consumers = is_array($sources) ? array_intersect_key($documentsBySource, array_fill_keys($sources, true)) : array();
                 // A deduplicated document payload is shared only by its
                 // consumers, not by every route. Truly site-wide support and
                 // isolated shared-shell compilations keep their global scope.
-                $canonicalPages = array_filter($pagesBySource, static fn(array $page): bool => empty($page['synthetic']));
+                $canonicalPages = array_filter($documentsBySource, static fn(array $page): bool => empty($page['synthetic']));
                 $asset['scopes'] = null === $sources || count($consumers) === count($canonicalPages)
                     ? array(array('kind' => 'global'))
-                    : array_values(array_map(self::stylesheetPageScope(...), $consumers));
+                    : array_values(array_map(self::stylesheetDocumentScope(...), $consumers));
                 if (array() === $asset['scopes']) $asset['scopes'] = array(array('kind' => 'global'));
                 continue;
             }
@@ -1518,7 +1514,7 @@ PHP;
                 $referencedPages = array();
                 foreach (is_array($asset['references'] ?? null) ? $asset['references'] : array() as $reference) {
                     $sourcePath = is_array($reference) && 'link' === ($reference['element'] ?? null) ? ($reference['source_path'] ?? null) : null;
-                    if (is_string($sourcePath) && is_array($pagesBySource[$sourcePath] ?? null)) $referencedPages[$sourcePath] = $pagesBySource[$sourcePath];
+                    if (is_string($sourcePath) && is_array($documentsBySource[$sourcePath] ?? null)) $referencedPages[$sourcePath] = $documentsBySource[$sourcePath];
                 }
                 if (array() === $referencedPages) {
                     $asset['scopes'] = array(array('kind' => 'global'));
@@ -1533,18 +1529,18 @@ PHP;
                 // stylesheet only some documents link stays route-only.
                 // Generated synthetic route pages capture nothing, so they do
                 // not hold a site-wide stylesheet back.
-                if (count($referencedPages) === count(array_filter($pagesBySource, static fn(array $page): bool => empty($page['synthetic'])))) {
+                if (count($referencedPages) === count(array_filter($documentsBySource, static fn(array $page): bool => empty($page['synthetic'])))) {
                     $asset['scopes'] = array(array('kind' => 'global'));
                     continue;
                 }
-                $asset['scopes'] = array_values(array_map(static fn(array $page): array => array('kind' => 'post' === $page['post_type'] ? 'post' : 'page', 'source_path' => $page['source_path'], 'route_path' => trim($page['route']['path'], '/'), 'reconciliation_identity' => $page['reconciliation_identity'], 'front_page' => '/' === $page['route']['path']), $referencedPages));
+                $asset['scopes'] = array_values(array_map(static fn(array $page): array => self::stylesheetDocumentScope($page), $referencedPages));
                 continue;
             }
-            if (!is_array($compilation) || 'page' !== ($compilation['scope'] ?? null) || !is_string($compilation['id'] ?? null) || !is_array($pagesBySource[$compilation['id']] ?? null)) {
-                throw new InvalidArgumentException('A page-owned compiled asset must resolve to a canonical page.');
+            if (!is_array($compilation) || 'page' !== ($compilation['scope'] ?? null) || !is_string($compilation['id'] ?? null) || !is_array($documentsBySource[$compilation['id']] ?? null)) {
+                throw new InvalidArgumentException('A document-owned compiled asset must resolve to a canonical document.');
             }
-            $page = $pagesBySource[$compilation['id']];
-            $asset['scopes'] = array(array('kind' => 'post' === $page['post_type'] ? 'post' : 'page', 'source_path' => $page['source_path'], 'route_path' => trim($page['route']['path'], '/'), 'reconciliation_identity' => $page['reconciliation_identity'], 'front_page' => '/' === $page['route']['path']));
+            $page = $documentsBySource[$compilation['id']];
+            $asset['scopes'] = array(self::stylesheetDocumentScope($page));
         }
         unset($asset);
         return $assets;
@@ -6649,8 +6645,7 @@ PHP;
      */
     private static function stylesheetEnqueues(array $assets, array $pages, array $rootDocuments = array()): array
     {
-        $pagesBySource = array_column($pages, null, 'source_path');
-        $archivesBySource = array_column($rootDocuments, null, 'source_path');
+        $documentsBySource = self::assetOwnerDocuments($pages, $rootDocuments);
         $assetsBySource = array_column($assets, null, 'source_path');
         $before = $after = $instances = array();
         $firstManaged = count($assets);
@@ -6662,9 +6657,9 @@ PHP;
             if (array() === $occurrences && is_string($parent)) $occurrences = $assetsBySource[$parent]['stylesheet_instances'] ?? array();
             foreach ($occurrences as $occurrence) {
                 $source = $occurrence['source_path'];
-                if (!isset($pagesBySource[$source]) && !isset($archivesBySource[$source])) continue;
-                if (!isset($archivesBySource[$source]) && !array_filter($asset['scopes'], static fn(array $scope): bool => 'global' === $scope['kind'] || ($scope['source_path'] ?? null) === $source)) continue;
-                $scope = isset($pagesBySource[$source]) ? self::stylesheetPageScope($pagesBySource[$source]) : array('kind' => 'archive', 'source_path' => $source, 'route_path' => trim($archivesBySource[$source]['route']['path'], '/'));
+                if (!isset($documentsBySource[$source])) continue;
+                if (!array_filter($asset['scopes'], static fn(array $scope): bool => 'global' === $scope['kind'] || ($scope['source_path'] ?? null) === $source)) continue;
+                $scope = self::stylesheetDocumentScope($documentsBySource[$source]);
                 $instances[$source][] = array('asset' => $asset, 'scope' => $scope, 'route' => $source, 'condition' => self::bootstrapScopeCondition($scope), 'media' => $occurrence['media'], 'handle' => 'blocks-engine-instance-' . substr(hash('sha256', $asset['target_path'] . "\0" . $source . "\0" . $occurrence['order']), 0, 16), 'order' => $occurrence['order'], 'resource_order' => $index) + self::stylesheetDeviceAttributes($occurrence);
             }
             if (!empty($asset['frame_fallback'])) {
@@ -6715,9 +6710,16 @@ PHP;
         return $sequence;
     }
 
-    /** @param array<string,mixed> $page @return array<string,mixed> */
-    private static function stylesheetPageScope(array $page): array
+    /** @param array<int,array<string,mixed>> $pages @param array<int,array<string,mixed>> $rootDocuments @return array<string,array<string,mixed>> */
+    private static function assetOwnerDocuments(array $pages, array $rootDocuments): array
     {
+        return array_column($pages, null, 'source_path') + array_column($rootDocuments, null, 'source_path');
+    }
+
+    /** @param array<string,mixed> $page @return array<string,mixed> */
+    private static function stylesheetDocumentScope(array $page): array
+    {
+        if (!isset($page['post_type'])) return array('kind' => 'archive', 'source_path' => $page['source_path'], 'route_path' => trim($page['route']['path'], '/'));
         return array('kind' => 'post' === $page['post_type'] ? 'post' : 'page', 'source_path' => $page['source_path'], 'route_path' => trim($page['route']['path'], '/'), 'reconciliation_identity' => $page['reconciliation_identity'], 'front_page' => '/' === $page['route']['path']);
     }
     /**

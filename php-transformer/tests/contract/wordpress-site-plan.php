@@ -1396,7 +1396,7 @@ foreach (array(' – ', ' | ', ' - ') as $termTitleSeparator) {
         array('path' => 'tag/wrong/index.html', 'content' => '<title>Wrong</title><body class="archive tag tag-other"><main>Wrong archive</main></body>'),
     );
     foreach (array('tag/ai' => array('archive tag tag-ai tag-970', 'AI'), 'category/blog' => array('archive category category-blog', 'Blog')) as $termIdentityRoute => $termIdentity) {
-        $termIdentityFiles[] = array('path' => $termIdentityRoute . '/index.html', 'content' => '<html><head><title>' . $termIdentity[1] . $termTitleSeparator . 'Example Site</title><link rel="stylesheet" href="/assets/archive.css"></head><body class="' . $termIdentity[0] . '"></body></html>');
+        $termIdentityFiles[] = array('path' => $termIdentityRoute . '/index.html', 'content' => '<html><head><title>' . $termIdentity[1] . $termTitleSeparator . 'Example Site</title><link rel="stylesheet" href="/assets/archive.css"></head><body class="' . $termIdentity[0] . '">' . ('tag/ai' === $termIdentityRoute ? '<img src="/assets/logo.png" alt="Logo">' : '') . '</body></html>');
         $termIdentityFiles[] = array('path' => $termIdentityRoute . '/page/2/index.html', 'content' => '<body class="' . $termIdentity[0] . ' paged"></body>');
     }
     foreach ($termIdentityFiles as &$termIdentityFile) if (str_ends_with($termIdentityFile['path'], '.html') && !str_contains($termIdentityFile['content'], '/assets/archive.css')) $termIdentityFile['content'] = '<link rel="stylesheet" href="/assets/archive.css">' . $termIdentityFile['content'];
@@ -1404,6 +1404,12 @@ foreach (array(' – ', ' | ', ' - ') as $termTitleSeparator) {
     $termIdentityResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $termIdentityFiles))->toArray();
     $termIdentityPlan = $termIdentityResult['source_reports']['wordpress_site_plan'];
     $termIdentityBootstrap = (string) ($writeMap($termIdentityPlan['writes'])['functions.php']['payload']['data'] ?? '');
+    $archiveSupport = array_values(array_filter($termIdentityPlan['assets'], static fn(array $asset): bool => 'engine-support' === ($asset['source'] ?? '') && str_contains($asset['content'] ?? '', '.blocks-engine-synthetic-image-figure{margin:0}') && in_array(array('kind' => 'archive', 'source_path' => 'tag/ai/index.html', 'route_path' => 'tag/ai'), $asset['scopes'] ?? array(), true)));
+    $assert(array() !== $archiveSupport, 'Captured tag documents own generated synthetic-image support CSS.');
+    foreach ($archiveSupport as $support) {
+        $supportHandle = 'blocks-engine-' . substr(hash('sha256', $support['target_path']), 0, 12);
+        $assert(str_contains($termIdentityBootstrap, "if ( 'tag/ai' === blocks_engine_archive_path() ) wp_enqueue_style( '" . $supportHandle . "', get_theme_file_uri( '" . $support['target_path'] . "' )"), 'Generated archive support CSS enqueues under the canonical archive condition.');
+    }
     $rootStart = strpos($termIdentityBootstrap, 'global $blocks_engine_document_roots');
     $rootEnd = strpos($termIdentityBootstrap, "add_filter( 'language_attributes'", $rootStart);
     unset($blocks_engine_document_roots, $blocks_engine_document_attributes, $blocks_engine_document_fallback);
