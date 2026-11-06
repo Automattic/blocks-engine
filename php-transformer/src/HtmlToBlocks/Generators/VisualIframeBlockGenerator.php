@@ -11,6 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription;
 use Closure;
 use DOMElement;
 use LogicException;
@@ -42,7 +43,6 @@ final class VisualIframeBlockGenerator
     /**
      * @param Closure(DOMElement): bool $isInertRuntimeMediaPlaceholder
      * @param Closure(DOMElement): bool $sourceElementStartsHidden
-     * @param Closure(DOMElement): array<string, mixed> $sourceContext
      */
     public function __construct(
         private readonly SourceElementClassifier $sourceElementClassifier = new SourceElementClassifier(),
@@ -52,7 +52,7 @@ final class VisualIframeBlockGenerator
         private readonly ?HtmlTransformerSession $session = null,
         private readonly ?Closure $isInertRuntimeMediaPlaceholder = null,
         private readonly ?Closure $sourceElementStartsHidden = null,
-        private readonly ?Closure $sourceContext = null
+        private readonly ?SourceElementDescription $sourceElementDescription = null
     ) {
     }
 
@@ -210,7 +210,7 @@ JS;
         $session = $this->session ?? throw new LogicException('VisualIframeBlockGenerator was not wired for conversion.');
         $isInertRuntimeMediaPlaceholder = $this->isInertRuntimeMediaPlaceholder ?? throw new LogicException('VisualIframeBlockGenerator was not wired for conversion.');
         $sourceElementStartsHidden = $this->sourceElementStartsHidden ?? throw new LogicException('VisualIframeBlockGenerator was not wired for conversion.');
-        $sourceContext = $this->sourceContext ?? throw new LogicException('VisualIframeBlockGenerator was not wired for conversion.');
+        $sourceElementDescription = $this->sourceElementDescription ?? throw new LogicException('VisualIframeBlockGenerator was not wired for conversion.');
         $registry = $session->generatedBlockRegistry()
             ?? throw new LogicException('Generated block registry has not been prepared for this transform.');
 
@@ -223,7 +223,7 @@ JS;
                 return null;
             }
             if ( 'accepted' !== $classification['disposition'] || ! $classification['surface'] instanceof DOMElement || '' === $classification['url'] ) {
-                $this->recordIframeSurfaceCapabilityGap($customHost, $classification, $fallbacks, $session, $sourceContext);
+                $this->recordIframeSurfaceCapabilityGap($customHost, $classification, $fallbacks, $session, $sourceElementDescription);
                 return null;
             }
             $surface = $classification['surface'];
@@ -306,7 +306,7 @@ JS;
             'tag'             => 'iframe',
             'selector'        => SourceDom::elementSelector($iframe),
             'attributes'      => $this->safeEmbedAttributes($iframe),
-            'context'         => $sourceContext($iframe),
+            'context'         => $sourceElementDescription->sourceContext($iframe),
             'classification'  => $session->fallbackEmitter()->classifyFallbackSubtree($iframe),
             'events'          => SourceDom::eventMetadata($iframe),
             'html'            => $boundedHtml['html'],
@@ -404,9 +404,8 @@ JS;
     /**
      * @param array{disposition: string, reason: string, url: string, surface: DOMElement|null} $classification
      * @param array<int, array<string, mixed>> $fallbacks
-     * @param Closure(DOMElement): array<string, mixed> $sourceContext
      */
-    private function recordIframeSurfaceCapabilityGap(DOMElement $host, array $classification, array &$fallbacks, HtmlTransformerSession $session, Closure $sourceContext): void
+    private function recordIframeSurfaceCapabilityGap(DOMElement $host, array $classification, array &$fallbacks, HtmlTransformerSession $session, SourceElementDescription $sourceElementDescription): void
     {
         $fallbacks[] = FallbackDiagnostic::build(array(
             'type'            => 'capability_gap',
@@ -416,7 +415,7 @@ JS;
             'source_format'   => 'html',
             'tag'             => strtolower($host->tagName),
             'selector'        => SourceDom::elementSelector($host),
-            'context'         => $sourceContext($host),
+            'context'         => $sourceElementDescription->sourceContext($host),
             'classification'  => $session->fallbackEmitter()->classifyFallbackSubtree($host),
             'events'          => SourceDom::eventMetadata($host),
         ), $session->transformationProvenanceState()->fallback());
