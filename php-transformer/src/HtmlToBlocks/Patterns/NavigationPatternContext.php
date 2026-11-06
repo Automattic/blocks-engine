@@ -119,6 +119,9 @@ final class NavigationPatternContext
             $this->projectSourceToNativeTarget($list, '.wp-block-navigation.' . $boxMarker,
                 $this->styleResolver->styleAttributeMapper()->serialize($gapStyle)['style']);
         }
+        if ('' !== $boxMarker && $list instanceof DOMElement) {
+            $this->projectListSeparators($list, $boxMarker);
+        }
         $identity = $this->sourceListHostIdentity($element);
 
         return trim($identity . ' ' . $boxMarker);
@@ -129,13 +132,56 @@ final class NavigationPatternContext
     {
         if (null === $this->session || !$list instanceof DOMElement || !$this->styleResolver instanceof StyleResolver) return '';
         $columns = $this->declaresColumns($list);
-        if (!$columns && !array_filter(array('display', 'overflow', 'overflow-x', 'overflow-y'), fn(string $property): bool => !$this->styleResolver->declaredPresentation($list, $property)->isEmpty())) {
+        if (!$columns && !array_filter(\Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProjectionState::NAVIGATION_LIST_BOX_PROPERTIES, fn(string $property): bool => !$this->styleResolver->declaredPresentation($list, $property)->isEmpty())) {
             return '';
         }
 
         // Named like the menu's items: by the list and the rules that match
         // it, so the shared header's list carries one marker on every route.
         return $this->session->authorSelectorProjectionState()->installNavigationListBoxSubject($list->getNodePath() ?? '', $columns ? 'block' : 'flex', $this->navigationSubjectMarker($list, 'list-box'));
+    }
+
+    /**
+     * Decorative link siblings cannot be children of a navigation-link block.
+     * A uniform trailing glyph belongs on the native item instead, leaving its
+     * label editable and its saved markup entirely owned by Core.
+     */
+    private function projectListSeparators(DOMElement $list, string $marker): void
+    {
+        $items = array();
+        foreach ($list->childNodes as $item) {
+            if ($item instanceof DOMElement) $items[] = $item;
+        }
+        if (count($items) < 2) return;
+        $separators = array();
+        $signature = null;
+        foreach ($items as $index => $item) {
+            $children = array();
+            foreach ($item->childNodes as $child) {
+                if ($child instanceof DOMElement) $children[] = $child;
+                elseif ('' !== trim($child->textContent ?? '')) return;
+            }
+            if ('li' !== strtolower($item->tagName) || !isset($children[0]) || 'a' !== strtolower($children[0]->tagName)) return;
+            if ($index === count($items) - 1 && 1 === count($children)) continue;
+            if (2 !== count($children)) return;
+            $separator = $children[1];
+            $glyph = $separator->textContent ?? '';
+            if ('true' !== strtolower($separator->getAttribute('aria-hidden')) || $separator->getElementsByTagName('*')->length > 0 || '' === trim($glyph)) return;
+            $style = $this->styleResolver->safeVisualDeclarations($this->styleResolver->resolvedPresentationDeclarations($separator));
+            $current = array($glyph, $style);
+            if (null !== $signature && $signature !== $current) return;
+            $signature = $current;
+            $separators[] = $separator;
+        }
+        if (null === $signature) return;
+        $target = 'nav.wp-block-navigation.' . $marker . ' .wp-block-navigation-item:not(:last-child)::after';
+        // CSS string escaping also handles whitespace and control characters;
+        // never interpolate source text as raw CSS syntax.
+        $content = '"' . preg_replace_callback('/["\\\\\x00-\x1f\x7f]/', static fn(array $m): string => '\\' . dechex(ord($m[0])) . ' ', $signature[0]) . '"';
+        $this->projectSourceToNativeTarget($separators[0], $target, 'content:' . $content . ';' . $this->styleResolver->cssDeclarationString($signature[1]));
+        foreach ($separators as $separator) {
+            $this->recordInnerSubject($separator, $target);
+        }
     }
 
     /**
