@@ -46,7 +46,7 @@ final class CapturedDialogProjector
         $components = $this->projectComponentCarousels($files);
         $popovers = $this->adoptSourcePopovers($components['files']);
         $result = $this->projectCapturedStates($popovers['files']);
-        $this->restoreNavigationPanels($result['files']);
+        $this->restoreRemainingPanels($result['files']);
         $result['diagnostics'] = array_merge($result['diagnostics'], $components['diagnostics'] ?? array());
         $result['projected_count'] += $popovers['projected_count'] + $components['projected_count'];
         $result['native_runtime_replacements'] = array_merge($result['native_runtime_replacements'] ?? array(), $components['native_runtime_replacements']);
@@ -1058,8 +1058,8 @@ final class CapturedDialogProjector
         return (string) $document->saveHTML($copy);
     }
 
-    /** Native submenus own interaction; capture's opened envelope is not static markup. */
-    private function restoreNavigationPanels(array &$files): void
+    /** Restore panels left in place; capture's opened envelope is not static markup. */
+    private function restoreRemainingPanels(array &$files): void
     {
         foreach ($files as &$file) {
             $html = $file['content'] ?? null;
@@ -1072,29 +1072,33 @@ final class CapturedDialogProjector
             if (!$loaded || $this->hasUnrecognizedRuntime($document)) continue;
             $xpath = new DOMXPath($document);
             $changed = false;
-            foreach ($document->getElementsByTagName('*') as $trigger) {
-                if (!$this->isNavigationDropdownTrigger($trigger)) continue;
-                $key = $trigger->getAttribute(CaptureEvidence::DIALOG_TRIGGER);
+            foreach ($xpath->query('//*[@' . CaptureEvidence::DIALOG_PANEL . '][@' . CaptureEvidence::EXISTING_PANEL . ']') ?: array() as $panel) {
+                if (!$panel instanceof DOMElement) continue;
+                $state = $this->restingPresentation($panel);
+                if (array() === $state) continue;
+                $owned = false;
+                $key = trim($panel->getAttribute(CaptureEvidence::DIALOG_PANEL));
                 foreach ($this->documentScopes($document) as $scope) {
-                    if (!SourceDom::elementContains($scope, $trigger)) continue;
+                    if ('' === $key || !SourceDom::elementContains($scope, $panel)) continue;
                     $panels = $xpath->query('.//*[@' . CaptureEvidence::DIALOG_PANEL . '=' . $this->xpathLiteral($key) . ']', $scope);
                     if (!$panels || 1 !== $panels->length) continue;
-                    $panel = $panels->item(0);
-                    if (!$panel instanceof DOMElement || !SourceDom::hasClass($panel, CaptureEvidence::DROPDOWN_CLASS)) continue;
-                    $state = $this->restingPresentation($panel);
-                    if (array() === $state) continue;
-                    // Keep capture tokens and metadata until navigation lowering
-                    // consumes them; only replace the observed presentation.
-                    $snapshot = json_decode($panel->getAttribute(CaptureEvidence::EXISTING_PANEL), true);
-                    foreach (array('class', 'style') as $name) {
-                        if (!array_key_exists($name, $snapshot['resting'])) continue;
-                        $value = $snapshot['resting'][$name];
-                        if (null === $value) $panel->removeAttribute($name); else $panel->setAttribute($name, $value);
+                    foreach ($xpath->query('.//*[@' . CaptureEvidence::DIALOG_TRIGGER . '=' . $this->xpathLiteral($key) . ']', $scope) ?: array() as $trigger) {
+                        if ($trigger instanceof DOMElement && $this->isNavigationDropdownTrigger($trigger)) $owned = true;
                     }
-                    if ($state['hidden']) $panel->setAttribute('hidden', ''); else $panel->removeAttribute('hidden');
-                    $panel->removeAttribute('data-dropdown-shown');
-                    $changed = true;
                 }
+                // Keep capture tokens and metadata until navigation lowering
+                // consumes them; only replace the observed presentation.
+                $snapshot = json_decode($panel->getAttribute(CaptureEvidence::EXISTING_PANEL), true);
+                foreach (array('class', 'style') as $name) {
+                    if (!array_key_exists($name, $snapshot['resting'])) continue;
+                    $value = $snapshot['resting'][$name];
+                    if (null === $value) $panel->removeAttribute($name); else $panel->setAttribute($name, $value);
+                }
+                // hidden:false only describes the attribute, not visibility.
+                // Without a verified native owner there is no safe way to open it.
+                if (!$owned || $state['hidden']) $panel->setAttribute('hidden', ''); else $panel->removeAttribute('hidden');
+                $panel->removeAttribute('data-dropdown-shown');
+                $changed = true;
             }
             if ($changed) $file = ArtifactNormalizer::withTextPayload($file, HtmlSerialization::documentHtml($document));
         }
