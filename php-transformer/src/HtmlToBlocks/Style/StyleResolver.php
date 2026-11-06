@@ -4204,11 +4204,14 @@ final class StyleResolver implements ElementPresentationResolver
     );
 
     /**
-     * Physical box shorthand reset families projected by this resolver.
+     * Shorthand reset families projected by this resolver. Font is already
+     * expanded by cssDeclarations() using CssFontShorthand before ranking.
      * Include intermediate shorthands as well as terminal longhands so border
      * resets compete at every level without parsing or expanding CSS values.
      */
     private const BOX_SHORTHAND_LONGHANDS = array(
+        'background' => array('background-color', 'background-image', 'background-position', 'background-size',
+            'background-repeat', 'background-attachment', 'background-origin', 'background-clip'),
         'padding' => array('padding-top', 'padding-right', 'padding-bottom', 'padding-left'),
         'margin' => array('margin-top', 'margin-right', 'margin-bottom', 'margin-left'),
         'inset' => array('top', 'right', 'bottom', 'left'),
@@ -4970,6 +4973,12 @@ final class StyleResolver implements ElementPresentationResolver
             $this->applyMediaTextCascadeDeclaration($cascade, (string) $property, (string) $value, true, array( PHP_INT_MAX, PHP_INT_MAX, PHP_INT_MAX ), ++$sequence);
         }
 
+        // Replay surviving declarations weakest first. Families may overlap
+        // without containing each other (border-top and border-width), so the
+        // insertion order alone cannot preserve their per-longhand winners.
+        // Keeping the authored shorthand also preserves resets for components
+        // that our presentation mappers do not parse.
+        uasort($cascade, fn (array $left, array $right): int => $this->mediaTextCascadeEntryOutranks($left, $right) ? 1 : -1);
         $declarations = array();
         foreach ( $cascade as $property => $entry ) {
             if ( "\0all" !== $property ) {

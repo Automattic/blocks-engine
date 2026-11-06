@@ -164,6 +164,7 @@
       "php tests/contract/inline-image-line-box.php",
       "php tests/contract/inline-flex-svg-label.php",
       "php tests/contract/button-inline-paint.php",
+      "php tests/contract/shorthand-longhand-cascade.php",
       "php tests/contract/button-out-of-flow-decoration.php",
       "php tests/contract/css-painted-toggle.php",
       "php tests/contract/fixed-cta-bar-single-button.php",
