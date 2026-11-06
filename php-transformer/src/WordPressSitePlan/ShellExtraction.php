@@ -1187,8 +1187,18 @@ final class ShellExtraction
             $anchor = is_array($attrs) && is_string($attrs['anchor'] ?? null) ? $attrs['anchor'] : '';
             $variantScopeClasses = array();
             $scopeClassNames = array($className);
+            $variantScopeShells = array();
             foreach ((array) ($attrs['wrappers'] ?? array()) as $wrapper) {
-                if (is_array($wrapper)) $scopeClassNames[] = (string) ($wrapper['attributes']['class'] ?? '');
+                if (!is_array($wrapper)) continue;
+                $wa = is_array($wrapper['attributes'] ?? null) ? $wrapper['attributes'] : array();
+                $scopeClassNames[] = (string) ($wa['class'] ?? '');
+                // A nested device-only subtree and its device-hidden sibling are
+                // the two device variants of one landmark. Their wrapper is the
+                // gate the capture's visibility CSS selects, so it is the shell.
+                $scope = isset($wa[CaptureEvidence::DEVICE_ONLY]) ? 'site-document-variant-' . $wa[CaptureEvidence::DEVICE_ONLY] : (isset($wa[CaptureEvidence::DEVICE_HIDE]) ? CaptureEvidence::DESKTOP_DOCUMENT_CLASS : null);
+                if (null === $scope) continue;
+                $scopeClassNames[] = $scope;
+                if (str_ends_with($name, '/layout-shell')) $variantScopeShells[$scope] = array('block' => $name, 'wrapper' => array('tagName' => is_string($wrapper['tagName'] ?? null) ? $wrapper['tagName'] : 'div', 'attributes' => array_intersect_key($wa, array_flip(array('class', CaptureEvidence::DEVICE_ONLY, CaptureEvidence::DEVICE_HIDE)))));
             }
             foreach ($scopeClassNames as $scopeClassName) {
                 $scopeClasses = array_values(array_filter(preg_split('/\s+/', trim($scopeClassName)) ?: array()));
@@ -1196,8 +1206,8 @@ final class ShellExtraction
                     if (self::isResponsiveVariantClass($scopeClass)) $variantScopeClasses[$scopeClass] = $scopeClasses;
                 }
             }
-            $variantScopeShells = array();
             foreach (array_keys($variantScopeClasses) as $scopeClass) {
+                if (isset($variantScopeShells[$scopeClass])) continue;
                 $shell = self::deviceDocumentShell($name, is_array($attrs) ? $attrs : array(), $scopeClass);
                 if (null !== $shell) $variantScopeShells[$scopeClass] = $shell;
             }
@@ -3040,6 +3050,8 @@ final class ShellExtraction
             $attrs = json_decode($match[1], true);
             if (is_array($attrs) && is_string($attrs['className'] ?? null)) $classes = array_merge($classes, preg_split('/\s+/', $attrs['className']) ?: array());
         }
+        $variantScopes = $row['ancestor_context']['variant_classes'] ?? array();
+        if (is_array($variantScopes) && array() !== $variantScopes) return (string) array_key_last($variantScopes);
         foreach ($classes as $class) if (self::isResponsiveVariantClass((string) $class)) return (string) $class;
         return null;
     }
