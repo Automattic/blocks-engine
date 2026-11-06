@@ -1416,15 +1416,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private ?ImageDimensionResolver $imageDimensions = null;
 
-    private function disclosureControlPresentation(): DisclosureControlPresentation
-    {
-        return new DisclosureControlPresentation(
-            $this->styleResolver,
-            $this->session->generatedSupportStylesheetState(),
-            fn (DOMElement $element): string => SvgMaterializer::ensureSvgImageNamespace($this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element)))
-        );
-    }
-
     /** The width and height core/image can carry for a source image. */
     private function imageDimensions(): ImageDimensionResolver
     {
@@ -3992,13 +3983,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (DOMElement $sourceElement): bool => $sourceElement->hasAttribute('hidden')
                 || 'true' === strtolower(trim($this->attr($sourceElement, 'aria-hidden')))
                 || $this->sourceElementStartsHidden($sourceElement),
-            fn (DOMElement $summary): string => $this->disclosureControlPresentation()->disclosureSummaryMarker($summary),
-            fn (DOMElement $control, ?DOMElement $row = null): array => $this->disclosureControlPresentation()->accordionToggle($control, $row),
+            new DisclosureControlPresentation(
+                $this->styleResolver,
+                $this->session->generatedSupportStylesheetState(),
+                fn (DOMElement $element): string => SvgMaterializer::ensureSvgImageNamespace($this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element)))
+            ),
             fn (DOMElement $sourceElement): string => $this->styleResolver->authoredInheritedPropertyWinner($sourceElement, 'color'),
             $this->session,
             fn (string $mimeType, string $src) => $this->recordGlyphColorUndecodable($mimeType, $src),
             fn (DOMElement $glyph): string => null !== $this->capturedGlyphColors && isset($this->capturedGlyphColors[$glyph]) ? $this->capturedGlyphColors[$glyph] : '',
-            fn (DOMElement $item): array => $this->disclosureControlPresentation()->accordionItemBox($item),
             fn (DOMElement $sourceElement): bool => $this->styleResolver->isVisuallyClippedBox($sourceElement),
             fn (DOMElement $sourceElement): string => $this->inlineRichTextContent($sourceElement),
             fn (DOMElement $sourceElement): array => $this->socialAnchorColors($sourceElement),
@@ -4087,9 +4080,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             sourceElementStartsHidden: fn (DOMElement $sourceElement): bool => $sourceElement->hasAttribute('hidden')
                 || 'true' === strtolower(trim($this->attr($sourceElement, 'aria-hidden')))
                 || $this->sourceElementStartsHidden($sourceElement),
-             disclosureSummaryMarker: fn (DOMElement $summary): string => $this->disclosureControlPresentation()->disclosureSummaryMarker($summary),
-             accordionToggle: fn (DOMElement $control, ?DOMElement $row = null): array => $this->disclosureControlPresentation()->accordionToggle($control, $row),
-             accordionItemBox: fn (DOMElement $item): array => $this->disclosureControlPresentation()->accordionItemBox($item),
+             disclosure: new DisclosureControlPresentation(
+                 $this->styleResolver,
+                 $this->session->generatedSupportStylesheetState(),
+                 fn (DOMElement $element): string => SvgMaterializer::ensureSvgImageNamespace($this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element)))
+             ),
              sourceElementVisuallyClipped: fn (DOMElement $sourceElement): bool => $this->styleResolver->isVisuallyClippedBox($sourceElement),
              socialAnchorColors: fn (DOMElement $sourceElement): array => $this->socialAnchorColors($sourceElement),
              socialPresentationDeclarations: fn (DOMElement $sourceElement): array => $this->styleResolver->resolvedPresentationDeclarations($sourceElement),
