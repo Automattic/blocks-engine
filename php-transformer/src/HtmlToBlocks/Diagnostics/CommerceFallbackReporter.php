@@ -5,6 +5,9 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\SchemaProductEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CustomElementRuntimeDependency;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationProvenanceState;
@@ -44,7 +47,9 @@ final class CommerceFallbackReporter
         private readonly Runtime $runtime,
         private readonly TransformationProvenanceState $provenance,
         private readonly RuntimeIslandAnalyzer $runtimeIslands,
-        private readonly SourceElementDescription $sourceElementDescription
+        private readonly SourceElementDescription $sourceElementDescription,
+        private readonly FormControlMetadataBuilder $metadataBuilder,
+        private readonly HtmlTransformerSession $session
     ) {
     }
 
@@ -974,6 +979,15 @@ final class CommerceFallbackReporter
                     $run
                 );
             }
+            // Share the form builders and their source-order enumeration. The
+            // recognized cart control may be a non-native role=button element.
+            $additionalControls = null !== $control ? array($control) : array();
+            $controls = $this->metadataBuilder->controls($element, $additionalControls);
+            $presentationGraph = (new FormPresentationGraphBuilder(additionalControls: $additionalControls))->build(
+                $element,
+                $this->session->authorStyleAnalysis()->stylesheetAssets(),
+                $this->session->sourceStyleResolutionState()->formLayoutCss()
+            );
             $fallbacks[] = FallbackDiagnostic::build(array(
                 'type' => 'html',
                 'reason' => 'commerce_controls_require_runtime',
@@ -985,6 +999,9 @@ final class CommerceFallbackReporter
                 'selector' => SourceDom::elementSelector($element),
                 'context' => $this->sourceElementDescription->sourceContext($element, includeStructureSignals: false, retainLinkTabindex: true),
                 'binding' => $binding,
+                'controls' => $controls,
+                'control_count' => count($controls),
+                'presentation_graph' => $presentationGraph,
             ), $this->provenance->fallback());
         }
     }

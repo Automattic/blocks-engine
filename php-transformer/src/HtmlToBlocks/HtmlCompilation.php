@@ -661,7 +661,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->runtime,
             $this->session->transformationProvenanceState(),
             $this->runtimeIslands,
-            $this->sourceElementDescription
+            $this->sourceElementDescription,
+            $this->formControlMetadataBuilder,
+            $this->session
         );
         $this->blockMaterializer = new BlockMaterializer($this->blockFactory, $this->runtimeIslands);
         $this->runtimeResourceConverter = new RuntimeResourceElementConverter(
