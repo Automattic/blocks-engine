@@ -15,9 +15,9 @@ $cases = array(
     'issue image submit' => array('<div style="text-align:justify"><div align="center">' . $submit . '</div></div>', 'center'),
     'inherited paragraph' => array('<div align="center"><p>One</p></div>', 'center'),
     'inline equivalent' => array('<div style="text-align:center"><p>One</p></div>', 'center'),
-    'author class wins' => array('<style>.x{text-align:right}</style><div class="x" align="center"><p>One</p></div>', null),
-    'zero specificity author wins' => array('<style>*{text-align:right}</style><p align="center">One</p>', null),
-    'layered author wins' => array('<style>@layer base{.x{text-align:right}}</style><p class="x" align="center">One</p>', null),
+    'author class wins' => array('<style>.x{text-align:right}</style><div class="x" align="center"><p>One</p></div>', 'right'),
+    'zero specificity author wins' => array('<style>*{text-align:right}</style><p align="center">One</p>', 'right'),
+    'layered author wins' => array('<style>@layer base{.x{text-align:right}}</style><p class="x" align="center">One</p>', 'right'),
     'inline wins' => array('<div align="center" style="text-align:left"><p>One</p></div>', 'left'),
     'descendant wins' => array('<div align="center"><p style="text-align:right">One</p></div>', 'right'),
     'normalized heading' => array('<h2 align=" CENTER ">One</h2>', 'center'),
@@ -27,8 +27,7 @@ $paragraphs = array();
 foreach ($cases as $name => [$html, $alignment]) {
     $result = (new HtmlTransformer())->transform($html, array())->toArray();
     $markup = $result['serialized_blocks'];
-    // null: an author rule wins, so the stylesheet owns alignment and the
-    // losing hint must not be stamped as a block class.
+    // The winning author alignment, never the losing hint, is lifted.
     if (null === $alignment ? str_contains($markup, 'has-text-align-') : !str_contains($markup, 'has-text-align-' . $alignment)) {
         fwrite(STDERR, "FAIL: {$name}: expected {$alignment}\n{$markup}\n");
         exit(1);

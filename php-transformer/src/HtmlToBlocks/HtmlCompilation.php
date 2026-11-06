@@ -5236,7 +5236,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( $sourceElement instanceof DOMElement && in_array($name, array( 'core/paragraph', 'core/heading' ), true) ) {
             $textAlign = $this->styleResolver->inheritedTextAlignmentDeclaration($sourceElement);
             if ( in_array($textAlign, array( 'left', 'center', 'right' ), true) ) {
-                $attrs['align'] = $textAlign;
+                $attrs['style']['typography']['textAlign'] = $textAlign;
             }
         }
 

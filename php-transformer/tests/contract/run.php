@@ -6898,7 +6898,7 @@ $assert(is_array($paragraph), 'styled paragraph block is emitted');
 $assert(is_array($paragraph['attrs']['style'] ?? null), 'paragraph style is a canonical object');
 assertSame('#222', $paragraph['attrs']['style']['color']['text'] ?? null, 'paragraph color maps to style.color.text');
 assertSame('var(--font-mono)', $paragraph['attrs']['style']['typography']['fontFamily'] ?? null, 'paragraph font-family maps to style.typography.fontFamily');
-assertSame('center', $paragraph['attrs']['align'] ?? null, 'paragraph text-align maps to native align attribute');
+assertSame('center', $paragraph['attrs']['style']['typography']['textAlign'] ?? null, 'paragraph text-align maps to native typography text alignment');
 $assert(str_contains((string) ($paragraph['innerHTML'] ?? ''), 'has-text-align-center'), 'paragraph saved markup carries native text alignment class');
 $assert(str_contains((string) ($paragraph['innerHTML'] ?? ''), 'font-family:var(--font-mono)'), 'paragraph saved markup carries canonical font-family style');
 

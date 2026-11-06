@@ -118,7 +118,7 @@ foreach ( $inlineImages as $label => $inlineContent ) {
         $content = (string) ($heading['attrs']['content'] ?? '');
         if ( null === $heading
             || $level !== ($heading['attrs']['level'] ?? null)
-            || 'center' !== ($heading['attrs']['align'] ?? null)
+            || 'center' !== ($heading['attrs']['style']['typography']['textAlign'] ?? null)
             || null !== $findBlock($result['blocks'] ?? array(), 'core/html')
             || null !== $findBlock($result['blocks'] ?? array(), 'core/image')
             || 'pass' !== ($result['source_reports']['wp_block_validity']['status'] ?? '') ) {
