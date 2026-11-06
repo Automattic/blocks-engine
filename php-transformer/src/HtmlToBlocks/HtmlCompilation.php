@@ -792,7 +792,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             fn (DOMElement $element): ?array => $this->buttonLinkDispatcher->convertButton($element),
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
             fn (DOMElement $element): ?array => $this->runtimeAuthoredButton($element),
-            fn (DOMElement $element, array &$fallbacks): ?array => $this->convertButtonWrapperGroup($element, $fallbacks)
+            fn (DOMElement $element, array &$fallbacks): ?array => $this->convertButtonWrapperGroup($element, $fallbacks),
+            fn (DOMElement $image): array => $this->imageDimensions()->fixedPixelSize($image)
         ));
         $detailsConverter = new DetailsElementConverter(new DetailsElementContext(
             fn (DOMElement $element): ?DOMElement => $this->capturedDisclosureDialog($element),
