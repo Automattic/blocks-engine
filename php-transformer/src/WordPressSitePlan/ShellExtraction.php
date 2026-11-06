@@ -3352,8 +3352,7 @@ final class ShellExtraction
                     // colour or underline after moving presentation to the title.
                     $attrs['style']['elements']['link']['color']['text'] = 'inherit';
                     $attrs['style']['elements']['link']['typography']['textDecoration'] = $presentation['text-decoration-line'] ?? 'none';
-                    $replacement = '<!-- wp:site-title ' . BlockAttributes::encode($attrs) . ' /-->';
-                    $evidence[$signature][$index][] = array('candidate' => $candidateIndex, 'offset' => $node['offset'], 'length' => $node['end'] - $node['offset'], 'leaf_offset' => $leaf['offset'], 'leaf_length' => $leaf['end'] - $leaf['offset'], 'replacement' => $replacement);
+                    $evidence[$signature][$index][] = array('candidate' => $candidateIndex, 'offset' => $node['offset'], 'length' => $node['end'] - $node['offset'], 'leaf_offset' => $leaf['offset'], 'leaf_length' => $leaf['end'] - $leaf['offset'], 'attributes' => $attrs, 'entrypoint_heading' => !empty($page['entrypoint']) && 'heading' === $leaf['name']);
                 }
             }
         }
@@ -3361,14 +3360,21 @@ final class ShellExtraction
             if ($applicable < 2 || count($routes) !== $applicable) continue;
             // Ambiguous repeated labels are not structural wordmark evidence.
             if (array_filter($routes, static fn(array $matches): bool => 1 !== count($matches))) continue;
+            // Every copy of the shared part carries the entrypoint's evidence,
+            // irrespective of which route supplies the extracted template part.
+            $entrypointHeading = false;
+            foreach ($routes as $matches) if ($matches[0]['entrypoint_heading']) $entrypointHeading = true;
             foreach ($routes as $index => $matches) {
                 $match = $matches[0];
+                $attrs = $match['attributes'];
+                $attrs['metadata']['blocksEngineWordmarkHeading'] = $entrypointHeading;
+                $replacement = '<!-- wp:site-title ' . BlockAttributes::encode($attrs) . ' /-->';
                 $candidate = &$pages[$index]['shell_candidates'][$match['candidate']];
                 $markup = $candidate['rest_markup'] ?? $candidate['markup'];
                 $identity = substr_replace($markup, '<!-- shared-wordmark:' . $signature . ' -->', $match['offset'], $match['length']);
                 $candidate['identity_markup'] = self::normalizeNestedChromeMarkup($identity);
                 $candidate['wordmark_route_state'] = true;
-                $part = substr_replace($markup, $match['replacement'], $match['leaf_offset'], $match['leaf_length']);
+                $part = substr_replace($markup, $replacement, $match['leaf_offset'], $match['leaf_length']);
                 $candidate['template_part_markup'] = self::landmarkPartMarkup(self::withoutCurrentNavigationState($part), 'header');
                 unset($candidate);
             }
