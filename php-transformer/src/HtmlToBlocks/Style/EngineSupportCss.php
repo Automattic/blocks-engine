@@ -530,7 +530,7 @@ final class EngineSupportCss
      * the class form of its markers. Without a selection the capture shows its
      * default document, which the capture contract defines as desktop.
      *
-     * @return array<int, string>
+     * @return list<CascadeRule>
      */
     public function deviceVisibilityCss(string $serializedBlocks): array
     {
