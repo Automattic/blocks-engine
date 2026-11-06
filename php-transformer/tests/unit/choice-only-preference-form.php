@@ -26,6 +26,8 @@ $cases = array(
     'checkbox group with submit' => array('post', '<input type="checkbox" name="topics[]" value="A"><input type="checkbox" name="topics[]" value="B"><button>Send</button>', 'choice_submission', false),
     'radios and select with submit' => array('post', $select . '<input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B"><button>Send</button>', 'unknown', true),
     'unrelated checkboxes with submit' => array('post', '<input type="checkbox" name="terms"><input type="checkbox" name="updates"><button>Send</button>', 'unknown', true),
+    'radios with payment image' => array('post', '<input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B"><input type="image" src="pay.png" alt="PayPal - The safer, easier way to pay online!">', 'unknown', true),
+    'radios with neutral image' => array('post', '<input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B"><input type="image" src="send.png" alt="Send">', 'choice_submission', false),
     'radios with buy button' => array('post', '<input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B"><button>Buy now</button>', 'unknown', true),
     'radios with register button' => array('post', '<input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B"><button>Register</button>', 'unknown', true),
     'radios with hidden product' => array('post', '<input type="hidden" name="product_id" value="9"><input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B"><button>Send</button>', 'unknown', true),
@@ -71,6 +73,11 @@ foreach ( $cases as $label => [$method, $controls, $intent, $fallback] ) {
         $assert($intent === ($diagnostics[0]['form_intent'] ?? ''), $label . ' diagnostic names its form intent');
         $assert(! str_contains($alone['serialized_blocks'] ?? '', 'wp:html'), $label . ' keeps every control editable');
     }
+}
+foreach ( array( 'www.paypal.com' => 'unknown', 'paypal.com.example.org' => 'choice_submission' ) as $host => $intent ) {
+    $dom = new DOMDocument();
+    $dom->loadHTML('<form method="post" action="https://' . $host . '/cgi-bin/webscr"><input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B"><input type="image" src="pay.png" alt="Pay"></form>');
+    $assert($intent === FormRuntimeRequirementAnalyzer::formIntent($dom->getElementsByTagName('form')->item(0)), $host . ' payment destination intent');
 }
 if ( $failures ) {
     fwrite(STDERR, implode("\n", $failures) . "\n");

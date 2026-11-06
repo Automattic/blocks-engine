@@ -182,14 +182,21 @@ final class FormRuntimeRequirementAnalyzer
 
     private static function hasCommerceSubmissionSignal(DOMElement $form, bool $addToCartOnly = false): bool
     {
-        foreach ( FormControlClassifier::controlElements($form) as $control ) {
+        foreach ( $form->getElementsByTagName('*') as $control ) {
             if ( ! FormControlClassifier::isSubmitLikeControl($control) ) {
                 continue;
+            }
+
+            $host = strtolower((string) parse_url(SourceDom::attr($form, 'action'), PHP_URL_HOST));
+            if ( ! $addToCartOnly && 'image' === FormControlClassifier::controlType($control)
+                && 1 === preg_match('/(?:^|\.)paypal\.com$/', $host) ) {
+                return true;
             }
 
             $haystack = strtolower(implode(' ', array(
                 $control->textContent ?? '',
                 SourceDom::attr($control, 'value'),
+                SourceDom::attr($control, 'alt'),
                 $addToCartOnly ? '' : SourceDom::attr($control, 'class'),
                 $addToCartOnly ? '' : SourceDom::attr($control, 'id'),
                 SourceDom::attr($control, 'name'),
@@ -197,7 +204,7 @@ final class FormRuntimeRequirementAnalyzer
                 SourceDom::attr($control, 'title'),
             )));
 
-            $semantics = $addToCartOnly ? 'add[ _-]*(?:to[ _-]*)?cart' : 'add to cart|cart|checkout|payment|purchase|buy|order|register|registration|ticket';
+            $semantics = $addToCartOnly ? 'add[ _-]*(?:to[ _-]*)?cart' : 'add to cart|cart|checkout|payment|paypal|purchase|buy|order|register|registration|ticket';
             if ( preg_match('/(?:^|[^a-z0-9])(?:' . $semantics . ')(?:[^a-z0-9]|$)/', $haystack) ) {
                 return true;
             }
