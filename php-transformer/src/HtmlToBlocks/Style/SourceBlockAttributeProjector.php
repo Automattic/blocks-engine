@@ -521,8 +521,36 @@ final class SourceBlockAttributeProjector
                             }
                         }
                         if ( array() !== $dimensions ) {
-                            $attrs['className'] = SourceDom::mergeClassNames((string) $attrs['className'], self::LAYOUT_NEUTRAL_BUTTON_CLASS . '-display-inline-block');
-                            $context->generatedStyles->appendNativeButton($controlMarker, '.' . $controlMarker . '.' . $controlMarker . '>.wp-block-button__link{box-sizing:border-box;' . implode(';', $dimensions) . '}');
+                            // The sized wrapper can contain the actual painted flex
+                            // surface. Its content-box sizing and default zero padding
+                            // must not turn into Core's border-box/padded button box.
+                            $paint = array_replace($this->styleResolver->matchedCascadedDeclarations($sourceElement), $surface);
+                            $candidate = $sourceElement;
+                            while ( 1 === $candidate->childElementCount ) {
+                                $child = $candidate->firstElementChild;
+                                if ( ! $child instanceof DOMElement || trim($child->textContent) !== trim($sourceElement->textContent) ) break;
+                                $childStyle = array_replace($this->styleResolver->matchedCascadedDeclarations($child), $this->styleResolver->cssDeclarations($this->styleResolver->mergedPresentationStyle($child)));
+                                if ( in_array(CssValueInspector::comparable((string) ($childStyle['display'] ?? '')), array( 'flex', 'inline-flex' ), true) ) {
+                                    $paint = array_replace($childStyle, $this->styleResolver->authoredControlPresentation($child, array( 'box-sizing', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left' ))[''] ?? array());
+                                    $paint = $this->styleResolver->cssDeclarations($this->styleResolver->cssDeclarationString($paint));
+                                    break;
+                                }
+                                $candidate = $child;
+                            }
+                            $display = CssValueInspector::comparable((string) ($paint['display'] ?? ''));
+                            $flex = in_array($display, array( 'flex', 'inline-flex' ), true);
+                            $attrs['className'] = SourceDom::mergeClassNames((string) $attrs['className'], self::LAYOUT_NEUTRAL_BUTTON_CLASS . '-display-' . ($flex ? $display : 'inline-block'));
+                            $declarations = array_merge(array('box-sizing:' . ($paint['box-sizing'] ?? 'content-box')), $dimensions);
+                            $declarations[] = 'padding:' . ($paint['padding'] ?? '0');
+                            foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
+                                if ( isset($paint['padding-' . $side]) ) $declarations[] = 'padding-' . $side . ':' . $paint['padding-' . $side];
+                            }
+                            if ( $flex ) {
+                                foreach ( array( 'flex-direction' => 'row', 'align-items' => 'stretch', 'justify-content' => 'normal' ) as $property => $initial ) {
+                                    $declarations[] = $property . ':' . ($paint[$property] ?? $initial);
+                                }
+                            }
+                            $context->generatedStyles->appendNativeButton($controlMarker, '.' . $controlMarker . '.' . $controlMarker . '>.wp-block-button__link{' . implode(';', $declarations) . '}');
                         }
                     }
                     $childOwnedOffsets = $participation instanceof LayoutParticipation && $participation->positioned;
