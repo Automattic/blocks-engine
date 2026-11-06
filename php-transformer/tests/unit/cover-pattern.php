@@ -32,6 +32,33 @@ $assertSame = static function (mixed $expected, mixed $actual, string $message) 
     fwrite(STDERR, 'FAIL: ' . $message . ' expected=' . var_export($expected, true) . ' actual=' . var_export($actual, true) . PHP_EOL);
 };
 
+foreach ( array( 'block', 'flex', 'grid' ) as $display ) {
+    foreach ( array( 'center' => 'center center', 'flex-start' => 'top left' ) as $alignment => $position ) {
+        $html = '<style>.hero{min-height:500px;display:' . $display . ';align-items:' . $alignment . ';justify-content:' . $alignment . ';background-image:linear-gradient(rgba(0,0,0,.25),rgba(0,0,0,.25)),url(https://example.com/a.jpg);background-size:cover}</style><section class="hero"><h1>Title</h1></section>';
+        $result = (new HtmlTransformer())->transform($html)->toArray();
+        $hero = $result['blocks'][0] ?? array();
+        $assertSame('core/cover', $hero['blockName'] ?? null, $display . ' hero is editable.');
+        $assertSame(25, $hero['attrs']['dimRatio'] ?? null, 'Source overlay is not rounded to tens.');
+        $assertSame('section', $hero['attrs']['tagName'] ?? null, 'Cover keeps the source landmark element.');
+        $assertTrue(str_contains($result['serialized_blocks'], '<section class="wp-block-cover') && str_contains($result['serialized_blocks'], '</div></section>'), 'Cover saves its tagName wrapper.');
+        $assertTrue(! str_contains($result['serialized_blocks'], 'opacity:'), 'Saved overlay omits inline opacity, as core save does.');
+        $assertTrue(str_contains($result['serialized_blocks'], 'has-background-dim-30 has-background-dim'), 'Saved overlay expresses dimRatio through the rounded core class.');
+        if ( 'block' !== $display ) {
+            $assertSame($position, $hero['attrs']['contentPosition'] ?? null, 'Source axes map to contentPosition.');
+            if ( 'top left' === $position ) {
+                $assertTrue(str_contains($result['serialized_blocks'], 'class="wp-block-cover has-custom-content-position is-position-top-left hero"'), 'Top-left hero saves custom position classes before the source class.');
+            } else {
+                $assertTrue(! str_contains($result['serialized_blocks'], 'has-custom-content-position'), 'Centered hero omits custom position classes.');
+            }
+            $assertSame('0', $hero['attrs']['style']['spacing']['padding']['top'] ?? null, 'No default cover padding.');
+        }
+    }
+}
+
+$fixture = (new HtmlTransformer())->transform((string) file_get_contents(dirname(__DIR__) . '/fixtures/cover-layout-heroes.html'))->toArray();
+$fixtureNames = array_column($fixture['blocks'], 'blockName');
+$assertSame(array( 'core/cover', 'core/cover', 'core/cover', 'core/cover', 'core/cover', 'core/cover', 'core/group' ), $fixtureNames, 'Flex/grid fixture supports stacked children and rejects space-between columns.');
+
 $elementFromHtml = static function (string $html, string $tagName = 'section'): DOMElement {
     $document = new DOMDocument();
     $previous = libxml_use_internal_errors(true);
@@ -376,8 +403,8 @@ $assertTrue(! str_contains($uniformGradientOpening, 'has-background-gradient'), 
 
 $degenerateUniformResult = $transformHtml('<section class="hero" style="background:linear-gradient(rgba(0,0,0,.04),rgba(0,0,0,0.04)),url(https://example.com/h.jpg) center/cover;min-height:480px"><h1>T</h1><p>B</p></section>');
 $degenerateUniformCover = $degenerateUniformResult['blocks'][0] ?? array();
-$assertSame(0, $degenerateUniformCover['attrs']['dimRatio'] ?? null, 'P5: Semantically equal degenerate uniform stops keep dimRatio 0.');
-$assertTrue(! isset($degenerateUniformCover['attrs']['customOverlayColor']), 'P5: Degenerate uniform overlay emits no customOverlayColor.');
+$assertSame(4, $degenerateUniformCover['attrs']['dimRatio'] ?? null, 'Uniform stops retain low source opacity.');
+$assertSame('#000000', $degenerateUniformCover['attrs']['customOverlayColor'] ?? null, 'Uniform overlay retains its source color.');
 
 $sidewaysUniformResult = $transformHtml('<section class="hero" style="background:linear-gradient(90deg,rgba(0,0,0,.5),rgba(0,0,0,.5)),url(https://example.com/h.jpg) center/cover;min-height:480px"><h1>T</h1><p>B</p></section>');
 $sidewaysUniformCover = $sidewaysUniformResult['blocks'][0] ?? array();
