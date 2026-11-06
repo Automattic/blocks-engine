@@ -3971,7 +3971,12 @@ final class ShellExtraction
             // and the current item's own colour and type are not kept. Identity
             // ignores them for such a link on every page, so one header is not
             // split by which page happens to be current.
-            if ($current || ($semanticIdentity && $isLink && false === $peer)) unset($attrs['color'], $attrs['style'], $attrs['typography']);
+            // A linked submenu (a featured card in a mega menu) is the served
+            // route on its own page, where its current presentation is dropped
+            // with the resting type it shares with every other route. Identity
+            // ignores its own presentation on every page for the same reason.
+            $linkedSubmenu = 'navigation-submenu' === $match[1] && '' !== (string) ($attrs['url'] ?? '');
+            if ($current || ($semanticIdentity && $isLink && (false === $peer || $linkedSubmenu))) unset($attrs['color'], $attrs['style'], $attrs['typography']);
             if ($current || ($semanticIdentity && $isLink)) unset($attrs['anchor'], $attrs['anchorClassName']);
             return '<!-- wp:' . $match[1] . ' ' . BlockAttributes::encode($attrs) . ' ' . (($match[3] ?? '') ? '/' : '') . '-->';
         }, $markup) ?? $markup;
