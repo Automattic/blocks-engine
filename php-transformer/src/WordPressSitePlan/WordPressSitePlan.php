@@ -4476,7 +4476,10 @@ PHP;
         foreach (array_keys($overrides) as $slug) $templates[] = $make($slug, 'templates/' . $slug . '.html', $markup($slug));
         foreach ($templates as &$template) {
             if (!isset($documentChrome[$template['slug']])) continue;
-            $template['canonical_block_markup'] .= "\n" . $documentChrome[$template['slug']];
+            $slot = '<!-- wp:post-content /-->';
+            if (str_contains($template['canonical_block_markup'], $slot)) {
+                $template['canonical_block_markup'] = str_replace($slot, $documentChrome[$template['slug']], $template['canonical_block_markup']);
+            }
             $template['content_hash'] = self::contentHash($template['canonical_block_markup']);
         }
         unset($template);
