@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\Css\ClassAttributeSelectorProjection;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CoreSelectorScoping;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
@@ -35,19 +36,6 @@ final class WordPressCompatCss
     private array $scriptTokens = array();
     /** @var array<string, bool> */
     private array $sourceLiveness = array();
-    /** @var list<string> */
-    private array $capturedDocuments = array();
-
-    /**
-     * Documents as captured, before projection rewrites their state classes.
-     *
-     * @param list<string> $htmlTexts
-     */
-    public function useCapturedDocuments(array $htmlTexts): void
-    {
-        $this->capturedDocuments = $htmlTexts;
-        $this->sourceDocuments = null;
-    }
 
     /**
      * @param array<int, array<string, mixed>> $files
@@ -127,7 +115,7 @@ final class WordPressCompatCss
         $this->scriptTokens = $tokens;
         $this->sourceLiveness = array();
         $this->sourceDocuments = array();
-        foreach (array_unique(array_merge($this->capturedDocuments, $this->siteMarkerDocuments ?? array())) as $html) {
+        foreach ($this->siteMarkerDocuments ?? array() as $html) {
             $document = new \DOMDocument();
             $previous = libxml_use_internal_errors(true);
             $document->loadHTML('<?xml encoding="utf-8" ?>' . $html, LIBXML_NOERROR | LIBXML_NOWARNING);
@@ -140,7 +128,7 @@ final class WordPressCompatCss
     /**
      * An authored arm replays onto native navigation only when it can style a
      * source element. A static arm (plain type, class, id and structural
-     * parts, none of them named by a script) that matches no element in any
+     * parts, none of them named by a script or a route state) that matches no element in any
      * source document styles nothing in the converted site either: a theme
      * stylesheet shared by many sites carries rules for markup this site never
      * renders. Arms the matcher cannot evaluate are replayed as before.
@@ -154,7 +142,9 @@ final class WordPressCompatCss
         if ($static) {
             preg_match_all('/[.#]([A-Za-z_][\w-]*)/', $selector, $tokens);
             foreach ($tokens[1] as $token) {
-                if (isset($this->scriptTokens[$token])) $static = false;
+                // Route-state projection strips the served item's state
+                // classes from the documents; the replay restores them.
+                if (isset($this->scriptTokens[$token]) || SourceClassIdentity::containsCurrentStateToken($token) || in_array($token, SourceClassIdentity::DISCLOSURE_CLASSES, true)) $static = false;
             }
         }
         $parsed = $static ? CssSelectorMatcher::parse($selector) : array('supported' => false);
