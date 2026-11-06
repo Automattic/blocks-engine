@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\SchemaProductEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CustomElementRuntimeDependency;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormFallbackFindingContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
@@ -49,7 +50,8 @@ final class CommerceFallbackReporter
         private readonly RuntimeIslandAnalyzer $runtimeIslands,
         private readonly SourceElementDescription $sourceElementDescription,
         private readonly FormControlMetadataBuilder $metadataBuilder,
-        private readonly HtmlTransformerSession $session
+        private readonly HtmlTransformerSession $session,
+        private readonly FormFallbackFindingContext $formFallbackContext
     ) {
     }
 
@@ -983,7 +985,12 @@ final class CommerceFallbackReporter
             // recognized cart control may be a non-native role=button element.
             $additionalControls = null !== $control ? array($control) : array();
             $controls = $this->metadataBuilder->controls($element, $additionalControls);
-            $presentationGraph = (new FormPresentationGraphBuilder(additionalControls: $additionalControls))->build(
+            $presentationGraph = (new FormPresentationGraphBuilder(
+                fn (DOMElement $control, string $value): string => $this->formFallbackContext->resolvePresentationValue($control, $value),
+                fn (DOMElement $element): string => $this->formFallbackContext->sanitizeInlineSvgMarkup($element),
+                fn (DOMElement $control): ?DOMElement => $this->metadataBuilder->requiredMarker($control),
+                additionalControls: $additionalControls
+            ))->build(
                 $element,
                 $this->session->authorStyleAnalysis()->stylesheetAssets(),
                 $this->session->sourceStyleResolutionState()->formLayoutCss()

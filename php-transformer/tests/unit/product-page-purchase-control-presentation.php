@@ -29,7 +29,7 @@ foreach ($cases as $case => [$opening, $closing, $buttonTag, $buttonAttributes, 
         'entrypoint' => 'products/desk-lamp.html',
         'files' => array(
             'products/desk-lamp.html' => $html,
-            'purchase.css' => 'select{border-radius:13px}.cart{border:2px solid black}',
+            'purchase.css' => ':root{--purchase-radius:13px;--purchase-border-color:black}select{border-radius:var(--purchase-radius)}.cart{border:2px solid var(--purchase-border-color)}',
         ),
     ))->toArray();
     $assert('failed' !== $result['status'], "$case: Product detail page compiles.");
@@ -54,6 +54,8 @@ foreach ($cases as $case => [$opening, $closing, $buttonTag, $buttonAttributes, 
         $styles[$row['index']] = $row['control']['styles'] ?? array();
     }
     $assert(3 === count($styles), "$case: All three controls carry presentation.");
+    $assert(!str_contains($styles[0]['border_radius'] ?? '', 'var('), "$case: Select border radius resolves author custom properties.");
+    $assert(!str_contains($styles[2]['border'] ?? '', 'var('), "$case: Cart button border resolves author custom properties.");
     $assert('13px' === ($styles[0]['border_radius'] ?? null), "$case: Select border radius survives the product handoff.");
     $assert('7px' === ($styles[1]['padding'] ?? null), "$case: Quantity padding survives the product handoff.");
     $assert('2px solid black' === ($styles[2]['border'] ?? null), "$case: Cart button border survives the product handoff.");

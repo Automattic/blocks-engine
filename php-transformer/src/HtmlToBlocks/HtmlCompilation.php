@@ -656,6 +656,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->session,
             $this->sourceElementDescription
         );
+        $formFallbackContext = new FormFallbackFindingContext(
+            $this->session,
+            fn (DOMElement $element): array => $this->runtimeIslands->runtimeDomSelectorsForElement($element),
+            $this->sourceElementDescription,
+            fn (array $block, string $role, array $supersededRuntimeSelectors, ?DOMElement $anchorElement): array => $this->blockBinding($block, $role, $supersededRuntimeSelectors, $anchorElement),
+            fn (DOMElement $element, string $value): string => $this->styleResolver->resolveCssVariablesInValue($value, $element),
+            fn (DOMElement $element): string => $this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element))
+        );
         $this->commerceReporter = new CommerceFallbackReporter(
             $this->commercePattern,
             $this->runtime,
@@ -663,7 +671,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->runtimeIslands,
             $this->sourceElementDescription,
             $this->formControlMetadataBuilder,
-            $this->session
+            $this->session,
+            $formFallbackContext
         );
         $this->blockMaterializer = new BlockMaterializer($this->blockFactory, $this->runtimeIslands);
         $this->runtimeResourceConverter = new RuntimeResourceElementConverter(
@@ -750,14 +759,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (DOMElement $element): string => $this->innerHtml($element)
         );
         $this->formFallbackFindingBuilder = new FormFallbackFindingBuilder($this->session,
-            new FormFallbackFindingContext(
-                $this->session,
-                fn (DOMElement $element): array => $this->runtimeIslands->runtimeDomSelectorsForElement($element),
-                $this->sourceElementDescription,
-                fn (array $block, string $role, array $supersededRuntimeSelectors, ?DOMElement $anchorElement): array => $this->blockBinding($block, $role, $supersededRuntimeSelectors, $anchorElement),
-                fn (DOMElement $element, string $value): string => $this->styleResolver->resolveCssVariablesInValue($value, $element),
-                fn (DOMElement $element): string => $this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element))
-            ),
+            $formFallbackContext,
             $this->formControlMetadataBuilder,
             $this->formSuccessPanelMetadataBuilder,
             $this->pseudoFormAnalyzer
