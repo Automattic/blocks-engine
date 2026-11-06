@@ -175,6 +175,7 @@
       "php tests/contract/projected-inline-precedence.php",
       "php tests/contract/projected-spacing-universal-reset-specificity.php",
       "php tests/contract/zero-width-border-reset.php",
+      "php tests/contract/button-label-background-ownership.php",
       "php tests/contract/embed-wrapper-pre-wrap.php",
       "php tests/contract/conditional-paint-cascade.php",
       "php tests/contract/navigation-core-override-unlayered.php",
