@@ -13,6 +13,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProj
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Support\RenderEquivalentMarkup;
+use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 use DOMDocument;
 use DOMElement;
@@ -628,7 +629,7 @@ final class RouteStateProjector
         $sheetAliases = array();
         foreach ($meanings as $index => $classes) {
             $aliases = array();
-            foreach ($classes as $class => $meaning) if (isset($unstable[$meaning])) $aliases[$class] = 'blocks-engine-route-class-' . substr($meaning, 0, 12);
+            foreach ($classes as $class => $meaning) if (isset($unstable[$meaning])) $aliases[$class] = 'route-class-' . substr($meaning, 0, 12);
             if (array() === $aliases) continue;
             $used = array();
             foreach ($scoped[$index] ?? array() as $element) {
@@ -645,15 +646,45 @@ final class RouteStateProjector
         }
         // Each rule naming an aliased class gains a copy for its alias right
         // after it, so both names keep their place in the cascade.
+        $withCopies = static fn(string $css, array $aliases): string => $transformer->transform($css, static function (string $prelude, string $body) use ($aliases, $classPattern, $named): string|array {
+            $copies = array();
+            foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
+                preg_match_all($classPattern, $selector, $classes);
+                foreach (array_unique($classes[1]) as $class) if (isset($aliases[$class])) $copies[] = preg_replace($named($class), '.' . $aliases[$class], trim($selector));
+            }
+            return array() === $copies ? $prelude : array(array('prelude' => $prelude, 'body' => $body), array('prelude' => implode(',', array_unique($copies)), 'body' => $body));
+        });
+        $restyled = array();
         foreach ($sheetAliases as $sheet => $aliases) {
-            $files[$sheet]['content'] = $transformer->transform((string) $files[$sheet]['content'], static function (string $prelude, string $body) use ($aliases, $classPattern, $named): string|array {
-                $copies = array();
-                foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
-                    preg_match_all($classPattern, $selector, $classes);
-                    foreach (array_unique($classes[1]) as $class) if (isset($aliases[$class])) $copies[] = preg_replace($named($class), '.' . $aliases[$class], trim($selector));
-                }
-                return array() === $copies ? $prelude : array(array('prelude' => $prelude, 'body' => $body), array('prelude' => implode(',', array_unique($copies)), 'body' => $body));
-            });
+            $content = $withCopies((string) $files[$sheet]['content'], $aliases);
+            if ($content === $files[$sheet]['content']) continue;
+            $files[$sheet]['content'] = $content;
+            // An inline sheet is addressed by its bytes, as normalization addresses it.
+            if (str_starts_with((string) ($files[$sheet]['path'] ?? ''), 'inline/')) {
+                $files[$sheet]['path'] = 'inline/' . hash('sha256', ($files[$sheet]['intent'] ?? '') . "\0" . ($files[$sheet]['type'] ?? '') . "\0" . $content) . '.' . ($files[$sheet]['kind'] ?? 'css');
+            }
+            foreach ($files[$sheet]['inline_references'] ?? array($files[$sheet]) as $reference) {
+                $restyled[(string) ($reference['source_path'] ?? '')][(int) ($reference['stylesheet_index'] ?? 0)] = $aliases;
+            }
+        }
+        // Inline sheets are re-read from their document's style elements when
+        // a staged compile normalizes one page, so those elements carry the
+        // same copies: an aliased class never outlives its rules.
+        foreach ($files as $index => $file) {
+            if ('html' !== ($file['kind'] ?? null) || !is_string($file['content'] ?? null) || !isset($restyled[(string) ($file['path'] ?? '')])) continue;
+            $html = $file['content'];
+            $position = 0;
+            $splices = array();
+            foreach (StyleTagScanner::scan($html) as $style) {
+                if ('' === trim($style['content']) || !StyleTagScanner::isCssType(StyleTagScanner::attribute($style['attributes'], 'type'))) continue;
+                $aliases = $restyled[(string) $file['path']][++$position] ?? null;
+                if (null === $aliases) continue;
+                // The raw text ends where the closing tag opens.
+                $start = $style['offset'] + (int) strrpos(substr($html, $style['offset'], $style['end_offset'] - $style['offset']), '</') - strlen($style['content']);
+                $splices[] = array($start, strlen($style['content']), $withCopies($style['content'], $aliases));
+            }
+            foreach (array_reverse($splices) as [$start, $length, $css]) $html = substr_replace($html, $css, $start, $length);
+            $files[$index]['content'] = $html;
         }
         return $files;
     }
