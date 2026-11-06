@@ -2072,4 +2072,20 @@ $throws(static fn() => WordPressSitePlan::assertValid($invalidDeclarationSchema)
 
 foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($destination, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST) as $item) $item->isDir() ? rmdir($item->getPathname()) : unlink($item->getPathname());
 rmdir($destination);
+// An image nothing references is not written once script references are proven.
+$unreferencedPng = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==', true);
+$unreferencedFiles = static fn(string $head, string $body): array => array('entrypoint' => 'index.html', 'files' => array('index.html' => '<!doctype html><html><head><link rel="icon" href="icon.png"><link rel="stylesheet" href="site.css">' . $head . '</head><body><main><h1 class="lede">Assets</h1></main>' . $body . '</body></html>', 'site.css' => '.lede{background:url(painted.png)}', 'icon.png' => $unreferencedPng, 'painted.png' => $unreferencedPng . 'p', 'orphan.png' => $unreferencedPng . 'o'));
+foreach (array(
+    'proven script references' => array('', '', array('icon.png' => 'theme', 'painted.png' => 'theme', 'orphan.png' => 'none')),
+    'unproven script references' => array('<script src="https://cdn.example.test/conflict.js" type="module" nomodule></script>', '<script>window.inline = true;</script>', array('icon.png' => 'theme', 'painted.png' => 'theme', 'orphan.png' => 'theme')),
+) as $case => [$head, $body, $expected]) {
+    $unreferencedPlan = (new ArtifactCompiler())->compile($unreferencedFiles($head, $body))->toArray()['source_reports']['wordpress_site_plan'] ?? array();
+    $unreferencedWrites = $writeMap($unreferencedPlan['writes'] ?? array());
+    foreach ($expected as $source => $destination) {
+        $asset = current(array_filter($unreferencedPlan['assets'] ?? array(), static fn(array $asset): bool => $asset['source_path'] === $source));
+        $assert(is_array($asset) && $destination === ($asset['destination'] ?? null) && ('none' !== $destination) === isset($unreferencedWrites[$asset['target_path']]), "With $case, $source is planned to $destination and written only when referenced.");
+    }
+    WordPressSitePlan::assertValid($unreferencedPlan);
+}
+
 fwrite(STDOUT, "wordpress-site-plan contract passed\n");
