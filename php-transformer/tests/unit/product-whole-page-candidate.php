@@ -83,4 +83,19 @@ foreach ($rootedResult['source_reports']['compiled_site']['runtime_declarations'
     if ('products' !== ($declaration['type'] ?? null)) continue;
     foreach ($declaration['payload']['entities'] as $row) $assert(isset($row['whole_page_candidate']) ? '/products/lamp' === ($row['source_route'] ?? null) : !isset($row['source_route']), 'Only claimed rows carry a source route: ' . $row['slug']);
 }
+// Bare Products use the entry-relative page route even without an explicit URL.
+$bareProduct = array('@context' => 'https://schema.org', '@type' => 'Product', 'name' => 'Widget', 'image' => 'https://example.test/widget.jpg', 'offers' => array('@type' => 'AggregateOffer', 'lowPrice' => '30.00', 'highPrice' => '30.00', 'priceCurrency' => 'USD', 'offerCount' => 1));
+$bareResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => array(
+    'website/index.html' => '<main><h1>Shop</h1></main>',
+    'website/shop/p/widget/index.html' => $page($bareProduct, '<div class="purchase"><h1>Widget</h1><p>$30.00</p><button type="button" aria-label="Add to cart">Add to cart</button></div>'),
+)))->toArray();
+$bareEntities = array();
+foreach ($bareResult['source_reports']['compiled_site']['runtime_declarations'] as $declaration) {
+    if ('products' === ($declaration['type'] ?? null)) $bareEntities = array_merge($bareEntities, $declaration['payload']['entities']);
+}
+$assert(1 === count($bareEntities), 'The bare Product yields one product entity.');
+$assert('blocks-engine/whole-page-candidate/v1' === ($bareEntities[0]['whole_page_candidate'] ?? null), 'A bare Product with a formless purchase binding claims its detail page.');
+$assert('/shop/p/widget' === ($bareEntities[0]['source_route'] ?? null), 'The bare Product candidate uses the entry-root-relative route.');
+$assert('/shop/p/widget' === ($bareEntities[0]['url'] ?? null), 'The default product URL uses the entry-root-relative route.');
+$assert(array('website/shop/p/widget/index.html') === array_keys($candidates($planOf($bareResult))), 'The bare Product candidate reaches the site plan.');
 echo "product-whole-page-candidate: ok\n";
