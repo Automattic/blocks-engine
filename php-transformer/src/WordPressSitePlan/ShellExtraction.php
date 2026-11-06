@@ -3890,12 +3890,12 @@ final class ShellExtraction
             if (!is_array($attrs)) return $m[0];
             $walk = static function (&$value) use (&$walk, $normalizeSnapshot): void {
                 if (!is_array($value)) return;
-                foreach ($value as $key => &$item) { if ('data-blocks-engine-capture-existing-panel' === $key && is_string($item)) $item = $normalizeSnapshot($item); else $walk($item); }
+                foreach ($value as $key => &$item) { if (CaptureEvidence::EXISTING_PANEL === $key && is_string($item)) $item = $normalizeSnapshot($item); else $walk($item); }
             };
             $walk($attrs);
             return '<!-- wp:' . preg_replace('/^<!--\\s*wp:([^ ]+).*/s', '$1', $m[0]) . ' ' . BlockAttributes::encode($attrs) . ' -->';
         }, $markup) ?? $markup;
-        return preg_replace_callback('/(data-blocks-engine-capture-existing-panel=")([^"]*)(")/', static fn(array $m): string => $m[1] . htmlspecialchars($normalizeSnapshot(html_entity_decode($m[2], ENT_QUOTES | ENT_HTML5, 'UTF-8')), ENT_QUOTES | ENT_HTML5, 'UTF-8') . $m[3], $markup) ?? $markup;
+        return preg_replace_callback('/(' . preg_quote(CaptureEvidence::EXISTING_PANEL, '/') . '=")([^"]*)(")/', static fn(array $m): string => $m[1] . htmlspecialchars($normalizeSnapshot(html_entity_decode($m[2], ENT_QUOTES | ENT_HTML5, 'UTF-8')), ENT_QUOTES | ENT_HTML5, 'UTF-8') . $m[3], $markup) ?? $markup;
     }
 
     public static function identityMarkup(string $markup): string
