@@ -1198,7 +1198,7 @@ final class ShellExtraction
                 $scope = isset($wa[CaptureEvidence::DEVICE_ONLY]) ? 'site-document-variant-' . $wa[CaptureEvidence::DEVICE_ONLY] : (isset($wa[CaptureEvidence::DEVICE_HIDE]) ? CaptureEvidence::DESKTOP_DOCUMENT_CLASS : null);
                 if (null === $scope) continue;
                 $scopeClassNames[] = $scope;
-                if (str_ends_with($name, '/layout-shell')) $variantScopeShells[$scope] = array('block' => $name, 'wrapper' => array('tagName' => is_string($wrapper['tagName'] ?? null) ? $wrapper['tagName'] : 'div', 'attributes' => array_intersect_key($wa, array_flip(array('class', CaptureEvidence::DEVICE_ONLY, CaptureEvidence::DEVICE_HIDE)))));
+                if (str_ends_with($name, '/layout-shell')) $variantScopeShells[$scope] = array('gate' => true, 'block' => $name, 'wrapper' => array('tagName' => is_string($wrapper['tagName'] ?? null) ? $wrapper['tagName'] : 'div', 'attributes' => array_intersect_key($wa, array_flip(array('class', CaptureEvidence::DEVICE_ONLY, CaptureEvidence::DEVICE_HIDE)))));
             }
             foreach ($scopeClassNames as $scopeClassName) {
                 $scopeClasses = array_values(array_filter(preg_split('/\s+/', trim($scopeClassName)) ?: array()));
@@ -1343,7 +1343,7 @@ final class ShellExtraction
      */
     private static function ancestorContext(array $stack): array
     {
-        $ids = array(); $classes = array(); $variantClasses = array(); $variantShells = array();
+        $ids = array(); $classes = array(); $variantClasses = array(); $variantShells = array(); $documentShells = array();
         foreach ($stack as $ancestor) {
             if (empty($ancestor['candidate']) && '' !== ($ancestor['anchor'] ?? '')) $ids[] = (string) $ancestor['anchor'];
             if (!empty($ancestor['candidate'])) continue;
@@ -1357,6 +1357,10 @@ final class ShellExtraction
                 $variantClasses[$scope] = $scopeClasses;
             }
             foreach ($ancestor['variant_scope_shells'] ?? array() as $scope => $shell) {
+                // A device gate nested in a device document keeps that document
+                // around it: the document's rules select through its marker.
+                if (!empty($shell['gate'])) $shell['outer'] = array_values($documentShells);
+                else $documentShells[$scope] = $shell;
                 $variantShells[$scope] = $shell;
             }
         }
@@ -3079,12 +3083,15 @@ final class ShellExtraction
     private static function variantVisibilityGroup(string $variantClass, string $innerMarkup, ?array $shell = null): string
     {
         if (null !== $shell) {
-            $tag = $shell['wrapper']['tagName'];
-            $opening = '<' . $tag;
-            foreach ($shell['wrapper']['attributes'] as $name => $value) {
-                $opening .= true === $value ? ' ' . $name . '=""' : ' ' . $name . '="' . htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+            foreach (array_merge(array($shell), array_reverse($shell['outer'] ?? array())) as $wrap) {
+                $tag = $wrap['wrapper']['tagName'];
+                $opening = '<' . $tag;
+                foreach ($wrap['wrapper']['attributes'] as $name => $value) {
+                    $opening .= true === $value ? ' ' . $name . '=""' : ' ' . $name . '="' . htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+                }
+                $innerMarkup = '<!-- wp:' . $wrap['block'] . ' ' . BlockAttributes::encode(array('wrappers' => array($wrap['wrapper']))) . ' -->' . $opening . '>' . $innerMarkup . '</' . $tag . '><!-- /wp:' . $wrap['block'] . ' -->';
             }
-            return '<!-- wp:' . $shell['block'] . ' ' . BlockAttributes::encode(array('wrappers' => array($shell['wrapper']))) . ' -->' . $opening . '>' . $innerMarkup . '</' . $tag . '><!-- /wp:' . $shell['block'] . ' -->';
+            return $innerMarkup;
         }
         $class = htmlspecialchars($variantClass, ENT_QUOTES | ENT_HTML5, 'UTF-8');
         $attrs = json_encode(array('className' => $variantClass), JSON_UNESCAPED_SLASHES);
