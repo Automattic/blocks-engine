@@ -254,7 +254,14 @@ final class ButtonsPattern
         if ( $hasAuthoredStyleRules && ($presentationElement === $anchor || $presentationElement->parentNode === $anchor) ) {
             $this->removeSourceControlClasses($attrs, $presentationElement);
         }
-        $attrs = array_replace_recursive($attrs, $this->buttonLabelPresentationAttributes($anchor, $buttons, ! $retainsDescendants));
+        $labelAttrs = $this->buttonLabelPresentationAttributes($anchor, $buttons, ! $retainsDescendants);
+        // A whole-label box can supply a missing fill, but must not replace the
+        // control's paint. Conditional background families stay on projected
+        // author selectors rather than native attrs, so check the cascade too.
+        if (isset($attrs['style']['color']['background']) || preg_match('/(?:^|;)\s*background(?:-color)?\s*:/i', $resolvedPresentation)) {
+            unset($labelAttrs['style']['color']['background']);
+        }
+        $attrs = array_replace_recursive($attrs, $labelAttrs);
         if ( $nativeWrapper instanceof DOMElement ) {
             // The saved wrapper owns width/alignment, while descendant author
             // rules paint the link. Neither is an authored outer Group.
