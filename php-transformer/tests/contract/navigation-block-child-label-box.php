@@ -71,4 +71,38 @@ foreach (array(
     $control = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(array('path' => 'index.html', 'kind' => 'html', 'content' => $html))))->toArray();
     if ($heightCarry($control)) throw new RuntimeException($case . ': unrelated anchor must not acquire height carry');
 }
+// #4652: KSES strips inline inset but leaves generated classes alone. The
+// absolute size box and its absolute-fill text must still fill the 125x53 slot.
+$insetSource = str_replace(
+    array('.box{position:relative;height:100%}', '<div class="box">'),
+    array('.box{position:absolute}', '<div class="box" style="z-index:2;inset:0px">'),
+    $source
+);
+$insetResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(array('path' => 'index.html', 'kind' => 'html', 'content' => $insetSource))))->toArray();
+$insetMarkup = StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($insetResult['serialized_blocks']);
+$insetCss = implode("\n", array_column($insetResult['assets'] ?? array(), 'content'));
+$filtered = new DOMDocument();
+$previous = libxml_use_internal_errors(true);
+$filtered->loadHTML('<?xml encoding="utf-8" ?>' . $insetMarkup);
+libxml_clear_errors();
+libxml_use_internal_errors($previous);
+// Model safecss_filter_attr's relevant semantics: inset* is not allowed;
+// z-index and physical offsets are allowed. Stylesheet rules are not filtered.
+foreach ($filtered->getElementsByTagName('*') as $element) {
+    $element->setAttribute('style', preg_replace('/(?:^|;)\s*inset(?:-[a-z-]+)?\s*:[^;]*/i', '', $element->getAttribute('style')) ?? '');
+}
+$filteredCascade = new StaticCssCascade($filtered, $insetCss);
+$insetBoxes = 0;
+foreach ($filtered->getElementsByTagName('span') as $span) {
+    if (!in_array('box', explode(' ', $span->getAttribute('class')), true)) continue;
+    ++$insetBoxes;
+    $style = $filteredCascade->resolve($span, array('position', 'inset'), array());
+    if ('absolute' !== ($style['position'] ?? '') || '0px' !== ($style['inset'] ?? '')) {
+        throw new RuntimeException('KSES-filtered navigation size box must retain absolute inset:0px');
+    }
+    if (!preg_match('/\bbe-inline-geometry-[a-f0-9]+\b/', $span->getAttribute('class'))) {
+        throw new RuntimeException('Label geometry must use the shared generated carrier');
+    }
+}
+if (3 !== $insetBoxes) throw new RuntimeException('KSES regression must exercise all header labels');
 echo "Navigation block label boxes retain display and scoped anchor/label percentage height carry\n";
