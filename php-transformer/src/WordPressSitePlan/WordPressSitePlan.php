@@ -6362,10 +6362,14 @@ PHP;
             $attributes[$handle] = array_filter(array('type' => $script['type'], 'nomodule' => $script['nomodule'], 'integrity' => $script['integrity'], 'crossorigin' => $script['crossorigin'], 'referrerpolicy' => $script['referrerpolicy'], 'fetchpriority' => $script['fetchpriority'], 'async' => $script['async'] && $script['module'], 'defer' => $script['defer'] && ($script['async'] || $script['module'])), static fn(mixed $value): bool => false !== $value && null !== $value);
         }
         $lines[] = "}, 1 );";
+        $stylesheetAttributes = array_filter($stylesheetAttributes, static fn(array $state): bool => array('rel' => 'stylesheet') !== $state);
         if (array() !== $stylesheetAttributes) {
-            $lines[] = '$blocks_engine_stylesheet_attributes = ' . var_export($stylesheetAttributes, true) . ';';
-            $lines[] = "add_filter( 'style_loader_tag', static function ( string \$html, string \$handle ) use ( \$blocks_engine_stylesheet_attributes ): string {";
-            $lines[] = "    \$state = \$blocks_engine_stylesheet_attributes[ \$handle ] ?? null; if ( null === \$state ) return \$html; \$tag = new WP_HTML_Tag_Processor( \$html ); if ( \$tag->next_tag( 'LINK' ) ) { foreach ( \$state as \$attribute => \$value ) \$tag->set_attribute( \$attribute, \$value ); } return \$tag->get_updated_html();";
+            $bodies = array_values(array_unique($stylesheetAttributes, SORT_REGULAR));
+            $indices = array_map(static fn(array $state): int => array_search($state, $bodies, true), $stylesheetAttributes);
+            $lines[] = '$blocks_engine_stylesheet_attribute_bodies = ' . var_export($bodies, true) . ';';
+            $lines[] = '$blocks_engine_stylesheet_attributes = ' . var_export($indices, true) . ';';
+            $lines[] = "add_filter( 'style_loader_tag', static function ( string \$html, string \$handle ) use ( \$blocks_engine_stylesheet_attributes, \$blocks_engine_stylesheet_attribute_bodies ): string {";
+            $lines[] = "    \$index = \$blocks_engine_stylesheet_attributes[ \$handle ] ?? null; if ( null === \$index ) return \$html; \$state = \$blocks_engine_stylesheet_attribute_bodies[ \$index ]; \$tag = new WP_HTML_Tag_Processor( \$html ); if ( \$tag->next_tag( 'LINK' ) ) { foreach ( \$state as \$attribute => \$value ) \$tag->set_attribute( \$attribute, \$value ); } return \$tag->get_updated_html();";
             $lines[] = "}, 10, 2 );";
         }
         $templateAssetTokens = array();
@@ -6401,7 +6405,31 @@ PHP;
             $editorStyles[] = array_filter(array('target_path' => $asset['target_path'], 'handle' => $enqueue['handle'], 'content_hash' => $asset['content_hash'], 'scopes' => array($enqueue['scope']), 'template_part_slugs' => array_keys($partSlugs), 'media' => $asset['source_media'] ?? $enqueue['media'], 'author_css' => 'engine-support' !== ($asset['source'] ?? ''), 'editor_only' => 'editor' === ($asset['stylesheet_target'] ?? 'both'), 'fallback' => empty($enqueue['fallback']) ? null : true), static fn(mixed $value): bool => null !== $value);
         }
         if (array() !== $editorStyles) {
-            $lines[] = '$blocks_engine_presentation_styles = ' . var_export($editorStyles, true) . ';';
+            // Files and scopes own shared data; replay owns occurrence order,
+            // handles, media and fallback semantics (including repeated links).
+            $files = $fileIndices = $scopes = $scopeIndices = $replay = array();
+            foreach ($editorStyles as $style) {
+                $path = $style['target_path'];
+                if (!isset($fileIndices[$path])) {
+                    $fileIndices[$path] = count($files);
+                    $files[] = array_diff_key($style, array_flip(array('handle', 'scopes', 'template_part_slugs', 'media', 'fallback'))) + array('scopes' => array(), 'template_part_slugs' => array());
+                }
+                $file = $fileIndices[$path];
+                $scope = $style['scopes'][0];
+                $key = serialize($scope);
+                if (!isset($scopeIndices[$key])) { $scopeIndices[$key] = count($scopes); $scopes[] = $scope; }
+                $scopeIndex = $scopeIndices[$key];
+                $files[$file]['scopes'][$scopeIndex] = $scopeIndex;
+                $files[$file]['template_part_slugs'] = array_values(array_unique(array_merge($files[$file]['template_part_slugs'], $style['template_part_slugs'])));
+                $replay[] = array($file, $scopeIndex, $style['handle'], $style['media'], !empty($style['fallback']), $style['template_part_slugs']);
+            }
+            foreach ($files as &$file) $file['scopes'] = array_values($file['scopes']);
+            unset($file);
+            $lines[] = '$blocks_engine_presentation_scopes = ' . var_export($scopes, true) . ';';
+            $lines[] = '$blocks_engine_presentation_styles = ' . var_export($files, true) . ';';
+            $lines[] = '$blocks_engine_presentation_replay = ' . var_export($replay, true) . ';';
+            $lines[] = '$blocks_engine_presentation_sequence = array();';
+            $lines[] = 'foreach ( $blocks_engine_presentation_replay as $entry ) { $style = $blocks_engine_presentation_styles[ $entry[0] ]; $style[\'scopes\'] = array( $blocks_engine_presentation_scopes[ $entry[1] ] ); $style[\'handle\'] = $entry[2]; $style[\'media\'] = $entry[3]; $style[\'fallback\'] = $entry[4]; $style[\'template_part_slugs\'] = $entry[5]; $blocks_engine_presentation_sequence[] = $style; }';
             $lines[] = "\$blocks_engine_presentation_matches = static function ( array \$style, ?WP_Post \$post, bool \$site_editor ): bool {";
             $lines[] = "    \$matches = \$site_editor; if ( ! \$matches && \$post instanceof WP_Post ) foreach ( \$style['scopes'] as \$scope ) {";
             $lines[] = "        if ( 'wp_template_part' === \$post->post_type && in_array( basename( (string) \$post->post_name ), \$style['template_part_slugs'], true ) ) { \$matches = true; break; }";
@@ -6417,7 +6445,7 @@ PHP;
             // loads them by URL. Authored and editor-only CSS is enqueued only on
             // that pass, so it never styles the outer admin document and is never
             // inlined into the editor settings payload.
-            $lines[] = "add_action( 'enqueue_block_assets', static function () use ( \$blocks_engine_presentation_styles, \$blocks_engine_presentation_matches ): void {";
+            $lines[] = "add_action( 'enqueue_block_assets', static function () use ( \$blocks_engine_presentation_sequence, \$blocks_engine_presentation_matches ): void {";
             $lines[] = "    \$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null; \$site_editor = \$screen instanceof WP_Screen && 'site-editor' === \$screen->base; if ( ! \$site_editor && ( ! \$screen instanceof WP_Screen || ! in_array( \$screen->base, array( 'post', 'post-new' ), true ) ) ) return; \$post = \$GLOBALS['post'] ?? null;";
             $lines[] = "    \$canvas = ! wp_should_load_block_editor_scripts_and_styles();";
             // One document's canvas replays its ordered instances. The site
@@ -6426,8 +6454,8 @@ PHP;
             // the front end, global resources outside a route's sequence (a
             // post no source document owns) load from their fallback entry.
             $lines[] = "    \$route_canvas = ! \$site_editor && \$post instanceof WP_Post && 'wp_template_part' !== \$post->post_type; \$loaded = array(); \$routed = false;";
-            $lines[] = "    if ( \$route_canvas ) foreach ( \$blocks_engine_presentation_styles as \$style ) if ( empty( \$style['fallback'] ) && 'global' !== \$style['scopes'][0]['kind'] && \$blocks_engine_presentation_matches( \$style, \$post, false ) ) { \$routed = true; break; }";
-            $lines[] = "    foreach ( \$blocks_engine_presentation_styles as \$style ) if ( ( empty( \$style['fallback'] ) || ( \$route_canvas && ! \$routed ) ) && ( \$canvas || ( empty( \$style['author_css'] ) && empty( \$style['editor_only'] ) ) ) && \$blocks_engine_presentation_matches( \$style, \$post instanceof WP_Post ? \$post : null, \$site_editor ) ) {";
+            $lines[] = "    if ( \$route_canvas ) foreach ( \$blocks_engine_presentation_sequence as \$style ) if ( empty( \$style['fallback'] ) && 'global' !== \$style['scopes'][0]['kind'] && \$blocks_engine_presentation_matches( \$style, \$post, false ) ) { \$routed = true; break; }";
+            $lines[] = "    foreach ( \$blocks_engine_presentation_sequence as \$style ) if ( ( empty( \$style['fallback'] ) || ( \$route_canvas && ! \$routed ) ) && ( \$canvas || ( empty( \$style['author_css'] ) && empty( \$style['editor_only'] ) ) ) && \$blocks_engine_presentation_matches( \$style, \$post instanceof WP_Post ? \$post : null, \$site_editor ) ) {";
             $lines[] = "        \$resource = \$style['target_path'] . \"\\0\" . ( \$style['media'] ?? 'all' ); if ( ! \$route_canvas && isset( \$loaded[ \$resource ] ) ) continue; \$loaded[ \$resource ] = true;";
             $lines[] = "        wp_enqueue_style( 'blocks-engine-editor-' . \$style['handle'], get_theme_file_uri( \$style['target_path'] ), array(), \$style['content_hash'], \$style['media'] ?? 'all' );";
             $lines[] = "    }";

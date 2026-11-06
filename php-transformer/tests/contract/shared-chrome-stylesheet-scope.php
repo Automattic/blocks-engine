@@ -114,8 +114,19 @@ $enqueues = static function (array $plan): array {
     preg_match_all("/^    if \\( (.+?) \\) wp_enqueue_style\\( '[^']+', get_theme_file_uri\\( '([^']+)' \\)/m", $frontend, $lines, PREG_SET_ORDER);
     $global = array();
     foreach ($lines as $line) $global[$line[1]][] = $line[2];
-    preg_match('/\$blocks_engine_presentation_styles = (array \(.*?\n\));\n/s', $bootstrap, $editor);
-    return array('routes' => $routes, 'global' => $global, 'editor' => isset($editor[1]) ? eval('return ' . $editor[1] . ';') : array());
+    $registries = array();
+    foreach (array('styles', 'scopes', 'replay') as $name) {
+        if (1 !== preg_match('/\$blocks_engine_presentation_' . $name . ' = (array \(.*?\n\));\n/s', $bootstrap, $match)) throw new RuntimeException('Missing presentation registry: ' . $name);
+        $registries[$name] = eval('return ' . $match[1] . ';');
+    }
+    $editor = array();
+    foreach ($registries['replay'] as $entry) {
+        $style = $registries['styles'][$entry[0]];
+        $style['scopes'] = array($registries['scopes'][$entry[1]]);
+        $style['fallback'] = $entry[4];
+        $editor[] = $style;
+    }
+    return array('routes' => $routes, 'global' => $global, 'editor' => $editor);
 };
 // Landmark lowering can also project engine geometry support. This contract
 // checks the authored inline stylesheet and its cascade placement, not support CSS.

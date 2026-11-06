@@ -168,9 +168,20 @@ PHP;
         // their combined route registry. Each authoritative identity replaces
         // its earlier record, including empty state, without dropping other
         // routes or replacing the canvas resolver.
+        $fallback = array('attributes' => self::sharedAttributes(array_column($rows, 'attributes')), 'body_attributes' => self::sharedAttributes(array_column($rows, 'body_attributes')));
+        $bodies = $indices = array();
+        foreach ($rows as &$row) foreach (array('attributes', 'body_attributes') as $field) {
+            $key = serialize($row[$field]);
+            if (!isset($indices[$key])) { $indices[$key] = count($bodies); $bodies[] = $row[$field]; }
+            $row[$field] = $indices[$key];
+        }
+        unset($row);
         return "global \$blocks_engine_document_roots, \$blocks_engine_document_attributes, \$blocks_engine_document_fallback;\n"
-            . '$blocks_engine_document_fallback = ' . var_export(array('attributes' => self::sharedAttributes(array_column($rows, 'attributes')), 'body_attributes' => self::sharedAttributes(array_column($rows, 'body_attributes'))), true) . ";\n"
-            . '$blocks_engine_document_roots = array_replace( array_column( $blocks_engine_document_roots ?? array(), null, \'identity\' ), array_column( ' . var_export($rows, true) . ', null, \'identity\' ) );' . "\n"
+            . '$blocks_engine_document_attribute_bodies = ' . var_export($bodies, true) . ";\n"
+            . '$blocks_engine_document_rows = ' . var_export($rows, true) . ";\n"
+            . 'foreach ( $blocks_engine_document_rows as &$row ) foreach ( array( \'attributes\', \'body_attributes\' ) as $field ) $row[ $field ] = $blocks_engine_document_attribute_bodies[ $row[ $field ] ]; unset( $row );' . "\n"
+            . '$blocks_engine_document_fallback = ' . var_export($fallback, true) . ";\n"
+            . '$blocks_engine_document_roots = array_replace( array_column( $blocks_engine_document_roots ?? array(), null, \'identity\' ), array_column( $blocks_engine_document_rows, null, \'identity\' ) );' . "\n"
             . "if ( ! isset( \$blocks_engine_document_attributes ) ) {\n" . $code . "\n}\n";
     }
 
