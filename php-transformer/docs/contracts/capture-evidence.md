@@ -69,8 +69,9 @@ Two audiences read this vocabulary:
 | ---- | ---- | ----- | ------- |
 | `data-blocks-engine-capture-document-scope` | attribute (flag) | ignored | The element is a body-equivalent document root. With `device-document` it declares a device profile. |
 | `data-blocks-engine-capture-device-document` | attribute | `[a-z][a-z0-9_-]{0,63}` | Profile id of a declared document scope. |
-| `data-blocks-engine-capture-device-only` | attribute | device profile id (for example `mobile`) | Folded device-specific subtree, rather than a separate document. Its host, attributes and classes survive compilation so capture visibility CSS can select it; the buttons recognizer does not replace a marked host. |
+| `data-blocks-engine-capture-device-only` | attribute | device profile id (for example `mobile`) | Folded device-specific subtree, rather than a separate document. Its host, attributes and classes survive compilation so capture visibility CSS can select it; the buttons recognizer does not replace a marked host. A part that becomes a core block carries the marker as core block visibility (`metadata.blockVisibility.viewport`), which goes by screen width. A profile other than `mobile`, `tablet` or `desktop` falls back to the class `blocks-engine-device-only-<profile>` (or `blocks-engine-device-hide-<profile>`) with a matching rule in the engine support stylesheet. Sibling navigation with the same links, one for `mobile` and one hidden on `mobile`, becomes one block with `overlayMenu` set to `mobile`, hidden only where both copies were. |
 | `data-blocks-engine-capture-device-hide` | attribute | device profile id (for example `mobile`) | Subtree hidden on this device profile by capture visibility CSS; preserved on its emitted host like `device-only`. |
+| `data-blocks-engine-capture-selected-document` | attribute on `<html>` | profile id | The device profile the selection runtime chose. Written at runtime, so author selectors on it stay live. The engine support rule for fallback device classes selects on it. |
 | `data-blocks-engine-capture-device-visibility` | attribute (flag) on `<style>` | ignored | Capture runtime device-selection gates. Excluded whole from author presentation analysis so selected-device chrome cannot acquire a frozen hide gate. |
 | `data-blocks-engine-capture-mobile-document` | class | — | Root of the mobile copy of a responsive capture. |
 | `data-blocks-engine-capture-desktop-document` | class | — | Root of the desktop (default) copy of a responsive capture. |
@@ -373,7 +374,6 @@ Blocks Engine does not read these names. Downstream importers do.
 | ---- | ---- | ----- | ------- |
 | `data-blocks-engine-capture-component-disclosure-runtime` | attribute on `<script>` | ignored | Portable non-native disclosure helper. |
 | `data-blocks-engine-capture-device-selection` | attribute (flag) on `<script>` | ignored | The capture's device-selection bootstrap in `<head>`. |
-| `data-blocks-engine-capture-selected-document` | attribute on `<html>` | profile id | The device profile the selection runtime chose. Written at runtime, so author selectors on it stay live. |
 | `data-blocks-engine-capture-document-unavailable` | attribute (flag) on `<html>` | ignored | Set at runtime when no captured document applies to the device. |
 | `data-blocks-engine-capture-member-login` | attribute | provider `[a-z0-9_-]+` | The link leads to a member login with that provider. |
 | `data-blocks-engine-capture-member-login-` | class prefix | `<prefix><provider>`, provider `[a-z0-9_-]+` | Class form of the member-login marker. It survives block conversion, which keeps classes. |

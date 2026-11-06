@@ -40,6 +40,8 @@ final class CaptureEvidence
     public const DEVICE_ONLY = 'data-blocks-engine-capture-device-only';
     /** Device profile on which this element's subtree is hidden. */
     public const DEVICE_HIDE = 'data-blocks-engine-capture-device-hide';
+    /** On `<html>`: the profile the device-selection runtime selected; written at runtime. */
+    public const SELECTED_DOCUMENT = 'data-blocks-engine-capture-selected-document';
 
     /** Capture runtime stylesheet selecting which device document or subtree is shown. */
     public const DEVICE_VISIBILITY = 'data-blocks-engine-capture-device-visibility';
@@ -276,8 +278,6 @@ final class CaptureEvidence
 
     /** Marker on the capture's device-selection bootstrap `<script>` in `<head>`. */
     public const DEVICE_SELECTION = 'data-blocks-engine-capture-device-selection';
-    /** On `<html>`: the profile the device-selection runtime selected; written at runtime. */
-    public const SELECTED_DOCUMENT = 'data-blocks-engine-capture-selected-document';
     /** On `<html>`: set at runtime when no captured document applies to the device. */
     public const DOCUMENT_UNAVAILABLE = 'data-blocks-engine-capture-document-unavailable';
     /** On `<style>`/`<link>`: the device profile the stylesheet belongs to. */
@@ -291,7 +291,6 @@ final class CaptureEvidence
     public const PUBLISHED_FOR_DOWNSTREAM = array(
         'COMPONENT_DISCLOSURE_RUNTIME',
         'DEVICE_SELECTION',
-        'SELECTED_DOCUMENT',
         'DOCUMENT_UNAVAILABLE',
         'MEMBER_LOGIN',
         'MEMBER_LOGIN_CLASS_PREFIX',

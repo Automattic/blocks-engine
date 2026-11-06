@@ -288,6 +288,7 @@
       "php tests/contract/capture-device-anchor-target.php",
       "php tests/contract/capture-device-only-markers.php",
       "php tests/contract/capture-device-marker-pattern-hosts.php",
+      "php tests/contract/capture-device-marker-native-blocks.php",
       "php tests/contract/capture-device-runtime-evidence.php",
       "php tests/contract/main-skip-link-native.php",
       "php tests/contract/shared-form-diagnostics-identity.php",

@@ -5591,7 +5591,9 @@ PHP;
             }
             if ($excerptLength > 0 && 'paragraph' === self::listingBlockName($slice) && ListingExcerptProjection::matches($slice, $post)) {
                 $attrs = self::listingBlockAttributes($slice);
+                $blockVisibility = $attrs['metadata']['blockVisibility'] ?? null;
                 unset($attrs['metadata']);
+                if (null !== $blockVisibility) $attrs['metadata']['blockVisibility'] = $blockVisibility;
                 $attrs['excerptLength'] = $excerptLength;
                 $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' blocks-engine-authored-excerpt');
                 return array('markup' => '<!-- wp:post-excerpt ' . BlockAttributes::encode($attrs) . ' /-->', 'title' => false, 'content' => false);
@@ -5826,6 +5828,7 @@ PHP;
         }
         $classes = array_values(array_filter(preg_split('/\s+/', (string) ($source['className'] ?? '')) ?: array(), static fn(string $class): bool => '' !== $class && 'is-resized' !== $class));
         if (array() !== $classes) $attrs['className'] = implode(' ', $classes);
+        self::keepBlockVisibility($attrs, $source);
         return '<!-- wp:post-featured-image ' . BlockAttributes::encode($attrs) . ' /-->';
     }
     private static function listingQueryMarkup(int $perPage, string $template, bool $inherit = false, ?string $sectionSlug = null): string
@@ -5868,7 +5871,16 @@ PHP;
             $attrs['className'] = $className;
         }
         foreach (HtmlMarkupParser::htmlMarkupNodes($slice) as $node) if ('a' === ($node['name'] ?? '') && is_string($node['attributes']['class'] ?? null)) $attrs['metadata']['blocksEngineLinkClass'] = $node['attributes']['class'];
+        self::keepBlockVisibility($attrs, $blockAttrs);
         return '<!-- wp:post-title ' . BlockAttributes::encode($attrs) . ' /-->';
+    }
+    /**
+     * @param array<string,mixed> $attrs
+     * @param array<string,mixed> $source
+     */
+    private static function keepBlockVisibility(array &$attrs, array $source): void
+    {
+        if (isset($source['metadata']['blockVisibility'])) $attrs['metadata']['blockVisibility'] = $source['metadata']['blockVisibility'];
     }
     private static function postDateMarkup(string $slice): string
     {
@@ -5883,6 +5895,7 @@ PHP;
         if (null !== $className) {
             $attrs['className'] = $className;
         }
+        self::keepBlockVisibility($attrs, $blockAttrs);
         $encoded = array() === $attrs ? '' : ' ' . BlockAttributes::encode($attrs);
         return '<!-- wp:post-date' . $encoded . ' /-->';
     }

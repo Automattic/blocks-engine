@@ -56,6 +56,54 @@ final class EngineMarker
         );
     }
 
+    /** Fallback class for a device-only marker whose profile core block visibility cannot express. */
+    public const DEVICE_ONLY_CLASS_PREFIX = 'blocks-engine-device-only-';
+    /** Fallback class for a device-hide marker whose profile core block visibility cannot express. */
+    public const DEVICE_HIDE_CLASS_PREFIX = 'blocks-engine-device-hide-';
+    private const CORE_VIEWPORTS = array('mobile', 'tablet', 'desktop');
+
+    /**
+     * Core block visibility for an element's device markers: each viewport the element is hidden on, set to false.
+     *
+     * @return array<string, false>
+     */
+    public static function deviceViewportVisibility(DOMElement $element): array
+    {
+        $hidden = array_intersect(self::CORE_VIEWPORTS, self::deviceHideProfiles($element));
+        $only = trim($element->getAttribute(CaptureEvidence::DEVICE_ONLY));
+        if (in_array($only, self::CORE_VIEWPORTS, true)) {
+            $hidden = array_merge($hidden, array_diff(self::CORE_VIEWPORTS, array($only)));
+        }
+        return array_fill_keys(array_values(array_unique($hidden)), false);
+    }
+
+    /**
+     * Fallback classes for device profiles outside core's mobile, tablet and desktop viewports.
+     *
+     * @return list<string>
+     */
+    public static function deviceVisibilityClasses(DOMElement $element): array
+    {
+        $classes = array();
+        $only = trim($element->getAttribute(CaptureEvidence::DEVICE_ONLY));
+        if (self::isCustomDeviceProfile($only)) $classes[] = self::DEVICE_ONLY_CLASS_PREFIX . $only;
+        foreach (self::deviceHideProfiles($element) as $hidden) {
+            if (self::isCustomDeviceProfile($hidden)) $classes[] = self::DEVICE_HIDE_CLASS_PREFIX . $hidden;
+        }
+        return $classes;
+    }
+
+    /** @return list<string> */
+    private static function deviceHideProfiles(DOMElement $element): array
+    {
+        return preg_split('/\s+/', trim($element->getAttribute(CaptureEvidence::DEVICE_HIDE)), -1, PREG_SPLIT_NO_EMPTY) ?: array();
+    }
+
+    private static function isCustomDeviceProfile(string $profile): bool
+    {
+        return 1 === preg_match('/^[a-z][a-z0-9_-]{0,63}$/D', $profile) && ! in_array($profile, self::CORE_VIEWPORTS, true);
+    }
+
     public static function deviceScopeValue(DOMElement $element): string
     {
         return $element->getAttribute(self::DEVICE_SCOPE_ATTRIBUTE) ?: $element->getAttribute(CaptureEvidence::DEVICE_DOCUMENT);

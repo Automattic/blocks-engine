@@ -2759,6 +2759,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $afterAuthorCss->absorb($this->navigationStyleProjector->navigationLinkIconRules($serializedBlocks));
         $afterAuthorCss->absorb($this->navigationStyleProjector->navigationLinkLeadingIconRules($serializedBlocks));
         $afterAuthorCss->absorb($engineSupportCss->socialLinkCss($serializedBlocks));
+        $afterAuthorCss->absorb($engineSupportCss->deviceVisibilityCss($serializedBlocks));
         $afterAuthorCss->absorb($this->session->generatedSupportStylesheetState()->conditionalAfterAuthorCss($serializedBlocks));
         $nativeSearchTriggerCss = $this->session->generatedSupportStylesheetState()->beforeAuthorCss($serializedBlocks);
         if ( '' !== $nativeSearchTriggerCss ) {
