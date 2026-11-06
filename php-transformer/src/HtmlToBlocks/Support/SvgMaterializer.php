@@ -1884,12 +1884,14 @@ final class SvgMaterializer implements SvgElementMaterializer
 
     private function svgLengthAttributeForImage(string $value): string
     {
-        $value = trim($value);
-        if ( '' === $value || ! preg_match('/^\d+(?:\.\d+)?$/', $value) ) {
+        // An SVG width/height attribute is a CSS length: `40` and `40px` both
+        // size the box to 40 CSS pixels. Rejecting the explicit unit would
+        // drop the authored size and fall back to the viewBox dimensions.
+        if ( 1 !== preg_match('/^(\d+(?:\.\d+)?)(?:px)?$/i', trim($value), $match) ) {
             return '';
         }
 
-        return $value . 'px';
+        return $match[1] . 'px';
     }
 
     private function svgImageAlt(DOMElement $element): string
