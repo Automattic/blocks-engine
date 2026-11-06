@@ -68,6 +68,13 @@ final class InertScaffoldingSuppressor implements ElementConverter
             return ConversionOutcome::handled(null);
         }
 
+        if ( in_array($tagName, array( 'div', 'span' ), true)
+            && 'true' === strtolower(trim(SourceDom::attr($element, 'aria-hidden')))
+            && 'none' === CssValueInspector::comparable((string) ($this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'))['display'] ?? '')) ) {
+            $element->parentNode?->removeChild($element);
+            return ConversionOutcome::handled(null);
+        }
+
         if ( $this->isHiddenPresentationScaffolding($element) ) {
             return ConversionOutcome::handled(null);
         }
