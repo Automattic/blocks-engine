@@ -933,7 +933,7 @@
         },
         "69-markdown-editor": {
             "added p [blocks-engine-inline-layout-carrier]": 3,
-            "removed button": 2,
+            "removed button": 1,
             "retagged span>div [blocks-engine-empty-visual-group]": 1,
             "retagged span>p [blocks-engine-synthetic-paragraph]": 1,
             "retagged svg>img": 1
