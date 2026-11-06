@@ -2693,12 +2693,17 @@ final class ArtifactCompiler
                 $primaryByPath[$projection['path']][$projection['content']] = true;
             }
         }
-        // Shared-shell projections apply site-wide; page projections belong to
-        // the page (owner) that produced them.
+        // Shared-part projections apply site-wide unless their inline landmark
+        // carries member-only ancestor context; page projections have an owner.
         $sharedByPath = array();
+        $memberShellsByPath = array();
         $pageByPath = array();
         $ownersByPath = array();
         foreach ( $projections as $projection ) {
+            if (isset($projection['member_owners']) && is_string($projection['path'] ?? null) && is_string($projection['content'] ?? null)) {
+                foreach ($projection['member_owners'] as $owner) $memberShellsByPath[$projection['path']][$owner][] = $projection['content'];
+                continue;
+            }
             if ( is_string($projection['path'] ?? null) && is_string($projection['content'] ?? null) && '' !== (string) ($projection['owner'] ?? '') ) {
                 $ownersByPath[$projection['path']][$projection['content']][(string) $projection['owner']] = true;
             }
@@ -2818,8 +2823,8 @@ final class ArtifactCompiler
             foreach ($ownersByPath[$path] ?? array() as $content => $owners) {
                 foreach ($owners as $owner => $_) $pageProjections[$owner][] = (string) $content;
             }
-            foreach ($pageProjections as &$contents) {
-                $contents = array($transformer->concatenateWithoutRedundantRules(array_merge(array_map('strval', array_keys($sharedByPath[$path] ?? array())), $contents)));
+            foreach ($pageProjections as $owner => &$contents) {
+                $contents = array($transformer->concatenateWithoutRedundantRules(array_merge(array_map('strval', array_keys($sharedByPath[$path] ?? array())), $memberShellsByPath[$path][$owner] ?? array(), $contents)));
             }
             unset($contents);
             $sharedStylesheets = array($transformer->concatenateWithoutRedundantRules($sharedStylesheets));
@@ -3894,10 +3899,34 @@ final class ArtifactCompiler
                 ));
                 foreach ($compiled['assets'] as $asset) {
                     if (!is_array($asset)) continue;
-                    $asset['compilation'] = array('scope' => 'shared');
+                    $asset['compilation'] = array('scope' => 'shared', 'source_paths' => array_keys($members));
                     $assets[] = $asset;
                 }
-                $authorStylesheetProjections = array_merge($authorStylesheetProjections, $compiled['author_stylesheet_projections']);
+                // Keep site-wide reconciliation (including richtext reset
+                // exclusions) unless the synthetic ancestors carry state that
+                // is not common to every route. Other landmark identities still
+                // count: sharing markup is not evidence of sharing route state.
+                $siteContexts = array();
+                foreach ($documents as $document) {
+                    $siteContexts[] = $document['rows'][$area][$variant]['context'] ?? array();
+                }
+                $siteContext = self::sharedSourceShellAncestorContext($siteContexts);
+                $siteProjections = array();
+                if ($context !== $siteContext) {
+                    $siteOpen = ''; $siteClose = '';
+                    foreach (array_slice($siteContext, 2) as $ancestor) { $siteOpen .= '<' . $ancestor['tag'] . self::sourceShellAttributes($ancestor['attributes']) . '>'; $siteClose = '</' . $ancestor['tag'] . '>' . $siteClose; }
+                    $siteSynthetic = '<!doctype html><html' . self::sourceShellAttributes($siteContext[0]['attributes'] ?? array()) . '><head>' . $head . '</head><body' . self::sourceShellAttributes($siteContext[1]['attributes'] ?? array()) . '>' . $siteOpen . $canonicalMarkup . $siteClose . '</body></html>';
+                    $siteCompiled = $this->compileHtmlDocumentBlocks($siteSynthetic, $sourcePath, $files, 'artifact-shared-shell', $generatedBlockNamespace, true, array(), max(0, count($siteContext) - 2));
+                    foreach ($siteCompiled['author_stylesheet_projections'] as $projection) {
+                        $siteProjections[$projection['path']] = $projection['content'];
+                    }
+                }
+                foreach ($compiled['author_stylesheet_projections'] as $projection) {
+                    // Only scope stylesheets whose projection actually depends
+                    // on the additional member context, not unrelated resets.
+                    if ($context !== $siteContext && ($siteProjections[$projection['path']] ?? null) !== $projection['content']) $projection['member_owners'] = array_keys($members);
+                    $authorStylesheetProjections[] = $projection;
+                }
                 $runtimeScriptProjections = array_merge($runtimeScriptProjections, $compiled['runtime_script_projections']);
             }
         }
