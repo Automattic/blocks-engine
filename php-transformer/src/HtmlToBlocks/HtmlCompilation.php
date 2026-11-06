@@ -4100,7 +4100,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // on a native Group, without folding its child (the actual grid/flex
         // item) into that Group. Author projection carries display:contents and
         // attribute compounds onto the native carrier's selector classes.
-        if ( str_contains($tagName, '-') && $this->isSafeTransparentCustomElement($element)
+        // Unlike transparent flattening, this path retains the host and child
+        // boundaries, so descendant motion structure does not make it unsafe.
+        if ( str_contains($tagName, '-') && $this->isSafeTransparentCustomElement($element, true)
             && ( in_array($element, $this->retainedCustomWrapperHooks, true)
                 || 'contents' === strtolower(trim((string) ($this->styleResolver->structuralPresentationDeclarations($element)['display'] ?? ''))) )
         ) {
