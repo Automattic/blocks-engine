@@ -26,6 +26,10 @@ $cases = array(
     'checkbox group with submit' => array('post', '<input type="checkbox" name="topics[]" value="A"><input type="checkbox" name="topics[]" value="B"><button>Send</button>', 'choice_submission', false),
     'radios and select with submit' => array('post', $select . '<input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B"><button>Send</button>', 'unknown', true),
     'unrelated checkboxes with submit' => array('post', '<input type="checkbox" name="terms"><input type="checkbox" name="updates"><button>Send</button>', 'unknown', true),
+    'case-sensitive radio names' => array('post', '<input type="radio" name="choice" value="A"><input type="radio" name="CHOICE" value="B"><button>Send</button>', 'unknown', true),
+    'mixed radio and checkbox group' => array('post', '<input type="radio" name="choice" value="A"><input type="checkbox" name="choice" value="B"><button>Send</button>', 'unknown', true),
+    'radios with donation image' => array('post', '<input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B"><input type="image" src="donate.png" alt="Donate">', 'donation', true),
+    'radios with hidden donation image' => array('post', '<input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B"><input type="image" hidden src="donate.png" alt="Donate">', 'donation', true),
     'radios with payment image' => array('post', '<input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B"><input type="image" src="pay.png" alt="PayPal - The safer, easier way to pay online!">', 'unknown', true),
     'radios with neutral image' => array('post', '<input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B"><input type="image" src="send.png" alt="Send">', 'choice_submission', false),
     'radios with buy button' => array('post', '<input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B"><button>Buy now</button>', 'unknown', true),
@@ -79,6 +83,14 @@ foreach ( array( 'www.paypal.com' => 'unknown', 'paypal.com.example.org' => 'cho
     $dom->loadHTML('<form method="post" action="https://' . $host . '/cgi-bin/webscr"><input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B"><input type="image" src="pay.png" alt="Pay"></form>');
     $assert($intent === FormRuntimeRequirementAnalyzer::formIntent($dom->getElementsByTagName('form')->item(0)), $host . ' payment destination intent');
 }
+$eventForm = '<!doctype html><html><head><title>Question</title></head><body><main><form><h3>Keep this question</h3><label><input type="radio" name="question" value="A" onclick="void 0">Yes</label><label><input type="radio" name="question" value="B">No</label><button>Send</button></form></main></body></html>';
+$eventResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $eventForm)))->toArray();
+$assert(str_contains($eventResult['serialized_blocks'], 'Keep this question'), 'event-bearing form retains question');
+$assert(2 === substr_count($eventResult['serialized_blocks'], 'type="radio"'), 'event-bearing form retains radios');
+$assert(1 === count($eventResult['fallbacks']), 'event-bearing form retains unsupported fallback');
+$repeatedForms = '<!doctype html><html><head><title>Questions</title></head><body><main>' . str_repeat('<form class="survey"><input type="radio" name="question" value="A"><input type="radio" name="question" value="B"><button>Send</button></form>', 2) . '</main></body></html>';
+$repeatedResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $repeatedForms)))->toArray();
+$assert(2 === count($repeatedResult['source_reports']['runtime_islands'] ?? array()), 'identical forms retain distinct runtime records');
 if ( $failures ) {
     fwrite(STDERR, implode("\n", $failures) . "\n");
     exit(1);

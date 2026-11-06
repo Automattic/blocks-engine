@@ -46,8 +46,10 @@ final class FormDispatcher
         // Reuse the button-only preference path: readable blocks and one island.
         if ( FormRuntimeRequirementAnalyzer::collectsOnlyChoices($element) ) {
             $readableFormBlock = $this->context->buildReadableFormBlock($element, true, $fallbacks);
-            $this->context->recordForm($element, $readableFormBlock);
-            return $readableFormBlock;
+            if ( null !== $readableFormBlock ) {
+                $this->context->recordForm($element, $readableFormBlock);
+                return $readableFormBlock;
+            }
         }
 
         $hasChoiceGroups = FormControlClassifier::hasCapturedChoiceGroups($element);
