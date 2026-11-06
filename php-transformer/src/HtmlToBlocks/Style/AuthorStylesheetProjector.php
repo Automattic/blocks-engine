@@ -1889,12 +1889,21 @@ final class AuthorStylesheetProjector
      * A subject naming the image by class or id follows that identity. A
      * type-only positioned image also needs its figure to own the source box:
      * leaving that figure static would introduce an in-flow flex/grid item.
+     * That holds only for a selector naming positioned images alone: its
+     * figure arm reaches every figure the type matches, so a global `img`
+     * rule would also restyle the figures of static images.
      * Attributes stay on the <img>. Classes and id must be on the figure, so a
      * class the figure did not keep leaves the authored selector alone.
      *
      * @param array<string, mixed> $parsed
      */
-    private function projectImageFigureSubjectSelector(string $selector, array $parsed, DOMElement $element, AuthorStylesheetProjectionContext $context): ?string
+    private function isPositionedImage(DOMElement $element): bool
+    {
+        return 'img' === strtolower($element->tagName)
+            && in_array(CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($element)['position'] ?? '')), array( 'absolute', 'fixed' ), true);
+    }
+
+    private function projectImageFigureSubjectSelector(string $selector, array $parsed, DOMElement $element, AuthorStylesheetProjectionContext $context, bool $namesOnlyPositionedImages): ?string
     {
         if ( 'img' !== strtolower($element->tagName) ) {
             return null;
@@ -1908,10 +1917,9 @@ final class AuthorStylesheetProjector
         }
         $compounds = $parsed['compounds'];
         $subject = CssSelectorCompoundInspector::rightmost($compounds);
-        $position = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($element)['position'] ?? ''));
         // Only an explicit type subject can use the existing type-span rewrite;
         // an img nested in :where() must remain a leaf selector.
-        $positionedTypeSubject = in_array($position, array( 'absolute', 'fixed' ), true)
+        $positionedTypeSubject = $namesOnlyPositionedImages
             && 1 === preg_match('/^img\b/i', substr($selector, (int) ($parsed['rightmost_compound_span']['start'] ?? 0)));
         if ( 'img' !== strtolower((string) ($subject['type'] ?? ''))
             || ( array() === ($subject['classes'] ?? array()) && array() === ($subject['ids'] ?? array())
@@ -2308,8 +2316,9 @@ final class AuthorStylesheetProjector
             // the figure: the box the image bridge already fills.
             $figureSubjects = array();
             $otherMatches = array();
+            $namesOnlyPositionedImages = array() === array_filter($matches, fn (DOMElement $element): bool => ! $this->isPositionedImage($element));
             foreach ( $matches as $element ) {
-                $figureSubject = $this->projectImageFigureSubjectSelector($selector, $parsed, $element, $context);
+                $figureSubject = $this->projectImageFigureSubjectSelector($selector, $parsed, $element, $context, $namesOnlyPositionedImages);
                 if ( null === $figureSubject ) {
                     $otherMatches[] = $element;
                 } else {
