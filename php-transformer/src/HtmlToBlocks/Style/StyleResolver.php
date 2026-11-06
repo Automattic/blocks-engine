@@ -1273,7 +1273,7 @@ final class StyleResolver implements ElementPresentationResolver
     {
         $entries = array();
         foreach ( $this->rulesInCascadeOrder($this->styleRuleCandidates($element, 'static-conditional')) as $index => $rule ) {
-            $declared = trim((string) ( $rule['declarations'][ $property ] ?? '' ));
+            $declared = trim((string) ( $rule['declarations'][ $property ] ?? ('vertical-align' === $property ? ($rule['sourceVerticalAlign'] ?? '') : '') ));
             if ( '' === $declared || ! $this->matchesCssSelector($element, (string) ( $rule['selector'] ?? '' )) ) {
                 continue;
             }
@@ -5304,9 +5304,12 @@ final class StyleResolver implements ElementPresentationResolver
             // The rule's own later `font-family` decides the family instead.
             if ( isset($order['font-family']) && $order['font-family'] > $order['font'] ) $pendingFont['pendingFontFamilyFollows'] = true;
         }
+        // Image leaf classification needs source alignment, but adding it to
+        // safeVisualDeclarations would change unrelated box/style ownership.
         $readingCustomProperties = static fn (array $rule): array => (array() === $customPropertyReferences
             ? $rule
-            : $rule + array( 'customPropertyReferences' => $customPropertyReferences )) + $pendingFont;
+            : $rule + array( 'customPropertyReferences' => $customPropertyReferences )) + $pendingFont
+                + (isset($rawDeclarations['vertical-align']) ? array('sourceVerticalAlign' => $rawDeclarations['vertical-align']) : array());
         $mediaTextDeclarations = array() === $conditions
             ? array_values(array_filter(
                 $this->mediaTextInlineDeclarationEntries($body),
@@ -5372,7 +5375,7 @@ final class StyleResolver implements ElementPresentationResolver
             $selectorIsStaticLayerRule = array() !== $selectorConditions
                 && array_reduce($selectorConditions, fn (bool $static, string $condition): bool => $static && $this->conditionResolvesStatically($condition), true);
             $supportedRestingSelector = ! $this->selectorCarriesPseudoState($selector) && $this->isSupportedCssSelector($selector);
-            if ($supportedRestingSelector && (array() === $selectorConditions || $selectorIsStaticLayerRule) && (array() !== $declarations || array() !== $mediaTextDeclarations || array() !== $customPropertyReferences)) {
+            if ($supportedRestingSelector && (array() === $selectorConditions || $selectorIsStaticLayerRule) && (array() !== $declarations || array() !== $mediaTextDeclarations || array() !== $customPropertyReferences || isset($rawDeclarations['vertical-align']))) {
                 $staticRule = $readingCustomProperties(array(
                     'selector' => $selector,
                     'declarations' => $declarations,
@@ -5384,7 +5387,7 @@ final class StyleResolver implements ElementPresentationResolver
                 $staticRule['cascadeOrder'] = $cascadeOrder++;
                 $analysis['static'][] = $staticRule;
             }
-            if (! $this->selectorCarriesPseudoState($selector) && array() !== $selectorConditions && ! $selectorIsStaticLayerRule && (array() !== $declarations || array() !== $cascadedValueDeclarations || array() !== $customPropertyReferences)) {
+            if (! $this->selectorCarriesPseudoState($selector) && array() !== $selectorConditions && ! $selectorIsStaticLayerRule && (array() !== $declarations || array() !== $cascadedValueDeclarations || array() !== $customPropertyReferences || isset($rawDeclarations['vertical-align']))) {
                 $conditionalRule = $readingCustomProperties(array(
                     'selector' => $selector,
                     'declarations' => $declarations,

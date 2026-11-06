@@ -168,7 +168,14 @@ final class EngineSupportCss
             $parts[] = ':root :where(.blocks-engine-linked-image-figure)>a{object-fit:inherit;object-position:inherit;border-radius:inherit}';
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::INLINE_IMAGE_LEAF_CLASS) ) {
-            $parts[] = ':where(.' . SourceBlockAttributeProjector::INLINE_IMAGE_LEAF_CLASS . ').wp-block-image > a > img{display:inline}';
+            $leaf = ':where(.' . SourceBlockAttributeProjector::INLINE_IMAGE_LEAF_CLASS . ').wp-block-image';
+            $parts[] = $leaf . ' > img,' . $leaf . ' > a > img{display:inline}';
+        }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::BASELINE_IMAGE_LEAF_CLASS) ) {
+            $parts[] = 'figure.wp-block-image:where(.' . SourceBlockAttributeProjector::BASELINE_IMAGE_LEAF_CLASS . ') img{vertical-align:baseline}';
+        }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::INLINE_IMAGE_LINK_CLASS) ) {
+            $parts[] = 'figure.wp-block-image:where(.' . SourceBlockAttributeProjector::INLINE_IMAGE_LINK_CLASS . ') > a{display:inline}';
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS) ) {
             // This figure has no source box. Remove its layout box so image

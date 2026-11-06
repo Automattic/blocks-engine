@@ -24,6 +24,8 @@ final class SourceBlockAttributeProjector
     public const SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-flex-image-figure';
     public const SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-inline';
     public const INLINE_IMAGE_LEAF_CLASS = 'blocks-engine-inline-image-leaf';
+    public const BASELINE_IMAGE_LEAF_CLASS = 'blocks-engine-baseline-image-leaf';
+    public const INLINE_IMAGE_LINK_CLASS = 'blocks-engine-inline-image-link';
     public const SYNTHETIC_IMAGE_GAP_CLASS = 'blocks-engine-synthetic-image-gap';
     /** An image unwrapped from a paragraph whose line box it sized in the source. */
     public const PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS = 'blocks-engine-paragraph-line-box-image';

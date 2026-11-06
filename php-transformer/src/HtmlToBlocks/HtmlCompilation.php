@@ -11003,11 +11003,34 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         if ($figure instanceof DOMElement && $link instanceof DOMElement) {
-            $display = $this->styleResolver->declaredPresentation($image, 'display')->resolvedValue();
-            if ('' === $display) $display = $this->styleResolver->defaultTagDisplay($image);
+            $imagePresentation = $this->styleResolver->cssDeclarations(SourceDom::attr($image, 'style'));
+            foreach (array('display', 'vertical-align') as $property) {
+                if (! isset($imagePresentation[$property])) {
+                    $value = $this->styleResolver->declaredPresentation($image, $property)->resolvedValue();
+                    if ('' !== $value) $imagePresentation[$property] = $value;
+                }
+            }
+            $display = $imagePresentation['display'] ?? $this->styleResolver->defaultTagDisplay($image);
             if ('inline' === CssValueInspector::comparable($display)) {
                 // Retain the authored figure box; only the replaced leaf was inline.
                 $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::INLINE_IMAGE_LEAF_CLASS);
+                if ('baseline' === CssValueInspector::comparable($imagePresentation['vertical-align'] ?? 'baseline')) {
+                    // Core's bottom alignment would remove the source line-box strut.
+                    $attrs['className'] = $this->mergeClassNames((string) $attrs['className'], SourceBlockAttributeProjector::BASELINE_IMAGE_LEAF_CLASS);
+                    if ($link instanceof DOMElement) {
+                        $linkPresentation = $this->styleResolver->cssDeclarations(SourceDom::attr($link, 'style'));
+                        foreach (array('display', 'vertical-align') as $property) {
+                            if (! isset($linkPresentation[$property])) {
+                                $value = $this->styleResolver->declaredPresentation($link, $property)->resolvedValue();
+                                if ('' !== $value) $linkPresentation[$property] = $value;
+                            }
+                        }
+                        if ('inline' === CssValueInspector::comparable($linkPresentation['display'] ?? $this->styleResolver->defaultTagDisplay($link))
+                            && 'baseline' === CssValueInspector::comparable($linkPresentation['vertical-align'] ?? 'baseline')) {
+                            $attrs['className'] = $this->mergeClassNames((string) $attrs['className'], SourceBlockAttributeProjector::INLINE_IMAGE_LINK_CLASS);
+                        }
+                    }
+                }
             }
         }
         $block = $this->createBlock('core/image', $attrs, array(), $figure ?? $image);
