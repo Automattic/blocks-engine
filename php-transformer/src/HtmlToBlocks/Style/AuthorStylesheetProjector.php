@@ -359,7 +359,8 @@ final class AuthorStylesheetProjector
         $editorDocumentRootRule = $this->editorDocumentRootRule($prelude, $body, $context) . $this->separatorBorderRule($prelude, $declarations, $context);
         $navigationItemSpaceRule = $this->navigationItemSpaceRule($prelude, $declarations, $context)
             . $this->navigationListBoxRule($prelude, $declarations, $context)
-            . $this->directNavigationDisplayRule($prelude, $declarations, $context);
+            . $this->directNavigationDisplayRule($prelude, $declarations, $context)
+            . $this->navigationToggleRowRule($prelude, $declarations, $context);
         if ( array() === $margins ) {
             $css = $this->rewriteStyleRule($prelude, $body, $context, $inConditional) . $imageRule . $imagePlacement['rules'] . $svgImageRule . $editorDocumentRootRule . $navigationItemSpaceRule;
 
@@ -370,6 +371,7 @@ final class AuthorStylesheetProjector
         $rules = '' === $this->styleResolver->cssDeclarationString($inner)
             ? ''
             : $this->rewriteStyleRule($prelude, $this->styleResolver->cssDeclarationString($inner), $context, $inConditional);
+        $rules .= $this->tableVerticalMarginRules($prelude, $margins, $context);
         $css = $rules
             . $this->marginSelectorPrelude($prelude, $context) . '{' . $this->styleResolver->cssDeclarationString($margins) . '}'
             . $imageRule
@@ -643,6 +645,44 @@ final class AuthorStylesheetProjector
 
         return implode(',', array_map(static fn (string $selector): string => trim($selector) . $scope, $projected))
             . '{' . $this->styleResolver->cssDeclarationString($borders) . '}';
+    }
+
+    /** @param array<string, string> $margins */
+    private function tableVerticalMarginRules(string $prelude, array $margins, AuthorStylesheetProjectionContext $context): string
+    {
+        $vertical = array();
+        foreach ( $margins as $property => $value ) {
+            if ( 'margin' === $property ) {
+                $important = CssValueInspector::isImportant($value) ? '!important' : '';
+                $sides = CssValueInspector::expandBoxShorthand(CssValueInspector::withoutImportant($value));
+                $vertical['margin-top'] = $sides[0] . $important;
+                $vertical['margin-bottom'] = $sides[2] . $important;
+            } elseif ( in_array($property, array( 'margin-top', 'margin-bottom', 'margin-block', 'margin-block-start', 'margin-block-end' ), true) ) {
+                $vertical[$property] = $value;
+            }
+        }
+        if ( array() === $vertical ) {
+            return '';
+        }
+        $rules = array();
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            // Class-only rules already follow their source class onto the figure.
+            if ( ! $parsed['supported'] || 'table' !== (CssSelectorCompoundInspector::rightmost($parsed['compounds'])['type'] ?? null) ) {
+                continue;
+            }
+            foreach ( $this->matchingSourceElements($selector, $parsed, $context) as $table ) {
+                $marker = $context->selectorProjections->tableMarker($table->getNodePath() ?? '');
+                if ( '' === $marker ) {
+                    continue;
+                }
+                $target = $this->projectSemanticLeafSelector($selector, $parsed, $marker, $context);
+                $rules[] = $target . ':not(.' . $context->authorStyles->classSpecificityShim() . '){' . $this->styleResolver->cssDeclarationString($vertical) . '}';
+                // The inner table remains the horizontal-margin and border owner.
+                $rules[] = '.' . $marker . '>table{margin-block:0!important}';
+            }
+        }
+        return implode('', array_unique($rules));
     }
 
     private function marginSelectorPrelude(string $prelude, AuthorStylesheetProjectionContext $context): string
@@ -2036,6 +2076,21 @@ final class AuthorStylesheetProjector
             if (null !== $pseudoProjection && array() !== $pseudoProjection) {
                 array_push($rewritten, ...$pseudoProjection);
                 continue;
+            }
+            // Attribute carriers are keyed by the authored selector. Resolve the
+            // complete captured predicate before rewriting a negation to its
+            // live state class, which would change that identity.
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            if ($parsed['supported'] && str_contains($selector, ':not(')) {
+                $sourceMatches = $this->matchingSourceElements($selector, $parsed, $context);
+                if (array() !== $sourceMatches) {
+                    $attributeProjection = $this->projectSourceAttributeAncestrySelector($selector, $parsed, $sourceMatches, $context, $controlWrapper)
+                        ?? $this->projectSourceAttributeSelector($selector, $parsed, $sourceMatches, $context, $controlWrapper);
+                    if (null !== $attributeProjection) {
+                        array_push($rewritten, ...$attributeProjection);
+                        continue;
+                    }
+                }
             }
             $selector = $this->projectSourceAttributeNegationStateSelector($selector, $context);
             $parsed = $context->sourceStyles->parsedSelector($selector);
@@ -4449,6 +4504,36 @@ final class AuthorStylesheetProjector
             $rules .= implode(',', array_unique($selectors)) . '{' . $body . '}';
         }
         return $rules;
+    }
+
+    /**
+     * Core renders a submenu's toggle as a sibling of the item's content, and
+     * its own item is the flex row that keeps them on one line. Where Core's
+     * toggle stands in for the source chevron, an authored block or
+     * inline-block item box would stack that toggle below the label, so the
+     * projected item keeps its outer display as Core's row. Emitted right after
+     * the item's projected rule: hiding, conditions and importance stay authored.
+     */
+    private function navigationToggleRowRule(string $prelude, array $declarations, AuthorStylesheetProjectionContext $context): string
+    {
+        $display = (string) ( $declarations['display'] ?? '' );
+        $row = array( 'block' => 'flex', 'list-item' => 'flex', 'flow-root' => 'flex', 'inline-block' => 'inline-flex', 'inline' => 'inline-flex' )[CssValueInspector::comparable(CssValueInspector::withoutImportant($display))] ?? '';
+        if ( '' === $row ) return '';
+        $selectors = array();
+        foreach ( CssValueSplitter::splitTopLevel($prelude, array( ',' )) as $selector ) {
+            $selector = trim($selector);
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            if ( ! $parsed['supported'] || null !== ( CssSelectorCompoundInspector::rightmost($parsed['compounds'])['type'] ?? null ) ) continue;
+            foreach ( $this->matchingSourceElements($selector, $parsed, $context) as $element ) {
+                $path = $element->getNodePath() ?? '';
+                $target = $context->selectorProjections->navigationSubject($path);
+                if ( '' === $target || ! $context->selectorProjections->isNavigationToggleRowItem($path) ) continue;
+                $state = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
+                if ( $context->selectorProjections->selectsCurrentNavigationState(substr($selector, 0, null === $parsed['pseudo_state_suffix_span'] ? null : $parsed['pseudo_state_suffix_span']['start'])) ) $target = AuthorSelectorProjectionState::currentNavigationSubject($target);
+                $selectors[] = ':root ' . $target . $this->selectorSpecificityShims($parsed, $context) . $state;
+            }
+        }
+        return array() === $selectors ? '' : implode(',', array_unique($selectors)) . '{display:' . $row . ( CssValueInspector::isImportant($display) ? ' !important' : '' ) . '}';
     }
 
     /** The flex packing of a row for the `text-align` that packed its inline items, with its importance. */

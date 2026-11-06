@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ElementConversionPrelude;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackEmitter;
 
@@ -168,7 +170,14 @@ final class EngineSupportCss
             $parts[] = ':root :where(.blocks-engine-linked-image-figure)>a{object-fit:inherit;object-position:inherit;border-radius:inherit}';
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::INLINE_IMAGE_LEAF_CLASS) ) {
-            $parts[] = ':where(.' . SourceBlockAttributeProjector::INLINE_IMAGE_LEAF_CLASS . ').wp-block-image > a > img{display:inline}';
+            $leaf = ':where(.' . SourceBlockAttributeProjector::INLINE_IMAGE_LEAF_CLASS . ').wp-block-image';
+            $parts[] = $leaf . ' > img,' . $leaf . ' > a > img{display:inline}';
+        }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::BASELINE_IMAGE_LEAF_CLASS) ) {
+            $parts[] = 'figure.wp-block-image:where(.' . SourceBlockAttributeProjector::BASELINE_IMAGE_LEAF_CLASS . ') img{vertical-align:baseline}';
+        }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::INLINE_IMAGE_LINK_CLASS) ) {
+            $parts[] = 'figure.wp-block-image:where(.' . SourceBlockAttributeProjector::INLINE_IMAGE_LINK_CLASS . ') > a{display:inline}';
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS) ) {
             // This figure has no source box. Remove its layout box so image
@@ -527,6 +536,41 @@ final class EngineSupportCss
      *
      * @return list<CascadeRule>
      */
+    /**
+     * Mirrors the capture device visibility sheet for native blocks carrying
+     * the class form of its markers. Without a selection the capture shows its
+     * default document, which the capture contract defines as desktop.
+     *
+     * @return list<CascadeRule>
+     */
+    public function deviceVisibilityCss(string $serializedBlocks): array
+    {
+        $prefixes = preg_quote(EngineMarker::DEVICE_ONLY_CLASS_PREFIX, '/') . '|' . preg_quote(EngineMarker::DEVICE_HIDE_CLASS_PREFIX, '/');
+        if (! preg_match_all('/(?<![\\w-])(' . $prefixes . ')([a-z][a-z0-9_-]{0,63})(?![\\w-])/', $serializedBlocks, $matches, PREG_SET_ORDER)) {
+            return array();
+        }
+        $selected = CaptureEvidence::SELECTED_DOCUMENT;
+        $selectors = array();
+        foreach ($matches as [, $prefix, $profile]) {
+            $class = '.' . $prefix . $profile;
+            $isDefault = 'desktop' === $profile;
+            if (EngineMarker::DEVICE_ONLY_CLASS_PREFIX === $prefix) {
+                $selectors[] = 'html[' . $selected . ']:not([' . $selected . '="' . $profile . '"]) ' . $class;
+                if (! $isDefault) {
+                    $selectors[] = 'html:not([' . $selected . ']) ' . $class;
+                }
+            } else {
+                $selectors[] = 'html[' . $selected . '="' . $profile . '"] ' . $class;
+                if ($isDefault) {
+                    $selectors[] = 'html:not([' . $selected . ']) ' . $class;
+                }
+            }
+        }
+        $selectors = array_values(array_unique($selectors));
+        sort($selectors);
+        return array(new CascadeRule(CascadeLayer::BLOCK_RENDER_REPAIR, implode(',', $selectors) . '{display:none!important}'));
+    }
+
     public function socialLinkCss(string $serializedBlocks): array
     {
         $parts = array();

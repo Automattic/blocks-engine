@@ -71,7 +71,7 @@ final class RichTextElementConverter implements ElementConverter
             // is the media block it visually is, not a heading. Anything with
             // text keeps the rich-text route below (#3496).
             $fallbackCount = count($fallbacks);
-            $media = $this->context->mediaBlockFromTextlessHeading($element, $fallbacks);
+            $media = $this->context->mediaBlockFromTextlessElement($element, $fallbacks);
             if ( null !== $media || count($fallbacks) > $fallbackCount ) {
                 return ConversionOutcome::handled($media);
             }
@@ -372,6 +372,15 @@ final class RichTextElementConverter implements ElementConverter
         $image = $this->context->imageBlockFromParagraph($element);
         if ( null !== $image ) {
             return $image;
+        }
+
+        // Classic editors wrap embed codes in a paragraph. A paragraph with no
+        // text whose only content is one media element is that media block,
+        // exactly like a text-less heading (#4303).
+        $fallbackCount = count($fallbacks);
+        $media = $this->context->mediaBlockFromTextlessElement($element, $fallbacks);
+        if ( null !== $media || count($fallbacks) > $fallbackCount ) {
+            return $media;
         }
 
         $editableIconRow = $this->context->compactLinkedIconTextRowFromParagraph($element);

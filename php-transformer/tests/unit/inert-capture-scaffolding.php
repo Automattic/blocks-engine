@@ -15,6 +15,10 @@ $assert = static function (bool $condition, string $label) use (&$assertions): v
 
 $transform = static fn (string $html): array => ( new HtmlTransformer() )->transform($html)->toArray();
 
+$measurementCopy = $transform('<style>.hidden{display:none}</style><section><div><h1>Strategy and Communication</h1><span aria-hidden="true" style="display:none">Strategy and Communication</span><span aria-hidden="true" class="hidden">Strategy and Communication</span></div><p>Follow us for news.</p></section>');
+$measurementMarkup = (string) ($measurementCopy['serialized_blocks'] ?? '');
+$assert(! str_contains($measurementMarkup, 'blocks-engine-hidden-richtext-marker') && str_contains($measurementMarkup, 'Strategy and Communication') && str_contains($measurementMarkup, 'Follow us for news.'), 'inline-hidden aria-hidden measurement copies are removed while visible siblings remain');
+
 $inertIframe = $transform('<main><iframe title="archetype" style="display:none;visibility:hidden"></iframe><p>Visible copy</p></main>');
 $assert(array() === ($inertIframe['fallbacks'] ?? array()), 'hidden sourceless iframe emits no fallback');
 $assert(array() === ($inertIframe['source_reports']['runtime_islands'] ?? array()), 'hidden sourceless iframe emits no runtime island');
@@ -95,6 +99,9 @@ $assert(str_contains((string) ($conditionalOrdinaryStore['serialized_blocks'] ??
 $capturedCollection = $transform('<main><fluid-columns-repeater><div><svg viewBox="0 0 1 1"><defs><link rel="stylesheet" href="/assets/icon.css"></defs><path d="M0 0h1v1z"/></svg><p>One</p></div><div><svg viewBox="0 0 1 1"><path d="M0 0h1v1z"/></svg><p>Two</p></div></fluid-columns-repeater></main>');
 $generatedRender = implode("\n", array_map(static fn (array $block): string => (string) ($block['render'] ?? ''), $capturedCollection['source_reports']['generated_blocks'] ?? array()));
 $assert('' !== $generatedRender && ! str_contains($generatedRender, '<link'), 'generated custom blocks strip captured stylesheet links from nested SVG markup');
+
+$hiddenLinkText = $transform('<nav><a href="/">Brand<span aria-hidden="true" style="display:none"><span>Br</span>and</span></a></nav>');
+$assert(str_contains((string) ($hiddenLinkText['serialized_blocks'] ?? ''), 'Brand') && ! str_contains((string) ($hiddenLinkText['serialized_blocks'] ?? ''), 'Br</span>and'), 'hidden nested link-label copies do not duplicate the visible accessible label');
 
 $visibleIframe = $transform('<main><iframe title="HubSpot form" src="https://forms.hsforms.com/widget" width="600" height="400"></iframe></main>');
 $visibleIframeBlock = $visibleIframe['blocks'][0] ?? array();

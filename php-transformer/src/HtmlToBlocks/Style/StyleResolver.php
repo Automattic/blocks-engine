@@ -882,19 +882,33 @@ final class StyleResolver implements ElementPresentationResolver
         return $this->authorDeclarationsAtViewport($element, $properties, self::DESKTOP_REFERENCE_WIDTH, $excludeCaptureDisclosure);
     }
 
+    /** Preserve authored inline CSS except typography already supplied by the parent. */
+    public function serializedInlineStyle(DOMElement $element): string
+    {
+        $style = SourceDom::attr($element, 'style');
+        // Lowered RichText carriers already own their effective declarations;
+        // their synthetic ancestry is not the original inheritance context.
+        if ('mark' === strtolower($element->tagName) && 'none' === SourceDom::attr($element, 'role')) return $style;
+        $declarations = $this->cssDeclarations($style);
+        $effective = $this->withoutRedundantInheritedTypography($element, $declarations);
+
+        return $effective === $declarations ? $style : $this->cssDeclarationString($effective);
+    }
+
     /**
-     * The element to serialize as RichText: a clone without the boundary
-     * whitespace its flex and grid containers (at the reference viewport)
-     * never paint, or the element itself when there is none.
-     * {@see SourceDom::withoutBlockifiedBoundaryWhitespace()}
+     * Serialize RichText without unpainted flex/grid boundary whitespace or
+     * redundant inherited typography. Resolve styles against source ancestry.
      */
     public function richTextSerializationSource(DOMElement $element): DOMElement
     {
-        return SourceDom::withoutBlockifiedBoundaryWhitespace($element, function (DOMElement $container): bool {
+        $serialized = SourceDom::withoutBlockifiedBoundaryWhitespace($element, function (DOMElement $container): bool {
             $display = CssValueInspector::comparable($this->referenceViewportAuthorDeclarations($container, array( 'display' ))['display'] ?? '');
 
             return 1 === preg_match('/(?<![\w-])(?:inline-)?(?:flex|grid)(?![\w-])/', $display);
         });
+        $clone = SourceDom::canonicalizedSerializationClone($serialized);
+        SourceDom::projectInlineStyles($element, $clone, $this->serializedInlineStyle(...));
+        return $clone;
     }
 
     /**
@@ -1273,7 +1287,7 @@ final class StyleResolver implements ElementPresentationResolver
     {
         $entries = array();
         foreach ( $this->rulesInCascadeOrder($this->styleRuleCandidates($element, 'static-conditional')) as $index => $rule ) {
-            $declared = trim((string) ( $rule['declarations'][ $property ] ?? '' ));
+            $declared = trim((string) ( $rule['declarations'][ $property ] ?? ('vertical-align' === $property ? ($rule['sourceVerticalAlign'] ?? '') : '') ));
             if ( '' === $declared || ! $this->matchesCssSelector($element, (string) ( $rule['selector'] ?? '' )) ) {
                 continue;
             }
@@ -2930,14 +2944,15 @@ final class StyleResolver implements ElementPresentationResolver
 
     /**
      * The text alignment a block inherits from source wrappers the conversion
-     * removes: an `align` presentational hint or an inline `text-align`. The
-     * nearest ancestor that declares alignment decides; when an author rule
-     * wins there, the stylesheet keeps owning it and nothing is stamped.
+     * removes, or which an editor reset would otherwise hide. The nearest
+     * cascaded declaration decides, including stylesheet-owned alignment.
+     * Author rules need lifting only when they differ from the editor default.
      */
     public function inheritedTextAlignmentDeclaration(DOMElement $element): string
     {
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
-            $value = CssValueInspector::comparable((string) ( $this->presentationDeclarations($node)['text-align'] ?? '' ));
+            $declarations = $this->cssDeclarations($this->specificityResolvedPresentationStyle($node));
+            $value = CssValueInspector::comparable((string) ($declarations['text-align'] ?? ''));
             if ( in_array($value, array( '', 'inherit', 'unset' ), true) ) {
                 continue;
             }
@@ -2945,7 +2960,8 @@ final class StyleResolver implements ElementPresentationResolver
                 CssValueInspector::comparable((string) ( $this->presentationalHintDeclarations($node)['text-align'] ?? '' )),
                 CssValueInspector::comparable((string) ( $this->cssDeclarations(SourceDom::attr($node, 'style'))['text-align'] ?? '' )),
             );
-            if ( ! in_array($value, $local, true) ) {
+            if ( ! in_array($value, $local, true)
+                && 'start' === $this->comparableTextAlignment($value, $this->isRightToLeftElement($element)) ) {
                 return '';
             }
 
@@ -3481,9 +3497,67 @@ final class StyleResolver implements ElementPresentationResolver
         if ( $this->isCssAllResetValue((string) ($declarations['all'] ?? '')) ) {
             unset($declarations['all']);
         }
-        $cache->declarations[$cacheKey] = $declarations;
+        $cache->declarations[$cacheKey] = $this->withoutRedundantInheritedTypography($element, $declarations);
 
         return $cache->declarations[$cacheKey];
+    }
+
+    /**
+     * @param array<string, string> $declarations
+     * @return array<string, string>
+     */
+    public function withoutRedundantInheritedTypography(DOMElement $element, array $declarations): array
+    {
+        $parent = $element->parentNode;
+        if ( $parent instanceof DOMElement ) {
+            foreach ( array( 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform', 'color' ) as $property ) {
+                if ( ! isset($declarations[$property]) ) {
+                    continue;
+                }
+                $inherited = $this->resolvedInheritedTypographyValue($parent, $property);
+                $value = $this->resolveCssVariablesInValue(CssValueInspector::withoutImportant($declarations[$property]), $element);
+                // Equal relative expressions need not compute equally at two
+                // levels (for example font-size:120% or font-weight:bolder).
+                if ( ('font-size' === $property && preg_match('/(?:%|[0-9.](?:em|ex|ch)\b)|^(?:larger|smaller)$/i', $value))
+                    || ('font-weight' === $property && in_array(strtolower(trim($value)), array( 'bolder', 'lighter' ), true)) ) {
+                    continue;
+                }
+                if ( '' !== $inherited && $this->comparableInheritedTypography($value) === $this->comparableInheritedTypography($inherited) ) {
+                    unset($declarations[$property]);
+                }
+            }
+        }
+        return $declarations;
+    }
+
+    private function comparableInheritedTypography(string $value): string
+    {
+        $value = $this->context->cssComparableValue($value);
+        $value = str_replace(array( '"', "'" ), '', $value);
+
+        return trim(preg_replace('/\s+/', ' ', $value) ?? $value);
+    }
+
+    /** Read the source cascade, not the presentation declarations we prune. */
+    private function resolvedInheritedTypographyValue(DOMElement $element, string $property): string
+    {
+        for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
+            $declarations = $this->cssDeclarations($this->specificityResolvedPresentationStyle($current));
+            $value = CssValueInspector::withoutImportant((string) ($declarations[$property] ?? ''));
+            $value = $this->resolveCssVariablesInValue($value, $current);
+            $keyword = strtolower(trim($value));
+            if ( '' === $keyword || in_array($keyword, array( 'inherit', 'unset' ), true) ) {
+                continue;
+            }
+            // Do not guess defaults or compare unresolved values as computed ones.
+            if ( in_array($keyword, array( 'initial', 'revert', 'revert-layer' ), true) || str_contains($value, 'var(') ) {
+                return '';
+            }
+
+            return $value;
+        }
+
+        return '';
     }
 
     /**
@@ -4130,11 +4204,14 @@ final class StyleResolver implements ElementPresentationResolver
     );
 
     /**
-     * Physical box shorthand reset families projected by this resolver.
+     * Shorthand reset families projected by this resolver. Font is already
+     * expanded by cssDeclarations() using CssFontShorthand before ranking.
      * Include intermediate shorthands as well as terminal longhands so border
      * resets compete at every level without parsing or expanding CSS values.
      */
     private const BOX_SHORTHAND_LONGHANDS = array(
+        'background' => array('background-color', 'background-image', 'background-position', 'background-size',
+            'background-repeat', 'background-attachment', 'background-origin', 'background-clip'),
         'padding' => array('padding-top', 'padding-right', 'padding-bottom', 'padding-left'),
         'margin' => array('margin-top', 'margin-right', 'margin-bottom', 'margin-left'),
         'inset' => array('top', 'right', 'bottom', 'left'),
@@ -4896,6 +4973,12 @@ final class StyleResolver implements ElementPresentationResolver
             $this->applyMediaTextCascadeDeclaration($cascade, (string) $property, (string) $value, true, array( PHP_INT_MAX, PHP_INT_MAX, PHP_INT_MAX ), ++$sequence);
         }
 
+        // Replay surviving declarations weakest first. Families may overlap
+        // without containing each other (border-top and border-width), so the
+        // insertion order alone cannot preserve their per-longhand winners.
+        // Keeping the authored shorthand also preserves resets for components
+        // that our presentation mappers do not parse.
+        uasort($cascade, fn (array $left, array $right): int => $this->mediaTextCascadeEntryOutranks($left, $right) ? 1 : -1);
         $declarations = array();
         foreach ( $cascade as $property => $entry ) {
             if ( "\0all" !== $property ) {
@@ -5304,9 +5387,12 @@ final class StyleResolver implements ElementPresentationResolver
             // The rule's own later `font-family` decides the family instead.
             if ( isset($order['font-family']) && $order['font-family'] > $order['font'] ) $pendingFont['pendingFontFamilyFollows'] = true;
         }
+        // Image leaf classification needs source alignment, but adding it to
+        // safeVisualDeclarations would change unrelated box/style ownership.
         $readingCustomProperties = static fn (array $rule): array => (array() === $customPropertyReferences
             ? $rule
-            : $rule + array( 'customPropertyReferences' => $customPropertyReferences )) + $pendingFont;
+            : $rule + array( 'customPropertyReferences' => $customPropertyReferences )) + $pendingFont
+                + (isset($rawDeclarations['vertical-align']) ? array('sourceVerticalAlign' => $rawDeclarations['vertical-align']) : array());
         $mediaTextDeclarations = array() === $conditions
             ? array_values(array_filter(
                 $this->mediaTextInlineDeclarationEntries($body),
@@ -5372,7 +5458,7 @@ final class StyleResolver implements ElementPresentationResolver
             $selectorIsStaticLayerRule = array() !== $selectorConditions
                 && array_reduce($selectorConditions, fn (bool $static, string $condition): bool => $static && $this->conditionResolvesStatically($condition), true);
             $supportedRestingSelector = ! $this->selectorCarriesPseudoState($selector) && $this->isSupportedCssSelector($selector);
-            if ($supportedRestingSelector && (array() === $selectorConditions || $selectorIsStaticLayerRule) && (array() !== $declarations || array() !== $mediaTextDeclarations || array() !== $customPropertyReferences)) {
+            if ($supportedRestingSelector && (array() === $selectorConditions || $selectorIsStaticLayerRule) && (array() !== $declarations || array() !== $mediaTextDeclarations || array() !== $customPropertyReferences || isset($rawDeclarations['vertical-align']))) {
                 $staticRule = $readingCustomProperties(array(
                     'selector' => $selector,
                     'declarations' => $declarations,
@@ -5384,7 +5470,7 @@ final class StyleResolver implements ElementPresentationResolver
                 $staticRule['cascadeOrder'] = $cascadeOrder++;
                 $analysis['static'][] = $staticRule;
             }
-            if (! $this->selectorCarriesPseudoState($selector) && array() !== $selectorConditions && ! $selectorIsStaticLayerRule && (array() !== $declarations || array() !== $cascadedValueDeclarations || array() !== $customPropertyReferences)) {
+            if (! $this->selectorCarriesPseudoState($selector) && array() !== $selectorConditions && ! $selectorIsStaticLayerRule && (array() !== $declarations || array() !== $cascadedValueDeclarations || array() !== $customPropertyReferences || isset($rawDeclarations['vertical-align']))) {
                 $conditionalRule = $readingCustomProperties(array(
                     'selector' => $selector,
                     'declarations' => $declarations,
@@ -6289,11 +6375,7 @@ final class StyleResolver implements ElementPresentationResolver
     /** A source-only keyboard shortcut, with no painted content at rest. */
     public function isFocusRevealedSkipLink(DOMElement $element, string $sourcePath = ''): bool
     {
-        if ( ! SourceDom::isMainSkipLink($element, $sourcePath) ) return false;
-        $rest = array_map(static fn (array $values): string => (string) end($values), $this->authorDeclaredValuesAtAnyViewport(
-            $element, array('position', 'left', 'right', 'top', 'bottom', 'display', 'visibility', 'opacity', 'clip', 'clip-path')
-        ));
-        if ( ! self::skipLinkHidden($rest) ) return false;
+        if ( ! SourceDom::isMainSkipLink($element, $sourcePath) || ! $this->isVisuallyHiddenAtRest($element) ) return false;
         $authorStyles = $this->session->authorStyleAnalysis();
         $cache = $authorStyles->selectorMatchCache();
         $focused = array();
@@ -6311,11 +6393,19 @@ final class StyleResolver implements ElementPresentationResolver
             $focused = $this->mergeCssDeclarationMaps($focused, $rule['declarations'] ?? array());
         }
         $focused = $this->mergeCssDeclarationMaps($focused, $this->cssDeclarations(SourceDom::attr($element, 'style')));
-        return $hasFocusRule && ! self::skipLinkHidden($focused);
+        return $hasFocusRule && ! self::visuallyHidden($focused);
+    }
+
+    /** Whether the source paints nothing for this element at rest: not displayed, transparent, off-screen, or clipped away. */
+    public function isVisuallyHiddenAtRest(DOMElement $element): bool
+    {
+        return self::visuallyHidden(array_map(static fn (array $values): string => (string) end($values), $this->authorDeclaredValuesAtAnyViewport(
+            $element, array('position', 'left', 'right', 'top', 'bottom', 'display', 'visibility', 'opacity', 'clip', 'clip-path')
+        )));
     }
 
     /** @param array<string, string> $declarations */
-    private static function skipLinkHidden(array $declarations): bool
+    private static function visuallyHidden(array $declarations): bool
     {
         $value = static fn (string $property): string => CssValueInspector::comparable($declarations[$property] ?? '');
         if ( 'none' === $value('display') || in_array($value('visibility'), array('hidden', 'collapse'), true) || '0' === $value('opacity') ) return true;
@@ -6567,6 +6657,28 @@ final class StyleResolver implements ElementPresentationResolver
             $declarations[$property] = $resolved;
         }
         return $declarations;
+    }
+
+    /**
+     * Buttons do not inherit line-height by default. Restate the UA line box
+     * when a generated WordPress control would otherwise inherit page type.
+     * Authored values (including inherit) and existing Core toggles keep theirs.
+     *
+     * @param array<string, string> $declarations Unfiltered source presentation.
+     */
+    public function buttonUserAgentLineHeight(DOMElement $element, array $declarations): ?string
+    {
+        if ( 'button' !== strtolower($element->tagName) || isset($declarations['line-height'])
+            || in_array('wp-block-accordion-heading__toggle', preg_split('/\s+/', $element->getAttribute('class')) ?: array(), true) ) {
+            return null;
+        }
+        // The font shorthand sets line-height too: a global keyword (font:inherit)
+        // or an explicit /line-height is authored; otherwise it resets to normal.
+        $font = strtolower(trim(CssValueInspector::withoutImportant((string) ($declarations['font'] ?? ''))));
+        if ( '' !== $font && ( in_array($font, array( 'inherit', 'unset', 'revert', 'revert-layer' ), true) || str_contains($font, '/') ) ) {
+            return null;
+        }
+        return 'normal';
     }
 
     /** SVG/state presentation also needs the unfiltered paint and motion stream. */

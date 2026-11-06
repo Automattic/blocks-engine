@@ -84,7 +84,7 @@ $makeAnalyzer = static function (array $domSelectors = array(), array $presentat
         'dedupe'           => static fn (array $rows): array => array_values($rows),
     );
     $c = array_merge($defaults, $overrides);
-    $session = $c['session'] ?? new HtmlTransformerSession(new Runtime(), static fn (DOMElement $element): array => array());
+    $session = $c['session'] ?? new HtmlTransformerSession(new Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()));
     $session->installRuntimeSelectorState($selectors);
 
     $metadataBuilder = new FormControlMetadataBuilder($c['islandSelector']);
@@ -171,7 +171,7 @@ $assert(! $retain->canRetainRuntimeDomContractNatively($elementFrom('<section><b
 $assert(! $retain->canRetainRuntimeDomContractNatively($elementFrom('<section><p>t</p></section>'), 'core/image'), 'unsupported-block-name-does-not-retain');
 
 // Block materialization delegates the complete runtime DOM recording decision.
-$blockRuntimeSession = new HtmlTransformerSession(new Runtime(), static fn (DOMElement $element): array => array());
+$blockRuntimeSession = new HtmlTransformerSession(new Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()));
 $runtimeDom = $blockRuntimeSession->runtimeDomState();
 $blockRuntime = $makeAnalyzer(array('#mount'), array(), array(
     'session' => $blockRuntimeSession,

@@ -864,7 +864,8 @@ final class NavigationPattern implements PatternRecognizerInterface
             $links[] = $this->createBlock->createBlock('core/navigation-link', array_filter(array(
                 'label' => SourceDom::innerHtmlWithProjectedMarkers(
                     $anchor,
-                    static fn (DOMElement $labelElement): array => $context->navigationContext()?->sourcePresentationMarkers($labelElement) ?? array()
+                    static fn (DOMElement $labelElement): array => $context->navigationContext()?->sourcePresentationMarkers($labelElement) ?? array(),
+                    static fn (DOMElement $labelElement): string => $context->navigationContext()?->serializedInlineStyle($labelElement) ?? SourceDom::attr($labelElement, 'style')
                 ),
                 'url' => SourceDom::safeNavigationUrl(SourceDom::attr($anchor, 'href')),
                 'kind' => 'custom',
@@ -3297,12 +3298,13 @@ final class NavigationPattern implements PatternRecognizerInterface
             static fn (DOMElement $element): array => array_merge(
                 $navigationContext->labelPresentationMarkers($element),
                 $navigationContext->ownsLabelTypography($element) ? array( NavigationPatternContext::LABEL_TYPOGRAPHY_BOX_CLASS ) : array()
-            )
+            ),
+            $navigationContext->serializedInlineStyle(...)
         );
 
         // The transformer's own serializer performs rich-text lowering the plain
         // clone cannot. Prefer it whenever no marker had to be carried.
-        $html = $markered === SourceDom::innerHtml($anchor) ? $innerHtml($anchor) : $markered;
+        $html = $markered === SourceDom::innerHtml($anchor, $navigationContext->serializedInlineStyle(...)) ? $innerHtml($anchor) : $markered;
         return preg_replace('/<!--[\s\S]*?-->/', '', $html) ?? $html;
     }
 
@@ -3394,17 +3396,28 @@ final class NavigationPattern implements PatternRecognizerInterface
      * Whether the source item has a button that stands in for its label or
      * opens the submenu beside it.
      */
-    private function hasSubmenuDisclosureControl(DOMElement $item, DOMElement $anchor, ?DOMElement $submenuContainer): bool
+    private function hasSubmenuDisclosureControl(DOMElement $item, DOMElement $anchor, ?DOMElement $submenuContainer, ?NavigationPatternContext $navigationContext): bool
     {
-        if ( $this->isSubmenuToggleControl($anchor) ) return true;
+        // A link that announces its popup but leads to a page is still a link;
+        // its submenu opens on hover/focus.
+        if ( $this->isSubmenuToggleControl($anchor) && ! $this->leadsToPage($anchor) ) return true;
         foreach ( $item->getElementsByTagName('button') as $button ) {
-            if ( ! $button instanceof DOMElement ) continue;
+            // A visually hidden button is a keyboard affordance; it paints no indicator.
+            if ( ! $button instanceof DOMElement || $navigationContext?->isVisuallyHiddenControl($button) ) continue;
             for ( $node = $button; $node instanceof DOMElement; $node = $node->parentNode ) {
                 if ( null !== $submenuContainer && $node->isSameNode($submenuContainer) ) continue 2;
             }
             return true;
         }
         return false;
+    }
+
+    /** Whether the label is a link to a destination rather than a button. */
+    private function leadsToPage(DOMElement $anchor): bool
+    {
+        $href = trim($anchor->getAttribute('href'));
+        return 'a' === strtolower($anchor->tagName) && 'button' !== strtolower(trim($anchor->getAttribute('role')))
+            && '' !== $href && ! str_starts_with($href, '#') && ! str_starts_with(strtolower($href), 'javascript:');
     }
 
     /**
@@ -3430,7 +3443,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             || (null !== $navigationContext && $navigationContext->targetsCurrentDocument($anchor->getAttribute('href')));
         $itemAttrs = $item->isSameNode($anchor) ? array() : $this->withoutCoreNavigationClasses($presentationAttributes($item));
         $anchorAttrs = $this->withoutCoreNavigationClasses($presentationAttributes($anchor));
-        if ($hasAuthoredCurrentState) $navigationContext?->recordCurrentNavigationItem($item, $anchor);
+        if ($isCurrentNavigationItem) $navigationContext?->recordCurrentNavigationItem($item, $anchor);
         // Submenu toggles (buttons, or links declared as buttons) have their
         // own rendered content subject, just like ordinary links. Leave the
         // existing linked-submenu path unchanged.
@@ -3464,7 +3477,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             if ( '' === $iconMarker && ! $item->isSameNode($anchor) ) {
                 $navigationContext?->recordSubmenuToggle(
                     $anchor,
-                    $this->hasSubmenuDisclosureControl($item, $anchor, $submenuContainer)
+                    $this->hasSubmenuDisclosureControl($item, $anchor, $submenuContainer, $navigationContext)
                 );
             }
         }
@@ -3486,7 +3499,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
         $itemClasses = preg_split('/\s+/', trim((string) ($itemAttrs['className'] ?? ''))) ?: array();
         $anchorClasses = preg_split('/\s+/', trim((string) ($anchorAttrs['className'] ?? ''))) ?: array();
-        $classes = array_values(array_unique(array_filter(array_merge($itemClasses, $anchorClasses, array($subjectMarker)))));
+        $classes = array_values(array_unique(array_filter(array_merge($itemClasses, $anchorClasses, array($subjectMarker, $navigationContext?->navigationLabelWidthMarker($anchor) ?? '')))));
         if ( ! $item->isSameNode($anchor) && null !== $navigationContext ) {
             $classes = array_values(array_unique(array_merge($classes, $navigationContext->sourcePresentationMarkers($item))));
         }
@@ -4459,25 +4472,37 @@ final class NavigationPattern implements PatternRecognizerInterface
             $key = trim($trigger->getAttribute(CaptureEvidence::DIALOG_TRIGGER));
             if ($key !== trim($trigger->getAttribute('aria-controls')) || !$this->navigationWillClaimItem($node)) continue;
             foreach ($this->submenuContainers($node, $anchor) as $container) {
-                if ($this->elementCarriesDialogPanel($container, $key)) return true;
+                $panel = $this->dialogPanelIn($container, $key);
+                // A panel declared as a modal dialog is an overlay the trigger
+                // opens, not a submenu of the trigger's item: the dialog
+                // projection keeps it working instead of a submenu that the
+                // navigation recognizer never emits.
+                if ($panel instanceof DOMElement && !$this->isModalDialogPanel($panel)) return true;
             }
         }
         return false;
+    }
+
+    private function dialogPanelIn(DOMElement $element, string $key): ?DOMElement
+    {
+        if ($element->getAttribute(CaptureEvidence::DIALOG_PANEL) === $key || $element->getAttribute('id') === $key) return $element;
+        foreach ($element->getElementsByTagName('*') as $descendant) {
+            if ($descendant instanceof DOMElement && ($descendant->getAttribute(CaptureEvidence::DIALOG_PANEL) === $key || $descendant->getAttribute('id') === $key)) return $descendant;
+        }
+        return null;
+    }
+
+    private function isModalDialogPanel(DOMElement $panel): bool
+    {
+        return 'true' === strtolower(trim($panel->getAttribute('aria-modal')))
+            || in_array(strtolower(trim($panel->getAttribute('role'))), array('dialog', 'alertdialog'), true)
+            || 'dialog' === strtolower($panel->tagName);
     }
 
     private function navigationWillClaimItem(DOMElement $item): bool
     {
         for ($node = $item; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null) {
             if ($this->claimsBeforeAuthorOwnedLayout($node) || $this->hasNavigationSignal($node)) return true;
-        }
-        return false;
-    }
-
-    private function elementCarriesDialogPanel(DOMElement $element, string $key): bool
-    {
-        if ($element->getAttribute(CaptureEvidence::DIALOG_PANEL) === $key || $element->getAttribute('id') === $key) return true;
-        foreach ($element->getElementsByTagName('*') as $descendant) {
-            if ($descendant instanceof DOMElement && ($descendant->getAttribute(CaptureEvidence::DIALOG_PANEL) === $key || $descendant->getAttribute('id') === $key)) return true;
         }
         return false;
     }

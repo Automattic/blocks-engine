@@ -757,6 +757,10 @@ final class ArtifactNormalizer
     {
         $rows = array();
         foreach ($files as $file) {
+            // Direct projector inputs can be unnormalized occurrence records.
+            if (in_array($file['source'] ?? '', array('inline-style', 'inline-script'), true)) {
+                $file['kind'] = 'inline-style' === $file['source'] ? 'css' : 'js';
+            }
             if (!isset($file['inline_references'])) { $rows[] = $file; continue; }
             $references = $file['inline_references'];
             unset($file['inline_references']);

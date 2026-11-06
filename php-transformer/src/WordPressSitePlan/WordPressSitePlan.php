@@ -556,6 +556,7 @@ PHP;
         $assets = self::orderPageStylesheetProjections($assets);
         $assets = self::placeSharedStylesheetProjections($assets, $pages);
         $assets = self::mergeIdenticalPageStylesheets($assets, array_merge($pages, $parts, $frameParts));
+        $assets = EditorStaticStateAssets::share($assets, $references);
         $tokens = $this->tokens($assets);
         if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
         $runtimeDeclarations = $shells['runtime_declarations'];
@@ -589,7 +590,8 @@ PHP;
                  if (!str_contains((string) ($page['canonical_block_markup'] ?? ''), '<!-- wp:query ')) {
                      $taxonomyProjection['diagnostics'][] = array('code' => 'wordpress_site_plan_' . ('author' === $taxonomyEntity['kind'] ? 'author' : 'taxonomy') . '_archive_presentation_static', 'severity' => 'warning', 'message' => 'The archive renders its captured presentation and static cards rather than a live query because the listing could not be converted to an inherited native query loop.', 'source_path' => $taxonomyEntity['archive']['source_path'], 'source_route' => $taxonomyEntity['archive']['source_route']);
                  }
-                 $taxonomyEntity['archive']['presentation_markup'] = $page['canonical_block_markup'];
+                 if ('' !== trim($page['canonical_block_markup'])) $taxonomyEntity['archive']['presentation_markup'] = $page['canonical_block_markup'];
+                 else unset($taxonomyEntity['archive']['presentation_markup']);
                  $projectedTaxonomyEntities[] = $taxonomyEntity;
                  continue 2;
              }
@@ -1227,6 +1229,13 @@ PHP;
                 continue;
             }
             if ('page' === $documentKind && self::emptyRedirectDocument($document)) continue;
+            // Native term captures may contain no presentation at all. Defer
+            // their content validation until taxonomy ownership is resolved;
+            // any unproven capture still faces the final page contract.
+            if ('page' === $documentKind) {
+                $classes = DocumentRootContext::bodyClasses($document);
+                if (in_array('archive', $classes, true) && (in_array('tag', $classes, true) || in_array('category', $classes, true))) continue;
+            }
             if ( ! is_string($document['block_markup'] ?? null) || '' === trim($document['block_markup']) ) {
                 $failures[] = array(
                     'source_path' => $document['source_path'],
@@ -3209,7 +3218,7 @@ PHP;
             $collect($reference);
             return $reference;
         });
-        if (preg_match_all('/@import\s+(?:url\(\s*)?(?:"([^"]*)"|\'([^\']*)\'|([^\s\)"\';]+))/i', $css, $matches, PREG_SET_ORDER)) foreach ($matches as $match) $collect((string) (($match[1] ?? '') ?: ($match[2] ?? '') ?: ($match[3] ?? '')));
+        if (preg_match_all('/@import\s+(?:url\(\s*)?(?:"([^"]*)"|\'([^\']*)\'|([^\s\)"\';]+))/i', \Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner::withoutComments($css), $matches, PREG_SET_ORDER)) foreach ($matches as $match) $collect((string) (($match[1] ?? '') ?: ($match[2] ?? '') ?: ($match[3] ?? '')));
         return $references;
     }
 
@@ -3877,16 +3886,7 @@ PHP;
     /** @param array<string,mixed> $document */
     private static function isDateArchiveDocument(array $document): bool
     {
-        $class = $document['document_metadata']['body_attributes']['class'] ?? null;
-        if (!is_string($class)) {
-            foreach (HtmlMarkupParser::htmlMarkupNodes((string) ($document['html'] ?? '')) as $node) {
-                if ('tag' === ($node['kind'] ?? null) && 'body' === ($node['name'] ?? null)) {
-                    $class = $node['attributes']['class'] ?? '';
-                    break;
-                }
-            }
-        }
-        $classes = preg_split('/[\x20\t\r\n\f]+/', trim((string) $class)) ?: array();
+        $classes = DocumentRootContext::bodyClasses($document);
         return in_array('archive', $classes, true) && in_array('date', $classes, true);
     }
     /** @param array<string,mixed> $document */
@@ -5591,7 +5591,9 @@ PHP;
             }
             if ($excerptLength > 0 && 'paragraph' === self::listingBlockName($slice) && ListingExcerptProjection::matches($slice, $post)) {
                 $attrs = self::listingBlockAttributes($slice);
+                $blockVisibility = $attrs['metadata']['blockVisibility'] ?? null;
                 unset($attrs['metadata']);
+                if (null !== $blockVisibility) $attrs['metadata']['blockVisibility'] = $blockVisibility;
                 $attrs['excerptLength'] = $excerptLength;
                 $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' blocks-engine-authored-excerpt');
                 return array('markup' => '<!-- wp:post-excerpt ' . BlockAttributes::encode($attrs) . ' /-->', 'title' => false, 'content' => false);
@@ -5826,6 +5828,7 @@ PHP;
         }
         $classes = array_values(array_filter(preg_split('/\s+/', (string) ($source['className'] ?? '')) ?: array(), static fn(string $class): bool => '' !== $class && 'is-resized' !== $class));
         if (array() !== $classes) $attrs['className'] = implode(' ', $classes);
+        self::keepBlockVisibility($attrs, $source);
         return '<!-- wp:post-featured-image ' . BlockAttributes::encode($attrs) . ' /-->';
     }
     private static function listingQueryMarkup(int $perPage, string $template, bool $inherit = false, ?string $sectionSlug = null): string
@@ -5868,7 +5871,16 @@ PHP;
             $attrs['className'] = $className;
         }
         foreach (HtmlMarkupParser::htmlMarkupNodes($slice) as $node) if ('a' === ($node['name'] ?? '') && is_string($node['attributes']['class'] ?? null)) $attrs['metadata']['blocksEngineLinkClass'] = $node['attributes']['class'];
+        self::keepBlockVisibility($attrs, $blockAttrs);
         return '<!-- wp:post-title ' . BlockAttributes::encode($attrs) . ' /-->';
+    }
+    /**
+     * @param array<string,mixed> $attrs
+     * @param array<string,mixed> $source
+     */
+    private static function keepBlockVisibility(array &$attrs, array $source): void
+    {
+        if (isset($source['metadata']['blockVisibility'])) $attrs['metadata']['blockVisibility'] = $source['metadata']['blockVisibility'];
     }
     private static function postDateMarkup(string $slice): string
     {
@@ -5883,6 +5895,7 @@ PHP;
         if (null !== $className) {
             $attrs['className'] = $className;
         }
+        self::keepBlockVisibility($attrs, $blockAttrs);
         $encoded = array() === $attrs ? '' : ' ' . BlockAttributes::encode($attrs);
         return '<!-- wp:post-date' . $encoded . ' /-->';
     }
@@ -6652,8 +6665,10 @@ PHP;
         $before = $after = $instances = array();
         $firstManaged = count($assets);
         foreach ($assets as $index => $asset) if (!empty($asset['stylesheet_instances'])) $firstManaged = min($firstManaged, $index);
+        $partTargets = array();
+        foreach ($assets as $asset) foreach ($asset['stylesheet_parts'] ?? array() as $path) $partTargets[$path] = true;
         foreach ($assets as $index => $asset) {
-            if ('css' !== ($asset['kind'] ?? null)) continue;
+            if ('css' !== ($asset['kind'] ?? null) || isset($partTargets[$asset['target_path']])) continue;
             $occurrences = $asset['stylesheet_instances'] ?? array();
             $parent = $asset['stylesheet_parent'] ?? null;
             if (array() === $occurrences && is_string($parent)) $occurrences = $assetsBySource[$parent]['stylesheet_instances'] ?? array();
@@ -6684,7 +6699,20 @@ PHP;
             usort($rows, static fn(array $left, array $right): int => $left['order'] <=> $right['order'] ?: $left['resource_order'] <=> $right['resource_order']);
             array_push($ordered, ...$rows);
         }
-        return array_merge($ordered, $after);
+        $expanded = array();
+        $byTarget = array_column($assets, null, 'target_path');
+        foreach (array_merge($ordered, $after) as $row) {
+            if (!isset($row['asset']['stylesheet_parts'])) { $expanded[] = $row; continue; }
+            foreach ($row['asset']['stylesheet_parts'] as $position => $path) {
+                $part = $row;
+                // Bytes are shared; delivery remains owned by this occurrence.
+                $part['asset'] = array_replace($row['asset'], array_intersect_key($byTarget[$path], array_flip(array('source_path', 'target_path', 'token', 'reconciliation_identity', 'content', 'content_hash', 'size_bytes'))));
+                unset($part['asset']['stylesheet_parts']);
+                $part['handle'] .= '-part-' . $position;
+                $expanded[] = $part;
+            }
+        }
+        return $expanded;
     }
 
     /**
@@ -7552,7 +7580,7 @@ PHP;
     private static function assertNoLocalBrowserReferences(string $content, string $sourcePath = '', string $context = 'markup', ?callable $report = null): void
     {
         $assertReference = static function (string $candidate, string $attribute, string $element = '', bool $documentLink = false) use ($sourcePath, $context, $report): void { $url = trim(preg_split('/\s+/', trim(html_entity_decode($candidate, ENT_QUOTES | ENT_HTML5, 'UTF-8')))[0] ?? ''); $route = str_starts_with($url, '/') && (str_starts_with($attribute, 'json:route_') || ('href' === $attribute && (in_array($element, array('a', 'area'), true) || $documentLink)) || ('action' === $attribute && 'form' === $element)); if ('' !== $url && !str_starts_with($url, self::TOKEN_PREFIX) && !$route && !preg_match('~^(?:[a-z][a-z0-9+.-]*:|//|#|\?)~i', $url)) { if (null !== $report) { $report($url, $attribute); return; } throw new ValidationException(sprintf('WordPress site plan contains unresolved local browser reference %s.', $url), array('source_path' => $sourcePath, 'document_kind' => $context, 'declaration_kind' => 'browser_reference', 'declaration_index' => 0, 'reason' => 'unresolved_local_browser_reference', 'fields' => array('context' => $context, 'attribute' => $attribute, 'value' => $url))); } };
-        $assertCss = static function (string $css, string $cssContext) use ($assertReference): void { \Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter::rewrite(html_entity_decode($css, ENT_QUOTES | ENT_HTML5, 'UTF-8'), static function (string $url) use ($assertReference, $cssContext): string { $assertReference($url, $cssContext . ':url'); return $url; }); if (preg_match_all('/@import\s+(?:url\(\s*)?(?:"([^"]*)"|\'([^\']*)\'|([^\s\)"\';]+))/i', html_entity_decode($css, ENT_QUOTES | ENT_HTML5, 'UTF-8'), $matches, PREG_SET_ORDER)) foreach ($matches as $match) $assertReference((string) (($match[1] ?? '') ?: ($match[2] ?? '') ?: ($match[3] ?? '')), $cssContext . ':@import'); };
+        $assertCss = static function (string $css, string $cssContext) use ($assertReference): void { \Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter::rewrite(html_entity_decode($css, ENT_QUOTES | ENT_HTML5, 'UTF-8'), static function (string $url) use ($assertReference, $cssContext): string { $assertReference($url, $cssContext . ':url'); return $url; }); if (preg_match_all('/@import\s+(?:url\(\s*)?(?:"([^"]*)"|\'([^\']*)\'|([^\s\)"\';]+))/i', \Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner::withoutComments(html_entity_decode($css, ENT_QUOTES | ENT_HTML5, 'UTF-8')), $matches, PREG_SET_ORDER)) foreach ($matches as $match) $assertReference((string) (($match[1] ?? '') ?: ($match[2] ?? '') ?: ($match[3] ?? '')), $cssContext . ':@import'); };
         $assertJsonAttributes = null;
         $assertJsonAttributes = static function (array $attributes, bool $route) use (&$assertJsonAttributes, $assertReference, $sourcePath, $context, $report): void {
             foreach ($attributes as $name => $value) {
@@ -7926,7 +7954,7 @@ PHP;
                 throw new InvalidArgumentException('WordPress site plan section must be an unparented category.');
             }
             $members = $entity['membership_source_paths'] ?? null;
-            if (!is_array($members) || !array_is_list($members) || array() === $members || count($members) > 10000) throw new InvalidArgumentException('WordPress site plan taxonomy membership list is structurally invalid.');
+            if (!is_array($members) || !array_is_list($members) || count($members) > 10000) throw new InvalidArgumentException('WordPress site plan taxonomy membership list is structurally invalid.');
             $memberSet = array();
             foreach ($members as $sourcePath) {
                 if (!is_string($sourcePath) || !isset($pagesBySource[$sourcePath]) || 'post' !== ($pagesBySource[$sourcePath]['post_type'] ?? null)) throw new InvalidArgumentException('WordPress site plan taxonomy membership does not name a canonical post.');

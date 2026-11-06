@@ -17,7 +17,7 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/image", "attrs": { "className": "h-10 w-auto max-w-[200px] object-contain is-resized", "url": "https://example.com/logo.png", "alt": "Logo", "height": "2.5rem" } },
-    { "path": "blocks.1", "name": "core/image", "attrs": { "className": "h-8 w-auto max-w-[160px] object-contain is-resized blocks-engine-inline-image-leaf", "url": "https://example.com/footer-logo.png", "alt": "Footer logo", "href": "/", "linkDestination": "custom", "height": "2rem" } }
+    { "path": "blocks.1", "name": "core/image", "attrs": { "className": "h-8 w-auto max-w-[160px] object-contain is-resized blocks-engine-inline-image-leaf blocks-engine-baseline-image-leaf blocks-engine-inline-image-link", "url": "https://example.com/footer-logo.png", "alt": "Footer logo", "href": "/", "linkDestination": "custom", "height": "2rem" } }
   ],
   "expected_fallbacks": [],
   "expect": [

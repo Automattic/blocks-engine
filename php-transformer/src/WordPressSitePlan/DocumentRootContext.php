@@ -24,6 +24,14 @@ final class DocumentRootContext
         return array('root_attributes' => $attributes['html'], 'body_attributes' => $attributes['body']);
     }
 
+    /** @param array<string,mixed> $document @return list<string> */
+    public static function bodyClasses(array $document): array
+    {
+        $class = $document['document_metadata']['body_attributes']['class'] ?? null;
+        if (!is_string($class)) $class = self::fromHtml((string) ($document['html'] ?? ''), 'body')['class'] ?? '';
+        return preg_split('/[\x20\t\r\n\f]+/', trim($class), -1, PREG_SPLIT_NO_EMPTY) ?: array();
+    }
+
     /** Stable per-document route class from the compile-time source identity, used by CSS and the root registry alike. */
     public static function routeClass(string $identity, int $length = 8): string
     {

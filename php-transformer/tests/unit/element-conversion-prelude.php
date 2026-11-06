@@ -44,7 +44,7 @@ $elementFrom = static function (string $html): DOMElement {
 };
 
 $runtime = new Runtime();
-$session = new HtmlTransformerSession($runtime, static fn (DOMElement $element): array => array());
+$session = new HtmlTransformerSession($runtime, new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()));
 $session->installGeneratedBlockRegistry(new GeneratedBlockRegistry('ssi-fixture'));
 $createBlock = new SourceBlockCreatorFixture(static fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => array(
     'blockName' => $name,

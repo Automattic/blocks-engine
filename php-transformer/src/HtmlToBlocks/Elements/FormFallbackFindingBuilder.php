@@ -78,7 +78,7 @@ final class FormFallbackFindingBuilder
             'form'             => $formMetadata,
             'form_intent'      => FormRuntimeRequirementAnalyzer::formIntent($element),
             'success_panel'    => $this->successPanelMetadataBuilder->build($element),
-            'context'          => $this->context->sourceContext($element),
+            'context'          => $this->context->sourceElementDescription->sourceContext($element),
             'classification'   => $this->session->fallbackEmitter()->classifyFallbackSubtree($element),
             'events'           => SourceDom::eventMetadata($element),
             // Top-level block annotations (never attrs): form_control_index

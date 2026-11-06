@@ -173,7 +173,7 @@ final class NavigationBlockNormalizer
      */
     private function normalizeRecursive(array $blocks, array &$seen, array $sourceProvenance, array $sourceBaseHiddenStates, bool $preserveDisclosureNavigation): array
     {
-        if (!$preserveDisclosureNavigation) $blocks = $this->preferVisibleSiblings($blocks, $sourceBaseHiddenStates);
+        if (!$preserveDisclosureNavigation) $blocks = $this->preferVisibleSiblings($this->mergeDeviceMenuPairs($blocks), $sourceBaseHiddenStates);
         $deduplicated = array();
         foreach ( $blocks as $block ) {
             if ( ! is_array($block) ) {
@@ -219,6 +219,39 @@ final class NavigationBlockNormalizer
         }
 
         return $deduplicated;
+    }
+
+    /**
+     * Sibling phone and non-phone copies of one menu are core's collapsing
+     * navigation. Keeping one menu keeps its links editable in one place. It
+     * stays hidden only where both copies were hidden.
+     *
+     * @param array<int, array<string, mixed>> $blocks
+     * @return array<int, array<string, mixed>>
+     */
+    private function mergeDeviceMenuPairs(array $blocks): array
+    {
+        $hiddenOn = static fn (array $block): array => array_keys(array_filter((array) ($block['attrs']['metadata']['blockVisibility']['viewport'] ?? array()), static fn (mixed $visible): bool => false === $visible));
+        $customProfile = '/(?:^|\s)(?:' . preg_quote(EngineMarker::DEVICE_ONLY_CLASS_PREFIX, '/') . '|' . preg_quote(EngineMarker::DEVICE_HIDE_CLASS_PREFIX, '/') . ')/';
+        $isNavigation = static fn (mixed $block): bool => is_array($block) && 'core/navigation' === ($block['blockName'] ?? '') && 1 !== preg_match($customProfile, (string) ($block['attrs']['className'] ?? ''));
+        $phoneCopies = array();
+        foreach ($blocks as $index => $block) {
+            if ($isNavigation($block) && array() !== $hiddenOn($block) && !in_array('mobile', $hiddenOn($block), true)) {
+                $phoneCopies[$this->signature($block)] ??= $index;
+            }
+        }
+        foreach ($blocks as $index => $block) {
+            if (!$isNavigation($block) || !in_array('mobile', $hiddenOn($block), true)) continue;
+            $signature = $this->signature($block);
+            if ('' === $signature || !isset($phoneCopies[$signature])) continue;
+            $hiddenOnBoth = array_intersect($hiddenOn($block), $hiddenOn($blocks[$phoneCopies[$signature]]));
+            unset($blocks[$phoneCopies[$signature]], $phoneCopies[$signature]);
+            unset($blocks[$index]['attrs']['metadata']['blockVisibility']);
+            if (array() !== $hiddenOnBoth) $blocks[$index]['attrs']['metadata']['blockVisibility']['viewport'] = array_fill_keys(array_values($hiddenOnBoth), false);
+            if (array() === ($blocks[$index]['attrs']['metadata'] ?? array())) unset($blocks[$index]['attrs']['metadata']);
+            $blocks[$index]['attrs']['overlayMenu'] = 'mobile';
+        }
+        return array_values($blocks);
     }
 
     /** Native disclosures own their panels regardless of capture provenance. */
