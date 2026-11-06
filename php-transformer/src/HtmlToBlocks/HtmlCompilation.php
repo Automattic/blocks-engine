@@ -1779,7 +1779,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
         $deadProjectedSelectorEvaluation = $this->deadProjectedSelectorReporter->evaluate(
             $this->projectedSelectorBindings,
-            array($this->currentSourcePath => $deadProjectedSelectorHaystack)
+            array($this->currentSourcePath => $deadProjectedSelectorHaystack),
+            array($this->currentSourcePath => $html)
         );
         $deadProjectedSelectorsReport = $deadProjectedSelectorEvaluation->report();
         $timer->start('transform.diagnostics');
