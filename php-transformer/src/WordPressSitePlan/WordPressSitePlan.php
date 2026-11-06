@@ -805,7 +805,9 @@ PHP;
      */
     public static function withContentConservation(array $plan, array $documents): array
     {
-        $text = static fn(string $markup): string => preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags(preg_replace('/<!--(.*?)-->/s', ' $1 ', $markup) ?? ''), ENT_QUOTES | ENT_HTML5)) ?? '';
+        // Ordinary comments contribute no text or spacing, just as on the
+        // source side. Keep block delimiters searchable for attribute text.
+        $text = static fn(string $markup): string => preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags(preg_replace_callback('/<!--(.*?)-->/s', static fn(array $match): string => preg_match('/^\s*\/?wp:[a-z0-9-]+(?:\/[a-z0-9-]+)?(?:\s|$)/', $match[1]) ? ' ' . $match[1] . ' ' : '', $markup) ?? ''), ENT_QUOTES | ENT_HTML5)) ?? '';
         $leaves = static function (mixed $value) use (&$leaves): string {
             if (is_string($value)) return $value;
             return is_array($value) ? implode("\n", array_map($leaves, $value)) : '';
