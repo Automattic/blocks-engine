@@ -102,6 +102,7 @@
       "php tests/unit/custom-property-asset-url.php",
       "php tests/contract/form-readable-shapes.php",
       "php tests/contract/navigation-aria-menu-pattern.php",
+      "php tests/contract/navigation-image-only-brand.php",
       "php tests/contract/custom-element-navigation.php",
       "php tests/contract/hidden-unproven-custom-element.php",
       "php tests/contract/navigation-current-item-shared-menu.php",
