@@ -14,3 +14,4 @@ fixtures/candidates/
 # in a user-level ~/.npmrc makes every npm invocation write its cache into the
 # current repo, so this appears without anyone asking for it.
 vendor/
+/PR_BODY.md
