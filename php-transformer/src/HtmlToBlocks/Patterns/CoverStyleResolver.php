@@ -129,7 +129,7 @@ final class CoverStyleResolver
                 continue;
             }
 
-            $dimRatio = ( (int) round($first['alpha'] * 10) ) * 10;
+            $dimRatio = (int) round($first['alpha'] * 100);
             if ( 0 === $dimRatio || 100 === $dimRatio ) {
                 return $default;
             }

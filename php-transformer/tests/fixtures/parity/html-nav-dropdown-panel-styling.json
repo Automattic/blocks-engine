@@ -16,7 +16,7 @@
     "content": "<nav class=\"primary-nav\"><ul><li class=\"menu-item has-dropdown\"><a href=\"/services\">Services</a><ul class=\"dropdown-panel shadow-lg surface\" style=\"background:#fff;box-shadow:0 16px 40px rgba(0,0,0,.18);border-radius:18px\"><li><a href=\"/services/design\">Design</a></li><li><a href=\"/services/build\">Build</a></li></ul></li></ul></nav>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/navigation", "attrs": { "className": "primary-nav blocks-engine-list-navigation blocks-engine-navigation-instance-820965a08b35-0" } },
+    { "path": "blocks.0", "name": "core/navigation", "attrs": { "className": "primary-nav blocks-engine-list-navigation blocks-engine-navigation-instance-8f750d97f149-0" } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/navigation-submenu", "attrs": { "label": "Services", "url": "/services", "kind": "custom" } }
   ],
   "expected_fallbacks": [],

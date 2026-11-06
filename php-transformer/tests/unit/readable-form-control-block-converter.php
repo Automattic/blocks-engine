@@ -12,7 +12,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredInput
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 
-$session = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession(new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime(), static fn (DOMElement $element): array => array());
+$session = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession(new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()));
 $session->installGeneratedBlockRegistry(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry('ssi-fixture'));
 
 $assertions = 0;
@@ -49,7 +49,7 @@ $runtimeRecorder = new FormRuntimeIslandRecorder(
         $recorded[] = compact('kind', 'reason', 'capability', 'metadata');
     },
     static fn (DOMElement $element): array => array(),
-    static fn (DOMElement $element): array => array()
+    $session
 );
 $authoredRegistry = $session->requireGeneratedBlockRegistry();
 $authoredConverter = new AuthoredFormControlBlockConverter(
@@ -69,7 +69,6 @@ $converter = new ReadableFormControlBlockConverter(
     new Runtime(),
     static fn (DOMElement $element): array => $element->hasAttribute('data-event') ? array( 'change' => true ) : array(),
     static fn (DOMElement $element): bool => $element->hasAttribute('data-runtime'),
-    static fn (DOMElement $element): array => array( 'blockName' => 'core/html', 'attrs' => array( 'content' => 'preserved-' . strtolower($element->tagName) ) ),
     $presentationAttributes,
     $createBlock,
     $session

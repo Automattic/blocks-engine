@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonStyleResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use DOMElement;
@@ -15,7 +16,8 @@ final class GeneratedBlockStyleProjector
 {
     public function __construct(
         private readonly Runtime $runtime,
-        private readonly StyleResolver $styleResolver
+        private readonly StyleResolver $styleResolver,
+        private readonly HtmlTransformerSession $session
     ) {}
 
     /**
@@ -72,11 +74,24 @@ final class GeneratedBlockStyleProjector
             && ! in_array('blocks-engine-list-navigation', $classes, true)
             && is_array($fallback['spacing'] ?? null) ) {
             $declarations = $this->styleResolver->styleAttributeMapper()->serialize(array( 'spacing' => $fallback['spacing'] ))['style'];
-            foreach ( $classes as $class ) {
-                if ( '' !== $declarations && 'blocks-engine-list-navigation' !== $class && ! str_starts_with($class, 'blocks-engine-') ) {
-                    $generatedStyles->registerNavigationSpacing($class, $declarations);
-                    break;
+            if ( '' !== $declarations ) {
+                // A utility such as flex may also belong to a different menu.
+                // Keep this source box on an instance, never on an author class.
+                $scope = '';
+                foreach ( $classes as $class ) {
+                    if ( str_starts_with($class, 'blocks-engine-navigation-instance-') ) {
+                        $scope = $class;
+                        break;
+                    }
                 }
+                if ( '' === $scope ) {
+                    $scope = $this->session->authorStyleAnalysis()->allocateStableMarker(
+                        'navigation-instance',
+                        ($sourceElement->getNodePath() ?? '') . $sourceElement->ownerDocument->saveHTML($sourceElement) . $declarations
+                    );
+                    $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $scope);
+                }
+                $generatedStyles->registerNavigationSpacing($scope, $declarations);
             }
         }
         if ( 'core/buttons' === $name && is_array($fallback['spacing'] ?? null) ) {
@@ -277,6 +292,12 @@ final class GeneratedBlockStyleProjector
             // justification — which needs a wrapper that fills its parent to
             // have room to act, mirroring the full-width block the source
             // centered the control inside of.
+            } elseif ( ! $hasAuthoredWidth && ! in_array(CssValueInspector::comparable((string) ($sourceDeclarations['float'] ?? '')), array( '', 'none' ), true) ) {
+                // The outer carrier participates in the source float context.
+                // Size that float to the decorated link rather than the space
+                // left alongside earlier floats (possibly a zero-width slot).
+                $outerWrapperDeclarations[] = 'width:max-content';
+                $outerWrapperDeclarations[] = 'max-width:100%';
             } elseif ( ! $hasAuthoredWidth && $this->sourceControlFillsFlowLine($sourceControl, $sourceDeclarations) ) {
                 // A block-level control in normal flow spans its container's
                 // line. core/buttons is a flex row, which would shrink it to its

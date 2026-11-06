@@ -82,7 +82,9 @@ $assert(
 );
 
 $stackedFlexItem = $transform('<div style="display:flex"><div><p>A</p><p>B</p></div></div>');
-$assert(2 === substr_count((string) ($stackedFlexItem['serialized_blocks'] ?? ''), '<!-- wp:group'), 'A flex item wrapper around stacked content remains a direct child.');
+$stackedRoot = $stackedFlexItem['blocks'][0] ?? array();
+// Both wrappers survive, either as nested groups or as one shell that saves the chain.
+$assert(2 === substr_count((string) ($stackedFlexItem['serialized_blocks'] ?? ''), '<!-- wp:group') || ('custom/layout-shell' === ($stackedRoot['blockName'] ?? null) && 2 === count($stackedRoot['attrs']['wrappers'] ?? array())), 'A flex item wrapper around stacked content remains a direct child.');
 
 if ( 0 < $failures ) {
     fwrite(STDERR, sprintf('wrapper presentation promotion: %d passed, %d failed%s', $passes, $failures, PHP_EOL));

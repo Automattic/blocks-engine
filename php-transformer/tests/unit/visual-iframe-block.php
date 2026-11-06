@@ -71,10 +71,11 @@ $assert(1 === count($customIslands) && 'typed_visual_iframe_companion' === ($cus
 $assert(array() === ($custom['fallbacks'] ?? array()) && 'pass' === ($custom['source_reports']['wp_block_validity']['status'] ?? null), 'custom iframe output is fallback-free and Gutenberg-valid');
 
 $descendant = (new HtmlTransformer())->transform('<main><vendor-iframe><div class="map-frame" style="width:720px;height:405px"><iframe title="Map" src="https://example.test/map" width="100%" height="100%"></iframe></div></vendor-iframe></main>')->toArray();
-$descendantFrame = $descendant['blocks'][0]['innerBlocks'][0] ?? array();
+// The host and its geometry frame may fold into one layout shell that saves both wrappers.
+$descendantFrame = 'custom/layout-shell' === ($descendant['blocks'][0]['blockName'] ?? null) ? $descendant['blocks'][0] : ($descendant['blocks'][0]['innerBlocks'][0] ?? array());
 $descendantMedia = $descendantFrame['innerBlocks'][0] ?? array();
 $descendantCss = implode("\n", array_column($descendant['assets'] ?? array(), 'content'));
-$assert('core/group' === ($descendantFrame['blockName'] ?? null) && 'custom/visual-iframe' === ($descendantMedia['blockName'] ?? null), 'custom iframe descendant wrappers retain their editable DOM geometry carrier');
+$assert(in_array($descendantFrame['blockName'] ?? null, array('core/group', 'custom/layout-shell'), true) && 'custom/visual-iframe' === ($descendantMedia['blockName'] ?? null), 'custom iframe descendant wrappers retain their DOM geometry carrier');
 $assert('100%' === ($descendantMedia['attrs']['width'] ?? null) && '100%' === ($descendantMedia['attrs']['height'] ?? null) && str_contains($descendantCss, 'width:720px') && str_contains($descendantCss, 'height:405px'), 'relative iframe geometry remains bounded by its materialized wrapper');
 
 $portableProvider = (new HtmlTransformer())->transform('<main><media-iframe data-url="https://www.youtube.com/embed/dQw4w9WgXcQ" width="560" height="315"></media-iframe></main>')->toArray();

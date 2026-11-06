@@ -51,6 +51,7 @@
     { "path": "assets.1.content", "assert": "contains", "value": ".x > strong::before{content:" },
     { "path": "assets.1.content", "assert": "contains", "value": "backdrop-filter:blur(1px)" },
     { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
-    { "path": "fallbacks", "assert": "count", "count": 1 }
+    { "path": "fallbacks", "assert": "count", "count": 2 },
+    { "path": "fallbacks.0.reason", "assert": "equals", "value": "script_requires_runtime" }
   ]
 }

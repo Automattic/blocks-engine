@@ -35,12 +35,19 @@ foreach (require dirname(__DIR__) . '/fixtures/navigation-list-box-properties.ph
             // Only facts that actually select the rendering box count, not
             // declarations stranded on Core's display:contents container.
             if (!(CssSelectorMatcher::matches($nav, CssSelectorMatcher::parse($selectors))['matches'] ?? false)) return;
-            foreach (array('display', 'overflow-x', 'column-count') as $property) {
+            foreach (array('display', 'overflow-x', 'column-count', 'margin', 'margin-top', 'margin-bottom', 'padding') as $property) {
                 if (preg_match('/(?:^|;)\s*' . $property . '\s*:\s*([^;!}]+)/', $body, $m)) $facts[] = array($property, trim($m[1]), $conditions);
             }
         });
     }
-    if ('hidden' === $name) {
+    if ('category-separators' === $name) {
+        $assert((bool) array_filter($facts, static fn(array $f): bool => 'margin' === $f[0] && '10px 0' === $f[1]), 'source 10px vertical margins reach the rendered nav wrapper (44px rather than 24px)');
+        $assert((bool) array_filter($facts, static fn(array $f): bool => 'padding' === $f[0] && '0' === $f[1]), 'source list padding reaches the rendered nav wrapper too');
+        $css = implode("\n", array_column($result['assets'], 'content'));
+        $assert(1 === preg_match('/nav\\.wp-block-navigation\\.blocks-engine-navigation-list-box-[^{}]+:not\\(:last-child\\)::after\\{[^}]*content:"\\|"/', $css), 'instance-scoped native items retain the separator, except the last');
+        $assert(str_contains($css, 'margin:0 10px') && str_contains($css, 'color:#888'), 'separator spacing and colour survive');
+        $assert(array('Dad Hat', 'Stickers') === array_column(array_column($navs[0]['innerBlocks'], 'attrs'), 'label'), 'navigation labels remain editable without decorative markup');
+    } elseif ('hidden' === $name) {
         $none = array_keys(array_filter($facts, static fn(array $f): bool => 'display' === $f[0] && 'none' === $f[1] && array() === $f[2]));
         $flex = array_keys(array_filter($facts, static fn(array $f): bool => 'display' === $f[0] && 'flex' === $f[1] && str_contains(implode(' ', $f[2]), '1279px')));
         $assert(array() !== $none, 'narrow rendering box receives display:none outside media');

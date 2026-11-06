@@ -15,6 +15,20 @@ $assert = static function (bool $condition, string $label) use (&$assertions): v
 
 $transform = static fn (string $html): array => ( new HtmlTransformer() )->transform($html)->toArray();
 
+$measurementCopy = $transform('<style>.hidden{display:none}</style><section><div><h1>Strategy and Communication</h1><span aria-hidden="true" style="display:none">Strategy and Communication</span><span aria-hidden="true" class="hidden">Strategy and Communication</span></div><p>Follow us for news.</p></section>');
+$measurementMarkup = (string) ($measurementCopy['serialized_blocks'] ?? '');
+$assert(! str_contains($measurementMarkup, 'blocks-engine-hidden-richtext-marker') && str_contains($measurementMarkup, 'Strategy and Communication') && str_contains($measurementMarkup, 'Follow us for news.'), 'inline-hidden aria-hidden measurement copies are removed while visible siblings remain');
+
+$classMeasurementCopy = $transform('<style>.hidden{display:none}</style><main><h1>Studio Name</h1><span aria-hidden="true" class="hidden">Studio Name</span></main>');
+$classMeasurementMarkup = (string) ($classMeasurementCopy['serialized_blocks'] ?? '');
+$assert(1 === substr_count($classMeasurementMarkup, 'Studio Name') && ! str_contains($classMeasurementMarkup, 'blocks-engine-hidden-richtext-marker'), 'class-hidden measurement copies beside headings emit no phantom paragraphs');
+
+$scriptedPanel = $transform('<style>#terminal{display:none}#terminal.open{display:flex}</style><main><h1>Studio Name</h1><div id="terminal" aria-hidden="true"><p>Signal received</p></div></main>');
+$assert(str_contains((string) ($scriptedPanel['serialized_blocks'] ?? ''), 'Signal received'), 'hidden panels with their own content are not measurement copies');
+
+$responsiveCopy = $transform('<style>@media (max-width:600px){.hidden{display:none}}</style><main><h1>Studio Name</h1><span aria-hidden="true" class="hidden">Studio Name</span></main>');
+$assert(2 === substr_count((string) ($responsiveCopy['serialized_blocks'] ?? ''), 'Studio Name'), 'copies hidden only below a breakpoint remain in flow content');
+
 $inertIframe = $transform('<main><iframe title="archetype" style="display:none;visibility:hidden"></iframe><p>Visible copy</p></main>');
 $assert(array() === ($inertIframe['fallbacks'] ?? array()), 'hidden sourceless iframe emits no fallback');
 $assert(array() === ($inertIframe['source_reports']['runtime_islands'] ?? array()), 'hidden sourceless iframe emits no runtime island');
@@ -96,6 +110,9 @@ $capturedCollection = $transform('<main><fluid-columns-repeater><div><svg viewBo
 $generatedRender = implode("\n", array_map(static fn (array $block): string => (string) ($block['render'] ?? ''), $capturedCollection['source_reports']['generated_blocks'] ?? array()));
 $assert('' !== $generatedRender && ! str_contains($generatedRender, '<link'), 'generated custom blocks strip captured stylesheet links from nested SVG markup');
 
+$hiddenLinkText = $transform('<nav><a href="/">Brand<span aria-hidden="true" style="display:none"><span>Br</span>and</span></a></nav>');
+$assert(str_contains((string) ($hiddenLinkText['serialized_blocks'] ?? ''), 'Brand') && ! str_contains((string) ($hiddenLinkText['serialized_blocks'] ?? ''), 'Br</span>and'), 'hidden nested link-label copies do not duplicate the visible accessible label');
+
 $visibleIframe = $transform('<main><iframe title="HubSpot form" src="https://forms.hsforms.com/widget" width="600" height="400"></iframe></main>');
 $visibleIframeBlock = $visibleIframe['blocks'][0] ?? array();
 $assert('custom/visual-iframe' === ($visibleIframeBlock['blockName'] ?? ''), 'visible HubSpot iframe becomes a bounded companion embed');
@@ -163,5 +180,37 @@ $assert(str_contains((string) ($distributedItem['serialized_blocks'] ?? ''), 'ce
 
 $labelled = $emptyContainer('', '<div class="status-slot" aria-label="Upload progress"></div>');
 $assert(str_contains((string) ($labelled['serialized_blocks'] ?? ''), 'status-slot'), 'an empty container with an accessible name still emits a block');
+
+$firstNavigationLabel = static function (string $html) use ($transform): string {
+    $result = $transform($html);
+    $findLabel = static function (array $blocks) use (&$findLabel): ?string {
+        foreach ( $blocks as $block ) {
+            if ( 'core/navigation-link' === ($block['blockName'] ?? '') ) {
+                return $block['attrs']['label'] ?? '';
+            }
+            $label = $findLabel($block['innerBlocks'] ?? array());
+            if ( null !== $label ) {
+                return $label;
+            }
+        }
+        return null;
+    };
+    return $findLabel($result['blocks'] ?? array()) ?? '';
+};
+
+$assert('Studio Name' === $firstNavigationLabel('<nav><a href="/">Studio Name<span aria-hidden="true" style="display:none">Studio Name</span></a><a href="/x">X</a></nav>'), 'navigation labels omit inline-hidden measurement copies');
+$assert('Brand' === $firstNavigationLabel('<nav><a href="/">Brand<span aria-hidden="true" style="display:none"><span>Br</span>and</span></a><a href="/x">X</a></nav>'), 'navigation labels omit entire nested measurement subtrees');
+$visibleIconLabel = $firstNavigationLabel('<nav><a href="/">Brand<span aria-hidden="true">→</span></a><a href="/x">X</a></nav>');
+$assert(str_contains($visibleIconLabel, '<span aria-hidden="true">→</span>'), 'navigation labels retain visible aria-hidden decoration');
+
+$classHiddenLabel = $firstNavigationLabel('<style>.hidden{display:none}</style><nav><a href="/"><div><h3>Studio Name</h3><span aria-hidden="true" class="hidden">Studio Name</span><span aria-hidden="true" style="display:none">Studio Name</span></div></a><a href="/x">X</a></nav>');
+$assert('Studio Name' === trim(strip_tags($classHiddenLabel)) && ! str_contains($classHiddenLabel, 'aria-hidden'), 'navigation labels omit both class-hidden and inline-hidden copies beside a heading');
+// Rules reaching the label through the anchor's ancestors (`nav a h3`) only match live nodes.
+$styledLabel = $firstNavigationLabel('<style>.hidden{display:none}nav a h3{font-family:Montserrat,sans-serif}</style><nav><a href="/"><div><h3 class="logo">Studio Name</h3><span aria-hidden="true" class="hidden">Studio Name</span></div></a><a href="/x">X</a></nav>');
+$assert(str_contains($styledLabel, 'blocks-engine-label-typography') && ! str_contains($styledLabel, 'aria-hidden'), 'stripping copies keeps typography from ancestor-scoped rules');
+$responsiveLabel = $firstNavigationLabel('<style>@media (max-width:600px){.hidden{display:none}}</style><nav><a href="/">Brand<span aria-hidden="true" class="hidden">Brand</span></a><a href="/x">X</a></nav>');
+$assert(str_contains($responsiveLabel, 'aria-hidden'), 'navigation labels retain copies visible above a breakpoint');
+$revealedLabel = $firstNavigationLabel('<style>@media (min-width:600px){.hidden{display:inline !important}}</style><nav><a href="/">Brand<span aria-hidden="true" class="hidden" style="display:none">Brand</span></a><a href="/x">X</a></nav>');
+$assert(str_contains($revealedLabel, 'aria-hidden'), 'cascade visibility overrides inline hiding in navigation labels');
 
 echo "OK: inert capture scaffolding passed ({$assertions} assertions)\n";

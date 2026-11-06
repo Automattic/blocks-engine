@@ -36,6 +36,9 @@ final class SourceClassIdentity
     /** Classes a site builder adds to disclose an item, such as the served one. */
     public const DISCLOSURE_CLASSES = array('open', 'is-open', 'expanded', 'is-expanded');
 
+    /** Class tokens (a regex fragment) a script sets to reveal a menu list or panel. */
+    public const REVEAL_STATE = '(?:is-)?(?:visible|shown|open|opened|active|ready|loaded|expanded)';
+
     /**
      * The classes of a source element that mark the route being served. An
      * element marked current (`selected current-item`), or a list item

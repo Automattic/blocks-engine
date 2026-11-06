@@ -39,7 +39,7 @@
         "12-portfolio": {
             "added figure [blocks-engine-synthetic-image-figure]": 7,
             "added img": 8,
-            "added mark": 12,
+            "added mark": 11,
             "added p [blocks-engine-inline-layout-carrier]": 30,
             "added p [blocks-engine-synthetic-paragraph]": 4,
             "added p [blocks-engine-synthetic-svg-paragraph]": 1,
@@ -115,7 +115,7 @@
             "added a": 33,
             "added figure [blocks-engine-synthetic-image-figure]": 13,
             "added img": 14,
-            "added mark": 2,
+            "added mark": 1,
             "added p [blocks-engine-inline-layout-carrier]": 2,
             "added p [blocks-engine-synthetic-paragraph]": 13,
             "added p [blocks-engine-synthetic-svg-paragraph]": 1,
@@ -933,7 +933,7 @@
         },
         "69-markdown-editor": {
             "added p [blocks-engine-inline-layout-carrier]": 3,
-            "removed button": 2,
+            "removed button": 1,
             "retagged span>div [blocks-engine-empty-visual-group]": 1,
             "retagged span>p [blocks-engine-synthetic-paragraph]": 1,
             "retagged svg>img": 1
@@ -1212,11 +1212,13 @@
         },
         "86-fitness-studio": {
             "added div [blocks-engine-control]": 6,
+            "added div [wp-block-group]": 2,
             "added figure [blocks-engine-synthetic-image-figure]": 4,
             "added figure [blocks-engine-table]": 1,
-            "added img": 4,
+            "added img": 5,
             "added p [blocks-engine-inline-layout-carrier]": 3,
             "added p [blocks-engine-synthetic-paragraph]": 7,
+            "added span": 1,
             "removed span": 1,
             "removed svg": 4,
             "removed ul": 1,

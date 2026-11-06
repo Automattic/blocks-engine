@@ -29,7 +29,7 @@ libxml_use_internal_errors(true);
 $dom->loadHTML('<?xml encoding="utf-8" ?><html><body><nav class="menu"><a id="link" class="item" href="#">Link</a><button id="cta" class="btn">Go</button><span id="plain">x</span></nav></body></html>');
 libxml_clear_errors();
 
-$session = new HtmlTransformerSession(new Runtime(), static fn (DOMElement $node): array => array());
+$session = new HtmlTransformerSession(new Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()));
 $context = new StyleResolutionContext(
     static fn (string $value): string => $value,
     static function (string $selector) use ($session): array {

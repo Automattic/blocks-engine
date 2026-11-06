@@ -61,7 +61,7 @@ final class ShellExtraction
                 $opening = substr($markup, $wrapper['offset'], $nodes[$children[0]]['offset'] - $wrapper['offset']);
                 if (!preg_match('/\bclass="([^"]*)"/', $opening, $match)) continue;
                 $classes = preg_split('/\s+/', $match[1]) ?: array();
-                if (array() === array_intersect($classes, array(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, CaptureEvidence::MOBILE_DOCUMENT_CLASS))) continue;
+                if (array() === array_filter($classes, CaptureEvidence::isDeviceDocumentClass(...))) continue;
                 $roots = array();
                 foreach ($children as $position => $child) {
                     if (self::nodesHoldMain($markup, $nodes, array($child))) $roots[] = $position;
@@ -75,7 +75,7 @@ final class ShellExtraction
                 $trailing = array_slice($children, $roots[0] + 1);
                 if (array() === $trailing) continue;
                 $closing = substr($markup, $nodes[$children[count($children) - 1]]['end'], $wrapper['end'] - $nodes[$children[count($children) - 1]]['end']);
-                $device = in_array(CaptureEvidence::MOBILE_DOCUMENT_CLASS, $classes, true) ? 'mobile' : 'desktop';
+                $device = CaptureEvidence::deviceDocumentProfile((string) current(array_filter($classes, CaptureEvidence::isDeviceDocumentClass(...)))) ?? 'desktop';
                 foreach ($trailing as $child) {
                     $range = array('offset' => $nodes[$child]['offset'], 'length' => $nodes[$child]['end'] - $nodes[$child]['offset']);
                     $bindings = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, array($range));
@@ -1187,8 +1187,18 @@ final class ShellExtraction
             $anchor = is_array($attrs) && is_string($attrs['anchor'] ?? null) ? $attrs['anchor'] : '';
             $variantScopeClasses = array();
             $scopeClassNames = array($className);
+            $variantScopeShells = array();
             foreach ((array) ($attrs['wrappers'] ?? array()) as $wrapper) {
-                if (is_array($wrapper)) $scopeClassNames[] = (string) ($wrapper['attributes']['class'] ?? '');
+                if (!is_array($wrapper)) continue;
+                $wa = is_array($wrapper['attributes'] ?? null) ? $wrapper['attributes'] : array();
+                $scopeClassNames[] = (string) ($wa['class'] ?? '');
+                // A nested device-only subtree and its device-hidden sibling are
+                // the two device variants of one landmark. Their wrapper is the
+                // gate the capture's visibility CSS selects, so it is the shell.
+                $scope = isset($wa[CaptureEvidence::DEVICE_ONLY]) ? 'site-document-variant-' . $wa[CaptureEvidence::DEVICE_ONLY] : (isset($wa[CaptureEvidence::DEVICE_HIDE]) ? CaptureEvidence::DESKTOP_DOCUMENT_CLASS : null);
+                if (null === $scope) continue;
+                $scopeClassNames[] = $scope;
+                if (str_ends_with($name, '/layout-shell')) $variantScopeShells[$scope] = array('gate' => true, 'block' => $name, 'wrapper' => array('tagName' => is_string($wrapper['tagName'] ?? null) ? $wrapper['tagName'] : 'div', 'attributes' => array_intersect_key($wa, array_flip(array('class', CaptureEvidence::DEVICE_ONLY, CaptureEvidence::DEVICE_HIDE)))));
             }
             foreach ($scopeClassNames as $scopeClassName) {
                 $scopeClasses = array_values(array_filter(preg_split('/\s+/', trim($scopeClassName)) ?: array()));
@@ -1196,8 +1206,8 @@ final class ShellExtraction
                     if (self::isResponsiveVariantClass($scopeClass)) $variantScopeClasses[$scopeClass] = $scopeClasses;
                 }
             }
-            $variantScopeShells = array();
             foreach (array_keys($variantScopeClasses) as $scopeClass) {
+                if (isset($variantScopeShells[$scopeClass])) continue;
                 $shell = self::deviceDocumentShell($name, is_array($attrs) ? $attrs : array(), $scopeClass);
                 if (null !== $shell) $variantScopeShells[$scopeClass] = $shell;
             }
@@ -1333,7 +1343,7 @@ final class ShellExtraction
      */
     private static function ancestorContext(array $stack): array
     {
-        $ids = array(); $classes = array(); $variantClasses = array(); $variantShells = array();
+        $ids = array(); $classes = array(); $variantClasses = array(); $variantShells = array(); $documentShells = array();
         foreach ($stack as $ancestor) {
             if (empty($ancestor['candidate']) && '' !== ($ancestor['anchor'] ?? '')) $ids[] = (string) $ancestor['anchor'];
             if (!empty($ancestor['candidate'])) continue;
@@ -1347,6 +1357,10 @@ final class ShellExtraction
                 $variantClasses[$scope] = $scopeClasses;
             }
             foreach ($ancestor['variant_scope_shells'] ?? array() as $scope => $shell) {
+                // A device gate nested in a device document keeps that document
+                // around it: the document's rules select through its marker.
+                if (!empty($shell['gate'])) $shell['outer'] = array_values($documentShells);
+                else $documentShells[$scope] = $shell;
                 $variantShells[$scope] = $shell;
             }
         }
@@ -2817,7 +2831,7 @@ final class ShellExtraction
 
     private function retainsResponsiveVariantLandmark(string $markup, string $area): bool
     {
-        if (1 !== preg_match('/(?:' . preg_quote(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, '/') . '|' . preg_quote(CaptureEvidence::MOBILE_DOCUMENT_CLASS, '/') . '|site-document-variant-[a-z][a-z0-9_-]{0,31})/', $markup)) {
+        if (1 !== preg_match('/(?:' . preg_quote(CaptureEvidence::ATTRIBUTE_PREFIX, '/') . '[a-z][a-z0-9_-]{0,63}-document|site-document-variant-[a-z][a-z0-9_-]{0,31})/', $markup)) {
             return false;
         }
         return array() !== $this->nestedLandmarkCandidates(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup), '', $area);
@@ -3040,20 +3054,22 @@ final class ShellExtraction
             $attrs = json_decode($match[1], true);
             if (is_array($attrs) && is_string($attrs['className'] ?? null)) $classes = array_merge($classes, preg_split('/\s+/', $attrs['className']) ?: array());
         }
+        $variantScopes = $row['ancestor_context']['variant_classes'] ?? array();
+        if (is_array($variantScopes) && array() !== $variantScopes) return (string) array_key_last($variantScopes);
         foreach ($classes as $class) if (self::isResponsiveVariantClass((string) $class)) return (string) $class;
         return null;
     }
 
     public static function isResponsiveVariantClass(string $class): bool
     {
-        return in_array($class, array(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, CaptureEvidence::MOBILE_DOCUMENT_CLASS), true)
+        return CaptureEvidence::isDeviceDocumentClass($class)
             || 1 === preg_match('/^site-document-variant-[a-z][a-z0-9_-]{0,31}$/', $class);
     }
 
     private static function responsiveVariantRank(string $class): int
     {
         if (in_array($class, array(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, 'site-document-variant-default'), true)) return 0;
-        if (str_contains($class, 'mobile')) return 1;
+        if (CaptureEvidence::MOBILE_DOCUMENT_CLASS === $class) return 1;
         return 2;
     }
 
@@ -3067,12 +3083,15 @@ final class ShellExtraction
     private static function variantVisibilityGroup(string $variantClass, string $innerMarkup, ?array $shell = null): string
     {
         if (null !== $shell) {
-            $tag = $shell['wrapper']['tagName'];
-            $opening = '<' . $tag;
-            foreach ($shell['wrapper']['attributes'] as $name => $value) {
-                $opening .= true === $value ? ' ' . $name . '=""' : ' ' . $name . '="' . htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+            foreach (array_merge(array($shell), array_reverse($shell['outer'] ?? array())) as $wrap) {
+                $tag = $wrap['wrapper']['tagName'];
+                $opening = '<' . $tag;
+                foreach ($wrap['wrapper']['attributes'] as $name => $value) {
+                    $opening .= true === $value ? ' ' . $name . '=""' : ' ' . $name . '="' . htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+                }
+                $innerMarkup = '<!-- wp:' . $wrap['block'] . ' ' . BlockAttributes::encode(array('wrappers' => array($wrap['wrapper']))) . ' -->' . $opening . '>' . $innerMarkup . '</' . $tag . '><!-- /wp:' . $wrap['block'] . ' -->';
             }
-            return '<!-- wp:' . $shell['block'] . ' ' . BlockAttributes::encode(array('wrappers' => array($shell['wrapper']))) . ' -->' . $opening . '>' . $innerMarkup . '</' . $tag . '><!-- /wp:' . $shell['block'] . ' -->';
+            return $innerMarkup;
         }
         $class = htmlspecialchars($variantClass, ENT_QUOTES | ENT_HTML5, 'UTF-8');
         $attrs = json_encode(array('className' => $variantClass), JSON_UNESCAPED_SLASHES);
@@ -3389,9 +3408,12 @@ final class ShellExtraction
         };
         $names = static fn (array $attrs, string $route): bool => is_string($attrs['url'] ?? null) && !str_contains($attrs['url'], '#')
             && ('' === ($path = rtrim(explode('?', $attrs['url'])[0], '/')) ? '/' : $path) === $route;
+        // An item's attributes as the shell identity sees them, without
+        // generated markers (a label's per-document semantic class).
+        $asIdentity = static fn (array $attrs): array => json_decode(preg_replace('/^<!-- wp:navigation-submenu (.*) -->$/s', '$1', self::normalizeNestedChromeMarkup('<!-- wp:navigation-submenu ' . BlockAttributes::encode($attrs) . ' -->')) ?? '', true) ?: array();
         // Each menu item of a candidate, in order: its key, attributes, comment
         // range, and whether it names the route or (a submenu) holds one that does.
-        $items = static function (string $markup, string $area, string $route) use ($item, $names): array {
+        $items = static function (string $markup, string $area, string $route) use ($item, $names, $asIdentity): array {
             preg_match_all($item, $markup, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
             $rows = array(); $open = array(); $seen = array();
             foreach ($matches as $match) {
@@ -3401,7 +3423,7 @@ final class ShellExtraction
                 }
                 $attrs = json_decode($match[3][0] ?? '', true);
                 if (!is_array($attrs)) $attrs = array();
-                $identity = json_encode(array($match[2][0], $attrs['label'] ?? null, rtrim((string) ($attrs['url'] ?? ''), '/')));
+                $identity = json_encode(array($match[2][0], isset($attrs['label']) ? ($asIdentity(array('label' => $attrs['label']))['label'] ?? null) : null, rtrim((string) ($attrs['url'] ?? ''), '/')));
                 $seen[$identity] = ($seen[$identity] ?? 0) + 1;
                 $current = $names($attrs, $route);
                 $rows[] = array('kind' => $match[2][0], 'key' => $area . "\0" . $identity . "\0" . $seen[$identity], 'attrs' => $attrs, 'offset' => $match[0][1], 'length' => strlen($match[0][0]), 'current' => $current, 'holds' => false, 'closed' => '' !== ($match[4][0] ?? ''), 'valid' => isset($match[3][0]) && '' !== $match[3][0] && is_array(json_decode($match[3][0], true)));
@@ -3430,16 +3452,16 @@ final class ShellExtraction
         // the item or its anchor, so when one observed look is contained in
         // every other, it is the rest. Looks compare as the shell identity
         // sees them, without generated markers.
-        $contained = static function (array $look, array $other) use ($classes): bool {
-            $seen = static function (array $attrs) use ($classes): array {
-                $attrs = json_decode(preg_replace('/^<!-- wp:navigation-submenu (.*) -->$/s', '$1', self::normalizeNestedChromeMarkup('<!-- wp:navigation-submenu ' . BlockAttributes::encode($attrs) . ' -->')) ?? '', true) ?: array();
+        $contained = static function (array $look, array $other) use ($classes, $asIdentity): bool {
+            $parts = static function (array $attrs) use ($classes, $asIdentity): array {
+                $attrs = $asIdentity($attrs);
                 $anchor = $classes($attrs['metadata']['blocksEngineNavigationAnchor'] ?? array());
                 $item = $classes($attrs);
                 unset($attrs['className'], $attrs['metadata']['blocksEngineNavigationAnchor']['className']);
                 return array($item, $anchor, $attrs);
             };
-            [$lookItem, $lookAnchor, $lookRest] = $seen($look);
-            [$otherItem, $otherAnchor, $otherRest] = $seen($other);
+            [$lookItem, $lookAnchor, $lookRest] = $parts($look);
+            [$otherItem, $otherAnchor, $otherRest] = $parts($other);
             return array() === array_diff($lookItem, $otherItem) && array() === array_diff($lookAnchor, $otherAnchor) && $lookRest === $otherRest;
         };
         foreach ($held as $key => $looks) {
@@ -3462,6 +3484,8 @@ final class ShellExtraction
                     $rest = $resting[$row['key']] ?? array();
                     if (1 !== count($rest)) continue;
                     $rest = reset($rest);
+                    // The item keeps its own label; only its markers are per document.
+                    if (isset($row['attrs']['label'])) $rest['label'] = $row['attrs']['label'];
                     if ($rest === $atRest($row['attrs'])) continue;
                     $markers = array_values(array_filter($classes($row['attrs']), $isMarker));
                     if (array() !== $markers) $rest['className'] = trim(($rest['className'] ?? '') . ' ' . implode(' ', $markers));
@@ -3552,10 +3576,11 @@ final class ShellExtraction
                 }
                 $group = '' !== $match[1][0] ? 1 : ('' !== ($match[2][0] ?? '') ? 2 : 3);
                 [$value, $offset] = $match[$group];
-                // The route number is the trailing digit run after a non-digit stem,
-                // whether hyphenated (top-101), underscored (top_101) or glued (top101).
-                // The stem keeps its separator, so the placeholder stays a valid id.
-                $row[] = array('id', $value, $offset, preg_match('/^(.*[^0-9])[0-9]+$/', $value, $stem) ? $stem[1] . '#' : $value);
+                // The route number is the id's one digit run, whether a trailing
+                // suffix (top-101, top_101, top101), a builder's instance prefix
+                // (n-101-navId-mobile) or the whole id (`id="5"`). The stem keeps
+                // its separators, so the placeholder stays a valid id.
+                $row[] = array('id', $value, $offset, preg_match('/^([^0-9]*)[0-9]+([^0-9]*)$/', $value, $stem) ? $stem[1] . '#' . $stem[2] : $value);
             }
             $rows[$index] = $row;
             $groups[json_encode(array_column($row, 3))][] = $index;
@@ -3565,23 +3590,32 @@ final class ShellExtraction
             if (count($indexes) < 2) continue;
             foreach ($rows[$indexes[0]] as $position => [$kind, , , $stem]) {
                 if ($stem === $rows[$indexes[0]][$position][1]) continue;
-                $variants = array(); $safe = true;
+                // A candidate whose id is referenced keeps it, and so stays out of
+                // a part the others share; the rest canonicalize among themselves.
+                $variants = array(); $kept = array();
                 foreach ($indexes as $index) {
                     $value = $rows[$index][$position][1];
+                    if ('data' !== $kind && self::stylesheetTargetsId($value, $stylesheetIds)) continue;
+                    if ('data' !== $kind && preg_match('/(?:href\s*=\s*["\']#' . preg_quote($value, '/') . '["\']|(?:aria-controls|for)\s*=\s*["\']' . preg_quote($value, '/') . '["\'])/i', $markups[$index])) continue;
                     $variants[$value] = true;
-                    if ('data' === $kind) continue;
-                    if (self::stylesheetTargetsId($value, $stylesheetIds)) { $safe = false; break; }
-                    if (preg_match('/(?:href\s*=\s*["\']#' . preg_quote($value, '/') . '["\']|(?:aria-controls|for)\s*=\s*["\']' . preg_quote($value, '/') . '["\'])/i', $markups[$index])) { $safe = false; break; }
+                    $kept[] = $index;
                 }
-                if (!$safe || count($variants) < 2 || ('data' === $kind && count($variants) !== count($indexes))) continue;
-                foreach ($indexes as $index) $replace[$index][$position] = str_replace('#', '__route__', 'data' === $kind ? substr($stem, strpos($stem, '=') + 1) : $stem);
+                if (count($variants) < 2 || ('data' === $kind && count($variants) !== count($indexes))) continue;
+                foreach ($kept as $index) $replace[$index][$position] = str_replace('#', '__route__', 'data' === $kind ? substr($stem, strpos($stem, '=') + 1) : $stem);
             }
         }
         foreach ($replace as $index => $positions) {
             krsort($positions);
+            $followed = array();
             foreach ($positions as $position => $to) {
-                [, $from, $offset] = $rows[$index][$position];
+                [$kind, $from, $offset] = $rows[$index][$position];
                 $markups[$index] = substr_replace($markups[$index], $to, $offset, strlen($from));
+                if ('id' === $kind) $followed[] = array($from, $to);
+            }
+            // A value naming a canonicalized id (a builder's `toggleid`, a
+            // dialog's trigger list) is the same route number, so it follows.
+            foreach ($followed as [$from, $to]) {
+                $markups[$index] = preg_replace('/(="|(?<=[\[,:])")' . preg_quote($from, '/') . '"/', '${1}' . $to . '"', $markups[$index]) ?? $markups[$index];
             }
         }
         return $markups;
@@ -3821,6 +3855,49 @@ final class ShellExtraction
         return $html($markup);
     }
 
+    /** Normalize route-specific current state inside captured dialog snapshot HTML. */
+    private static function normalizeExistingPanelSnapshots(string $markup): string
+    {
+        $normalizeSnapshot = static function (string $snapshot): string {
+            $data = json_decode($snapshot, true);
+            if (!is_array($data)) return $snapshot;
+            foreach (array('resting', 'opened') as $state) {
+                if (!is_string($data[$state]['html'] ?? null)) continue;
+                $html = $data[$state]['html'];
+                $dom = new \DOMDocument();
+                $previous = libxml_use_internal_errors(true);
+                $dom->loadHTML('<?xml encoding="UTF-8"><div id="be-snapshot-root">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+                libxml_clear_errors();
+                libxml_use_internal_errors($previous);
+                $xpath = new \DOMXPath($dom);
+                foreach ($xpath->query('//*[@aria-current="page"]') as $current) {
+                    $siblings = array();
+                    foreach ($current->parentNode->childNodes as $sibling) if ($sibling instanceof \DOMElement && $sibling->tagName === $current->tagName) $siblings[] = $sibling;
+                    $shared = array();
+                    foreach ($siblings as $sibling) if ($sibling !== $current) foreach (preg_split('/\\s+/', trim($sibling->getAttribute('class'))) ?: array() as $class) $shared[$class] = true;
+                    $classes = array_filter(preg_split('/\\s+/', trim($current->getAttribute('class'))) ?: array(), static fn(string $class): bool => isset($shared[$class]));
+                    if ($classes) $current->setAttribute('class', implode(' ', $classes)); else $current->removeAttribute('class');
+                    $current->removeAttribute('aria-current');
+                }
+                $root = $dom->getElementById('be-snapshot-root');
+                $out = ''; if ($root) foreach ($root->childNodes as $child) $out .= $dom->saveHTML($child);
+                $data[$state]['html'] = $out;
+            }
+            return json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?: $snapshot;
+        };
+        $markup = preg_replace_callback('/<!--\\s*wp:[^ ]+\\s+(\\{.*?\\})\\s*-->/s', static function (array $m) use ($normalizeSnapshot): string {
+            $attrs = json_decode($m[1], true);
+            if (!is_array($attrs)) return $m[0];
+            $walk = static function (&$value) use (&$walk, $normalizeSnapshot): void {
+                if (!is_array($value)) return;
+                foreach ($value as $key => &$item) { if (CaptureEvidence::EXISTING_PANEL === $key && is_string($item)) $item = $normalizeSnapshot($item); else $walk($item); }
+            };
+            $walk($attrs);
+            return '<!-- wp:' . preg_replace('/^<!--\\s*wp:([^ ]+).*/s', '$1', $m[0]) . ' ' . BlockAttributes::encode($attrs) . ' -->';
+        }, $markup) ?? $markup;
+        return preg_replace_callback('/(' . preg_quote(CaptureEvidence::EXISTING_PANEL, '/') . '=")([^"]*)(")/', static fn(array $m): string => $m[1] . htmlspecialchars($normalizeSnapshot(html_entity_decode($m[2], ENT_QUOTES | ENT_HTML5, 'UTF-8')), ENT_QUOTES | ENT_HTML5, 'UTF-8') . $m[3], $markup) ?? $markup;
+    }
+
     public static function identityMarkup(string $markup): string
     {
         return self::normalizeNestedChromeMarkup($markup);
@@ -3828,6 +3905,7 @@ final class ShellExtraction
 
     public static function withoutCurrentNavigationState(string $markup, bool $semanticIdentity = false): string
     {
+        $markup = self::normalizeExistingPanelSnapshots($markup);
         $stateCarrierCounts = array();
         $linkColorCounts = array();
         $linkCount = 0;
@@ -3954,7 +4032,12 @@ final class ShellExtraction
             // and the current item's own colour and type are not kept. Identity
             // ignores them for such a link on every page, so one header is not
             // split by which page happens to be current.
-            if ($current || ($semanticIdentity && $isLink && false === $peer)) unset($attrs['color'], $attrs['style'], $attrs['typography']);
+            // A linked submenu (a featured card in a mega menu) is the served
+            // route on its own page, where its current presentation is dropped
+            // with the resting type it shares with every other route. Identity
+            // ignores its own presentation on every page for the same reason.
+            $linkedSubmenu = 'navigation-submenu' === $match[1] && '' !== (string) ($attrs['url'] ?? '');
+            if ($current || ($semanticIdentity && $isLink && (false === $peer || $linkedSubmenu))) unset($attrs['color'], $attrs['style'], $attrs['typography']);
             if ($current || ($semanticIdentity && $isLink)) unset($attrs['anchor'], $attrs['anchorClassName']);
             return '<!-- wp:' . $match[1] . ' ' . BlockAttributes::encode($attrs) . ' ' . (($match[3] ?? '') ? '/' : '') . '-->';
         }, $markup) ?? $markup;
@@ -3963,6 +4046,12 @@ final class ShellExtraction
         // part serves every route, so that page-scoped state is neither part of
         // the chrome's identity nor frozen into the part.
         $markup = preg_replace('/(<a\b[^>]*?)\s+aria-current\s*=\s*(["\'])page\2/i', '$1', $markup) ?? $markup;
+        // Rich mega-menu panels can retain a rendered navigation root rather
+        // than navigation-link blocks. Its lifted current colour is still
+        // page state, just like the marker on a core navigation comment.
+        if ($semanticIdentity) {
+            $markup = preg_replace('/\s*blocks-engine-navigation-current-color-[a-f0-9]{64}\b/', '', $markup) ?? $markup;
+        }
         $markup = self::withoutListItemDisclosureState($markup);
         return self::withoutMenuSelectionState($markup, true);
     }

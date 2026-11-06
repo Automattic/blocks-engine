@@ -3,7 +3,10 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\UnreachableSelectorPruner;
+
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CaptureReplayScripts;
 use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
@@ -33,7 +36,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGr
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CapturedGlyphColor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\MonochromeGlyphColor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
@@ -498,6 +500,7 @@ final class ArtifactCompiler
         unset($markup);
         $authoredFiles = $normalized['files'];
         $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections'], (string) ($ownedBy(array(array()), $entryPath)[0]['owner'] ?? ''), $pageMarkup, $allDiagnostics, $sharedMarkup, $timer);
+        $normalized['files'] = $this->withoutUnreachableSelectors($normalized['files']);
         foreach ($normalized['files'] as $document) {
             if ('html' !== ($document['kind'] ?? '') || !is_string($document['content'] ?? null) || !empty($document['metadata']['compilation']['included_component'])) continue;
             $documentFiles = $normalized['files'];
@@ -553,6 +556,7 @@ final class ArtifactCompiler
         // engine support on its intended side of the authored stylesheets.
         $assets = array_merge($beforeAuthorAssets, $manifestAssets, $otherGeneratedAssets, $afterAuthorAssets);
         $assets = array_merge($assets, $wordpressCompatAssets);
+        $assets = $this->pruneAbsentSupportSubjects($assets, $authoredFiles, implode("\n", $pageMarkup) . "\n" . $sharedMarkup);
         $assets = $this->deduplicateVisualAssets($assets);
         $assets = $this->coalesceStylesheetAssets($assets);
         $diagnostics = array_merge($diagnostics, $allDiagnostics, $runtimeDeclarationDiagnostics, $this->omittedPageDiagnostics($omittedPages));
@@ -1452,6 +1456,23 @@ final class ArtifactCompiler
             if ( ! is_array($binding) || 'generic/block-binding/v1' !== ($binding['schema'] ?? '') || '' === trim($binding['search_block_markup'] ?? '') ) continue;
             $productSlug = $pageProducts[$sourcePath][0];
             $schemaProducts[$productSlug]['bindings'][] = array_merge($binding, array('role' => 'commerce_add_to_cart_form', 'source_path' => $sourcePath));
+            // Preserve the same flat control indexes and validated presentation
+            // facts as a form entity when shop takes ownership of the controls.
+            if ( is_array($fallback['controls'] ?? null) ) {
+                $controls = array_values(array_filter($fallback['controls'], 'is_array'));
+                foreach ( $controls as &$control ) unset($control['_unresolved_description_candidates']);
+                unset($control);
+                $schemaProducts[$productSlug]['controls'] = $controls;
+                unset($schemaProducts[$productSlug]['presentation_graph']);
+                if ( is_array($fallback['presentation_graph'] ?? null) && true !== ($fallback['presentation_graph']['truncated'] ?? false) ) {
+                    try {
+                        FormPresentationGraphBuilder::assertValid($fallback['presentation_graph']);
+                        $schemaProducts[$productSlug]['presentation_graph'] = $fallback['presentation_graph'];
+                    } catch ( \InvalidArgumentException $error ) {
+                        $diagnostics[] = $this->rejectedFormGraphDiagnostic($fallback, $sourcePath, $selector, 'presentation_graph', $error->getMessage());
+                    }
+                }
+            }
             // A purchase form belongs to shop, not a competing form provider.
             unset($forms[$sourcePath . "\n" . $selector]);
         }
@@ -1477,7 +1498,7 @@ final class ArtifactCompiler
                 $products[$productSlug]['whole_page_candidate'] = $row['whole_page_candidate'];
             }
             // Detail-page descriptive evidence wins; cards fill only absent fields.
-            foreach ( array('description', 'image', 'images', 'category', 'sku', 'variants', 'stock_status', 'translations') as $field ) if ( isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
+            foreach ( array('description', 'image', 'images', 'category', 'sku', 'variants', 'stock_status', 'translations', 'controls', 'presentation_graph') as $field ) if ( isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
             foreach ( array('tags', 'sale_price') as $field ) if ( ! isset($products[$productSlug][$field]) && isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
         }
         // Listing-owned forms are shop controls, not a second form-provider
@@ -2148,9 +2169,43 @@ final class ArtifactCompiler
         }, $html) ?? $html;
     }
 
-    /**
-     * @param array<string, mixed> $asset
-     */
+    /** Drop impossible engine replay/capture rules before bundling and plan enqueue projection. */
+    private function pruneAbsentSupportSubjects(array $assets, array $files, string $markup): array
+    {
+        $captureHashes = array();
+        foreach ($files as $file) {
+            if ('html' !== ($file['kind'] ?? '') || !is_string($file['content'] ?? null)) continue;
+            // Document root attributes survive on the served WordPress shell,
+            // outside serialized post and template-part markup.
+            foreach (array('html', 'body') as $tag) {
+                if (preg_match('/<' . $tag . '\\b[^>]*>/i', $file['content'], $root)) $markup .= preg_replace('/^<' . $tag . '\\b/i', '<div', $root[0]) . '</div>';
+            }
+            foreach (StyleTagScanner::scan($file['content']) as $style) {
+                if (StyleTagScanner::isCaptureOnly($style['attributes'])) $captureHashes[hash('sha256', trim($style['content']))] = true;
+            }
+        }
+        $subjects = new SupportCssSubjects($markup);
+        $result = array();
+        foreach ($assets as $asset) {
+            if ('css' === ($asset['kind'] ?? '') && is_string($asset['content'] ?? null)
+                && (in_array($asset['source'] ?? '', array('wordpress-compat'), true)
+                    || isset($captureHashes[$asset['source_hash'] ?? '']) || isset($captureHashes[hash('sha256', trim($asset['content']))]))) {
+                $content = $subjects->stylesheet($asset['content']);
+                if ('' === trim($content)) continue;
+                if ($content !== $asset['content']) {
+                    $hash = hash('sha256', $content);
+                    $asset['content'] = $content;
+                    $asset['bytes'] = strlen($content);
+                    $asset['hash'] = $hash;
+                    $asset['path'] = $asset['target_path'] = 'assets/css/' . ($asset['source'] ?? 'support') . '-' . substr(hash('sha256', json_encode($asset['compilation'] ?? array()) . "\0" . $content), 0, 16) . '.css';
+                }
+            }
+            $result[] = $asset;
+        }
+        return $result;
+    }
+
+    /** @param array<string, mixed> $asset */
     private function isMaterializedScriptAsset(array $asset): bool
     {
         return in_array($asset['kind'] ?? '', array('js', 'mjs'), true)
@@ -2693,12 +2748,17 @@ final class ArtifactCompiler
                 $primaryByPath[$projection['path']][$projection['content']] = true;
             }
         }
-        // Shared-shell projections apply site-wide; page projections belong to
-        // the page (owner) that produced them.
+        // Shared-part projections apply site-wide unless their inline landmark
+        // carries member-only ancestor context; page projections have an owner.
         $sharedByPath = array();
+        $memberShellsByPath = array();
         $pageByPath = array();
         $ownersByPath = array();
         foreach ( $projections as $projection ) {
+            if (isset($projection['member_owners']) && is_string($projection['path'] ?? null) && is_string($projection['content'] ?? null)) {
+                foreach ($projection['member_owners'] as $owner) $memberShellsByPath[$projection['path']][$owner][] = $projection['content'];
+                continue;
+            }
             if ( is_string($projection['path'] ?? null) && is_string($projection['content'] ?? null) && '' !== (string) ($projection['owner'] ?? '') ) {
                 $ownersByPath[$projection['path']][$projection['content']][(string) $projection['owner']] = true;
             }
@@ -2818,8 +2878,8 @@ final class ArtifactCompiler
             foreach ($ownersByPath[$path] ?? array() as $content => $owners) {
                 foreach ($owners as $owner => $_) $pageProjections[$owner][] = (string) $content;
             }
-            foreach ($pageProjections as &$contents) {
-                $contents = array($transformer->concatenateWithoutRedundantRules(array_merge(array_map('strval', array_keys($sharedByPath[$path] ?? array())), $contents)));
+            foreach ($pageProjections as $owner => &$contents) {
+                $contents = array($transformer->concatenateWithoutRedundantRules(array_merge(array_map('strval', array_keys($sharedByPath[$path] ?? array())), $memberShellsByPath[$path][$owner] ?? array(), $contents)));
             }
             unset($contents);
             $sharedStylesheets = array($transformer->concatenateWithoutRedundantRules($sharedStylesheets));
@@ -2929,6 +2989,38 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $files
      * @return array<int, array<string, mixed>>
      */
+    /**
+     * Drop stylesheet arms that require a class or id no other site file names
+     * (see {@see UnreachableSelectorPruner}). Each stylesheet is pruned against
+     * the whole site, so route copies of one sheet stay identical.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, array<string, mixed>>
+     */
+    private function withoutUnreachableSelectors(array $files): array
+    {
+        $texts = array();
+        $documents = 0;
+        foreach ($files as $file) {
+            if ('css' === ($file['kind'] ?? '')) continue;
+            if ('html' === ($file['kind'] ?? '')) ++$documents;
+            // Metadata carries captured interaction states.
+            if (is_array($file['metadata'] ?? null) && array() !== $file['metadata']) $texts[] = (string) json_encode($file['metadata']);
+            $text = $file['content'] ?? (in_array($file['kind'] ?? '', array('html', 'js', 'json', 'svg', 'text'), true) && is_string($file['content_base64'] ?? null) ? base64_decode($file['content_base64'], true) : null);
+            if (is_string($text) && '' !== $text) $texts[] = $text;
+        }
+        if (0 === $documents) return $files;
+        $pruner = new UnreachableSelectorPruner($texts);
+        foreach ($files as &$file) {
+            // Only the projected sheets the pages load; other CSS is inventory.
+            if ('css' !== ($file['kind'] ?? '') || !isset($file['provenance']['projected_from_hash']) || !is_string($file['content'] ?? null)) continue;
+            $content = $pruner->prune($file['content']);
+            if ($content !== $file['content']) $file = $this->projectedStylesheetFile($file, $file['path'], $content);
+        }
+        unset($file);
+        return $files;
+    }
+
     private function chunkProjectedStylesheets(array $files): array
     {
         $reserved = array_fill_keys(array_column($files, 'path'), true);
@@ -3722,17 +3814,14 @@ final class ArtifactCompiler
     {
         $scripts = array();
         foreach ( HtmlTagScanner::scan($html, 'script') as $script ) {
-            // The native control replay interpreter addresses captured control
-            // state, not source behavior; its state lowers into control blocks.
-            if (NativeControlState::isReplayScript($script['tag'])) continue;
+            // Capture replay interpreters address captured evidence, not source
+            // behavior; treating their queries as dependencies would preserve
+            // every captured target as a runtime island.
+            if (CaptureReplayScripts::isReplayScript($script['tag'])) continue;
             // Device overlays replay capture presentation, not author behavior.
             // Exclude the marked script before selector evidence is extracted;
             // an author script using the same selectors must still count.
             if (array_key_exists(CaptureEvidence::DEVICE_BODY, HtmlTagScanner::attributes($script['tag']))) continue;
-            // Capture activators describe engine-owned evidence, not source
-            // runtime behavior. Treating their query as a dependency would
-            // preserve every captured target as a runtime island.
-            if (array_key_exists(CaptureEvidence::VIEWPORT_ENTRANCE_ACTIVATOR, HtmlTagScanner::attributes($script['tag']))) continue;
             $src = $this->htmlAttribute($script['tag'], 'src');
             if ( '' === $src ) {
                 $scripts[] = $script['content'];
@@ -3897,10 +3986,34 @@ final class ArtifactCompiler
                 ));
                 foreach ($compiled['assets'] as $asset) {
                     if (!is_array($asset)) continue;
-                    $asset['compilation'] = array('scope' => 'shared');
+                    $asset['compilation'] = array('scope' => 'shared', 'source_paths' => array_keys($members));
                     $assets[] = $asset;
                 }
-                $authorStylesheetProjections = array_merge($authorStylesheetProjections, $compiled['author_stylesheet_projections']);
+                // Keep site-wide reconciliation (including richtext reset
+                // exclusions) unless the synthetic ancestors carry state that
+                // is not common to every route. Other landmark identities still
+                // count: sharing markup is not evidence of sharing route state.
+                $siteContexts = array();
+                foreach ($documents as $document) {
+                    $siteContexts[] = $document['rows'][$area][$variant]['context'] ?? array();
+                }
+                $siteContext = self::sharedSourceShellAncestorContext($siteContexts);
+                $siteProjections = array();
+                if ($context !== $siteContext) {
+                    $siteOpen = ''; $siteClose = '';
+                    foreach (array_slice($siteContext, 2) as $ancestor) { $siteOpen .= '<' . $ancestor['tag'] . self::sourceShellAttributes($ancestor['attributes']) . '>'; $siteClose = '</' . $ancestor['tag'] . '>' . $siteClose; }
+                    $siteSynthetic = '<!doctype html><html' . self::sourceShellAttributes($siteContext[0]['attributes'] ?? array()) . '><head>' . $head . '</head><body' . self::sourceShellAttributes($siteContext[1]['attributes'] ?? array()) . '>' . $siteOpen . $canonicalMarkup . $siteClose . '</body></html>';
+                    $siteCompiled = $this->compileHtmlDocumentBlocks($siteSynthetic, $sourcePath, $files, 'artifact-shared-shell', $generatedBlockNamespace, true, array(), max(0, count($siteContext) - 2));
+                    foreach ($siteCompiled['author_stylesheet_projections'] as $projection) {
+                        $siteProjections[$projection['path']] = $projection['content'];
+                    }
+                }
+                foreach ($compiled['author_stylesheet_projections'] as $projection) {
+                    // Only scope stylesheets whose projection actually depends
+                    // on the additional member context, not unrelated resets.
+                    if ($context !== $siteContext && ($siteProjections[$projection['path']] ?? null) !== $projection['content']) $projection['member_owners'] = array_keys($members);
+                    $authorStylesheetProjections[] = $projection;
+                }
                 $runtimeScriptProjections = array_merge($runtimeScriptProjections, $compiled['runtime_script_projections']);
             }
         }
@@ -4422,7 +4535,7 @@ final class ArtifactCompiler
     {
         $metadata = array();
         foreach ( HtmlTagScanner::scan($html, 'script') as $index => $script ) {
-            if (NativeControlState::isReplayScript($script['tag'])) continue;
+            if (CaptureReplayScripts::isReplayScript($script['tag'])) continue;
             $tag = $script['tag'];
             $src = $this->htmlAttribute((string) $tag, 'src');
             if ( '' === $src ) {
@@ -4461,7 +4574,7 @@ final class ArtifactCompiler
         $scriptIndex = 0;
         foreach ( HtmlTagScanner::scan($html, 'script') as $script ) {
             ++$scriptIndex;
-            if (NativeControlState::isReplayScript($script['tag'])) continue;
+            if (CaptureReplayScripts::isReplayScript($script['tag'])) continue;
             $src = $this->htmlAttribute($script['tag'], 'src');
             $asset = '' === $src
                 ? $this->findInlineScriptAsset($sourcePath, $scriptIndex, $files)
@@ -4594,9 +4707,9 @@ final class ArtifactCompiler
             // A static-site interpreter of the inert motion markers is replaced by
             // the view scripts of the blocks those markers lower to.
             if ($this->hasHtmlAttribute($open, 'data-blocks-engine-marker-runtime')) continue;
-            // The native control replay interpreter is discarded at normalization
-            // (its state is adapted into control blocks), so it has no asset to load.
-            if (NativeControlState::isReplayScript($open)) continue;
+            // Capture replay interpreters are discarded at normalization (their
+            // evidence lowers into blocks or the engine runtime), so they have no asset to load.
+            if (CaptureReplayScripts::isReplayScript($open)) continue;
             $async = $this->hasHtmlAttribute($open, 'async'); $defer = $this->hasHtmlAttribute($open, 'defer'); $module = 'module' === strtolower($this->htmlAttribute($open, 'type'));
             $supersededBy = $this->htmlAttribute($open, 'data-blocks-engine-superseded-by');
             $inlineBodyHash = hash('sha256', trim($script['content']));

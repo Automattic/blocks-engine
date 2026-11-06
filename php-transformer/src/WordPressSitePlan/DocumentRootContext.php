@@ -24,6 +24,14 @@ final class DocumentRootContext
         return array('root_attributes' => $attributes['html'], 'body_attributes' => $attributes['body']);
     }
 
+    /** @param array<string,mixed> $document @return list<string> */
+    public static function bodyClasses(array $document): array
+    {
+        $class = $document['document_metadata']['body_attributes']['class'] ?? null;
+        if (!is_string($class)) $class = self::fromHtml((string) ($document['html'] ?? ''), 'body')['class'] ?? '';
+        return preg_split('/[\x20\t\r\n\f]+/', trim($class), -1, PREG_SPLIT_NO_EMPTY) ?: array();
+    }
+
     /** Stable per-document route class from the compile-time source identity, used by CSS and the root registry alike. */
     public static function routeClass(string $identity, int $length = 8): string
     {
@@ -111,10 +119,29 @@ final class DocumentRootContext
         }
         if (array() === $rows) return '';
         $code = <<<'PHP'
+if ( ! function_exists( 'blocks_engine_archive_path' ) ) {
+function blocks_engine_archive_path(): ?string {
+    if ( ! is_singular() ) {
+        $archive_url = null;
+        if ( is_category() || is_tag() || is_tax() ) $archive_url = get_term_link( get_queried_object() );
+        elseif ( is_author() ) $archive_url = get_author_posts_url( get_queried_object_id() );
+        elseif ( is_date() ) {
+            $year = (int) get_query_var( 'year' );
+            $month = (int) get_query_var( 'monthnum' );
+            $day = (int) get_query_var( 'day' );
+            $archive_url = $day ? get_day_link( $year, $month, $day ) : ( $month ? get_month_link( $year, $month ) : get_year_link( $year ) );
+        }
+        if ( is_string( $archive_url ) ) return trim( wp_make_link_relative( $archive_url ), '/' );
+    }
+    return null;
+}
+}
 $blocks_engine_document_attributes = static function ( string $element ) use ( &$blocks_engine_document_roots, &$blocks_engine_document_fallback ): array {
     $id = (int) apply_filters( 'blocks_engine_document_id', is_singular() ? get_queried_object_id() : 0 );
     $identity = $id ? get_post_meta( $id, '_blocks_engine_reconciliation_identity', true ) : '';
+    $archive_path = blocks_engine_archive_path();
     foreach ( $blocks_engine_document_roots as $row ) {
+        if ( null !== $archive_path && $archive_path === $row['path'] ) return $row[ 'body' === $element ? 'body_attributes' : 'attributes' ];
         if ( '' !== $identity ? $identity === $row['identity'] : ( ( $row['front_page'] && is_front_page() ) || ( 0 !== $id && 'page' === get_post_type( $id ) && $row['path'] === trim( get_page_uri( $id ), '/' ) ) ) ) return $row[ 'body' === $element ? 'body_attributes' : 'attributes' ];
     }
     return $blocks_engine_document_fallback[ 'body' === $element ? 'body_attributes' : 'attributes' ];
@@ -160,9 +187,20 @@ PHP;
         // their combined route registry. Each authoritative identity replaces
         // its earlier record, including empty state, without dropping other
         // routes or replacing the canvas resolver.
+        $fallback = array('attributes' => self::sharedAttributes(array_column($rows, 'attributes')), 'body_attributes' => self::sharedAttributes(array_column($rows, 'body_attributes')));
+        $bodies = $indices = array();
+        foreach ($rows as &$row) foreach (array('attributes', 'body_attributes') as $field) {
+            $key = serialize($row[$field]);
+            if (!isset($indices[$key])) { $indices[$key] = count($bodies); $bodies[] = $row[$field]; }
+            $row[$field] = $indices[$key];
+        }
+        unset($row);
         return "global \$blocks_engine_document_roots, \$blocks_engine_document_attributes, \$blocks_engine_document_fallback;\n"
-            . '$blocks_engine_document_fallback = ' . var_export(array('attributes' => self::sharedAttributes(array_column($rows, 'attributes')), 'body_attributes' => self::sharedAttributes(array_column($rows, 'body_attributes'))), true) . ";\n"
-            . '$blocks_engine_document_roots = array_replace( array_column( $blocks_engine_document_roots ?? array(), null, \'identity\' ), array_column( ' . var_export($rows, true) . ', null, \'identity\' ) );' . "\n"
+            . '$blocks_engine_document_attribute_bodies = ' . var_export($bodies, true) . ";\n"
+            . '$blocks_engine_document_rows = ' . var_export($rows, true) . ";\n"
+            . 'foreach ( $blocks_engine_document_rows as &$row ) foreach ( array( \'attributes\', \'body_attributes\' ) as $field ) $row[ $field ] = $blocks_engine_document_attribute_bodies[ $row[ $field ] ]; unset( $row );' . "\n"
+            . '$blocks_engine_document_fallback = ' . var_export($fallback, true) . ";\n"
+            . '$blocks_engine_document_roots = array_replace( array_column( $blocks_engine_document_roots ?? array(), null, \'identity\' ), array_column( $blocks_engine_document_rows, null, \'identity\' ) );' . "\n"
             . "if ( ! isset( \$blocks_engine_document_attributes ) ) {\n" . $code . "\n}\n";
     }
 

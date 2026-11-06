@@ -108,19 +108,7 @@ final class AssetReferenceCanonicalizer
             ?? $reference;
         $fontCss = fn(string $css): string => $this->missingFonts?->stylesheet($css, $origin, fn(string $url): ?string => $this->reference($url, $origin)) ?? $css;
         if (str_ends_with(strtolower($origin), '.css')) return self::css($fontCss($content), $replace);
-        $content = self::tags($content, $replace);
-        // RichText image attributes inside serialized block JSON use escaped
-        // quotes, so they are not parsed as ordinary HTML tags above.
-        if (str_contains($content, '\\"')) {
-            $content = self::replaceRegex('~(\b(?:src|href|poster)\s*=\s*\\\\")((?:\\\\/|[^"\\\\])*)(\\\\")~is', static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => $replace($value, '', self::attributeName($match[1]))) . $match[3], $content);
-            $content = self::replaceRegex('~(\bsrcset\s*=\s*\\\\")((?:\\\\/|[^"\\\\])*)(\\\\")~is', static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => self::srcset($value, static fn(string $reference): string => $replace($reference, '', 'srcset'))) . $match[3], $content);
-            $content = self::replaceRegex('~(\bstyle\s*=\s*\\\\")((?:\\\\/|[^"\\\\])*)(\\\\")~is', static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => self::css($value, $replace)) . $match[3], $content);
-        }
-        if (str_contains($content, '\\u0022')) {
-            $content = self::replaceDelimited('~(\b(?:src|href|poster)\s*=\s*\\\\u0022)~i', '\\u0022', $content, static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => $replace($value, '', self::attributeName($match[1]))) . $match[3]);
-            $content = self::replaceDelimited('~(\bsrcset\s*=\s*\\\\u0022)~i', '\\u0022', $content, static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => self::srcset($value, static fn(string $reference): string => $replace($reference, '', 'srcset'))) . $match[3]);
-            $content = self::replaceDelimited('~(\bstyle\s*=\s*\\\\u0022)~i', '\\u0022', $content, static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => self::css($value, $replace)) . $match[3]);
-        }
+        $content = self::escapedTags(self::tags($content, $replace), $replace);
         if (str_contains($content, '\\u003c')) {
             $content = self::replaceDelimited('~(\bstyle\s*=\s*([\'\"]))~i', null, $content, static fn(array $match): string => $match[1] . self::css($match[3], $replace) . $match[2]);
         }
@@ -132,6 +120,27 @@ final class AssetReferenceCanonicalizer
         // Block comments are the supported serialized JSON transport. Restricting
         // rewrites to them avoids treating arbitrary text or SVG data as markup.
         return str_contains($content, '<!--') ? self::replaceDelimited('~<!--\s*wp:~i', '-->', $content, static fn(array $match): string => self::json($match[0], $replace)) : $content;
+    }
+
+    /**
+     * Tags serialized inside JSON strings keep their attributes behind escaped
+     * quotes, so the ordinary tag scan cannot see them.
+     *
+     * @param callable(string,string,string):string $replace
+     */
+    private static function escapedTags(string $content, callable $replace): string
+    {
+        if (str_contains($content, '\\"')) {
+            $content = self::replaceRegex('~(\b(?:src|href|poster)\s*=\s*\\\\")((?:\\\\/|[^"\\\\])*)(\\\\")~is', static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => $replace($value, '', self::attributeName($match[1]))) . $match[3], $content);
+            $content = self::replaceRegex('~(\bsrcset\s*=\s*\\\\")((?:\\\\/|[^"\\\\])*)(\\\\")~is', static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => self::srcset($value, static fn(string $reference): string => $replace($reference, '', 'srcset'))) . $match[3], $content);
+            $content = self::replaceRegex('~(\bstyle\s*=\s*\\\\")((?:\\\\/|[^"\\\\])*)(\\\\")~is', static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => self::css($value, $replace)) . $match[3], $content);
+        }
+        if (str_contains($content, '\\u0022')) {
+            $content = self::replaceDelimited('~(\b(?:src|href|poster)\s*=\s*\\\\u0022)~i', '\\u0022', $content, static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => $replace($value, '', self::attributeName($match[1]))) . $match[3]);
+            $content = self::replaceDelimited('~(\bsrcset\s*=\s*\\\\u0022)~i', '\\u0022', $content, static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => self::srcset($value, static fn(string $reference): string => $replace($reference, '', 'srcset'))) . $match[3]);
+            $content = self::replaceDelimited('~(\bstyle\s*=\s*\\\\u0022)~i', '\\u0022', $content, static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => self::css($value, $replace)) . $match[3]);
+        }
+        return $content;
     }
 
     /** @param array<int,string> $origins */
@@ -357,6 +366,11 @@ final class AssetReferenceCanonicalizer
                         } elseif ( is_string($value) && in_array($field, array('url', 'src', 'href', 'poster', 'action'), true) ) {
                             $attribute = ($route && 'url' === $field) || in_array($field, array('href', 'action'), true) ? 'route_' . $field : $field;
                             $values[$key] = $replace($value, '', 'json:' . $attribute);
+                        } elseif ( is_string($value) ) {
+                            // A string attribute can carry serialized JSON whose
+                            // markup the block's save() mirrors into an HTML data
+                            // attribute; rewrite it exactly as that mirror is.
+                            $values[$key] = self::escapedTags($value, $replace);
                         }
                     }
                     return $values;

@@ -12,7 +12,6 @@ final class InlineContentElementContext
     /**
      * @param Closure(DOMElement, array<int, array<string, mixed>>&, array<int, class-string>): ?array<string, mixed> $recognizePatterns
      * @param Closure(DOMElement): bool $isRuntimeDomTarget
-     * @param Closure(DOMElement): array<string, mixed> $htmlPreservationBlock
      * @param Closure(DOMElement): ?array<string, mixed> $inlineSvgTextGroupBlock
      * @param Closure(DOMElement): bool $ownsPositioningGeometry
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array<string, mixed> $positionedInlineCarrierBlock
@@ -30,7 +29,6 @@ final class InlineContentElementContext
     public function __construct(
         private readonly Closure $recognizePatterns,
         private readonly Closure $isRuntimeDomTarget,
-        private readonly Closure $htmlPreservationBlock,
         private readonly Closure $inlineSvgTextGroupBlock,
         private readonly Closure $ownsPositioningGeometry,
         private readonly Closure $positionedInlineCarrierBlock,
@@ -51,8 +49,6 @@ final class InlineContentElementContext
     public function recognizePatterns(DOMElement $element, array &$fallbacks, array $patterns): ?array { return ($this->recognizePatterns)($element, $fallbacks, $patterns); }
     public function isRuntimeDomTarget(DOMElement $element): bool { return ($this->isRuntimeDomTarget)($element); }
     public function retainsRuntimeTextLeafInRichText(DOMElement $element): bool { return null !== $this->retainsRuntimeTextLeafInRichText && ($this->retainsRuntimeTextLeafInRichText)($element); }
-    /** @return array<string, mixed> */
-    public function htmlPreservationBlock(DOMElement $element): array { return ($this->htmlPreservationBlock)($element); }
     /** @return array<string, mixed>|null */
     public function inlineSvgTextGroupBlock(DOMElement $element): ?array { return ($this->inlineSvgTextGroupBlock)($element); }
     public function ownsPositioningGeometry(DOMElement $element): bool { return ($this->ownsPositioningGeometry)($element); }

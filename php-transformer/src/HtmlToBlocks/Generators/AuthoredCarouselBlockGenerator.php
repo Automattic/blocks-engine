@@ -328,14 +328,35 @@ const startAutoplay = ( root, context ) => {
         root,
         window.setInterval(
             withScope( () => {
-                if ( ! context.paused ) show( context.index + 1 );
+                if ( ! context.paused ) show( context.index + 1, false );
             } ),
             interval
         )
     );
 };
 
-const syncSlideshow = ( root, context ) => {
+// Stay inside the carousel: never fall back to a document scrolling element.
+const revealThumbnail = ( control, root ) => {
+    for ( let container = control.parentElement; container && container !== root; container = container.parentElement ) {
+        const style = window.getComputedStyle( container );
+        const horizontal = /^(auto|scroll|hidden)$/.test( style.overflowX ) && container.scrollWidth > container.clientWidth;
+        const vertical = /^(auto|scroll|hidden)$/.test( style.overflowY ) && container.scrollHeight > container.clientHeight;
+        if ( ! horizontal && ! vertical ) continue;
+        const bounds = container.getBoundingClientRect();
+        const thumbnail = control.getBoundingClientRect();
+        const left = bounds.left + container.clientLeft;
+        const top = bounds.top + container.clientTop;
+        if ( horizontal ) {
+            container.scrollLeft += thumbnail.left < left ? thumbnail.left - left : Math.max( 0, thumbnail.right - left - container.clientWidth );
+        }
+        if ( vertical ) {
+            container.scrollTop += thumbnail.top < top ? thumbnail.top - top : Math.max( 0, thumbnail.bottom - top - container.clientHeight );
+        }
+        return;
+    }
+};
+
+const syncSlideshow = ( root, context, reveal = false ) => {
     if ( 'slideshow' !== context.presentation ) {
         return;
     }
@@ -359,8 +380,8 @@ const syncSlideshow = ( root, context ) => {
             control.classList.toggle( 'blocks-engine-authored-carousel__' + kind + '--active', active );
             if ( active ) {
                 control.setAttribute( 'aria-current', 'true' );
-                if ( 'thumbnail' === kind && ! window.matchMedia( '(prefers-reduced-motion: reduce)' ).matches ) {
-                    control.scrollIntoView( { block: 'nearest', inline: 'nearest' } );
+                if ( reveal && 'thumbnail' === kind && ! window.matchMedia( '(prefers-reduced-motion: reduce)' ).matches ) {
+                    revealThumbnail( control, root );
                 }
             } else {
                 control.removeAttribute( 'aria-current' );
@@ -382,7 +403,7 @@ const syncSrcSwap = ( root, context ) => {
     } );
 };
 
-const show = ( requested ) => {
+const show = ( requested, reveal = true ) => {
     const context = getContext();
     const { ref } = getElement();
     const root = rootOf( ref );
@@ -399,7 +420,7 @@ const show = ( requested ) => {
         syncSrcSwap( root, context );
         return;
     }
-    syncSlideshow( root, context );
+    syncSlideshow( root, context, reveal );
     if ( 'slideshow' === context.presentation ) {
         return;
     }
@@ -525,6 +546,12 @@ JS;
         // would leave every hidden slide stacked in the flow below the active one.
         $style .= ':root .blocks-engine-authored-carousel__track>.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . '{display:block}';
         $style .= '.blocks-engine-authored-carousel__source-stage{width:100%;min-width:0}.blocks-engine-authored-carousel--slideshow{margin-block-start:0;margin-block-end:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{min-height:var(--blocks-engine-carousel-stage-min-height,0)}.blocks-engine-authored-carousel__track>.wp-block-group{min-height:var(--blocks-engine-carousel-stage-min-height,auto);margin-block-start:0;margin-block-end:0}';
+        // Overlay controls do not occupy the outer grid's auto tracks. If
+        // source CSS restores display:grid, the stage must occupy its content
+        // column rather than auto-placing into an empty control track.
+        // Thumbnail layouts below instead own their stage/pager tracks.
+        $style .= '.blocks-engine-authored-carousel--slideshow:not(.blocks-engine-authored-carousel--thumbnails)>.blocks-engine-authored-carousel__source-stage{grid-column:2}'
+            . '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--source-control-topology>.blocks-engine-authored-carousel__controls{display:block!important}';
         $style .= '.blocks-engine-authored-carousel--source-control-artwork .blocks-engine-authored-carousel__previous::before,.blocks-engine-authored-carousel--source-control-artwork .blocks-engine-authored-carousel__next::before{content:none}';
         $style .= '.blocks-engine-authored-carousel--multiple .blocks-engine-authored-carousel__track{display:flex!important}.blocks-engine-authored-carousel--multiple .blocks-engine-authored-carousel__track>*{display:none!important}.blocks-engine-authored-carousel--multiple .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{display:block!important;position:relative!important;flex:0 0 calc(100% / var(--blocks-engine-carousel-visible));width:calc(100% / var(--blocks-engine-carousel-visible))}';
         $style .= '[data-carousel-arrows="false"]>.blocks-engine-authored-carousel__controls{display:none!important}';

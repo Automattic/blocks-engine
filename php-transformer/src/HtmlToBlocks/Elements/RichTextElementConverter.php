@@ -71,7 +71,7 @@ final class RichTextElementConverter implements ElementConverter
             // is the media block it visually is, not a heading. Anything with
             // text keeps the rich-text route below (#3496).
             $fallbackCount = count($fallbacks);
-            $media = $this->context->mediaBlockFromTextlessHeading($element, $fallbacks);
+            $media = $this->context->mediaBlockFromTextlessElement($element, $fallbacks);
             if ( null !== $media || count($fallbacks) > $fallbackCount ) {
                 return ConversionOutcome::handled($media);
             }
@@ -148,7 +148,7 @@ final class RichTextElementConverter implements ElementConverter
         // before the HTML fallback gate rejects media inside their wrappers.
         $hasStructuralHtml = $this->richTextMaterializer->hasStructuralHtml($content);
         if ( ! $hasStructuralHtml && $this->richTextMaterializer->requiresHtmlFallbackForElement($element, $content) ) {
-            return $this->context->htmlPreservationBlock($element);
+            return $this->createBlock->htmlPreservationBlock($element);
         }
 
         if ( ! $hasStructuralHtml && '' === trim($this->runtime->stripAllTags($content))
@@ -265,9 +265,8 @@ final class RichTextElementConverter implements ElementConverter
     }
 
     /**
-     * Lowers a paragraph whose whole content is one `<button>` the RichText
-     * lowering declined (a dialog trigger, a toggle with `aria-controls`, a
-     * control labelled like a submit) through the container path, which
+     * Lowers a paragraph whose whole content is one `<button>` through the
+     * container path before RichText can turn it into an inline mark, which
      * already converts that button natively with its runtime attributes, as
      * it does when the same button sits in a `<div>`. The paragraph keeps its
      * box as a group. Inline `<span>` wrappers between the paragraph and the
@@ -375,9 +374,23 @@ final class RichTextElementConverter implements ElementConverter
             return $image;
         }
 
+        // Classic editors wrap embed codes in a paragraph. A paragraph with no
+        // text whose only content is one media element is that media block,
+        // exactly like a text-less heading (#4303).
+        $fallbackCount = count($fallbacks);
+        $media = $this->context->mediaBlockFromTextlessElement($element, $fallbacks);
+        if ( null !== $media || count($fallbacks) > $fallbackCount ) {
+            return $media;
+        }
+
         $editableIconRow = $this->context->compactLinkedIconTextRowFromParagraph($element);
         if ( null !== $editableIconRow ) {
             return $editableIconRow;
+        }
+
+        $soleControl = $this->soleButtonParagraph($element, $fallbacks);
+        if ( null !== $soleControl ) {
+            return $soleControl;
         }
 
         $content         = $this->richTextMaterializer->content($element);
@@ -417,12 +430,7 @@ final class RichTextElementConverter implements ElementConverter
                 return $pictureRow;
             }
 
-            $soleControl = $this->soleButtonParagraph($element, $fallbacks);
-            if ( null !== $soleControl ) {
-                return $soleControl;
-            }
-
-            return $this->context->htmlPreservationBlock($element);
+            return $this->createBlock->htmlPreservationBlock($element);
         }
 
         // A paragraph carrying box chrome around an empty inline child is a

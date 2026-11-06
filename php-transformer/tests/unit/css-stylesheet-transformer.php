@@ -114,6 +114,8 @@ $malformed = '.before { content: "unterminated';
 $assert($malformed === $transformer->transform($malformed, $rename), 'truncated stylesheet is preserved exactly');
 $malformedSelector = '.before:is(.x { color:red }';
 $assert($malformedSelector === $transformer->transform($malformedSelector, $rename), 'unbalanced selector prelude is preserved exactly');
+$badUrl = '.dots { background: url(data:image/svg+xml,%3Csvg fill=%27%23var(--c)%27%3E) } @media (min-width:1280px) { .before { display:none } }';
+$assert(str_contains($transformer->transform($badUrl, $rename), '.after { display:none }'), 'rules after a bad url() token with a stray close paren are still transformed');
 $unmatchedClose = '} .before { color:red }';
 $assert($unmatchedClose === $transformer->transform($unmatchedClose, $rename), 'top-level unmatched close preserves the entire stylesheet');
 $unmatchedCloseAfterRule = '.before { color:red } } .before { color:blue }';
@@ -300,6 +302,25 @@ foreach ( $document->getElementsByTagName('p') as $element ) {
         $assert($matcher::specificityCounts($parsed) === $matcher::specificityCounts($matcher::parse($after)), 'factoring preserves the full specificity tuple');
     }
     $assert($oldMatch === $matcher::matches($element, $matcher::parse($after))['matches'], 'factored selector matches exactly the original union');
+}
+
+// Per-position arms covering positions 1..b collapse into one :nth-child(-n+b)
+// arm that matches exactly the same items; gapped or offset runs stay as authored.
+$document = new DOMDocument();
+$document->loadHTML('<ul class="m"><li><a>1</a></li><li><a>2</a></li><li><a>3</a></li><li><a>4</a></li></ul>');
+$links = iterator_to_array($document->getElementsByTagName('a'));
+foreach (array(
+    array('.m>li:nth-child(1) a,.m>li:nth-child(2) a,#x,.m>li:nth-child(3) a', '.m>li:nth-child(-n+3) a,#x'),
+    array('.m>li:nth-child(1) a,.m>li:nth-child(3) a', '.m>li:nth-child(1) a,.m>li:nth-child(3) a'),
+    array('.m>li:nth-child(2) a,.m>li:nth-child(3) a', '.m>li:nth-child(2) a,.m>li:nth-child(3) a'),
+) as [$before, $expected]) {
+    $after = $compactor::mergeNthChildRuns($before);
+    $assert($expected === $after, 'item runs from the first position merge into one :nth-child(-n+b) arm', $after);
+    foreach ($links as $link) {
+        $any = static fn(string $list): bool => array() !== array_filter(explode(',', $list), static fn(string $arm): bool => $matcher::matches($link, $matcher::parse($arm))['matches']);
+        $assert($any($before) === $any($after), 'merged item runs match exactly the original arms');
+    }
+    $assert($matcher::specificityCounts($matcher::parse('.m>li:nth-child(1) a')) === $matcher::specificityCounts($matcher::parse('.m>li:nth-child(-n+3) a')), 'merged item runs keep their specificity');
 }
 
 // Cached probe failures must not leak between routes sharing selector bytes.

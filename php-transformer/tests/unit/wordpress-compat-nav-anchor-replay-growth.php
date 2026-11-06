@@ -93,9 +93,10 @@ foreach (array(array(1, 2), array(3, 2), array(3, 8)) as [$pages, $items]) {
 
 // A route-owned source delta is not linked from the HTML. It still contributes
 // authored replay, without replaying its generated per-element alternatives.
+// The pages carry the markup every replayed rule targets.
 $authored = array(
-    array('path' => 'index.html', 'kind' => 'html', 'content' => '<html><head><link rel="stylesheet" href="site.css"><link rel="stylesheet" href="later.css"></head><body><nav class="menu"><a href="/one">One</a></nav></body></html>', 'metadata' => array('compilation' => array('scope' => 'page', 'id' => 'index.html'))),
-    array('path' => 'other.html', 'kind' => 'html', 'content' => '<html><head><link rel="stylesheet" href="site.css"><link rel="stylesheet" href="later.css"></head><body><nav class="menu"><a href="/two">Two</a></nav></body></html>', 'metadata' => array('compilation' => array('scope' => 'page', 'id' => 'other.html'))),
+    array('path' => 'index.html', 'kind' => 'html', 'content' => '<html><head><link rel="stylesheet" href="site.css"><link rel="stylesheet" href="later.css"></head><body><nav class="menu"><div class="item"><a href="/one"><img src="i.svg"></a></div><ul><li><a href="/one"><img src="i.svg"></a></li></ul></nav><ul class="other"><li><a href="/x"><img src="i.svg"></a></li></ul></body></html>', 'metadata' => array('compilation' => array('scope' => 'page', 'id' => 'index.html'))),
+    array('path' => 'other.html', 'kind' => 'html', 'content' => '<html><head><link rel="stylesheet" href="site.css"><link rel="stylesheet" href="later.css"></head><body><nav class="menu"><div class="item"><a href="/two"><img src="i.svg"></a></div><ul><li><a href="/two"><img src="i.svg"></a></li></ul></nav><ul class="other"><li><a href="/x"><img src="i.svg"></a></li></ul></body></html>', 'metadata' => array('compilation' => array('scope' => 'page', 'id' => 'other.html'))),
     array('path' => 'site.css', 'kind' => 'css', 'content' => '.menu a{color:red}'),
     array('path' => 'route.css', 'kind' => 'css', 'content' => '@media(min-width:700px){nav .item a > img{width:37px}}', 'metadata' => array('page_stylesheet_of' => 'site.css', 'compilation' => array('scope' => 'page', 'id' => 'other.html'))),
 );

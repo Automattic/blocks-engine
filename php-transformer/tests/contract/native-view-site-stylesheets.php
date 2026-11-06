@@ -114,8 +114,18 @@ $assert(array() !== $siteFallbacks, 'The site-wide stylesheet loads on WordPress
 $assert($siteFallbacks[0] < $chromeFallbacks[0], 'The site-wide stylesheet loads in source order, ahead of the shared-chrome fallbacks lifted from it: ' . json_encode($nativeOrder));
 $assert(! in_array($extraTarget, $nativeOrder, true), 'The one-document stylesheet is not fallen back to native views: ' . json_encode($nativeOrder));
 
-preg_match('/\$blocks_engine_presentation_styles = (array \(.*?\n\));\n/s', $bootstrap, $editor);
-$editorStyles = isset($editor[1]) ? eval('return ' . $editor[1] . ';') : array();
+$registries = array();
+foreach (array('styles', 'scopes', 'replay') as $name) {
+    if (1 !== preg_match('/\$blocks_engine_presentation_' . $name . ' = (array \(.*?\n\));\n/s', $bootstrap, $match)) throw new RuntimeException('Missing presentation registry: ' . $name);
+    $registries[$name] = eval('return ' . $match[1] . ';');
+}
+$editorStyles = array();
+foreach ($registries['replay'] as $entry) {
+    $style = $registries['styles'][$entry[0]];
+    $style['scopes'] = array($registries['scopes'][$entry[1]]);
+    $style['fallback'] = $entry[4];
+    $editorStyles[] = $style;
+}
 $siteEditorScopes = array();
 $extraEditorScopes = array();
 foreach ($editorStyles as $style) {

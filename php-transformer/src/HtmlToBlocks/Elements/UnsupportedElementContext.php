@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription;
 use Closure;
 use DOMElement;
 
@@ -16,12 +17,11 @@ final class UnsupportedElementContext
 {
     /**
      * @param Closure(array<string, mixed>, DOMElement): array<string, mixed> $generatedComponentBlock
-     * @param Closure(DOMElement): array<string, mixed>   $sourceContext
      */
     public function __construct(
         private readonly HtmlTransformerSession $session,
         private readonly Closure $generatedComponentBlock,
-        private readonly Closure $sourceContext
+        public readonly SourceElementDescription $sourceElementDescription
     ) {
     }
 
@@ -32,14 +32,6 @@ final class UnsupportedElementContext
     public function generatedComponentBlock(array $generated, DOMElement $element): array
     {
         return ($this->generatedComponentBlock)($generated, $element);
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    public function sourceContext(DOMElement $element): array
-    {
-        return ($this->sourceContext)($element);
     }
 
     public function safeFallbackHtml(DOMElement $element): string

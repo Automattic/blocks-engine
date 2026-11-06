@@ -27,7 +27,7 @@ $formFrom = static function (string $html): DOMElement {
     throw new RuntimeException('No form parsed');
 };
 
-$session = new HtmlTransformerSession(new Runtime(), static fn (DOMElement $element): array => array());
+$session = new HtmlTransformerSession(new Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()));
 $provenance = $session->transformationProvenanceState();
 $children = array();
 $capturedUnsupported = null;

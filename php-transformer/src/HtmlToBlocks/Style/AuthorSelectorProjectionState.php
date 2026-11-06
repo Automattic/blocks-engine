@@ -175,7 +175,7 @@ final class AuthorSelectorProjectionState
     private array $navigationListShownDisplays = array();
 
     /** Source list box properties that the native root renders after the list becomes display:contents. */
-    public const NAVIGATION_LIST_BOX_PROPERTIES = array('display', 'flex-direction', 'flex-wrap', 'flex-flow', 'justify-content', 'align-items', 'align-content', 'gap', 'row-gap', 'overflow', 'overflow-x', 'overflow-y', 'columns', 'column-count', 'column-width', 'column-gap', 'column-fill', 'column-rule', 'column-rule-color', 'column-rule-style', 'column-rule-width');
+    public const NAVIGATION_LIST_BOX_PROPERTIES = array('display', 'flex-direction', 'flex-wrap', 'flex-flow', 'justify-content', 'align-items', 'align-content', 'gap', 'row-gap', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'margin-block', 'margin-block-start', 'margin-block-end', 'margin-inline', 'margin-inline-start', 'margin-inline-end', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'padding-block', 'padding-block-start', 'padding-block-end', 'padding-inline', 'padding-inline-start', 'padding-inline-end', 'overflow', 'overflow-x', 'overflow-y', 'columns', 'column-count', 'column-width', 'column-gap', 'column-fill', 'column-rule', 'column-rule-color', 'column-rule-style', 'column-rule-width');
 
     /**
      * Target class for the native root that renders source list `$path`'s box.
@@ -190,6 +190,20 @@ final class AuthorSelectorProjectionState
         $this->navigationListShownDisplays[$path] = $shownDisplay;
 
         return $marker;
+    }
+
+    /** @var array<string, true> Source items whose native item renders Core's submenu toggle in their row. */
+    private array $navigationToggleRowItems = array();
+
+    /** Record a source item whose disclosure glyph Core's toggle replaces beside its content. */
+    public function markNavigationToggleRowItem(string $path): void
+    {
+        $this->navigationToggleRowItems[$path] = true;
+    }
+
+    public function isNavigationToggleRowItem(string $path): bool
+    {
+        return isset($this->navigationToggleRowItems[$path]);
     }
 
     public function navigationListShownDisplay(string $path): string
@@ -292,8 +306,10 @@ final class AuthorSelectorProjectionState
         // item must receive this paint when Core renders another route.
         // Source boxes restored around the anchor are not necessarily direct
         // children of the LI, so target Core's current anchor as a descendant.
+        // A URL-less section toggle is current through its item, which the
+        // runtime marks current-menu-item; its own submenu's items are not.
         if (str_contains($subject, '.wp-block-navigation-item__content')) {
-            return (string) preg_replace('/\.wp-block-navigation-item(?![\w-]).*$/', '.wp-block-navigation-item .wp-block-navigation-item__content[aria-current="page"]', $subject, 1);
+            return (string) preg_replace('/\.wp-block-navigation-item(?![\w-]).*$/', '.wp-block-navigation-item :is(.wp-block-navigation-item__content[aria-current="page"],:where(.wp-block-navigation-submenu.current-menu-item>.wp-block-navigation-item__content,.wp-block-navigation-submenu.current-menu-item>:not(.wp-block-navigation__submenu-container) .wp-block-navigation-item__content))', $subject, 1);
         }
         return (string) preg_replace('/\.wp-block-navigation-item(?![\w-])/', '.wp-block-navigation-item:has(.wp-block-navigation-item__content[aria-current="page"])', $subject, 1);
     }

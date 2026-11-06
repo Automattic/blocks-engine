@@ -132,8 +132,8 @@ $assert(
 );
 $linkColor = $selectorsDeclaring($floatedRules, 'color:#666');
 $assert(
-    4 === count($linkColor) && array() === array_filter($linkColor, static fn(string $selector): bool => !str_contains($selector, '.wp-block-navigation-item:nth-child(') || !str_contains($selector, ':where(.wp-block-navigation-item__content)') || 2 !== substr_count($selector, ':not(#be-i-0)')),
-    'an anchor rule under the list reaches exactly its four native anchor subjects with the source ancestor specificity',
+    1 === count($linkColor) && array() === array_filter($linkColor, static fn(string $selector): bool => !str_contains($selector, '.wp-block-navigation-item.blocks-engine-navigation-anchor-') || !str_contains($selector, ':where(.wp-block-navigation-item__content)') || 2 !== substr_count($selector, ':not(#be-i-0)')),
+    'an anchor rule shares one target for its four equivalent native anchors with the source ancestor specificity',
     json_encode($linkColor)
 );
 
@@ -177,8 +177,9 @@ $assert(
 $rowFloat = array_values(array_filter($rowRules, static fn (array $rule): bool => str_contains($rule['body'], 'float:right')));
 $rowMargin = array_values(array_filter($rowRules, static fn (array $rule): bool => 1 === preg_match('/(?:^|;)margin(?:-left)?:/', $rule['body'])));
 $assert(
-    1 === count($rowFloat) && 1 === count($rowMargin),
-    'float and margin are each stated by exactly one author rule',
+    1 === count($rowFloat) && 2 === count($rowMargin)
+        && 1 === count(array_filter($rowMargin, static fn(array $rule): bool => str_contains($rule['selector'], 'nav.wp-block-navigation.blocks-engine-navigation-list-box-'))),
+    'float stays on the host and list margin also reaches the dedicated rendered box subject',
     json_encode(array( $rowFloat, $rowMargin ))
 );
 $assert(

@@ -137,14 +137,14 @@ $assertTrue($resolver->hasRepeatingBackground('background:url(x.jpg) repeat'), '
 
 // H6: Near-transparent and near-opaque overlays collapse to the no-overlay default.
 $assertSameArray(
-    array( 'dimRatio' => 0, 'customOverlayColor' => '' ),
+    array( 'dimRatio' => 4, 'customOverlayColor' => '#000000' ),
     $resolver->dimFromStyle('background:linear-gradient(rgba(0,0,0,0.04),rgba(0,0,0,0.04)),url(h.jpg)'),
-    'An overlay that rounds to zero is omitted.'
+    'Low opacity overlays retain percentage precision.'
 );
 $assertSameArray(
-    array( 'dimRatio' => 0, 'customOverlayColor' => '' ),
+    array( 'dimRatio' => 95, 'customOverlayColor' => '#000000' ),
     $resolver->dimFromStyle('background:linear-gradient(rgba(0,0,0,0.95),rgba(0,0,0,0.95)),url(h.jpg)'),
-    'An overlay that rounds to 100 is omitted.'
+    'High opacity overlays retain percentage precision.'
 );
 
 // H7: Vertical-first and single vertical background positions map correctly.

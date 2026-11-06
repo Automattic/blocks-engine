@@ -4,12 +4,13 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use DOMElement;
 
 /** Selects the editable, compositional, or preserved representation of a form. */
 final class FormDispatcher
 {
-    public function __construct(private readonly FormDispatchContext $context)
+    public function __construct(private readonly FormDispatchContext $context, private readonly SourceBlockCreator $createBlock)
     {
     }
 
@@ -38,7 +39,7 @@ final class FormDispatcher
         // omitted type still submits its ancestor form. Do not detach that
         // control into a dead core/button when native form lowering declines it.
         if ( $this->hasAnchorWrappedButton($element) ) {
-            return $this->context->htmlPreservationBlock($element);
+            return $this->createBlock->htmlPreservationBlock($element);
         }
 
         // Choice-only state needs runtime behavior, not provider substitution.
@@ -76,7 +77,7 @@ final class FormDispatcher
         }
 
         if ( FormControlClassifier::hasDataEntryControls($element) || $hasChoiceGroups ) {
-            $preservationBlock = $this->context->htmlPreservationBlock($element);
+            $preservationBlock = $this->createBlock->htmlPreservationBlock($element);
             $fallbacks[] = $this->context->buildFallbackFinding($element, $readableFormBlock, $preservationBlock);
             $this->context->recordForm($element, $readableFormBlock);
 

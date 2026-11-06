@@ -5,27 +5,10 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use DOMElement;
-use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
 
 /** Adapts the known producer's inert facts to the authored-control model. */
 final class NativeControlState
 {
-
-    public static function isReplayScript(string $tag): bool
-    {
-        return array_key_exists(CaptureEvidence::NATIVE_CONTROL_RUNTIME, HtmlTagScanner::attributes($tag));
-    }
-
-    /** Discard the producer interpreter, never grant a script trust by its marker.
-     * Source bytes/identities remain owned by ingestion; this is a rendering view.
-     */
-    public static function withoutReplayScript(string $html): string
-    {
-        foreach (array_reverse(HtmlTagScanner::scan($html, 'script')) as $script) if (self::isReplayScript($script['tag'])) {
-            $html = substr_replace($html, '', $script['offset'], $script['end_offset'] - $script['offset']);
-        }
-        return $html;
-    }
 
     /** Validated producer facts for consumers that receive control metadata, such as form providers.
      * @return array<string,mixed>|null */

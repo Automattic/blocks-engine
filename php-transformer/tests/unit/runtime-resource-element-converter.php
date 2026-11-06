@@ -34,7 +34,7 @@ $elementFrom = static function (string $html): DOMElement {
     throw new RuntimeException('Fixture element not parsed');
 };
 
-$session = new HtmlTransformerSession(new Runtime(), static fn (DOMElement $element): array => array());
+$session = new HtmlTransformerSession(new Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()));
 $session->installGeneratedBlockRegistry(new GeneratedBlockRegistry('blocks-engine'));
 $selectors = new RuntimeSelectorState(
     array( '#config' => true ),
@@ -47,10 +47,6 @@ $session->fallbackEmitter()->configure(array(), array(), $selectors);
 $preserved = 0;
 $converter = new RuntimeResourceElementConverter(
     $session,
-    static function (DOMElement $element) use (&$preserved): array {
-        ++$preserved;
-        return array( 'blockName' => 'core/html', 'attrs' => array( 'content' => 'preserved:' . $element->tagName ) );
-    },
     new SourceBlockCreatorFixture(static fn (string $name, array $attributes, array $innerBlocks, DOMElement $element): array => array(
         'blockName' => $name,
         'attrs' => $attributes,

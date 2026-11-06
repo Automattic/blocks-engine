@@ -25,7 +25,7 @@ $header = static function (string $home, string $about): string {
 $document = static function (string $header, string $main) use ($css): string {
     return '<!doctype html><html><head><style>' . $css . '</style><link rel="stylesheet" href="route.css"></head><body>'
         . '<div id="site-root"><div id="masterPage">' . $header
-        . '<div id="PAGES_CONTAINER"><div class="route-grid">' . $main . '</div></div></div></div>'
+        . '<div id="PAGES_CONTAINER"><div class="route-grid">' . $main . '<p class="route-only">Route</p></div></div></div></div>'
         . '</body></html>';
 };
 
@@ -114,8 +114,19 @@ $enqueues = static function (array $plan): array {
     preg_match_all("/^    if \\( (.+?) \\) wp_enqueue_style\\( '[^']+', get_theme_file_uri\\( '([^']+)' \\)/m", $frontend, $lines, PREG_SET_ORDER);
     $global = array();
     foreach ($lines as $line) $global[$line[1]][] = $line[2];
-    preg_match('/\$blocks_engine_presentation_styles = (array \(.*?\n\));\n/s', $bootstrap, $editor);
-    return array('routes' => $routes, 'global' => $global, 'editor' => isset($editor[1]) ? eval('return ' . $editor[1] . ';') : array());
+    $registries = array();
+    foreach (array('styles', 'scopes', 'replay') as $name) {
+        if (1 !== preg_match('/\$blocks_engine_presentation_' . $name . ' = (array \(.*?\n\));\n/s', $bootstrap, $match)) throw new RuntimeException('Missing presentation registry: ' . $name);
+        $registries[$name] = eval('return ' . $match[1] . ';');
+    }
+    $editor = array();
+    foreach ($registries['replay'] as $entry) {
+        $style = $registries['styles'][$entry[0]];
+        $style['scopes'] = array($registries['scopes'][$entry[1]]);
+        $style['fallback'] = $entry[4];
+        $editor[] = $style;
+    }
+    return array('routes' => $routes, 'global' => $global, 'editor' => $editor);
 };
 // Landmark lowering can also project engine geometry support. This contract
 // checks the authored inline stylesheet and its cascade placement, not support CSS.
@@ -226,8 +237,8 @@ $splitDocument = static function (string $headerHtml, string $main) use ($splitH
 $split = (new ArtifactCompiler())->compile(array(
     'entrypoint' => 'index.html',
     'files' => array(
-        'index.html' => $splitDocument($splitHeader('index.html', 'about.html'), '<main><h1>Home</h1></main>'),
-        'about.html' => $splitDocument($splitHeader('index.html', 'about.html'), '<main><h1>About</h1></main>'),
+        'index.html' => $splitDocument($splitHeader('index.html', 'about.html'), '<main><h1 class="home-only">Home</h1></main>'),
+        'about.html' => $splitDocument($splitHeader('index.html', 'about.html'), '<main><h1 class="about-only">About</h1></main>'),
         'team.html' => $splitDocument($splitHeader('index.html', 'about.html'), '<main><h1>Team</h1></main>'),
         'css/home.css' => array('path' => 'css/home.css', 'kind' => 'css', 'content' => $splitChrome . '.home-only{color:#111111}'),
         'css/about.css' => array('path' => 'css/about.css', 'kind' => 'css', 'content' => $splitChrome . '.about-only{color:#222222}'),

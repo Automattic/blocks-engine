@@ -5,6 +5,10 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\SchemaProductEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CustomElementRuntimeDependency;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormFallbackFindingContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationProvenanceState;
@@ -43,7 +47,11 @@ final class CommerceFallbackReporter
         private readonly CommerceStructureRecognizer $recognizer,
         private readonly Runtime $runtime,
         private readonly TransformationProvenanceState $provenance,
-        private readonly RuntimeIslandAnalyzer $runtimeIslands
+        private readonly RuntimeIslandAnalyzer $runtimeIslands,
+        private readonly SourceElementDescription $sourceElementDescription,
+        private readonly FormControlMetadataBuilder $metadataBuilder,
+        private readonly HtmlTransformerSession $session,
+        private readonly FormFallbackFindingContext $formFallbackContext
     ) {
     }
 
@@ -184,7 +192,7 @@ final class CommerceFallbackReporter
                 'tag'               => strtolower($element->tagName),
                 'selector'          => SourceDom::elementSelector($element),
                 'container_selector' => SourceDom::elementSelector($element),
-                'context'           => $this->sourceContext($element),
+                'context'           => $this->sourceElementDescription->sourceContext($element, includeStructureSignals: false, retainLinkTabindex: true),
                 'products'          => $products,
                 'product_count'     => count($products),
                 // The whole grid as one provider-replaceable region. Its
@@ -867,7 +875,7 @@ final class CommerceFallbackReporter
                 'tag'               => strtolower($element->tagName),
                 'selector'          => SourceDom::elementSelector($element),
                 'container_selector' => SourceDom::elementSelector($element),
-                'context'           => $this->sourceContext($element),
+                'context'           => $this->sourceElementDescription->sourceContext($element, includeStructureSignals: false, retainLinkTabindex: true),
                 'controls'          => $controlGroups,
                 'control_count'     => count($controlGroups),
             ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->provenance->fallback());
@@ -973,6 +981,20 @@ final class CommerceFallbackReporter
                     $run
                 );
             }
+            // Share the form builders and their source-order enumeration. The
+            // recognized cart control may be a non-native role=button element.
+            $additionalControls = null !== $control ? array($control) : array();
+            $controls = $this->metadataBuilder->controls($element, $additionalControls);
+            $presentationGraph = (new FormPresentationGraphBuilder(
+                fn (DOMElement $control, string $value): string => $this->formFallbackContext->resolvePresentationValue($control, $value),
+                fn (DOMElement $element): string => $this->formFallbackContext->sanitizeInlineSvgMarkup($element),
+                fn (DOMElement $control): ?DOMElement => $this->metadataBuilder->requiredMarker($control),
+                additionalControls: $additionalControls
+            ))->build(
+                $element,
+                $this->session->authorStyleAnalysis()->stylesheetAssets(),
+                $this->session->sourceStyleResolutionState()->formLayoutCss()
+            );
             $fallbacks[] = FallbackDiagnostic::build(array(
                 'type' => 'html',
                 'reason' => 'commerce_controls_require_runtime',
@@ -982,8 +1004,11 @@ final class CommerceFallbackReporter
                 'source_format' => 'html',
                 'tag' => strtolower($element->tagName),
                 'selector' => SourceDom::elementSelector($element),
-                'context' => $this->sourceContext($element),
+                'context' => $this->sourceElementDescription->sourceContext($element, includeStructureSignals: false, retainLinkTabindex: true),
                 'binding' => $binding,
+                'controls' => $controls,
+                'control_count' => count($controls),
+                'presentation_graph' => $presentationGraph,
             ), $this->provenance->fallback());
         }
     }
@@ -997,7 +1022,17 @@ final class CommerceFallbackReporter
     private function insideChromeOrForm(DOMElement $node): bool
     {
         for ( $ancestor = $node->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
-            if ( in_array(strtolower($ancestor->tagName), array('form', 'header', 'footer', 'nav'), true) ) {
+            $tag = strtolower($ancestor->tagName);
+            if ( in_array($tag, array('form', 'nav'), true) ) {
+                return true;
+            }
+            if ( in_array($tag, array('header', 'footer'), true) ) {
+                // Section-owned headers/footers are content, not page chrome.
+                for ( $scope = $ancestor->parentNode; $scope instanceof DOMElement; $scope = $scope->parentNode ) {
+                    if ( ShellLandmarkPolicy::isContentRegionTag($scope->tagName) || in_array(strtolower($scope->tagName), array('main', 'nav'), true) ) {
+                        continue 2;
+                    }
+                }
                 return true;
             }
         }
@@ -1049,7 +1084,7 @@ final class CommerceFallbackReporter
                 'summary_selector'  => SourceDom::elementSelector($summary),
                 'placement'         => $this->cartViewPlacement($scope),
                 'runtime_selectors' => $runtimeSelectors,
-                'context'           => $this->sourceContext($scope),
+                'context'           => $this->sourceElementDescription->sourceContext($scope, includeStructureSignals: false, retainLinkTabindex: true),
                 'binding'           => $this->blockBinding(array(), 'commerce_cart', $runtimeSelectors, $scope),
             ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->provenance->fallback());
         }
@@ -1099,7 +1134,7 @@ final class CommerceFallbackReporter
                 'tag'               => strtolower($region['element']->tagName),
                 'selector'          => $region['selector'],
                 'runtime_selectors' => $region['runtime_selectors'],
-                'context'           => $this->sourceContext($region['element']),
+                'context'           => $this->sourceElementDescription->sourceContext($region['element'], includeStructureSignals: false, retainLinkTabindex: true),
                 'binding'           => $this->blockBinding(array(), 'commerce_checkout', $region['runtime_selectors'], $region['element']),
             ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->provenance->fallback());
         }
@@ -1310,47 +1345,4 @@ final class CommerceFallbackReporter
         return $binding;
     }
 
-    /**
-     * @return array<string, mixed>
-     */
-    private function sourceContext(DOMElement $element): array
-    {
-        $parent = $element->parentNode;
-        return array_filter(array(
-            'selector'                => SourceDom::elementSelector($element),
-            'parent_tag'              => $parent instanceof DOMElement && 'body' !== strtolower($parent->tagName) ? strtolower($parent->tagName) : '',
-            'ancestor_tags'           => SourceDom::ancestorTags($element),
-            'nearest_heading'         => SourceDom::nearestPreviousHeadingText($element),
-            'role'                    => SourceDom::attr($element, 'role'),
-            'id'                      => SourceDom::attr($element, 'id'),
-            'class_names'             => SourceDom::classNames($element),
-            'ancestor_class_names'    => $this->ancestorClassNames($element),
-            'data_attributes'         => SourceDom::safeDataAttributes($element),
-            'interactive_attributes'  => $this->interactiveAttributes($element),
-        ), static fn (mixed $value): bool => '' !== $value && array() !== $value);
-    }
-
-    /** @return list<string> */
-    private function ancestorClassNames(DOMElement $element): array
-    {
-        $classes = array();
-        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement && 'body' !== strtolower($ancestor->tagName); $ancestor = $ancestor->parentNode ) {
-            array_push($classes, ...SourceDom::classNames($ancestor));
-        }
-
-        return array_values(array_unique($classes));
-    }
-
-    /**
-     * @return array<string, bool|string>
-     */
-    private function interactiveAttributes(DOMElement $element): array
-    {
-        return array_filter(array(
-            'tabindex'      => SourceDom::attr($element, 'tabindex'),
-            'aria-expanded' => SourceDom::attr($element, 'aria-expanded'),
-            'aria-controls' => SourceDom::attr($element, 'aria-controls'),
-            'has_events'    => array() !== SourceDom::eventMetadata($element),
-        ), static fn (mixed $value): bool => false !== $value && '' !== $value);
-    }
 }

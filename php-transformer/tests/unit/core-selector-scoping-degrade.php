@@ -25,7 +25,7 @@ $result = (new CoreSelectorScoping())->dropUnscoped('@supports (display:grid){.w
 $assert('@supports (display:grid){.safe{  margin: 0; /* keep bytes */ }}' === $result && 3 === count($diagnostics), 'Nested rules preserve body bytes and repeated drops each report.');
 
 // The public session-backed stage is the smallest seam accepting generated CSS.
-$session = new HtmlTransformerSession(new Runtime(), static fn (DOMElement $element): array => array());
+$session = new HtmlTransformerSession(new Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()));
 $session->installAssetMaterializationState(new AssetMaterializationState('', array()));
 (new StylesheetAssetStage($session))->generated(array($css), 'engine-support', 'after-author', 'engine-support-after-author');
 $assets = $session->assetMaterializationState()->assets();

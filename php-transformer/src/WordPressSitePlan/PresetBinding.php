@@ -219,9 +219,12 @@ final class PresetBinding
                 }
                 if (array() === $ancestors) {
                     foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
-                        // A plain class (including its projected control exclusion)
-                        // proves a resting rule; contextual/conditional selectors do not.
-                        if (1 !== preg_match('/^\.([a-zA-Z_][a-zA-Z0-9_-]*)(?::not\(:where\(\.blocks-engine-role-control\)\))?$/', trim($selector), $match)) continue;
+                        // Route projections duplicate a plain class for the document
+                        // root and its descendants, including the control exclusion.
+                        // Remove only that generated scope, not author contexts/states.
+                        $routeScope = ':where\(:root:(?:is|not)\(\.be-r-[a-f0-9]+(?:,\.be-r-[a-f0-9]+)*\)\)';
+                        $selector = preg_replace('/^' . $routeScope . ' +|' . $routeScope . '$/', '', trim($selector)) ?? $selector;
+                        if (1 !== preg_match('/^\.([a-zA-Z_][a-zA-Z0-9_-]*)(?::not\(:where\(\.blocks-engine-role-control\)\))?$/', $selector, $match)) continue;
                         foreach (self::declarations($body) as [$property, $value]) {
                             if (in_array($property, array('color', 'background-color', 'background'), true)) $this->classColors[$match[1]][$property][] = $value;
                         }
@@ -680,7 +683,13 @@ final class PresetBinding
             }
             foreach (array('text' => 'color', 'background' => 'background-color') as $key => $property) {
                 $value = $style->color->{$key} ?? null;
-                if (is_string($value) && $this->matchesButtonElement($property, $value) && self::removeDeclaration($declarations, $property, $value)) {
+                if (!is_string($value) || !$this->matchesButtonElement($property, $value)) continue;
+                $slug = $this->presetSlug('color', $value, null);
+                $added = null === $slug ? array() : array('text' === $key ? 'has-text-color' : 'has-background', 'has-' . $slug . ('text' === $key ? '-color' : '-background-color'));
+                // Native button elements need explicit palette bindings; link
+                // variants retain their existing element-default ownership.
+                if ('button' === ($attributes->tagName ?? null) && null !== $slug && $this->safe($property, $tokens, $added)) continue;
+                if (self::removeDeclaration($declarations, $property, $value)) {
                     unset($style->color->{$key});
                     $dropClasses[] = 'text' === $key ? 'has-text-color' : 'has-background';
                     ++$bound;
@@ -741,6 +750,22 @@ final class PresetBinding
             $attributes->{$attribute} = $slug;
             array_push($addClasses, ...array_map(static fn(string $class): string => sprintf($class, $slug), $added));
             ++$bound;
+        }
+
+        // core/button's border preset is serialized on the same inner element
+        // as its text and background, including tagName: button.
+        $border = $style->border->color ?? null;
+        if ($isLink && !isset($attributes->borderColor) && is_string($border) && !str_starts_with($border, 'var:')) {
+            $slug = $this->presetSlug('color', $border, null, $reason);
+            $added = null === $slug ? array() : array('has-border-color', 'has-' . $slug . '-border-color');
+            if (null !== $slug && $this->safe('border-color', $tokens, $added, false, false, $reason)) {
+                if (self::removeDeclaration($declarations, 'border-color', $border)) {
+                    unset($style->border->color);
+                    $attributes->borderColor = $slug;
+                    array_push($addClasses, ...$added);
+                    ++$bound;
+                } else $this->refuse('inconsistent_source');
+            } else $this->refuse($reason);
         }
 
         $typography = array(
@@ -1679,6 +1704,7 @@ final class PresetBinding
         foreach (preg_split('/\s+/', strtolower(trim($properties))) ?: array() as $property) {
             if ('color' === $property) $families['color'] = true;
             elseif ('background' === $property || 'background-color' === $property) $families['background'] = true;
+            elseif ('border' === $property || 'border-color' === $property || preg_match('/^border-(?:top|right|bottom|left)(?:-color)?$/', $property)) $families['border-color'] = true;
             elseif ('font' === $property) $families['font-size'] = $families['font-family'] = true;
             elseif ('font-size' === $property || 'font-family' === $property) $families[$property] = true;
             else foreach (array('padding', 'margin') as $family) if ($property === $family || str_starts_with($property, $family . '-')) $families[$family] = true;

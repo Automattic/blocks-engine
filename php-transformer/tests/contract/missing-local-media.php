@@ -118,7 +118,7 @@ WordPressSitePlan::assertValid($stagedPlan);
 
 // Font alternatives are filtered in their owning face, never recovered as images.
 $fonts = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
-    'index.html' => '<link rel="stylesheet" href="styles/fonts.css"><main><h1>Fonts</h1></main>',
+    'index.html' => '<link rel="stylesheet" href="styles/fonts.css"><main><h1>Fonts</h1><div class="banner"></div></main>',
     'styles/fonts.css' => '@font-face{font-family:"Complete";src:url(../fonts/present.woff2) format("woff2")} '
         . '@font-face{font-family:"Split";unicode-range:U+0000-00FF;src:local("Split, Local"),url(../fonts/missing.woff2) format("woff2"),url(../fonts/present.woff2) format("woff2") tech(variations),url(../fonts/present.woff) format("woff")} '
         . '@font-face{font-family:"Split";unicode-range:U+0100-017F;src:url(../fonts/absent.woff2) format("woff2")} '
@@ -138,7 +138,7 @@ $assert(2 === substr_count($fontCss, '@font-face') && str_contains($fontCss, 'U+
 $assert(1 === substr_count($fontCss, $placeholder) && str_contains($fontCss, '.banner{background:url(' . $placeholder . ')}'), 'Only the real media URL receives an image placeholder.');
 $fontDiagnostics = array_values(array_filter($fontPlan['diagnostics'] ?? array(), static fn(array $diagnostic): bool => 'wordpress_site_plan_missing_font_source' === ($diagnostic['code'] ?? null)));
 $assert(2 === count($fontDiagnostics) && array('../fonts/missing.woff2', '../fonts/absent.woff2') === array_column($fontDiagnostics, 'value') && array('Split', 'Split') === array_column($fontDiagnostics, 'family') && array('styles/fonts.css', 'styles/fonts.css') === array_column($fontDiagnostics, 'source_path'), 'Font warnings identify each missing URL, family and stylesheet.');
-$assert(in_array('wordpress_site_plan_missing_font_source', $fontPlan['reporting']['diagnostic_codes'] ?? array(), true) && 1 === count($mediaDiagnostics($fontPlan)), 'Font diagnostics reach the existing completion report separately from media warnings.');
+$assert(in_array('wordpress_site_plan_missing_font_source', $fontPlan['reporting']['diagnostic_codes'] ?? array(), true) && array('missing.png', 'missing.png') === array_column($mediaDiagnostics($fontPlan), 'value'), 'Font diagnostics reach the existing completion report separately from media warnings.');
 $strictFontReason = null;
 try {
     (new WordPressSitePlan(true))->fromResult($fonts);

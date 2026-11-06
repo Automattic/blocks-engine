@@ -112,12 +112,28 @@ final class ButtonPatternContext
             return '';
         }
 
+        $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($element));
+        // Read before conditional/class-owned declarations are filtered: an
+        // authored line-height must stay owned by its projected selector.
+        $uaLineHeight = $this->styleResolver->buttonUserAgentLineHeight($element, $declarations);
+        if ( null !== $uaLineHeight ) {
+            $declarations['line-height'] = $uaLineHeight;
+        }
+        // Source buttons without authored corners are square. Core/button instead
+        // supplies a pill radius, so materialize the source default as native style.
+        // Check before class-owned declarations are removed: those radii still
+        // belong to the projected stylesheet, including individual corners.
+        if ( 'button' === strtolower($element->tagName)
+            && array() === array_intersect_key($declarations, array_flip(array(
+                'border-radius', 'border-top-left-radius', 'border-top-right-radius',
+                'border-bottom-left-radius', 'border-bottom-right-radius',
+            ))) ) {
+            $declarations['border-radius'] = '0px';
+        }
+
         return $this->styleResolver->cssDeclarationString($this->styleResolver->resolvedPresentationDeclarations(
             $element,
-            $this->styleResolver->classOwnedResponsiveDeclarations(
-                $element,
-                $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($element))
-            ),
+            $this->styleResolver->classOwnedResponsiveDeclarations($element, $declarations),
             true
         ));
     }

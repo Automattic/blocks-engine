@@ -99,7 +99,7 @@ $assert(str_contains($generatedAssets, 'dialog[data-blocks-engine-triggers]:not(
 
 // 3. The popovertarget opener opens it.
 $triggerIds = (array) ($drawerAttrs['triggerIds'] ?? array());
-$assert(1 === count($triggerIds) && 1 === preg_match('/<!-- wp:button \{"anchor":"' . preg_quote((string) ($triggerIds[0] ?? '-'), '/') . '"[^}]*\} --><div id="[^"]+"[^>]*><button[^>]*title="Abrir menú">Menú<\/button>/', $blocks), 'the dialog is bound to the popovertarget opener, which renders as an operable button', $blocks);
+$assert(1 === count($triggerIds) && 1 === preg_match('/<!-- wp:button \{"anchor":"' . preg_quote((string) ($triggerIds[0] ?? '-'), '/') . '"(?:(?!-->).)*\} --><div id="[^"]+"[^>]*><button[^>]*title="Abrir menú">Menú<\/button>/', $blocks), 'the dialog is bound to the popovertarget opener, which renders as an operable button', $blocks);
 
 // 4. Open, the captured navigation links are present and not hidden.
 $assert(1 === preg_match('/<nav\b([^>]*)>(.*?)<\/nav>/s', $drawerBody, $nav), 'the captured nav renders inside the dialog', $drawerBody);
@@ -109,7 +109,7 @@ $assert(str_contains($nav[2] ?? '', '<a href="/a/">A</a>') && str_contains($nav[
 // 5. The source hide control closes it, bound by its attribute, not its label.
 $closerIds = (array) ($drawerAttrs['closerIds'] ?? array());
 $assert(1 === count($closerIds) && str_contains($dialogTag, 'data-blocks-engine-closers="' . ($closerIds[0] ?? '-') . '"'), 'the dialog names the popovertargetaction="hide" control as its closer', $dialogTag);
-$assert(1 === preg_match('/<!-- wp:button \{"anchor":"' . preg_quote((string) ($closerIds[0] ?? '-'), '/') . '"[^}]*\} --><div id="[^"]+"[^>]*><button[^>]*title="Cerrar menú">×<\/button>/', $drawerBody), 'the hide control survives inside the dialog with the bound id', $drawerBody);
+$assert(1 === preg_match('/<!-- wp:button \{"anchor":"' . preg_quote((string) ($closerIds[0] ?? '-'), '/') . '"(?:(?!-->).)*\} --><div id="[^"]+"[^>]*><button[^>]*title="Cerrar menú">×<\/button>/', $drawerBody), 'the hide control survives inside the dialog with the bound id', $drawerBody);
 $assert(str_contains($generatedAssets, 'data-blocks-engine-closers'), 'the dialog view script closes from its declared closers', '');
 // The bound close needs no English label: a Spanish label and non-× glyph still bind.
 $spanish = $compile($dropdown . str_replace('aria-label="Cerrar menú">×', 'aria-label="Cerrar menú">Cerrar', $popoverDrawer));

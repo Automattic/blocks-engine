@@ -77,6 +77,11 @@ final class NavigationPatternContext
                 $marker, ':where(.' . $marker . '){display:block}'
             );
         }
+        // Core KSES filters label style attributes at render time. Use the
+        // same generated geometry owner as block boxes so inline offsets (in
+        // particular inset and its logical forms) survive that filtering.
+        $geometry = $this->styleResolver?->inlineGeometryClassName($element) ?? '';
+        if ('' !== $geometry) $markers[] = $geometry;
         return $markers;
     }
 
@@ -114,6 +119,9 @@ final class NavigationPatternContext
             $this->projectSourceToNativeTarget($list, '.wp-block-navigation.' . $boxMarker,
                 $this->styleResolver->styleAttributeMapper()->serialize($gapStyle)['style']);
         }
+        if ('' !== $boxMarker && $list instanceof DOMElement) {
+            $this->projectListSeparators($list, $boxMarker);
+        }
         $identity = $this->sourceListHostIdentity($element);
 
         return trim($identity . ' ' . $boxMarker);
@@ -124,13 +132,56 @@ final class NavigationPatternContext
     {
         if (null === $this->session || !$list instanceof DOMElement || !$this->styleResolver instanceof StyleResolver) return '';
         $columns = $this->declaresColumns($list);
-        if (!$columns && !array_filter(array('display', 'overflow', 'overflow-x', 'overflow-y'), fn(string $property): bool => !$this->styleResolver->declaredPresentation($list, $property)->isEmpty())) {
+        if (!$columns && !array_filter(\Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProjectionState::NAVIGATION_LIST_BOX_PROPERTIES, fn(string $property): bool => !$this->styleResolver->declaredPresentation($list, $property)->isEmpty())) {
             return '';
         }
 
         // Named like the menu's items: by the list and the rules that match
         // it, so the shared header's list carries one marker on every route.
         return $this->session->authorSelectorProjectionState()->installNavigationListBoxSubject($list->getNodePath() ?? '', $columns ? 'block' : 'flex', $this->navigationSubjectMarker($list, 'list-box'));
+    }
+
+    /**
+     * Decorative link siblings cannot be children of a navigation-link block.
+     * A uniform trailing glyph belongs on the native item instead, leaving its
+     * label editable and its saved markup entirely owned by Core.
+     */
+    private function projectListSeparators(DOMElement $list, string $marker): void
+    {
+        $items = array();
+        foreach ($list->childNodes as $item) {
+            if ($item instanceof DOMElement) $items[] = $item;
+        }
+        if (count($items) < 2) return;
+        $separators = array();
+        $signature = null;
+        foreach ($items as $index => $item) {
+            $children = array();
+            foreach ($item->childNodes as $child) {
+                if ($child instanceof DOMElement) $children[] = $child;
+                elseif ('' !== trim($child->textContent ?? '')) return;
+            }
+            if ('li' !== strtolower($item->tagName) || !isset($children[0]) || 'a' !== strtolower($children[0]->tagName)) return;
+            if ($index === count($items) - 1 && 1 === count($children)) continue;
+            if (2 !== count($children)) return;
+            $separator = $children[1];
+            $glyph = $separator->textContent ?? '';
+            if ('true' !== strtolower($separator->getAttribute('aria-hidden')) || $separator->getElementsByTagName('*')->length > 0 || '' === trim($glyph)) return;
+            $style = $this->styleResolver->safeVisualDeclarations($this->styleResolver->resolvedPresentationDeclarations($separator));
+            $current = array($glyph, $style);
+            if (null !== $signature && $signature !== $current) return;
+            $signature = $current;
+            $separators[] = $separator;
+        }
+        if (null === $signature) return;
+        $target = 'nav.wp-block-navigation.' . $marker . ' .wp-block-navigation-item:not(:last-child)::after';
+        // CSS string escaping also handles whitespace and control characters;
+        // never interpolate source text as raw CSS syntax.
+        $content = '"' . preg_replace_callback('/["\\\\\x00-\x1f\x7f]/', static fn(array $m): string => '\\' . dechex(ord($m[0])) . ' ', $signature[0]) . '"';
+        $this->projectSourceToNativeTarget($separators[0], $target, 'content:' . $content . ';' . $this->styleResolver->cssDeclarationString($signature[1]));
+        foreach ($separators as $separator) {
+            $this->recordInnerSubject($separator, $target);
+        }
     }
 
     /**
@@ -192,6 +243,11 @@ final class NavigationPatternContext
      * text presentation. Such an element (a logo heading) is what paints the
      * label, so it must survive the label's inline reduction.
      */
+    public function serializedInlineStyle(DOMElement $element): string
+    {
+        return $this->styleResolver?->serializedInlineStyle($element) ?? SourceDom::attr($element, 'style');
+    }
+
     public function ownsLabelTypography(DOMElement $element): bool
     {
         if ( ! $this->styleResolver instanceof StyleResolver || 1 !== preg_match('/^(?:' . NavigationPattern::BLOCK_LEVEL_LABEL_TAGS . ')$/i', $element->tagName) ) {
@@ -209,7 +265,7 @@ final class NavigationPatternContext
         }
         $declarations = $hasElementChildren
             ? $this->styleResolver->presentationDeclarations($element)
-            : $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($element));
+            : $this->styleResolver->withoutRedundantInheritedTypography($element, $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($element)));
         foreach ( array( 'font-family', 'font-size', 'font-weight', 'letter-spacing', 'text-transform', 'color', 'line-height', 'font-style' ) as $property ) {
             if ( '' !== trim((string) ($declarations[ $property ] ?? '')) ) {
                 return true;
@@ -470,6 +526,7 @@ final class NavigationPatternContext
      * Carry a replaced disclosure glyph's own box, not the label or panel box.
      * Only a unique SVG outside the link and submenu is an unambiguous trigger;
      * failing that, a unique SVG trailing the link's label is its indicator.
+     * A glyph the source hides at rest paints nothing and stands in for nothing.
      */
     public function submenuIconGeometryMarker(DOMElement $item, DOMElement $anchor, DOMElement $submenu): string
     {
@@ -478,8 +535,8 @@ final class NavigationPatternContext
         foreach ( $item->getElementsByTagName('svg') as $svg ) {
             $excluded = false;
             for ( $node = $svg; $node instanceof DOMElement; $node = $node->parentNode ) {
-                if ( $node->isSameNode($anchor) || $node->isSameNode($submenu) ) $excluded = true;
                 if ( $node->isSameNode($item) ) break;
+                if ( $node->isSameNode($anchor) || $node->isSameNode($submenu) || $this->styleResolver->isVisuallyHiddenAtRest($node) ) { $excluded = true; break; }
             }
             if ( ! $excluded ) $candidates[] = $svg;
         }
@@ -525,6 +582,7 @@ final class NavigationPatternContext
         $glyph = array_merge(array('margin' => '0', 'padding' => '0', 'flex-shrink' => '0'), $glyph);
         $marker = 'blocks-engine-submenu-icon-' . substr(hash('sha256', $serialize($box) . $serialize($glyph)), 0, 16);
         $this->session->generatedSupportStylesheetState()->registerNavigationSubmenuIconGeometry($marker, $serialize($box), $serialize($glyph));
+        $this->session->authorSelectorProjectionState()->markNavigationToggleRowItem($item->getNodePath() ?? '');
         return $marker;
     }
 
@@ -580,6 +638,12 @@ final class NavigationPatternContext
         if ( ! $hasDisclosureControl ) {
             $this->unindicatedSubmenuParents[$toggle->getNodePath() ?? ''] = true;
         }
+    }
+
+    /** Whether the source paints nothing for this control at rest (a focus-only affordance). */
+    public function isVisuallyHiddenControl(DOMElement $control): bool
+    {
+        return $this->styleResolver instanceof StyleResolver && $this->styleResolver->isVisuallyHiddenAtRest($control);
     }
 
     /** Whether a toggle under this source element paints its own indicator. */
@@ -638,17 +702,19 @@ final class NavigationPatternContext
      */
     public function recordNavigationSubjects(array &$blocks, DOMElement $source): void
     {
-        // Item classes live in a shared wp_navigation post; they cannot name
-        // a particular placement. Address each item by its ordered position
-        // under a per-reference host instead, including nested submenu items.
-        $targets = array();
-        $collect = static function (array $items, string $parent) use (&$collect, &$targets): void {
+        // Keep distinct source presentations on their structural carriers.
+        // Equally styled sibling runs share one structural address, which
+        // survives menu consolidation even when placement markers differ.
+        $targets = $levelCounts = array();
+        $collect = static function (array $items, string $parent) use (&$collect, &$targets, &$levelCounts): void {
             $position = 0;
+            $levelCounts[$parent] = count(array_filter($items, static fn(array $item): bool => in_array($item['blockName'] ?? '', array('core/navigation-link', 'core/navigation-submenu'), true)));
             foreach ($items as $block) {
                 if (!in_array($block['blockName'] ?? '', array('core/navigation-link', 'core/navigation-submenu'), true)) continue;
                 $item = $parent . '>.wp-block-navigation-item:nth-child(' . (++$position) . ')';
                 foreach (preg_split('/\s+/', trim($block['attrs']['className'] ?? '')) ?: array() as $marker) {
-                    if (str_starts_with($marker, 'blocks-engine-navigation-')) $targets[$marker][] = $item;
+                    if (!str_starts_with($marker, 'blocks-engine-navigation-')) continue;
+                    $targets[$marker][] = $item;
                 }
                 $boxTarget = $item;
                 foreach ($block['attrs']['metadata']['blocksEngineNavigationAnchor']['boxes'] ?? array() as $box) {
@@ -666,8 +732,25 @@ final class NavigationPatternContext
                 continue;
             }
             $current = $this->withoutCurrentItemPresentation($block);
-            $targets = array();
+            $targets = $levelCounts = array();
             $collect($block['innerBlocks'] ?? array(), '');
+            foreach ($targets as $marker => $paths) {
+                foreach (array_reverse($levelCounts, true) as $parent => $count) {
+                    $pattern = '/^' . preg_quote($parent, '/') . '>\\.wp-block-navigation-item:nth-child\\([0-9]+\\)(.*)$/';
+                    $groups = array();
+                    foreach ($paths as $path) {
+                        if (preg_match($pattern, $path, $match)) $groups[$match[1]][] = $path;
+                    }
+                    foreach ($groups as $suffix => $members) {
+                        if (count($members) !== $count || $count < 2) continue;
+                        $paths = array_values(array_diff($paths, $members));
+                        $paths[] = $parent . '>.wp-block-navigation-item' . $suffix;
+                    }
+                }
+                $targets[$marker] = str_starts_with($marker, 'blocks-engine-navigation-anchor-') && count($targets[$marker]) > 1
+                    ? array(' .wp-block-navigation-item.' . $marker)
+                    : $paths;
+            }
             if (array() === $targets && array() === $current) {
                 $this->publishInheritedNavigationPresentation($block, $source, '');
                 continue;
@@ -678,6 +761,11 @@ final class NavigationPatternContext
             // An ancestor may record this same emitted block again. Its first
             // correspondence owns the instance and all subsequent projections.
             preg_match('/(?:^|\s)(blocks-engine-navigation-instance-[a-f0-9]{12}-[0-9]+)(?:\s|$)/', (string) ($block['attrs']['className'] ?? ''), $existing);
+            // Instance identity describes resting subjects, not how many of
+            // their structural addresses collapsed on this captured route.
+            foreach ($resting as $marker => $addresses) {
+                $resting[$marker] = array(' .wp-block-navigation-item' . (str_starts_with($marker, 'blocks-engine-navigation-box-') ? ' .' : '.') . $marker);
+            }
             $scope = $existing[1] ?? $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-instance', $this->navigationSourceIdentity($source) . json_encode($resting));
             $block['attrs']['className'] = SourceDom::mergeClassNames($block['attrs']['className'] ?? '', $scope);
             $this->recordCurrentItemPresentation($current, $scope, $source);
@@ -862,6 +950,111 @@ final class NavigationPatternContext
         return $marker;
     }
 
+    /** Carry an out-of-flow label's sizing independently of anchor subject splitting. */
+    public function navigationLabelWidthMarker(DOMElement $anchor): string
+    {
+        if (!$this->session instanceof HtmlTransformerSession || !$this->styleResolver instanceof StyleResolver
+            || $this->isRuntimeDomTarget($anchor)) return '';
+        $width = $this->absoluteLabelSizingWidth($anchor);
+        if ('' === $width) return '';
+        $marker = $this->navigationSubjectMarker($anchor, 'label-width');
+        $target = '.wp-block-navigation .wp-block-navigation-item.' . $marker . ' :where(.wp-block-navigation-item__content)';
+        // Out-of-flow layers contribute no intrinsic width to Core's flex
+        // item. Size the new carriers without changing placement or height.
+        $source = SourceDom::elementSelector($anchor);
+        $this->sourceTargetProjection?->record($source, '.wp-block-navigation .wp-block-navigation-item.' . $marker, 'width:' . $width . ';flex-shrink:0');
+        $this->sourceTargetProjection?->record($source, $target, 'width:' . $width);
+        $this->sourceTargetProjection?->record($source, $target . '>.wp-block-navigation-item__label', 'display:block;width:100%');
+        return $marker;
+    }
+
+    /**
+     * Restore an authored sizing box only when the label has no intrinsic
+     * in-flow content. Reach an item-local ancestor through stretching boxes,
+     * never crossing a list boundary or a box shared with another item.
+     */
+    private function absoluteLabelSizingWidth(DOMElement $anchor): string
+    {
+        $anchorStyle = $this->styleResolver->referenceViewportAuthorDeclarations($anchor, array('width'));
+        if (isset($anchorStyle['width']) && 'auto' !== $anchorStyle['width']) return '';
+        $outOfFlow = false;
+        if ($this->labelHasIntrinsicContent($anchor, $outOfFlow) || !$outOfFlow) return '';
+        for ($node = $anchor; $node instanceof DOMElement; $node = $node->parentNode) {
+            $style = $this->styleResolver->referenceViewportAuthorDeclarations($node, array('display', 'width', 'position', 'left', 'right'));
+            $width = trim((string) ($style['width'] ?? ''));
+            if (CssValueInspector::isAbsoluteLength($width)) return $width;
+            if (!$this->isStretchingLabelBox($node, $style)) break;
+            $parent = $node->parentNode;
+            if (!$parent instanceof DOMElement
+                || in_array(strtolower($parent->tagName), array('nav', 'ul', 'ol', 'menu', 'body', 'header'), true)
+                || in_array(strtolower($parent->getAttribute('role')), array('navigation', 'menubar', 'menu', 'list'), true)) break;
+            // A wrapper with another element or in-flow text is not an
+            // exclusive sizing box for this item, even if it has a width.
+            foreach ($parent->childNodes as $child) {
+                if ($child->isSameNode($node) || XML_COMMENT_NODE === $child->nodeType) continue;
+                if ($child instanceof DOMElement && 'none' === ($this->styleResolver->referenceViewportAuthorDeclarations($child, array('display'))['display'] ?? '')) continue;
+                if ($child instanceof DOMElement || '' !== trim($child->textContent)) break 2;
+            }
+        }
+        // Some captures put the definite sizing box inside the anchor instead.
+        return $this->absoluteDescendantLabelWidth($anchor, false);
+    }
+
+    /** Ignore out-of-flow paint, but never force a width over in-flow text or artwork. */
+    private function labelHasIntrinsicContent(DOMElement $node, bool &$outOfFlow): bool
+    {
+        foreach ($node->childNodes as $child) {
+            if (!$child instanceof DOMElement) {
+                if ('' !== trim($child->textContent)) return true;
+                continue;
+            }
+            $style = $this->styleResolver->referenceViewportAuthorDeclarations($child, array('position', 'display'));
+            if ('none' === ($style['display'] ?? '')) continue;
+            if (in_array($style['position'] ?? '', array('absolute', 'fixed'), true)) {
+                $outOfFlow = true;
+                continue;
+            }
+            if (in_array(strtolower($child->tagName), array('img', 'svg', 'video', 'canvas', 'input'), true)
+                || $this->labelHasIntrinsicContent($child, $outOfFlow)) return true;
+        }
+        return false;
+    }
+
+    /** @param array<string, string> $style */
+    private function isStretchingLabelBox(DOMElement $node, array $style): bool
+    {
+        $width = trim((string) ($style['width'] ?? ''));
+        if ('100%' === $width) return true;
+        if (!in_array($width, array('', 'auto'), true)) return false;
+        if (in_array($style['position'] ?? '', array('absolute', 'fixed'), true)) {
+            return in_array($style['left'] ?? '', array('0', '0px'), true) && in_array($style['right'] ?? '', array('0', '0px'), true);
+        }
+        $display = $style['display'] ?? (1 === preg_match('/^(?:' . NavigationPattern::BLOCK_LEVEL_LABEL_TAGS . ')$/i', $node->tagName) ? 'block' : 'inline');
+        return in_array($display, array('block', 'flex', 'grid', 'flow-root'), true);
+    }
+
+    /** Find a definite descendant sizing box without assuming a single-child chain. */
+    private function absoluteDescendantLabelWidth(DOMElement $node, bool $outOfFlow): string
+    {
+        $widths = array();
+        foreach ($node->childNodes as $child) {
+            if (!$child instanceof DOMElement) continue;
+            $style = $this->styleResolver->referenceViewportAuthorDeclarations($child, array('width', 'position', 'display'));
+            if ('none' === ($style['display'] ?? '')) continue;
+            $absolute = $outOfFlow || in_array($style['position'] ?? '', array('absolute', 'fixed'), true);
+            $width = trim((string) ($style['width'] ?? ''));
+            if (CssValueInspector::isAbsoluteLength($width)) {
+                if ($absolute) $widths[] = $width;
+                continue;
+            }
+            if (!in_array($width, array('', 'auto', '100%'), true)) continue;
+            $width = $this->absoluteDescendantLabelWidth($child, $absolute);
+            if ('' !== $width) $widths[] = $width;
+        }
+        $widths = array_values(array_unique($widths));
+        return 1 === count($widths) ? $widths[0] : '';
+    }
+
     /** Only an inline source link lets a block child's height bypass it. */
     private function inlineAnchorCarriesPercentageHeight(DOMElement $anchor): bool
     {
@@ -882,7 +1075,7 @@ final class NavigationPatternContext
 
     private function hasNavigationSubjectPresentation(DOMElement $element): bool
     {
-        if ('' !== trim($element->getAttribute('style'))) return true;
+        if ('' !== trim($element->getAttribute('style')) && array() !== $this->styleResolver->presentationDeclarations($element)) return true;
         foreach ($this->session->authorStyleAnalysis()->styleRules() as $rule) {
             if (array() === $rule['declarations']) continue;
             foreach ($rule['selectors'] as $selector) {
@@ -902,7 +1095,13 @@ final class NavigationPatternContext
      * one. Record what marks it current, so its identity and its current-only
      * paint can follow the served route instead of this snapshot: a state
      * class its item or anchor carries that its peers do not. A peer-unique
-     * class such as a per-item language hook is the item's own, not state.
+     * class such as a per-item language hook is the item's own, not state,
+     * unless it names state or replaces resting classes: when peers share
+     * one class list and the served item keeps part of it but swaps the rest
+     * for classes no peer carries (atomic utility classes, say), those
+     * classes are its state. Explicit aria-current on that same element also
+     * identifies its peer-unique classes as state, even with no shared token
+     * or multiple resting peers (a complete utility-class swap).
      */
     public function recordCurrentNavigationItem(DOMElement $item, DOMElement $anchor): void
     {
@@ -917,11 +1116,28 @@ final class NavigationPatternContext
             $peerAnchor = $item->isSameNode($anchor) ? $peer : ($peer->getElementsByTagName($anchor->tagName)->item(0));
             if ($peerAnchor instanceof DOMElement) $peerAnchors[] = $peerAnchor;
         }
-        $own = static function (DOMElement $element, array $peers): array {
+        $classes = static fn(DOMElement $element): array => array_values(array_unique(array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn(string $class): bool => '' !== $class)));
+        $own = static function (DOMElement $element, array $peers) use ($classes): array {
+            $lists = array();
+            foreach ($peers as $peer) {
+                $list = $classes($peer);
+                sort($list);
+                $lists[implode(' ', $list)][] = $list;
+            }
+            $current = $classes($element);
+            $resting = array_filter($lists, static fn(array $group): bool => count($group) > 1 && array() !== array_intersect($group[0], $current) && array() !== array_diff($group[0], $current));
+            $replaces = array() !== $resting;
+            // A peer wearing every class the item swaps in over its resting
+            // peers shares the served route's state (an overflow parent holding
+            // the served item), so it is no evidence those classes rest.
+            $swapped = $replaces ? array_diff($current, reset($resting)[0]) : array();
             $peerClasses = array();
-            foreach ($peers as $peer) foreach (preg_split('/\s+/', trim($peer->getAttribute('class'))) ?: array() as $class) $peerClasses[$class] = true;
-            return array_values(array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn(string $class): bool => '' !== $class && !isset($peerClasses[$class])
-                && MenuVocabulary::containsCurrentStateToken($class)));
+            foreach ($lists as $group) {
+                if (array() !== $swapped && array() === array_diff($swapped, $group[0])) continue;
+                foreach ($group[0] as $class) $peerClasses[$class] = true;
+            }
+            return array_values(array_filter($current, static fn(string $class): bool => !isset($peerClasses[$class])
+                && ($replaces || ($element->hasAttribute('aria-current') && 'false' !== strtolower(trim($element->getAttribute('aria-current')))) || MenuVocabulary::containsCurrentStateToken($class))));
         };
         $this->session->authorSelectorProjectionState()->markCurrentNavigationClasses(array_merge($own($item, $peerItems), $item->isSameNode($anchor) ? array() : $own($anchor, $peerAnchors)));
     }
@@ -957,17 +1173,20 @@ final class NavigationPatternContext
         if (array() !== $boxes && $this->styleResolver instanceof StyleResolver) {
             // These carriers exist only at frontend render time. Resolve the
             // link's own cascade too, so a link override beats box inheritance.
-            $typography = array();
-            foreach (array('font-family', 'font-size', 'font-weight', 'letter-spacing', 'line-height', 'color', 'text-transform') as $property) {
-                $value = $this->styleResolver->authoredInheritedPropertyWinner($anchor, $property);
-                if ('' !== $value) $typography[$property] = $value;
-            }
-            $typography = $this->styleResolver->safeVisualDeclarations($typography);
-            if (array() !== $typography) {
-                $this->session->generatedSupportStylesheetState()->registerNavigationEditorTypography(
-                    $this->navigationSubjectMarker($anchor, 'anchor'),
-                    $this->styleResolver->cssDeclarationString($typography)
-                );
+            foreach (array_merge(array(array()), $this->styleResolver->navigationEditorTypographyConditions($anchor)) as $conditions) {
+                $typography = array();
+                foreach (array('font-family', 'font-size', 'font-weight', 'letter-spacing', 'line-height', 'color', 'text-transform') as $property) {
+                    $value = $this->styleResolver->authoredInheritedPropertyWinner($anchor, $property, true, $conditions);
+                    if ('' !== $value) $typography[$property] = $value;
+                }
+                $typography = $this->styleResolver->safeVisualDeclarations($typography);
+                if (array() !== $typography) {
+                    $this->session->generatedSupportStylesheetState()->registerNavigationEditorTypography(
+                        $this->navigationSubjectMarker($anchor, 'anchor'),
+                        $this->styleResolver->cssDeclarationString($typography),
+                        $conditions
+                    );
+                }
             }
         }
         $node = $anchor->parentNode;
@@ -992,14 +1211,19 @@ final class NavigationPatternContext
                 }
             }
         }
-        $position = 0;
-        for ($sibling = $element->previousSibling; null !== $sibling; $sibling = $sibling->previousSibling) {
-            if ($sibling instanceof DOMElement) ++$position;
-        }
         $projections = $this->session->authorSelectorProjectionState();
         $classes = preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array();
         $classes = array_values(array_filter(array_diff($classes, SourceClassIdentity::routeState($element)), static fn(string $class): bool => !$projections->isCurrentNavigationClass($class, $element) && !$projections->selectsCurrentNavigationState('.' . $class, $element)));
-        $identity = array(strtolower($element->tagName), $element->getAttribute('id'), implode(' ', $classes), $element->getAttribute('style'), \Automattic\BlocksEngine\PhpTransformer\Support\NavigationUrl::serialize($element->getAttribute('href')), $position, $rules);
+        // Core's submenu row can require a different rendered display from
+        // ordinary links even when their source declarations are identical.
+        $hasSubmenu = false;
+        if ('item' === $kind) {
+            foreach ($element->childNodes as $child) {
+                if ($child instanceof DOMElement && in_array(strtolower($child->tagName), array('ul', 'ol'), true)) $hasSubmenu = true;
+            }
+        }
+        $identity = array(strtolower($element->tagName), $element->getAttribute('id'), implode(' ', $classes), $element->getAttribute('style'), $rules);
+        if ($hasSubmenu) $identity[] = 'submenu-row';
         return $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-' . $kind, (string) json_encode($identity));
     }
 

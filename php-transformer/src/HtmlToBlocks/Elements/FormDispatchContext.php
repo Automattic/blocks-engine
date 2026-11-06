@@ -18,7 +18,6 @@ final class FormDispatchContext
      * @param Closure(DOMElement, ?array<string, mixed>): void $recordForm
      * @param Closure(DOMElement, bool, array<int, array<string, mixed>>&): ?array<string, mixed> $buildReadableFormBlock
      * @param Closure(DOMElement): bool $requiresPreservation
-     * @param Closure(DOMElement): array<string, mixed> $htmlPreservationBlock
      * @param Closure(DOMElement): bool $isProviderPseudoForm
      */
     public function __construct(
@@ -30,7 +29,6 @@ final class FormDispatchContext
         private readonly Closure $recordForm,
         private readonly Closure $buildReadableFormBlock,
         private readonly Closure $requiresPreservation,
-        private readonly Closure $htmlPreservationBlock,
         private readonly Closure $isProviderPseudoForm
     ) {
     }
@@ -87,12 +85,6 @@ final class FormDispatchContext
     public function requiresPreservation(DOMElement $element): bool
     {
         return ($this->requiresPreservation)($element);
-    }
-
-    /** @return array<string, mixed> */
-    public function htmlPreservationBlock(DOMElement $element): array
-    {
-        return ($this->htmlPreservationBlock)($element);
     }
 
     public function isProviderPseudoForm(DOMElement $element): bool

@@ -20,7 +20,6 @@ final class TableElementContext
      * @param Closure(DOMElement, array<int, array<string, mixed>>): ?array<string, mixed>                    $nestedLayoutTableColumnsBlock
      * @param Closure(DOMElement, array<int, array<string, mixed>>): ?array<string, mixed>                    $singleColumnLayoutTableGroupBlock
      * @param Closure(DOMElement, array<int, array<string, mixed>>): ?array<string, mixed>                    $mediaLayoutTableColumnsBlock
-     * @param Closure(DOMElement): array<string, mixed>                                                       $htmlPreservationBlock
      * @param Closure(DOMElement): array<string, mixed>                                                       $tableAttributes
      */
     public function __construct(
@@ -28,7 +27,6 @@ final class TableElementContext
         private readonly Closure $nestedLayoutTableColumnsBlock,
         private readonly Closure $singleColumnLayoutTableGroupBlock,
         private readonly Closure $mediaLayoutTableColumnsBlock,
-        private readonly Closure $htmlPreservationBlock,
         private readonly Closure $tableAttributes
     ) {
     }
@@ -63,14 +61,6 @@ final class TableElementContext
     public function mediaLayoutTableColumnsBlock(DOMElement $element, array &$fallbacks): ?array
     {
         return ($this->mediaLayoutTableColumnsBlock)($element, $fallbacks);
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    public function htmlPreservationBlock(DOMElement $element): array
-    {
-        return ($this->htmlPreservationBlock)($element);
     }
 
     /**

@@ -84,7 +84,7 @@ $shared = $css(
     . '</ul></nav>'
 );
 $assert(
-    str_contains($shared, 'nth-child(1)>div') && str_contains($shared, '{color:rgb(238,255,255);font-family:helvetica-w01-roman;font-size:15.75px}'),
+    str_contains($shared, '.wp-block-navigation__container>.wp-block-navigation-item>div') && str_contains($shared, '{color:rgb(238,255,255);font-family:helvetica-w01-roman;font-size:15.75px}'),
     'shared inherited presentation remains on each retained native source box',
     $shared
 );

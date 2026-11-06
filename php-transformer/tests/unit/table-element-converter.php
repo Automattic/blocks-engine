@@ -48,7 +48,6 @@ $makeConverter = static function (array $overrides = array()): TableElementConve
         'media'       => static function (DOMElement $e, array &$f): ?array {
             return array('blockName' => 'core/columns', 'via' => 'media');
         },
-        'preserve'    => static fn (DOMElement $e): array => array('blockName' => 'core/html'),
         'presentation' => static fn (DOMElement $e, array $p, array $g): array => array('className' => 'pres'),
         'tableAttrs'  => static fn (DOMElement $e): array => array('hasFixedLayout' => true),
         'createBlock' => new SourceBlockCreatorFixture(static fn (string $n, array $a, array $i, ?DOMElement $s): array => array('blockName' => $n, 'attrs' => $a)),
@@ -60,7 +59,6 @@ $makeConverter = static function (array $overrides = array()): TableElementConve
         $c['nested'],
         $c['group'],
         $c['media'],
-        $c['preserve'],
         $c['tableAttrs']
     ));
 };

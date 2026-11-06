@@ -24,12 +24,16 @@ final class SourceBlockAttributeProjector
     public const SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-flex-image-figure';
     public const SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-inline';
     public const INLINE_IMAGE_LEAF_CLASS = 'blocks-engine-inline-image-leaf';
+    public const BASELINE_IMAGE_LEAF_CLASS = 'blocks-engine-baseline-image-leaf';
+    public const INLINE_IMAGE_LINK_CLASS = 'blocks-engine-inline-image-link';
     public const SYNTHETIC_IMAGE_GAP_CLASS = 'blocks-engine-synthetic-image-gap';
     /** An image unwrapped from a paragraph whose line box it sized in the source. */
     public const PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS = 'blocks-engine-paragraph-line-box-image';
     public const SYNTHETIC_FILL_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-fill';
     public const SYNTHETIC_FILL_VIDEO_FIGURE_CLASS = 'blocks-engine-synthetic-video-figure-fill';
     public const SYNTHETIC_EMBED_FIGURE_CLASS = 'blocks-engine-synthetic-embed-figure';
+    /** A core/embed under inherited whitespace preservation its wrapper must not apply. */
+    public const EMBED_NORMAL_WHITESPACE_CLASS = 'blocks-engine-embed-normal-whitespace';
     public const CSS_OWNED_INLINE_FLOW_CLASS = 'blocks-engine-css-owned-inline-flow';
     public const CSS_OWNED_LAYOUT_ITEM_CLASS = 'blocks-engine-css-owned-layout-item';
     public const LAYOUT_NEUTRAL_BUTTONS_CLASS = 'blocks-engine-layout-neutral-buttons';
@@ -502,6 +506,53 @@ final class SourceBlockAttributeProjector
                         $context->generatedStyles,
                         '' !== trim((string) ($blockColor['background'] ?? ''))
                     );
+                    // A collapsed surface can own dimensions even when the
+                    // logical anchor is inline and unsized. Its geometry carrier
+                    // lives on Core's display:contents wrapper, so size the painted
+                    // link instead and opt out of the layout-neutral axis resets.
+                    if ( $sourceElement !== $logicalControl && $participation instanceof LayoutParticipation && $participation->neutralizeButtonWrapper() ) {
+                        $surface = $this->styleResolver->cssDeclarations($this->styleResolver->mergedPresentationStyle($sourceElement));
+                        $dimensions = array();
+                        foreach ( array( 'width', 'height' ) as $axis ) {
+                            $value = trim((string) ($surface[$axis] ?? ''));
+                            if ( '' !== $value && ! in_array(CssValueInspector::comparable($value), array( 'auto', 'initial', 'inherit', 'unset', 'revert', 'revert-layer' ), true) ) {
+                                $dimensions[] = $axis . ':' . $value;
+                                $attrs['className'] = SourceDom::mergeClassNames((string) $attrs['className'], self::LAYOUT_NEUTRAL_BUTTON_CLASS . '-author-' . $axis);
+                            }
+                        }
+                        if ( array() !== $dimensions ) {
+                            // The sized wrapper can contain the actual painted flex
+                            // surface. Its content-box sizing and default zero padding
+                            // must not turn into Core's border-box/padded button box.
+                            $paint = array_replace($this->styleResolver->matchedCascadedDeclarations($sourceElement), $surface);
+                            $candidate = $sourceElement;
+                            while ( 1 === $candidate->childElementCount ) {
+                                $child = $candidate->firstElementChild;
+                                if ( ! $child instanceof DOMElement || trim($child->textContent) !== trim($sourceElement->textContent) ) break;
+                                $childStyle = array_replace($this->styleResolver->matchedCascadedDeclarations($child), $this->styleResolver->cssDeclarations($this->styleResolver->mergedPresentationStyle($child)));
+                                if ( in_array(CssValueInspector::comparable((string) ($childStyle['display'] ?? '')), array( 'flex', 'inline-flex' ), true) ) {
+                                    $paint = array_replace($childStyle, $this->styleResolver->authoredControlPresentation($child, array( 'box-sizing', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left' ))[''] ?? array());
+                                    $paint = $this->styleResolver->cssDeclarations($this->styleResolver->cssDeclarationString($paint));
+                                    break;
+                                }
+                                $candidate = $child;
+                            }
+                            $display = CssValueInspector::comparable((string) ($paint['display'] ?? ''));
+                            $flex = in_array($display, array( 'flex', 'inline-flex' ), true);
+                            $attrs['className'] = SourceDom::mergeClassNames((string) $attrs['className'], self::LAYOUT_NEUTRAL_BUTTON_CLASS . '-display-' . ($flex ? $display : 'inline-block'));
+                            $declarations = array_merge(array('box-sizing:' . ($paint['box-sizing'] ?? 'content-box')), $dimensions);
+                            $declarations[] = 'padding:' . ($paint['padding'] ?? '0');
+                            foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
+                                if ( isset($paint['padding-' . $side]) ) $declarations[] = 'padding-' . $side . ':' . $paint['padding-' . $side];
+                            }
+                            if ( $flex ) {
+                                foreach ( array( 'flex-direction' => 'row', 'align-items' => 'stretch', 'justify-content' => 'normal' ) as $property => $initial ) {
+                                    $declarations[] = $property . ':' . ($paint[$property] ?? $initial);
+                                }
+                            }
+                            $context->generatedStyles->appendNativeButton($controlMarker, '.' . $controlMarker . '.' . $controlMarker . '>.wp-block-button__link{' . implode(';', $declarations) . '}');
+                        }
+                    }
                     $childOwnedOffsets = $participation instanceof LayoutParticipation && $participation->positioned;
                     if ( $participation instanceof LayoutParticipation && $participation->needsDirectFlexRepair() ) {
                         $this->generatedStyleProjector->registerDirectFlexButton($controlMarker, $logicalControl, $context->generatedStyles);
@@ -815,6 +866,12 @@ final class SourceBlockAttributeProjector
         }
         foreach ( array( 'display', 'align-items', 'justify-content' ) as $property ) {
             $value = trim((string) ($direct[$property] ?? ''));
+            // A value the source switches under a media query stays with the
+            // author rules: restating only its base value on the carrier
+            // would outrank the source's own breakpoint switch.
+            if ( array() !== $this->styleResolver->declaredPresentation($anchor, $property)->conditional() ) {
+                continue;
+            }
             if ( '' !== $value && ! str_contains(strtolower($value), '!important') ) {
                 $declarations[$property] = $this->styleResolver->resolveCssVariablesInValue($value);
             }

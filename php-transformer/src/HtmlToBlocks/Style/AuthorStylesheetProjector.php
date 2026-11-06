@@ -74,11 +74,18 @@ final class AuthorStylesheetProjector
      */
     public function project(string $stylesheet, AuthorStylesheetProjectionContext $context, array $outerConditions = array()): string
     {
+        $bridges = array();
         $clips = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::replacements($context->authorStyles->sourceBody());
         $projected = ( new CssStylesheetTransformer() )->transformStyleRules(
             $stylesheet,
-            fn (string $prelude, string $body, array $ancestors = array()): string => $this->projectStyleRule($prelude, \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::rewrite($body, $clips), $context, self::ancestorsAreConditional($ancestors), $ancestors, $outerConditions)
+            function (string $prelude, string $body, array $ancestors = array()) use ($context, $outerConditions, $clips, &$bridges): string {
+                $css = $this->projectStyleRule($prelude, \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::rewrite($body, $clips), $context, self::ancestorsAreConditional($ancestors), $ancestors, $outerConditions);
+                $bridge = $this->projectedLayerBridge($prelude, $css, $ancestors, $context);
+                if ( '' !== $bridge ) $bridges[$bridge] = true;
+                return $css;
+            }
         );
+        $projected .= implode('', array_keys($bridges));
         // Engine class tokens must not satisfy an authored class substring.
         $projected = $context->authorStyles->classAttributeSelectors()->stylesheet($projected);
         $ids = ScopedAnchorSelectorProjection::identities($context->authorStyles);
@@ -91,6 +98,55 @@ final class AuthorStylesheetProjector
             });
         }
         return CssSelectorListCompactor::stylesheet($projected);
+    }
+
+    /**
+     * Roll Core's unlayered defaults back to the original author cascade, not
+     * to a copied value. Layer order, important declarations and state/media
+     * changes therefore remain owned by the source stylesheet.
+     *
+     * @param list<string> $ancestors
+     */
+    private function projectedLayerBridge(string $prelude, string $css, array $ancestors, AuthorStylesheetProjectionContext $context): string
+    {
+        if ( ! array_filter($ancestors, static fn (string $condition): bool => 1 === preg_match('/^@layer\\b/i', trim($condition))) ) return '';
+        $subjects = array();
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+            // Match potential state subjects; the emitted selector retains the
+            // state itself, so the bridge cannot activate it at rest.
+            $selector = preg_replace(self::STATE_PSEUDO_CLASS_PATTERN, '', $selector) ?? $selector;
+            foreach ( $this->matchingSourceElements($selector, $context->sourceStyles->parsedSelector($selector), $context) as $element ) {
+                $subjects[spl_object_id($element)] = $element;
+            }
+        }
+        if ( array() === $subjects ) return '';
+        $rules = '';
+        (new CssStylesheetTransformer())->visitStyleRules($css, function (string $selector, string $body) use (&$rules, $subjects): void {
+            // Only canonical block targets or source-instance projections own
+            // this escape. Never install a document-wide author reset.
+            if ( ! preg_match('/\\.(?:wp-block-|blocks-engine-)/', $selector) ) return;
+            $properties = array();
+            foreach ( $this->styleResolver->verbatimCssDeclarations($body) as $property => $value ) {
+                if ( str_starts_with($property, '--') || str_contains($value, '!important') ) continue;
+                $family = explode('-', $property)[0];
+                // Shorthands and their longhands must veto each other. Custom
+                // properties stay in their source origin and need no bridge.
+                $pattern = '/^' . preg_quote($family, '/') . '(?:-.*)?$/';
+                $layered = true;
+                foreach ( $subjects as $element ) {
+                    $ownership = $this->styleResolver->authorPropertyFamilyLayering($element, array($property => $pattern), true);
+                    if ( ! ($ownership[$property] ?? false) ) $layered = false;
+                }
+                if ( $layered ) $properties[] = $property . ':revert-layer';
+            }
+            if ( array() !== $properties ) {
+                $rules .= ':root:root:root :is(' . $selector . '){' . implode(';', $properties) . '}';
+            }
+        });
+        foreach ( array_reverse($ancestors) as $condition ) {
+            if ( ! preg_match('/^@layer\\b/i', trim($condition)) && '' !== $rules ) $rules = $condition . '{' . $rules . '}';
+        }
+        return $rules;
     }
 
     /**
@@ -359,7 +415,8 @@ final class AuthorStylesheetProjector
         $editorDocumentRootRule = $this->editorDocumentRootRule($prelude, $body, $context) . $this->separatorBorderRule($prelude, $declarations, $context);
         $navigationItemSpaceRule = $this->navigationItemSpaceRule($prelude, $declarations, $context)
             . $this->navigationListBoxRule($prelude, $declarations, $context)
-            . $this->directNavigationDisplayRule($prelude, $declarations, $context);
+            . $this->directNavigationDisplayRule($prelude, $declarations, $context)
+            . $this->navigationToggleRowRule($prelude, $declarations, $context);
         if ( array() === $margins ) {
             $css = $this->rewriteStyleRule($prelude, $body, $context, $inConditional) . $imageRule . $imagePlacement['rules'] . $svgImageRule . $editorDocumentRootRule . $navigationItemSpaceRule;
 
@@ -370,6 +427,7 @@ final class AuthorStylesheetProjector
         $rules = '' === $this->styleResolver->cssDeclarationString($inner)
             ? ''
             : $this->rewriteStyleRule($prelude, $this->styleResolver->cssDeclarationString($inner), $context, $inConditional);
+        $rules .= $this->tableVerticalMarginRules($prelude, $margins, $context);
         $css = $rules
             . $this->marginSelectorPrelude($prelude, $context) . '{' . $this->styleResolver->cssDeclarationString($margins) . '}'
             . $imageRule
@@ -643,6 +701,44 @@ final class AuthorStylesheetProjector
 
         return implode(',', array_map(static fn (string $selector): string => trim($selector) . $scope, $projected))
             . '{' . $this->styleResolver->cssDeclarationString($borders) . '}';
+    }
+
+    /** @param array<string, string> $margins */
+    private function tableVerticalMarginRules(string $prelude, array $margins, AuthorStylesheetProjectionContext $context): string
+    {
+        $vertical = array();
+        foreach ( $margins as $property => $value ) {
+            if ( 'margin' === $property ) {
+                $important = CssValueInspector::isImportant($value) ? '!important' : '';
+                $sides = CssValueInspector::expandBoxShorthand(CssValueInspector::withoutImportant($value));
+                $vertical['margin-top'] = $sides[0] . $important;
+                $vertical['margin-bottom'] = $sides[2] . $important;
+            } elseif ( in_array($property, array( 'margin-top', 'margin-bottom', 'margin-block', 'margin-block-start', 'margin-block-end' ), true) ) {
+                $vertical[$property] = $value;
+            }
+        }
+        if ( array() === $vertical ) {
+            return '';
+        }
+        $rules = array();
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            // Class-only rules already follow their source class onto the figure.
+            if ( ! $parsed['supported'] || 'table' !== (CssSelectorCompoundInspector::rightmost($parsed['compounds'])['type'] ?? null) ) {
+                continue;
+            }
+            foreach ( $this->matchingSourceElements($selector, $parsed, $context) as $table ) {
+                $marker = $context->selectorProjections->tableMarker($table->getNodePath() ?? '');
+                if ( '' === $marker ) {
+                    continue;
+                }
+                $target = $this->projectSemanticLeafSelector($selector, $parsed, $marker, $context);
+                $rules[] = $target . ':not(.' . $context->authorStyles->classSpecificityShim() . '){' . $this->styleResolver->cssDeclarationString($vertical) . '}';
+                // The inner table remains the horizontal-margin and border owner.
+                $rules[] = '.' . $marker . '>table{margin-block:0!important}';
+            }
+        }
+        return implode('', array_unique($rules));
     }
 
     private function marginSelectorPrelude(string $prelude, AuthorStylesheetProjectionContext $context): string
@@ -1394,7 +1490,9 @@ final class AuthorStylesheetProjector
         $inner = array();
         $placementVars = $this->buttonPlacementCustomProperties($body);
         $wrapperOwned = array(
-            'position', 'top', 'right', 'bottom', 'left', 'z-index',
+            // Float participation belongs to the outer box in the source
+            // formatting context, never to the painted descendant link.
+            'float', 'clear', 'position', 'top', 'right', 'bottom', 'left', 'z-index',
             'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height',
             'grid-area', 'grid-column', 'grid-row',
             'grid-column-start', 'grid-column-end', 'grid-row-start', 'grid-row-end',
@@ -2036,6 +2134,21 @@ final class AuthorStylesheetProjector
             if (null !== $pseudoProjection && array() !== $pseudoProjection) {
                 array_push($rewritten, ...$pseudoProjection);
                 continue;
+            }
+            // Attribute carriers are keyed by the authored selector. Resolve the
+            // complete captured predicate before rewriting a negation to its
+            // live state class, which would change that identity.
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            if ($parsed['supported'] && str_contains($selector, ':not(')) {
+                $sourceMatches = $this->matchingSourceElements($selector, $parsed, $context);
+                if (array() !== $sourceMatches) {
+                    $attributeProjection = $this->projectSourceAttributeAncestrySelector($selector, $parsed, $sourceMatches, $context, $controlWrapper)
+                        ?? $this->projectSourceAttributeSelector($selector, $parsed, $sourceMatches, $context, $controlWrapper);
+                    if (null !== $attributeProjection) {
+                        array_push($rewritten, ...$attributeProjection);
+                        continue;
+                    }
+                }
             }
             $selector = $this->projectSourceAttributeNegationStateSelector($selector, $context);
             $parsed = $context->sourceStyles->parsedSelector($selector);
@@ -3637,23 +3750,6 @@ final class AuthorStylesheetProjector
     /** @param array<string, mixed> $parsed */
     private function projectTableDescendantSelector(string $selector, array $parsed, DOMElement $element, AuthorStylesheetProjectionContext $context): ?string
     {
-        // A universal arm already reaches native cells. Do not add a stronger
-        // structural arm when it would compete with a selector that stays
-        // native; retain established output when all cell rules are projected.
-        if ( '*' === trim($selector) && in_array(strtolower($element->tagName), array('td', 'th'), true) ) {
-            foreach ( $context->authorStyles->styleRules() as $rule ) {
-                foreach ( $rule['selectors'] ?? array() as $record ) {
-                    $candidate = $record['parsed'] ?? array();
-                    if ( ($candidate['supported'] ?? false)
-                        && 0 < CssSelectorMatcher::specificity($candidate)
-                        && ! TableSelectorProjectionPolicy::needsStructuralProjection($candidate, $element)
-                        && CssSelectorMatcher::matches($element, $candidate)['matches']
-                    ) {
-                        return null;
-                    }
-                }
-            }
-        }
         $table = 'table' === strtolower($element->tagName) ? $element : $this->ancestorElement($element, 'table');
         if (in_array(strtolower($element->tagName), array('table', 'tr', 'td'), true)
             && $table instanceof DOMElement
@@ -4466,6 +4562,36 @@ final class AuthorStylesheetProjector
             $rules .= implode(',', array_unique($selectors)) . '{' . $body . '}';
         }
         return $rules;
+    }
+
+    /**
+     * Core renders a submenu's toggle as a sibling of the item's content, and
+     * its own item is the flex row that keeps them on one line. Where Core's
+     * toggle stands in for the source chevron, an authored block or
+     * inline-block item box would stack that toggle below the label, so the
+     * projected item keeps its outer display as Core's row. Emitted right after
+     * the item's projected rule: hiding, conditions and importance stay authored.
+     */
+    private function navigationToggleRowRule(string $prelude, array $declarations, AuthorStylesheetProjectionContext $context): string
+    {
+        $display = (string) ( $declarations['display'] ?? '' );
+        $row = array( 'block' => 'flex', 'list-item' => 'flex', 'flow-root' => 'flex', 'inline-block' => 'inline-flex', 'inline' => 'inline-flex' )[CssValueInspector::comparable(CssValueInspector::withoutImportant($display))] ?? '';
+        if ( '' === $row ) return '';
+        $selectors = array();
+        foreach ( CssValueSplitter::splitTopLevel($prelude, array( ',' )) as $selector ) {
+            $selector = trim($selector);
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            if ( ! $parsed['supported'] || null !== ( CssSelectorCompoundInspector::rightmost($parsed['compounds'])['type'] ?? null ) ) continue;
+            foreach ( $this->matchingSourceElements($selector, $parsed, $context) as $element ) {
+                $path = $element->getNodePath() ?? '';
+                $target = $context->selectorProjections->navigationSubject($path);
+                if ( '' === $target || ! $context->selectorProjections->isNavigationToggleRowItem($path) ) continue;
+                $state = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
+                if ( $context->selectorProjections->selectsCurrentNavigationState(substr($selector, 0, null === $parsed['pseudo_state_suffix_span'] ? null : $parsed['pseudo_state_suffix_span']['start'])) ) $target = AuthorSelectorProjectionState::currentNavigationSubject($target);
+                $selectors[] = ':root ' . $target . $this->selectorSpecificityShims($parsed, $context) . $state;
+            }
+        }
+        return array() === $selectors ? '' : implode(',', array_unique($selectors)) . '{display:' . $row . ( CssValueInspector::isImportant($display) ? ' !important' : '' ) . '}';
     }
 
     /** The flex packing of a row for the `text-align` that packed its inline items, with its importance. */

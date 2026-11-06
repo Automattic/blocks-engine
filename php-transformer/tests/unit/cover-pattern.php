@@ -32,6 +32,50 @@ $assertSame = static function (mixed $expected, mixed $actual, string $message) 
     fwrite(STDERR, 'FAIL: ' . $message . ' expected=' . var_export($expected, true) . ' actual=' . var_export($actual, true) . PHP_EOL);
 };
 
+foreach ( array( 'block', 'flex', 'grid' ) as $display ) {
+    foreach ( array( 'center' => 'center center', 'flex-start' => 'top left' ) as $alignment => $position ) {
+        $html = '<style>.hero{min-height:500px;display:' . $display . ';align-items:' . $alignment . ';justify-content:' . $alignment . ';background-image:linear-gradient(rgba(0,0,0,.25),rgba(0,0,0,.25)),url(https://example.com/a.jpg);background-size:cover}</style><section class="hero"><h1>Title</h1></section>';
+        $result = (new HtmlTransformer())->transform($html)->toArray();
+        $hero = $result['blocks'][0] ?? array();
+        $assertSame('core/cover', $hero['blockName'] ?? null, $display . ' hero is editable.');
+        $assertSame(25, $hero['attrs']['dimRatio'] ?? null, 'Source overlay is not rounded to tens.');
+        $assertSame('section', $hero['attrs']['tagName'] ?? null, 'Cover keeps the source landmark element.');
+        $assertTrue(str_contains($result['serialized_blocks'], '<section class="wp-block-cover') && str_contains($result['serialized_blocks'], '</div></section>'), 'Cover saves its tagName wrapper.');
+        $assertTrue(! str_contains($result['serialized_blocks'], 'opacity:'), 'Saved overlay omits inline opacity, as core save does.');
+        $assertTrue(str_contains($result['serialized_blocks'], 'has-background-dim-30 has-background-dim'), 'Saved overlay expresses dimRatio through the rounded core class.');
+        if ( 'block' !== $display ) {
+            $assertSame($position, $hero['attrs']['contentPosition'] ?? null, 'Source axes map to contentPosition.');
+            if ( 'top left' === $position ) {
+                $assertTrue(str_contains($result['serialized_blocks'], 'class="wp-block-cover has-custom-content-position is-position-top-left hero"'), 'Top-left hero saves custom position classes before the source class.');
+            } else {
+                $assertTrue(! str_contains($result['serialized_blocks'], 'has-custom-content-position'), 'Centered hero omits custom position classes.');
+            }
+            $assertSame('0', $hero['attrs']['style']['spacing']['padding']['top'] ?? null, 'No default cover padding.');
+        }
+    }
+}
+
+foreach ( array( 'renditions' => array( '.25', 'hero-large.jpg', true ), 'numbered renditions' => array( '.25', '/media/1346-6.jpg', true, '/media/1346-2.webp' ), 'different overlay' => array( '.5', 'hero-large.jpg', false ), 'different photo' => array( '.25', 'other.jpg', false ), 'missing viewport' => array( '.25', '', false ) ) as $name => $case ) {
+    [$opacity, $url, $isCover, $small] = $case + array( 3 => 'hero-small.jpg' );
+    $html = '<style>.hero{min-height:500px;display:flex;align-items:center;justify-content:center;background-size:cover;background-position:center}'
+        . '@media (max-width:767px){.hero{background-image:linear-gradient(rgba(0,0,0,.25),rgba(0,0,0,.25)),url(' . $small . ')}}'
+        . ( '' === $url ? '' : '@media (min-width:768px){.hero{background-image:linear-gradient(rgba(0,0,0,' . $opacity . '),rgba(0,0,0,' . $opacity . ')),url(' . $url . ')}}' )
+        . '</style><section class="hero"><h1>Strategy and Communication</h1></section>';
+    $result = (new HtmlTransformer())->transform($html)->toArray();
+    $hero = $result['blocks'][0] ?? array();
+    $assertSame($isCover, 'core/cover' === ($hero['blockName'] ?? ''), $name . ': responsive cover recognition.');
+    if ( $isCover ) {
+        $assertSame($url, $hero['attrs']['url'] ?? null, $name . ': widest rendition becomes editable.');
+        $assertSame('section', $hero['attrs']['tagName'] ?? null, 'Responsive cover retains its landmark.');
+        $assertSame(25, $hero['attrs']['dimRatio'] ?? null, 'Responsive cover retains overlay opacity.');
+        $assertSame('#000000', $hero['attrs']['customOverlayColor'] ?? null, 'Responsive cover retains overlay color.');
+    }
+}
+
+$fixture = (new HtmlTransformer())->transform((string) file_get_contents(dirname(__DIR__) . '/fixtures/cover-layout-heroes.html'))->toArray();
+$fixtureNames = array_column($fixture['blocks'], 'blockName');
+$assertSame(array( 'core/cover', 'core/cover', 'core/cover', 'core/cover', 'core/cover', 'core/cover', 'core/group' ), $fixtureNames, 'Flex/grid fixture supports stacked children and rejects space-between columns.');
+
 $elementFromHtml = static function (string $html, string $tagName = 'section'): DOMElement {
     $document = new DOMDocument();
     $previous = libxml_use_internal_errors(true);
@@ -199,6 +243,14 @@ $assertNull($match($texture, array( $heading ), array(), array(), $fallbacks, $r
 $assertSame(0, $record['convertCalls'], 'Repeating background does not convert children.');
 
 // 6. Gate 3 rejects empty converted children and discards local fallbacks.
+// Utility-class builders name no hero: the painting rule alone makes it a candidate.
+// An empty painted layer (grain texture) stays stylesheet-owned.
+foreach ( array( 'utility hero' => array( '<h1>Strategy</h1>', 'core/cover' ), 'empty texture' => array( '', 'core/group' ) ) as $name => [$content, $expected] ) {
+    $result = $transformHtml('<style>.x .c1-u{display:flex;flex-direction:column;min-height:360px}.x .c1-z{background-size:auto,cover}@media (min-width:768px){.x .c1-14{background-image:linear-gradient(rgba(0,0,0,.25),rgba(0,0,0,.25)),url(/media/1346-6.jpg)}}@media (max-width:767px){.x .c1-15{background-image:linear-gradient(rgba(0,0,0,.25),rgba(0,0,0,.25)),url(/media/1346-2.webp)}}</style><div class="x"><div class="c1-u c1-z c1-14 c1-15">' . $content . '</div><p>After</p></div>');
+    $names = $blockNames($result['blocks'] ?? array());
+    $assertSame('core/cover' === $expected, in_array('core/cover', $names, true), 'Painted ' . $name . ' cover recognition.');
+}
+
 $fallbacks = array( array( 'blockName' => 'existing/fallback' ) );
 $record = array();
 $empty = $elementFromHtml('<section style="background-image:url(empty.jpg);background-size:cover"></section>');
@@ -317,10 +369,22 @@ $columnsNames = $blockNames($columnsResult['blocks'] ?? array());
 $assertTrue(in_array('core/group', $columnsNames, true) && ! in_array('core/columns', $columnsNames, true), 'K4: Flex hero candidate preserves section topology through core/group without layout defaults.');
 $assertTrue(! in_array('core/cover', $columnsNames, true), 'K4: Flex hero candidate does not become core/cover.');
 
-// K5: Navigation-bearing shell wrappers never become core/cover.
-$shellResult = $transformHtml('<div style="background-image:url(https://example.com/h.jpg);background-size:cover"><nav><a href="/a">A</a><a href="/b">B</a></nav><h1>T</h1><p>Body</p></div>');
-$shellNames = $blockNames($shellResult['blocks'] ?? array());
-$assertTrue(! in_array('core/cover', $shellNames, true), 'K5: Navigation-bearing shell rejects core/cover.');
+// K5: Navigation needs a heading outside its subtree to qualify as hero content.
+foreach ( array( 'hero heading' => array( '<div><h1>Strategy and Communication</h1></div>', true ), 'nav only' => array( '', false ) ) as $name => [$content, $isCover] ) {
+    $shellResult = $transformHtml('<section style="min-height:500px;display:flex;flex-direction:column;align-items:center;background-image:linear-gradient(rgba(0,0,0,.25),rgba(0,0,0,.25)),url(hero-large.jpg);background-size:cover"><nav><a href="/">Studio Name</a><a href="/about">About</a></nav>' . $content . '</section><section><p>Follow us for news.</p></section>');
+    $shell = $shellResult['blocks'][0] ?? array();
+    $assertSame($isCover, 'core/cover' === ($shell['blockName'] ?? null), 'K5: ' . $name . ' cover recognition.');
+    $shellNames = $blockNames($shell['innerBlocks'] ?? array());
+    $assertTrue(in_array('core/navigation', $shellNames, true), 'K5: ' . $name . ' retains native navigation.');
+    if ( $isCover ) {
+        $assertTrue(in_array('core/heading', $shellNames, true), 'K5: Cover contains the hero heading.');
+        $assertSame('section', $shell['attrs']['tagName'] ?? null, 'K5: Cover retains section landmark.');
+        $assertSame('hero-large.jpg', $shell['attrs']['url'] ?? null, 'K5: Hero photo is editable.');
+        $assertSame(25, $shell['attrs']['dimRatio'] ?? null, 'K5: Hero overlay is retained.');
+    } else {
+        $assertSame('core/group', $shell['blockName'] ?? null, 'K5: Nav-only background remains a shell group.');
+    }
+}
 
 $fallbacks = array( array( 'blockName' => 'existing/fallback' ) );
 $record = array();
@@ -332,8 +396,17 @@ $navigation = array(
         $paragraph,
     ),
 );
-$assertNull($match($hero, array( $navigation ), array(), array(), $fallbacks, $record), 'K5: Recursive core/navigation child rejects cover.');
+$assertNull($match($hero, array( $navigation ), array(), array(), $fallbacks, $record), 'K5: Recursive navigation plus paragraph only rejects cover.');
 $assertSame(array( array( 'blockName' => 'existing/fallback' ) ), $fallbacks, 'K5: Navigation rejection discards local fallbacks.');
+$menuHeading = array( 'blockName' => 'core/heading', 'attrs' => array(), 'innerBlocks' => array() );
+$navigation['innerBlocks'][0]['innerBlocks'] = array(
+    array( 'blockName' => 'core/group', 'innerBlocks' => array( $menuHeading ) ),
+);
+$assertNull($match($hero, array( $navigation ), array(), array(), $fallbacks, $record), 'K5: A heading nested inside navigation does not qualify as hero content.');
+$navigation['innerBlocks'][] = $menuHeading;
+$navigationCover = $match($hero, array( $navigation ), array(), array(), $fallbacks, $record);
+$assertSame('core/cover', $navigationCover['blockName'] ?? null, 'K5: A nested heading outside navigation qualifies as hero content.');
+$assertSame(array( $navigation ), $navigationCover['innerBlocks'] ?? null, 'K5: Cover preserves native navigation and its subtree unchanged.');
 
 // K6/N3/P3: Design gradients become visible core customGradient attrs on the overlay span.
 $gradientResult = $transformHtml('<section class="hero" style="background:linear-gradient(90deg,#ff0000,#0000ff),url(https://example.com/h.jpg) center/cover;min-height:480px"><h1>T</h1><p>B</p></section>');
@@ -376,8 +449,8 @@ $assertTrue(! str_contains($uniformGradientOpening, 'has-background-gradient'), 
 
 $degenerateUniformResult = $transformHtml('<section class="hero" style="background:linear-gradient(rgba(0,0,0,.04),rgba(0,0,0,0.04)),url(https://example.com/h.jpg) center/cover;min-height:480px"><h1>T</h1><p>B</p></section>');
 $degenerateUniformCover = $degenerateUniformResult['blocks'][0] ?? array();
-$assertSame(0, $degenerateUniformCover['attrs']['dimRatio'] ?? null, 'P5: Semantically equal degenerate uniform stops keep dimRatio 0.');
-$assertTrue(! isset($degenerateUniformCover['attrs']['customOverlayColor']), 'P5: Degenerate uniform overlay emits no customOverlayColor.');
+$assertSame(4, $degenerateUniformCover['attrs']['dimRatio'] ?? null, 'Uniform stops retain low source opacity.');
+$assertSame('#000000', $degenerateUniformCover['attrs']['customOverlayColor'] ?? null, 'Uniform overlay retains its source color.');
 
 $sidewaysUniformResult = $transformHtml('<section class="hero" style="background:linear-gradient(90deg,rgba(0,0,0,.5),rgba(0,0,0,.5)),url(https://example.com/h.jpg) center/cover;min-height:480px"><h1>T</h1><p>B</p></section>');
 $sidewaysUniformCover = $sidewaysUniformResult['blocks'][0] ?? array();

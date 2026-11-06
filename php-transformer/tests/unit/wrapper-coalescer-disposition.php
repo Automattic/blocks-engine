@@ -57,7 +57,7 @@ $elementFrom = static function (string $html): DOMElement {
  */
 $makeCoalescer = static function (array $runtimeDomSelectors = array(), array $overrides = array()) use ($elementFrom): WrapperCoalescer {
     $runtime = new Runtime();
-    $session = new HtmlTransformerSession($runtime, static fn (DOMElement $element): array => array());
+    $session = new HtmlTransformerSession($runtime, new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()));
 
     $selectorState = new RuntimeSelectorState(array_fill_keys($runtimeDomSelectors, true), array_fill_keys($runtimeDomSelectors, true), array());
     $session->installRuntimeSelectorState($selectorState);
@@ -84,7 +84,6 @@ $makeCoalescer = static function (array $runtimeDomSelectors = array(), array $o
             }
             return $out;
         },
-        static fn (DOMElement $element): array => array(),
         static fn (string $html): ?DOMElement => null,
         static fn (DOMElement $element): bool => false
     ), $pseudoFormAnalyzer);
@@ -112,7 +111,6 @@ $makeCoalescer = static function (array $runtimeDomSelectors = array(), array $o
     $session->transformationProvenanceState()->registerSource(array('source_digest' => hash('sha256', SourceDom::safeFallbackHtml($elementFrom('<p>Copy</p>')))), false);
 
     $defaults = array(
-        'structureSignals' => static fn (DOMElement $e): array => array(),
         'soleElementChild' => static fn (DOMElement $e): ?DOMElement => $e->firstElementChild,
         'isImageOnlyAnchor' => static fn (DOMElement $e): bool => false,
     );
@@ -124,7 +122,7 @@ $makeCoalescer = static function (array $runtimeDomSelectors = array(), array $o
         $styleResolver,
         $createBlock,
         $session,
-        $c['structureSignals'],
+        new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()),
         $c['soleElementChild'],
         $c['isImageOnlyAnchor']
     );
@@ -171,9 +169,7 @@ $dataWrapper = $elementFrom('<div data-state="open"><p>Copy</p></div>');
 $dataReason = $makeCoalescer()->coalescingDisposition($dataWrapper, array('blockName' => 'core/group'))->reason;
 $assert('has_data_attributes_without_proof' === $dataReason, 'data-attribute-names-reason', $dataReason);
 
-$structureSignalReason = $makeCoalescer(array(), array(
-    'structureSignals' => static fn (DOMElement $e): array => array('visual_layer' => true),
-))->coalescingDisposition($elementFrom('<div class="card"><p>Copy</p></div>'), array('blockName' => 'core/group'))->reason;
+$structureSignalReason = $makeCoalescer()->coalescingDisposition($elementFrom('<div class="card"><p>Copy</p></div>'), array('blockName' => 'core/group'))->reason;
 $assert('has_structure_signals_without_proof' === $structureSignalReason, 'structure-signal-names-reason', $structureSignalReason);
 
 // No `_source_provenance_id` and not a `core/image` child, so
@@ -183,6 +179,20 @@ $assert('missing_matching_source_child' === $missingChildReason, 'missing-source
 
 $motionTokenReason = $makeCoalescer()->coalescingDisposition($elementFrom('<div class="slider"><p>Copy</p></div>'), array('blockName' => 'core/group'))->reason;
 $assert('has_motion_structure_token' === $motionTokenReason, 'motion-structure-token-names-reason', $motionTokenReason);
+
+$geometry = 'be-inline-geometry-0123456789abcdef';
+$geometryGroup = array(
+    'blockName' => 'core/group',
+    'attrs' => array('className' => $geometry),
+    'innerBlocks' => array(array('blockName' => 'core/paragraph')),
+    'innerContent' => array('<div class="surface">', null, '</div>'),
+);
+$coalescer = $makeCoalescer();
+$assert(null === $coalescer->groupWrapperDescriptor($geometryGroup), 'attribute-only-geometry-keeps-core-projection');
+$geometryGroup['innerContent'][0] = '<div class="surface ' . $geometry . '">';
+$assert(null !== $coalescer->groupWrapperDescriptor($geometryGroup), 'saved-geometry-is-render-safe-to-fold');
+$geometryGroup['attrs']['className'] .= ' be-inline-geometry-fedcba9876543210';
+$assert(null === $coalescer->groupWrapperDescriptor($geometryGroup), 'every-geometry-token-must-be-saved');
 
 if ( array() !== $failures ) {
     foreach ( $failures as $failure ) {

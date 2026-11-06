@@ -432,15 +432,17 @@ $assert(
 );
 $visualLayerImageResult = ( new HtmlTransformer() )->transform('<style>.media-column{position:relative}.visual-layer{position:absolute}</style><div class="media-column"><div class="visual-layer"><media-image><img src="hero.jpg" style="width:320px;height:281px" width="320" height="281" alt="Hero"></media-image></div></div>')->toArray();
 $visualLayerImageCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $visualLayerImageResult['assets'] ?? array()));
+// Render-safe geometry wrappers now fold into a shell without losing their CSS.
 $assert(
-    str_contains((string) ($visualLayerImageResult['serialized_blocks'] ?? ''), '<!-- wp:group')
+    str_contains((string) ($visualLayerImageResult['serialized_blocks'] ?? ''), '<!-- wp:custom/layout-shell')
         && str_contains($visualLayerImageCss, 'min-height:281px')
         && str_contains($visualLayerImageCss, 'position:relative'),
     'a media-only container retains intrinsic height when its visual layer is out of flow'
 );
 $staticVisualMediaWrapperResult = ( new HtmlTransformer() )->transform('<style>.visual-layer{position:absolute}</style><div class="media-shell"><div class="visual-layer"><media-image><img src="hero.jpg" style="width:320px;height:281px" width="320" height="281" alt="Hero"></media-image></div></div>')->toArray();
 $staticVisualMediaWrapperCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $staticVisualMediaWrapperResult['assets'] ?? array()));
-$staticVisualMediaWrapperClass = (string) ($staticVisualMediaWrapperResult['blocks'][0]['attrs']['className'] ?? '');
+// The geometry carrier now lives on the folded shell's outer wrapper.
+$staticVisualMediaWrapperClass = (string) ($staticVisualMediaWrapperResult['blocks'][0]['attrs']['wrappers'][0]['attributes']['class'] ?? '');
 preg_match('/(?:^|\s)(be-inline-geometry-[a-f0-9]+)(?:\s|$)/', $staticVisualMediaWrapperClass, $staticVisualMediaWrapperCarrier);
 $assert(
     isset($staticVisualMediaWrapperCarrier[1])
@@ -795,7 +797,7 @@ $styledTableCss = implode("\n", array_map(static fn (array $asset): string => 'c
 $assert(3 === count(array_filter($styledTableResult['blocks'] ?? array(), static fn (array $block): bool => 'core/table' === ($block['blockName'] ?? ''))), 'class-addressed native tables remain core/table blocks');
 $assert(3 === count(array_filter($styledTableResult['blocks'] ?? array(), static fn (array $block): bool => str_contains((string) ($block['attrs']['className'] ?? ''), 'blocks-engine-table-'))) && ! str_contains($styledTableMarkup, '<td class=') && ! str_contains($styledTableMarkup, '<th class='), 'native table wrappers carry isolated projection markers without unsupported cell classes');
 $assert(str_contains($styledTableCss, '>table>tbody>tr:nth-child(1)>td:nth-child(2)') && str_contains($styledTableCss, '>table>thead>tr:nth-child(1)>th:nth-child(2)'), 'cell-owned author selectors project to exact native table structure');
-$assert(str_contains($styledTableCss, ':hover{color:#456}') && str_contains($styledTableCss, '.services-table tbody tr:last-child td:first-child{padding:12px}'), 'projected table selectors retain pseudo-state while already-valid structural selectors stay compact');
+$assert(str_contains($styledTableCss, ':hover{color:#456}') && 1 === preg_match('/>table>tbody>tr:nth-child\(2\)>td:nth-child\(1\)(?::not\([^)]*\))*\{padding:12px\}/', $styledTableCss), 'projected table selectors retain pseudo-state and lift ancestor-scoped cell rules onto the same structural baseline');
 $assert(str_contains($styledTableCss, '>table>tbody>tr:nth-child(2)>td:nth-child(1)') && str_contains($styledTableCss, '{background:#eee}'), 'section-position selectors retain the matched source rows when native table bodies merge');
 $assert(3 === count(array_unique(array_map(static fn (array $block): string => (string) ($block['attrs']['className'] ?? ''), $styledTableResult['blocks'] ?? array()))), 'table projection markers isolate same-shaped native tables');
 $assert('pass' === ($styledTableResult['source_reports']['wp_block_validity']['status'] ?? ''), 'structurally projected native tables remain editor-valid');
@@ -979,7 +981,7 @@ $navInherited = ( new HtmlTransformer() )->transform(
 )->toArray();
 $navInheritedCss = implode("\n", array_column($navInherited['assets'] ?? array(), 'content'));
 $navInheritedMarkup = (string) ($navInherited['serialized_blocks'] ?? '');
-$assert(str_contains($navInheritedCss, '.wp-block-navigation-item:nth-child(1)>div') && str_contains($navInheritedCss, '{color:rgb(238,255,255);font-family:helvetica-w01-roman;font-size:15.75px}') && str_contains($navInheritedMarkup, '"boxes":[{"tag":"div"'), 'menu presentation stays on its retained native source wrapper rather than freezing the inherited anchor');
+$assert(str_contains($navInheritedCss, '.wp-block-navigation__container>.wp-block-navigation-item>div') && str_contains($navInheritedCss, '{color:rgb(238,255,255);font-family:helvetica-w01-roman;font-size:15.75px}') && str_contains($navInheritedMarkup, '"boxes":[{"tag":"div"'), 'menu presentation stays on its retained native source wrapper rather than freezing the inherited anchor');
 $assert(! str_contains($navInheritedCss, '.wp-block-navigation.menu.navbar .wp-block-navigation-item__content{color:#000') && ! str_contains($navInheritedCss, 'font-family:Arial;font-size:10px}'), 'recovery reads the source menu rather than the document default that surrounds it');
 preg_match('/<!--\s*wp:navigation\s*(\{.*?\})\s*-->/s', $navInheritedMarkup, $navInheritedAttrs);
 $navInheritedBlock = $navInheritedAttrs[1] ?? '';
@@ -2031,19 +2033,19 @@ $assert(! str_contains($largeCssSizedInlineSvgArtworkMarkup, '<svg class="hero-c
 
 $percentageWidthSvg = ( new HtmlTransformer() )->transform('<main><svg width="100%" viewBox="0 0 620 380" role="img" aria-label="Responsive map"><rect width="620" height="380" fill="#111"/></svg></main>')->toArray();
 $percentageWidthSvgMarkup = (string) ($percentageWidthSvg['serialized_blocks'] ?? '');
-$assert(str_contains($percentageWidthSvgMarkup, 'style="width:100%"') && ! str_contains($percentageWidthSvgMarkup, 'height:auto') && ! str_contains($percentageWidthSvgMarkup, 'height:380px') && str_contains((string) ($percentageWidthSvg['assets'][0]['content'] ?? ''), 'viewBox="0 0 620 380"'), 'percentage-width inline SVG core/image matches the WordPress 7.0.4 width-only save shape');
+$assert(str_contains($percentageWidthSvgMarkup, 'style="width:100%;height:auto"') && ! str_contains($percentageWidthSvgMarkup, 'height:380px') && str_contains((string) ($percentageWidthSvg['assets'][0]['content'] ?? ''), 'viewBox="0 0 620 380"'), 'percentage-width inline SVG core/image matches the WordPress 7.0.4 width-only save shape');
 
 $fractionalPercentageWidthSvg = ( new HtmlTransformer() )->transform('<main><svg width=".5%" viewBox="0 0 620 380" role="img" aria-label="Fractional responsive map"><rect width="620" height="380" fill="#111"/></svg></main>')->toArray();
 $fractionalPercentageWidthSvgMarkup = (string) ($fractionalPercentageWidthSvg['serialized_blocks'] ?? '');
-$assert(str_contains($fractionalPercentageWidthSvgMarkup, 'style="width:.5%"') && ! str_contains($fractionalPercentageWidthSvgMarkup, 'height:auto') && ! str_contains($fractionalPercentageWidthSvgMarkup, 'height:380px'), 'fractional percentage-width inline SVG core/image uses the WordPress 7.0.4 width-only save shape');
+$assert(str_contains($fractionalPercentageWidthSvgMarkup, 'style="width:.5%;height:auto"') && ! str_contains($fractionalPercentageWidthSvgMarkup, 'height:380px'), 'fractional percentage-width inline SVG core/image uses the WordPress width-only save shape');
 
 $signedPercentageWidthSvg = ( new HtmlTransformer() )->transform('<main><svg width="+.5%" viewBox="0 0 620 380" role="img" aria-label="Signed responsive map"><rect width="620" height="380" fill="#111"/></svg></main>')->toArray();
 $signedPercentageWidthSvgMarkup = (string) ($signedPercentageWidthSvg['serialized_blocks'] ?? '');
-$assert(str_contains($signedPercentageWidthSvgMarkup, 'style="width:+.5%"') && ! str_contains($signedPercentageWidthSvgMarkup, 'height:auto') && ! str_contains($signedPercentageWidthSvgMarkup, 'height:380px'), 'signed fractional percentage-width inline SVG core/image uses the WordPress 7.0.4 width-only save shape');
+$assert(str_contains($signedPercentageWidthSvgMarkup, 'style="width:+.5%;height:auto"') && ! str_contains($signedPercentageWidthSvgMarkup, 'height:380px'), 'signed fractional percentage-width inline SVG core/image uses the WordPress width-only save shape');
 
 $exponentPercentageWidthSvg = ( new HtmlTransformer() )->transform('<main><svg width="1e2%" viewBox="0 0 620 380" role="img" aria-label="Exponent responsive map"><rect width="620" height="380" fill="#111"/></svg></main>')->toArray();
 $exponentPercentageWidthSvgMarkup = (string) ($exponentPercentageWidthSvg['serialized_blocks'] ?? '');
-$assert(str_contains($exponentPercentageWidthSvgMarkup, 'style="width:1e2%"') && ! str_contains($exponentPercentageWidthSvgMarkup, 'height:auto') && ! str_contains($exponentPercentageWidthSvgMarkup, 'height:380px'), 'exponent percentage-width inline SVG core/image uses the WordPress 7.0.4 width-only save shape');
+$assert(str_contains($exponentPercentageWidthSvgMarkup, 'style="width:1e2%;height:auto"') && ! str_contains($exponentPercentageWidthSvgMarkup, 'height:380px'), 'exponent percentage-width inline SVG core/image uses the WordPress width-only save shape');
 
 $negativePercentageWidthSvg = ( new HtmlTransformer() )->transform('<main><svg width="-1%" viewBox="0 0 620 380" role="img" aria-label="Invalid negative responsive map"><rect width="620" height="380" fill="#111"/></svg></main>')->toArray();
 $negativePercentageWidthSvgMarkup = (string) ($negativePercentageWidthSvg['serialized_blocks'] ?? '');
@@ -2297,7 +2299,7 @@ $fullWidthNativeButtonAttrs = $fullWidthNativeButton['blocks'][0]['innerBlocks']
 $fullWidthNativeButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $fullWidthNativeButton['assets'] ?? array()));
 $assert(! isset($fullWidthNativeButtonAttrs['width']) && str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'blocks-engine-control-') && ! str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'selector-submit'), 'styled full-width native button omits the legacy width attribute and uses a generated marker instead of source root classes');
 $assert(! str_contains($fullWidthNativeButtonMarkup, 'wp-block-button selector-submit') && ! str_contains($fullWidthNativeButtonMarkup, 'wp-element-button selector-submit'), 'styled full-width native button keeps source root classes out of canonical markup');
-$assert(! str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'is-style-outline') && '#123456' === ($fullWidthNativeButtonAttrs['style']['color']['background'] ?? null) && str_contains($fullWidthNativeButtonMarkup, 'style="background-color:#123456;') && str_contains($fullWidthNativeButtonCss, ':not([style*="background"]){background:none}'), 'a filled button variant carries its fill after an earlier native-button background reset without becoming an outline control');
+$assert(! str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'is-style-outline') && '#123456' === ($fullWidthNativeButtonAttrs['style']['color']['background'] ?? null) && str_contains($fullWidthNativeButtonMarkup, 'border-radius:0px;background-color:#123456;') && str_contains($fullWidthNativeButtonCss, ':not([style*="background"]){background:none}'), 'a filled button variant carries its fill after an earlier native-button background reset without becoming an outline control');
 $assert(str_contains($fullWidthNativeButtonMarkup, 'class="wp-block-button__link has-background wp-element-button"') && str_contains($fullWidthNativeButtonMarkup, 'background-color:#123456'), 'a filled button variant serializes its fill on the link, as core/button save() does');
 $assert(str_contains($fullWidthNativeButtonCss, '.wp-block-buttons){display:block!important;gap:0!important;width:100%!important}') && str_contains($fullWidthNativeButtonCss, '.wp-block-button__link){box-sizing:border-box;width:100%!important}'), 'styled full-width native button projects root geometry through the wrapper chain without overriding source wrapper margins');
 $assert('pass' === ($fullWidthNativeButton['source_reports']['wp_block_validity']['status'] ?? ''), 'styled full-width native button wrapper chain remains editor-valid');
@@ -3145,7 +3147,7 @@ $coverHero = ( new HtmlTransformer() )->transform(
     '<section class="hero" style="background-image:url(https://example.com/hero.jpg);background-size:cover;min-height:480px"><h1>Build</h1><p>Ship faster with blocks.</p></section>'
 )->toArray();
 $coverHeroSerialized = (string) ($coverHero['serialized_blocks'] ?? '');
-$expectedCoverHeroSerialized = '<!-- wp:cover {"className":"hero","url":"https://example.com/hero.jpg","alt":"","dimRatio":0,"minHeight":480,"metadata":{"name":"Build"}} --><div class="wp-block-cover hero" style="min-height:480px"><img class="wp-block-cover__image-background" alt="" src="https://example.com/hero.jpg" data-object-fit="cover"/><span aria-hidden="true" class="wp-block-cover__background has-background-dim-0 has-background-dim"></span><div class="wp-block-cover__inner-container"><!-- wp:heading {"level":1} --><h1 class="wp-block-heading">Build</h1><!-- /wp:heading --><!-- wp:paragraph --><p>Ship faster with blocks.</p><!-- /wp:paragraph --></div></div><!-- /wp:cover -->';
+$expectedCoverHeroSerialized = '<!-- wp:cover {"className":"hero","url":"https://example.com/hero.jpg","alt":"","dimRatio":0,"minHeight":480,"tagName":"section","metadata":{"name":"Build"}} --><section class="wp-block-cover hero" style="min-height:480px"><img class="wp-block-cover__image-background" alt="" src="https://example.com/hero.jpg" data-object-fit="cover"/><span aria-hidden="true" class="wp-block-cover__background has-background-dim-0 has-background-dim"></span><div class="wp-block-cover__inner-container"><!-- wp:heading {"level":1} --><h1 class="wp-block-heading">Build</h1><!-- /wp:heading --><!-- wp:paragraph --><p>Ship faster with blocks.</p><!-- /wp:paragraph --></div></section><!-- /wp:cover -->';
 $assert($expectedCoverHeroSerialized === $coverHeroSerialized, 'gated hero serializes to the exact canonical core/cover golden', $coverHeroSerialized);
 $assert(array() === ( new CanonicalSaveShapeValidator() )->findings($coverHero['blocks'] ?? array()), 'canonical hero cover passes save-shape validation');
 
@@ -4074,6 +4076,17 @@ $assert('data_template' === ($templateRuntimeIslands[0]['template_role'] ?? ''),
 $assert(! str_contains((string) ($runtimeTemplate['serialized_blocks'] ?? ''), '<!-- wp:html'), 'runtime HTML template does not emit raw HTML fallback blocks');
 $assert(! str_contains((string) ($runtimeTemplate['serialized_blocks'] ?? ''), '<template'), 'runtime HTML template does not serialize inert template markup into visual output');
 
+$controlOnlyDataTemplate = ( new HtmlTransformer() )->transform(
+    '<main><form><p>Give today</p><template class="cadence-template" data-monthly-label="Monthly Donation" data-weekly-label="Weekly Donation"><fieldset class="form-item field select"><div class="dropdownWrapper"><select aria-label="Donation Frequency" class="dropdownSelect"><option value="ONE_TIME">One-Time Donation</option></select><span class="form-input-effects" aria-hidden="true"><span class="form-input-effects-border"></span></span><div class="accessoryIcon"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="12"><path d="M0.4 1.5L9 11.1Z"></path></svg></div></div></fieldset></template></form></main>'
+)->toArray();
+$controlOnlyDataTemplateDiagnostics = $controlOnlyDataTemplate['source_reports']['conversion_report']['fallback_diagnostics'] ?? array();
+$controlOnlyDataTemplateMetadata = array_values(array_filter($controlOnlyDataTemplateDiagnostics, static fn (array $diagnostic): bool => 'html_template_metadata' === ($diagnostic['diagnostic_code'] ?? '')));
+$assert(1 === count($controlOnlyDataTemplateMetadata) && 'template_static_metadata' === ($controlOnlyDataTemplateMetadata[0]['reason'] ?? '') && 'none' === ($controlOnlyDataTemplateMetadata[0]['runtime_requirement'] ?? ''), 'data-* template with only form-control body emits static template metadata');
+$controlOnlyDataTemplateFallbacks = array_values(array_filter($controlOnlyDataTemplate['fallbacks'] ?? array(), static fn (array $fallback): bool => 'template' === ($fallback['tag'] ?? '')));
+$assert(1 === count($controlOnlyDataTemplateFallbacks) && 'static_template_metadata' === ($controlOnlyDataTemplateFallbacks[0]['template_role'] ?? ''), 'data-* template with only form-control body reports static template role');
+$assert(array() === array_values(array_filter($controlOnlyDataTemplateDiagnostics, static fn (array $diagnostic): bool => 'html_template_runtime_fallback' === ($diagnostic['diagnostic_code'] ?? ''))), 'data-* template with only form-control body does not emit runtime template fallback');
+$assert(array() === array_values(array_filter($controlOnlyDataTemplate['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'template' === ($island['kind'] ?? ''))), 'data-* template with only form-control body is not a runtime island');
+
 $inertLightboxTemplate = ( new HtmlTransformer() )->transform(
     '<main><button type="button" class="js-lightbox-trigger"><img src="https://example.test/hero.jpg" alt="Hero"><template class="js-cdk-image-lightbox-template"><div role="dialog" aria-label="Image"><button type="button" class="sqs-lightbox-close">Close</button></div></template></button></main>'
 )->toArray();
@@ -4515,12 +4528,12 @@ $artifactNavStructureCompatOffset = strpos($artifactNavStructureStaticCss, 'wp-c
 $artifactNavStructureCompatCss = false === $artifactNavStructureCompatOffset ? '' : substr($artifactNavStructureStaticCss, $artifactNavStructureCompatOffset);
 $assert(str_contains($artifactNavStructureAssetCss, '.site-menu > :where(.wp-block-navigation__container)>.wp-block-navigation-item:not(be-t-0)') && str_contains($artifactNavStructureAssetCss, 'display:flex;align-items:center') && str_contains($artifactNavStructureAssetCss, 'margin-right:30px') && ! str_contains($artifactNavStructureCompatCss, 'margin-right:30px'), 'artifact CSS projects source navigation item geometry without a second compatibility replay', $artifactNavStructureAssetCss);
 $assert(isset($artifactNavAnchorSubject[0]) && 1 === preg_match('/blocks-engine-navigation-instance-[a-f0-9]{12}-\d+ \.wp-block-navigation__container>\.wp-block-navigation-item:nth-child\(\d+\) :where\(\.wp-block-navigation-item__content\)/', $artifactNavStructureAssetCss) && str_contains($artifactNavStructureAssetCss, '{font-family:Montserrat,sans-serif;font-size:16px;color:#000;text-transform:lowercase;padding-bottom:7px}'), 'artifact CSS projects source list anchor typography onto its distinct native anchor subject');
-$assert(str_contains($artifactNavStructureStaticCss, '.nav\\,alternate.site-menu.wp-block-navigation .wp-block-navigation__container>') && str_contains($artifactNavStructureStaticCss, 'gap:4px'), 'artifact navigation projection preserves escaped selector punctuation');
+$assert(!str_contains($artifactNavStructureStaticCss, '.nav\\,alternate.site-menu.wp-block-navigation .wp-block-navigation__container>'), 'artifact navigation replay omits an escaped class absent from compiled markup');
 $quotedNavigationCss = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\WordPressCompatCss())->css('.desktop-nav[data-kind="/* promoted */"] a{order:2}', array(), array());
 $assert(str_contains($quotedNavigationCss, '[data-kind="/* promoted */"]') && str_contains($quotedNavigationCss, 'order:2'), 'navigation projection preserves comment-like text inside quoted selector values before semantic attribute projection');
 $artifactNavStructureCompatOffset = strpos($artifactNavStructureStaticCss, 'wp-compat: replay source nav anchor selectors');
 $artifactNavStructureCompatCss = false === $artifactNavStructureCompatOffset ? '' : substr($artifactNavStructureStaticCss, $artifactNavStructureCompatOffset);
-$assert(str_contains($artifactNavStructureStaticCss, '.wp-block-navigation__container>.wp-block-navigation-item') && ! str_contains($artifactNavStructureCompatCss, 'blocks-engine-source-li-'), 'artifact navigation projection replaces non-serialized source list markers with core navigation item selectors');
+$assert(str_contains($artifactNavStructureStaticCss, '.wp-block-navigation__container:has(') && ! str_contains($artifactNavStructureCompatCss, 'blocks-engine-source-li-'), 'artifact navigation projection replaces non-serialized source list markers with core navigation item selectors');
 // A rule whose subject is the source list item itself is projected by the author
 // stylesheet projector onto core's rendered item (the source-type marker never
 // reaches it), so the compat layer no longer has a marker to map for it.
@@ -4665,7 +4678,7 @@ $artifactHeaderRuntimeCss = $compiler->compile(
     )
 )->toArray();
 $artifactHeaderRuntimeStaticCss = (string) ($artifactHeaderRuntimeCss['source_reports']['compiled_site']['visual_repair']['compat_css'] ?? '');
-$assert(str_contains($artifactHeaderRuntimeStaticCss, '.blocks-engine-current-navigation-underline>.wp-block-navigation-item__content { text-decoration:underline }'), 'artifact CSS renders only source-authored current navigation underlines on core navigation links');
+$assert(!str_contains($artifactHeaderRuntimeStaticCss, '.blocks-engine-current-navigation-underline'), 'artifact CSS omits current-navigation underline support when no compiled subject carries it');
 $assert(str_contains($artifactHeaderRuntimeStaticCss, '.wp-block-search__button.has-icon>.search-icon { display:block!important;height:1.25em!important }'), 'artifact CSS protects the core search SVG from colliding source search-icon hidden states');
 
 $artifactNavContainerCss = $compiler->compile(
@@ -4679,18 +4692,18 @@ $artifactNavContainerCss = $compiler->compile(
     )
 )->toArray();
 $artifactNavContainerStaticCss = (string) ($artifactNavContainerCss['source_reports']['compiled_site']['visual_repair']['compat_css'] ?? '');
-$assert(str_contains($artifactNavContainerStaticCss, ':where(.collapsed-nav.wp-block-navigation)') && str_contains($artifactNavContainerStaticCss, ' { display:none;position:absolute }'), 'artifact static CSS preserves source navigation container state in the common native scope');
-$assert(str_contains($artifactNavContainerStaticCss, ':where(.collapsed-nav.visible.wp-block-navigation)') && str_contains($artifactNavContainerStaticCss, ' { display:block!important }'), 'artifact static CSS preserves source navigation container visible state');
+$assert(!str_contains($artifactNavContainerStaticCss, ':where(.collapsed-nav.wp-block-navigation)'), 'artifact static CSS omits replay for a removed duplicate navigation container');
+$assert(!str_contains($artifactNavContainerStaticCss, ':where(.collapsed-nav.visible.wp-block-navigation)'), 'artifact static CSS omits visible-state replay for a removed duplicate navigation container');
 $assert(! str_contains($artifactNavContainerStaticCss, '.desktop-nav.wp-block-navigation'), 'artifact static CSS leaves desktop navigation display rules under their authored responsive cascade');
 $assert(! str_contains($artifactNavContainerStaticCss, '.drawer-panel.wp-block-navigation'), 'artifact navigation container replay does not rewrite unrelated drawer selectors');
 $assert(! str_contains($artifactNavContainerStaticCss, '.collapsed-nav.wp-block-navigation>ul'), 'artifact navigation container replay does not rewrite descendant targets as containers');
 $assert(str_contains($artifactNavContainerStaticCss, 'body .site-header { opacity:1!important }'), 'artifact static CSS materializes a stable root class added by source startup code');
 $artifactNavContainerRepair = $artifactNavContainerCss['source_reports']['compiled_site']['visual_repair'] ?? array();
 $artifactNavContainerRepairCss = (string) ($artifactNavContainerRepair['css'] ?? '');
-$assert(str_contains($artifactNavContainerRepairCss, ':where(.collapsed-nav.wp-block-navigation)') && str_contains($artifactNavContainerRepairCss, ' { display:none;position:absolute }') && str_contains($artifactNavContainerRepairCss, 'body .site-header { opacity:1!important }'), 'artifact visual repair carries neutral navigation cascade and stable startup state projections');
-$assert(str_contains((string) ($artifactNavContainerRepair['compat_css'] ?? ''), ':where(.collapsed-nav.wp-block-navigation)') && str_contains((string) ($artifactNavContainerRepair['compat_css'] ?? ''), ' { display:none;position:absolute }') && str_contains((string) ($artifactNavContainerRepair['compat_css'] ?? ''), 'body .site-header { opacity:1!important }'), 'artifact visual repair exposes self-contained WordPress compatibility CSS separately from legacy repair aggregation');
+$assert(!str_contains($artifactNavContainerRepairCss, ':where(.collapsed-nav.wp-block-navigation)') && str_contains($artifactNavContainerRepairCss, 'body .site-header { opacity:1!important }'), 'artifact visual repair carries neutral navigation cascade and stable startup state projections');
+$assert(!str_contains((string) ($artifactNavContainerRepair['compat_css'] ?? ''), ':where(.collapsed-nav.wp-block-navigation)') && str_contains((string) ($artifactNavContainerRepair['compat_css'] ?? ''), 'body .site-header { opacity:1!important }'), 'artifact visual repair exposes self-contained WordPress compatibility CSS separately from legacy repair aggregation');
 $artifactNavContainerCompatAssets = array_values(array_filter($artifactNavContainerCss['source_reports']['compiled_site']['assets'] ?? array(), static fn (array $asset): bool => 'wordpress-compat' === ($asset['source'] ?? '')));
-$assert(1 === count($artifactNavContainerCompatAssets) && str_contains((string) ($artifactNavContainerCompatAssets[0]['content'] ?? ''), ':where(.collapsed-nav.wp-block-navigation)') && str_contains((string) ($artifactNavContainerCompatAssets[0]['content'] ?? ''), ' { display:none;position:absolute }') && str_contains((string) ($artifactNavContainerCompatAssets[0]['content'] ?? ''), 'body .site-header { opacity:1!important }'), 'artifact compiler emits self-contained WordPress compatibility CSS as an enqueued stylesheet asset');
+$assert(1 === count($artifactNavContainerCompatAssets) && !str_contains((string) ($artifactNavContainerCompatAssets[0]['content'] ?? ''), ':where(.collapsed-nav.wp-block-navigation)') && str_contains((string) ($artifactNavContainerCompatAssets[0]['content'] ?? ''), 'body .site-header { opacity:1!important }'), 'artifact compiler emits self-contained WordPress compatibility CSS as an enqueued stylesheet asset');
 
 $artifactGeometry = $compiler->compile(
     array(
@@ -6896,7 +6909,7 @@ $assert(is_array($paragraph), 'styled paragraph block is emitted');
 $assert(is_array($paragraph['attrs']['style'] ?? null), 'paragraph style is a canonical object');
 assertSame('#222', $paragraph['attrs']['style']['color']['text'] ?? null, 'paragraph color maps to style.color.text');
 assertSame('var(--font-mono)', $paragraph['attrs']['style']['typography']['fontFamily'] ?? null, 'paragraph font-family maps to style.typography.fontFamily');
-assertSame('center', $paragraph['attrs']['align'] ?? null, 'paragraph text-align maps to native align attribute');
+assertSame('center', $paragraph['attrs']['style']['typography']['textAlign'] ?? null, 'paragraph text-align maps to native typography text alignment');
 $assert(str_contains((string) ($paragraph['innerHTML'] ?? ''), 'has-text-align-center'), 'paragraph saved markup carries native text alignment class');
 $assert(str_contains((string) ($paragraph['innerHTML'] ?? ''), 'font-family:var(--font-mono)'), 'paragraph saved markup carries canonical font-family style');
 

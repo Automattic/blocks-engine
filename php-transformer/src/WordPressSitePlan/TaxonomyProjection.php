@@ -5,7 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlMarkupParser;
 
-/** Recognizes captured category and tag collections from reciprocal source-document evidence. */
+/** Recognizes captured category and tag collections from reciprocal links or WordPress body identity. */
 final class TaxonomyProjection
 {
     private const TERM_ROUTE = '~(?:^|/)(category|tag)/([^/]+(?:/[^/]+)*)$~';
@@ -38,6 +38,7 @@ final class TaxonomyProjection
             if (is_string($source)) $linksBySource[$source] = ReciprocalArchiveProof::links((string) ($document['html'] ?? ''), $sourceOrigin);
         }
 
+        $siteName = self::sharedTitleSuffix($documents);
         $entities = array();
         $diagnostics = array();
         $corroboratedBySlug = array();
@@ -52,6 +53,8 @@ final class TaxonomyProjection
                 $diagnostics[] = array('code' => 'wordpress_site_plan_taxonomy_archive_unsupported_spelling', 'severity' => 'info', 'message' => 'A captured taxonomy route or slug spelling is outside the canonical term vocabulary, so the collection stays explicitly unproven.', 'source_path' => $source, 'source_route' => $route);
                 continue;
             }
+            $classes = DocumentRootContext::bodyClasses($archive);
+            $bodyIdentity = in_array('archive', $classes, true) && in_array($termMatch[1], $classes, true) && in_array($termMatch[1] . '-' . $slug, $classes, true);
             $heading = ReciprocalArchiveProof::heading((string) ($archive['html'] ?? ''));
             $listed = array();
             foreach (ReciprocalArchiveProof::links((string) ($archive['html'] ?? ''), $sourceOrigin) as $link) {
@@ -110,9 +113,20 @@ final class TaxonomyProjection
                 }
             }
             $members = array_values(array_unique($members));
-            if (array() === $members) {
+            if ($bodyIdentity) {
+                $name = $heading;
+                if ('' === $name) {
+                    $name = self::documentTitle($archive);
+                    if ('' !== $siteName) $name = preg_replace('~ (?:–|\\||-) ' . preg_quote($siteName, '~') . '$~u', '', $name) ?? $name;
+                }
+            }
+            if (array() === $members && (!$bodyIdentity || '' === $name)) {
                 $diagnostics[] = array('code' => 'wordpress_site_plan_taxonomy_archive_unproven', 'severity' => 'info', 'message' => 'A captured taxonomy collection lacked matching article return links, source labels, or post members.', 'source_path' => $source, 'source_route' => $route);
                 continue;
+            }
+            // Identity proves the archive and its numbered captures, never their members.
+            if ($bodyIdentity) foreach ($archiveDocuments as $archiveRoute => $sibling) {
+                if ($archiveRoute !== $route) $paginationSources[(string) $sibling['source_path']] = true;
             }
             $corroboratedBySlug[$taxonomy . ':' . $slug][] = array('source' => $source, 'route' => $route, 'taxonomy' => $taxonomy, 'slug' => $slug, 'heading' => $name, 'members' => $members, 'archive' => $archive, 'pagination_sources' => array_keys($paginationSources), 'parent_route' => 'category' === $taxonomy && str_contains($termMatch[2], '/') ? dirname($route) : null);
         }
@@ -189,6 +203,28 @@ final class TaxonomyProjection
             $result[$route] = array('kind' => 'taxonomy_term', 'taxonomy' => 'category', 'slug' => $slug, 'name' => $name, 'membership_source_paths' => $members, 'evidence' => array('membership' => true, 'name' => true));
         }
         return $result;
+    }
+
+    /** The retained head title is authoritative; source HTML also supports direct projection. */
+    private static function documentTitle(array $document): string
+    {
+        $title = $document['document_metadata']['title'] ?? null;
+        if (!is_string($title)) {
+            preg_match('~<title\\b[^>]*>(.*?)</title>~is', (string) ($document['html'] ?? ''), $match);
+            $title = html_entity_decode(strip_tags($match[1] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        }
+        return trim(preg_replace('/\\s+/u', ' ', $title) ?? '');
+    }
+
+    /** Strip only a site-name suffix corroborated by titles on other documents. */
+    private static function sharedTitleSuffix(array $documents): string
+    {
+        $counts = array();
+        foreach ($documents as $document) {
+            if (preg_match('~^.+ (?:–|\\||-) ([^|]+)$~u', self::documentTitle($document), $match)) $counts[$match[1]] = ($counts[$match[1]] ?? 0) + 1;
+        }
+        $shared = array_keys(array_filter($counts, static fn(int $count): bool => $count > 1));
+        return 1 === count($shared) ? (string) $shared[0] : '';
     }
 
     /** Only explicit CollectionPage names can corroborate a descriptive heading. */

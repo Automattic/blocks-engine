@@ -170,6 +170,12 @@ final class FlowContainerElementConverter implements ElementConverter
             if ( null !== $inlineRun ) return ConversionOutcome::handled($inlineRun);
         }
 
+        // Editable background heroes must be considered before CSS layout ownership.
+        $cover = $this->context->recognizePatterns($element, $fallbacks, array( CoverPattern::class ));
+        if ( null !== $cover ) {
+            return ConversionOutcome::handled($cover);
+        }
+
         if ( 'button' !== strtolower(SourceDom::attr($element, 'role'))
             && ! SourceDom::hasClass($element, 'wp-block-columns')
             && ! $this->context->isGeneratedComponentCandidate($element)

@@ -35,7 +35,9 @@ $assert = static function (bool $ok, string $label) use ($markup): void {
 foreach (array('/Blog-Actualites/index.html' => 'white', '/blog/' => 'red', '/story/' => 'blue') as $href => $color) {
     $link = $xpath->query('//a[@href="' . $href . '"]')->item(0);
     $assert($link instanceof DOMElement, 'link destination survives: ' . $href);
-    $carrier = $link->firstElementChild;
+    // Link colour now wraps text runs, not the element children: the nested
+    // green run stays a direct child and the blue run is its sibling (#4677).
+    $carrier = '/story/' === $href ? $link->lastElementChild : $link->firstElementChild;
     $assert($carrier instanceof DOMElement && 'mark' === $carrier->tagName, 'visual carrier is inside the link');
     $assert(str_contains($carrier->getAttribute('style'), 'color:' . $color), 'inline color survives: ' . $color);
     $assert(str_contains($carrier->getAttribute('style'), 'background-color:transparent'), 'carrier resets highlight background');
@@ -45,8 +47,8 @@ $link = $xpath->query('//a[@href="/blog/"]')->item(0);
 $assert('_blank' === $link->getAttribute('target') && 'noopener noreferrer' === $link->getAttribute('rel'), 'target and rel survive');
 $story = $xpath->query('//a[@href="/story/"]')->item(0);
 $assert(str_contains($story->getAttribute('class'), 'story'), 'link identity stays on link');
-$assert(str_contains($story->firstElementChild->getAttribute('style'), 'font-weight:bold'), 'non-color visual declaration survives');
-$assert(1 === $xpath->query('//a[@href="/story/"]/mark/mark[contains(@style,"color:green")]')->length, 'nested color retains precedence');
+$assert(2 === $xpath->query('.//mark[contains(@style,"font-weight:bold")]', $story)->length, 'non-color visual declaration survives on both text runs');
+$assert(1 === $xpath->query('//a[@href="/story/"]/mark[contains(@style,"color:green")]')->length, 'nested color retains precedence without a wrapper around element children');
 $assert(0 === $xpath->query('//a[@href="/plain/"]/mark')->length, 'author-only link color is not frozen on a carrier');
 // A descendant cannot cancel the link's own underline, so decorations stay
 // on the anchor through a generated class + stylesheet rule, not the mark.

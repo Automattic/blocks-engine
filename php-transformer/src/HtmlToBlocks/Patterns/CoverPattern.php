@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
@@ -148,6 +149,28 @@ final class CoverPattern implements PatternRecognizerInterface
         }
         unset($attrs['layout']);
         $this->removeConsumedDimensions($attrs);
+        $declarations = $this->styleResolver->declarations($style);
+        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+        if ( in_array($display, array( 'flex', 'grid' ), true) ) {
+            $column = 'grid' === $display || 'column' === ($declarations['flex-direction'] ?? 'row');
+            $align = (string) ($declarations['align-items'] ?? 'stretch');
+            $justify = (string) ($declarations['justify-content'] ?? 'normal');
+            $vertical = 'flex' === $display && $column ? $justify : $align;
+            $horizontal = 'flex' === $display && $column ? $align : $justify;
+            $attrs['contentPosition'] = $this->positionToken($vertical, 'top', 'bottom') . ' ' . $this->positionToken($horizontal, 'left', 'right');
+            // Covers add padding by default; an unpadded source must remain so.
+            foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
+                $attrs['style']['spacing']['padding'][$side] ??= '0';
+            }
+            $layout = array(
+                'type' => 'flex',
+                'orientation' => $column ? 'vertical' : 'horizontal',
+                'flexWrap' => 'nowrap',
+                'justifyContent' => $this->positionToken($horizontal, 'left', 'right'),
+                'verticalAlignment' => $this->positionToken($vertical, 'top', 'bottom'),
+            );
+            $children = array($createBlock('core/group', array('layout' => $layout), $children, null));
+        }
 
         try {
             $resolvedUrl = $resolveAssetUrl($backgroundUrl);
@@ -210,6 +233,11 @@ final class CoverPattern implements PatternRecognizerInterface
             // Omit underivable focal-point attributes.
         }
 
+        $sourceTag = strtolower($element->tagName);
+        if ( 'div' !== $sourceTag && in_array($sourceTag, BlockFactory::COVER_TAG_NAMES, true) ) {
+            $attrs['tagName'] = $sourceTag;
+        }
+
         try {
             $block = $createBlock('core/cover', $attrs, $children, $element);
         } catch ( Throwable ) {
@@ -260,21 +288,40 @@ final class CoverPattern implements PatternRecognizerInterface
 
     private function columnsRejectionGate(DOMElement $element, string $style): ?string
     {
-        if ( SourceDom::directElementChildCount($element) < 2 ) {
-            return null;
-        }
-
         $declarations = $this->styleResolver->declarations($style);
         $display      = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+        if ( in_array($display, array( 'grid', 'flex' ), true) ) {
+            foreach ( array( 'align-items', 'justify-content' ) as $property ) {
+                if ( ! in_array((string) ($declarations[$property] ?? 'normal'), array( 'normal', 'stretch', 'start', 'end', 'flex-start', 'flex-end', 'center' ), true) ) {
+                    return 'unsupported_alignment';
+                }
+            }
+        }
         if ( 'grid' === $display ) {
-            return 'columns_layout';
+            $tracks = trim((string) ($declarations['grid-template-columns'] ?? 'none'));
+            return in_array($tracks, array( 'none', '1fr', '100%' ), true) ? null : 'columns_layout';
         }
         if ( 'flex' !== $display ) {
             return null;
         }
 
         $direction = strtolower(trim((string) ($declarations['flex-direction'] ?? 'row')));
-        return in_array($direction, array( 'column', 'column-reverse' ), true) ? null : 'columns_layout';
+        if ( ! in_array($direction, array( 'row', 'column' ), true) ) {
+            return 'columns_layout';
+        }
+        if ( 'row' === $direction && SourceDom::directElementChildCount($element) >= 2 && ! isset($declarations['justify-content']) ) {
+            return 'columns_layout';
+        }
+        return null;
+    }
+
+    private function positionToken(string $value, string $start, string $end): string
+    {
+        return match ($value) {
+            'center' => 'center',
+            'end', 'flex-end' => $end,
+            default => $start,
+        };
     }
 
     /**
@@ -282,7 +329,10 @@ final class CoverPattern implements PatternRecognizerInterface
      */
     private function navigationRejectionGate(array $blocks): ?string
     {
-        return $this->containsBlockNamed($blocks, 'core/navigation') ? 'nav_shell' : null;
+        // Keep background-only navigation shells extractable, but allow heroes
+        // with their own heading. Menu headings are not hero content.
+        return $this->containsBlockNamed($blocks, 'core/navigation')
+            && ! $this->containsBlockNamed($blocks, 'core/heading', 'core/navigation') ? 'nav_shell' : null;
     }
 
     private function textRejectionGate(bool $hasTextBearingChildren): ?string
@@ -292,10 +342,14 @@ final class CoverPattern implements PatternRecognizerInterface
     /**
      * @param array<int, array<string, mixed>> $blocks
      */
-    private function containsBlockNamed(array $blocks, string $blockName): bool
+    private function containsBlockNamed(array $blocks, string $blockName, ?string $excludedSubtree = null): bool
     {
         foreach ( $blocks as $block ) {
             if ( ! is_array($block) ) {
+                continue;
+            }
+
+            if ( null !== $excludedSubtree && $excludedSubtree === ($block['blockName'] ?? null) ) {
                 continue;
             }
 
@@ -304,7 +358,7 @@ final class CoverPattern implements PatternRecognizerInterface
             }
 
             $innerBlocks = $block['innerBlocks'] ?? array();
-            if ( is_array($innerBlocks) && $this->containsBlockNamed($innerBlocks, $blockName) ) {
+            if ( is_array($innerBlocks) && $this->containsBlockNamed($innerBlocks, $blockName, $excludedSubtree) ) {
                 return true;
             }
         }

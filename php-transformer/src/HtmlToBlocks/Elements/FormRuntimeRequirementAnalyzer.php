@@ -72,6 +72,7 @@ final class FormRuntimeRequirementAnalyzer
         $select = false;
         $password = false;
         $subscribe = false;
+        $donate = 1 === preg_match('~(?:^|/)(?:donat(?:e|ion|ions)|give|giving)(?:[/.]|$)~', $path);
         $freeText = false;
         $hasChoice = false;
         $onlyChoices = true;
@@ -111,12 +112,17 @@ final class FormRuntimeRequirementAnalyzer
             $freeText = $freeText || 'textarea' === $tag || ('input' === $tag && in_array($type, array( '', 'text', 'tel', 'email', 'url' ), true) && ! in_array($name, array( 'q', 's', 'search', 'query' ), true));
             if ( FormControlClassifier::isSubmitLikeControl($control) ) {
                 $subscribe = $subscribe || 1 === preg_match('/\b(?:subscribe|newsletter)\b/i', ($control->textContent ?? '') . ' ' . SourceDom::attr($control, 'value'));
+                $donate = $donate || self::hasDonationSubmitSemantics($control);
             }
         }
         if ( preg_match('~(?:^|/)cart/add(?:[/.]|$)~', $path) || ($hiddenItem && $quantity) || self::hasCommerceSubmissionSignal($form, true) ) {
             return 'commerce_add_to_cart';
         }
         if ( $password ) return 'login';
+        // A contribution submit (donate / give / contribute) or donation action
+        // path outranks the GET filter rule: amount and frequency choices are
+        // what the visitor gives, not a catalog filter.
+        if ( $donate ) return 'donation';
         // Messaging intents first: a contact form may offer a subject <select>
         // and omit `method`, but a search or filter form never collects an email.
         if ( $email && ($subscribe || preg_match('~(?:^|/)(?:newsletter|subscribe)(?:/|$)~', $path)) ) return 'newsletter';
@@ -132,6 +138,23 @@ final class FormRuntimeRequirementAnalyzer
         if ( $hasChoice && $onlyChoices && ! $hasSubmit && ! $email ) return 'preference';
 
         return 'unknown';
+    }
+
+    private static function hasDonationSubmitSemantics(DOMElement $control): bool
+    {
+        // Join text nodes with spaces so sibling spans ("Donate" + a loading
+        // copy of "Donate") do not fuse into one word.
+        $text = array();
+        foreach ( (new \DOMXPath($control->ownerDocument ?? new \DOMDocument()))->query('.//text()', $control) ?: array() as $node ) {
+            $text[] = $node->textContent;
+        }
+        $haystack = implode(' ', array_merge($text, array(
+            SourceDom::attr($control, 'value'),
+            SourceDom::attr($control, 'aria-label'),
+            SourceDom::attr($control, 'title'),
+        )));
+
+        return 1 === preg_match('/\b(?:donat(?:e|ion)|give|contribut(?:e|ion))\b/i', $haystack);
     }
 
     private static function hasCommerceSubmissionSignal(DOMElement $form, bool $addToCartOnly = false): bool

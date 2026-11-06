@@ -24,6 +24,8 @@ final class CapturedDialogProjector
     private const MAX_DIALOG_STATES_PER_PAGE = 16;
     private const MAX_GALLERY_STATES_PER_PAGE = 8;
     private const MAX_DIALOG_BYTES = 65536;
+    /** The viewport overlay the capture disclosure runtime opens a modal panel as. */
+    private const MODAL_OVERLAY_STYLE = 'display:block;position:fixed;inset:0;z-index:2147483646;overflow:auto;background:#fff';
 
     /** @var list<DOMElement> Panels proven by the existing complete gallery contract. */
     private array $nativeGalleryPanels = array();
@@ -44,6 +46,7 @@ final class CapturedDialogProjector
         $components = $this->projectComponentCarousels($files);
         $popovers = $this->adoptSourcePopovers($components['files']);
         $result = $this->projectCapturedStates($popovers['files']);
+        $this->restoreNavigationPanels($result['files']);
         $result['diagnostics'] = array_merge($result['diagnostics'], $components['diagnostics'] ?? array());
         $result['projected_count'] += $popovers['projected_count'] + $components['projected_count'];
         $result['native_runtime_replacements'] = array_merge($result['native_runtime_replacements'] ?? array(), $components['native_runtime_replacements']);
@@ -225,18 +228,18 @@ final class CapturedDialogProjector
         $diagnostics = array();
         $report = CapturedInteractionReport::read($files);
         if (null === $report) {
-            return $this->retireOwnedDisclosureWithoutProjection($files, array());
+            return $this->adoptNativeDialogsWithoutReport($files, array());
         }
         if (!CapturedInteractionReport::valid($report) || ! is_array($report['pages'] ?? null)) {
             return array('files' => $files, 'diagnostics' => array($this->diagnostic('captured_interactions_invalid', 'warning', 'The captured interaction report has an unsupported schema or pages shape.')), 'projected_count' => 0);
         }
         if (! $this->hasDialogStates($report['pages'])) {
-            return $this->retireOwnedDisclosureWithoutProjection($files, $diagnostics);
+            return $this->adoptNativeDialogsWithoutReport($files, $diagnostics);
         }
 
         $receipt = CaptureReceiptReport::read($files);
         if (null === $receipt || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null) || ! is_array($receipt['routes'] ?? null)) {
-            return $this->retireOwnedDisclosureWithoutProjection($files, array_merge($diagnostics, array($this->diagnostic('captured_interactions_route_map_missing', 'warning', 'Captured dialogs were not projected because the capture receipt route map is unavailable.'))));
+            return $this->adoptNativeDialogsWithoutReport($files, array_merge($diagnostics, array($this->diagnostic('captured_interactions_route_map_missing', 'warning', 'Captured dialogs were not projected because the capture receipt route map is unavailable.'))));
         }
 
         $routes = CaptureReceiptRoutes::resolve($files, $receipt);
@@ -453,7 +456,9 @@ final class CapturedDialogProjector
     {
         $previous = libxml_use_internal_errors(true);
         $document = new DOMDocument('1.0', 'UTF-8');
-        $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+        // Implied document containers keep sibling fragment panels outside the
+        // first trigger element; NOIMPLIED can nest them inside that button.
+        $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NONET);
         libxml_clear_errors();
         libxml_use_internal_errors($previous);
         if (! $loaded) {
@@ -521,7 +526,7 @@ final class CapturedDialogProjector
                 continue;
             }
 
-            $identity = substr(hash('sha256', $sourcePath . "\n" . ($state['trigger']['selector'] ?? '') . "\n" . $dialogHtml), 0, 16);
+            $identity = substr(hash('sha256', $sourcePath . "\n" . ($state['trigger']['selector'] ?? '') . "\n" . self::identityHtml($dialogHtml)), 0, 16);
             if ('listbox' === ($state['kind'] ?? '') || 'listbox' === strtolower(trim((string) ($dialog['role'] ?? '')))) {
                 $key = 'blocks-engine-listbox-' . $identity;
                 foreach ($triggers as $trigger) {
@@ -656,6 +661,17 @@ final class CapturedDialogProjector
             $this->nativeGalleryPanels[] = $panel;
         }
         return $count;
+    }
+
+    /** Current-page selection is render state, not a dialog's identity. */
+    private static function identityHtml(string $html): string
+    {
+        $html = preg_replace('/(<a\b[^>]*?)\s+aria-current\s*=\s*(["\'])page\2/i', '$1', $html) ?? $html;
+        return preg_replace_callback('/\bclass\s*=\s*(["\'])(.*?)\1/s', static function (array $match): string {
+            $classes = preg_split('/\s+/', trim($match[2])) ?: array();
+            $classes = array_values(array_filter($classes, static fn(string $class): bool => !preg_match('/^blocks-engine-(?:current-navigation-(?:item|underline)|navigation-current-color-[a-f0-9]{64})$/', $class)));
+            return 'class=' . $match[1] . implode(' ', $classes) . $match[1];
+        }, $html) ?? $html;
     }
 
     /**
@@ -827,9 +843,9 @@ final class CapturedDialogProjector
                 $resting = $this->restingPresentation($panel);
                 // A panel with a resting snapshot is adopted whole: the panel
                 // itself, at its resting presentation, is the dialog content.
-                $fragment = array() !== $resting ? $this->safeDialogFragment('<div>' . $this->restPanel($document, $panel, $resting, $triggers[0]) . '</div>') : $this->safeDialogFragment($html);
+                $fragment = array() !== $resting ? $this->safeDialogFragment('<div>' . $this->restPanel($document, $panel, $resting, $triggers[0]) . '</div>') : $this->safeDialogFragment($html, (string) $key);
                 if (null === $fragment) continue;
-                $identity = substr(hash('sha256', $sourcePath . "\n" . $key . "\n" . $scopeIndex . "\n" . $html), 0, 16);
+                $identity = substr(hash('sha256', $sourcePath . "\n" . $key . "\n" . $scopeIndex . "\n" . self::identityHtml($html)), 0, 16);
                 $triggerIds = array();
                 $menu = false;
                 foreach ($triggers as $triggerIndex => $trigger) {
@@ -851,6 +867,11 @@ final class CapturedDialogProjector
                 $scopedPanel = array() === $resting && $nativeScopedWiring && $scope->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) && $dropdown;
                 $sourcePlace = array() !== $resting || ($dropdown && ($scopedPanel || $panel->hasAttribute(CaptureEvidence::OBSERVED_PLACEMENT))) || $this->isNativeGalleryPanel($panel) ? $panel : null;
                 $dialog = $this->appendProjectedDialog($document, $fragment, $triggers, $triggerIds, $identity, $dropdown, $sourcePlace, $scopedPanel, $resting);
+                // The resting panel now holds the opened snapshot as its open
+                // content, so the trigger's copy of it is spent capture evidence.
+                if (array() !== $resting) {
+                    foreach ($triggers as $trigger) $trigger->removeAttribute(CaptureEvidence::DIALOG_PANEL_STATE);
+                }
                 if ($scopedPanel) {
                     foreach ($triggers as $trigger) {
                         foreach (array(CaptureEvidence::DIALOG_PANEL_STATE, CaptureEvidence::DIALOG_ANCESTOR_STATE, CaptureEvidence::DISCLOSURE_LABEL) as $attribute) $trigger->removeAttribute($attribute);
@@ -976,6 +997,13 @@ final class CapturedDialogProjector
         $resting = is_array($snapshot) ? ($snapshot['resting'] ?? null) : null;
         if (! is_array($resting)) return array();
         $opened = is_array($snapshot['opened'] ?? null) ? $snapshot['opened'] : array('class' => $panel->getAttribute('class'), 'style' => $panel->getAttribute('style'));
+        // A modal panel (`aria-modal`, neither dropdown nor source-placed) is
+        // opened by the capture runtime as a viewport overlay. Its content
+        // (a fixed drawer without insets, say) is laid out against that
+        // overlay, so the adopted panel opens with the same geometry.
+        if ('true' === strtolower(trim($panel->getAttribute('aria-modal'))) && ! SourceDom::hasClass($panel, CaptureEvidence::DROPDOWN_CLASS) && ! $panel->hasAttribute(CaptureEvidence::OBSERVED_PLACEMENT) && is_array($opened)) {
+            $opened['style'] = trim(rtrim(trim((string) ($opened['style'] ?? '')), ';') . ';' . self::MODAL_OVERLAY_STYLE, ';');
+        }
         $state = CapturedDialogBlockGenerator::restingState(array('closed' => $resting, 'opened' => $opened));
         if (array() === $state) return array();
         $state['hidden'] = true === ($resting['hidden'] ?? null);
@@ -1025,9 +1053,52 @@ final class CapturedDialogProjector
             $copy->appendChild($closedContent);
             $copy->appendChild($openedContent);
         }
-        foreach (array('hidden', CaptureEvidence::EXISTING_PANEL, CaptureEvidence::DIALOG_PANEL, CaptureEvidence::OBSERVED_PLACEMENT) as $attribute) $copy->removeAttribute($attribute);
+        foreach (array('hidden', 'data-dropdown-shown', CaptureEvidence::EXISTING_PANEL, CaptureEvidence::DIALOG_PANEL, CaptureEvidence::OBSERVED_PLACEMENT) as $attribute) $copy->removeAttribute($attribute);
 
         return (string) $document->saveHTML($copy);
+    }
+
+    /** Native submenus own interaction; capture's opened envelope is not static markup. */
+    private function restoreNavigationPanels(array &$files): void
+    {
+        foreach ($files as &$file) {
+            $html = $file['content'] ?? null;
+            if (!is_string($html) || !preg_match('/\.html?$/i', (string) ($file['path'] ?? '')) || !str_contains($html, CaptureEvidence::EXISTING_PANEL)) continue;
+            $document = new DOMDocument('1.0', 'UTF-8');
+            $previous = libxml_use_internal_errors(true);
+            $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NONET);
+            libxml_clear_errors();
+            libxml_use_internal_errors($previous);
+            if (!$loaded || $this->hasUnrecognizedRuntime($document)) continue;
+            $xpath = new DOMXPath($document);
+            $changed = false;
+            foreach ($document->getElementsByTagName('*') as $trigger) {
+                if (!$this->isNavigationDropdownTrigger($trigger)) continue;
+                $key = $trigger->getAttribute(CaptureEvidence::DIALOG_TRIGGER);
+                foreach ($this->documentScopes($document) as $scope) {
+                    if (!SourceDom::elementContains($scope, $trigger)) continue;
+                    $panels = $xpath->query('.//*[@' . CaptureEvidence::DIALOG_PANEL . '=' . $this->xpathLiteral($key) . ']', $scope);
+                    if (!$panels || 1 !== $panels->length) continue;
+                    $panel = $panels->item(0);
+                    if (!$panel instanceof DOMElement || !SourceDom::hasClass($panel, CaptureEvidence::DROPDOWN_CLASS)) continue;
+                    $state = $this->restingPresentation($panel);
+                    if (array() === $state) continue;
+                    // Keep capture tokens and metadata until navigation lowering
+                    // consumes them; only replace the observed presentation.
+                    $snapshot = json_decode($panel->getAttribute(CaptureEvidence::EXISTING_PANEL), true);
+                    foreach (array('class', 'style') as $name) {
+                        if (!array_key_exists($name, $snapshot['resting'])) continue;
+                        $value = $snapshot['resting'][$name];
+                        if (null === $value) $panel->removeAttribute($name); else $panel->setAttribute($name, $value);
+                    }
+                    if ($state['hidden']) $panel->setAttribute('hidden', ''); else $panel->removeAttribute('hidden');
+                    $panel->removeAttribute('data-dropdown-shown');
+                    $changed = true;
+                }
+            }
+            if ($changed) $file = ArtifactNormalizer::withTextPayload($file, HtmlSerialization::documentHtml($document));
+        }
+        unset($file);
     }
 
     private function isNavigationDropdownTrigger(DOMElement $trigger): bool
@@ -1122,6 +1193,45 @@ final class CapturedDialogProjector
             }
         }
         return false;
+    }
+
+    /** Adopt only marked native panels left unclaimed by navigation retirement. */
+    private function adoptNativeDialogsWithoutReport(array $files, array $diagnostics): array
+    {
+        $result = $this->retireOwnedDisclosureWithoutProjection($files, $diagnostics);
+        $retired = array();
+        foreach ($result['files'] as $index => $file) {
+            $content = $file['content'] ?? null;
+            $path = (string) ($file['path'] ?? '');
+            if (!preg_match('/\.html?$/i', $path) || !is_string($content)
+                || $content !== ($files[$index]['content'] ?? null)
+                || !str_contains($content, CaptureEvidence::DIALOG_PANEL)
+                || !str_contains($content, CaptureEvidence::DIALOG_TRIGGER)) continue;
+            $previous = libxml_use_internal_errors(true);
+            $document = new DOMDocument('1.0', 'UTF-8');
+            $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $content, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+            libxml_clear_errors();
+            libxml_use_internal_errors($previous);
+            if (!$loaded) continue;
+            $xpath = new DOMXPath($document);
+            $matched = false;
+            foreach ($document->getElementsByTagName('dialog') as $panel) {
+                $key = trim($panel->getAttribute(CaptureEvidence::DIALOG_PANEL));
+                if ('' === $key) continue;
+                $triggers = $xpath->query('//*[@' . CaptureEvidence::DIALOG_TRIGGER . '=' . $this->xpathLiteral($key) . ']');
+                if ($triggers && $triggers->length > 0) { $matched = true; break; }
+            }
+            if (!$matched) continue;
+            $projection = $this->projectPage($content, array(), $path);
+            $result['diagnostics'] = array_merge($result['diagnostics'], $projection['diagnostics']);
+            if (0 === $projection['projected_count'] && array() === $projection['retired_scripts']) continue;
+            $result['files'][$index] = ArtifactNormalizer::withTextPayload($file, $projection['html']);
+            $projection['script_bindings']?->rebind($result['files'], $path);
+            $result['projected_count'] += $projection['projected_count'];
+            $retired[$path] = $projection['retired_scripts'];
+        }
+        $result['native_runtime_replacements'] = array_merge($result['native_runtime_replacements'], $this->omitRetiredDisclosureScripts($result['files'], $retired));
+        return $result;
     }
 
     /**
@@ -1516,7 +1626,7 @@ final class CapturedDialogProjector
     }
 
     /** @return array{nodes:array<int, \DOMNode>, class:string, id:string, aria_label:string, aria_labelledby:string, aria_describedby:string, has_close_control:bool, self_positioned:bool}|null */
-    private function safeDialogFragment(string $html): ?array
+    private function safeDialogFragment(string $html, string $panelId = ''): ?array
     {
         $previous = libxml_use_internal_errors(true);
         $document = new DOMDocument('1.0', 'UTF-8');
@@ -1552,6 +1662,9 @@ final class CapturedDialogProjector
         $inner = $sourceRoot instanceof DOMElement && 'dialog' !== strtolower($sourceRoot->tagName) ? $this->soleElementChild($sourceRoot) : null;
         if ($inner instanceof DOMElement && 'dialog' === strtolower($inner->tagName)) {
             $sourceRoot = $inner;
+        } elseif ('' !== $panelId && $sourceRoot instanceof DOMElement && 'dialog' !== strtolower($sourceRoot->tagName)) {
+            $matches = $xpath->query('.//dialog[@' . CaptureEvidence::DIALOG_PANEL . '=' . $this->xpathLiteral($panelId) . ']', $sourceRoot);
+            if ($matches && 1 === $matches->length) $sourceRoot = $matches->item(0);
         }
         $container = $sourceRoot instanceof DOMElement ? $sourceRoot : $wrapper;
         // Captured interaction markup is runtime evidence. Keep that ownership

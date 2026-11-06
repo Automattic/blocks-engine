@@ -30,7 +30,7 @@ libxml_use_internal_errors(true);
 $dom->loadHTML('<?xml encoding="utf-8" ?><html><body><main><p class="plain">A</p><p id="b" class="plain strong">B</p></main></body></html>');
 libxml_clear_errors();
 
-$session = new HtmlTransformerSession(new Runtime(), static fn (DOMElement $node): array => array());
+$session = new HtmlTransformerSession(new Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()));
 $context = new StyleResolutionContext(
     static fn (string $value): string => $value,
     static function (string $selector) use ($session): array {

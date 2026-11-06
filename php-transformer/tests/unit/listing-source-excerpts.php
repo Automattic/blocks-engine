@@ -47,4 +47,19 @@ $full = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'f
 )))->toArray();
 $fullPages = array_column((new WordPressSitePlan())->fromCompilerResult($full)['pages'], null, 'source_path');
 $assert(str_contains($fullPages['index.html']['canonical_block_markup'], 'wp:post-content') && !str_contains($fullPages['index.html']['canonical_block_markup'], 'wp:post-excerpt'), 'a full-content listing retains article ownership even when its post declares a description');
+$tagged = static fn(string $html): string => strtr($html, array(
+    '<h2>' => '<h2 data-blocks-engine-capture-device-hide="mobile">',
+    '<p><time' => '<p data-blocks-engine-capture-device-hide="mobile"><time',
+    '<p class="description"' => '<p data-blocks-engine-capture-device-hide="mobile" class="description"',
+));
+$taggedResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => '<main><section class="cards">' . $tagged($card('first', 'First', 'Jan 2, 2026', $first, 'Topic') . $card('second', 'Second', 'Jan 1, 2026', $second, 'Other label')) . '</section></main>',
+    'first.html' => $article('First', $first, '2026-01-02T00:00:00Z'),
+    'second.html' => $article('Second', $second, '2026-01-01T00:00:00Z'),
+    'category/topic/index.html' => '<main><h1>Topic</h1></main>',
+)))->toArray();
+$taggedMarkup = (string) array_column((new WordPressSitePlan())->fromCompilerResult($taggedResult)['pages'], null, 'source_path')['index.html']['canonical_block_markup'];
+foreach (array('post-title', 'post-date', 'post-excerpt') as $block) {
+    $assert(1 === preg_match('/<!-- wp:' . $block . ' \{[^\n]*?"blockVisibility":\{"viewport":\{"mobile":false\}\}[^\n]*?\/-->/', str_replace('-->', "-->\n", $taggedMarkup)), $block . ' keeps core block visibility from its tagged source');
+}
 fwrite(STDOUT, "Listing source excerpts passed\n");
