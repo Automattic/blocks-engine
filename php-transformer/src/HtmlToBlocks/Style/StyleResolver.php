@@ -930,13 +930,15 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
-     * Whether every matching non-state author rule for each family is layered.
+     * Whether every matching author rule for each family is layered.
      * Absent families are omitted; an unlayered declaration vetoes the family.
+     * By default state rules are excluded. Cascade bridges include potential
+     * state subjects too, so an unlayered hover rule is never rolled back.
      *
      * @param array<string, string> $propertyFamilies Family => property-name regex.
      * @return array<string, bool>
      */
-    public function authorPropertyFamilyLayering(DOMElement $element, array $propertyFamilies): array
+    public function authorPropertyFamilyLayering(DOMElement $element, array $propertyFamilies, bool $includeStates = false): array
     {
         $authorStyles = $this->session->authorStyleAnalysis();
         $selectorCache = $authorStyles->selectorMatchCache();
@@ -957,10 +959,15 @@ final class StyleResolver implements ElementPresentationResolver
             $matched = false;
             foreach ( is_array($rule['selectors'] ?? null) ? $rule['selectors'] : array() as $record ) {
                 $selector = (string) ( $record['selector'] ?? '' );
-                if ( '' === $selector || $this->selectorCarriesPseudoState($selector) ) {
-                    continue;
+                if ( '' === $selector ) continue;
+                if ( $this->selectorCarriesPseudoState($selector) ) {
+                    if ( ! $includeStates ) continue;
+                    $selector = preg_replace('/:(?:hover|focus-visible|focus-within|focus|active|visited|any-link|link|disabled|enabled|target)(?![\\w(-])/i', '', $selector) ?? $selector;
+                    $parsed = $this->session->sourceStyleResolutionState()->parsedSelector($selector);
+                } else {
+                    $parsed = is_array($record['parsed'] ?? null) ? $record['parsed'] : array();
                 }
-                $match = $selectorCache->matches($element, $selector, is_array($record['parsed'] ?? null) ? $record['parsed'] : array());
+                $match = $selectorCache->matches($element, $selector, $parsed);
                 if ( ( $match['supported'] ?? false ) && ( $match['matches'] ?? false ) ) {
                     $matched = true;
                     break;

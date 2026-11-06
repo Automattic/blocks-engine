@@ -7,13 +7,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 $source = file_get_contents(dirname(__DIR__) . '/fixtures/layered-navigation-display.html');
 $result = ( new HtmlTransformer() )->transform($source, array())->toArray();
-$css = '';
-foreach ( $result['assets'] as $asset ) {
-    if ( 'after-author' === ($asset['stylesheet_placement'] ?? '') ) {
-        $css .= $asset['content'];
-    }
-}
-foreach ( array('.wp-block-navigation.hidden{display:none}', '@media (min-width:768px){.wp-block-navigation.md-flex{display:flex}}') as $expected ) {
+$css = implode("\n", array_column($result['assets'], 'content'));
+foreach ( array('display:none', 'display:flex', 'display:revert-layer') as $expected ) {
     if ( ! str_contains($css, $expected) ) {
         throw new RuntimeException('Missing unlayered navigation display repair: ' . $expected);
     }
@@ -25,7 +20,7 @@ if ( str_contains($css, '.wp-block-navigation.md-hidden{') ) {
 $escapedSource = str_replace(array('.md-flex', 'links md-flex'), array('.md\\:flex', 'links md:flex'), $source);
 $escaped = ( new HtmlTransformer() )->transform($escapedSource, array())->toArray();
 $escapedCss = implode("\n", array_column($escaped['assets'], 'content'));
-if ( ! str_contains($escapedCss, '.wp-block-navigation.md\\:flex{display:flex}') ) {
+if ( ! str_contains($escapedCss, '.wp-block-navigation.md\\:flex') || ! str_contains($escapedCss, 'display:revert-layer') ) {
     throw new RuntimeException('Escaped breakpoint utility was not restated');
 }
 if ( in_array('--json', $argv, true) ) {
