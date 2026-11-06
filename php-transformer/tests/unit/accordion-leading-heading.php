@@ -33,6 +33,14 @@ foreach (array(
     if (1 !== preg_match($leadingPattern, $markup)) $fail("{$label}: the leading siblings stay ordinary blocks", $markup);
     if (1 !== preg_match('/General<\/h3>.*<!-- wp:accordion[ -]/s', $markup)) $fail("{$label}: the leading siblings stay before the accordion", $markup);
     if (str_contains($markup, 'openByDefault')) $fail("{$label}: the accordion starts collapsed", $markup);
+    // The toggle's only sibling is the panel: it holds the answer, never the question (#4794).
+    preg_match_all('/<!-- wp:accordion-panel.*?<!-- \/wp:accordion-panel -->/s', $markup, $panels);
+    if (2 !== count($panels[0])) $fail("{$label}: each item has one panel", $markup);
+    foreach ($panels[0] as $index => $panel) {
+        $ordinal = 0 === $index ? 'first' : 'second';
+        if (! str_contains($panel, "This is the {$ordinal} answer")) $fail("{$label}: the {$ordinal} panel holds its answer", $markup);
+        if (str_contains($panel, 'question?') || str_contains($panel, 'wp:button')) $fail("{$label}: the {$ordinal} panel does not repeat its question button", $markup);
+    }
 }
 
 foreach (array(
