@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\HtmlDimensionAttribute;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
@@ -283,6 +284,92 @@ final class ImageDimensionResolver
         }
 
         return $this->absolutePixelLength($this->imageDisplayDimension($image, $property), $image);
+    }
+
+    /**
+     * The smallest used size in CSS pixels the image can have on each axis at
+     * any viewport, or null for an axis with no guaranteed lower bound.
+     *
+     * A fixed axis ({@see fixedPixelSize()}) is its own bound. A fluid one is
+     * bounded below by what the author CSS guarantees at every viewport: the
+     * minimum of a `clamp()`, the largest absolute argument of a `max()`, an
+     * absolute `min()`, or an absolute `min-width`/`min-height`. An absolute
+     * `max-width`/`max-height` caps the dimension, but not the minimum.
+     *
+     * @return array{width: ?float, height: ?float}
+     */
+    public function minimumPixelSize(DOMElement $image): array
+    {
+        return array(
+            'width' => $this->minimumPixelDimension($image, 'width'),
+            'height' => $this->minimumPixelDimension($image, 'height'),
+        );
+    }
+
+    /** {@see minimumPixelSize()} for one axis. */
+    public function minimumPixelDimension(DOMElement $image, string $property): ?float
+    {
+        $dimension = $this->fixedPixelDimension($image, $property)
+            ?? $this->viewportInvariantLowerBound($image, $property);
+        $maximum = $this->viewportInvariantStylesheetValue($image, 'max-' . $property);
+        $maximum = '' === $maximum ? null : $this->absolutePixelLength($maximum, $image);
+        if ( null !== $dimension && null !== $maximum ) {
+            $dimension = min($dimension, $maximum);
+        }
+        $minimum = $this->viewportInvariantLowerBound($image, 'min-' . $property);
+        if ( null === $dimension || null === $minimum ) {
+            return $dimension ?? $minimum;
+        }
+
+        return max($dimension, $minimum);
+    }
+
+    private function viewportInvariantLowerBound(DOMElement $image, string $property): ?float
+    {
+        $value = $this->viewportInvariantStylesheetValue($image, $property);
+
+        return '' === $value ? null : $this->lowerBoundPixelLength($value, $image);
+    }
+
+    private function viewportInvariantStylesheetValue(DOMElement $image, string $property): string
+    {
+        return $this->styles->imageAxisVariesByViewport($image, $property) ? '' : $this->imageStylesheetDimension($image, $property);
+    }
+
+    /**
+     * The smallest pixel value a length or `clamp()`/`max()`/`min()` of
+     * lengths can resolve to, or null when it has no absolute lower bound.
+     */
+    private function lowerBoundPixelLength(string $value, DOMElement $context): ?float
+    {
+        $value = trim($value);
+        if ( 1 !== preg_match('/^(clamp|max|min)\(\s*(.*)\s*\)$/is', $value, $matches) ) {
+            return $this->absolutePixelLength($value, $context);
+        }
+        if ( ! CssValueSplitter::hasBalancedParens($matches[2]) ) {
+            return null;
+        }
+        $arguments = CssValueSplitter::splitTopLevel($matches[2], array( ',' ));
+        $function = strtolower($matches[1]);
+        if ( 'clamp' === $function ) {
+            // clamp(MIN, VAL, MAX) resolves to max(MIN, min(VAL, MAX)).
+            return 3 === count($arguments) ? $this->lowerBoundPixelLength($arguments[0], $context) : null;
+        }
+        $bounds = array();
+        foreach ( $arguments as $argument ) {
+            $bound = $this->lowerBoundPixelLength($argument, $context);
+            if ( null === $bound && 'min' === $function ) {
+                return null;
+            }
+            if ( null !== $bound ) {
+                $bounds[] = $bound;
+            }
+        }
+        if ( array() === $bounds ) {
+            return null;
+        }
+
+        return 'max' === $function ? max($bounds) : min($bounds);
     }
 
     /**
