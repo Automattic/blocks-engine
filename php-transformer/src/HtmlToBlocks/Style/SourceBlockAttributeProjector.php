@@ -506,6 +506,25 @@ final class SourceBlockAttributeProjector
                         $context->generatedStyles,
                         '' !== trim((string) ($blockColor['background'] ?? ''))
                     );
+                    // A collapsed surface can own dimensions even when the
+                    // logical anchor is inline and unsized. Its geometry carrier
+                    // lives on Core's display:contents wrapper, so size the painted
+                    // link instead and opt out of the layout-neutral axis resets.
+                    if ( $sourceElement !== $logicalControl && $participation instanceof LayoutParticipation && $participation->neutralizeButtonWrapper() ) {
+                        $surface = $this->styleResolver->cssDeclarations($this->styleResolver->mergedPresentationStyle($sourceElement));
+                        $dimensions = array();
+                        foreach ( array( 'width', 'height' ) as $axis ) {
+                            $value = trim((string) ($surface[$axis] ?? ''));
+                            if ( '' !== $value && ! in_array(CssValueInspector::comparable($value), array( 'auto', 'initial', 'inherit', 'unset', 'revert', 'revert-layer' ), true) ) {
+                                $dimensions[] = $axis . ':' . $value;
+                                $attrs['className'] = SourceDom::mergeClassNames((string) $attrs['className'], self::LAYOUT_NEUTRAL_BUTTON_CLASS . '-author-' . $axis);
+                            }
+                        }
+                        if ( array() !== $dimensions ) {
+                            $attrs['className'] = SourceDom::mergeClassNames((string) $attrs['className'], self::LAYOUT_NEUTRAL_BUTTON_CLASS . '-display-inline-block');
+                            $context->generatedStyles->appendNativeButton($controlMarker, '.' . $controlMarker . '.' . $controlMarker . '>.wp-block-button__link{box-sizing:border-box;' . implode(';', $dimensions) . '}');
+                        }
+                    }
                     $childOwnedOffsets = $participation instanceof LayoutParticipation && $participation->positioned;
                     if ( $participation instanceof LayoutParticipation && $participation->needsDirectFlexRepair() ) {
                         $this->generatedStyleProjector->registerDirectFlexButton($controlMarker, $logicalControl, $context->generatedStyles);

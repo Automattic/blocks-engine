@@ -909,6 +909,7 @@
       "php tests/unit/absorbed-button-box.php",
       "php tests/unit/flattened-button-label-white-space.php",
       "php tests/unit/unmatched-media-button-paint.php",
+      "php tests/unit/absorbed-button-geometry.php",
       "php tests/unit/brand-link-button-semantics.php",
       "php tests/unit/device-style-synthetic-anchor-carrier.php",
       "php tests/unit/ancestor-attribute-state-projection.php",

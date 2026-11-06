@@ -1,0 +1,26 @@
+<?php
+declare(strict_types=1);
+
+require dirname(__DIR__, 2) . '/vendor/autoload.php';
+
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+
+$source = <<<'HTML'
+<!doctype html><html><head><meta charset="utf-8"><title>w</title><style>.rmwidget.widget-button .common-button[data-id="b1"]{border-radius:100px;border-width:2px;border-color:rgb(153,5,143);font-family:Arial;font-weight:700;color:rgb(153,5,143);font-size:12px}
+.common-button{display:flex;border-style:solid}
+.common-button .text{padding:0;margin:0;border:none;background-color:transparent;font-family:inherit;font-weight:inherit;color:inherit;font-size:inherit}</style></head><body><main><a class="maglink" href="/coop/"><div class="rmwidget widget-button" data-id="b1" style="border-radius:100px;width:155px;height:21px"><div class="common-button" data-id="b1" style="flex-direction:row"><div class="text" style="display:inline-block;line-height:21px;height:21px">Our Cooperative</div></div></div></a></main></body></html>
+HTML;
+$result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $source)))->toArray();
+$markup = $result['serialized_blocks'];
+$css = implode("\n", array_column(array_filter($result['assets'], static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '') && 'editor' !== ($asset['stylesheet_target'] ?? '')), 'content'));
+if (1 !== substr_count($markup, '<!-- wp:button ') || str_contains($markup, '<!-- wp:html')) {
+    throw new RuntimeException('The absorbed pill must remain one native button: ' . $markup);
+}
+if (!preg_match('/>\\.wp-block-button__link\\{box-sizing:border-box;width:155px;height:21px\\}/', $css)) {
+    throw new RuntimeException('The painted link must own the absorbed dimensions: ' . $css);
+}
+if (in_array('--fixture', $argv, true)) {
+    echo json_encode(array('source' => $source, 'markup' => $markup, 'css' => $css));
+} else {
+    echo "Absorbed button geometry passed\n";
+}
