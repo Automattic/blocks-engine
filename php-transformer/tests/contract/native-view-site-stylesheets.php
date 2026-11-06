@@ -116,8 +116,7 @@ $assert(! in_array($extraTarget, $nativeOrder, true), 'The one-document styleshe
 
 $registries = array();
 foreach (array('styles', 'scopes', 'replay') as $name) {
-    if (1 !== preg_match('/\$blocks_engine_presentation_' . $name . ' = (\(static function .*?\}\)\(\));\n/s', $bootstrap, $match)) throw new RuntimeException('Missing presentation registry: ' . $name);
-    $registries[$name] = eval('return ' . $match[1] . ';');
+    $registries[$name] = \Automattic\BlocksEngine\PhpTransformer\Tests\Support\BootstrapStyles::registry($bootstrap, 'blocks_engine_presentation_' . $name);
 }
 $editorStyles = array();
 foreach ($registries['replay'] as $entry) {

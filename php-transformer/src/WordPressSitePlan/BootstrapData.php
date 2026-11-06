@@ -16,22 +16,23 @@ final class BootstrapData
         return '[' . implode(',', $items) . ']';
     }
 
-    /** Intern nested rows bottom-up; references preserve keys, order and types. */
+    /** Intern rows as immutable literals; a fixed loop restores keys and order. */
     public static function table(string $name, array $value): string
     {
-        $rows = $indices = array();
-        $intern = static function (array $row) use (&$intern, &$rows, &$indices): int {
+        $rows = $indices = $references = array();
+        foreach ($value as $field => $row) {
             $key = serialize($row);
-            if (isset($indices[$key])) return $indices[$key];
-            $items = array();
-            $list = array_is_list($row);
-            foreach ($row as $field => $item) $items[] = ($list ? '' : self::literal($field) . ' => ') . (is_array($item) ? '$r[' . $intern($item) . ']' : self::literal($item));
-            $index = count($rows);
-            $rows[] = '$r[' . $index . ']=[' . implode(',', $items) . '];';
-            $indices[$key] = $index;
-            return $index;
-        };
-        $index = $intern($value);
-        return '$' . $name . ' = (static function (): array { $r=[];' . "\n" . implode("\n", $rows) . "\n" . 'return $r[' . $index . ']; })();';
+            if (!isset($indices[$key])) {
+                $indices[$key] = count($rows);
+                $rows[] = $row;
+            }
+            $references[$field] = $indices[$key];
+        }
+        $variable = '$' . $name;
+        return $variable . '_rows = ' . self::literal($rows) . ";\n"
+            . $variable . '_references = ' . self::literal($references) . ";\n"
+            . $variable . ' = [];' . "\n"
+            . 'foreach ( ' . $variable . '_references as $key => $index ) ' . $variable . '[$key] = ' . $variable . '_rows[$index];' . "\n"
+            . 'unset( ' . $variable . '_rows, ' . $variable . '_references );';
     }
 }

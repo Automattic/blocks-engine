@@ -6315,7 +6315,7 @@ PHP;
             $matches[] = '    if ( ' . $route['condition'] . ' ) $blocks_engine_style_routes[] = [' . $indices[$key] . ',' . BootstrapData::literal($route['handles']) . '];';
         }
         return array_merge(array(
-            '    ' . BootstrapData::table('blocks_engine_style_sequences', $sequences),
+            '    $blocks_engine_style_sequences = ' . BootstrapData::literal($sequences) . ';',
             '    $blocks_engine_style_routes = [];',
         ), $matches, array(
             '    foreach ( $blocks_engine_style_routes as [$sequence, $handles] ) {',
@@ -6460,15 +6460,20 @@ PHP;
                 $scopeIndex = $scopeIndices[$key];
                 $files[$file]['scopes'][$scopeIndex] = $scopeIndex;
                 $files[$file]['template_part_slugs'] = array_values(array_unique(array_merge($files[$file]['template_part_slugs'], $style['template_part_slugs'])));
-                $replay[] = array($file, $scopeIndex, $style['handle'], $style['media'], !empty($style['fallback']), $style['template_part_slugs']);
+                $entry = array($file, $scopeIndex, $style['handle'], $style['media'], !empty($style['fallback']), $style['template_part_slugs']);
+                foreach (array(5 => array(), 4 => false, 3 => '') as $field => $default) {
+                    if ($entry[$field] !== $default) break;
+                    array_pop($entry);
+                }
+                $replay[] = $entry;
             }
             foreach ($files as &$file) $file['scopes'] = array_values($file['scopes']);
             unset($file);
             $lines[] = BootstrapData::table('blocks_engine_presentation_scopes', $scopes);
             $lines[] = BootstrapData::table('blocks_engine_presentation_styles', $files);
-            $lines[] = BootstrapData::table('blocks_engine_presentation_replay', $replay);
+            $lines[] = '$blocks_engine_presentation_replay = ' . BootstrapData::literal($replay) . ';';
             $lines[] = '$blocks_engine_presentation_sequence = array();';
-            $lines[] = 'foreach ( $blocks_engine_presentation_replay as $entry ) { $style = $blocks_engine_presentation_styles[ $entry[0] ]; $style[\'scopes\'] = array( $blocks_engine_presentation_scopes[ $entry[1] ] ); $style[\'handle\'] = $entry[2]; $style[\'media\'] = $entry[3]; $style[\'fallback\'] = $entry[4]; $style[\'template_part_slugs\'] = $entry[5]; $blocks_engine_presentation_sequence[] = $style; }';
+            $lines[] = 'foreach ( $blocks_engine_presentation_replay as $entry ) { $style = $blocks_engine_presentation_styles[ $entry[0] ]; $style[\'scopes\'] = array( $blocks_engine_presentation_scopes[ $entry[1] ] ); $style[\'handle\'] = $entry[2]; $style[\'media\'] = $entry[3] ?? \'\'; $style[\'fallback\'] = $entry[4] ?? false; $style[\'template_part_slugs\'] = $entry[5] ?? array(); $blocks_engine_presentation_sequence[] = $style; }';
             $lines[] = "\$blocks_engine_presentation_matches = static function ( array \$style, ?WP_Post \$post, bool \$site_editor ): bool {";
             $lines[] = "    \$matches = \$site_editor; if ( ! \$matches && \$post instanceof WP_Post ) foreach ( \$style['scopes'] as \$scope ) {";
             $lines[] = "        if ( 'wp_template_part' === \$post->post_type && in_array( basename( (string) \$post->post_name ), \$style['template_part_slugs'], true ) ) { \$matches = true; break; }";

@@ -2,14 +2,14 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../vendor/autoload.php';
+require_once __DIR__ . '/../Support/BootstrapStyles.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
 // Read only generated literal data, without running the WordPress bootstrap.
 $registry = static function (string $bootstrap, string $name): array {
-    if (1 !== preg_match('/\\$' . $name . ' = (\\(static function .*?\\}\\)\\(\\));/s', $bootstrap, $match)) throw new RuntimeException('Missing bootstrap registry: ' . $name);
-    return eval('return ' . $match[1] . ';');
+    return \Automattic\BlocksEngine\PhpTransformer\Tests\Support\BootstrapStyles::registry($bootstrap, $name);
 };
 
 // Each page envelope re-extracts the same inline sheet. Terminal reduction

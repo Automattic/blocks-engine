@@ -17,7 +17,7 @@ $bootstrap = (new ReflectionMethod(WordPressSitePlan::class, 'bootstrap'))->invo
 echo '100 routes × 28 styles: functions.php ' . strlen($bootstrap) . " bytes\n";
 if (getenv('BOOTSTRAP_SIZE_ONLY')) return;
 
-if (1 !== preg_match('/\$blocks_engine_style_sequences = (\(static function .*?\}\)\(\));/s', $bootstrap, $match)) throw new RuntimeException('Missing data-driven stylesheet sequences.');
+if (1 !== preg_match('/\$blocks_engine_style_sequences = (\[[^\n]*\]);/s', $bootstrap, $match)) throw new RuntimeException('Missing data-driven stylesheet sequences.');
 $sequences = eval('return ' . $match[1] . ';');
 if (1 !== count($sequences) || 28 !== count($sequences[0])) throw new RuntimeException('Shared ordered sequence must be listed exactly once.');
 if (1 !== preg_match("/add_action\( 'wp_enqueue_scripts', static function \(\): void \{(.*?)\n\}, 1 \);/s", $bootstrap, $match)) throw new RuntimeException('Missing enqueue closure.');
@@ -45,3 +45,34 @@ $value = array(array('0' => "quote'\\\n", 'unicode' => 'é', 'disabled' => false
 $source = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\BootstrapData::table('roundtrip', $value);
 eval($source);
 if ($roundtrip !== $value || 1 !== substr_count($source, "'unicode'")) throw new RuntimeException('Static rows must deduplicate and round-trip losslessly.');
+
+// Compile every emitted table initializer as a const: references or row-building
+// closures here would turn immutable data into optimizer-heavy executable code.
+$constants = array();
+$tables = array('style_sequences', 'presentation_scopes', 'presentation_styles', 'presentation_replay', 'document_attribute_bodies');
+$contractSource = $bootstrap . "\n" . \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\BootstrapData::table('blocks_engine_document_attribute_bodies', array(array('lang' => 'en'), array('lang' => 'en')));
+foreach ($tables as $table) {
+    if (!preg_match_all('/\\$blocks_engine_' . $table . '(?:_rows|_references)? = (.*?);\n/s', $contractSource, $matches)) throw new RuntimeException('Missing constant table: ' . $table);
+    foreach ($matches[1] as $expression) $constants[] = 'const T' . count($constants) . ' = ' . $expression . ';';
+}
+$scratch = tempnam(sys_get_temp_dir(), 'bootstrap-const-');
+try {
+    file_put_contents($scratch, "<?php\n" . implode("\n", $constants));
+    exec(escapeshellarg(PHP_BINARY) . ' -l ' . escapeshellarg($scratch) . ' 2>&1', $output, $status);
+    if (0 !== $status) throw new RuntimeException('Bootstrap tables must be constant expressions: ' . implode("\n", $output));
+
+    // Exercise both literal replay and interned data at real-import scale. The
+    // child isolates compiler peak memory from the transformer's own allocations.
+    $many = array();
+    for ($i = 0; $i < 13100; ++$i) $many[] = array($i % 97, $i % 406, 'blocks-engine-style-' . $i, '', false, array());
+    $large = $bootstrap . "\n" . \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\BootstrapData::table('blocks_engine_large_rows', $many)
+        . "\n\$blocks_engine_large_replay = " . \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\BootstrapData::literal($many) . ';';
+    file_put_contents($scratch, $large);
+    $probe = 'if (!function_exists("opcache_compile_file") || !ini_get("opcache.enable_cli")) { echo "skip"; exit; } '
+        . 'if (!opcache_compile_file($argv[1])) exit(1); echo memory_get_peak_usage(true);';
+    $output = array();
+    exec(escapeshellarg(PHP_BINARY) . ' -d opcache.enable_cli=1 -d opcache.file_update_protection=0 -d memory_limit=128M -r ' . escapeshellarg($probe) . ' ' . escapeshellarg($scratch) . ' 2>&1', $output, $status);
+    if (0 !== $status || ('skip' !== implode('', $output) && (int) implode('', $output) >= 128 * 1024 * 1024)) throw new RuntimeException('Bootstrap compilation exceeded 128 MB: ' . implode("\n", $output));
+} finally {
+    unlink($scratch);
+}

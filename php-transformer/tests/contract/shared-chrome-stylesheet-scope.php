@@ -116,8 +116,7 @@ $enqueues = static function (array $plan): array {
     foreach ($lines as $line) $global[$line[1]][] = $line[2];
     $registries = array();
     foreach (array('styles', 'scopes', 'replay') as $name) {
-        if (1 !== preg_match('/\$blocks_engine_presentation_' . $name . ' = (\(static function .*?\}\)\(\));\n/s', $bootstrap, $match)) throw new RuntimeException('Missing presentation registry: ' . $name);
-        $registries[$name] = eval('return ' . $match[1] . ';');
+        $registries[$name] = \Automattic\BlocksEngine\PhpTransformer\Tests\Support\BootstrapStyles::registry($bootstrap, 'blocks_engine_presentation_' . $name);
     }
     $editor = array();
     foreach ($registries['replay'] as $entry) {
