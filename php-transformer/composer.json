@@ -557,6 +557,7 @@
       "php tests/unit/captured-shared-evidence-own-variant.php",
       "php tests/unit/positioned-inline-direct-child-native.php",
       "php tests/unit/labelled-aria-toggle-not-menu.php",
+      "php tests/unit/collapse-boundary-follows-toggle.php",
       "php tests/unit/captured-dialog-projector.php",
       "php tests/unit/captured-dialog-source-panel-box.php",
       "php tests/unit/captured-dialog-native-dialog-panel.php",

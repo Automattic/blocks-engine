@@ -2063,8 +2063,13 @@ final class NavigationToggleSuppressor
         $isMenuBoundary = static fn (float $width): bool => $menuHiddenAt($width) && ! $menuHiddenAt($width + 1.0);
         $isToggleBoundary = fn (float $width): bool => ! $hiddenAt($togglePath, $width) && $hiddenAt($togglePath, $width + 1.0);
 
-        return $this->lowestBoundaryWithinPixel($candidates, $isMenuBoundary)
-            ?? $this->lowestBoundaryWithinPixel($candidates, $isToggleBoundary);
+        // Where the toggle still shows above the menu's own display switch, the
+        // source hides that menu another way (off-canvas, a transform) across
+        // the gap, so the collapse reaches the toggle's boundary.
+        $menuBoundary = $this->lowestBoundaryWithinPixel($candidates, $isMenuBoundary);
+        $toggleBoundary = $this->lowestBoundaryWithinPixel($candidates, $isToggleBoundary);
+
+        return null === $menuBoundary || null === $toggleBoundary ? $menuBoundary ?? $toggleBoundary : max($menuBoundary, $toggleBoundary);
     }
 
     /**
