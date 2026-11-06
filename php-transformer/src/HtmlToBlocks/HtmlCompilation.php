@@ -1545,6 +1545,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
         $timer->start('transform.source_normalization');
         SourceDom::removeIntegerKeyAttributes($body);
+        // Resolve before dispatch: controls, rich text, and preserved markup
+        // serialize source images without passing through native image lowering.
+        // Use a static node set: indexed iteration of a live DOMNodeList can
+        // repeatedly scan the document as the number of gallery images grows.
+        $sourceImages = (new \DOMXPath($document))->query('.//img', $body);
+        foreach ( $sourceImages as $image ) {
+            $source = $this->imageSourceUrl($image);
+            if ( '' !== $source && $source !== $this->attr($image, 'src') ) {
+                $image->setAttribute('src', $source);
+            }
+        }
         $definitionClips = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::replacements($body);
         if (array() !== $definitionClips) {
             foreach ($body->getElementsByTagName('*') as $sourceElement) {
@@ -11204,7 +11215,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
         foreach ( array( 'data-src', 'data-lazy-src', 'data-original', 'data-image-src' ) as $attribute ) {
             $candidate = $this->safeImageUrl($this->attr($image, $attribute));
-            if ( '' !== $candidate ) {
+            if ( '' !== $candidate && SourceDom::safeFallbackUrl($candidate, 'src', 'img') ) {
                 return $candidate;
             }
         }
