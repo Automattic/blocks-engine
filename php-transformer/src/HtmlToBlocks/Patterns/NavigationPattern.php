@@ -2754,10 +2754,12 @@ final class NavigationPattern implements PatternRecognizerInterface
                 }
 
                 if ( $this->isNavigationWrapperElement($child) ) {
-                    // A dropdown button item inside the wrapper proves it is a menu row,
-                    // so its direct links are menu items too.
+                    // Preserve the caller's structural proof through menu wrappers.
+                    // Otherwise an extra carrier makes its links depend on class
+                    // vocabulary and bypasses current-item normalization. A dropdown
+                    // button independently proves that this wrapper is a menu row.
                     $wrappedAnchors = null;
-                    $wrappedBlocks = $this->navigationBlocks($child, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, $allowsDescriptiveChrome, $this->hasButtonDropdownChild($child), $wrappedAnchors, $collected);
+                    $wrappedBlocks = $this->navigationBlocks($child, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, $allowsDescriptiveChrome, $allowsDirectItems || $this->hasButtonDropdownChild($child), $wrappedAnchors, $collected);
                     if ( array() !== $wrappedBlocks ) {
                         $blocks = array_merge($blocks, $wrappedBlocks);
                         continue;
