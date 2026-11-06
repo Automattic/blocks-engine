@@ -416,12 +416,9 @@ final class DisclosureControlPresentation
         if ( ! $isNativeSummary ) {
             $carried = array_merge($this->disclosureSummaryLabelTypography($summary), $carried);
         }
-        // Buttons do not inherit line-height by default. Preserve their UA
-        // normal line box rather than walking past the control to body type.
-        // Explicit values (including inherit) still use the authored cascade.
-        if ( ! $carrySummaryLayout && 'button' === strtolower($control->tagName) && ! isset($declarations['line-height'])
-            && ! in_array('wp-block-accordion-heading__toggle', preg_split('/\s+/', $control->getAttribute('class')) ?: array(), true) ) {
-            $carried['line-height'] = 'normal';
+        $uaLineHeight = $this->styles->buttonUserAgentLineHeight($control, $declarations);
+        if ( ! $carrySummaryLayout && null !== $uaLineHeight ) {
+            $carried['line-height'] = $uaLineHeight;
         }
         // The generated h3 introduces theme heading type between the control
         // and its source ancestors. Carry explicitly inherited winners across it.

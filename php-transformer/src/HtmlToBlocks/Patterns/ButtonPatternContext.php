@@ -113,6 +113,12 @@ final class ButtonPatternContext
         }
 
         $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($element));
+        // Read before conditional/class-owned declarations are filtered: an
+        // authored line-height must stay owned by its projected selector.
+        $uaLineHeight = $this->styleResolver->buttonUserAgentLineHeight($element, $declarations);
+        if ( null !== $uaLineHeight ) {
+            $declarations['line-height'] = $uaLineHeight;
+        }
         // Source buttons without authored corners are square. Core/button instead
         // supplies a pill radius, so materialize the source default as native style.
         // Check before class-owned declarations are removed: those radii still

@@ -115,6 +115,23 @@ foreach (array('background-color:#b9276b', 'color:#fff', 'padding-top:8px', 'pad
 $assert(! str_contains($pageMarkup, 'background-color:transparent'), 'button-page-no-transparent-override');
 $assert(str_contains($pageMarkup, 'Fill in the form below.') && str_contains($pageMarkup, 'Show the form'), 'button-page-content');
 
+// A sole paragraph button must keep its UA line box under WordPress global
+// button styles, without replacing an explicit author line-height.
+foreach (array('' => 'normal', 'line-height:1.2;' => '1.2', 'line-height:inherit;' => 'inherit') as $authorLeading => $expectedLeading) {
+    $fixture = '<style>body{font:16px/1.65 sans-serif} .btn{font-family:inherit;font-size:1rem;padding:8px 24px;border:0;border-radius:8px;background:#b9276b;color:#fff;' . $authorLeading . '}</style>'
+        . '<main><p><button type="button" class="btn">Show the form</button></p></main>';
+    $compiled = ( new ArtifactCompiler() )->compile(array(
+        'entrypoint' => 'website/index.html',
+        'files' => array('website/index.html' => $fixture),
+    ))->toArray();
+    $markup = (string) ($compiled['serialized_blocks'] ?? '');
+    preg_match('/<!-- wp:button (\{.*?\}) -->/', $markup, $buttonMatch);
+    $buttonAttrs = json_decode($buttonMatch[1] ?? '{}', true);
+    $assert('button' === ($buttonAttrs['tagName'] ?? ''), 'ua-leading-native-button-' . $expectedLeading);
+    $assert($expectedLeading === ($buttonAttrs['style']['typography']['lineHeight'] ?? ''), 'ua-leading-' . $expectedLeading, $markup);
+    $assert(str_contains($markup, 'line-height:' . $expectedLeading), 'ua-leading-serialized-' . $expectedLeading);
+}
+
 // Mixed text still uses a mark, without cancelling authored shorthand paint.
 $paintedInline = $transform('<main><p>Next: <button type="button" style="background:#b9276b;color:#fff">Show the form</button></p></main>');
 $paintedMarkup = (string) ($paintedInline['serialized_blocks'] ?? '');
