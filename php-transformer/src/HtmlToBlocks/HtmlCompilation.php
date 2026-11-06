@@ -6574,6 +6574,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( ! $sourceTagWasMark ) {
             $mark->setAttribute('role', 'none');
         }
+        if ( $sourceIsLink && $element->childElementCount > 0 ) {
+            // A carrier around all children changes the link's flex/grid items.
+            // Reuse the resolved carrier, but put it around text runs only.
+            $this->wrapRichTextLinkTextRuns($element, $mark, $declarations);
+            $element->removeAttribute('style');
+            return true;
+        }
         while ( null !== $element->firstChild ) {
             $mark->appendChild($element->firstChild);
         }
@@ -6594,6 +6601,32 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $element->removeAttribute('style');
         $element->appendChild($mark);
         return true;
+    }
+
+    /**
+     * Keep element children as layout items and respect their own text styles.
+     *
+     * @param array<string, string> $declarations
+     */
+    private function wrapRichTextLinkTextRuns(DOMElement $element, DOMElement $carrier, array $declarations): void
+    {
+        foreach ( iterator_to_array($element->childNodes) as $child ) {
+            if ( $child instanceof DOMElement ) {
+                $owned = $this->richTextMaterializer->inlineVisualDeclarations($child);
+                $inherited = array_diff_key($declarations, $owned);
+                $this->wrapRichTextLinkTextRuns($child, $carrier, $inherited);
+            } elseif ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent) && array() !== $declarations ) {
+                $mark = $carrier->cloneNode(false);
+                if ( ! $mark instanceof DOMElement ) {
+                    continue;
+                }
+                // A mark's UA defaults must not override descendant styling.
+                $style = $declarations + array('color' => 'inherit', 'background-color' => 'transparent');
+                $mark->setAttribute('style', $this->styleResolver->cssDeclarationString($style));
+                $element->replaceChild($mark, $child);
+                $mark->appendChild($child);
+            }
+        }
     }
 
     /**
