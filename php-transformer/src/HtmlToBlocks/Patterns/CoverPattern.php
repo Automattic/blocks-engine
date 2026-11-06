@@ -34,6 +34,8 @@ final class CoverPattern implements PatternRecognizerInterface
 {
     use PatternGateHelpersTrait;
 
+    public const CONSUMED_BACKGROUND_CLASS = 'blocks-engine-cover-consumed-background';
+
     private CoverStyleResolver $styleResolver;
     private BackgroundImageExtractor $backgroundImageExtractor;
 
@@ -148,6 +150,14 @@ final class CoverPattern implements PatternRecognizerInterface
             $attrs = array();
         }
         unset($attrs['layout']);
+        // The cover now owns every background layer (url, overlay, gradient).
+        // A stylesheet-painted background stays reachable through the source
+        // classes the wrapper keeps, so it must stop painting under the cover
+        // image; an inline background is dropped with the inline style.
+        $inlineDeclarations = $this->styleResolver->declarations(SourceDom::attr($element, 'style'));
+        if ( ! isset($inlineDeclarations['background']) && ! isset($inlineDeclarations['background-image']) ) {
+            $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::CONSUMED_BACKGROUND_CLASS);
+        }
         $this->removeConsumedDimensions($attrs);
         $declarations = $this->styleResolver->declarations($style);
         $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));

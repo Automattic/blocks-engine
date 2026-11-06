@@ -12,6 +12,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispa
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RichTextElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\LinkWrapperPropagator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CoverPattern;
 
 /**
  * Marker-class engine-support CSS gated on serialized block markup.
@@ -748,6 +749,9 @@ final class EngineSupportCss
         }
         if ( str_contains($serializedBlocks, 'wp:social-links') ) {
             $parts[] = '.wp-block-social-links:where(.blocks-engine-social-source-cluster).is-style-logos-only .wp-social-link{background-image:none;background-color:transparent}';
+        }
+        if ( str_contains($serializedBlocks, CoverPattern::CONSUMED_BACKGROUND_CLASS) ) {
+            $parts[] = ':root .wp-block-cover.' . CoverPattern::CONSUMED_BACKGROUND_CLASS . '{background-image:none!important}';
         }
         if ( str_contains($serializedBlocks, 'blocks-engine-source-social-item-spacing') ) {
             $parts[] = '.wp-block-social-links.blocks-engine-source-social-item-spacing{gap:0}';
