@@ -4476,10 +4476,13 @@ PHP;
         foreach (array_keys($overrides) as $slug) $templates[] = $make($slug, 'templates/' . $slug . '.html', $markup($slug));
         foreach ($templates as &$template) {
             if (!isset($documentChrome[$template['slug']])) continue;
-            $slot = '<!-- wp:post-content /-->';
-            if (str_contains($template['canonical_block_markup'], $slot)) {
-                $template['canonical_block_markup'] = str_replace($slot, $documentChrome[$template['slug']], $template['canonical_block_markup']);
-            }
+            // Document chrome frames the post content (leading and trailing side
+            // regions around the slot), so it replaces the template's own slot and
+            // keeps that slot's attributes. A template without a slot keeps the
+            // chrome after its markup.
+            $chrome = $documentChrome[$template['slug']];
+            $framed = preg_replace_callback('/<!-- wp:post-content(?:\s+\{.*?\})?\s*\/-->/', static fn(array $slot): string => str_replace('<!-- wp:post-content /-->', $slot[0], $chrome), $template['canonical_block_markup'], 1, $count);
+            $template['canonical_block_markup'] = 1 === $count ? (string) $framed : $template['canonical_block_markup'] . "\n" . $chrome;
             $template['content_hash'] = self::contentHash($template['canonical_block_markup']);
         }
         unset($template);

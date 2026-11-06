@@ -77,7 +77,8 @@ final class ShellExtraction
                 if (array() === $leading && array() === $trailing) continue;
                 $closing = substr($markup, $nodes[$children[count($children) - 1]]['end'], $wrapper['end'] - $nodes[$children[count($children) - 1]]['end']);
                 $device = CaptureEvidence::deviceDocumentProfile((string) current(array_filter($classes, CaptureEvidence::isDeviceDocumentClass(...)))) ?? 'desktop';
-                foreach (array_merge($leading, $trailing) as $child) {
+                $sides = array_fill_keys($leading, 'leading') + array_fill_keys($trailing, 'trailing');
+                foreach ($sides as $child => $side) {
                     $range = array('offset' => $nodes[$child]['offset'], 'length' => $nodes[$child]['end'] - $nodes[$child]['offset']);
                     $bindings = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, array($range));
                     if ($bindings['blocked'] || array() !== $bindings['refs']) continue;
@@ -88,8 +89,7 @@ final class ShellExtraction
                     $variants[$device]['opening'] ??= $opening;
                     $variants[$device]['closing'] ??= $closing;
                     $variants[$device]['siblings'][$identity]['markup'] ??= $sibling;
-                    $variants[$device]['siblings'][$identity]['position'] = $position < $roots[0] ? 'leading' : 'trailing';
-                    $variants[$device]['siblings'][$identity]['order'] = $position;
+                    $variants[$device]['siblings'][$identity]['position'] = $side;
                     $variants[$device]['siblings'][$identity]['sources'][(string) $page['source_path']] = true;
                     $removals[] = $range;
                 }
