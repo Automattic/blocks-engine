@@ -3094,6 +3094,13 @@ final class AuthorStylesheetProjector
                 $target = '.' . $marker;
             }
             $shims = $this->selectorSpecificityShims($parsed, $context);
+            if ( 'img' === strtolower($element->tagName)
+                && null !== $context->selectorProjections->imageFigure($element->getNodePath() ?? '') ) {
+                // Image identity hooks move onto the synthetic figure. The
+                // matched subject is still its image, not that carrier box.
+                $projected[] = NativeImageLeafPresentation::selectors($scope . ':where(' . $target . ')', $shims);
+                continue;
+            }
             if ( '' !== $context->selectorProjections->controlMarker($element->getNodePath() ?? '') ) {
                 if ( $controlWrapper && LayoutParticipation::BOX_LINK !== LayoutParticipation::resolve($element, $this->styleResolver)->participatingBox() ) {
                     // Outer box spacing belongs to the layout item, not its link.
