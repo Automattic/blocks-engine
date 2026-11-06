@@ -85,7 +85,12 @@ final class CaptureEvidence
     public const DIALOG_CLOSE = 'data-blocks-engine-capture-dialog-close';
     /** JSON snapshot of the opened panel state, on the trigger. */
     public const DIALOG_PANEL_STATE = 'data-blocks-engine-capture-dialog-panel-state';
-    /** JSON resting/opened attribute snapshots on an existing in-place panel. */
+    /**
+     * JSON {resting, opened} snapshots on an existing in-place panel.
+     * Resting class/style/hidden own at-rest markup (style:null removes the
+     * captured inline style); opened presentation belongs only to interaction.
+     * hidden:false does not imply visibility: authored CSS can close the panel.
+     */
     public const EXISTING_PANEL = 'data-blocks-engine-capture-existing-panel';
     /** Presence: capture replay has exposed the panel's resting presentation. */
     public const RESTING_PANEL = 'data-blocks-engine-capture-resting-panel';
