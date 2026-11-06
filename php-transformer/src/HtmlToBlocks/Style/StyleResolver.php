@@ -64,6 +64,9 @@ final class StyleResolver implements ElementPresentationResolver
 
     private ?InlineGeometry $inlineGeometry = null;
 
+    /** @var array<string, array{property: string, value: string, important: bool}> */
+    private array $mediaTextDeclarationNormalizationCache = array();
+
     /**
      * Whether an element's block keeps a native core grid layout attribute,
      * keyed by the presentation cache's element key. Parents are queried once
@@ -4158,34 +4161,46 @@ final class StyleResolver implements ElementPresentationResolver
         int $sequence,
         ?int $layer = null
     ): void {
-        $property = str_starts_with($property, '--') ? $property : strtolower($property);
-        $important = 1 === preg_match('/\s*!\s*important\s*$/i', $rawValue);
-        $value = trim(preg_replace('/\s*!\s*important\s*$/i', '', $rawValue) ?? $rawValue);
+        $cacheKey = serialize(array($property, $rawValue));
+        if (! isset($this->mediaTextDeclarationNormalizationCache[$cacheKey])) {
+            $normalizedProperty = str_starts_with($property, '--') ? $property : strtolower($property);
+            $important = 1 === preg_match('/\s*!\s*important\s*$/i', $rawValue);
+            $value = trim(preg_replace('/\s*!\s*important\s*$/i', '', $rawValue) ?? $rawValue);
+
+            if ('flex-flow' === $normalizedProperty) {
+                $normalizedProperty = 'flex-direction';
+                // A var() flow is statically unresolvable — keep it verbatim so the
+                // strict gate declines on it instead of defaulting to row.
+                if (1 !== preg_match('/var\s*\(/i', $value)) {
+                    $flowDirection = null;
+                    foreach (CssValueSplitter::splitTopLevelWhitespace(strtolower($value)) as $component) {
+                        if (in_array($component, array('row', 'row-reverse', 'column', 'column-reverse'), true)) {
+                            $flowDirection = $component;
+                            break;
+                        }
+                    }
+                    $value = $flowDirection ?? (in_array(strtolower($value), array('inherit', 'unset', 'revert', 'revert-layer'), true) ? strtolower($value) : 'row');
+                }
+            }
+
+            // The strict gates only read the grow factor of the `flex` shorthand;
+            // folding it into `flex-grow` lets source order decide between them.
+            if ('flex' === $normalizedProperty) {
+                $normalizedProperty = 'flex-grow';
+                $value = $this->flexShorthandGrowFactor($value);
+            }
+            $this->mediaTextDeclarationNormalizationCache[$cacheKey] = array(
+                'property' => $normalizedProperty,
+                'value' => $value,
+                'important' => $important,
+            );
+        }
+        $normalized = $this->mediaTextDeclarationNormalizationCache[$cacheKey];
+        $property = $normalized['property'];
+        $value = $normalized['value'];
+        $important = $normalized['important'];
         if ('' === $property || '' === $value) {
             return;
-        }
-
-        if ('flex-flow' === $property) {
-            $property = 'flex-direction';
-            // A var() flow is statically unresolvable — keep it verbatim so the
-            // strict gate declines on it instead of defaulting to row.
-            if (1 !== preg_match('/var\s*\(/i', $value)) {
-                $flowDirection = null;
-                foreach (CssValueSplitter::splitTopLevelWhitespace(strtolower($value)) as $component) {
-                    if (in_array($component, array('row', 'row-reverse', 'column', 'column-reverse'), true)) {
-                        $flowDirection = $component;
-                        break;
-                    }
-                }
-                $value = $flowDirection ?? (in_array(strtolower($value), array('inherit', 'unset', 'revert', 'revert-layer'), true) ? strtolower($value) : 'row');
-            }
-        }
-
-        // The strict gates only read the grow factor of the `flex` shorthand;
-        // folding it into `flex-grow` lets source order decide between them.
-        if ('flex' === $property) {
-            $property = 'flex-grow';
-            $value = $this->flexShorthandGrowFactor($value);
         }
 
         $incoming = array( 'important' => $important, 'inline' => $inline, 'specificity' => $specificity, 'sequence' => $sequence, 'layer' => $layer );
