@@ -74,6 +74,28 @@ final class CoverStyleResolver
         );
     }
 
+    /** The frontmost gradient above the image, not gradients behind it. */
+    public function overlayGradientFromStyle(string $style): string
+    {
+        $declaration = $this->winningBackgroundDeclaration($style);
+        if ( null === $declaration ) {
+            return '';
+        }
+
+        $layers = CssValueSplitter::splitTopLevel($declaration['value'], array( ',' ));
+        $first = trim((string) ($layers[0] ?? ''));
+        if ( ! preg_match('/^(?:repeating-)?(?:linear|radial|conic)-gradient\s*\(/i', $first) ) {
+            return '';
+        }
+        foreach ( array_slice($layers, 1) as $layer ) {
+            if ( preg_match('/\burl\s*\(/i', $layer) ) {
+                return $first;
+            }
+        }
+
+        return '';
+    }
+
     /**
      * @return array{dimRatio:int, customOverlayColor:string}
      */
@@ -144,7 +166,7 @@ final class CoverStyleResolver
     }
 
     /**
-     * @return array{minHeight:float|int, minHeightUnit:string}|null
+     * @return array{minHeight:float|int, minHeightUnit:string, definite:bool}|null
      */
     public function minHeightFromStyle(string $style): ?array
     {
@@ -153,6 +175,24 @@ final class CoverStyleResolver
             ? $declarations['min-height']
             : (string) ($declarations['height'] ?? '');
         $value        = strtolower(trim($value));
+        // Cover's numeric height control cannot represent min(). Prefer its
+        // first expressible arm (usually the fluid height), using the same
+        // length mapping as a plain min-height rather than a second parser.
+        if ( preg_match('/^min\((.*)\)$/s', $value, $function) ) {
+            foreach ( CssValueSplitter::splitTopLevel($function[1], array( ',' )) as $argument ) {
+                // Only recurse into plain lengths: malformed or deeply nested
+                // functions must not grow the resolver's call stack.
+                if ( str_contains($argument, '(') ) {
+                    continue;
+                }
+                $height = $this->minHeightFromStyle('min-height:' . $argument);
+                if ( null !== $height ) {
+                    $height['definite'] = ! array_key_exists('min-height', $declarations);
+                    return $height;
+                }
+            }
+            return null;
+        }
         if ( ! preg_match('/^(\d+(?:\.\d+)?)(px|vh|rem|dvh|svh|lvh)$/', $value, $matches) ) {
             return null;
         }
