@@ -1048,7 +1048,9 @@ final class NavigationPatternContext
      * unless it names state or replaces resting classes: when peers share
      * one class list and the served item keeps part of it but swaps the rest
      * for classes no peer carries (atomic utility classes, say), those
-     * classes are its state.
+     * classes are its state. Explicit aria-current on that same element also
+     * identifies its peer-unique classes as state, even with no shared token
+     * or multiple resting peers (a complete utility-class swap).
      */
     public function recordCurrentNavigationItem(DOMElement $item, DOMElement $anchor): void
     {
@@ -1076,7 +1078,7 @@ final class NavigationPatternContext
             $current = $classes($element);
             $replaces = (bool) array_filter($lists, static fn(array $group): bool => count($group) > 1 && array() !== array_intersect($group[0], $current) && array() !== array_diff($group[0], $current));
             return array_values(array_filter($current, static fn(string $class): bool => !isset($peerClasses[$class])
-                && ($replaces || MenuVocabulary::containsCurrentStateToken($class))));
+                && ($replaces || ($element->hasAttribute('aria-current') && 'false' !== strtolower(trim($element->getAttribute('aria-current')))) || MenuVocabulary::containsCurrentStateToken($class))));
         };
         $this->session->authorSelectorProjectionState()->markCurrentNavigationClasses(array_merge($own($item, $peerItems), $item->isSameNode($anchor) ? array() : $own($anchor, $peerAnchors)));
     }
