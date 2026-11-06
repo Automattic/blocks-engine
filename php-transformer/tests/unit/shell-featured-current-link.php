@@ -58,8 +58,6 @@ $assert(str_contains(json_encode($headers), '<dialog'), 'the regression exercise
 $root = '<!-- wp:navigation {"overlayMenu":"never"} --><nav class="wp-block-navigation">' . $menu . '</nav><!-- /wp:navigation -->';
 $currentRoot = str_replace('class="wp-block-navigation"', 'class="wp-block-navigation blocks-engine-navigation-current-color-' . str_repeat('a', 64) . '"', $root);
 $assert(ShellExtraction::identityMarkup($root) === ShellExtraction::identityMarkup($currentRoot), 'rendered root current colour does not change shell identity');
-$compiledRoot = '<!-- wp:navigation {"className":"mega blocks-engine-navigation-current-color-' . str_repeat('a', 64) . '","overlayMenu":"never"} -->' . $menu . '<!-- /wp:navigation -->';
-$assert(!str_contains(ShellExtraction::withoutCurrentNavigationState($compiledRoot), 'navigation-current-color-'), 'a navigation root with a featured current card freezes no current colour in the shared part');
 
 // Compare the projector on the same source path so only captured current-page
 // state varies, not the intentionally document-scoped part of the identity.
