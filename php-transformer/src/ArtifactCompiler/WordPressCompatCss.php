@@ -35,6 +35,19 @@ final class WordPressCompatCss
     private array $scriptTokens = array();
     /** @var array<string, bool> */
     private array $sourceLiveness = array();
+    /** @var list<string> */
+    private array $capturedDocuments = array();
+
+    /**
+     * Documents as captured, before projection rewrites their state classes.
+     *
+     * @param list<string> $htmlTexts
+     */
+    public function useCapturedDocuments(array $htmlTexts): void
+    {
+        $this->capturedDocuments = $htmlTexts;
+        $this->sourceDocuments = null;
+    }
 
     /**
      * @param array<int, array<string, mixed>> $files
@@ -114,7 +127,7 @@ final class WordPressCompatCss
         $this->scriptTokens = $tokens;
         $this->sourceLiveness = array();
         $this->sourceDocuments = array();
-        foreach ($this->siteMarkerDocuments ?? array() as $html) {
+        foreach (array_unique(array_merge($this->capturedDocuments, $this->siteMarkerDocuments ?? array())) as $html) {
             $document = new \DOMDocument();
             $previous = libxml_use_internal_errors(true);
             $document->loadHTML('<?xml encoding="utf-8" ?>' . $html, LIBXML_NOERROR | LIBXML_NOWARNING);
@@ -137,7 +150,7 @@ final class WordPressCompatCss
         if (null === $this->sourceDocuments || array() === $this->sourceDocuments) return true;
         $selector = trim($this->selectorWithoutComments($selector));
         if (isset($this->sourceLiveness[$selector])) return $this->sourceLiveness[$selector];
-        $static = 1 !== preg_match('/[\[\\]|:(?!first-child|last-child|nth-child\(|hover|focus|active|visited|focus-visible|focus-within|link)/', preg_replace('/:(?:hover|focus|active|visited|focus-visible|focus-within|link)$/', '', $selector) ?? $selector);
+        $static = 1 !== preg_match('/[\[\\\\]|:(?!first-child|last-child|nth-child\(|hover|focus|active|visited|focus-visible|focus-within|link)/', preg_replace('/:(?:hover|focus|active|visited|focus-visible|focus-within|link)$/', '', $selector) ?? $selector);
         if ($static) {
             preg_match_all('/[.#]([A-Za-z_][\w-]*)/', $selector, $tokens);
             foreach ($tokens[1] as $token) {

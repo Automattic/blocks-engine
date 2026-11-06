@@ -279,6 +279,9 @@ final class ArtifactCompiler
         $this->htmlTransformerAnalysisCache = $this->cacheHtmlAnalysis ? new HtmlTransformerAnalysisCache() : null;
         $normalized = (new ArtifactNormalizer())->normalize($artifact);
         $normalized['source_css_bytes'] = $artifact['_captured_source_css_bytes'] ?? self::sourceCssBytes($normalized['files']);
+        // Projectors below rewrite captured state classes; authored replays
+        // are judged against the documents as captured.
+        $this->wordpressCompat->useCapturedDocuments(array_values(array_map(static fn(array $file): string => (string) $file['content'], array_filter($normalized['files'], static fn(array $file): bool => 'html' === ($file['kind'] ?? '') && is_string($file['content'] ?? null)))));
         $this->layoutGeometryProof = is_array($normalized['layout_geometry_proof'] ?? null) ? $normalized['layout_geometry_proof'] : array();
         $capturedDialogs = (new CapturedDialogProjector())->project($normalized['files']);
         $collections = (new CapturedCollectionProjector())->project($capturedDialogs['files']);
