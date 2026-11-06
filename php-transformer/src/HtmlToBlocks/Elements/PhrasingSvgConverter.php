@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 /** Hosts a phrasing-boundary SVG in a synthetic paragraph before generic preservation. */
@@ -20,7 +21,9 @@ final class PhrasingSvgConverter implements ElementConverter
     /** @param array<int, array<string, mixed>> $fallbacks */
     public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
     {
-        if ( 'svg' !== $tagName || ! $this->svgMaterializer->svgNeedsPhrasingHost($element) ) {
+        if ( 'svg' !== $tagName
+            || SourceDom::isUnreferencedDefinitionsSvg($element)
+            || ! $this->svgMaterializer->svgNeedsPhrasingHost($element) ) {
             return ConversionOutcome::unhandled();
         }
 
