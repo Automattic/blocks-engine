@@ -18,6 +18,8 @@ final class AuthorStyleRuleProjector
 {
     /** Bounded ancestor walk for stretch-derived percentage-height resolution. */
     private const MAX_STRETCH_ANCESTOR_DEPTH = 12;
+    /** Bounded ancestor walk proving an auto-width box's inline size is definite. */
+    private const MAX_INLINE_SIZE_ANCESTOR_DEPTH = 32;
 
     /** Declared sizes that make a box's border box depend on its box model. */
     private const BOX_SIZE_PROPERTIES = array( 'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height' );
@@ -832,12 +834,12 @@ final class AuthorStyleRuleProjector
      * Whether the element's resolved `flex-grow` (longhand, else the first
      * number of the `flex` shorthand) is positive.
      */
-    private function growsAlongFlexMainAxis(DOMElement $element): bool
+    private function growsAlongFlexMainAxis(DOMElement $element, ?callable $read = null): bool
     {
-        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        $grow = $this->styleResolver->resolveStructuralCssVariablesInValue(CssValueInspector::withoutImportant((string) ($declarations['flex-grow'] ?? '')), $element);
+        $read ??= $this->structuralReader();
+        $grow = $this->styleResolver->resolveStructuralCssVariablesInValue(CssValueInspector::withoutImportant($read($element, 'flex-grow')), $element);
         if ( '' === trim($grow) ) {
-            $flex = strtolower(trim($this->styleResolver->resolveStructuralCssVariablesInValue(CssValueInspector::withoutImportant((string) ($declarations['flex'] ?? '')), $element)));
+            $flex = strtolower(trim($this->styleResolver->resolveStructuralCssVariablesInValue(CssValueInspector::withoutImportant($read($element, 'flex')), $element)));
             $first = (string) (CssValueSplitter::splitTopLevelWhitespace($flex)[0] ?? '');
             if ( '' !== $first && ! is_numeric($first) ) {
                 // `flex:auto` and `flex:<basis>` both grow by 1; `none` and
@@ -873,10 +875,10 @@ final class AuthorStyleRuleProjector
         if ( ! $this->isAutoOrUnsetBlockSize($height) ) {
             return false;
         }
-        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        if ( $this->aspectRatioDerivesBlockSize($element, $declarations) ) {
+        if ( $this->aspectRatioDerivesBlockSize($element, $this->structuralReader()) ) {
             return true;
         }
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
         $display = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(CssValueInspector::withoutImportant((string) ($declarations['display'] ?? '')), $element));
         if ( ! in_array($display, array( 'grid', 'inline-grid' ), true) ) {
             return false;
@@ -889,22 +891,19 @@ final class AuthorStyleRuleProjector
      * Whether a declared `aspect-ratio` resolves this element's block size.
      * With `height` auto (the caller's precondition) a real ratio derives the
      * block axis from the inline one, so it is definite exactly when the
-     * element's own `width` is: a length, or a percentage of the parent's
-     * content width, which for the in-flow boxes this analysis walks is
-     * itself resolved before the block axis is.
+     * element's inline size is {@see hasDefiniteInlineSize}.
      *
-     * An `auto` width is deliberately not accepted. It is definite only in
-     * normal flow -- a float, an inline-level box, an absolutely positioned
-     * box or a row flex item shrink-to-fit instead, sizing the inline axis
-     * from content -- and this analysis does not model which of those the
-     * element is in.
+     * `$read` returns one declared value for an element and property, so the
+     * same proof runs against unconditional declarations or against one
+     * condition domain (where a `@media` rule may supply both the ratio and
+     * the parent's `display:flex`).
      *
-     * @param array<string, string> $declarations
+     * @param callable(DOMElement, string): string $read
      */
-    private function aspectRatioDerivesBlockSize(DOMElement $element, array $declarations): bool
+    private function aspectRatioDerivesBlockSize(DOMElement $element, callable $read): bool
     {
         $ratio = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(
-            CssValueInspector::withoutImportant((string) ($declarations['aspect-ratio'] ?? '')),
+            CssValueInspector::withoutImportant($read($element, 'aspect-ratio')),
             $element
         ));
         if ( '' === $ratio || 'auto' === $ratio || str_contains($ratio, 'auto') ) {
@@ -913,9 +912,122 @@ final class AuthorStyleRuleProjector
         if ( 1 !== preg_match('~^[\d.]+(?:\s*/\s*[\d.]+)?$~', trim($ratio)) ) {
             return false;
         }
-        $width = $this->styleResolver->resolveStructuralCssVariablesInValue((string) ($declarations['width'] ?? ''), $element);
 
-        return $this->isDefiniteBlockSize($width) || $this->isPercentageBlockSize($width);
+        return $this->hasDefiniteInlineSize($element, $read);
+    }
+
+    /**
+     * Whether `$element`'s inline size is definite before its block axis is laid out.
+     *
+     * A length `width` is, and so is a percentage of the parent's content
+     * width, which for the in-flow boxes this analysis walks is itself
+     * resolved before the block axis is.
+     *
+     * An `auto` width is definite in two cases only, each needing a parent
+     * whose own inline size is definite (transitively, up to the root):
+     *
+     *  - a block-level box in block flow fills its containing block;
+     *  - a growing item of a row flex container takes its post-flexing main
+     *    size, which is definite once the container's is (CSS Flexbox 9.8).
+     *
+     * Every other auto-width box stays rejected because it shrinks to fit
+     * and sizes its inline axis from content: an absolutely positioned or
+     * floated box, an inline-level box (`inline-block`, `inline-flex`, ...),
+     * a non-growing flex item, and column-flex or grid items, which this
+     * analysis does not model.
+     *
+     * @param callable(DOMElement, string): string $read
+     */
+    private function hasDefiniteInlineSize(DOMElement $element, callable $read, int $depth = 0): bool
+    {
+        $width = $this->styleResolver->resolveStructuralCssVariablesInValue($read($element, 'width'), $element);
+        if ( $this->isDefiniteBlockSize($width) || $this->isPercentageBlockSize($width) ) {
+            return true;
+        }
+        if ( ! in_array(strtolower(CssValueInspector::withoutImportant($width)), array( '', 'auto' ), true) ) {
+            return false;
+        }
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement || in_array(strtolower($element->tagName), array( 'body', 'html' ), true) ) {
+            // The root's containing block is the viewport.
+            return true;
+        }
+        if ( self::MAX_INLINE_SIZE_ANCESTOR_DEPTH <= $depth ) {
+            return false;
+        }
+        $value = fn (DOMElement $node, string $property): string => strtolower(trim($this->styleResolver->resolveStructuralCssVariablesInValue(
+            CssValueInspector::withoutImportant($read($node, $property)),
+            $node
+        )));
+        if ( in_array($value($element, 'position'), array( 'absolute', 'fixed' ), true) || $this->floatsAtAnyViewport($element) ) {
+            return false;
+        }
+        $parentDisplay = $value($parent, 'display');
+        if ( in_array($parentDisplay, array( 'flex', 'inline-flex' ), true) ) {
+            $direction = $value($parent, 'flex-direction');
+            $axes = '' === $direction ? CssValueSplitter::splitTopLevelWhitespace($value($parent, 'flex-flow')) : array( $direction );
+            if ( array() !== array_diff($axes, array( 'row', 'row-reverse', 'nowrap', 'wrap', 'wrap-reverse' )) ) {
+                return false;
+            }
+
+            return $this->growsAlongFlexMainAxis($element, $read)
+                && $this->hasDefiniteInlineSize($parent, $read, $depth + 1);
+        }
+        if ( ! $this->isBlockLevelBox($element, $value($element, 'display'))
+            || ! $this->isBlockContainer($parent, $parentDisplay) ) {
+            return false;
+        }
+
+        return $this->hasDefiniteInlineSize($parent, $read, $depth + 1);
+    }
+
+    /**
+     * `float` is not part of the resolved presentation stream, so any author
+     * declaration that floats the element, at any viewport, counts.
+     */
+    private function floatsAtAnyViewport(DOMElement $element): bool
+    {
+        foreach ( $this->styleResolver->authorDeclaredValuesAtAnyViewport($element, array( 'float' ))['float'] ?? array() as $float ) {
+            if ( ! in_array(CssValueInspector::comparable($float), array( '', 'none' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** A block-level box in flow fills its containing block's inline size. */
+    private function isBlockLevelBox(DOMElement $element, string $display): bool
+    {
+        if ( '' === $display ) {
+            return self::hasBlockDisplayByDefault($element);
+        }
+
+        return in_array($display, array( 'block', 'flow-root', 'list-item', 'flex', 'grid' ), true);
+    }
+
+    /** A box whose children lay out in block flow. */
+    private function isBlockContainer(DOMElement $element, string $display): bool
+    {
+        if ( '' === $display ) {
+            return self::hasBlockDisplayByDefault($element);
+        }
+
+        return in_array($display, array( 'block', 'flow-root', 'list-item', 'inline-block' ), true);
+    }
+
+    private static function hasBlockDisplayByDefault(DOMElement $element): bool
+    {
+        return 1 === preg_match(
+            '/^(?:address|article|aside|blockquote|body|div|dl|dd|dt|fieldset|figcaption|figure|footer|form|h[1-6]|header|html|li|main|nav|ol|p|pre|section|ul)$/i',
+            $element->tagName
+        );
+    }
+
+    /** @return callable(DOMElement, string): string */
+    private function structuralReader(): callable
+    {
+        return fn (DOMElement $element, string $property): string => (string) ($this->styleResolver->structuralPresentationDeclarations($element)[$property] ?? '');
     }
 
     private function gridTemplateRowsContainDefiniteTrack(string $rows): bool
@@ -1123,13 +1235,10 @@ final class AuthorStyleRuleProjector
             }
         }
         foreach ( $domains as $domain ) {
-            $declarations = array();
-            foreach ( array( 'height', 'aspect-ratio', 'width' ) as $property ) {
-                $declarations[$property] = $this->presentationValueUnderConditions($element, $property, $domain);
-            }
-            $height = $this->styleResolver->resolveStructuralCssVariablesInValue($declarations['height'], $element);
+            $read = fn (DOMElement $node, string $property): string => $this->presentationValueUnderConditions($node, $property, $domain);
+            $height = $this->styleResolver->resolveStructuralCssVariablesInValue($read($element, 'height'), $element);
             if ( $this->isDefiniteBlockSize($height)
-                || ($this->isAutoOrUnsetBlockSize($height) && $this->aspectRatioDerivesBlockSize($element, $declarations)) ) {
+                || ($this->isAutoOrUnsetBlockSize($height) && $this->aspectRatioDerivesBlockSize($element, $read)) ) {
                 return true;
             }
         }
