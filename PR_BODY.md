@@ -1,22 +1,16 @@
-## Fixes #4540
+## Fixes #4715
 
-### Root cause
-Native image lowering calls `HtmlCompilation::imageSourceUrl()`, but lowered controls and preserved markup serialize their source images without that call. Lazy images in those paths therefore retained a transparent data-URI placeholder even when a real lazy source was available.
+### Problem
+Cover recognition rejected every background container containing native navigation, even when a heading outside the menu made it a hero. Its photo consequently remained CSS-owned rather than editable cover media.
 
-### Before / after
-Before: a gallery thumbnail button could emit the placeholder `src` alongside an unused `data-src`.
-After: source normalization resolves every source `<img>` before dispatch using the existing image-source policy, including its lazy-attribute priority and real-source precedence. Lazy candidates must also pass the safe image URL policy. This is generic: no site-specific selectors or classes.
+### Fix
+Reject navigation-bearing candidates only when no `core/heading` exists outside all `core/navigation` subtrees. Navigation blocks and their descendants remain unchanged inside the cover. Nav-only background bars retain group output and the existing shell-extraction contract; no shell-extraction code changes.
 
-The normalization scan uses a static XPath node set rather than indexed live DOMNodeList iteration, avoiding repeated document traversal as galleries grow. The gallery scaling threshold is unchanged.
+### Evidence
+- Cover unit output: `cover pattern ok`. The reduced-repro cover assertion failed with the original gate and passes with the fix, including section tag, photo URL, overlay, native navigation, and heading assertions.
+- K5 also covers nav-only groups, recursively nested navigation plus paragraph rejection, headings inside navigation being excluded, and unchanged navigation subtree preservation.
+- Composer tests and changed-file lint passed.
+- Full website topology sweep: every fixture matches baseline except the pre-existing `30-cursed-pangolin-fanwiki` mismatch (matched=3, divergences=1; weighted score 4 → 1). Inspection shows empty visual div -1, removed anchor -1, plaintext-to-pre retag +1. Restoring the original navigation gate produces exactly the same result; this is not a new cover or extraction change. Baseline left untouched.
+- No fixture topology changes attributable to this fix. Studio editor validation and frontend comparison at 390/1440px were not available in this workspace.
 
-### Tests
-- One table-driven unit test covers standalone images, lowered buttons, and preserved tables; placeholder/empty sources, each lazy attribute, priority, real-source preservation, unsafe candidates, and missing alternatives. Registered in Composer's unit list.
-- Confirmed the test fails on trunk at the lowered-button placeholder case and passes here.
-- Gallery compilation scaling passed three consecutive runs.
-- 87 media/responsive unit tests passed.
-- Contract suite and Composer canonical suite passed.
-
-### Topology
-No PR topology deltas; baseline unchanged. The full local PHP 8.5 run reports only `30-cursed-pangolin-fanwiki`: added empty visual div -1, removed anchor -1, plaintext-to-pre retag +1 (weighted score 4 to 1). Running that fixture on trunk produces exactly the same counts. These are malformed-HTML parser/runtime differences, not this PR's deltas; the topology documentation requires PHP 8.4 for baseline regeneration.
-
-AI disclosure: implemented and tested with model `cook-heavy` (Roadie provider) using the Pi coding tool.
+_AI disclosure: implemented by cook-heavy via Homeboy cook, orchestrated by Franklin (Claude Opus via Pi/Roadie) for @chubes4._

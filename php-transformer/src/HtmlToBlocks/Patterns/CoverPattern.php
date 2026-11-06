@@ -329,7 +329,10 @@ final class CoverPattern implements PatternRecognizerInterface
      */
     private function navigationRejectionGate(array $blocks): ?string
     {
-        return $this->containsBlockNamed($blocks, 'core/navigation') ? 'nav_shell' : null;
+        // Keep background-only navigation shells extractable, but allow heroes
+        // with their own heading. Menu headings are not hero content.
+        return $this->containsBlockNamed($blocks, 'core/navigation')
+            && ! $this->containsBlockNamed($blocks, 'core/heading', 'core/navigation') ? 'nav_shell' : null;
     }
 
     private function textRejectionGate(bool $hasTextBearingChildren): ?string
@@ -339,10 +342,14 @@ final class CoverPattern implements PatternRecognizerInterface
     /**
      * @param array<int, array<string, mixed>> $blocks
      */
-    private function containsBlockNamed(array $blocks, string $blockName): bool
+    private function containsBlockNamed(array $blocks, string $blockName, ?string $excludedSubtree = null): bool
     {
         foreach ( $blocks as $block ) {
             if ( ! is_array($block) ) {
+                continue;
+            }
+
+            if ( null !== $excludedSubtree && $excludedSubtree === ($block['blockName'] ?? null) ) {
                 continue;
             }
 
@@ -351,7 +358,7 @@ final class CoverPattern implements PatternRecognizerInterface
             }
 
             $innerBlocks = $block['innerBlocks'] ?? array();
-            if ( is_array($innerBlocks) && $this->containsBlockNamed($innerBlocks, $blockName) ) {
+            if ( is_array($innerBlocks) && $this->containsBlockNamed($innerBlocks, $blockName, $excludedSubtree) ) {
                 return true;
             }
         }
