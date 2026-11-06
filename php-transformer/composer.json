@@ -89,6 +89,7 @@
       "@test:packaging"
     ],
     "test:canonical": [
+      "php tests/contract/standalone-font-glyph.php",
       "php tests/contract/lowered-text-type-presentation.php",
       "php tests/unit/theme-css-proportionality.php",
       "php tests/contract/css-rule-tree-staged.php",

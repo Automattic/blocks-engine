@@ -7197,6 +7197,24 @@ final class StyleResolver implements ElementPresentationResolver
         return $families;
     }
 
+    /** Evidence of generated text painted with a captured webfont, not a vendor class convention. */
+    public function hasBeforeFontGlyph(DOMElement $element): bool
+    {
+        $families = $this->authorFontFaceFamilies();
+        if (array() === $families) return false;
+        foreach ($this->session->sourceStyleResolutionState()->pseudoElementRules() as $rule) {
+            if ('before' !== ($rule['pseudo'] ?? '') || !$this->matchesCssSelector($element, $rule['selector'])) continue;
+            $declarations = $rule['declarations'];
+            $content = trim((string) ($declarations['content'] ?? ''));
+            if (!preg_match('/^([\'"]).+\1$/s', $content)) continue;
+            $family = (string) ($declarations['font-family'] ?? $this->resolvedSvgCascadeValue($element, 'font-family') ?? '');
+            foreach (explode(',', $family) as $name) {
+                if (isset($families[strtolower(trim($name, " \t\n\r\"'"))])) return true;
+            }
+        }
+        return false;
+    }
+
     public function specificityResolvedSvgCascadeValue(DOMElement $element, string $property): ?string
     {
         if ( ! in_array($property, self::SVG_TEXT_CASCADE_PROPERTIES, true) ) {

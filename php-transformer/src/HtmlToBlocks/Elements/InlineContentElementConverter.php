@@ -152,6 +152,29 @@ final class InlineContentElementConverter implements ElementConverter
             return ConversionOutcome::handled($this->createBlock->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($element), array( 'content' => $this->runtime->escapeHtml($dynamicText) )), array(), $element));
         }
 
+        // Generated icon text is absent from textContent. Offer its source
+        // markup to the same RichText mark lowering used for icons in text,
+        // before the empty-inline omission path can discard it.
+        if ('' === trim($element->textContent ?? '') && 0 === $element->childElementCount && $this->styleResolver->hasBeforeFontGlyph($element)) {
+            $carrier = $element->cloneNode(true);
+            $carrier->setAttribute('style', $this->styleResolver->cssDeclarationString($this->richTextMaterializer->inlineVisualDeclarations($element)));
+            $content = SourceDom::outerHtml($carrier);
+            if ($this->richTextMaterializer->requiresHtmlFallbackForElement($element, $content)) {
+                $fallbacks[] = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic::build(array(
+                    'type' => 'html',
+                    'reason' => 'icon_font_glyph_unrepresentable',
+                    'diagnostic_code' => 'icon_font_glyph_unrepresentable',
+                    'message' => 'A generated font glyph could not be represented as editable RichText; its source HTML was preserved.',
+                    'source_format' => 'html',
+                    'tag' => $tagName,
+                    'selector' => SourceDom::elementSelector($element),
+                    'attributes' => SourceDom::htmlAttributes($element),
+                ));
+                return ConversionOutcome::handled($this->context->htmlPreservationBlock($element));
+            }
+            return ConversionOutcome::handled($this->sourceElementParagraph($element, $content, true));
+        }
+
         $content = SourceDom::outerHtml($element);
         if ( '' === trim($this->runtime->stripAllTags($content)) ) {
             $children = $this->context->convertChildren($element, $fallbacks);
@@ -183,7 +206,7 @@ final class InlineContentElementConverter implements ElementConverter
      *
      * @return array<string, mixed>
      */
-    private function sourceElementParagraph(DOMElement $element, string $content): array
+    private function sourceElementParagraph(DOMElement $element, string $content, bool $retainAlignment = false): array
     {
         $listItem = $this->context->ancestorElement($element, 'li');
         $sourceElement = $this->richTextMaterializer->hasStructuralHtml($content)
@@ -193,6 +216,12 @@ final class InlineContentElementConverter implements ElementConverter
             : null;
         $attrs = array('content' => $content);
         if (null === $sourceElement) $attrs = array_merge($this->sourceAttributes->syntheticInlineParagraphAttributes($element), $attrs);
+        if ($retainAlignment) {
+            $presentation = $this->styleResolver->presentationAttributes($element);
+            if (isset($presentation['style']['typography']['textAlign'])) {
+                $attrs['style']['typography']['textAlign'] = $presentation['style']['typography']['textAlign'];
+            }
+        }
         $paragraph = $this->createBlock->createBlock('core/paragraph', $attrs, array(), $sourceElement);
         // A synthetic paragraph registers no source, but still stands for this
         // one element: a finding may bind it by the element's selector.

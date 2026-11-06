@@ -48,6 +48,7 @@ $context = new InlineContentElementContext(
     static fn (DOMElement $element): array => array( 'blockName' => 'core/spacer' )
 );
 $styleResolver = (new ReflectionClass(StyleResolver::class))->newInstanceWithoutConstructor();
+(new ReflectionProperty(StyleResolver::class, 'session'))->setValue($styleResolver, new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession(new Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer())));
 $sourceAttributes = (new ReflectionClass(SourceBlockAttributeProjector::class))->newInstanceWithoutConstructor();
 $converter = new InlineContentElementConverter(new SourceElementClassifier(), new SourceBlockCreatorFixture(static fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => array(
         'blockName' => $name,
