@@ -866,6 +866,12 @@ final class SourceBlockAttributeProjector
         }
         foreach ( array( 'display', 'align-items', 'justify-content' ) as $property ) {
             $value = trim((string) ($direct[$property] ?? ''));
+            // A value the source switches under a media query stays with the
+            // author rules: restating only its base value on the carrier
+            // would outrank the source's own breakpoint switch.
+            if ( array() !== $this->styleResolver->declaredPresentation($anchor, $property)->conditional() ) {
+                continue;
+            }
             if ( '' !== $value && ! str_contains(strtolower($value), '!important') ) {
                 $declarations[$property] = $this->styleResolver->resolveCssVariablesInValue($value);
             }
