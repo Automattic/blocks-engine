@@ -556,6 +556,7 @@ PHP;
         $assets = self::orderPageStylesheetProjections($assets);
         $assets = self::placeSharedStylesheetProjections($assets, $pages);
         $assets = self::mergeIdenticalPageStylesheets($assets, array_merge($pages, $parts, $frameParts));
+        $assets = EditorStaticStateAssets::share($assets, $references);
         $tokens = $this->tokens($assets);
         if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
         $runtimeDeclarations = $shells['runtime_declarations'];
@@ -6636,8 +6637,10 @@ PHP;
         $before = $after = $instances = array();
         $firstManaged = count($assets);
         foreach ($assets as $index => $asset) if (!empty($asset['stylesheet_instances'])) $firstManaged = min($firstManaged, $index);
+        $partTargets = array();
+        foreach ($assets as $asset) foreach ($asset['stylesheet_parts'] ?? array() as $path) $partTargets[$path] = true;
         foreach ($assets as $index => $asset) {
-            if ('css' !== ($asset['kind'] ?? null)) continue;
+            if ('css' !== ($asset['kind'] ?? null) || isset($partTargets[$asset['target_path']])) continue;
             $occurrences = $asset['stylesheet_instances'] ?? array();
             $parent = $asset['stylesheet_parent'] ?? null;
             if (array() === $occurrences && is_string($parent)) $occurrences = $assetsBySource[$parent]['stylesheet_instances'] ?? array();
@@ -6668,7 +6671,20 @@ PHP;
             usort($rows, static fn(array $left, array $right): int => $left['order'] <=> $right['order'] ?: $left['resource_order'] <=> $right['resource_order']);
             array_push($ordered, ...$rows);
         }
-        return array_merge($ordered, $after);
+        $expanded = array();
+        $byTarget = array_column($assets, null, 'target_path');
+        foreach (array_merge($ordered, $after) as $row) {
+            if (!isset($row['asset']['stylesheet_parts'])) { $expanded[] = $row; continue; }
+            foreach ($row['asset']['stylesheet_parts'] as $position => $path) {
+                $part = $row;
+                // Bytes are shared; delivery remains owned by this occurrence.
+                $part['asset'] = array_replace($row['asset'], array_intersect_key($byTarget[$path], array_flip(array('source_path', 'target_path', 'token', 'reconciliation_identity', 'content', 'content_hash', 'size_bytes'))));
+                unset($part['asset']['stylesheet_parts']);
+                $part['handle'] .= '-part-' . $position;
+                $expanded[] = $part;
+            }
+        }
+        return $expanded;
     }
 
     /**

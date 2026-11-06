@@ -1249,6 +1249,7 @@
     "test:migration:legacy-parity": "BLOCKS_ENGINE_PARITY_LEGACY=1 php tests/parity/run.php --migration-comparison",
     "test:wordpress-integration": [
       "php tests/integration/wordpress-site-plan.php",
+      "php tests/integration/editor-static-state-sharing.php",
       "php tests/integration/design-system-palette.php",
       "php tests/integration/social-anchor-colors.php",
       "php tests/integration/social-links-source-margins.php"
