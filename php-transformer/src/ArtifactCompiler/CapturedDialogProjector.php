@@ -453,7 +453,7 @@ final class CapturedDialogProjector
     {
         $previous = libxml_use_internal_errors(true);
         $document = new DOMDocument('1.0', 'UTF-8');
-        $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+        $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NONET);
         libxml_clear_errors();
         libxml_use_internal_errors($previous);
         if (! $loaded) {
@@ -827,7 +827,7 @@ final class CapturedDialogProjector
                 $resting = $this->restingPresentation($panel);
                 // A panel with a resting snapshot is adopted whole: the panel
                 // itself, at its resting presentation, is the dialog content.
-                $fragment = array() !== $resting ? $this->safeDialogFragment('<div>' . $this->restPanel($document, $panel, $resting, $triggers[0]) . '</div>') : $this->safeDialogFragment($html);
+                $fragment = array() !== $resting ? $this->safeDialogFragment('<div>' . $this->restPanel($document, $panel, $resting, $triggers[0]) . '</div>') : $this->safeDialogFragment($html, (string) $key);
                 if (null === $fragment) continue;
                 $identity = substr(hash('sha256', $sourcePath . "\n" . $key . "\n" . $scopeIndex . "\n" . $html), 0, 16);
                 $triggerIds = array();
@@ -1125,8 +1125,8 @@ final class CapturedDialogProjector
     }
 
     /**
-     * Navigation ownership is proven from in-place controls, independently of
-     * interaction probing. Non-navigation triggers still prevent retirement.
+     * In-place capture wiring is independent of interaction probing. Adopt
+     * bounded local panels and retire only runtimes whose bindings are proven.
      *
      * @param array<int, array<string, mixed>> $files
      * @param array<int, array<string, mixed>> $diagnostics
@@ -1135,35 +1135,27 @@ final class CapturedDialogProjector
     private function retireOwnedDisclosureWithoutProjection(array $files, array $diagnostics): array
     {
         $retired = array();
+        $projected = 0;
         foreach ($files as $index => $file) {
             $content = $file['content'] ?? null;
             $path = (string) ($file['path'] ?? '');
-            if (!preg_match('/\.html?$/i', $path) || !is_string($content) || !str_contains($content, CaptureEvidence::DISCLOSURE_RUNTIME) || !str_contains($content, CaptureEvidence::DIALOG_TRIGGER)) continue;
-            $previous = libxml_use_internal_errors(true);
-            $document = new DOMDocument('1.0', 'UTF-8');
-            $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $content, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-            libxml_clear_errors();
-            libxml_use_internal_errors($previous);
-            if (!$loaded || $this->hasUnrecognizedRuntime($document)) continue;
-            if ($this->hasRestingInlinePanel($document)) {
-                $diagnostics[] = $this->restingInlineDiagnostic($path);
+            if (!preg_match('/\.html?$/i', $path) || !is_string($content) || !str_contains($content, CaptureEvidence::DIALOG_TRIGGER)) continue;
+            // In-place capture markers prove local wiring without a separate
+            // interaction report or route receipt. Reuse the same bounded
+            // adoption and runtime-retirement checks as report-backed pages.
+            $projection = $this->projectPage($content, array(), $path);
+            $diagnostics = array_merge($diagnostics, $projection['diagnostics']);
+            if (0 < $projection['projected_count'] || array() !== $projection['retired_scripts']) {
+                $files[$index] = ArtifactNormalizer::withTextPayload($file, $projection['html']);
+                $projection['script_bindings']?->rebind($files, $path);
+                $projected += $projection['projected_count'];
+                $retired[$path] = $projection['retired_scripts'];
                 continue;
             }
-            if (!$this->hasNavigationOwnedDialogTrigger($document) || !$this->everyDialogTriggerIsBound($document)) continue;
-            $scriptBindings = new ScriptOccurrenceBindings($document);
-            $this->consumeNavigationOwnedCloseHelpers($document);
-            if ($this->hasDialogCloseHelper($document)) continue;
-            $pageRetired = $this->retireRecognizedRuntime($document, CaptureEvidence::DISCLOSURE_RUNTIME, 'native_navigation_submenu_replaces_capture_disclosure');
-            if (array() === $pageRetired) continue;
-            $html = HtmlSerialization::documentHtml($document);
-            if (!is_string($html)) continue;
-            $files[$index] = ArtifactNormalizer::withTextPayload($files[$index], $html);
-            $scriptBindings->rebind($files, $path);
-            $retired[$path] = $pageRetired;
         }
 
         $proofs = $this->omitRetiredDisclosureScripts($files, $retired);
-        return array('files' => $files, 'diagnostics' => $diagnostics, 'projected_count' => 0, 'native_runtime_replacements' => $proofs);
+        return array('files' => $files, 'diagnostics' => $diagnostics, 'projected_count' => $projected, 'native_runtime_replacements' => $proofs);
     }
 
     /** @param array<int, DOMElement> $triggers */
@@ -1516,7 +1508,7 @@ final class CapturedDialogProjector
     }
 
     /** @return array{nodes:array<int, \DOMNode>, class:string, id:string, aria_label:string, aria_labelledby:string, aria_describedby:string, has_close_control:bool, self_positioned:bool}|null */
-    private function safeDialogFragment(string $html): ?array
+    private function safeDialogFragment(string $html, string $panelId = ''): ?array
     {
         $previous = libxml_use_internal_errors(true);
         $document = new DOMDocument('1.0', 'UTF-8');
@@ -1552,11 +1544,9 @@ final class CapturedDialogProjector
         $inner = $sourceRoot instanceof DOMElement && 'dialog' !== strtolower($sourceRoot->tagName) ? $this->soleElementChild($sourceRoot) : null;
         if ($inner instanceof DOMElement && 'dialog' === strtolower($inner->tagName)) {
             $sourceRoot = $inner;
-        } elseif ($sourceRoot instanceof DOMElement && 'dialog' !== strtolower($sourceRoot->tagName)) {
-            foreach ($sourceRoot->getElementsByTagName('dialog') as $nativeDialog) {
-                $sourceRoot = $nativeDialog;
-                break;
-            }
+        } elseif ('' !== $panelId && $sourceRoot instanceof DOMElement && 'dialog' !== strtolower($sourceRoot->tagName)) {
+            $matches = $xpath->query('.//dialog[@' . CaptureEvidence::DIALOG_PANEL . '=' . $this->xpathLiteral($panelId) . ']', $sourceRoot);
+            if ($matches && 1 === $matches->length) $sourceRoot = $matches->item(0);
         }
         $container = $sourceRoot instanceof DOMElement ? $sourceRoot : $wrapper;
         // Captured interaction markup is runtime evidence. Keep that ownership
