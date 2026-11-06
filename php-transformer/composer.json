@@ -225,6 +225,7 @@
       "php tests/contract/document-head-ownership.php",
       "php tests/contract/relative-form-action.php",
       "php tests/contract/missing-local-media.php",
+      "php tests/contract/paragraph-only-iframe.php",
       "php tests/contract/css-comment-import-reference.php",
       "php tests/contract/template-surfaces.php",
       "php tests/contract/template-surface-entity-bindings.php",

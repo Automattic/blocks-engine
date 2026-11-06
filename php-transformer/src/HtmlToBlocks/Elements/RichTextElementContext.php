@@ -29,7 +29,7 @@ final class RichTextElementContext
      * @param Closure(string): array<int, array<string, mixed>>                                              $convertText
      * @param Closure(DOMElement, array<int, array<string, mixed>>, bool): array<int, array<string, mixed>>   $convertChildren
      * @param Closure(DOMElement, array<int, array<string, mixed>>): ?array<string, mixed>                   $emptyInlineGeometryBlock
-     * @param Closure(DOMElement, array<int, array<string, mixed>>): ?array<string, mixed>                   $mediaBlockFromTextlessHeading
+     * @param Closure(DOMElement, array<int, array<string, mixed>>): ?array<string, mixed>                   $mediaBlockFromTextlessElement
      */
     public function __construct(
         private readonly Closure $htmlPreservationBlock,
@@ -45,7 +45,7 @@ final class RichTextElementContext
         private readonly ?Closure $emptyInlineGeometryBlock = null,
         private readonly ?Closure $nativeDisclosureBlock = null,
         private readonly ?Closure $decorativeSvgBlock = null,
-        private readonly ?Closure $mediaBlockFromTextlessHeading = null,
+        private readonly ?Closure $mediaBlockFromTextlessElement = null,
         private readonly ?Closure $shouldPreserveEmptySourceText = null
     ) {
     }
@@ -151,15 +151,15 @@ final class RichTextElementContext
     }
 
     /**
-     * A heading with no text whose only content is one media element lowers
-     * that element through the shared media routes (embed, image) instead of
-     * keeping an inline heading image or a core/html island.
+     * A heading or paragraph with no text whose only content is one media
+     * element lowers it through the shared media routes (a paragraph takes only
+     * the embed route) instead of keeping an inline image or a core/html island.
      *
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
      */
-    public function mediaBlockFromTextlessHeading(DOMElement $element, array &$fallbacks): ?array
+    public function mediaBlockFromTextlessElement(DOMElement $element, array &$fallbacks): ?array
     {
-        return null === $this->mediaBlockFromTextlessHeading ? null : ($this->mediaBlockFromTextlessHeading)($element, $fallbacks);
+        return null === $this->mediaBlockFromTextlessElement ? null : ($this->mediaBlockFromTextlessElement)($element, $fallbacks);
     }
 }
