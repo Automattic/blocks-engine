@@ -1035,7 +1035,11 @@ final class NavigationToggleSuppressor
 
         // ARIA-toggle shape: a labelless control that opens a menu via ARIA
         // state (aria-controls/aria-expanded), regardless of its icon markup.
-        if ( $element->hasAttribute('aria-controls') || $element->hasAttribute('aria-expanded') ) {
+        // An accessible name that names another purpose ("Open search bar")
+        // outranks that shape: only an unnamed toggle, or one named a menu,
+        // is presumed to open the site navigation.
+        if ( ( $element->hasAttribute('aria-controls') || $element->hasAttribute('aria-expanded') )
+            && ( '' === trim(SourceDom::attr($element, 'aria-label') . SourceDom::attr($element, 'title')) || $this->accessibleNameNamesMenu($element) ) ) {
             return true;
         }
 
