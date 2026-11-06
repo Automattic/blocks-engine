@@ -18,6 +18,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\RevealAnimationSettler;
 
 $failures = 0;
@@ -159,6 +160,43 @@ $assert(
     'the editor static state overrides the play state and timeline it winds animations past',
     $editorStaticState
 );
+
+// Replay ownership belongs to the element, even when a paused rule is shared.
+$replayHtml = <<<'HTML'
+<div>
+  <h2 id="driven" class="entrance" data-blocks-engine-capture-viewport-entrance='{"attributes":{"data-entered":{"before":null,"after":"done"}},"threshold":[0.1],"cssAnimations":[{"name":"reveal"}]}'>Welcome</h2>
+  <p id="undriven" class="entrance">More information</p>
+  <p id="other-binding" class="entrance" data-blocks-engine-capture-viewport-entrance='{"attributes":{},"threshold":[0.1],"cssAnimations":[{"name":"other"}]}'>Another binding</p>
+  <p id="attribute-only" class="entrance" data-blocks-engine-capture-viewport-entrance='{"attributes":{"class":{"before":"entrance","after":"entrance visible"}},"threshold":[0.1]}'>Attribute entrance</p>
+</div>
+HTML;
+$replayCss = $revealFrames . '.entrance{animation:reveal 1s backwards paused}';
+foreach ( array(false, true) as $materialized ) {
+    $options = $materialized
+        ? array('skip_author_stylesheet_materialization' => true, 'author_stylesheet_assets' => array(array('path' => 'assets/css/entrance.css', 'content' => $replayCss)))
+        : array('static_css' => $replayCss);
+    $replayResult = ( new HtmlTransformer() )->transform($replayHtml, $options)->toArray();
+    $support = $collect($replayResult['assets'], static fn (array $asset): bool => 'engine-support' === ($asset['source'] ?? '') && 'after-author' === ($asset['stylesheet_placement'] ?? ''));
+    $document = new DOMDocument();
+    $document->loadHTML($replayHtml);
+    $settledIds = array();
+    ( new CssStylesheetTransformer() )->visitStyleRules($support, static function (string $selector, string $body) use ($document, &$settledIds): void {
+        if ( ! str_contains($body, 'animation:none!important') ) {
+            return;
+        }
+        foreach ( array('driven', 'undriven', 'other-binding', 'attribute-only') as $id ) {
+            $parsed = CssSelectorMatcher::parse($selector);
+            $match = CssSelectorMatcher::matches($document->getElementById($id), $parsed);
+            if ( $match['matches'] ?? false ) {
+                $settledIds[$id] = true;
+            }
+        }
+    });
+    $assert(! isset($settledIds['driven']), 'replay-owned paused entrances have no applicable settle rule');
+    $assert(isset($settledIds['undriven']), 'undriven paused entrances sharing the same rule still settle');
+    $assert(isset($settledIds['other-binding']), 'replay ownership of another animation does not exempt this paused reveal');
+    $assert(isset($settledIds['attribute-only']), 'attribute-only replay does not exempt an unbound paused reveal');
+}
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "reveal animation settling: {$failures} failed, {$passes} passed\n");
