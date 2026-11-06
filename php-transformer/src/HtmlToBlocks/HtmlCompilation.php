@@ -5726,10 +5726,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private function positionedInlineCarrierBlock(DOMElement $element, array &$fallbacks): ?array
     {
-        if ( $this->hasAuthorDirectChildSelector($element) ) {
-            return $this->positionedInlineHtmlPreservationBlock($element);
-        }
-
         if ( $this->positionedCarrierHasStructuredContent($element) ) {
             $children = $this->positionedInlineCarrierChildren($element, $fallbacks);
             return array() === $children
@@ -5748,50 +5744,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 'className' => self::SYNTHETIC_PARAGRAPH_CLASS,
             )),
         ), $element);
-    }
-
-    private function positionedInlineHtmlPreservationBlock(DOMElement $element): array
-    {
-        $preserved = $element->cloneNode(true);
-        if ( $preserved instanceof DOMElement ) {
-            $markers = $this->authorSemanticMarkersForElement($element);
-            if ( array() !== $markers ) {
-                $preserved->setAttribute('class', $this->mergeClassNames($this->attr($preserved, 'class'), ...$markers));
-            }
-            return $this->htmlPreservationBlock($preserved);
-        }
-
-        return $this->htmlPreservationBlock($element);
-    }
-
-    private function hasAuthorDirectChildSelector(DOMElement $element): bool
-    {
-        if ( '' === $this->session->authorStyleAnalysis()->combinedCss() ) {
-            return false;
-        }
-
-        $directChildren = array();
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement ) {
-                $directChildren[] = $child;
-            }
-        }
-        if ( array() === $directChildren ) {
-            return false;
-        }
-
-        foreach ( $directChildren as $child ) {
-            foreach ( $this->authorStyleRuleCandidates($child) as $selector ) {
-                $parsed = $selector['direct_child_parsed'];
-                $last = count($parsed['compounds'] ?? array()) - 1;
-                if ( $parsed['supported'] && $last >= 1 && '>' === ($parsed['combinators'][$last - 1] ?? '')
-                    && $this->session->sourceStyleResolutionState()->selectorMatchCache->matches($child, $selector['selector'], $parsed, true)['matches'] ) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
     }
 
     /**
