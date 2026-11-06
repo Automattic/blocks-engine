@@ -102,6 +102,19 @@ final class SvgMaterializer implements SvgElementMaterializer
             return $this->createBlock->createBlock('core/html', array('content' => $this->restoreSvgCasing($html)), array(), $element);
         }
 
+        // Paint addressed through a retained interaction host must stay in
+        // the page cascade, rather than being frozen in an isolated image.
+        for ( $host = $element->parentNode; $host instanceof DOMElement; $host = $host->parentNode ) {
+            if ( ! str_contains($host->tagName, '-') || 0 === $host->getElementsByTagName('*')->length ) {
+                continue;
+            }
+            foreach ( $host->getElementsByTagName('*') as $descendant ) {
+                if ( $descendant instanceof DOMElement && $descendant->hasAttribute('data-motion-part') ) {
+                    return $this->context->svgArtworkBlock($element, $this->restoreSvgCasing($html));
+                }
+            }
+        }
+
         $html = $this->materializeSanitizedSvgMarkup($html, $element);
         $imageBlock = $this->inlineSvgImageBlockFromMarkup($element, $html);
         if ( null !== $imageBlock ) {
