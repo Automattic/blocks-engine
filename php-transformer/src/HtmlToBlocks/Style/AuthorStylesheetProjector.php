@@ -1490,7 +1490,9 @@ final class AuthorStylesheetProjector
         $inner = array();
         $placementVars = $this->buttonPlacementCustomProperties($body);
         $wrapperOwned = array(
-            'position', 'top', 'right', 'bottom', 'left', 'z-index',
+            // Float participation belongs to the outer box in the source
+            // formatting context, never to the painted descendant link.
+            'float', 'clear', 'position', 'top', 'right', 'bottom', 'left', 'z-index',
             'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height',
             'grid-area', 'grid-column', 'grid-row',
             'grid-column-start', 'grid-column-end', 'grid-row-start', 'grid-row-end',

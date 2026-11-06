@@ -292,6 +292,12 @@ final class GeneratedBlockStyleProjector
             // justification — which needs a wrapper that fills its parent to
             // have room to act, mirroring the full-width block the source
             // centered the control inside of.
+            } elseif ( ! $hasAuthoredWidth && ! in_array(CssValueInspector::comparable((string) ($sourceDeclarations['float'] ?? '')), array( '', 'none' ), true) ) {
+                // The outer carrier participates in the source float context.
+                // Size that float to the decorated link rather than the space
+                // left alongside earlier floats (possibly a zero-width slot).
+                $outerWrapperDeclarations[] = 'width:max-content';
+                $outerWrapperDeclarations[] = 'max-width:100%';
             } elseif ( ! $hasAuthoredWidth && $this->sourceControlFillsFlowLine($sourceControl, $sourceDeclarations) ) {
                 // A block-level control in normal flow spans its container's
                 // line. core/buttons is a flex row, which would shrink it to its
