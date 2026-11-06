@@ -1185,7 +1185,8 @@ final class ArtifactCompiler
         $pageProducts = array();
         $detailPages = array();
         $entryRoot = dirname($entryPath);
-        $schemaProducts = SchemaProductEvidence::rows($files, $slug, $price, $diagnostics, $productRoutes, $pageProducts, $detailPages, '.' === $entryRoot ? '' : $entryRoot);
+        $pageEvidence = array();
+        $schemaProducts = SchemaProductEvidence::rows($files, $slug, $price, $diagnostics, $productRoutes, $pageProducts, $detailPages, '.' === $entryRoot ? '' : $entryRoot, $pageEvidence);
         // Match the plan's page route, including explicit routes and entry roots.
         $pageRoutes = array();
         foreach ($files as $file) {
@@ -1472,6 +1473,9 @@ final class ArtifactCompiler
                         $diagnostics[] = $this->rejectedFormGraphDiagnostic($fallback, $sourcePath, $selector, 'presentation_graph', $error->getMessage());
                     }
                 }
+            }
+            if (isset($detailPages[$sourcePath]) && $detailPages[$sourcePath] === ($pageRoutes[$sourcePath] ?? null)) {
+                ProductDetailPageEvidence::fill($schemaProducts[$productSlug], $pageEvidence[$sourcePath] ?? array(), $fallback, $files, $fallbacks, $diagnostics);
             }
             // A purchase form belongs to shop, not a competing form provider.
             unset($forms[$sourcePath . "\n" . $selector]);

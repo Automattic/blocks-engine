@@ -56,7 +56,7 @@ final class SchemaProductEvidence
      * @param string $entryRoot Directory of the entrypoint; page routes are relative to it.
      * @return array<string,array<string,mixed>> Product rows keyed by slug.
      */
-    public static function rows(array $files, callable $slug, callable $price, array &$diagnostics = array(), array &$routes = array(), array &$pageProducts = array(), array &$detailPages = array(), string $entryRoot = ''): array
+    public static function rows(array $files, callable $slug, callable $price, array &$diagnostics = array(), array &$routes = array(), array &$pageProducts = array(), array &$detailPages = array(), string $entryRoot = '', array &$pageEvidence = array()): array
     {
         $entryRoot = trim($entryRoot, '/');
         $documents = array();
@@ -116,6 +116,7 @@ final class SchemaProductEvidence
                     }
                     if (null === $row) continue;
                     [$productSlug, $fields] = $row;
+                    $pageEvidence[$path] = $product;
                     $tokens = array('slug:' . $productSlug);
                     $identity = '';
                     foreach (array('productGroupID', 'sku', '@id') as $key) {
