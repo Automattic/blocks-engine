@@ -77,6 +77,11 @@ final class NavigationPatternContext
                 $marker, ':where(.' . $marker . '){display:block}'
             );
         }
+        // Core KSES filters label style attributes at render time. Use the
+        // same generated geometry owner as block boxes so inline offsets (in
+        // particular inset and its logical forms) survive that filtering.
+        $geometry = $this->styleResolver?->inlineGeometryClassName($element) ?? '';
+        if ('' !== $geometry) $markers[] = $geometry;
         return $markers;
     }
 
