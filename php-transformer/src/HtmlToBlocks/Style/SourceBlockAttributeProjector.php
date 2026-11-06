@@ -517,6 +517,17 @@ final class SourceBlockAttributeProjector
                     // link instead and opt out of the layout-neutral axis resets.
                     if ( $sourceElement !== $logicalControl && $participation instanceof LayoutParticipation && $participation->neutralizeButtonWrapper() ) {
                         $surface = $this->styleResolver->cssDeclarations($this->styleResolver->mergedPresentationStyle($sourceElement));
+                        // Offsets on a display:contents carrier have no effect.
+                        // Use the absorbed wrapper, not its 100%-sized inner paint
+                        // surface, as the positioning authority (even when unsized).
+                        $position = CssValueInspector::comparable((string) ($surface['position'] ?? ''));
+                        if ( in_array($position, array( 'absolute', 'fixed', 'relative', 'sticky' ), true) ) {
+                            $positioning = array('position:' . $position);
+                            foreach ( array( 'top', 'right', 'bottom', 'left', 'inset', 'inset-block', 'inset-inline', 'inset-block-start', 'inset-block-end', 'inset-inline-start', 'inset-inline-end', 'z-index' ) as $property ) {
+                                if ( isset($surface[$property]) ) $positioning[] = $property . ':' . $surface[$property];
+                            }
+                            $context->generatedStyles->appendNativeButton($controlMarker, '.' . $controlMarker . '.' . $controlMarker . '>.wp-block-button__link{' . implode(';', $positioning) . '}');
+                        }
                         $dimensions = array();
                         foreach ( array( 'width', 'height' ) as $axis ) {
                             $value = trim((string) ($surface[$axis] ?? ''));
