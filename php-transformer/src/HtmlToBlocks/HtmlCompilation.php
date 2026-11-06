@@ -2727,6 +2727,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $authorCssParts[] = $split['stylesheet'];
             }
         }
+        $projectedAuthorCss = array() === $authorStylesheetProjections ? $authorCss : implode("\n", array_column($authorStylesheetProjections, 'content'));
+        $layerBridge = (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ProjectedAuthorLayer())->rule($projectedAuthorCss);
+        $afterAuthorCss->add($layerBridge->layer, $layerBridge->css);
         $afterAuthorCss->add(CascadeLayer::SOURCE_BOX_MODEL_RESTATEMENT, $contentBoxSupportCss);
         $geometryCss = $this->styleResolver->generatedGeometryCss($serializedBlocks);
         if ( '' !== $geometryCss ) {
