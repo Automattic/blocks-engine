@@ -17,22 +17,23 @@ if (!function_exists('is_front_page')) {
     function is_front_page(): bool { return $GLOBALS['wordmarkFrontPage']; }
 }
 $routes = array('index' => 'Home', 'about' => 'About', 'visit' => 'Visit');
+foreach (array(false, true) as $homeHeading) {
 foreach (array('', ';color:#333;text-decoration:none') as $titlePresentation) {
 foreach (array('site-title', 'brand-x') as $titleClass) {
 foreach (array(true, false) as $homeLinked) {
 foreach (array(true, false) as $paragraph) {
-$cell = "$titleClass$titlePresentation / home linked=" . (int) $homeLinked . " / paragraph=" . (int) $paragraph;
+$cell = 'home heading=' . (int) $homeHeading . " / $titleClass$titlePresentation / home linked=" . (int) $homeLinked . " / paragraph=" . (int) $paragraph;
 $files = array();
 foreach ($routes as $current => $title) {
     $wordmark = 'Garden Studio';
-    if ('index' !== $current || $homeLinked) $wordmark = '<a' . (!$paragraph && 'index' !== $current ? ' class="' . $titleClass . '"' : '') . ' href="index.html">' . $wordmark . '</a>';
-    if ('index' === $current) $wordmark = '<h1 class="' . $titleClass . '">' . $wordmark . '</h1>';
-    elseif ($paragraph) $wordmark = '<p class="' . $titleClass . '">' . $wordmark . '</p>';
+    if (!$homeHeading || 'index' !== $current || $homeLinked) $wordmark = '<a' . (!$homeHeading || (!$paragraph && 'index' !== $current) ? ' class="' . $titleClass . '"' : '') . ' href="index.html">' . $wordmark . '</a>';
+    if ($homeHeading && 'index' === $current) $wordmark = '<h1 class="' . $titleClass . '">' . $wordmark . '</h1>';
+    elseif ($homeHeading && $paragraph) $wordmark = '<p class="' . $titleClass . '">' . $wordmark . '</p>';
     $links = '';
     foreach ($routes as $slug => $label) {
         $links .= '<li><a class="menu-link' . ($slug === $current ? ' is-active-menu-item' : '') . '" href="' . $slug . '.html">' . $label . '</a></li>';
     }
-    $files[$current . '.html'] = '<!doctype html><html><head><title>' . $title . '</title><style>.' . $titleClass . '{font-size:24px;font-family:Georgia;font-weight:700;margin:0' . $titlePresentation . '}.menu-link{color:#123456}.is-active-menu-item{color:#abcdef;text-decoration:underline}</style></head><body><header><div class="logo">' . $wordmark . '</div><nav><ul>' . $links . '</ul></nav></header><main><h2>' . $title . '</h2><p>Content for ' . $title . '</p></main></body></html>';
+    $files[$current . '.html'] = '<!doctype html><html><head><title>' . $title . '</title><style>.' . $titleClass . '{font-size:24px;font-family:Georgia;font-weight:700;margin:0' . $titlePresentation . '}.menu-link{color:#123456}.is-active-menu-item{color:#abcdef;text-decoration:underline}</style></head><body><header><div class="logo">' . $wordmark . '</div><nav><ul>' . $links . '</ul></nav></header><main><' . ($homeHeading ? 'h2' : 'h1') . '>' . $title . '</' . ($homeHeading ? 'h2' : 'h1') . '><p>Content for ' . $title . '</p></main></body></html>';
 }
 $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toWordPressSitePlanView()['wordpress_site_plan'];
 $headers = array_values(array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === $part['area']));
@@ -70,18 +71,27 @@ foreach ($plan['pages'] as $page) {
     }
     $block = array('blockName' => 'core/site-title', 'attrs' => $titleAttrs);
     $resolved = $resolveTitle($block);
-    $assert(($page['entrypoint'] ? 1 : 0) === $resolved['attrs']['level'], $cell . ': Only the entrypoint renders a heading.');
+    $heading = $homeHeading && $page['entrypoint'];
+    $assert(($heading ? 1 : 0) === $resolved['attrs']['level'], $cell . ': Only a source heading on the entrypoint renders a heading.');
+    $titleHtml = $heading ? '<h1>Garden Studio</h1>' : '<p>Garden Studio</p>';
     $assert(true === $resolved['attrs']['isLink'], $cell . ': Inner routes use Core site-title\'s live home link.');
     if (function_exists('render_block_core_site_title')) {
         $html = render_block_core_site_title($resolved['attrs']);
-        $assert(str_starts_with($html, $page['entrypoint'] ? '<h1 ' : '<p '), 'Core renders the route-dependent title tag.');
+        $titleHtml = $html;
+        $assert(str_starts_with($html, $heading ? '<h1 ' : '<p '), 'Core renders the route-dependent title tag.');
         $assert(str_contains($html, '<a href="' . esc_url(home_url()) . '"'), 'Core links the title to home on inner routes.');
+    }
+    if (!$homeHeading) {
+        $rendered = $titleHtml . $page['canonical_block_markup'];
+        $assert(1 === preg_match_all('/<h1\\b/i', $rendered), $cell . ': Link-only branding leaves exactly the page heading as h1.');
+        $assert(str_starts_with($titleHtml, '<p'), $cell . ': Link-only branding renders as p on every route.');
     }
     $ordinary = array('blockName' => 'core/site-title', 'attrs' => array('level' => 3));
     $assert($ordinary === $resolveTitle($ordinary), 'Unmarked site titles retain authored levels.');
     $assert(!str_contains($page['canonical_block_markup'], '<header') && !str_contains($page['canonical_block_markup'], 'Garden Studio'), $cell . ': Page content does not repeat header markup.');
     $template = array_column($plan['templates'], 'canonical_block_markup', 'slug')[$page['route_template'] ?? ($page['entrypoint'] ? 'front-page' : 'page')] ?? '';
     $assert(str_contains($template . $page['canonical_block_markup'], 'wp:template-part {"slug":"' . $headers[0]['slug'] . '"'), $cell . ': Every route references the shared header.');
+}
 }
 }
 }
