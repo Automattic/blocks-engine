@@ -815,7 +815,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         if ( 1 === preg_match('/^#([0-9a-f]{6})$/', $value, $hex) ) {
             return '#' . $hex[1];
         }
-        if ( 1 === preg_match('/^rgba?\(\s*(\d{1,3})(?:\s*,\s*|\s+)(\d{1,3})(?:\s*,\s*|\s+)(\d{1,3})/', $value, $rgb) ) {
+        if ( 1 === preg_match('/^rgba?\(\s*(\d{1,3})(?:\s*,\s*|\s+)(\d{1,3})(?:\s*,\s*|\s+)(\d{1,3})(?:\s*[,\/]\s*(\d*\.?\d+)(%?))?/', $value, $rgb) ) {
             $channels = array( (int) $rgb[1], (int) $rgb[2], (int) $rgb[3] );
             foreach ( $channels as $channel ) {
                 if ( $channel < 0 || $channel > 255 ) {
@@ -823,9 +823,14 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                 }
             }
 
-            // Keep authored alpha: flattening rgba to hex changes muted glyphs.
-            if (str_starts_with($value, 'rgba(')) return $value;
-            return sprintf('#%02x%02x%02x', $channels[0], $channels[1], $channels[2]);
+            $hex = sprintf('#%02x%02x%02x', $channels[0], $channels[1], $channels[2]);
+            // Keep authored alpha as #rrggbbaa: core renders the icon color
+            // through safecss_filter_attr(), which rejects rgba() but keeps hex.
+            if ( isset($rgb[4]) && '' !== $rgb[4] ) {
+                $alpha = max(0.0, min(1.0, (float) $rgb[4] / ('%' === ($rgb[5] ?? '') ? 100 : 1)));
+                if ( $alpha < 1.0 ) $hex .= sprintf('%02x', (int) round($alpha * 255));
+            }
+            return $hex;
         }
 
         return '';

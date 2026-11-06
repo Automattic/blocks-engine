@@ -33,8 +33,8 @@ if (1 !== count($clusters) || 2 !== count($clusters[0]['innerBlocks'])) {
     throw new RuntimeException('Wrapped source glyphs must form one two-link social cluster.');
 }
 $attrs = $clusters[0]['attrs'];
-if ('rgba(102,102,102,0.5)' !== ($attrs['customIconColor'] ?? null)
-    || 'rgba(102,102,102,0.5)' !== ($attrs['iconColorValue'] ?? null)
+if ('#66666680' !== ($attrs['customIconColor'] ?? null)
+    || '#66666680' !== ($attrs['iconColorValue'] ?? null)
     || !str_contains($attrs['className'] ?? '', 'is-style-logos-only')
     || 'small' !== ($attrs['size'] ?? null)
     || !str_contains($wrapped['serialized_blocks'], 'font-size:18px')
