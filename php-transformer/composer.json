@@ -825,6 +825,7 @@
       "php tests/unit/editor-generic-inner-blocks-layer.php",
       "php tests/unit/engine-support-css.php",
       "php tests/unit/engine-support-css-asset.php",
+      "php tests/unit/absent-support-subjects.php",
       "php tests/unit/stylesheet-asset-stage.php",
       "php tests/unit/core-selector-scoping-degrade.php",
       "php tests/unit/engine-support-css-specificity.php",

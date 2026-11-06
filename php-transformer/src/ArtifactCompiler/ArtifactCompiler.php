@@ -556,6 +556,7 @@ final class ArtifactCompiler
         // engine support on its intended side of the authored stylesheets.
         $assets = array_merge($beforeAuthorAssets, $manifestAssets, $otherGeneratedAssets, $afterAuthorAssets);
         $assets = array_merge($assets, $wordpressCompatAssets);
+        $assets = $this->pruneAbsentSupportSubjects($assets, $authoredFiles, implode("\n", $pageMarkup) . "\n" . $sharedMarkup);
         $assets = $this->deduplicateVisualAssets($assets);
         $assets = $this->coalesceStylesheetAssets($assets);
         $diagnostics = array_merge($diagnostics, $allDiagnostics, $runtimeDeclarationDiagnostics, $this->omittedPageDiagnostics($omittedPages));
@@ -2168,9 +2169,43 @@ final class ArtifactCompiler
         }, $html) ?? $html;
     }
 
-    /**
-     * @param array<string, mixed> $asset
-     */
+    /** Drop impossible engine replay/capture rules before bundling and plan enqueue projection. */
+    private function pruneAbsentSupportSubjects(array $assets, array $files, string $markup): array
+    {
+        $captureHashes = array();
+        foreach ($files as $file) {
+            if ('html' !== ($file['kind'] ?? '') || !is_string($file['content'] ?? null)) continue;
+            // Document root attributes survive on the served WordPress shell,
+            // outside serialized post and template-part markup.
+            foreach (array('html', 'body') as $tag) {
+                if (preg_match('/<' . $tag . '\\b[^>]*>/i', $file['content'], $root)) $markup .= preg_replace('/^<' . $tag . '\\b/i', '<div', $root[0]) . '</div>';
+            }
+            foreach (StyleTagScanner::scan($file['content']) as $style) {
+                if (StyleTagScanner::isCaptureOnly($style['attributes'])) $captureHashes[hash('sha256', trim($style['content']))] = true;
+            }
+        }
+        $subjects = new SupportCssSubjects($markup);
+        $result = array();
+        foreach ($assets as $asset) {
+            if ('css' === ($asset['kind'] ?? '') && is_string($asset['content'] ?? null)
+                && (in_array($asset['source'] ?? '', array('wordpress-compat'), true)
+                    || isset($captureHashes[$asset['source_hash'] ?? '']) || isset($captureHashes[hash('sha256', trim($asset['content']))]))) {
+                $content = $subjects->stylesheet($asset['content']);
+                if ('' === trim($content)) continue;
+                if ($content !== $asset['content']) {
+                    $hash = hash('sha256', $content);
+                    $asset['content'] = $content;
+                    $asset['bytes'] = strlen($content);
+                    $asset['hash'] = $hash;
+                    $asset['path'] = $asset['target_path'] = 'assets/css/' . ($asset['source'] ?? 'support') . '-' . substr(hash('sha256', json_encode($asset['compilation'] ?? array()) . "\0" . $content), 0, 16) . '.css';
+                }
+            }
+            $result[] = $asset;
+        }
+        return $result;
+    }
+
+    /** @param array<string, mixed> $asset */
     private function isMaterializedScriptAsset(array $asset): bool
     {
         return in_array($asset['kind'] ?? '', array('js', 'mjs'), true)
