@@ -6375,11 +6375,7 @@ final class StyleResolver implements ElementPresentationResolver
     /** A source-only keyboard shortcut, with no painted content at rest. */
     public function isFocusRevealedSkipLink(DOMElement $element, string $sourcePath = ''): bool
     {
-        if ( ! SourceDom::isMainSkipLink($element, $sourcePath) ) return false;
-        $rest = array_map(static fn (array $values): string => (string) end($values), $this->authorDeclaredValuesAtAnyViewport(
-            $element, array('position', 'left', 'right', 'top', 'bottom', 'display', 'visibility', 'opacity', 'clip', 'clip-path')
-        ));
-        if ( ! self::skipLinkHidden($rest) ) return false;
+        if ( ! SourceDom::isMainSkipLink($element, $sourcePath) || ! $this->isVisuallyHiddenAtRest($element) ) return false;
         $authorStyles = $this->session->authorStyleAnalysis();
         $cache = $authorStyles->selectorMatchCache();
         $focused = array();
@@ -6397,11 +6393,19 @@ final class StyleResolver implements ElementPresentationResolver
             $focused = $this->mergeCssDeclarationMaps($focused, $rule['declarations'] ?? array());
         }
         $focused = $this->mergeCssDeclarationMaps($focused, $this->cssDeclarations(SourceDom::attr($element, 'style')));
-        return $hasFocusRule && ! self::skipLinkHidden($focused);
+        return $hasFocusRule && ! self::visuallyHidden($focused);
+    }
+
+    /** Whether the source paints nothing for this element at rest: not displayed, transparent, off-screen, or clipped away. */
+    public function isVisuallyHiddenAtRest(DOMElement $element): bool
+    {
+        return self::visuallyHidden(array_map(static fn (array $values): string => (string) end($values), $this->authorDeclaredValuesAtAnyViewport(
+            $element, array('position', 'left', 'right', 'top', 'bottom', 'display', 'visibility', 'opacity', 'clip', 'clip-path')
+        )));
     }
 
     /** @param array<string, string> $declarations */
-    private static function skipLinkHidden(array $declarations): bool
+    private static function visuallyHidden(array $declarations): bool
     {
         $value = static fn (string $property): string => CssValueInspector::comparable($declarations[$property] ?? '');
         if ( 'none' === $value('display') || in_array($value('visibility'), array('hidden', 'collapse'), true) || '0' === $value('opacity') ) return true;
