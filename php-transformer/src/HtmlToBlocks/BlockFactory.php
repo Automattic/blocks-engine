@@ -545,6 +545,11 @@ final class BlockFactory
             );
         }
 
+        $position = (string) ($attrs['contentPosition'] ?? '');
+        if ( '' !== $position && 'center center' !== $position ) {
+            $wrapperAttrs['className'] = trim('has-custom-content-position is-position-' . str_replace(' ', '-', $position) . ' ' . (string) ($wrapperAttrs['className'] ?? ''));
+        }
+
         $imageHtml = '';
         $url = (string) ($attrs['url'] ?? '');
         if ( '' !== $url ) {
