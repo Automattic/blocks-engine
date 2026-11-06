@@ -3503,9 +3503,11 @@ final class NavigationPattern implements PatternRecognizerInterface
         $anchorAttrs = $this->withoutCoreNavigationClasses($presentationAttributes($anchor));
         if ($isCurrentNavigationItem) $navigationContext?->recordCurrentNavigationItem($item, $anchor);
         // Submenu toggles (buttons, or links declared as buttons) have their
-        // own rendered content subject, just like ordinary links. Leave the
-        // existing linked-submenu path unchanged.
-        $subjectMarker = $item->isSameNode($anchor) || (null !== $submenuContainer && ! $this->isSubmenuToggleControl($anchor)) ? '' : ($navigationContext?->navigationAnchorSubjectMarker($anchor, $item) ?? '');
+        // own rendered content subject, just like ordinary links. A linked
+        // submenu does too once its link sits inside wrapper boxes, so it keeps
+        // the boxes its sibling links keep; a link placed directly in its item
+        // stays on the plain linked-submenu path.
+        $subjectMarker = $item->isSameNode($anchor) || (null !== $submenuContainer && ! $this->isSubmenuToggleControl($anchor) && $anchor->parentNode?->isSameNode($item)) ? '' : ($navigationContext?->navigationAnchorSubjectMarker($anchor, $item) ?? '');
         if ('' !== $subjectMarker) {
             $anchorClassName = (string) ($anchorAttrs['className'] ?? $anchor->getAttribute('class'));
             // The subject renders on every route; the served route's own hooks do not.
