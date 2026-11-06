@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
@@ -68,10 +69,7 @@ final class InertScaffoldingSuppressor implements ElementConverter
             return ConversionOutcome::handled(null);
         }
 
-        if ( in_array($tagName, array( 'div', 'span' ), true)
-            && 'true' === strtolower(trim(SourceDom::attr($element, 'aria-hidden')))
-            && 'none' === CssValueInspector::comparable((string) ($this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'))['display'] ?? '')) ) {
-            $element->parentNode?->removeChild($element);
+        if ( self::isMeasurementCopy($element, $this->styleResolver->isDisplayNoneAtEveryViewport(...)) ) {
             return ConversionOutcome::handled(null);
         }
 
@@ -92,6 +90,33 @@ final class InertScaffoldingSuppressor implements ElementConverter
         }
 
         return ConversionOutcome::unhandled();
+    }
+
+    /**
+     * Inaccessible copies hidden at every viewport have no label or block content.
+     * Without cascade context, fall back to the inline declaration only.
+     *
+     * @param ?callable(DOMElement): bool $isDisplayNoneAtEveryViewport
+     */
+    public static function isMeasurementCopy(DOMElement $element, ?callable $isDisplayNoneAtEveryViewport = null): bool
+    {
+        if ( ! in_array(strtolower($element->tagName), array( 'div', 'span' ), true)
+            || 'true' !== strtolower(trim(SourceDom::attr($element, 'aria-hidden'))) ) {
+            return false;
+        }
+
+        if ( null !== $isDisplayNoneAtEveryViewport ) {
+            return $isDisplayNoneAtEveryViewport($element);
+        }
+
+        $display = '';
+        foreach ( CssRuleAnalyzer::declarations(SourceDom::attr($element, 'style'), array( 'display' )) as $declaration ) {
+            if ( ! CssValueInspector::isImportant($display) || CssValueInspector::isImportant($declaration['value']) ) {
+                $display = $declaration['value'];
+            }
+        }
+
+        return 'none' === CssValueInspector::comparable($display);
     }
 
     /**
