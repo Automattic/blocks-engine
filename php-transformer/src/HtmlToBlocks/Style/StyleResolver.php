@@ -3818,9 +3818,12 @@ final class StyleResolver implements ElementPresentationResolver
             );
         }
         $customProperties = array();
-        foreach (array_keys($properties) as $name) {
-            if (isset($available[$name])) {
-                $customProperties[$name] = $available[$name];
+        // Inline-only variables are just as authored as stylesheet variables.
+        // Controls commonly consume these through var() without any stylesheet
+        // declaration of the property itself.
+        foreach ($available as $name => $value) {
+            if ('' !== $value && !preg_match('/[;{}<>]/', $value)) {
+                $customProperties[$name] = $value;
             }
         }
         ksort($customProperties, SORT_STRING);

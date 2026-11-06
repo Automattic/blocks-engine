@@ -501,6 +501,12 @@ JS;
         // would leave every hidden slide stacked in the flow below the active one.
         $style .= ':root .blocks-engine-authored-carousel__track>.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . '{display:block}';
         $style .= '.blocks-engine-authored-carousel__source-stage{width:100%;min-width:0}.blocks-engine-authored-carousel--slideshow{margin-block-start:0;margin-block-end:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{min-height:var(--blocks-engine-carousel-stage-min-height,0)}.blocks-engine-authored-carousel__track>.wp-block-group{min-height:var(--blocks-engine-carousel-stage-min-height,auto);margin-block-start:0;margin-block-end:0}';
+        // Overlay controls do not occupy the outer grid's auto tracks. If
+        // source CSS restores display:grid, the stage must occupy its content
+        // column rather than auto-placing into an empty control track.
+        // Thumbnail layouts below instead own their stage/pager tracks.
+        $style .= '.blocks-engine-authored-carousel--slideshow:not(.blocks-engine-authored-carousel--thumbnails)>.blocks-engine-authored-carousel__source-stage{grid-column:2}'
+            . '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--source-control-topology>.blocks-engine-authored-carousel__controls{display:block!important}';
         $style .= '.blocks-engine-authored-carousel--source-control-artwork .blocks-engine-authored-carousel__previous::before,.blocks-engine-authored-carousel--source-control-artwork .blocks-engine-authored-carousel__next::before{content:none}';
         $style .= '.blocks-engine-authored-carousel--multiple .blocks-engine-authored-carousel__track{display:flex!important}.blocks-engine-authored-carousel--multiple .blocks-engine-authored-carousel__track>*{display:none!important}.blocks-engine-authored-carousel--multiple .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{display:block!important;position:relative!important;flex:0 0 calc(100% / var(--blocks-engine-carousel-visible));width:calc(100% / var(--blocks-engine-carousel-visible))}';
         $style .= '[data-carousel-arrows="false"]>.blocks-engine-authored-carousel__controls{display:none!important}';
