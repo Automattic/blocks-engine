@@ -123,6 +123,18 @@ $assert(
     $blockMarkup
 );
 
+$inlineFlexPair = ( new HtmlTransformer() )->transform(
+    '<style>.btn{display:inline-flex;padding:14px 24px;background:#ddd}</style>'
+    . '<div><h2>Get started.</h2><a href="/signup" class="btn">Sign up</a><a href="/demo" class="btn">Book a demo</a></div>'
+)->toArray();
+$inlineFlexPairMarkup = (string) ( $inlineFlexPair['serialized_blocks'] ?? '' );
+$assert(
+    2 === preg_match_all('/class="wp-block-buttons[^"]*\b' . preg_quote($neutralButtons, '/') . '\b/', $inlineFlexPairMarkup)
+        && 2 === preg_match_all('/class="wp-block-button [^"]*\b' . preg_quote($neutralButton, '/') . '-display-inline-flex\b/', $inlineFlexPairMarkup),
+    '11: adjacent authored inline-flex anchors in block flow share a line instead of each getting a block-level buttons box',
+    $inlineFlexPairMarkup
+);
+
 if ( $failures ) {
     fwrite(STDERR, $failures . " layout-participation test(s) failed\n");
     exit(1);

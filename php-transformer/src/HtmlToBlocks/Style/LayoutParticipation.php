@@ -32,6 +32,10 @@ final class LayoutParticipation
         'strong', 'sub', 'sup', 'time', 'u', 'var',
     );
 
+    private const AUTHORED_INLINE_LEVEL = array(
+        'inline-block', 'inline-flex', 'inline-grid', 'inline-table',
+    );
+
     private const UA_INLINE_BLOCK = array(
         'button', 'input', 'select', 'textarea', 'img',
     );
@@ -61,6 +65,7 @@ final class LayoutParticipation
             }
         }
         $sourceDisplay = self::resolvedDisplay($element, $styleResolver);
+        $authoredDisplay = $sourceDisplay;
         if ( '' === $sourceDisplay ) {
             $tag = strtolower($element->tagName);
             $sourceDisplay = in_array($tag, self::PHRASING_UA_INLINE, true)
@@ -81,7 +86,10 @@ final class LayoutParticipation
             $context = self::FLEX_ITEM;
         } elseif ( array_intersect($parentDisplays, array( 'grid', 'inline-grid' )) ) {
             $context = self::GRID_ITEM;
-        } elseif ( 'inline' === $sourceDisplay ) {
+        } elseif ( 'inline' === $sourceDisplay || ( $authoredDisplay === $sourceDisplay && in_array($sourceDisplay, self::AUTHORED_INLINE_LEVEL, true) ) ) {
+            // An authored inline-level box shares line boxes with its
+            // siblings in block flow; a block-level wrapper would put each
+            // control on its own line.
             $context = self::INLINE;
         } else {
             $context = self::BLOCK;
