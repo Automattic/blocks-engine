@@ -20,6 +20,27 @@ body{margin:0}.slideshow.carousel{display:grid;grid-template-columns:auto minmax
 </style></head><body><main><div class="slideshow carousel" style="--nav-button-prev-self-justify:start;--nav-button-next-self-justify:end;--nav-button-next-circle-scaleX-transform:-1">
 <div class="controls"><button class="arrow previous" aria-label="Previous slide"><svg viewBox="0 0 20 20"><path d="M15 0L5 10L15 20"/></svg></button><button class="arrow next" aria-label="Next slide"><svg viewBox="0 0 20 20"><path d="M15 0L5 10L15 20"/></svg></button></div>
 <div class="viewport"><div class="track-slider"><div class="carousel__slide"><p>It was a pleasure to work together.</p></div><div class="carousel__slide"><p>Second quote.</p></div><div class="carousel__slide"><p>Third quote.</p></div></div></div></div></main></body></html>';
+// Model the captured stylesheet's element-hook alternative plus an inactive
+// route-state alternative. Neither source rule may depend on the route matching.
+$scopedSource = str_replace(
+    array(
+        '.arrow{width:32px;height:32px}',
+        '<div class="controls"><button class="arrow previous"',
+        '<button class="arrow next"',
+    ),
+    array(
+        '.arrow{width:32px;height:32px}
+:where(.blocks-engine-attribute-4fdd40aaa7a0-0).arrow.previous,:root.be-rs-576cd3f50d45787b .arrow.previous{position:absolute;left:var(--nav-button-offset);justify-self:start;transform:none}
+:where(.blocks-engine-attribute-bf14915ba78c-0).arrow.next,:root.be-rs-576cd3f50d45787b .arrow.next{position:absolute;right:var(--nav-button-offset);justify-self:end;transform:scaleX(var(--nav-button-next-scaleX-transform))}
+.slideshow.carousel{--nav-button-offset:100px;--nav-button-next-scaleX-transform:-1}',
+        '<div class="controls"><button class="arrow previous blocks-engine-attribute-4fdd40aaa7a0-0"',
+        '<button class="arrow next blocks-engine-attribute-bf14915ba78c-0"',
+    ),
+    $source
+);
+$scopedArtwork = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $scopedSource)))->toArray();
+$scopedCss = implode("\n", array_column($scopedArtwork['assets'], 'content'));
+$assert(str_contains($scopedCss, ':where(.blocks-engine-attribute-'), 'Compiled control rules retain their element-scoped style hooks.');
 $artwork = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $source)))->toArray();
 
 $assert(str_contains($artwork['serialized_blocks'], '"slideCount":3'), 'Artwork slideshow retains three slides.');
@@ -29,7 +50,6 @@ $assert(str_contains($artwork['serialized_blocks'], '"presentation":"slideshow"'
 $assert(str_contains($artwork['serialized_blocks'], 'blocks-engine-authored-carousel--items-1'), 'Slideshow shows one of its three slides.');
 $definition = (new Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredCarouselBlockGenerator())->definition('custom');
 $assert(str_contains($definition['view_js'], 'context.count = slidesOf( ref ).length'), 'Runtime counts the rendered slides.');
-$css = $definition['assets']['style.css'] . "\n" . implode("\n", array_column($artwork['assets'], 'content'));
 
 // Exercise real layout without a WordPress or JS-package dependency. The DOM
 // check runs after layout in headless Chrome, against actual projected CSS and
@@ -39,8 +59,9 @@ $assert(is_executable($chrome), 'Chrome is required for the slideshow layout con
 $directory = '/tmp/artwork-slideshow-' . bin2hex(random_bytes(6));
 mkdir($directory);
 try {
-    foreach (array(1440, 390) as $width) {
-        $document = '<!doctype html><html><head><style>' . $css . ' body{width:' . $width . 'px}</style></head><body>' . $artwork['serialized_blocks'] . '<script>
+    foreach (array(array($artwork, 1440, 0), array($artwork, 390, 0), array($scopedArtwork, 1440, 100), array($scopedArtwork, 390, 100)) as [$artifact, $width, $offset]) {
+        $css = $definition['assets']['style.css'] . "\n" . implode("\n", array_column($artifact['assets'], 'content'));
+        $document = '<!doctype html><html><head><style>' . $css . ' body{width:' . $width . 'px}</style></head><body>' . $artifact['serialized_blocks'] . '<script>
 const root = document.querySelector(".blocks-engine-authored-carousel");
 const stage = root.querySelector(".blocks-engine-authored-carousel__source-stage");
 const track = root.querySelector(".blocks-engine-authored-carousel__track");
@@ -56,6 +77,8 @@ const result = {
     track: box(track).width,
     visibility: getComputedStyle(slide).visibility, opacity: getComputedStyle(slide).opacity,
     nextTransform: getComputedStyle(next.querySelector("svg")).transform,
+    buttonTransform: getComputedStyle(next).transform,
+    previousJustify: getComputedStyle(prev).justifySelf, nextJustify: getComputedStyle(next).justifySelf,
     grid: getComputedStyle(next.parentElement).display,
     left: box(prev).left - box(root).left, right: box(root).right - box(next).right
 };
@@ -75,7 +98,11 @@ document.body.innerHTML = "<pre id=measurement>" + JSON.stringify(result) + "</p
         $assert($measure['stage'] > 0 && abs($measure['root'] - $measure['stage']) < 1 && abs($measure['stage'] - $measure['slide']) < 1 && $measure['text'] > 0, $width . ': active slide and quote have stage width, not zero width.');
         $assert('visible' === $measure['visibility'] && '1' === $measure['opacity'], $width . ': active quote is visible.');
         $assert('matrix(-1, 0, 0, 1, 0, 0)' === $measure['nextTransform'], $width . ': next artwork retains its source mirror.');
-        $assert('grid' === $measure['grid'] && abs($measure['left']) < 1 && abs($measure['right']) < 1, $width . ': controls retain the source grid and opposite edges.');
+        if (100 === $offset) {
+            $assert('matrix(-1, 0, 0, 1, 0, 0)' === $measure['buttonTransform'], $width . ': scoped next control retains its source mirror: ' . json_encode($measure));
+            $assert('start' === $measure['previousJustify'] && 'end' === $measure['nextJustify'], $width . ': scoped controls retain source justification.');
+        }
+        $assert('grid' === $measure['grid'] && abs($measure['left'] - $offset) < 1 && abs($measure['right'] - $offset) < 1, $width . ': controls retain the source grid and offset: ' . json_encode($measure));
     }
 } finally {
     exec('rm -rf ' . escapeshellarg($directory));

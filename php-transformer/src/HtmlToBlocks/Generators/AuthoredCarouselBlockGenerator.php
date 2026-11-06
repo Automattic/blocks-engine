@@ -1309,8 +1309,8 @@ JS;
             'sourceControlAttributes' => $sourceScope['controlAttributes'],
             'sourceIdentityAttributes' => $sourceScope['attributes'],
             'sourceCustomProperties' => $sourceScope['customProperties'],
-            'previousControlClasses' => $sourceControls['previous'] instanceof DOMElement ? $styleResolver->presentationClassName(SourceDom::attr($sourceControls['previous'], 'class')) : '',
-            'nextControlClasses' => $sourceControls['next'] instanceof DOMElement ? $styleResolver->presentationClassName(SourceDom::attr($sourceControls['next'], 'class')) : '',
+            'previousControlClasses' => $sourceControls['previous'] instanceof DOMElement ? implode(' ', $this->sourceClassTokens(SourceDom::attr($sourceControls['previous'], 'class'), $sourceControls['previous'], $styleResolver)) : '',
+            'nextControlClasses' => $sourceControls['next'] instanceof DOMElement ? implode(' ', $this->sourceClassTokens(SourceDom::attr($sourceControls['next'], 'class'), $sourceControls['next'], $styleResolver)) : '',
             'previousControlVisual' => $sourceControls['previous'] instanceof DOMElement ? $this->sourceControlVisual($sourceControls['previous']) : '',
             'nextControlVisual' => $sourceControls['next'] instanceof DOMElement ? $this->sourceControlVisual($sourceControls['next']) : '',
             'previousControlPresentation' => $sourceControls['previous'] instanceof DOMElement ? $this->resolvedControlPresentation($sourceControls['previous'], $styleResolver) : array(),
@@ -1501,11 +1501,16 @@ JS;
         return '<' . $tag . $attributes . '>' . $contents . '</' . $tag . '>';
     }
 
-    /** @return list<string> */
+    /**
+     * Keep compiled style hooks when rebuilding controls and their wrappers;
+     * other transformer classes belong to the replaced component, not its source presentation.
+     *
+     * @return list<string>
+     */
     private function sourceClassTokens(string $classes, DOMElement $element, StyleResolver $styleResolver): array
     {
         return array_values(array_unique(array_merge(
-            array_values(array_filter(SourceDom::boundedClassTokens($classes), static fn (string $class): bool => !str_starts_with($class, 'blocks-engine-'))),
+            array_values(array_filter(SourceDom::boundedClassTokens($classes), static fn (string $class): bool => !str_starts_with($class, 'blocks-engine-') || str_starts_with($class, 'blocks-engine-attribute-'))),
             $styleResolver->sourceAttributeSelectorMarkers($element)
         )));
     }
