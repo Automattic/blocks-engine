@@ -1373,6 +1373,36 @@ unset($dateArchiveDocument);
 $dateArchiveResult['source_reports']['conversion_report']['core_html_fallback_evidence'] = $dateArchiveResult['source_reports']['core_html_fallback_evidence'] ?? array();
 $dateArchiveStagedPlan = (new WordPressSitePlan())->fromResult($dateArchiveResult);
 $assert(!in_array('2023/04/02/index.html', array_column($dateArchiveStagedPlan['pages'], 'source_path'), true), 'Retained WordPress body metadata also excludes date archives when staged documents omit source HTML.');
+// WordPress term identity proves existence independently of reciprocal membership.
+foreach (array(' – ', ' | ', ' - ') as $termTitleSeparator) {
+    $termIdentityFiles = array(
+        array('path' => 'index.html', 'content' => '<title>Home' . $termTitleSeparator . 'Example Site</title><main>Home</main>'),
+        array('path' => '2023/04/01/first/index.html', 'content' => '<title>First' . $termTitleSeparator . 'Example Site</title><meta property="article:published_time" content="2023-04-01T12:00:00Z"><main><article><h1>First</h1><p>No term links.</p></article></main>'),
+        array('path' => '2023/04/02/second/index.html', 'content' => '<title>Second' . $termTitleSeparator . 'Example Site</title><meta property="article:published_time" content="2023-04-02T12:00:00Z"><main><article><h1>Second</h1><p>No term links.</p></article></main>'),
+        array('path' => 'topics/x/index.html', 'content' => '<main><h1>X</h1></main>', 'metadata' => array('route_path' => '/tag/x')),
+        array('path' => 'tag/wrong/index.html', 'content' => '<title>Wrong</title><body class="archive tag tag-other"><main>Wrong archive</main></body>'),
+    );
+    foreach (array('tag/ai' => array('archive tag tag-ai tag-970', 'AI'), 'category/blog' => array('archive category category-blog', 'Blog')) as $termIdentityRoute => $termIdentity) {
+        $termIdentityFiles[] = array('path' => $termIdentityRoute . '/index.html', 'content' => '<html><head><title>' . $termIdentity[1] . $termTitleSeparator . 'Example Site</title></head><body class="' . $termIdentity[0] . '"></body></html>');
+        $termIdentityFiles[] = array('path' => $termIdentityRoute . '/page/2/index.html', 'content' => '<body class="' . $termIdentity[0] . ' paged"></body>');
+    }
+    $termIdentityResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $termIdentityFiles))->toArray();
+    $termIdentityPlan = $termIdentityResult['source_reports']['wordpress_site_plan'];
+    $termIdentityEntities = array_column($termIdentityPlan['taxonomy_entities'], null, 'slug');
+    $assert(2 === count($termIdentityEntities) && 'post_tag' === ($termIdentityEntities['ai']['taxonomy'] ?? null) && 'AI' === ($termIdentityEntities['ai']['name'] ?? null) && 'category' === ($termIdentityEntities['blog']['taxonomy'] ?? null) && 'Blog' === ($termIdentityEntities['blog']['name'] ?? null) && array() === $termIdentityEntities['ai']['membership_source_paths'] && array() === $termIdentityEntities['blog']['membership_source_paths'], 'WordPress body identity proves empty tag/category terms and names them from titles with the shared site suffix removed.');
+    foreach (array('tag/ai', 'category/blog') as $termIdentityRoute) foreach (array('/index.html', '/page/2/index.html') as $termIdentitySuffix) {
+        $termIdentitySource = $termIdentityRoute . $termIdentitySuffix;
+        $assert(!in_array($termIdentitySource, array_column($termIdentityPlan['pages'], 'source_path'), true) && !in_array($termIdentitySource, array_column($termIdentityPlan['routes'], 'source_path'), true) && in_array($termIdentitySource, array_column($termIdentityPlan['source']['source_documents'], 'source_path'), true), 'Native term archives and pagination have no imported page or route and retain source provenance.');
+    }
+    $termIdentityUnproven = array_column(array_filter($termIdentityPlan['diagnostics'], static fn(array $row): bool => 'wordpress_site_plan_taxonomy_archive_unproven' === $row['code']), 'source_path');
+    $assert(in_array('topics/x/index.html', $termIdentityUnproven, true) && in_array('tag/wrong/index.html', $termIdentityUnproven, true), 'Missing body identity and a mismatched body slug keep the existing unproven diagnostic.');
+    $assert(2 === count(array_filter($termIdentityPlan['pages'], static fn(array $page): bool => 'post' === $page['post_type'])), 'Empty term archives do not change the two dated posts.');
+    foreach ($termIdentityResult['source_reports']['compiled_site']['pages'] as &$termIdentityDocument) unset($termIdentityDocument['html']);
+    unset($termIdentityDocument);
+    $termIdentityResult['source_reports']['conversion_report']['core_html_fallback_evidence'] = $termIdentityResult['source_reports']['core_html_fallback_evidence'] ?? array();
+    $termIdentityStagedPlan = (new WordPressSitePlan())->fromResult($termIdentityResult);
+    $assert($termIdentityPlan['taxonomy_entities'] === $termIdentityStagedPlan['taxonomy_entities'], 'Retained body classes and head titles also prove empty terms when staged documents omit HTML.');
+}
 $feedHead = '<link rel="alternate" type="application/rss+xml" href="/feed.xml">';
 $blogFeed = $blogPostTypes(array('hub/index.html' => '<main>Hub</main>', 'hub/one/index.html' => $feedHead . $undatedArticle('One'), 'hub/two/index.html' => $feedHead . $undatedArticle('Two')));
 $assert('post' === ($blogFeed['hub/one/index.html'] ?? null) && 'post' === ($blogFeed['hub/two/index.html'] ?? null), 'Undated Article JSON-LD on pages that advertise a feed stays posts.');

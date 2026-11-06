@@ -589,7 +589,8 @@ PHP;
                  if (!str_contains((string) ($page['canonical_block_markup'] ?? ''), '<!-- wp:query ')) {
                      $taxonomyProjection['diagnostics'][] = array('code' => 'wordpress_site_plan_' . ('author' === $taxonomyEntity['kind'] ? 'author' : 'taxonomy') . '_archive_presentation_static', 'severity' => 'warning', 'message' => 'The archive renders its captured presentation and static cards rather than a live query because the listing could not be converted to an inherited native query loop.', 'source_path' => $taxonomyEntity['archive']['source_path'], 'source_route' => $taxonomyEntity['archive']['source_route']);
                  }
-                 $taxonomyEntity['archive']['presentation_markup'] = $page['canonical_block_markup'];
+                 if ('' !== trim($page['canonical_block_markup'])) $taxonomyEntity['archive']['presentation_markup'] = $page['canonical_block_markup'];
+                 else unset($taxonomyEntity['archive']['presentation_markup']);
                  $projectedTaxonomyEntities[] = $taxonomyEntity;
                  continue 2;
              }
@@ -1227,6 +1228,13 @@ PHP;
                 continue;
             }
             if ('page' === $documentKind && self::emptyRedirectDocument($document)) continue;
+            // Native term captures may contain no presentation at all. Defer
+            // their content validation until taxonomy ownership is resolved;
+            // any unproven capture still faces the final page contract.
+            if ('page' === $documentKind) {
+                $classes = DocumentRootContext::bodyClasses($document);
+                if (in_array('archive', $classes, true) && (in_array('tag', $classes, true) || in_array('category', $classes, true))) continue;
+            }
             if ( ! is_string($document['block_markup'] ?? null) || '' === trim($document['block_markup']) ) {
                 $failures[] = array(
                     'source_path' => $document['source_path'],
@@ -3877,16 +3885,7 @@ PHP;
     /** @param array<string,mixed> $document */
     private static function isDateArchiveDocument(array $document): bool
     {
-        $class = $document['document_metadata']['body_attributes']['class'] ?? null;
-        if (!is_string($class)) {
-            foreach (HtmlMarkupParser::htmlMarkupNodes((string) ($document['html'] ?? '')) as $node) {
-                if ('tag' === ($node['kind'] ?? null) && 'body' === ($node['name'] ?? null)) {
-                    $class = $node['attributes']['class'] ?? '';
-                    break;
-                }
-            }
-        }
-        $classes = preg_split('/[\x20\t\r\n\f]+/', trim((string) $class)) ?: array();
+        $classes = DocumentRootContext::bodyClasses($document);
         return in_array('archive', $classes, true) && in_array('date', $classes, true);
     }
     /** @param array<string,mixed> $document */
@@ -7911,7 +7910,7 @@ PHP;
                 throw new InvalidArgumentException('WordPress site plan section must be an unparented category.');
             }
             $members = $entity['membership_source_paths'] ?? null;
-            if (!is_array($members) || !array_is_list($members) || array() === $members || count($members) > 10000) throw new InvalidArgumentException('WordPress site plan taxonomy membership list is structurally invalid.');
+            if (!is_array($members) || !array_is_list($members) || count($members) > 10000) throw new InvalidArgumentException('WordPress site plan taxonomy membership list is structurally invalid.');
             $memberSet = array();
             foreach ($members as $sourcePath) {
                 if (!is_string($sourcePath) || !isset($pagesBySource[$sourcePath]) || 'post' !== ($pagesBySource[$sourcePath]['post_type'] ?? null)) throw new InvalidArgumentException('WordPress site plan taxonomy membership does not name a canonical post.');
