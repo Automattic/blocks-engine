@@ -97,7 +97,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             return true;
         }
 
-        return MenuVocabulary::isCurrentPageLinkRun($element) || $this->hasHeaderLinkCluster($element) || $this->hasRepeatedLinkItems($element) || $this->hasButtonDropdownChild($element) || $this->holdsAriaMenu($element);
+        return $this->isWrappedLandmarkLinkRun($element) || MenuVocabulary::isCurrentPageLinkRun($element) || $this->hasHeaderLinkCluster($element) || $this->hasRepeatedLinkItems($element) || $this->hasButtonDropdownChild($element) || $this->holdsAriaMenu($element);
     }
 
     /**
@@ -5289,7 +5289,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             return true;
         }
 
-        if ( MenuVocabulary::isCurrentPageLinkRun($element) || $this->hasHeaderLinkCluster($element) || $this->hasRepeatedLinkItems($element) || $this->isMenuPanelContent($element) || $this->hasButtonDropdownChild($element) ) {
+        if ( $this->isWrappedLandmarkLinkRun($element) || MenuVocabulary::isCurrentPageLinkRun($element) || $this->hasHeaderLinkCluster($element) || $this->hasRepeatedLinkItems($element) || $this->isMenuPanelContent($element) || $this->hasButtonDropdownChild($element) ) {
             return true;
         }
 
@@ -5397,6 +5397,42 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
         }
 
+        return false;
+    }
+
+    /**
+     * When controls prevent a landmark from becoming one navigation block,
+     * recursion still reaches its link run. Keep the landmark's structural proof
+     * through plain wrappers rather than requiring menu vocabulary on the run.
+     */
+    private function isWrappedLandmarkLinkRun(DOMElement $element): bool
+    {
+        $anchors = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') ) {
+                return false;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            if ( 'a' !== strtolower($child->tagName) || '' === trim($this->attr($child, 'href')) ) {
+                return false;
+            }
+            ++$anchors;
+        }
+        if ( 2 > $anchors ) {
+            return false;
+        }
+        for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+            if ( MenuVocabulary::isMenuLandmark($parent) ) {
+                // Direct landmark children retain the existing brand/label
+                // ambiguity rules; this proof belongs to wrapped link runs.
+                return ! $parent->isSameNode($element->parentNode);
+            }
+            if ( ! in_array(strtolower($parent->tagName), array( 'div', 'span', 'section' ), true) ) {
+                return false;
+            }
+        }
         return false;
     }
 
