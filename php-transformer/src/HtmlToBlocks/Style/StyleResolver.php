@@ -57,6 +57,8 @@ final class StyleResolver implements ElementPresentationResolver
     private ?StyleAttributeMapper $styleAttributeMapper = null;
 
     private ?HighValueStyleBoundaryPolicy $highValueStyleBoundaryPolicy = null;
+    /** @var array{0:int,1:bool}|null Rule count and whether any rule paints a url() background. */
+    private ?array $backgroundPhotoRules = null;
 
     private ?ClosedStateNormalizer $closedStateNormalizer = null;
 
@@ -5343,20 +5345,48 @@ final class StyleResolver implements ElementPresentationResolver
         return $this->highValueStyleBoundaryPolicy()->matches($element);
     }
 
-    /** Image crop recognition is structural and selector-driven, not name-driven. */
+    /**
+     * Image crop and painted-photo recognition are structural and
+     * selector-driven, not name-driven: utility-class builders give a hero no
+     * vocabulary token, only rules that paint it.
+     */
     private function hasGenericRecognitionDemand(DOMElement $element): bool
     {
-        if ('img' !== strtolower($element->tagName)) {
+        $img = 'img' === strtolower($element->tagName);
+        // Only a painted flow box holding content can be a cover (section and
+        // article already resolve); empty decorative layers (grain, texture)
+        // keep their stylesheet ownership.
+        if ( ! $img && ( 'div' !== strtolower($element->tagName) || ! $this->hasBackgroundPhotoRules() || '' === trim($element->textContent) ) ) {
             return false;
         }
-
         foreach ( $this->matchingStyleRules($element, 'static-conditional') as $rule ) {
-            if (array_intersect(array('aspect-ratio', 'object-fit', 'object-position'), array_keys($rule['declarations']))) {
+            if ( $img && array_intersect(array('aspect-ratio', 'object-fit', 'object-position'), array_keys($rule['declarations'])) ) {
+                return true;
+            }
+            if ( ! $img && 1 === preg_match('/\burl\(/i', ($rule['declarations']['background-image'] ?? '') . ($rule['declarations']['background'] ?? '')) ) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    private function hasBackgroundPhotoRules(): bool
+    {
+        $state = $this->session->sourceStyleResolutionState();
+        $count = count($state->staticRules()) + count($state->conditionalRules());
+        if ( $count !== ($this->backgroundPhotoRules[0] ?? -1) ) {
+            $found = false;
+            foreach ( array_merge($state->staticRules(), $state->conditionalRules()) as $rule ) {
+                if ( 1 === preg_match('/\burl\(/i', ($rule['declarations']['background-image'] ?? '') . ($rule['declarations']['background'] ?? '')) ) {
+                    $found = true;
+                    break;
+                }
+            }
+            $this->backgroundPhotoRules = array( $count, $found );
+        }
+
+        return $this->backgroundPhotoRules[1];
     }
 
     /** Build every immutable source-style rule stream in one stylesheet traversal. */

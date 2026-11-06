@@ -243,6 +243,14 @@ $assertNull($match($texture, array( $heading ), array(), array(), $fallbacks, $r
 $assertSame(0, $record['convertCalls'], 'Repeating background does not convert children.');
 
 // 6. Gate 3 rejects empty converted children and discards local fallbacks.
+// Utility-class builders name no hero: the painting rule alone makes it a candidate.
+// An empty painted layer (grain texture) stays stylesheet-owned.
+foreach ( array( 'utility hero' => array( '<h1>Strategy</h1>', 'core/cover' ), 'empty texture' => array( '', 'core/group' ) ) as $name => [$content, $expected] ) {
+    $result = $transformHtml('<style>.x .c1-u{display:flex;flex-direction:column;min-height:360px}.x .c1-z{background-size:auto,cover}@media (min-width:768px){.x .c1-14{background-image:linear-gradient(rgba(0,0,0,.25),rgba(0,0,0,.25)),url(/media/1346-6.jpg)}}@media (max-width:767px){.x .c1-15{background-image:linear-gradient(rgba(0,0,0,.25),rgba(0,0,0,.25)),url(/media/1346-2.webp)}}</style><div class="x"><div class="c1-u c1-z c1-14 c1-15">' . $content . '</div><p>After</p></div>');
+    $names = $blockNames($result['blocks'] ?? array());
+    $assertSame('core/cover' === $expected, in_array('core/cover', $names, true), 'Painted ' . $name . ' cover recognition.');
+}
+
 $fallbacks = array( array( 'blockName' => 'existing/fallback' ) );
 $record = array();
 $empty = $elementFromHtml('<section style="background-image:url(empty.jpg);background-size:cover"></section>');
@@ -361,10 +369,22 @@ $columnsNames = $blockNames($columnsResult['blocks'] ?? array());
 $assertTrue(in_array('core/group', $columnsNames, true) && ! in_array('core/columns', $columnsNames, true), 'K4: Flex hero candidate preserves section topology through core/group without layout defaults.');
 $assertTrue(! in_array('core/cover', $columnsNames, true), 'K4: Flex hero candidate does not become core/cover.');
 
-// K5: Navigation-bearing shell wrappers never become core/cover.
-$shellResult = $transformHtml('<div style="background-image:url(https://example.com/h.jpg);background-size:cover"><nav><a href="/a">A</a><a href="/b">B</a></nav><h1>T</h1><p>Body</p></div>');
-$shellNames = $blockNames($shellResult['blocks'] ?? array());
-$assertTrue(! in_array('core/cover', $shellNames, true), 'K5: Navigation-bearing shell rejects core/cover.');
+// K5: Navigation needs a heading outside its subtree to qualify as hero content.
+foreach ( array( 'hero heading' => array( '<div><h1>Strategy and Communication</h1></div>', true ), 'nav only' => array( '', false ) ) as $name => [$content, $isCover] ) {
+    $shellResult = $transformHtml('<section style="min-height:500px;display:flex;flex-direction:column;align-items:center;background-image:linear-gradient(rgba(0,0,0,.25),rgba(0,0,0,.25)),url(hero-large.jpg);background-size:cover"><nav><a href="/">Studio Name</a><a href="/about">About</a></nav>' . $content . '</section><section><p>Follow us for news.</p></section>');
+    $shell = $shellResult['blocks'][0] ?? array();
+    $assertSame($isCover, 'core/cover' === ($shell['blockName'] ?? null), 'K5: ' . $name . ' cover recognition.');
+    $shellNames = $blockNames($shell['innerBlocks'] ?? array());
+    $assertTrue(in_array('core/navigation', $shellNames, true), 'K5: ' . $name . ' retains native navigation.');
+    if ( $isCover ) {
+        $assertTrue(in_array('core/heading', $shellNames, true), 'K5: Cover contains the hero heading.');
+        $assertSame('section', $shell['attrs']['tagName'] ?? null, 'K5: Cover retains section landmark.');
+        $assertSame('hero-large.jpg', $shell['attrs']['url'] ?? null, 'K5: Hero photo is editable.');
+        $assertSame(25, $shell['attrs']['dimRatio'] ?? null, 'K5: Hero overlay is retained.');
+    } else {
+        $assertSame('core/group', $shell['blockName'] ?? null, 'K5: Nav-only background remains a shell group.');
+    }
+}
 
 $fallbacks = array( array( 'blockName' => 'existing/fallback' ) );
 $record = array();
@@ -376,8 +396,17 @@ $navigation = array(
         $paragraph,
     ),
 );
-$assertNull($match($hero, array( $navigation ), array(), array(), $fallbacks, $record), 'K5: Recursive core/navigation child rejects cover.');
+$assertNull($match($hero, array( $navigation ), array(), array(), $fallbacks, $record), 'K5: Recursive navigation plus paragraph only rejects cover.');
 $assertSame(array( array( 'blockName' => 'existing/fallback' ) ), $fallbacks, 'K5: Navigation rejection discards local fallbacks.');
+$menuHeading = array( 'blockName' => 'core/heading', 'attrs' => array(), 'innerBlocks' => array() );
+$navigation['innerBlocks'][0]['innerBlocks'] = array(
+    array( 'blockName' => 'core/group', 'innerBlocks' => array( $menuHeading ) ),
+);
+$assertNull($match($hero, array( $navigation ), array(), array(), $fallbacks, $record), 'K5: A heading nested inside navigation does not qualify as hero content.');
+$navigation['innerBlocks'][] = $menuHeading;
+$navigationCover = $match($hero, array( $navigation ), array(), array(), $fallbacks, $record);
+$assertSame('core/cover', $navigationCover['blockName'] ?? null, 'K5: A nested heading outside navigation qualifies as hero content.');
+$assertSame(array( $navigation ), $navigationCover['innerBlocks'] ?? null, 'K5: Cover preserves native navigation and its subtree unchanged.');
 
 // K6/N3/P3: Design gradients become visible core customGradient attrs on the overlay span.
 $gradientResult = $transformHtml('<section class="hero" style="background:linear-gradient(90deg,#ff0000,#0000ff),url(https://example.com/h.jpg) center/cover;min-height:480px"><h1>T</h1><p>B</p></section>');
