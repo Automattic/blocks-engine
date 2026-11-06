@@ -38,6 +38,22 @@ const state = page => page.evaluate(() => {
   };
 });
 
+// Native navigation keeps its authored hover/focus rules after the opened
+// capture envelope is restored to resting, including style:null.
+{
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await page.setContent(fixture.existingPanel);
+  const panel = page.locator('#more-panel');
+  check(await panel.isVisible(), false, 'existing panel is closed at desktop rest');
+  await page.getByRole('link', { name: 'More', exact: true }).hover();
+  check(await panel.isVisible(), true, 'trigger hover opens the existing panel');
+  await page.mouse.move(1400, 850);
+  check(await panel.isVisible(), false, 'leaving the trigger closes the panel');
+  await page.getByRole('link', { name: 'More', exact: true }).focus();
+  check(await panel.isVisible(), true, 'trigger focus opens the existing panel');
+  await page.close();
+}
+
 for (const [name, markup, placement] of [['in-place', fixture.inPlace, 'static'], ['under-header', fixture.underHeader, 'fixed']]) {
   const page = await load(markup);
   const control = page.locator('dialog[data-blocks-engine-triggers]').evaluateHandle(dialog => document.getElementById(dialog.getAttribute('data-blocks-engine-triggers').split(' ')[0]).querySelector('button'));

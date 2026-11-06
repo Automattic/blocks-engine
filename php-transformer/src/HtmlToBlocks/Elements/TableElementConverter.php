@@ -64,7 +64,7 @@ final class TableElementConverter implements ElementConverter
 
         $classification = $policy->classify($element);
         if ( ! $classification['representable'] ) {
-            return ConversionOutcome::handled($this->context->htmlPreservationBlock($element));
+            return ConversionOutcome::handled($this->createBlock->htmlPreservationBlock($element));
         }
 
         $presentation = $this->presentationResolver->presentationAttributes($element);

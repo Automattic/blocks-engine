@@ -6,18 +6,13 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
-use Closure;
 use DOMElement;
 
 /** Explicit transformer-owned surface consumed by {@see SearchBlockConverter}. */
 final class SearchBlockConversionContext
 {
-    /**
-     * @param Closure(DOMElement): array<string, mixed> $htmlPreservationBlock
-     */
     public function __construct(
-        private readonly ElementPresentationResolver $presentationResolver,
-        private readonly Closure $htmlPreservationBlock
+        private readonly ElementPresentationResolver $presentationResolver
     ) {
     }
 
@@ -91,11 +86,5 @@ final class SearchBlockConversionContext
             $this->presentationResolver->structuralPresentationDeclarations($element),
             $this->presentationResolver->presentationDeclarations($element)
         );
-    }
-
-    /** @return array<string, mixed> */
-    public function htmlPreservationBlock(DOMElement $element): array
-    {
-        return ($this->htmlPreservationBlock)($element);
     }
 }

@@ -14,7 +14,7 @@ try {
             nav.className = `wp-block-navigation is-layout-flex ${classes}`;
         }, fixture.classes);
         await page.addStyleTag({content: 'body .is-layout-flex{display:flex}'});
-        const withoutRepair = fixture.css.replace(/\.wp-block-navigation\.(?:hidden|md-flex)\{display:(?:none|flex)\}/g, '');
+        const withoutRepair = fixture.css.replace(/:root:root:root :is\([^{}]*\)\{display:revert-layer\}/g, '');
         await page.addStyleTag({content: withoutRepair});
         if (width === 390) {
             assert.equal(await page.locator('nav').evaluate(nav => getComputedStyle(nav).display), 'flex', 'without the repair Core exposes the phone nav');

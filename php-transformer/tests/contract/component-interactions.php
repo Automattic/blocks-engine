@@ -69,4 +69,5 @@ preg_match_all('/<details\\b([^>]*)>(.*?)<\/details>/s', $nestedHtml, $details);
 $assert(2 === count($details[0]) && !preg_match('/\\bopen(?:\\s|=|$)/', implode(' ', $details[1])), 'Both details remain closed.');
 $assert(str_contains($details[2][1], 'Left 150') && str_contains($details[2][1], 'Right 150'), 'Nested collection content stays inside the second details body.');
 $assert(!str_contains($nestedHtml, 'wp:custom/collection'), 'Disclosure membership does not invent collection filtering.');
+require __DIR__ . '/artwork-slideshow.php';
 echo "Component interactions public compiler contract passed.\n";

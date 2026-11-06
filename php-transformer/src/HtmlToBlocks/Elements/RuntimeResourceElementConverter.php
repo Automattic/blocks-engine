@@ -6,18 +6,13 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CanvasBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
-use Closure;
 use DOMElement;
 
 /** Owns canvas, script, and template conversion and runtime evidence. */
 final class RuntimeResourceElementConverter implements ElementConverter
 {
-    /**
-     * @param Closure(DOMElement): array<string, mixed> $htmlPreservationBlock
-     */
     public function __construct(
         private readonly HtmlTransformerSession $session,
-        private readonly Closure $htmlPreservationBlock,
         private readonly SourceBlockCreator $createBlock
     ) {
     }

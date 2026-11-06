@@ -106,6 +106,24 @@ $unsafe[0]['closed'] = array('onclick' => '');
 $wiredUnsafe = (string) ($compileWired('data-blocks-engine-capture-dialog data-blocks-engine-capture-dropdown', json_encode($unsafe))['serialized_blocks'] ?? '');
 $assert(! str_contains($wiredUnsafe, 'ancestor') && ! str_contains($wiredUnsafe, 'onclick'), 'ancestor state outside class, style and hidden is dropped, not replayed', $wiredUnsafe);
 
+// Existing navigation panels are serialized open by capture, but their
+// resting snapshot (including an absent inline style) owns static projection.
+$existingHtml = <<<'HTML'
+<html><head><style>.submenu{display:none}.nav-item:hover .submenu,.nav-item:focus-within .submenu{display:block}</style></head><body>
+<nav><ul><li class="nav-item"><a href="#" aria-controls="more-panel" data-blocks-engine-capture-dialog-trigger="more-panel">More</a>
+<div id="more-panel" class="submenu is-open data-blocks-engine-capture-dropdown" style="display:block;visibility:visible!important" data-dropdown-shown="true" data-blocks-engine-capture-dialog-panel="more-panel" data-blocks-engine-capture-existing-panel='{"resting":{"style":null,"class":"submenu data-blocks-engine-capture-dropdown","hidden":false},"opened":{"style":"display:block;visibility:visible!important","class":"submenu is-open data-blocks-engine-capture-dropdown"}}'><a href="/contact">Contact</a><a href="/team">Team</a></div>
+</li></ul></nav></body></html>
+HTML;
+$existingProjection = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CapturedDialogProjector())->project(array(array('path' => 'index.html', 'content' => $existingHtml)));
+$existingDom = new DOMDocument();
+@$existingDom->loadHTML($existingProjection['files'][0]['content']);
+$existingPanel = $existingDom->getElementById('more-panel');
+$assert($existingPanel instanceof DOMElement && !$existingPanel->hasAttribute('style') && !str_contains($existingPanel->getAttribute('class'), 'is-open') && 'true' !== $existingPanel->getAttribute('data-dropdown-shown'), 'navigation-owned projection restores the declared resting panel before conversion');
+$existingResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(array('path' => 'index.html', 'content' => $existingHtml))))->toArray();
+$existingMarkup = (string) ($existingResult['serialized_blocks'] ?? '');
+$assert(!preg_match('/<[^>]+(?:class="[^"]*is-open|data-dropdown-shown="true"|style="[^"]*visibility:\\s*visible)/', $existingMarkup), 'an existing nav dropdown must not emit its opened attributes at rest', $existingMarkup);
+$assert(str_contains($existingMarkup, 'navigation-submenu') && str_contains($existingMarkup, 'Contact') && str_contains($existingMarkup, 'Team'), 'the closed panel retains its native hover/focus submenu and links', $existingMarkup);
+
 $definition = (new CapturedDialogBlockGenerator())->definition('site/captured-dialog');
 $css = (string) ($definition['assets']['style.css'] ?? '');
 $assert('file:./style.css' === ($definition['block_json']['style'] ?? null), 'the dialog block ships a stylesheet');
@@ -127,6 +145,7 @@ $assert(str_contains($view, 'dialog.show()') && str_contains($view, 'dialog.show
 // Fixtures for the real-browser contract (captured-dialog-dropdown-panel-browser.mjs).
 $fixtureCss = '.top{position:fixed;top:0;left:0;right:0;z-index:50}.bg-transparent{background-color:transparent}.bg-dark{background-color:rgb(2,6,23)}.px-5{padding-left:20px;padding-right:20px}.page-layer{position:fixed;inset:0;z-index:30;pointer-events:none}';
 file_put_contents(sys_get_temp_dir() . '/captured-dialog-dropdown-panel.json', json_encode(array(
+    'existingPanel' => $existingProjection['files'][0]['content'],
     'css' => $css . $fixtureCss,
     'script' => $view,
     'inPlace' => $inPlace,

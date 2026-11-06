@@ -43,4 +43,21 @@ $listing = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html',
 $journal = array_column($listing['pages'], 'canonical_block_markup', 'source_path')['journal/index.html'] ?? '';
 $assert(str_contains($journal, '<!-- wp:query '), 'The listing becomes a query loop');
 $assert(array() === array_filter($losses($listing), static fn(array $finding): bool => 'journal/index.html' === $finding['source_path']), 'Query-loop card text rendered from the queried posts is not content loss');
+// Hydration markers inside raw option labels must not create phantom spaces.
+foreach (array('Cape Cod<!---->, <!---->Osterville', 'Cape Cod, Osterville', 'Cape Cod, <!---->Osterville', "Cape Cod<!-- x\ny -->Osterville") as $label) {
+    $html = '<!DOCTYPE html><html><head><title>Inquiry</title></head><body><main><h1>Inquiry</h1><form><label for="p">Property</label><select id="p" name="property"><option value="">Select a property</option><option value="cape">' . $label . '</option></select><label for="d">Departure</label><input id="d" type="date" name="departure"><button>Send</button></form></main></body></html>';
+    $inquiry = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html)))->toArray()['source_reports']['wordpress_site_plan'];
+    $assert(str_contains($inquiry['pages'][0]['canonical_block_markup'], $label), 'The option label stays in raw markup');
+    $assert(0 === $inquiry['quality']['metrics']['content_loss_count'] && array() === $losses($inquiry), 'Comment-split option text is not lost');
+}
+
+// Exercise normalization independently of runtime records carrying form labels.
+$checkMarkup = static function (string $source, string $markup) use ($plan): array {
+    $plan['pages'][0]['canonical_block_markup'] = $markup;
+    $plan['pages'][0]['content_hash'] = WordPressSitePlan::contentHash($markup);
+    return WordPressSitePlan::withContentConservation($plan, array(array('source_path' => $plan['pages'][0]['source_path'], 'block_markup' => $source)));
+};
+$assert(0 === $checkMarkup('<p>Searchable label</p>', '<!-- wp:navigation-link {"label":"Searchable label"} /-->')['quality']['metrics']['content_loss_count'], 'Block delimiter attribute text stays searchable');
+$hidden = $checkMarkup('<p>Missing label</p>', '<!-- Missing label -->');
+$assert(1 === $hidden['quality']['metrics']['content_loss_count'], 'Ordinary comment bodies cannot mask genuinely missing text');
 fwrite(STDOUT, "Site plan content conservation tests passed\n");

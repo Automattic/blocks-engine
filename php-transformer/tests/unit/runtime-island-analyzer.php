@@ -78,7 +78,6 @@ $makeAnalyzer = static function (array $domSelectors = array(), array $presentat
         'descendants'      => $descendants,
         'islandSelector'   => static fn (DOMElement $e): string => strtolower($e->tagName),
         'eventMetadata'    => static fn (DOMElement $e): array => array(),
-        'requiredScripts'  => static fn (DOMElement $e): array => array(),
         'preservedRoot'    => static fn (string $h): ?DOMElement => null,
         'hasWorkspace'     => static fn (DOMElement $e): bool => false,
         'dedupe'           => static fn (array $rows): array => array_values($rows),
@@ -91,7 +90,6 @@ $makeAnalyzer = static function (array $domSelectors = array(), array $presentat
     $pseudoFormAnalyzer = new PseudoFormAnalyzer($metadataBuilder, $c['islandSelector']);
     return new RuntimeIslandAnalyzer($session, new SourceElementClassifier(), new RuntimeIslandContext(
         $c['descendants'],
-        $c['requiredScripts'],
         $c['preservedRoot'],
         $c['hasWorkspace']), $pseudoFormAnalyzer);
 };

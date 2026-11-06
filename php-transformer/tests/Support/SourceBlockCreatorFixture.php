@@ -7,7 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Closure;
 use DOMElement;
 
-final class SourceBlockCreatorFixture implements SourceBlockCreator
+final class SourceBlockCreatorFixture extends SourceBlockCreator
 {
     /** @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement, ?DOMElement): array<string, mixed> $createBlock */
     public function __construct(private readonly Closure $createBlock) {}

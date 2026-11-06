@@ -404,50 +404,6 @@ final class NavigationStyleProjector
     }
 
     /**
-     * Core's unlayered layout display beats layered navigation utilities. Replay
-     * the complete class-utility display sequence, not just `hidden`: otherwise
-     * the base repair would also beat the author's desktop flex utility.
-     * Keep media/supports conditions, but remove layer wrappers, and restrict
-     * each selector to navigation hosts. Escaped utility names use parsed CSS
-     * identifiers rather than a class-name regex.
-     *
-     * @return list<CascadeRule>
-     */
-    public function navigationDisplayRules(string $serializedBlocks): array
-    {
-        $classes = $this->listNavigationHostClasses($serializedBlocks, false);
-        $candidates = array();
-        $hasLayeredDisplay = false;
-        foreach ( $this->navigationAuthorStyleRules() as $rule ) {
-            $parsed = $rule['parsed'];
-            $compound = $parsed['compounds'][0] ?? array();
-            $class = $compound['classes'][0] ?? '';
-            // Only a bare class utility is portable without source ancestor or
-            // state evidence. Do not turn a descendant's display into host CSS.
-            if ( ! isset($classes[$class])
-                || 1 !== preg_match('/^' . CssIdent::classSelectorRegex($class) . '$/', $rule['selector'])
-                || ! isset($rule['declarations']['display'])
-                || array() !== array_filter($rule['conditions'],
-                    static fn (string $condition): bool => 1 !== preg_match('/^@(layer|media|supports)\b/i', trim($condition))
-                )
-            ) {
-                continue;
-            }
-            $conditions = array_values(array_filter($rule['conditions'],
-                static fn (string $condition): bool => 1 !== preg_match('/^@layer\b/i', trim($condition))
-            ));
-            $hasLayeredDisplay = $hasLayeredDisplay || count($conditions) !== count($rule['conditions']);
-            $css = '.wp-block-navigation.' . CssIdent::escape($class)
-                . '{display:' . $rule['declarations']['display'] . '}';
-            foreach ( array_reverse($conditions) as $condition ) {
-                $css = $condition . '{' . $css . '}';
-            }
-            $candidates[] = new CascadeRule(CascadeLayer::LIST_NAVIGATION_REPAIR, $css);
-        }
-        return $hasLayeredDisplay ? $candidates : array();
-    }
-
-    /**
      * Part of the list-navigation repair set — tagged {@see CascadeLayer::LIST_NAVIGATION_REPAIR}.
      *
      * @return list<CascadeRule>

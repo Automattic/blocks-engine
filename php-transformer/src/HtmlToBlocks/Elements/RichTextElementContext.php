@@ -18,7 +18,6 @@ use DOMElement;
 final class RichTextElementContext
 {
     /**
-     * @param Closure(DOMElement): array<string, mixed>                                                      $htmlPreservationBlock
      * @param Closure(DOMElement): ?array<string, mixed>                                                     $authoredMarqueeBlock
      * @param Closure(DOMElement): bool                                                                      $hasEmptyVisualInlineChild
      * @param Closure(DOMElement): bool                                                                      $hasBoxChromeWrapperStyling
@@ -32,7 +31,6 @@ final class RichTextElementContext
      * @param Closure(DOMElement, array<int, array<string, mixed>>): ?array<string, mixed>                   $mediaBlockFromTextlessElement
      */
     public function __construct(
-        private readonly Closure $htmlPreservationBlock,
         private readonly Closure $authoredMarqueeBlock,
         private readonly Closure $hasEmptyVisualInlineChild,
         private readonly Closure $hasBoxChromeWrapperStyling,
@@ -54,14 +52,6 @@ final class RichTextElementContext
     public function decorativeSvgBlock(DOMElement $element): ?array
     {
         return null === $this->decorativeSvgBlock ? null : ($this->decorativeSvgBlock)($element);
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    public function htmlPreservationBlock(DOMElement $element): array
-    {
-        return ($this->htmlPreservationBlock)($element);
     }
 
     /**

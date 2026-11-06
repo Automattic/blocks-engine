@@ -172,7 +172,9 @@ foreach ($unusedFamilies as $fixture => $unusedFamily) {
     $assert(in_array('body', array_column($families, 'slug'), true), "$fixture: body family is a preset");
     $assert(array() === array_filter($families, static fn(array $family): bool => str_contains((string) $family['fontFamily'], $unusedFamily)), "$fixture: the declared but unrendered $unusedFamily stack is not a preset");
     $metrics = $plan['theme']['design_system']['metrics'] ?? array();
-    $assert(array($unusedFamily) === ($metrics['unused_font_families'] ?? null), "$fixture: metrics report only the primary family $unusedFamily as unused (" . json_encode($metrics['unused_font_families'] ?? null) . ')');
+    // A family declared only by a rule no page can match is not shipped, so
+    // it is not reported as a declared family either.
+    $assert(array() === ($metrics['unused_font_families'] ?? null), "$fixture: the unrendered $unusedFamily rule is not shipped (" . json_encode($metrics['unused_font_families'] ?? null) . ')');
     $assert(($metrics['preset_share'] ?? 0) >= 0.8 && ($metrics['preset_value_count'] ?? 0) > 0, "$fixture: at least 80% of block style values are presets (" . json_encode($metrics['preset_share'] ?? null) . ')');
     $assert(count($palette) === ($metrics['palette_size'] ?? null) && is_int($metrics['unique_source_css_bytes'] ?? null) && $metrics['unique_source_css_bytes'] > 0 && ($metrics['theme_css_bytes'] ?? 0) >= ($metrics['engine_css_bytes'] ?? PHP_INT_MAX) && is_float($metrics['generated_to_source_css_ratio'] ?? null), "$fixture: metrics report palette size and CSS byte ratio");
     $assert(($editability['design_system']['metrics'] ?? null) == $metrics, "$fixture: the editability report carries the design-system metrics");

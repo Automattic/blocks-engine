@@ -74,13 +74,12 @@ $context = new FormDispatchContext(
     static function (DOMElement $element) use (&$mode): bool {
         return 'preserve' === $mode;
     },
-    static function (DOMElement $element) use (&$calls): array {
-        $calls[] = 'preserve';
-        return array( 'blockName' => 'core/html' );
-    },
     static fn (DOMElement $element): bool => $element->hasAttribute('data-pseudo')
 );
-$dispatcher = new FormDispatcher($context);
+$dispatcher = new FormDispatcher($context, new \Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture(static function (string $name) use (&$calls): array {
+    $calls[] = 'preserve';
+    return array( 'blockName' => $name );
+}));
 $dataForm = $formFrom('<form><input name="email"></form>');
 
 $calls = array();

@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\UnreachableSelectorPruner;
+
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CaptureReplayScripts;
 use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
@@ -498,6 +500,7 @@ final class ArtifactCompiler
         unset($markup);
         $authoredFiles = $normalized['files'];
         $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections'], (string) ($ownedBy(array(array()), $entryPath)[0]['owner'] ?? ''), $pageMarkup, $allDiagnostics, $sharedMarkup, $timer);
+        $normalized['files'] = $this->withoutUnreachableSelectors($normalized['files']);
         foreach ($normalized['files'] as $document) {
             if ('html' !== ($document['kind'] ?? '') || !is_string($document['content'] ?? null) || !empty($document['metadata']['compilation']['included_component'])) continue;
             $documentFiles = $normalized['files'];
@@ -2951,6 +2954,38 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $files
      * @return array<int, array<string, mixed>>
      */
+    /**
+     * Drop stylesheet arms that require a class or id no other site file names
+     * (see {@see UnreachableSelectorPruner}). Each stylesheet is pruned against
+     * the whole site, so route copies of one sheet stay identical.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, array<string, mixed>>
+     */
+    private function withoutUnreachableSelectors(array $files): array
+    {
+        $texts = array();
+        $documents = 0;
+        foreach ($files as $file) {
+            if ('css' === ($file['kind'] ?? '')) continue;
+            if ('html' === ($file['kind'] ?? '')) ++$documents;
+            // Metadata carries captured interaction states.
+            if (is_array($file['metadata'] ?? null) && array() !== $file['metadata']) $texts[] = (string) json_encode($file['metadata']);
+            $text = $file['content'] ?? (in_array($file['kind'] ?? '', array('html', 'js', 'json', 'svg', 'text'), true) && is_string($file['content_base64'] ?? null) ? base64_decode($file['content_base64'], true) : null);
+            if (is_string($text) && '' !== $text) $texts[] = $text;
+        }
+        if (0 === $documents) return $files;
+        $pruner = new UnreachableSelectorPruner($texts);
+        foreach ($files as &$file) {
+            // Only the projected sheets the pages load; other CSS is inventory.
+            if ('css' !== ($file['kind'] ?? '') || !isset($file['provenance']['projected_from_hash']) || !is_string($file['content'] ?? null)) continue;
+            $content = $pruner->prune($file['content']);
+            if ($content !== $file['content']) $file = $this->projectedStylesheetFile($file, $file['path'], $content);
+        }
+        unset($file);
+        return $files;
+    }
+
     private function chunkProjectedStylesheets(array $files): array
     {
         $reserved = array_fill_keys(array_column($files, 'path'), true);

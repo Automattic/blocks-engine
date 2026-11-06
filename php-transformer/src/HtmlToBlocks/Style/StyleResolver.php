@@ -57,6 +57,8 @@ final class StyleResolver implements ElementPresentationResolver
     private ?StyleAttributeMapper $styleAttributeMapper = null;
 
     private ?HighValueStyleBoundaryPolicy $highValueStyleBoundaryPolicy = null;
+    /** @var array{0:int,1:bool}|null Rule count and whether any rule paints a url() background. */
+    private ?array $backgroundPhotoRules = null;
 
     private ?ClosedStateNormalizer $closedStateNormalizer = null;
 
@@ -930,13 +932,15 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
-     * Whether every matching non-state author rule for each family is layered.
+     * Whether every matching author rule for each family is layered.
      * Absent families are omitted; an unlayered declaration vetoes the family.
+     * By default state rules are excluded. Cascade bridges include potential
+     * state subjects too, so an unlayered hover rule is never rolled back.
      *
      * @param array<string, string> $propertyFamilies Family => property-name regex.
      * @return array<string, bool>
      */
-    public function authorPropertyFamilyLayering(DOMElement $element, array $propertyFamilies): array
+    public function authorPropertyFamilyLayering(DOMElement $element, array $propertyFamilies, bool $includeStates = false): array
     {
         $authorStyles = $this->session->authorStyleAnalysis();
         $selectorCache = $authorStyles->selectorMatchCache();
@@ -957,10 +961,15 @@ final class StyleResolver implements ElementPresentationResolver
             $matched = false;
             foreach ( is_array($rule['selectors'] ?? null) ? $rule['selectors'] : array() as $record ) {
                 $selector = (string) ( $record['selector'] ?? '' );
-                if ( '' === $selector || $this->selectorCarriesPseudoState($selector) ) {
-                    continue;
+                if ( '' === $selector ) continue;
+                if ( $this->selectorCarriesPseudoState($selector) ) {
+                    if ( ! $includeStates ) continue;
+                    $selector = preg_replace('/:(?:hover|focus-visible|focus-within|focus|active|visited|any-link|link|disabled|enabled|target)(?![\\w(-])/i', '', $selector) ?? $selector;
+                    $parsed = $this->session->sourceStyleResolutionState()->parsedSelector($selector);
+                } else {
+                    $parsed = is_array($record['parsed'] ?? null) ? $record['parsed'] : array();
                 }
-                $match = $selectorCache->matches($element, $selector, is_array($record['parsed'] ?? null) ? $record['parsed'] : array());
+                $match = $selectorCache->matches($element, $selector, $parsed);
                 if ( ( $match['supported'] ?? false ) && ( $match['matches'] ?? false ) ) {
                     $matched = true;
                     break;
@@ -3811,9 +3820,12 @@ final class StyleResolver implements ElementPresentationResolver
             );
         }
         $customProperties = array();
-        foreach (array_keys($properties) as $name) {
-            if (isset($available[$name])) {
-                $customProperties[$name] = $available[$name];
+        // Inline-only variables are just as authored as stylesheet variables.
+        // Controls commonly consume these through var() without any stylesheet
+        // declaration of the property itself.
+        foreach ($available as $name => $value) {
+            if ('' !== $value && !preg_match('/[;{}<>]/', $value)) {
+                $customProperties[$name] = $value;
             }
         }
         ksort($customProperties, SORT_STRING);
@@ -5333,20 +5345,48 @@ final class StyleResolver implements ElementPresentationResolver
         return $this->highValueStyleBoundaryPolicy()->matches($element);
     }
 
-    /** Image crop recognition is structural and selector-driven, not name-driven. */
+    /**
+     * Image crop and painted-photo recognition are structural and
+     * selector-driven, not name-driven: utility-class builders give a hero no
+     * vocabulary token, only rules that paint it.
+     */
     private function hasGenericRecognitionDemand(DOMElement $element): bool
     {
-        if ('img' !== strtolower($element->tagName)) {
+        $img = 'img' === strtolower($element->tagName);
+        // Only a painted flow box holding content can be a cover (section and
+        // article already resolve); empty decorative layers (grain, texture)
+        // keep their stylesheet ownership.
+        if ( ! $img && ( 'div' !== strtolower($element->tagName) || ! $this->hasBackgroundPhotoRules() || '' === trim($element->textContent) ) ) {
             return false;
         }
-
         foreach ( $this->matchingStyleRules($element, 'static-conditional') as $rule ) {
-            if (array_intersect(array('aspect-ratio', 'object-fit', 'object-position'), array_keys($rule['declarations']))) {
+            if ( $img && array_intersect(array('aspect-ratio', 'object-fit', 'object-position'), array_keys($rule['declarations'])) ) {
+                return true;
+            }
+            if ( ! $img && 1 === preg_match('/\burl\(/i', ($rule['declarations']['background-image'] ?? '') . ($rule['declarations']['background'] ?? '')) ) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    private function hasBackgroundPhotoRules(): bool
+    {
+        $state = $this->session->sourceStyleResolutionState();
+        $count = count($state->staticRules()) + count($state->conditionalRules());
+        if ( $count !== ($this->backgroundPhotoRules[0] ?? -1) ) {
+            $found = false;
+            foreach ( array_merge($state->staticRules(), $state->conditionalRules()) as $rule ) {
+                if ( 1 === preg_match('/\burl\(/i', ($rule['declarations']['background-image'] ?? '') . ($rule['declarations']['background'] ?? '')) ) {
+                    $found = true;
+                    break;
+                }
+            }
+            $this->backgroundPhotoRules = array( $count, $found );
+        }
+
+        return $this->backgroundPhotoRules[1];
     }
 
     /** Build every immutable source-style rule stream in one stylesheet traversal. */

@@ -477,7 +477,7 @@ $assert(isset($runtimeReportFallbacks['html_form_fallback'], $runtimeReportFallb
 
 $types = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
-        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style type="TEXT/CSS; charset=UTF-8">.style-ok{color:red}</style><style type="text/css-not-a-mime">.style-bad{color:red}</style><link rel="stylesheet" href="ok.css" type="text/css; charset=utf-8"><link rel="stylesheet" href="bad.css" type="text/css-not-a-mime"><main><p>Types</p></main>' ),
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style type="TEXT/CSS; charset=UTF-8">.style-ok{color:red}</style><style type="text/css-not-a-mime">.style-bad{color:red}</style><link rel="stylesheet" href="ok.css" type="text/css; charset=utf-8"><link rel="stylesheet" href="bad.css" type="text/css-not-a-mime"><main><p class="style-ok style-bad link-ok link-bad">Types</p></main>' ),
         array( 'path' => 'ok.css', 'kind' => 'css', 'content' => '.link-ok{color:green}' ),
         array( 'path' => 'bad.css', 'kind' => 'css', 'content' => '.link-bad{color:blue}' ),
     ),
@@ -918,15 +918,16 @@ for ( $index = 0; $index < 40; ++$index ) {
 $sharedSize = static function (int $pages) use ($sharedRules): int {
     $files = array( array( 'path' => 'site.css', 'kind' => 'css', 'content' => $sharedRules ) );
     for ( $page = 0; $page < $pages; ++$page ) {
-        $files[] = array( 'path' => 0 === $page ? 'index.html' : "page-{$page}/index.html", 'kind' => 'html', 'content' => '<!doctype html><html><head><link rel="stylesheet" href="/site.css"></head><body><section class="card-' . $page . '"><p><span class="quote">&quot;</span>Page ' . $page . '</p></section></body></html>' );
+        $files[] = array( 'path' => 0 === $page ? 'index.html' : "page-{$page}/index.html", 'kind' => 'html', 'content' => '<!doctype html><html><head><link rel="stylesheet" href="/site.css"></head><body><section class="card-' . ($page % 6) . '"><p><span class="quote">&quot;</span>Page ' . $page . '</p></section></body></html>' );
     }
     $compiled = ( new ArtifactCompiler() )->compile(array( 'entrypoint' => 'index.html', 'files' => $files ))->toArray();
     // Only stylesheets every page loads count; a page's own rules are page-scoped.
     return array_sum(array_map(static fn (array $asset): int => str_starts_with((string) $asset['path'], 'site') && 'page' !== ($asset['compilation']['scope'] ?? '') ? strlen((string) ($asset['content'] ?? '')) : 0, $compiled['assets'] ?? array()));
 };
-$twoPages = $sharedSize(2);
+// Pages cycle through six cards, so both sites render the same cards.
 $sixPages = $sharedSize(6);
-$assert($twoPages > 0 && $sixPages === $twoPages, "the site-wide copy of a shared stylesheet stays the same size however many pages project it (2 pages: {$twoPages} bytes, 6 pages: {$sixPages} bytes)");
+$twelvePages = $sharedSize(12);
+$assert($sixPages > 0 && $twelvePages === $sixPages, "the site-wide copy of a shared stylesheet stays the same size however many pages project it (6 pages: {$sixPages} bytes, 12 pages: {$twelvePages} bytes)");
 
 if ( $failures > 0 ) {
     exit(1);

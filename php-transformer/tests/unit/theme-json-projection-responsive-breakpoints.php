@@ -171,7 +171,7 @@ $assert(
 $responsivePlan = ( new ArtifactCompiler() )->compile( array(
     'entrypoint' => 'index.html',
     'files' => array(
-        'index.html' => '<!doctype html><html><head><link rel="stylesheet" href="assets/site.css"></head><body><main><div class="cards"><p>One</p><p>Two</p><p>Three</p></div><nav class="menu"><a href="/">Home</a></nav></main></body></html>',
+        'index.html' => '<!doctype html><html><head><link rel="stylesheet" href="assets/site.css"></head><body><main><div class="cards"><p>One</p><p>Two</p><p>Three</p></div><nav class="menu"><a href="/">Home</a></nav><ul class="list"><li>Item</li></ul><aside class="sidebar">Aside</aside></main></body></html>',
         'assets/site.css' => '.cards{display:grid;grid-template-columns:repeat(3,1fr)}@media (max-width:900px){.cards{grid-template-columns:1fr}.menu{flex-direction:column}}@media (max-width:560px){.list{flex-wrap:wrap}.sidebar{width:100%}}',
     ),
 ) )->toArray();

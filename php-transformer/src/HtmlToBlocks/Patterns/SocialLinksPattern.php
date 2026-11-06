@@ -95,9 +95,9 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             if ($child instanceof \DOMText && '' !== trim(str_replace("\u{00a0}", ' ', $child->textContent))) return null;
             if (!$child instanceof DOMElement) continue;
             if ('a' === strtolower($child->tagName) && in_array($child, $anchors, true)) continue;
-            if ('li' === strtolower($child->tagName)) {
+            if (in_array(strtolower($child->tagName), array('li', 'div', 'span'), true)) {
                 $itemAnchors = $this->anchors($child);
-                if (1 === count($itemAnchors) && $this->hasOnlyChild($child, $itemAnchors[0])) continue;
+                if (1 === count($itemAnchors) && $this->isSingleLinkWrapper($child, $itemAnchors[0])) continue;
             }
             return null;
         }
@@ -184,6 +184,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                 // Clipped text still supplies the accessible name, even
                 // though it must not enable Core's visible-label layout.
                 $label = $text ?: trim($anchor->textContent);
+                if (preg_match('/^[\s\x{E000}-\x{F8FF}]+$/u', $label)) $label = '';
             }
             $service = self::serviceForUrl($url) ?? $this->serviceFromLabel($label);
             $labeledPlaceholder = $explicit
@@ -240,6 +241,15 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         if ( $iconOnly ) {
             $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' is-style-logos-only');
             $attrs['size'] = $this->iconSize($anchors, $element, $context) ?? 'small';
+            $glyphSizes = array();
+            foreach ($anchors as $anchor) {
+                foreach ($anchor->getElementsByTagName('*') as $glyph) {
+                    if (!$this->isFontGlyph($glyph)) continue;
+                    $size = $context->socialPresentationDeclarations($glyph)['font-size'] ?? '';
+                    if (preg_match('/^\d+(?:\.\d+)?px$/', $size)) $glyphSizes[$size] = true;
+                }
+            }
+            if (1 === count($glyphSizes)) $attrs['inlineGeometryStyle'] = 'font-size:' . array_key_first($glyphSizes);
             $iconColor = $this->uniformIconColor($linkAnchors, $context);
             if ( '' !== $iconColor ) {
                 $attrs['iconColorValue'] = $iconColor;
@@ -258,7 +268,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             // The row's source box is a div/span, not a list. Retain that box
             // as an editable Group; the inserted native list/items contribute
             // no extra boxes or browser list defaults to its authored layout.
-            $nativeAttrs = array_intersect_key($attrs, array_flip(array('layout', 'showLabels', 'size', 'iconColor', 'iconColorValue', 'customIconColor', 'iconBackgroundColor', 'iconBackgroundColorValue', 'customIconBackgroundColor')));
+            $nativeAttrs = array_intersect_key($attrs, array_flip(array('layout', 'inlineGeometryStyle', 'showLabels', 'size', 'iconColor', 'iconColorValue', 'customIconColor', 'iconBackgroundColor', 'iconBackgroundColorValue', 'customIconBackgroundColor')));
             $nativeAttrs['className'] = 'blocks-engine-social-source-row' . ($iconOnly ? ' is-style-logos-only' : '');
             $native = $this->createBlock->createBlock('core/social-links', $nativeAttrs, $links);
             return new PatternRecognitionResult($this->createBlock->createBlock('core/group', $context->presentationAttributes($element), array($native), $element));
@@ -328,6 +338,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                 $text .= $child->textContent;
             } elseif ( $child instanceof DOMElement
                 && ! in_array(strtolower($child->tagName), array('svg', 'script', 'style', 'template', 'noscript'), true)
+                && ! $this->isFontGlyph($child)
                 && ! $context->sourceElementStartsHidden($child)
                 && ! $context->sourceElementVisuallyClipped($child) ) {
                 $text .= $this->visibleText($child, $context);
@@ -362,6 +373,25 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             if (self::isExplicitSocialCluster($ancestor)) return true;
         }
         return false;
+    }
+
+    /** Only neutral, single-child wrapper chains may join a social row. */
+    private function isSingleLinkWrapper(DOMElement $wrapper, DOMElement $anchor): bool
+    {
+        if ($wrapper->isSameNode($anchor)) return true;
+        if (self::hasOtherSemanticOwner($wrapper)) return false;
+        $children = $this->directChildElements($wrapper);
+        return 1 === count($children)
+            && $this->hasOnlyChild($wrapper, $children[0])
+            && (in_array(strtolower($children[0]->tagName), array('div', 'span'), true) || $children[0]->isSameNode($anchor))
+            && $this->isSingleLinkWrapper($children[0], $anchor);
+    }
+
+    /** Private-use font characters are artwork, not visible link labels. */
+    private function isFontGlyph(DOMElement $element): bool
+    {
+        return 1 === preg_match('/^[\s\x{E000}-\x{F8FF}]+$/u', $element->textContent)
+            && 1 === preg_match('/icon|glyph/i', $element->getAttribute('class'));
     }
 
     private function hasOnlyChild(DOMElement $element, DOMElement $child): bool
@@ -487,13 +517,10 @@ final class SocialLinksPattern implements PatternRecognizerInterface
 
     private function structuralItem(DOMElement $anchor, DOMElement $cluster): DOMElement
     {
-        $parent = $anchor->parentNode;
-        return $parent instanceof DOMElement
-            && $parent->parentNode instanceof DOMElement
-            && $parent->parentNode->isSameNode($cluster)
-            && 'li' === strtolower($parent->tagName)
-                ? $parent
-                : $anchor;
+        for ($parent = $anchor->parentNode; $parent instanceof DOMElement && !$parent->isSameNode($cluster); $parent = $parent->parentNode) {
+            if ($parent->parentNode?->isSameNode($cluster) && $this->isSingleLinkWrapper($parent, $anchor)) return $parent;
+        }
+        return $anchor;
     }
 
     private function hasIcon(DOMElement $anchor): bool
@@ -502,6 +529,9 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             return true;
         }
 
+        foreach ($anchor->getElementsByTagName('*') as $glyph) {
+            if ($this->isFontGlyph($glyph)) return true;
+        }
         return '' === trim((string) $anchor->textContent) && 0 < $anchor->getElementsByTagName('span')->length;
     }
 
@@ -510,6 +540,16 @@ final class SocialLinksPattern implements PatternRecognizerInterface
     {
         $dimensions = array();
         foreach ( $anchors as $anchor ) {
+            // Font glyphs retain their exact authored size through the source
+            // glyph projection; choose the native fallback from that size too.
+            foreach ($anchor->getElementsByTagName('*') as $glyph) {
+                if (!$this->isFontGlyph($glyph)) continue;
+                $size = $context->socialPresentationDeclarations($glyph)['font-size'] ?? '';
+                if (preg_match('/^(\d+(?:\.\d+)?)px$/', $size, $match)) {
+                    $dimensions[] = (float) $match[1];
+                    continue 2;
+                }
+            }
             // The clickable item is the rendered social icon, not necessarily
             // the smaller glyph inside it (or an SVG's intrinsic viewport).
             foreach ( array($this->structuralItem($anchor, $cluster), $anchor) as $item ) {
@@ -635,6 +675,12 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             if ( '' !== $styled ) {
                 return $styled;
             }
+        }
+
+        foreach ($anchor->getElementsByTagName('*') as $glyph) {
+            if (!$this->isFontGlyph($glyph)) continue;
+            $color = $this->concreteColor($context->authoredIconColor($glyph));
+            if ('' !== $color) return $color;
         }
 
         $own = $this->ownPaintColor($anchor);
@@ -769,7 +815,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         if ( 1 === preg_match('/^#([0-9a-f]{6})$/', $value, $hex) ) {
             return '#' . $hex[1];
         }
-        if ( 1 === preg_match('/^rgba?\(\s*(\d{1,3})(?:\s*,\s*|\s+)(\d{1,3})(?:\s*,\s*|\s+)(\d{1,3})/', $value, $rgb) ) {
+        if ( 1 === preg_match('/^rgba?\(\s*(\d{1,3})(?:\s*,\s*|\s+)(\d{1,3})(?:\s*,\s*|\s+)(\d{1,3})(?:\s*[,\/]\s*(\d*\.?\d+)(%?))?/', $value, $rgb) ) {
             $channels = array( (int) $rgb[1], (int) $rgb[2], (int) $rgb[3] );
             foreach ( $channels as $channel ) {
                 if ( $channel < 0 || $channel > 255 ) {
@@ -777,7 +823,14 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                 }
             }
 
-            return sprintf('#%02x%02x%02x', $channels[0], $channels[1], $channels[2]);
+            $hex = sprintf('#%02x%02x%02x', $channels[0], $channels[1], $channels[2]);
+            // Keep authored alpha as #rrggbbaa: core renders the icon color
+            // through safecss_filter_attr(), which rejects rgba() but keeps hex.
+            if ( isset($rgb[4]) && '' !== $rgb[4] ) {
+                $alpha = max(0.0, min(1.0, (float) $rgb[4] / ('%' === ($rgb[5] ?? '') ? 100 : 1)));
+                if ( $alpha < 1.0 ) $hex .= sprintf('%02x', (int) round($alpha * 255));
+            }
+            return $hex;
         }
 
         return '';

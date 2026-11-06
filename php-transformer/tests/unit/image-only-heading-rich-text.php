@@ -94,7 +94,7 @@ if ( null === $image
     || str_contains($markup, '<!-- wp:html')
     || array() === $carriers
     || ! str_contains($markup, 'src="/media/logo.svg"')
-    || ! str_contains($markup, 'style="width:100%"')
+    || ! str_contains($markup, 'style="width:100%;height:auto"')
     || ! preg_match('/' . preg_quote($carriers[0] ?? '~~none~~', '/') . '[^{}]*\{[^{}]*min-height:51px/', $sheet)
     || ! str_contains($sheet, '.logo-title img')
     || 'pass' !== ($result['source_reports']['wp_block_validity']['status'] ?? '') ) {

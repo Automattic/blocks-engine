@@ -8,6 +8,7 @@ use DOMElement;
 use Closure;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\DisclosureControlPresentation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 
 final class PatternContext
@@ -25,11 +26,9 @@ final class PatternContext
      * @param LogoPatternContext|null $logoContext
      * @param GalleryPatternContext|null $galleryContext
      * @param Closure(DOMElement): bool|null $sourceElementStartsHidden
-     * @param Closure(DOMElement): string|null $disclosureSummaryMarker
      * @param Closure(DOMElement): string|null $authoredIconColor
      * @param Closure(string, string): void|null $glyphColorUndecodable
      * @param Closure(DOMElement): string|null $capturedGlyphColor
-     * @param Closure(DOMElement): array<string, string>|null $accordionItemBox
      * @param Closure(DOMElement): bool|null $sourceElementVisuallyClipped
      * @param Closure(DOMElement): string|null $richTextContent
      * @param Closure(DOMElement): array<string, string>|null $socialPresentationDeclarations
@@ -48,13 +47,11 @@ final class PatternContext
         private readonly ?LogoPatternContext $logoContext = null,
         private readonly ?GalleryPatternContext $galleryContext = null,
         private readonly ?Closure $sourceElementStartsHidden = null,
-        private readonly ?Closure $disclosureSummaryMarker = null,
-        private readonly ?Closure $accordionToggle = null,
+        private readonly ?DisclosureControlPresentation $disclosure = null,
         private readonly ?Closure $authoredIconColor = null,
         private readonly ?HtmlTransformerSession $session = null,
         private readonly ?Closure $glyphColorUndecodable = null,
         private readonly ?Closure $capturedGlyphColor = null,
-        private readonly ?Closure $accordionItemBox = null,
         private readonly ?Closure $sourceElementVisuallyClipped = null,
         private readonly ?Closure $richTextContent = null,
         private readonly ?Closure $socialAnchorColors = null,
@@ -76,7 +73,7 @@ final class PatternContext
      */
     public function accordionToggle(DOMElement $control, ?DOMElement $row = null): array
     {
-        return null === $this->accordionToggle ? array('className' => '', 'iconSvg' => '') : ($this->accordionToggle)($control, $row);
+        return $this->disclosure?->accordionToggle($control, $row) ?? array('className' => '', 'iconSvg' => '');
     }
 
     /**
@@ -87,7 +84,7 @@ final class PatternContext
      */
     public function accordionItemBox(DOMElement $item): array
     {
-        return null === $this->accordionItemBox ? array() : ($this->accordionItemBox)($item);
+        return $this->disclosure?->accordionItemBox($item) ?? array();
     }
 
     /**
@@ -100,7 +97,7 @@ final class PatternContext
      */
     public function disclosureSummaryMarker(DOMElement $summary): string
     {
-        return null === $this->disclosureSummaryMarker ? '' : ($this->disclosureSummaryMarker)($summary);
+        return $this->disclosure?->disclosureSummaryMarker($summary) ?? '';
     }
 
     /**

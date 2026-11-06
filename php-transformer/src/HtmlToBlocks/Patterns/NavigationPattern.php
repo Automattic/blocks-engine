@@ -4310,7 +4310,7 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function hasCurrentNavigationSignal(DOMElement $element): bool
     {
-        if ( '' !== trim($this->attr($element, 'aria-current')) ) {
+        if ( $element->hasAttribute('aria-current') && 'false' !== strtolower(trim($this->attr($element, 'aria-current'))) ) {
             return true;
         }
 

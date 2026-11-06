@@ -9,7 +9,7 @@ $css = ':root{--wp--preset--color--accent-2:#F6CFF4;--wp--preset--font-size--lar
     . 'h1{color:#ff9900}.intro{color:#22ddaa}.card{background-color:rgb(255,255,255);color:#111111;padding:24px}'
     . '.source-only:hover{outline-color:var(--wp--preset--color--accent-2)}';
 $page = static fn(string $title): string => '<!doctype html><html><head><title>' . $title . '</title><link rel="stylesheet" href="assets/capture-global.css"></head><body><main>'
-    . '<h1>' . $title . '</h1><p class="intro">An independent community newsletter.</p>'
+    . '<h1>' . $title . '</h1><p class="intro source-only">An independent community newsletter.</p>'
     . '<p style="color:#111111">Local reporting, every week.</p><div class="card"><p>Latest news from the neighbourhood.</p></div>'
     . '<div class="source-swatch has-accent-2-background-color"><p>The original source swatch.</p></div>'
     . '<p><a href="other.html">Read the next edition</a></p></main></body></html>';
