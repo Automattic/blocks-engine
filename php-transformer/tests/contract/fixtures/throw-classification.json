@@ -1556,7 +1556,11 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('A page asset scope does not match its canonical page.')": {
+      "InvalidArgumentException('An archive asset scope is structurally invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('An asset scope does not match its canonical document.')": {
         "class": "integrity",
         "count": 1
       },
@@ -1564,7 +1568,7 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('A page-owned compiled asset must resolve to a canonical page.')": {
+      "InvalidArgumentException('A document-owned compiled asset must resolve to a canonical document.')": {
         "class": "integrity",
         "count": 1
       },

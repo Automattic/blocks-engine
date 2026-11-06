@@ -1373,21 +1373,80 @@ unset($dateArchiveDocument);
 $dateArchiveResult['source_reports']['conversion_report']['core_html_fallback_evidence'] = $dateArchiveResult['source_reports']['core_html_fallback_evidence'] ?? array();
 $dateArchiveStagedPlan = (new WordPressSitePlan())->fromResult($dateArchiveResult);
 $assert(!in_array('2023/04/02/index.html', array_column($dateArchiveStagedPlan['pages'], 'source_path'), true), 'Retained WordPress body metadata also excludes date archives when staged documents omit source HTML.');
+$dateRootDocuments = $dateArchivePlan['theme']['document_roots'] ?? array();
+$assert(in_array('2023/04/02', array_map(static fn(array $row): string => trim($row['route']['path'], '/'), $dateRootDocuments), true), 'Date captures keep root context independently of page projection.');
+// Execute the emitted document resolver against canonical archive links, not request URLs.
+function is_category(): bool { return 'category' === ($GLOBALS['rootArchiveKind'] ?? ''); }
+function is_tag(): bool { return 'tag' === ($GLOBALS['rootArchiveKind'] ?? ''); }
+function is_tax(): bool { return false; }
+function is_author(): bool { return 'author' === ($GLOBALS['rootArchiveKind'] ?? ''); }
+function is_date(): bool { return false; }
+function get_queried_object(): object { return (object) array('term_id' => 970); }
+function get_term_link($term): string { return 'https://example.test/' . $GLOBALS['rootArchivePath'] . '/'; }
+function get_author_posts_url($id): string { return 'https://example.test/author/zapier/'; }
+function wp_make_link_relative(string $url): string { return (string) parse_url($url, PHP_URL_PATH); }
 // WordPress term identity proves existence independently of reciprocal membership.
 foreach (array(' – ', ' | ', ' - ') as $termTitleSeparator) {
     $termIdentityFiles = array(
-        array('path' => 'index.html', 'content' => '<title>Home' . $termTitleSeparator . 'Example Site</title><main>Home</main>'),
+        array('path' => 'assets/archive.css', 'content' => '.archive-logo { margin-bottom: 0; }'),
+        array('path' => 'index.html', 'content' => '<title>Home' . $termTitleSeparator . 'Example Site</title><link rel="stylesheet" href="/assets/archive.css"><main>Home</main>'),
         array('path' => '2023/04/01/first/index.html', 'content' => '<title>First' . $termTitleSeparator . 'Example Site</title><meta property="article:published_time" content="2023-04-01T12:00:00Z"><main><article><h1>First</h1><p>No term links.</p></article></main>'),
         array('path' => '2023/04/02/second/index.html', 'content' => '<title>Second' . $termTitleSeparator . 'Example Site</title><meta property="article:published_time" content="2023-04-02T12:00:00Z"><main><article><h1>Second</h1><p>No term links.</p></article></main>'),
         array('path' => 'topics/x/index.html', 'content' => '<main><h1>X</h1></main>', 'metadata' => array('route_path' => '/tag/x')),
         array('path' => 'tag/wrong/index.html', 'content' => '<title>Wrong</title><body class="archive tag tag-other"><main>Wrong archive</main></body>'),
     );
     foreach (array('tag/ai' => array('archive tag tag-ai tag-970', 'AI'), 'category/blog' => array('archive category category-blog', 'Blog')) as $termIdentityRoute => $termIdentity) {
-        $termIdentityFiles[] = array('path' => $termIdentityRoute . '/index.html', 'content' => '<html><head><title>' . $termIdentity[1] . $termTitleSeparator . 'Example Site</title></head><body class="' . $termIdentity[0] . '"></body></html>');
+        $termIdentityFiles[] = array('path' => $termIdentityRoute . '/index.html', 'content' => '<html><head><title>' . $termIdentity[1] . $termTitleSeparator . 'Example Site</title><link rel="stylesheet" href="/assets/archive.css"></head><body class="' . $termIdentity[0] . '">' . ('tag/ai' === $termIdentityRoute ? '<img src="/assets/logo.png" alt="Logo">' : '') . '</body></html>');
         $termIdentityFiles[] = array('path' => $termIdentityRoute . '/page/2/index.html', 'content' => '<body class="' . $termIdentity[0] . ' paged"></body>');
     }
+    foreach ($termIdentityFiles as &$termIdentityFile) if (str_ends_with($termIdentityFile['path'], '.html') && !str_contains($termIdentityFile['content'], '/assets/archive.css')) $termIdentityFile['content'] = '<link rel="stylesheet" href="/assets/archive.css">' . $termIdentityFile['content'];
+    unset($termIdentityFile);
     $termIdentityResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $termIdentityFiles))->toArray();
     $termIdentityPlan = $termIdentityResult['source_reports']['wordpress_site_plan'];
+    $termIdentityBootstrap = (string) ($writeMap($termIdentityPlan['writes'])['functions.php']['payload']['data'] ?? '');
+    $archiveSupport = array_values(array_filter($termIdentityPlan['assets'], static fn(array $asset): bool => 'engine-support' === ($asset['source'] ?? '') && str_contains($asset['content'] ?? '', '.blocks-engine-synthetic-image-figure{margin:0}') && in_array(array('kind' => 'archive', 'source_path' => 'tag/ai/index.html', 'route_path' => 'tag/ai'), $asset['scopes'] ?? array(), true)));
+    $assert(array() !== $archiveSupport, 'Captured tag documents own generated synthetic-image support CSS.');
+    foreach ($archiveSupport as $support) {
+        $supportHandle = 'blocks-engine-' . substr(hash('sha256', $support['target_path']), 0, 12);
+        $assert(str_contains($termIdentityBootstrap, "if ( 'tag/ai' === blocks_engine_archive_path() ) wp_enqueue_style( '" . $supportHandle . "', get_theme_file_uri( '" . $support['target_path'] . "' )"), 'Generated archive support CSS enqueues under the canonical archive condition.');
+    }
+    $rootStart = strpos($termIdentityBootstrap, 'global $blocks_engine_document_roots');
+    $rootEnd = strpos($termIdentityBootstrap, "add_filter( 'language_attributes'", $rootStart);
+    unset($blocks_engine_document_roots, $blocks_engine_document_attributes, $blocks_engine_document_fallback);
+    eval(substr($termIdentityBootstrap, $rootStart, $rootEnd - $rootStart) . "\n}");
+    $termRootRows = array_column($blocks_engine_document_roots, null, 'path');
+    $tagRoot = $termRootRows['tag/ai'] ?? array();
+    $expectedTagBody = \Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity::projectRoot(array('class' => 'archive tag tag-ai tag-970'));
+    $assert($expectedTagBody === ($tagRoot['body_attributes'] ?? null) && !empty($tagRoot['identity']) && str_contains($tagRoot['attributes']['class'] ?? '', 'be-r-'), 'Projected tag archives retain their canonical path, root attributes, body source classes and identity in the emitted registry.');
+    // Select the tag block explicitly; other captured documents may precede it.
+    preg_match("/if \\( ('tag\\/ai' === blocks_engine_archive_path\\(\\)) \\) \\{\\n        \\\$blocks_engine_route_styles = true;\\n        wp_enqueue_style\\( 'blocks-engine-instance-[^']+'/", $termIdentityBootstrap, $archiveStyleMatch);
+    $assert(isset($archiveStyleMatch[1]), 'A captured tag archive emits an ordered instance stylesheet route block.');
+    $archiveStyleCondition = $archiveStyleMatch[1] ?? 'false';
+    $assert(1 === substr_count($termIdentityBootstrap, 'function blocks_engine_archive_path()'), 'The root resolver and stylesheet scopes share one generated canonical archive helper.');
+    $savedNavQuery = $blocksEngineNavQueryState;
+    $blocksEngineNavQueryState = array('page' => false, 'front_page' => false, 'queried_id' => 970);
+    $GLOBALS['rootArchiveKind'] = 'tag';
+    $GLOBALS['rootArchivePath'] = 'tag/ai';
+    foreach (array('/tag/ai/', '/tag/ai/page/2/?ignored=1') as $archiveRequest) {
+        $_SERVER['REQUEST_URI'] = $archiveRequest;
+        $blocks_engine_route_styles = eval('return ' . $archiveStyleCondition . ';');
+        $assert($blocks_engine_route_styles, 'Tag and pagination queries select the captured archive stylesheet block.');
+        $assert(($tagRoot['body_attributes'] ?? null) === $blocks_engine_document_attributes('body') && ($tagRoot['attributes'] ?? null) === $blocks_engine_document_attributes('html'), 'Tag archive queries and pagination resolve the captured document via the canonical queried term link.');
+    }
+    $GLOBALS['rootArchivePath'] = 'category/blog';
+    $GLOBALS['rootArchiveKind'] = 'category';
+    $assert($termRootRows['category/blog']['body_attributes'] === $blocks_engine_document_attributes('body'), 'Category archives resolve their captured document root.');
+    $GLOBALS['rootArchiveKind'] = 'author';
+    $blocks_engine_document_roots['author-test'] = array('identity' => 'author-test', 'path' => 'author/zapier', 'front_page' => false, 'attributes' => array('class' => 'author-root'), 'body_attributes' => array('class' => 'author-body'));
+    $assert(array('class' => 'author-body') === $blocks_engine_document_attributes('body'), 'Author archive queries resolve the canonical author link.');
+    $GLOBALS['rootArchiveKind'] = 'tag';
+    $GLOBALS['rootArchivePath'] = 'tag/uncaptured';
+    $_SERVER['REQUEST_URI'] = '/tag/ai/';
+    $blocks_engine_route_styles = eval('return ' . $archiveStyleCondition . ';');
+    $assert(!$blocks_engine_route_styles && str_contains($termIdentityBootstrap, 'if ( ! $blocks_engine_route_styles ) wp_enqueue_style('), 'An uncaptured archive selects the global stylesheet fallback, independently of REQUEST_URI.');
+    $assert($blocks_engine_document_fallback['body_attributes'] === $blocks_engine_document_attributes('body'), 'An uncaptured archive keeps shared fallback even when the raw request URL names a captured archive.');
+    $GLOBALS['rootArchiveKind'] = '';
+    $blocksEngineNavQueryState = $savedNavQuery;
     $termIdentityEntities = array_column($termIdentityPlan['taxonomy_entities'], null, 'slug');
     $assert(2 === count($termIdentityEntities) && 'post_tag' === ($termIdentityEntities['ai']['taxonomy'] ?? null) && 'AI' === ($termIdentityEntities['ai']['name'] ?? null) && 'category' === ($termIdentityEntities['blog']['taxonomy'] ?? null) && 'Blog' === ($termIdentityEntities['blog']['name'] ?? null) && array() === $termIdentityEntities['ai']['membership_source_paths'] && array() === $termIdentityEntities['blog']['membership_source_paths'], 'WordPress body identity proves empty tag/category terms and names them from titles with the shared site suffix removed.');
     foreach (array('tag/ai', 'category/blog') as $termIdentityRoute) foreach (array('/index.html', '/page/2/index.html') as $termIdentitySuffix) {
@@ -1401,6 +1460,7 @@ foreach (array(' – ', ' | ', ' - ') as $termTitleSeparator) {
     unset($termIdentityDocument);
     $termIdentityResult['source_reports']['conversion_report']['core_html_fallback_evidence'] = $termIdentityResult['source_reports']['core_html_fallback_evidence'] ?? array();
     $termIdentityStagedPlan = (new WordPressSitePlan())->fromResult($termIdentityResult);
+    $assert($termIdentityBootstrap === ($writeMap($termIdentityStagedPlan['writes'])['functions.php']['payload']['data'] ?? ''), 'Archive stylesheet route blocks round-trip through staged bootstrap validation.');
     $assert($termIdentityPlan['taxonomy_entities'] === $termIdentityStagedPlan['taxonomy_entities'], 'Retained body classes and head titles also prove empty terms when staged documents omit HTML.');
 }
 $feedHead = '<link rel="alternate" type="application/rss+xml" href="/feed.xml">';
