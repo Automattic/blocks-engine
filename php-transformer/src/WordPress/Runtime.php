@@ -503,7 +503,7 @@ final class Runtime
                     if ( 'core/video' === $name && in_array($attribute, self::VIDEO_STATE_ATTRIBUTES, true) ) {
                         continue;
                     }
-                    if ( is_array($schema) && ( array_key_exists('source', $schema) || 'local' === ($schema['role'] ?? null) ) ) {
+                    if ( is_array($schema) && self::isDerivedAttributeSchema($schema) ) {
                         unset($block['attrs'][ $attribute ]);
                     }
                 }
@@ -516,6 +516,29 @@ final class Runtime
         }
 
         return $canonical;
+    }
+
+    /**
+     * Whether a declared attribute never belongs in the block delimiter.
+     *
+     * Sourced attributes (`rich-text`, `html`, `text`, `attribute`, `query`,
+     * `raw`, ...) are re-derived from saved markup by the editor, and `local`
+     * attributes are editor-only. A `rich-text` typed attribute is excluded
+     * even without a `source`: it is not a JSON Schema type, so WordPress'
+     * `WP_Block_Type::prepare_attributes_for_render()` raises a
+     * `rest_validate_value_from_schema` doing-it-wrong notice for every
+     * delimiter value it validates.
+     *
+     * @param array<string, mixed> $schema
+     */
+    private static function isDerivedAttributeSchema(array $schema): bool
+    {
+        if ( array_key_exists('source', $schema) || 'local' === ($schema['role'] ?? null) ) {
+            return true;
+        }
+
+        $type = $schema['type'] ?? null;
+        return 'rich-text' === $type || ( is_array($type) && in_array('rich-text', $type, true) );
     }
 
     /**

@@ -756,6 +756,7 @@
       "php tests/contract/small-fixed-size-image-beside-text.php",
       "php tests/contract/synthetic-flex-figure-box-properties.php",
       "php tests/unit/rich-text-source-serialization.php",
+      "php tests/unit/source-derived-comment-attributes.php",
       "php tests/unit/gradient-text-background-clip.php",
       "php tests/unit/rich-text-svg-transaction.php",
       "php tests/unit/heading-inline-svg-rich-text.php",
