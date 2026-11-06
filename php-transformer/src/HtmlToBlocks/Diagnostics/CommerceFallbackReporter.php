@@ -998,7 +998,17 @@ final class CommerceFallbackReporter
     private function insideChromeOrForm(DOMElement $node): bool
     {
         for ( $ancestor = $node->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
-            if ( in_array(strtolower($ancestor->tagName), array('form', 'header', 'footer', 'nav'), true) ) {
+            $tag = strtolower($ancestor->tagName);
+            if ( in_array($tag, array('form', 'nav'), true) ) {
+                return true;
+            }
+            if ( in_array($tag, array('header', 'footer'), true) ) {
+                // Section-owned headers/footers are content, not page chrome.
+                for ( $scope = $ancestor->parentNode; $scope instanceof DOMElement; $scope = $scope->parentNode ) {
+                    if ( ShellLandmarkPolicy::isContentRegionTag($scope->tagName) || in_array(strtolower($scope->tagName), array('main', 'nav'), true) ) {
+                        continue 2;
+                    }
+                }
                 return true;
             }
         }
