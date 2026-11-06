@@ -226,6 +226,12 @@ $assert(array() === ($nativeColumnsResult['source_reports']['generated_blocks'] 
 $projectedChain = '<p>Editable terminal content</p>';
 for ($depth = 0; $depth < 8; ++$depth) $projectedChain = '<div id="shell-' . $depth . '" class="shell-' . $depth . ' blocks-engine-source-div-fixture-3">' . $projectedChain . '</div>';
 $shellResult = ( new HtmlTransformer() )->transform($projectedChain)->toArray();
+// Shell extraction is a site policy, not a change to fragment editing.
+// Exercise both policies through the public transformer on the same source.
+$siteChain = ( new HtmlTransformer() )->transform($projectedChain, array('extract_global_shell' => true))->toArray();
+$assert('core/group' === ($siteChain['blocks'][0]['blockName'] ?? '')
+    && !str_contains((string) ($siteChain['serialized_blocks'] ?? ''), '<!-- wp:custom/layout-shell')
+    && 8 === substr_count((string) ($siteChain['serialized_blocks'] ?? ''), 'id="shell-'), '6: site shell policy retains native wrapper boundaries without changing fragment shell editing');
 $shellBlock = $shellResult['blocks'][0] ?? array();
 $shellDefinitions = array_values(array_filter($shellResult['source_reports']['generated_blocks'] ?? array(), static fn (array $definition): bool => 'Layout Shell' === ($definition['block_json']['title'] ?? null)));
 $assert(str_ends_with((string) ($shellBlock['blockName'] ?? ''), '/layout-shell') && 8 === count($shellBlock['attrs']['wrappers'] ?? array()) && 'core/paragraph' === ($shellBlock['innerBlocks'][0]['blockName'] ?? null), '6: a projected wrapper chain becomes one layout-shell block around native editable content');

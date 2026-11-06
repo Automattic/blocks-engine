@@ -112,12 +112,18 @@ final class WrapperCoalescer
      */
     public function foldWrapperChain(array $chain, array $terminal): array
     {
-        // Compression must not trade native structure editing for a generated
-        // block. Retain native content boundaries, but leave media and control
+        // Site shell extraction needs independently addressable native content
+        // boundaries. Fragment compilation still owns the compact shell editor
+        // contract; do not change its List View depth or generated definition.
+        // Retain native content boundaries, but leave media and control
         // chains on their existing shell path. Controls already introduce their
         // own layout wrapper (core/buttons); expanding their source chain adds
         // wrapper debt without exposing another content editing surface.
-        if (! $this->hasResponsiveCounterpart($terminal)
+        if ($this->session->preservesShellLandmarks()
+            && ! $this->hasResponsiveCounterpart($terminal)
+            // Navigation normalization uses the projected shell boundary to
+            // distinguish breakpoint-specific copies from redundant menus.
+            && ! $this->containsNavigation($terminal)
             && ! $this->sourceElementClassifier->isLayoutShellBlock($terminal)
             && ! in_array($terminal['blockName'] ?? null, array('core/image', 'core/buttons', 'core/freeform'), true)
             && ! ('core/group' === ($terminal['blockName'] ?? null) && empty($terminal['innerBlocks']))
@@ -172,6 +178,20 @@ final class WrapperCoalescer
         }
         foreach ($block['innerBlocks'] ?? array() as $child) {
             if ($this->hasResponsiveCounterpart($child)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @param array<string, mixed> $block */
+    private function containsNavigation(array $block): bool
+    {
+        if ('core/navigation' === ($block['blockName'] ?? null)) {
+            return true;
+        }
+        foreach ($block['innerBlocks'] ?? array() as $child) {
+            if ($this->containsNavigation($child)) {
                 return true;
             }
         }

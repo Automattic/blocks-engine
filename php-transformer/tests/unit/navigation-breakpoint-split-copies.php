@@ -36,6 +36,15 @@ $split = (string) (( new HtmlTransformer() )->transform($css
 $assert(1 === $navigationIn($split, 'desktop-only'), 'the desktop-only wrapper keeps its navigation');
 $assert(1 === $navigationIn($split, 'mobile-only'), 'the mobile-only wrapper keeps its navigation');
 
+// The navigation boundary must survive when a chain terminates in a group
+// containing both a menu and other editable content, not just a navigation leaf.
+$nested = (string) (( new HtmlTransformer() )->transform($css
+    . '<div class="desktop-only"><div class="bar">' . $menu . '<p>Desktop tools</p></div></div>'
+    . '<div class="mobile-only"><div class="bar">' . $menu . '<p>Mobile tools</p></div></div>'
+    . '<main><h1>Home</h1></main>')->toArray()['serialized_blocks'] ?? '');
+$assert(1 === $navigationIn($nested, 'desktop-only'), 'a grouped desktop menu retains its normalization boundary');
+$assert(1 === $navigationIn($nested, 'mobile-only'), 'a grouped mobile menu retains its normalization boundary');
+
 // A copy hidden at the reference viewport is still a removable duplicate when
 // the kept copy's wrappers stay visible at the collapsed viewport.
 $redundant = (string) (( new HtmlTransformer() )->transform($css
