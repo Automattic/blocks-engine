@@ -15,6 +15,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use DOMDocument;
 use DOMElement;
+use DOMNode;
+use DOMText;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Support\RenderEquivalentMarkup;
 use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
@@ -865,7 +867,10 @@ final class FallbackEmitter
     {
         foreach ( array_keys($this->htmlAttributes($element)) as $name ) {
             $normalizedName = strtolower($name);
-            if ( 'id' === $normalizedName || str_starts_with($normalizedName, 'data-') || preg_match('/^(?:x-|v-|ng-|:|@)/', $normalizedName) ) {
+            if ( 'id' === $normalizedName || preg_match('/^(?:x-|v-|ng-|:|@)/', $normalizedName) ) {
+                return true;
+            }
+            if ( str_starts_with($normalizedName, 'data-') && $this->templateHasReadableContent($element) ) {
                 return true;
             }
         }
@@ -882,12 +887,37 @@ final class FallbackEmitter
         }
 
         foreach ( $this->htmlAttributes($element) as $name => $value ) {
-            if ( str_starts_with(strtolower($name), 'data-') && '' !== trim($value) ) {
+            if ( str_starts_with(strtolower($name), 'data-') && '' !== trim($value) && $this->templateHasReadableContent($element) ) {
                 return 'data_template';
             }
         }
 
         return $this->templateRequiresRuntimePreservation($element) ? 'runtime_template' : 'static_template_metadata';
+    }
+
+    /**
+     * Whether a template body carries readable text outside form controls and
+     * aria-hidden/SVG chrome. Control-only bodies are inert widget scaffolding.
+     */
+    private function templateHasReadableContent(DOMNode $node): bool
+    {
+        foreach ( $node->childNodes as $child ) {
+            if ( $child instanceof DOMText && '' !== trim($child->textContent) ) {
+                return true;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            if ( in_array(strtolower($child->tagName), array( 'select', 'option', 'optgroup', 'input', 'textarea', 'button', 'datalist', 'svg', 'script', 'style' ), true)
+                || 'true' === strtolower(trim($child->getAttribute('aria-hidden'))) ) {
+                continue;
+            }
+            if ( $this->templateHasReadableContent($child) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
