@@ -626,6 +626,14 @@ final class ShellExtraction
             }
         }
         foreach ($ranges as $range) {
+            $block = substr($markup, $range['offset'], $range['length']);
+            // A complete labelled shell owns its descendants. Looking for
+            // unlabeled chrome inside it can mistake its link row for another
+            // header and its trailing controls for a footer when a preceding
+            // document sibling prevents the outer first-child match.
+            $openingBlock = strstr($block, '-->', true) ?: '';
+            if (1 === preg_match('/"tagName":"(?:header|footer)"|"role":"(?:banner|contentinfo)"/', $openingBlock)
+                && !self::containsMainLandmark($block) && !str_contains($block, '<!-- wp:heading')) continue;
             $children = $index->children($range);
             if (array() === $children) continue;
             $opening = substr($markup, $range['offset'], $children[0]['offset'] - $range['offset']);
@@ -4002,7 +4010,12 @@ final class ShellExtraction
                 $own = array_diff_key($attrs, array_flip(array('className', 'style', 'color', 'typography', 'anchor', 'anchorClassName')));
                 $attrs = array_merge($peer, $own);
                 $peerClasses = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
-                $stable = array_values(array_filter($classes, static fn(string $class): bool => '' !== $class && !self::isCurrentPageClass($class, $peerClasses) && !preg_match('/^blocks-engine-navigation-(?:current|link)-color-[a-f0-9]{64}$/', $class) && !preg_match('/^blocks-engine-navigation-link-color-states-\d+$/', $class) && !preg_match('/^be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?$/', $class) && !in_array($class, $peerClasses, true)));
+                // A current item may swap arbitrary author utilities rather
+                // than name its state. Match the producer's structural proof:
+                // shared presentation plus missing resting classes identifies
+                // the item's peer-unique replacement classes as route state.
+                $replaces = array() !== array_intersect($classes, $peerClasses) && array() !== array_diff($peerClasses, $classes);
+                $stable = array_values(array_filter($classes, static fn(string $class): bool => '' !== $class && (!$replaces || str_starts_with($class, 'blocks-engine-') || str_starts_with($class, 'be-')) && !self::isCurrentPageClass($class, $peerClasses) && !preg_match('/^blocks-engine-navigation-(?:current|link)-color-[a-f0-9]{64}$/', $class) && !preg_match('/^blocks-engine-navigation-link-color-states-\d+$/', $class) && !preg_match('/^be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?$/', $class) && !in_array($class, $peerClasses, true)));
                 // The part keeps the item's own link-state carrier, which the
                 // navigation-root current-color rule resolves its state against.
                 $stateCarriers = $semanticIdentity ? array() : array_values(array_filter($classes, static fn(string $class): bool => 1 === preg_match('/^blocks-engine-navigation-link-color-states-\d+$/', $class)));
