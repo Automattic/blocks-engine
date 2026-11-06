@@ -97,16 +97,21 @@ final class FormRuntimeRequirementAnalyzer
                 && in_array($controlType, array( 'submit', 'image' ), true) ) {
                 $hasSubmit = true;
             }
+            if ( FormControlClassifier::isSubmitLikeControl($control) ) {
+                $donate = $donate || self::hasDonationSubmitSemantics($control);
+            }
         }
         foreach ( $controls as $control ) {
             $type = strtolower(SourceDom::attr($control, 'type'));
-            $name = strtolower(SourceDom::attr($control, 'name'));
+            $sourceName = SourceDom::attr($control, 'name');
+            $name = strtolower($sourceName);
             $tag = strtolower($control->tagName);
             $controlType = FormControlClassifier::controlType($control);
             if ( 'select' === $tag || ('input' === $tag && in_array($controlType, array( 'radio', 'checkbox' ), true)) ) {
                 $hasChoice = true;
                 if ( 'select' !== $tag && '' !== $name ) {
-                    $choiceGroupSizes[$name] = ($choiceGroupSizes[$name] ?? 0) + 1;
+                    $group = $controlType . ':' . $sourceName;
+                    $choiceGroupSizes[$group] = ($choiceGroupSizes[$group] ?? 0) + 1;
                 }
             } elseif ( ('button' === $tag && in_array(strtolower(SourceDom::attr($control, 'role')), array( 'radio', 'checkbox', 'switch' ), true))
                 || ('button' !== $tag && ! in_array($controlType, array( 'submit', 'reset', 'button', 'image' ), true)) ) {
@@ -126,7 +131,6 @@ final class FormRuntimeRequirementAnalyzer
             $freeText = $freeText || 'textarea' === $tag || ('input' === $tag && in_array($type, array( '', 'text', 'tel', 'email', 'url' ), true) && ! in_array($name, array( 'q', 's', 'search', 'query' ), true));
             if ( FormControlClassifier::isSubmitLikeControl($control) ) {
                 $subscribe = $subscribe || 1 === preg_match('/\b(?:subscribe|newsletter)\b/i', ($control->textContent ?? '') . ' ' . SourceDom::attr($control, 'value'));
-                $donate = $donate || self::hasDonationSubmitSemantics($control);
             }
         }
         if ( preg_match('~(?:^|/)cart/add(?:[/.]|$)~', $path) || ($hiddenItem && $quantity) || self::hasCommerceSubmissionSignal($form, true) ) {
@@ -173,6 +177,7 @@ final class FormRuntimeRequirementAnalyzer
         }
         $haystack = implode(' ', array_merge($text, array(
             SourceDom::attr($control, 'value'),
+            SourceDom::attr($control, 'alt'),
             SourceDom::attr($control, 'aria-label'),
             SourceDom::attr($control, 'title'),
         )));
