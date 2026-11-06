@@ -167,7 +167,14 @@ final class CoverPattern implements PatternRecognizerInterface
             $justify = (string) ($declarations['justify-content'] ?? 'normal');
             $vertical = 'flex' === $display && $column ? $justify : $align;
             $horizontal = 'flex' === $display && $column ? $align : $justify;
-            $attrs['contentPosition'] = $this->positionToken($vertical, 'top', 'bottom') . ' ' . $this->positionToken($horizontal, 'left', 'right');
+            // A stacked hero whose inline axis stretches (column flex cross
+            // axis, grid track) gives its content the full hero width. Core
+            // shrinks the inner container to its content for any left/right
+            // position, so keep the inline token centered (full-width inner
+            // container) and stretch the stacked children instead.
+            $fillsInline = $column && in_array(CssValueInspector::comparable($horizontal), array( 'normal', 'stretch' ), true);
+            $horizontalToken = $fillsInline ? 'center' : $this->positionToken($horizontal, 'left', 'right');
+            $attrs['contentPosition'] = $this->positionToken($vertical, 'top', 'bottom') . ' ' . $horizontalToken;
             // Covers add padding by default; an unpadded source must remain so.
             foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
                 $attrs['style']['spacing']['padding'][$side] ??= '0';
@@ -176,7 +183,7 @@ final class CoverPattern implements PatternRecognizerInterface
                 'type' => 'flex',
                 'orientation' => $column ? 'vertical' : 'horizontal',
                 'flexWrap' => 'nowrap',
-                'justifyContent' => $this->positionToken($horizontal, 'left', 'right'),
+                'justifyContent' => $fillsInline ? 'stretch' : $horizontalToken,
                 'verticalAlignment' => $this->positionToken($vertical, 'top', 'bottom'),
             );
             $children = array($createBlock('core/group', array('layout' => $layout), $children, null));
