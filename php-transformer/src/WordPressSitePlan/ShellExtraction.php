@@ -3943,7 +3943,10 @@ final class ShellExtraction
                 if (array() === $merged) unset($attrs['className']); else $attrs['className'] = implode(' ', $merged);
                 return '<!-- wp:' . $match[1] . ' ' . BlockAttributes::encode($attrs) . ' ' . (($match[3] ?? '') ? '/' : '') . '-->';
             }
-            if (!$current && !$semanticIdentity) return $match[0];
+            // The root can carry lifted current colour even when the current
+            // destination is a rich featured card, not a navigation-link block.
+            $rootCurrentColor = 'navigation' === $match[1] && array() !== preg_grep('/^blocks-engine-navigation-current-color-[a-f0-9]{64}$/', $classes);
+            if (!$current && !$semanticIdentity && !$rootCurrentColor) return $match[0];
             $isLink = 'navigation' !== $match[1];
             $peerClasses = is_array($peer) ? (preg_split('/\s+/', trim((string) ($peer['className'] ?? ''))) ?: array()) : array();
             // A link colour on a current item is the colour it rests at on every
@@ -3953,9 +3956,9 @@ final class ShellExtraction
             // belongs to that colour. A carrier unique to a current item without
             // one paints only the served route.
             $restingColor = array() !== preg_grep('/^blocks-engine-navigation-link-color-[a-f0-9]{64}$/', $classes);
-            $classes = array_values(array_filter($classes, static function (string $class) use ($current, $semanticIdentity, $stateCarrierCounts, $peerClasses, $restingColor): bool {
+            $classes = array_values(array_filter($classes, static function (string $class) use ($current, $semanticIdentity, $rootCurrentColor, $stateCarrierCounts, $peerClasses, $restingColor): bool {
                 if ($current && self::isCurrentPageClass($class, $peerClasses)) return false;
-                if (($current || $semanticIdentity) && preg_match('/^blocks-engine-navigation-current-color-[a-f0-9]{64}$/', $class)) return false;
+                if (($current || $semanticIdentity || $rootCurrentColor) && preg_match('/^blocks-engine-navigation-current-color-[a-f0-9]{64}$/', $class)) return false;
                 if ($semanticIdentity && $current && !$restingColor && 1 === ($stateCarrierCounts[$class] ?? 0)) return false;
                 if ($semanticIdentity && $current && preg_match('/^be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?$/', $class)) return false;
                 return true;
@@ -3980,6 +3983,12 @@ final class ShellExtraction
         // part serves every route, so that page-scoped state is neither part of
         // the chrome's identity nor frozen into the part.
         $markup = preg_replace('/(<a\b[^>]*?)\s+aria-current\s*=\s*(["\'])page\2/i', '$1', $markup) ?? $markup;
+        // Rich mega-menu panels can retain a rendered navigation root rather
+        // than navigation-link blocks. Its lifted current colour is still
+        // page state, just like the marker on a core navigation comment.
+        if ($semanticIdentity) {
+            $markup = preg_replace('/\s*blocks-engine-navigation-current-color-[a-f0-9]{64}\b/', '', $markup) ?? $markup;
+        }
         $markup = self::withoutListItemDisclosureState($markup);
         return self::withoutMenuSelectionState($markup, true);
     }
