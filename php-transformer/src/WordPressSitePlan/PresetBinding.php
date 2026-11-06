@@ -219,9 +219,12 @@ final class PresetBinding
                 }
                 if (array() === $ancestors) {
                     foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
-                        // A plain class (including its projected control exclusion)
-                        // proves a resting rule; contextual/conditional selectors do not.
-                        if (1 !== preg_match('/^\.([a-zA-Z_][a-zA-Z0-9_-]*)(?::not\(:where\(\.blocks-engine-role-control\)\))?$/', trim($selector), $match)) continue;
+                        // Route projections duplicate a plain class for the document
+                        // root and its descendants, including the control exclusion.
+                        // Remove only that generated scope, not author contexts/states.
+                        $routeScope = ':where\(:root:(?:is|not)\(\.be-r-[a-f0-9]+(?:,\.be-r-[a-f0-9]+)*\)\)';
+                        $selector = preg_replace('/^' . $routeScope . ' +|' . $routeScope . '$/', '', trim($selector)) ?? $selector;
+                        if (1 !== preg_match('/^\.([a-zA-Z_][a-zA-Z0-9_-]*)(?::not\(:where\(\.blocks-engine-role-control\)\))?$/', $selector, $match)) continue;
                         foreach (self::declarations($body) as [$property, $value]) {
                             if (in_array($property, array('color', 'background-color', 'background'), true)) $this->classColors[$match[1]][$property][] = $value;
                         }
