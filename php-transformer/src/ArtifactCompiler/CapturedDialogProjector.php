@@ -866,6 +866,11 @@ final class CapturedDialogProjector
                 $scopedPanel = array() === $resting && $nativeScopedWiring && $scope->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) && $dropdown;
                 $sourcePlace = array() !== $resting || ($dropdown && ($scopedPanel || $panel->hasAttribute(CaptureEvidence::OBSERVED_PLACEMENT))) || $this->isNativeGalleryPanel($panel) ? $panel : null;
                 $dialog = $this->appendProjectedDialog($document, $fragment, $triggers, $triggerIds, $identity, $dropdown, $sourcePlace, $scopedPanel, $resting);
+                // The resting panel now holds the opened snapshot as its open
+                // content, so the trigger's copy of it is spent capture evidence.
+                if (array() !== $resting) {
+                    foreach ($triggers as $trigger) $trigger->removeAttribute(CaptureEvidence::DIALOG_PANEL_STATE);
+                }
                 if ($scopedPanel) {
                     foreach ($triggers as $trigger) {
                         foreach (array(CaptureEvidence::DIALOG_PANEL_STATE, CaptureEvidence::DIALOG_ANCESTOR_STATE, CaptureEvidence::DISCLOSURE_LABEL) as $attribute) $trigger->removeAttribute($attribute);

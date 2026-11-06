@@ -71,6 +71,8 @@ final class RouteStateProjector
                 }
             }
         }
+        // Route bindings record class names, so they read the aligned ones.
+        $files = self::withRouteAlignedChromeClasses($files);
         $files = self::bindNavigationRuns(self::bindRetainedLabels($files, $entryPath));
         $files = self::bindCurrentNavigationSources($files);
         $files = self::withRestingChrome($files);
@@ -153,17 +155,17 @@ final class RouteStateProjector
         $menus = array();
         $root = WordPressSitePlan::entryRootFromDocuments(array(array('entrypoint' => true, 'source_path' => $entryPath)));
         foreach ($files as $index => $file) {
-            if ('html' !== ($file['kind'] ?? null) || !is_string($file['content'] ?? null) || !str_contains($file['content'], '<nav')) continue;
+            if ('html' !== ($file['kind'] ?? null) || !is_string($file['content'] ?? null) || !preg_match('/<nav\b|\brole=["\']?navigation\b/i', $file['content'])) continue;
             $document = new DOMDocument('1.0', 'UTF-8');
             $previous = libxml_use_internal_errors(true);
             $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $file['content'], LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
             libxml_clear_errors(); libxml_use_internal_errors($previous);
             if (!$loaded) continue;
             $documents[$index] = $document;
-            foreach ((new DOMXPath($document))->query('//nav//a[@href]') ?: array() as $link) {
+            foreach ((new DOMXPath($document))->query('//*[self::nav or @role="navigation"]//a[@href]') ?: array() as $link) {
                 if (!$link instanceof DOMElement) continue;
                 $label = $link;
-                while ($label->parentNode instanceof DOMElement && 'nav' !== strtolower($label->parentNode->tagName) && 'label' !== strtolower($label->tagName) && 1 === $label->parentNode->getElementsByTagName('a')->length) $label = $label->parentNode;
+                while ($label->parentNode instanceof DOMElement && !self::isNavigationLandmark($label->parentNode) && 'label' !== strtolower($label->tagName) && 1 === $label->parentNode->getElementsByTagName('a')->length) $label = $label->parentNode;
                 $nodes = array(); $shape = array(); $current = false;
                 foreach (array_merge(array($label), iterator_to_array($label->getElementsByTagName('*'))) as $node) {
                     if ('input' === strtolower($node->tagName)) continue;
@@ -179,13 +181,20 @@ final class RouteStateProjector
                 if ('' === $href || ArtifactPath::namesSection($href) || str_starts_with($href, '//') || preg_match('~^[a-z][a-z0-9+.-]*:~i', $href)) continue;
                 $target = ArtifactPath::resolveRelativePath(ltrim($href, '/'), str_starts_with($href, '/') ? $entryPath : (string) ($file['path'] ?? ''));
                 $navigation = $link->parentNode;
-                while ($navigation instanceof DOMElement && 'nav' !== strtolower($navigation->tagName)) $navigation = $navigation->parentNode;
+                while ($navigation instanceof DOMElement && !self::isNavigationLandmark($navigation)) $navigation = $navigation->parentNode;
                 $menu = (string) $navigation->getNodePath();
+                // A dialog's role="navigation" menu keeps its own markup rather
+                // than lowering as navigation links (a <nav> still lowers as
+                // core/navigation), so its links carry their route state like a label.
+                $dialog = false;
+                if ('nav' !== strtolower($navigation->tagName)) {
+                    for ($cursor = $navigation; $cursor instanceof DOMElement; $cursor = $cursor->parentNode) $dialog = $dialog || 'dialog' === strtolower($cursor->tagName) || 'dialog' === strtolower(trim($cursor->getAttribute('role')));
+                }
                 $self = self::labelRoute($target) === self::labelRoute((string) ($file['path'] ?? ''));
                 $menus[$menu][$index]['self'] = ($menus[$menu][$index]['self'] ?? 0) + (int) $self;
                 $menus[$menu][$index]['explicit'] = ($menus[$menu][$index]['explicit'] ?? false) || $current;
                 $key = $menu . ':' . $target . ':' . implode('/', $shape) . ':' . trim($label->textContent);
-                $groups[$key][] = array('index' => $index, 'nodes' => $nodes, 'current' => $current, 'self' => $self, 'menu' => $menu, 'retained' => 'label' === strtolower($label->tagName));
+                $groups[$key][] = array('index' => $index, 'nodes' => $nodes, 'current' => $current, 'self' => $self, 'menu' => $menu, 'retained' => $dialog || 'label' === strtolower($label->tagName));
             }
         }
         $changed = array();
@@ -258,8 +267,26 @@ final class RouteStateProjector
                         continue;
                     }
                     $rest = $values($resting); $active = $values($selected);
-                    if (1 !== count($rest) || 1 !== count($active) || $rest === $active) continue;
+                    // Builders number data handles per route (`Link.Active.5678`):
+                    // the same handle at rest differs only in its digit runs, so
+                    // each capture replays its own value on its own route.
+                    $numbered = static fn(array $values): array => array_values(array_unique(array_map(static fn(?string $value): ?string => null === $value || !str_starts_with($name, 'data-') ? $value : preg_replace('/[0-9]+/', '#', $value), $values), SORT_REGULAR));
+                    // A class token every current copy has and no resting copy
+                    // has (or the reverse) is route state, even when another
+                    // route's copy differs in its other tokens.
+                    $tokens = static fn(array $values): array => array_map(static fn(?string $value): array => preg_split('/\s+/', trim((string) $value)) ?: array(), $values);
+                    $marks = static fn(array $own, array $other): array => array_diff(array_intersect(...array_merge($own, array(array_merge(...$own)))), array_merge(...$other));
+                    $paired = 'class' === $name
+                        ? array() !== $marks($tokens($active), $tokens($rest)) || array() !== $marks($tokens($rest), $tokens($active))
+                        : 1 === count($numbered($rest)) && 1 === count($numbered($active)) && $numbered($rest) !== $numbered($active);
+                    if (!$paired) continue;
                     $binding['rest'][$name] = $rest[0]; $binding['current'][$name] = $active[0];
+                    if (1 === count($rest) && 1 === count($active)) continue;
+                    foreach ($rows as $row) {
+                        $node = $row['nodes'][$position];
+                        $binding['routes'][self::labelRoute(WordPressSitePlan::stripEntryRoot((string) ($files[$row['index']]['path'] ?? ''), $root))][$name] = $node->hasAttribute($name) ? $node->getAttribute($name) : null;
+                    }
+                    ksort($binding['routes'], SORT_STRING);
                 }
                 if (array() === $binding['rest']) continue;
                 foreach ($rows as $row) {
@@ -274,6 +301,11 @@ final class RouteStateProjector
         }
         foreach (array_keys($changed) as $index) $files[$index]['content'] = HtmlSerialization::documentHtml($documents[$index]);
         return $files;
+    }
+
+    private static function isNavigationLandmark(DOMElement $element): bool
+    {
+        return 'nav' === strtolower($element->tagName) || 'navigation' === strtolower(trim($element->getAttribute('role')));
     }
 
     /** Use the same route identity for self-target evidence and replay bindings. */
@@ -501,6 +533,127 @@ final class RouteStateProjector
         foreach (array_keys($changed) as $index) {
             $html = HtmlSerialization::documentHtml($documents[$index]);
             if (is_string($html)) $files[$index]['content'] = $html;
+        }
+        return $files;
+    }
+
+    /**
+     * Atomic CSS builders name a document's utility classes in the order that
+     * document first uses them, so the same chrome control can carry
+     * `c2-19` on one route and `c2-1c` on another for the same declaration,
+     * while `c2-19` means something else on the second route. A class is read
+     * by its meaning: every rule of the document's own style elements that
+     * names it, with the class itself left out of the selector. On chrome
+     * (navigation and landmark subtrees), a meaning whose class name differs
+     * across routes, or whose name means something else on another route, is
+     * given one content-addressed name on every route: the element swaps the
+     * class and its document gains a copy of each rule right after the
+     * original, so the cascade is unchanged. Classes that also appear in a
+     * stylesheet file, or only in compound or functional selectors, keep
+     * their names.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, array<string, mixed>>
+     */
+    private static function withRouteAlignedChromeClasses(array $files): array
+    {
+        $documents = array(); $sheets = array(); $global = '';
+        foreach ($files as $index => $file) {
+            if (!is_string($file['content'] ?? null)) continue;
+            if ('inline-style' === ($file['source'] ?? null)) {
+                foreach ($file['inline_references'] ?? array($file) as $reference) $sheets[(string) ($reference['source_path'] ?? '')][(int) ($reference['stylesheet_index'] ?? 0)] = $index;
+            } elseif ('css' === ($file['kind'] ?? null)) {
+                $global .= "\n" . $file['content'];
+            } elseif ('html' === ($file['kind'] ?? null) && preg_match('/<(?:nav|header|footer)\b|\srole\s*=\s*["\']?(?:navigation|banner|contentinfo)/i', $file['content'])) {
+                $documents[$index] = null;
+            }
+        }
+        $documents = array_filter($documents, static fn($unused, int $index): bool => isset($sheets[(string) ($files[$index]['path'] ?? '')]), ARRAY_FILTER_USE_BOTH);
+        if (count($documents) < 2) return $files;
+        $transformer = new CssStylesheetTransformer();
+        $classPattern = '/\.(-?[A-Za-z_][A-Za-z0-9_-]*)/';
+        $named = static fn(string $class): string => '/\.' . preg_quote($class, '/') . '(?![A-Za-z0-9_-])/';
+        $scoped = array(); $meanings = array();
+        foreach (array_keys($documents) as $index) {
+            $document = new DOMDocument('1.0', 'UTF-8');
+            $previous = libxml_use_internal_errors(true);
+            $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $files[$index]['content'], LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+            libxml_clear_errors(); libxml_use_internal_errors($previous);
+            if (!$loaded) { unset($documents[$index]); continue; }
+            $documents[$index] = $document;
+            foreach ((new DOMXPath($document))->query('//*[self::nav or self::header or self::footer or @role="navigation" or @role="banner" or @role="contentinfo"]/descendant-or-self::*[@class]') ?: array() as $element) {
+                if (!$element instanceof DOMElement) continue;
+                $scoped[$index][] = $element;
+            }
+            // Each class's rules in this document's own style elements, in order.
+            $rules = array(); $unaliasable = array();
+            $own = $sheets[(string) $files[$index]['path']];
+            ksort($own);
+            foreach ($own as $sheet) {
+                $transformer->visitStyleRules(CssSyntaxScanner::withoutComments((string) $files[$sheet]['content']), static function (string $prelude, string $body, array $ancestors) use (&$rules, &$unaliasable, $classPattern, $named): void {
+                    foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) {
+                        if (!preg_match_all($classPattern, $selector, $classes)) continue;
+                        foreach (array_unique($classes[1]) as $class) {
+                            $tokenized = CssSelectorTokenizer::tokenize(trim($selector));
+                            $alone = $tokenized['supported'];
+                            foreach ($tokenized['compounds'] ?? array() as $compound) {
+                                if (preg_match($named($class), $compound) && (str_contains($compound, '(') || preg_match_all($classPattern, $compound) > 1)) $alone = false;
+                            }
+                            if (!$alone) { $unaliasable[$class] = true; continue; }
+                            $rules[$class][] = implode("\0", $ancestors) . "\0" . preg_replace($named($class), ".\x01", trim($selector)) . "\0" . RenderEquivalentMarkup::canonicalStyle($body);
+                        }
+                    }
+                });
+            }
+            foreach ($rules as $class => $meaning) {
+                if (isset($unaliasable[$class]) || preg_match($named($class), $global)) continue;
+                $meanings[$index][$class] = hash('sha256', implode("\n", $meaning));
+            }
+        }
+        $names = array(); $readings = array();
+        foreach ($meanings as $index => $classes) {
+            foreach ($classes as $class => $meaning) {
+                $readings[$class][$meaning] = true;
+                $names[$meaning][$index][] = $class;
+            }
+        }
+        // A meaning is route-numbered when routes name it differently, or when
+        // one of its names reads differently on another route.
+        $unstable = array();
+        foreach ($names as $meaning => $routes) {
+            if (1 < count(array_unique(array_map(static fn(array $classes): string => implode(' ', $classes), $routes)))) { $unstable[$meaning] = true; continue; }
+            foreach (reset($routes) as $class) if (count($readings[$class]) > 1) $unstable[$meaning] = true;
+        }
+        if (array() === $unstable) return $files;
+        $sheetAliases = array();
+        foreach ($meanings as $index => $classes) {
+            $aliases = array();
+            foreach ($classes as $class => $meaning) if (isset($unstable[$meaning])) $aliases[$class] = 'blocks-engine-route-class-' . substr($meaning, 0, 12);
+            if (array() === $aliases) continue;
+            $used = array();
+            foreach ($scoped[$index] ?? array() as $element) {
+                $classList = self::classes($element);
+                foreach ($classList as $class) if (isset($aliases[$class])) $used[$class] = $aliases[$class];
+                $aliased = array_values(array_unique(array_map(static fn(string $class): string => $aliases[$class] ?? $class, $classList)));
+                if ($aliased !== $classList) $element->setAttribute('class', implode(' ', $aliased));
+            }
+            // Only aliases chrome now wears need their rules copied.
+            if (array() === $used) continue;
+            foreach ($sheets[(string) $files[$index]['path']] as $sheet) $sheetAliases[$sheet] = ($sheetAliases[$sheet] ?? array()) + $used;
+            $html = HtmlSerialization::documentHtml($documents[$index]);
+            if (is_string($html)) $files[$index]['content'] = $html;
+        }
+        // Each rule naming an aliased class gains a copy for its alias right
+        // after it, so both names keep their place in the cascade.
+        foreach ($sheetAliases as $sheet => $aliases) {
+            $files[$sheet]['content'] = $transformer->transform((string) $files[$sheet]['content'], static function (string $prelude, string $body) use ($aliases, $classPattern, $named): string|array {
+                $copies = array();
+                foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
+                    preg_match_all($classPattern, $selector, $classes);
+                    foreach (array_unique($classes[1]) as $class) if (isset($aliases[$class])) $copies[] = preg_replace($named($class), '.' . $aliases[$class], trim($selector));
+                }
+                return array() === $copies ? $prelude : array(array('prelude' => $prelude, 'body' => $body), array('prelude' => implode(',', array_unique($copies)), 'body' => $body));
+            });
         }
         return $files;
     }

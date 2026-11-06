@@ -30,7 +30,14 @@ foreach ($items as $item) {
 
 $css = implode("\n", array_map(static fn (array $write): string => (string) $write['payload']['data'], array_filter($plan['writes'], static fn (array $write): bool => str_ends_with($write['target_path'], '.css'))));
 $assert(str_contains($css, '.x .k2{width:30%}'), 'Home keeps its own content-column rule.');
-foreach ($plan['pages'] as $document) {
+// Both item classes mean the same declarations, so the two headers are one
+// design and may render the menu from one shared header part.
+$parts = array_values(array_filter($plan['template_parts'], static fn (array $part): bool => str_contains($part['canonical_block_markup'], 'wp:navigation')));
+foreach ($plan['pages'] as $page) {
+    $assert(str_contains($page['canonical_block_markup'], 'wp:navigation') || array() !== $parts, $page['source_path'] . ' renders the menu.');
+}
+$renderers = array_merge(array_values(array_filter($plan['pages'], static fn (array $page): bool => str_contains($page['canonical_block_markup'], 'wp:navigation'))), $parts);
+foreach ($renderers as $document) {
     $assert(1 === preg_match('/"className":"[^"]*(blocks-engine-navigation-instance-[a-f0-9]{12}-\d+)[^"]*".*?"ref":"\{\{wordpress-site-plan:navigation:' . $menus[0]['token'] . '\}\}"/', $document['canonical_block_markup'], $scope), $document['source_path'] . ' references the shared entity through its own instance scope.');
     $assert(1 === preg_match('/\.wp-block-navigation\.' . $scope[1] . ' \.wp-block-navigation__container>\.wp-block-navigation-item:nth-child\((?:4|-n\+4)\)[^{]*\{display:inline-block;padding-left:32px\}/', $css), $document['source_path'] . ' keeps its own item presentation through its instance scope.');
 }

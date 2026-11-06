@@ -6,12 +6,15 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 /** Keep link and submenu toggle presentation on Core's content, not its LI. */
 final class NavigationAnchorRuntime
 {
-    /** Retained native labels use the same served-route ownership as menu links. */
+    /**
+     * Retained native labels use the same served-route ownership as menu links,
+     * as do the list items of a dialog's menu: each item's first link is its own.
+     */
     public static function retainedLabelSource(): string
     {
         return <<<'PHP'
 add_filter( 'render_block', static function ( string $content, array $block ): string {
-    if ( ! isset( $block['attrs']['labelMarkup'] ) && ! isset( $block['attrs']['label'] ) ) return $content;
+    if ( ! isset( $block['attrs']['labelMarkup'] ) && ! isset( $block['attrs']['label'] ) && 'core/list-item' !== ( $block['blockName'] ?? null ) ) return $content;
     if ( ! str_contains( $content, 'data-blocks-engine-route-state' ) ) return $content;
     $links = new WP_HTML_Tag_Processor( $content ); $url = '';
     while ( $links->next_tag( 'A' ) ) { $url = (string) $links->get_attribute( 'href' ); break; }
