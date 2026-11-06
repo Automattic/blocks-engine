@@ -1734,7 +1734,7 @@ $assert(str_starts_with((string) ($packagedExternalPages['website/_external/www.
 $base64Binary = "\xff\xd8binary\0image";
 $base64Artifact = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => array(
     array('path' => 'website/index.html', 'type' => 'text/html', 'content_base64' => base64_encode('<link rel="stylesheet" href="files/main.css"><main><div class="hero"><div class="content"><h1>Base64 fixture</h1><p>Body</p></div></div></main>')),
-    array('path' => 'website/files/main.css', 'type' => 'text/css', 'content_base64' => base64_encode('.hero{width:100%;height:640px;background:url(theme/images/default-bg.jpg) center/cover no-repeat}')),
+    array('path' => 'website/files/main.css', 'type' => 'text/css', 'content_base64' => base64_encode('.hero{width:100%;height:640px;background:url(theme/images/default-bg.jpg) center/cover no-repeat}h1{cursor:url(theme/images/default-bg.jpg),auto}')),
     array('path' => 'website/files/theme/images/default-bg.jpg', 'type' => 'image/jpeg', 'content_base64' => base64_encode($base64Binary)),
     array('path' => 'website/files/app.js', 'type' => 'application/javascript', 'content_base64' => base64_encode('const replacement = "$1";')),
     array('path' => 'website/files/plain.js', 'type' => 'application/javascript', 'content' => 'const template = \'<img src="\\/ajax\\/api\\/JsonRPC\\/">\';'),

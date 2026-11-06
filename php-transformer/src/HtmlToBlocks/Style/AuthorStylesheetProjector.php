@@ -229,6 +229,7 @@ final class AuthorStylesheetProjector
             return implode(',', $runtime) . '{' . $body . '}'
                 . (array() === $lowered ? '' : $this->projectStyleRule(implode(',', $lowered), $body, $context, $inConditional, $ancestors, $outerConditions));
         }
+        $body = $this->withoutConsumedCoverBackgroundImages($prelude, $body, $context);
         $lifted = ColorSchemeVariant::liftPrelude($prelude);
         $this->contentBoxRestated = false;
         $this->contentBoxOrder = null;
@@ -240,6 +241,48 @@ final class AuthorStylesheetProjector
         }
 
         return $this->moveContentBoxRestatements($css, $context, array( ...$outerConditions, ...$ancestors ));
+    }
+
+    /**
+     * A core/cover that consumed its source's stylesheet background owns that
+     * image as an editable attachment. When every subject of a rule is such a
+     * cover, its background image layers become `none`: the value stays valid,
+     * its other layers and declarations keep their cascade, and the theme no
+     * longer ships images nothing displays. Pseudo-element, unmatched and
+     * mixed-subject rules keep their images.
+     */
+    private function withoutConsumedCoverBackgroundImages(string $prelude, string $body, AuthorStylesheetProjectionContext $context): string
+    {
+        if ( ! preg_match('/\bbackground(?:-image)?\s*:[^;}]*url\(/i', $body) ) {
+            return $body;
+        }
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+            if ( str_contains($selector, '::') || preg_match('/:(?:before|after|first-line|first-letter)\b/i', $selector) ) {
+                return $body;
+            }
+            $selector = preg_replace(self::STATE_PSEUDO_CLASS_PATTERN, '', $selector) ?? $selector;
+            $subjects = $this->matchingSourceElements($selector, $context->sourceStyles->parsedSelector($selector), $context);
+            if ( array() === $subjects ) {
+                return $body;
+            }
+            foreach ( $subjects as $element ) {
+                if ( ! $context->selectorProjections->consumedCoverBackground($element->getNodePath() ?? '') ) {
+                    return $body;
+                }
+            }
+        }
+        foreach ( $this->styleResolver->verbatimCssDeclarations($body) as $property => $value ) {
+            if ( 'background' !== $property && 'background-image' !== $property ) {
+                continue;
+            }
+            $pruned = preg_replace('/-webkit-image-set\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)|image-set\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)/i', 'none', $value) ?? $value;
+            $pruned = preg_replace('/url\(\s*(?:"[^"]*"|\'[^\']*\'|[^)]*)\s*\)/i', 'none', $pruned) ?? $pruned;
+            if ( $pruned !== $value ) {
+                $body = str_replace($value, $pruned, $body);
+            }
+        }
+
+        return $body;
     }
 
     private function targetsRuntimeCommentForm(string $selector, AuthorStylesheetProjectionContext $context): bool

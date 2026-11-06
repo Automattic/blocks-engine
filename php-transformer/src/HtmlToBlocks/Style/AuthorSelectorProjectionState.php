@@ -57,6 +57,9 @@ final class AuthorSelectorProjectionState
     /** @var array<string, true> */
     private array $buttonPresentationPaths = array();
 
+    /** @var array<string, true> Source paths whose stylesheet background a core/cover consumed. */
+    private array $consumedCoverBackgroundPaths = array();
+
     /** @var array<string, true> */
     private array $buttonLabelPaths = array();
 
@@ -360,6 +363,18 @@ final class AuthorSelectorProjectionState
     private array $socialAnchorMarkers = array();
     /** @var array{styles: AuthorStyleAnalysis, elements: list<DOMElement>}|null */
     private ?array $socialAnchorSources = null;
+
+    public function markConsumedCoverBackground(string $path): void
+    {
+        if ( '' !== $path ) {
+            $this->consumedCoverBackgroundPaths[$path] = true;
+        }
+    }
+
+    public function consumedCoverBackground(string $path): bool
+    {
+        return isset($this->consumedCoverBackgroundPaths[$path]);
+    }
 
     public function markSocialAnchor(DOMElement $anchor): string
     {

@@ -255,6 +255,15 @@ foreach ( array( 'utility hero' => array( '<h1>Strategy</h1>', 'core/cover' ), '
     $assertSame('core/cover' === $expected, str_contains($result['serialized_blocks'] ?? '', 'blocks-engine-cover-consumed-background') && str_contains($css, ':root .wp-block-cover.blocks-engine-cover-consumed-background{background-image:none!important}'), 'Painted ' . $name . ' cover suppresses its consumed source background.');
 }
 
+// A cover owns the background it consumed: rules whose every subject is such
+// a cover drop their image layers (so the theme stops shipping them), while
+// images other subjects still paint stay.
+$pruned = $transformHtml('<style>.x .c1-u{display:flex;flex-direction:column;min-height:360px}@media (min-width:768px){.x .c1-14{background-image:linear-gradient(rgba(0,0,0,.25),rgba(0,0,0,.25)),url(media/hero-large.jpg)}}@media (max-width:767px){.x .c1-15{background-image:url(media/hero-small.webp)}}.x .card{background-image:url(media/hero-small.webp)}.x .both{background-image:url(media/shared.png)}</style><div class="x"><div class="c1-u c1-14 c1-15 both"><h1>Strategy</h1></div><div class="card both"><p>Card</p></div></div>');
+$prunedCss = implode("\n", array_column($pruned['assets'] ?? array(), 'content'));
+foreach ( array( 'hero-large.jpg' => 0, 'hero-small.webp' => 1, 'shared.png' => 1 ) as $image => $count ) {
+    $assertSame($count, substr_count($prunedCss, $image), 'Consumed cover background pruning keeps ' . $count . ' reference(s) to ' . $image . '.');
+}
+
 $fallbacks = array( array( 'blockName' => 'existing/fallback' ) );
 $record = array();
 $empty = $elementFromHtml('<section style="background-image:url(empty.jpg);background-size:cover"></section>');
