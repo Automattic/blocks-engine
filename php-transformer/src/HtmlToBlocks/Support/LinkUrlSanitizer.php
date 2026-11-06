@@ -5,10 +5,11 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
 final class LinkUrlSanitizer
 {
+    /** WordPress core's wp_allowed_protocols() list. */
     private const ALLOWED_PROTOCOLS = array(
-        'http', 'https', 'ftp', 'ftps', 'mailto', 'news', 'irc', 'ircs', 'gopher',
-        'nntp', 'feed', 'telnet', 'mms', 'rtsp', 'svn', 'tel', 'fax', 'xmpp',
-        'webcal', 'urn',
+        'http', 'https', 'ftp', 'ftps', 'mailto', 'news', 'irc', 'irc6', 'ircs',
+        'gopher', 'nntp', 'feed', 'telnet', 'mms', 'rtsp', 'sms', 'svn', 'tel',
+        'fax', 'xmpp', 'webcal', 'urn',
     );
 
     public static function sanitize(string $url): string
