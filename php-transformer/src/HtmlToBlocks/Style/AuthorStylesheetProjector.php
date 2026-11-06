@@ -359,7 +359,8 @@ final class AuthorStylesheetProjector
         $editorDocumentRootRule = $this->editorDocumentRootRule($prelude, $body, $context) . $this->separatorBorderRule($prelude, $declarations, $context);
         $navigationItemSpaceRule = $this->navigationItemSpaceRule($prelude, $declarations, $context)
             . $this->navigationListBoxRule($prelude, $declarations, $context)
-            . $this->directNavigationDisplayRule($prelude, $declarations, $context);
+            . $this->directNavigationDisplayRule($prelude, $declarations, $context)
+            . $this->navigationToggleRowRule($prelude, $declarations, $context);
         if ( array() === $margins ) {
             $css = $this->rewriteStyleRule($prelude, $body, $context, $inConditional) . $imageRule . $imagePlacement['rules'] . $svgImageRule . $editorDocumentRootRule . $navigationItemSpaceRule;
 
@@ -4464,6 +4465,36 @@ final class AuthorStylesheetProjector
             $rules .= implode(',', array_unique($selectors)) . '{' . $body . '}';
         }
         return $rules;
+    }
+
+    /**
+     * Core renders a submenu's toggle as a sibling of the item's content, and
+     * its own item is the flex row that keeps them on one line. Where Core's
+     * toggle stands in for the source chevron, an authored block or
+     * inline-block item box would stack that toggle below the label, so the
+     * projected item keeps its outer display as Core's row. Emitted right after
+     * the item's projected rule: hiding, conditions and importance stay authored.
+     */
+    private function navigationToggleRowRule(string $prelude, array $declarations, AuthorStylesheetProjectionContext $context): string
+    {
+        $display = (string) ( $declarations['display'] ?? '' );
+        $row = array( 'block' => 'flex', 'list-item' => 'flex', 'flow-root' => 'flex', 'inline-block' => 'inline-flex', 'inline' => 'inline-flex' )[CssValueInspector::comparable(CssValueInspector::withoutImportant($display))] ?? '';
+        if ( '' === $row ) return '';
+        $selectors = array();
+        foreach ( CssValueSplitter::splitTopLevel($prelude, array( ',' )) as $selector ) {
+            $selector = trim($selector);
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            if ( ! $parsed['supported'] || null !== ( CssSelectorCompoundInspector::rightmost($parsed['compounds'])['type'] ?? null ) ) continue;
+            foreach ( $this->matchingSourceElements($selector, $parsed, $context) as $element ) {
+                $path = $element->getNodePath() ?? '';
+                $target = $context->selectorProjections->navigationSubject($path);
+                if ( '' === $target || ! $context->selectorProjections->isNavigationToggleRowItem($path) ) continue;
+                $state = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
+                if ( $context->selectorProjections->selectsCurrentNavigationState(substr($selector, 0, null === $parsed['pseudo_state_suffix_span'] ? null : $parsed['pseudo_state_suffix_span']['start'])) ) $target = AuthorSelectorProjectionState::currentNavigationSubject($target);
+                $selectors[] = ':root ' . $target . $this->selectorSpecificityShims($parsed, $context) . $state;
+            }
+        }
+        return array() === $selectors ? '' : implode(',', array_unique($selectors)) . '{display:' . $row . ( CssValueInspector::isImportant($display) ? ' !important' : '' ) . '}';
     }
 
     /** The flex packing of a row for the `text-align` that packed its inline items, with its importance. */

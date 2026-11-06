@@ -530,6 +530,7 @@ final class NavigationPatternContext
         $glyph = array_merge(array('margin' => '0', 'padding' => '0', 'flex-shrink' => '0'), $glyph);
         $marker = 'blocks-engine-submenu-icon-' . substr(hash('sha256', $serialize($box) . $serialize($glyph)), 0, 16);
         $this->session->generatedSupportStylesheetState()->registerNavigationSubmenuIconGeometry($marker, $serialize($box), $serialize($glyph));
+        $this->session->authorSelectorProjectionState()->markNavigationToggleRowItem($item->getNodePath() ?? '');
         return $marker;
     }
 
