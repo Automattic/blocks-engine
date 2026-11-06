@@ -72,11 +72,13 @@ final class ShellExtraction
                 // shell extractor's responsibility, not a trailing scaffold.
                 $root = $nodes[$children[$roots[0]]];
                 if (preg_match('/"tagName"\s*:\s*"main"/', $root['attributes'])) continue;
+                $leading = array_slice($children, 0, $roots[0]);
                 $trailing = array_slice($children, $roots[0] + 1);
-                if (array() === $trailing) continue;
+                if (array() === $leading && array() === $trailing) continue;
                 $closing = substr($markup, $nodes[$children[count($children) - 1]]['end'], $wrapper['end'] - $nodes[$children[count($children) - 1]]['end']);
                 $device = CaptureEvidence::deviceDocumentProfile((string) current(array_filter($classes, CaptureEvidence::isDeviceDocumentClass(...)))) ?? 'desktop';
-                foreach ($trailing as $child) {
+                $sides = array_fill_keys($leading, 'leading') + array_fill_keys($trailing, 'trailing');
+                foreach ($sides as $child => $side) {
                     $range = array('offset' => $nodes[$child]['offset'], 'length' => $nodes[$child]['end'] - $nodes[$child]['offset']);
                     $bindings = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, array($range));
                     if ($bindings['blocked'] || array() !== $bindings['refs']) continue;
@@ -87,6 +89,7 @@ final class ShellExtraction
                     $variants[$device]['opening'] ??= $opening;
                     $variants[$device]['closing'] ??= $closing;
                     $variants[$device]['siblings'][$identity]['markup'] ??= $sibling;
+                    $variants[$device]['siblings'][$identity]['position'] = $side;
                     $variants[$device]['siblings'][$identity]['sources'][(string) $page['source_path']] = true;
                     $removals[] = $range;
                 }
@@ -99,10 +102,10 @@ final class ShellExtraction
         }
         $shared = '';
         foreach ($variants as $variant) {
-            $siblings = '';
+            $leading = ''; $trailing = '';
             foreach ($variant['siblings'] as $sibling) {
                 if (count($sibling['sources']) === $postCount) {
-                    $siblings .= $sibling['markup'];
+                    if ('leading' === $sibling['position']) $leading .= $sibling['markup']; else $trailing .= $sibling['markup'];
                     continue;
                 }
                 preg_match('/"anchor"\s*:\s*"([^"]+)"|\bid="([^"]+)"|\bclass="([^"]+)"/', $sibling['markup'], $label);
@@ -113,7 +116,7 @@ final class ShellExtraction
                     $diagnostics[] = array('code' => 'wordpress_site_plan_document_chrome_varying_omitted', 'severity' => 'info', 'source_path' => $source, 'anchor_or_class' => $anchor, 'message' => 'Omitted per-post document chrome (' . $anchor . '); per-request output is not shared template design.');
                 }
             }
-            if ('' !== $siblings) $shared .= $variant['opening'] . $siblings . $variant['closing'];
+            if ('' !== $leading || '' !== $trailing) $shared .= $variant['opening'] . $leading . '<!-- wp:post-content /-->' . $trailing . $variant['closing'];
         }
         if ('' !== $shared) $chrome['single'] = $shared;
         return array('pages' => $pages, 'chrome' => $chrome, 'diagnostics' => $diagnostics);
