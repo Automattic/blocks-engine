@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CapturedDialogBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
 use DOMElement;
@@ -17,14 +18,11 @@ final class CapturedDialogConverter implements ElementConverter
 {
     /**
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): array<int, array<string, mixed>> $convertChildren
-     * @param (Closure(DOMElement): string)|null $resolvedStyle The element's authored, cascade-resolved declarations.
-     * @param (Closure(DOMElement): array<string, string>)|null $openStateValues Values a state rule gives the panel over its hiding or offsetting rest rules.
      */
     public function __construct(
         private readonly HtmlTransformerSession $session,
         private readonly Closure $convertChildren,
-        private readonly ?Closure $resolvedStyle = null,
-        private readonly ?Closure $openStateValues = null
+        private readonly StyleResolver $styleResolver
     ) {
     }
 
@@ -68,10 +66,10 @@ final class CapturedDialogConverter implements ElementConverter
     private function openSourceStyle(DOMElement $element): string
     {
         $style = trim(SourceDom::attr($element, 'style'));
-        if ( 'dialog' !== strtolower($element->tagName) || '' !== SourceDom::attr($element, 'data-blocks-engine-presentation') || null === $this->openStateValues ) {
+        if ( 'dialog' !== strtolower($element->tagName) || '' !== SourceDom::attr($element, 'data-blocks-engine-presentation') ) {
             return $style;
         }
-        foreach ( ($this->openStateValues)($element) as $property => $value ) {
+        foreach ( $this->styleResolver->capturedDialogOpenStateValues($element) as $property => $value ) {
             if ( 1 === preg_match('/(?:^|;)\s*' . preg_quote($property, '/') . '\s*:/i', $style) ) {
                 continue;
             }
@@ -90,11 +88,11 @@ final class CapturedDialogConverter implements ElementConverter
      */
     private function modalPlacement(DOMElement $element): string
     {
-        if ( 'dialog' !== strtolower($element->tagName) || '' !== SourceDom::attr($element, 'data-blocks-engine-presentation') || null === $this->resolvedStyle ) {
+        if ( 'dialog' !== strtolower($element->tagName) || '' !== SourceDom::attr($element, 'data-blocks-engine-presentation') ) {
             return '';
         }
 
-        return 1 === preg_match('/(?:^|;)\s*position\s*:\s*(?:fixed|absolute)\b/i', ($this->resolvedStyle)($element)) ? 'source' : '';
+        return 1 === preg_match('/(?:^|;)\s*position\s*:\s*(?:fixed|absolute)\b/i', $this->styleResolver->specificityResolvedPresentationStyle($element)) ? 'source' : '';
     }
 
     /**

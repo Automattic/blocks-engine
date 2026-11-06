@@ -1012,8 +1012,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             function (DOMElement $element, array &$fallbacks) use ($convertChildren): array {
                 return $convertChildren($element, $fallbacks, true);
             },
-            fn (DOMElement $element): string => $this->styleResolver->specificityResolvedPresentationStyle($element),
-            fn (DOMElement $element): array => $this->styleResolver->capturedDialogOpenStateValues($element)
+            $this->styleResolver
         );
         $this->elementPrelude = new ElementConversionPrelude(
             new NativeGetFormControlConverter(
@@ -1069,7 +1068,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 function (DOMElement $element, array &$fallbacks) use ($convertChildren): array {
                     return $convertChildren($element, $fallbacks, true);
                 },
-                fn (DOMElement $element, array $excludedProperties): string => $this->styleResolver->inlineGeometryClassName($element, $excludedProperties)
+                $this->styleResolver
             ),
             new ThemeToggleConverter(
                 $this->svgMaterializer,
@@ -3937,14 +3936,12 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                         ? ''
                         : $this->session->authorSelectorProjectionState()->ensureMediaTextImageMarker($sourceElement->getNodePath() ?? '') )
                 ),
-                fn (DOMElement $sourceElement): string => $this->styleResolver->mediaTextPresentationStyle($sourceElement),
-                fn (DOMElement $sourceElement): ?float => $this->styleResolver->documentRootFontSize($sourceElement),
+                $this->styleResolver,
                 fn (DOMElement $image): array => $this->imageDimensions()->fixedPixelSize($image)
             ),
             new ColumnsPatternContext(
                 fn (DOMElement $sourceElement): string => $this->styleResolver->cssDeclarationString($this->styleResolver->structuralPresentationDeclarations($sourceElement)),
-                fn (DOMElement $sourceElement): string => $this->styleResolver->controlSurfaceResolvedStyle($sourceElement),
-                fn (DOMElement $sourceElement): bool => $this->styleResolver->isSingleFlexRowAtMobile($sourceElement)
+                $this->styleResolver
             ),
             new MarkupPatternContext(
                 $this->session
@@ -3964,7 +3961,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 fn (DOMElement $sourceCode): string => $this->codeContent($sourceCode)
             ),
             new LogoPatternContext(
-                fn (DOMElement $sourceElement): array => $this->styleResolver->structuralPresentationDeclarations($sourceElement),
+                $this->styleResolver,
                 function (DOMElement $element, array &$fallbacks): void { $this->captureInlineSvgFallback($element, $fallbacks); }
             ),
             new GalleryPatternContext(
@@ -4062,7 +4059,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 fn (DOMElement $sourceCode): string => $this->codeContent($sourceCode)
             ),
             logoContext: new LogoPatternContext(
-                fn (DOMElement $sourceElement): array => $this->styleResolver->structuralPresentationDeclarations($sourceElement)
+                $this->styleResolver
             ),
             galleryContext: new GalleryPatternContext(
                 fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->convertImageElement($image, $figure, $picture, $link),
