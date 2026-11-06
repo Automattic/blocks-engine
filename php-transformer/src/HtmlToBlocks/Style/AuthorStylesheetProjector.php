@@ -74,11 +74,18 @@ final class AuthorStylesheetProjector
      */
     public function project(string $stylesheet, AuthorStylesheetProjectionContext $context, array $outerConditions = array()): string
     {
+        $bridges = array();
         $clips = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::replacements($context->authorStyles->sourceBody());
         $projected = ( new CssStylesheetTransformer() )->transformStyleRules(
             $stylesheet,
-            fn (string $prelude, string $body, array $ancestors = array()): string => $this->projectStyleRule($prelude, \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::rewrite($body, $clips), $context, self::ancestorsAreConditional($ancestors), $ancestors, $outerConditions)
+            function (string $prelude, string $body, array $ancestors = array()) use ($context, $outerConditions, $clips, &$bridges): string {
+                $css = $this->projectStyleRule($prelude, \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::rewrite($body, $clips), $context, self::ancestorsAreConditional($ancestors), $ancestors, $outerConditions);
+                $bridge = $this->projectedLayerBridge($prelude, $css, $ancestors, $context);
+                if ( '' !== $bridge ) $bridges[$bridge] = true;
+                return $css;
+            }
         );
+        $projected .= implode('', array_keys($bridges));
         // Engine class tokens must not satisfy an authored class substring.
         $projected = $context->authorStyles->classAttributeSelectors()->stylesheet($projected);
         $ids = ScopedAnchorSelectorProjection::identities($context->authorStyles);
@@ -91,6 +98,55 @@ final class AuthorStylesheetProjector
             });
         }
         return CssSelectorListCompactor::stylesheet($projected);
+    }
+
+    /**
+     * Roll Core's unlayered defaults back to the original author cascade, not
+     * to a copied value. Layer order, important declarations and state/media
+     * changes therefore remain owned by the source stylesheet.
+     *
+     * @param list<string> $ancestors
+     */
+    private function projectedLayerBridge(string $prelude, string $css, array $ancestors, AuthorStylesheetProjectionContext $context): string
+    {
+        if ( ! array_filter($ancestors, static fn (string $condition): bool => 1 === preg_match('/^@layer\\b/i', trim($condition))) ) return '';
+        $subjects = array();
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+            // Match potential state subjects; the emitted selector retains the
+            // state itself, so the bridge cannot activate it at rest.
+            $selector = preg_replace(self::STATE_PSEUDO_CLASS_PATTERN, '', $selector) ?? $selector;
+            foreach ( $this->matchingSourceElements($selector, $context->sourceStyles->parsedSelector($selector), $context) as $element ) {
+                $subjects[spl_object_id($element)] = $element;
+            }
+        }
+        if ( array() === $subjects ) return '';
+        $rules = '';
+        (new CssStylesheetTransformer())->visitStyleRules($css, function (string $selector, string $body) use (&$rules, $subjects): void {
+            // Only canonical block targets or source-instance projections own
+            // this escape. Never install a document-wide author reset.
+            if ( ! preg_match('/\\.(?:wp-block-|blocks-engine-)/', $selector) ) return;
+            $properties = array();
+            foreach ( $this->styleResolver->verbatimCssDeclarations($body) as $property => $value ) {
+                if ( str_starts_with($property, '--') || str_contains($value, '!important') ) continue;
+                $family = explode('-', $property)[0];
+                // Shorthands and their longhands must veto each other. Custom
+                // properties stay in their source origin and need no bridge.
+                $pattern = '/^' . preg_quote($family, '/') . '(?:-.*)?$/';
+                $layered = true;
+                foreach ( $subjects as $element ) {
+                    $ownership = $this->styleResolver->authorPropertyFamilyLayering($element, array($property => $pattern), true);
+                    if ( ! ($ownership[$property] ?? false) ) $layered = false;
+                }
+                if ( $layered ) $properties[] = $property . ':revert-layer';
+            }
+            if ( array() !== $properties ) {
+                $rules .= ':root:root:root :is(' . $selector . '){' . implode(';', $properties) . '}';
+            }
+        });
+        foreach ( array_reverse($ancestors) as $condition ) {
+            if ( ! preg_match('/^@layer\\b/i', trim($condition)) && '' !== $rules ) $rules = $condition . '{' . $rules . '}';
+        }
+        return $rules;
     }
 
     /**
