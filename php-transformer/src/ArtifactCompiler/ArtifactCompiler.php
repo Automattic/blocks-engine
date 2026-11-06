@@ -1452,6 +1452,23 @@ final class ArtifactCompiler
             if ( ! is_array($binding) || 'generic/block-binding/v1' !== ($binding['schema'] ?? '') || '' === trim($binding['search_block_markup'] ?? '') ) continue;
             $productSlug = $pageProducts[$sourcePath][0];
             $schemaProducts[$productSlug]['bindings'][] = array_merge($binding, array('role' => 'commerce_add_to_cart_form', 'source_path' => $sourcePath));
+            // Preserve the same flat control indexes and validated presentation
+            // facts as a form entity when shop takes ownership of the controls.
+            if ( is_array($fallback['controls'] ?? null) ) {
+                $controls = array_values(array_filter($fallback['controls'], 'is_array'));
+                foreach ( $controls as &$control ) unset($control['_unresolved_description_candidates']);
+                unset($control);
+                $schemaProducts[$productSlug]['controls'] = $controls;
+                unset($schemaProducts[$productSlug]['presentation_graph']);
+                if ( is_array($fallback['presentation_graph'] ?? null) && true !== ($fallback['presentation_graph']['truncated'] ?? false) ) {
+                    try {
+                        FormPresentationGraphBuilder::assertValid($fallback['presentation_graph']);
+                        $schemaProducts[$productSlug]['presentation_graph'] = $fallback['presentation_graph'];
+                    } catch ( \InvalidArgumentException $error ) {
+                        $diagnostics[] = $this->rejectedFormGraphDiagnostic($fallback, $sourcePath, $selector, 'presentation_graph', $error->getMessage());
+                    }
+                }
+            }
             // A purchase form belongs to shop, not a competing form provider.
             unset($forms[$sourcePath . "\n" . $selector]);
         }
@@ -1477,7 +1494,7 @@ final class ArtifactCompiler
                 $products[$productSlug]['whole_page_candidate'] = $row['whole_page_candidate'];
             }
             // Detail-page descriptive evidence wins; cards fill only absent fields.
-            foreach ( array('description', 'image', 'images', 'category', 'sku', 'variants', 'stock_status', 'translations') as $field ) if ( isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
+            foreach ( array('description', 'image', 'images', 'category', 'sku', 'variants', 'stock_status', 'translations', 'controls', 'presentation_graph') as $field ) if ( isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
             foreach ( array('tags', 'sale_price') as $field ) if ( ! isset($products[$productSlug][$field]) && isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
         }
         // Listing-owned forms are shop controls, not a second form-provider
