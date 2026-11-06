@@ -1,0 +1,48 @@
+<?php
+declare(strict_types=1);
+
+require dirname(__DIR__, 2) . '/vendor/autoload.php';
+
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+
+$assert = static function (bool $condition, string $message): void { if (!$condition) throw new RuntimeException($message); };
+
+foreach (array(
+    'page' => array('page', null),
+    'location' => array('location', null),
+    'empty current value' => array('', null),
+    'different label' => array('page', 'label'),
+    'different href' => array('page', 'href'),
+) as $case => [$currentValue, $difference]) {
+    $files = array();
+    foreach (array('index.html' => 'Home', 'about/index.html' => 'About', 'services/index.html' => 'Services') as $path => $title) {
+        $links = '';
+        foreach (array('services' => 'Services', 'about' => 'About') as $slug => $label) {
+            $current = $title === $label;
+            $href = '/' . $slug . '/';
+            if ('Services' === $title && 'about' === $slug) {
+                if ('label' === $difference) $label = 'Our team';
+                if ('href' === $difference) $href = '/team/';
+            }
+            $links .= '<a ' . ($current ? 'aria-current="' . $currentValue . '" class="text-fg"' : 'class="text-muted hover:text-fg"') . ' href="' . $href . '">' . $label . '</a>';
+        }
+        $files[$path] = '<!DOCTYPE html><html><head><title>' . $title . '</title><style>@layer utilities{.flex{display:flex}.gap-6{gap:1.5rem}.text-muted{color:#888}.text-fg{color:#111}.hover\\:text-fg:hover{color:#111}.p-4{padding:1rem}}</style></head><body><header class="p-4"><nav aria-label="Main"><div class="flex gap-6"><a href="/">Brand</a><div class="flex gap-6">' . $links . '</div></div></nav></header><main><h1>' . $title . '</h1><p>Welcome to ' . $title . '.</p></main><footer class="p-4"><p>© Brand</p></footer></body></html>';
+    }
+    $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray()['source_reports']['wordpress_site_plan'];
+    WordPressSitePlan::assertValid($plan);
+    $headers = array_values(array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
+    $assert(1 === count($headers), "$case: one shared header part");
+    $templates = array_column($plan['templates'], 'canonical_block_markup', 'slug');
+    foreach ($plan['pages'] as $page) {
+        $shared = null === $difference || 'services/index.html' !== $page['source_path'];
+        $template = $templates[!empty($page['entrypoint']) ? 'front-page' : (isset($templates['page-' . $page['slug']]) ? 'page-' . $page['slug'] : 'page')];
+        $assert($shared === str_contains($template, '"slug":"header"'), "$case: {$page['source_path']} header template membership");
+        $assert($shared === !str_contains($page['canonical_block_markup'], 'wp:navigation'), "$case: {$page['source_path']} inline header membership");
+        if ($shared) $assert(!str_contains($page['canonical_block_markup'], '<header'), "$case: no page header copy");
+    }
+    $assert(1 === preg_match('/<!-- wp:navigation \{[^}]*"className":"[^"]*(blocks-engine-navigation-instance-[a-f0-9]+-\d+)/', $headers[0]['canonical_block_markup'], $marker), "$case: runtime navigation current-colour marker");
+    $css = implode("\n", array_column($plan['assets'], 'content'));
+    $assert(1 === preg_match('/\.' . $marker[1] . '[^{]*\.current-menu-item[^{]*\{color:[^}]*#111/', $css), "$case: projected current-link colour survives");
+}
+echo "ok\n";
