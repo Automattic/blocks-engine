@@ -4076,6 +4076,17 @@ $assert('data_template' === ($templateRuntimeIslands[0]['template_role'] ?? ''),
 $assert(! str_contains((string) ($runtimeTemplate['serialized_blocks'] ?? ''), '<!-- wp:html'), 'runtime HTML template does not emit raw HTML fallback blocks');
 $assert(! str_contains((string) ($runtimeTemplate['serialized_blocks'] ?? ''), '<template'), 'runtime HTML template does not serialize inert template markup into visual output');
 
+$controlOnlyDataTemplate = ( new HtmlTransformer() )->transform(
+    '<main><form><p>Give today</p><template class="cadence-template" data-monthly-label="Monthly Donation" data-weekly-label="Weekly Donation"><fieldset class="form-item field select"><div class="dropdownWrapper"><select aria-label="Donation Frequency" class="dropdownSelect"><option value="ONE_TIME">One-Time Donation</option></select><span class="form-input-effects" aria-hidden="true"><span class="form-input-effects-border"></span></span><div class="accessoryIcon"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="12"><path d="M0.4 1.5L9 11.1Z"></path></svg></div></div></fieldset></template></form></main>'
+)->toArray();
+$controlOnlyDataTemplateDiagnostics = $controlOnlyDataTemplate['source_reports']['conversion_report']['fallback_diagnostics'] ?? array();
+$controlOnlyDataTemplateMetadata = array_values(array_filter($controlOnlyDataTemplateDiagnostics, static fn (array $diagnostic): bool => 'html_template_metadata' === ($diagnostic['diagnostic_code'] ?? '')));
+$assert(1 === count($controlOnlyDataTemplateMetadata) && 'template_static_metadata' === ($controlOnlyDataTemplateMetadata[0]['reason'] ?? '') && 'none' === ($controlOnlyDataTemplateMetadata[0]['runtime_requirement'] ?? ''), 'data-* template with only form-control body emits static template metadata');
+$controlOnlyDataTemplateFallbacks = array_values(array_filter($controlOnlyDataTemplate['fallbacks'] ?? array(), static fn (array $fallback): bool => 'template' === ($fallback['tag'] ?? '')));
+$assert(1 === count($controlOnlyDataTemplateFallbacks) && 'static_template_metadata' === ($controlOnlyDataTemplateFallbacks[0]['template_role'] ?? ''), 'data-* template with only form-control body reports static template role');
+$assert(array() === array_values(array_filter($controlOnlyDataTemplateDiagnostics, static fn (array $diagnostic): bool => 'html_template_runtime_fallback' === ($diagnostic['diagnostic_code'] ?? ''))), 'data-* template with only form-control body does not emit runtime template fallback');
+$assert(array() === array_values(array_filter($controlOnlyDataTemplate['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'template' === ($island['kind'] ?? ''))), 'data-* template with only form-control body is not a runtime island');
+
 $inertLightboxTemplate = ( new HtmlTransformer() )->transform(
     '<main><button type="button" class="js-lightbox-trigger"><img src="https://example.test/hero.jpg" alt="Hero"><template class="js-cdk-image-lightbox-template"><div role="dialog" aria-label="Image"><button type="button" class="sqs-lightbox-close">Close</button></div></template></button></main>'
 )->toArray();
