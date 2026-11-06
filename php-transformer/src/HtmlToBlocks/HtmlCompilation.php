@@ -10700,7 +10700,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // the carrier element is gone. Promote it to native aspectRatio/scale
         // attributes so WordPress reproduces the authored crop. `+` never
         // overrides an attribute already resolved above.
-        $shape = $this->imageShapeConstraintAttributes($image, $width, $height);
+        $shape = $this->imageDimensions()->shapeConstraintAttributes($image, $width, $height);
         $attrs += $shape;
         // A fixed width AND height that already state the promoted ratio are the
         // image's used size (a 42px x 42px avatar with `aspect-ratio:42/42`),
@@ -10708,10 +10708,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // beside aspectRatio/scale; dropping them would let the image render
         // at the uploaded file's natural size.
         if (isset($shape['aspectRatio'])
-            && ! $this->imageDimensionsStateAspectRatio((string) ($attrs['width'] ?? ''), (string) ($attrs['height'] ?? ''), (string) $shape['aspectRatio'])
+            && ! $this->imageDimensions()->statesAspectRatio((string) ($attrs['width'] ?? ''), (string) ($attrs['height'] ?? ''), (string) $shape['aspectRatio'])
         ) {
             foreach (array( 'width', 'height' ) as $property) {
-                if ($this->imageDimensionIsIntrinsicAttribute($image, $property)) {
+                if ($this->imageDimensions()->imageDimensionIsIntrinsicAttribute($image, $property)) {
                     // HTML dimensions describe the file, not a stylesheet-owned
                     // crop. Keeping either as a core/image style overrides it.
                     unset($attrs[$property]);
@@ -12485,196 +12485,11 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
     }
 
-    /**
-     * Resolve the shape constraint the authored CSS applies to the <img> at the
-     * desktop viewport, and carry it as native core/image attributes.
-     *
-     * This applies to ANY image whose resolved CSS carries the pair, however the
-     * rule reaches it -- a rule on the image itself, a blanket `img` rule, or a
-     * descendant rule. The flattened wrapper (`.hero-frame img`) is the
-     * motivating case rather than the boundary: core/image has no slot for such
-     * a wrapper, so once the carrier is dropped the constraint survives only as
-     * block attributes. An image already matching the pair loses nothing by
-     * having it stated natively.
-     *
-     * Conservative by design: emit aspectRatio/scale only when the resolved
-     * style carries BOTH an explicit, well-formed aspect-ratio AND
-     * object-fit:cover|contain. Plain images gain nothing.
-     *
-     * @return array<string, string>
-     */
-    private function imageShapeConstraintAttributes(DOMElement $image, string $width, string $height): array
-    {
-        $declarations = $this->styleResolver->imageShapeDeclarations($image);
-        $aspectRatio  = $this->normalizedAspectRatio(
-            (string) ($declarations['aspect-ratio']['value'] ?? '')
-        );
-        // `object-fit:cover !important` is a common defence against core's
-        // `.wp-block-image img` rules. Strip importance symmetrically with
-        // normalizedAspectRatio, or the keyword never matches the allowlist below
-        // and the whole promotion silently declines.
-        $scale        = strtolower(CssValueInspector::withoutImportant(
-            $this->styleResolver->resolveCssVariablesInValue(
-                (string) ($declarations['object-fit']['value'] ?? ''),
-                $image
-            )
-        ));
-
-        if ( ! in_array($scale, array( 'cover', 'contain' ), true) ) {
-            return array();
-        }
-
-        // A zero authored box is serializable but core image crop attributes
-        // would manufacture positive geometry. Negative HTML dimensions are not
-        // serializable by core/image and are discarded before block creation.
-        // In either case, fail closed rather than promoting the crop.
-        if ($this->imageHasNonPositiveDimension($image, 'width') || $this->imageHasNonPositiveDimension($image, 'height')) {
-            return array();
-        }
-
-        if ( '' === $aspectRatio
-            || ($this->imageDimensionsDetermineDifferentAspectRatio($width, $height, $aspectRatio)
-                && (($declarations['aspect-ratio']['inline'] ?? false) === true
-                    || ! $this->imageDimensionsAreIntrinsicAttributes($image)))
-        ) {
-            if ( ($declarations['object-fit']['inline'] ?? false) === true || $this->imageShapeFillsBox($declarations) ) {
-                return array( 'scale' => $scale );
-            }
-
-            return array();
-        }
-
-        return array(
-            'aspectRatio' => $aspectRatio,
-            'scale'       => $scale,
-        );
-    }
-
-    /** @param array<string, array<string, mixed>> $declarations */
-    private function imageShapeFillsBox(array $declarations): bool
-    {
-        foreach ( array( 'width', 'height' ) as $property ) {
-            $value = strtolower(CssValueInspector::withoutImportant((string) ($declarations[$property]['value'] ?? '')));
-            if ( '100%' === $value ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Normalize a CSS aspect-ratio value to WordPress' attribute form (`4/3`,
-     * `1`). Returns '' for auto/keyword/compound values the crop cannot rely on.
-     *
-     * A zero component is also refused. `aspect-ratio:0/3` is a degenerate ratio
-     * that collapses the box to nothing; authored CSS gets away with it because
-     * some other declaration constrains the element, but the promoted block
-     * attribute carries no such company.
-     */
-    private function normalizedAspectRatio(string $value): string
-    {
-        $value = strtolower(CssValueInspector::withoutImportant($value));
-        if ( '' === $value || in_array($value, array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer', 'none' ), true) ) {
-            return '';
-        }
-
-        if ( preg_match('#^(\d*\.?\d+)\s*/\s*(\d*\.?\d+)$#', $value, $matches) ) {
-            if ( 0.0 === (float) $matches[1] || 0.0 === (float) $matches[2] ) {
-                return '';
-            }
-
-            return $matches[1] . '/' . $matches[2];
-        }
-
-        if ( preg_match('#^\d*\.?\d+$#', $value) ) {
-            return 0.0 === (float) $value ? '' : $value;
-        }
-
-        return '';
-    }
-
-    private function imageDimensionsDetermineDifferentAspectRatio(string $width, string $height, string $aspectRatio): bool
-    {
-        if (! preg_match('/^(\d*\.?\d+)([a-z]+)$/i', $width, $widthMatch)
-            || ! preg_match('/^(\d*\.?\d+)([a-z]+)$/i', $height, $heightMatch)
-            || strtolower($widthMatch[2]) !== strtolower($heightMatch[2])
-            || ! preg_match('#^(\d*\.?\d+)(?:\s*/\s*(\d*\.?\d+))?$#', $aspectRatio, $ratioMatch)
-            || 0.0 >= (float) $widthMatch[1]
-            || 0.0 >= (float) $heightMatch[1]
-            || 0.0 >= (float) $ratioMatch[1]
-            || 0.0 >= (float) ($ratioMatch[2] ?? '1')) {
-            return false;
-        }
-        $ratio = (float) $ratioMatch[1] / (float) ($ratioMatch[2] ?? '1');
-        return abs(((float) $widthMatch[1] / (float) $heightMatch[1]) - $ratio) > 0.000001;
-    }
-
-    /**
-     * Whether a fixed width and height in one absolute unit already determine
-     * exactly the given aspect ratio. Percentages, mixed units and missing
-     * axes do not: they leave the box to the stylesheet-owned crop.
-     */
-    private function imageDimensionsStateAspectRatio(string $width, string $height, string $aspectRatio): bool
-    {
-        if (! preg_match('/^(\d*\.?\d+)(px|r?em|cm|mm|in|pt|pc)$/i', $width, $widthMatch)
-            || ! preg_match('/^(\d*\.?\d+)(px|r?em|cm|mm|in|pt|pc)$/i', $height, $heightMatch)
-            || strtolower($widthMatch[2]) !== strtolower($heightMatch[2])
-            || 0.0 >= (float) $widthMatch[1]
-            || 0.0 >= (float) $heightMatch[1]
-            || ! preg_match('#^(\d*\.?\d+)(?:\s*/\s*(\d*\.?\d+))?$#', $aspectRatio)) {
-            return false;
-        }
-
-        return ! $this->imageDimensionsDetermineDifferentAspectRatio($width, $height, $aspectRatio);
-    }
-
     private function cssPixelValue(float $pixels): string
     {
         $formatted = rtrim(rtrim(number_format($pixels, 4, '.', ''), '0'), '.');
 
         return ('' === $formatted ? '0' : $formatted) . 'px';
-    }
-
-    /** Whether the emitted dimensions came only from the image file metadata. */
-    private function imageDimensionsAreIntrinsicAttributes(DOMElement $image): bool
-    {
-        $declarations = $this->styleResolver->cssDeclarations($this->attr($image, 'style'));
-        foreach (array( 'width', 'height' ) as $property) {
-            $value = trim(CssValueInspector::withoutImportant((string) ($declarations[$property] ?? '')));
-            if ('' !== $value && !in_array(strtolower($value), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true)) {
-                return false;
-            }
-        }
-        return '' !== trim($this->attr($image, 'width')) && '' !== trim($this->attr($image, 'height'));
-    }
-
-    private function imageDimensionIsIntrinsicAttribute(DOMElement $image, string $property): bool
-    {
-        $declarations = $this->styleResolver->cssDeclarations($this->attr($image, 'style'));
-        $inline = trim(CssValueInspector::withoutImportant((string) ($declarations[$property] ?? '')));
-        return ('' === $inline || in_array(strtolower($inline), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true))
-            && '' === $this->imageDimensions()->imageStylesheetDimension($image, $property)
-            && '' !== trim($this->attr($image, $property));
-    }
-
-    private function imageHasNonPositiveDimension(DOMElement $image, string $property): bool
-    {
-        $inline = trim(CssValueInspector::withoutImportant((string) ($this->styleResolver->cssDeclarations($this->attr($image, 'style'))[ $property ] ?? '')));
-        $value = $inline;
-        if ('' === $value || in_array(strtolower($value), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true)) {
-            $value = trim(CssValueInspector::withoutImportant((string) ($this->styleResolver->presentationDeclarations($image)[ $property ] ?? '')));
-        }
-        if ('' === $value || in_array(strtolower($value), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true)) {
-            $raw = $this->attr($image, $property);
-            $attribute = HtmlDimensionAttribute::parse($raw);
-            // A signed value is not a valid dimension; it still fails closed.
-            return null === $attribute
-                ? 1 === preg_match('/^[\t\n\f\r ]*[+-]/', $raw)
-                : 0.0 >= $attribute['value'];
-        }
-        return 1 === preg_match('/^[+-]?(?:\d+|\d*\.\d+)(?:%|px|r?em|ex|ch|lh|rlh|vw|vh|vmin|vmax|vi|vb|cm|mm|q|in|pt|pc)?$/i', $value)
-            && 0.0 >= (float) $value;
     }
 
     /**
