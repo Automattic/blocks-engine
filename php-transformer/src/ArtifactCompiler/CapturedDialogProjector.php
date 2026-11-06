@@ -46,6 +46,7 @@ final class CapturedDialogProjector
         $components = $this->projectComponentCarousels($files);
         $popovers = $this->adoptSourcePopovers($components['files']);
         $result = $this->projectCapturedStates($popovers['files']);
+        $this->restoreNavigationPanels($result['files']);
         $result['diagnostics'] = array_merge($result['diagnostics'], $components['diagnostics'] ?? array());
         $result['projected_count'] += $popovers['projected_count'] + $components['projected_count'];
         $result['native_runtime_replacements'] = array_merge($result['native_runtime_replacements'] ?? array(), $components['native_runtime_replacements']);
@@ -1052,9 +1053,52 @@ final class CapturedDialogProjector
             $copy->appendChild($closedContent);
             $copy->appendChild($openedContent);
         }
-        foreach (array('hidden', CaptureEvidence::EXISTING_PANEL, CaptureEvidence::DIALOG_PANEL, CaptureEvidence::OBSERVED_PLACEMENT) as $attribute) $copy->removeAttribute($attribute);
+        foreach (array('hidden', 'data-dropdown-shown', CaptureEvidence::EXISTING_PANEL, CaptureEvidence::DIALOG_PANEL, CaptureEvidence::OBSERVED_PLACEMENT) as $attribute) $copy->removeAttribute($attribute);
 
         return (string) $document->saveHTML($copy);
+    }
+
+    /** Native submenus own interaction; capture's opened envelope is not static markup. */
+    private function restoreNavigationPanels(array &$files): void
+    {
+        foreach ($files as &$file) {
+            $html = $file['content'] ?? null;
+            if (!is_string($html) || !preg_match('/\.html?$/i', (string) ($file['path'] ?? '')) || !str_contains($html, CaptureEvidence::EXISTING_PANEL)) continue;
+            $document = new DOMDocument('1.0', 'UTF-8');
+            $previous = libxml_use_internal_errors(true);
+            $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NONET);
+            libxml_clear_errors();
+            libxml_use_internal_errors($previous);
+            if (!$loaded || $this->hasUnrecognizedRuntime($document)) continue;
+            $xpath = new DOMXPath($document);
+            $changed = false;
+            foreach ($document->getElementsByTagName('*') as $trigger) {
+                if (!$this->isNavigationDropdownTrigger($trigger)) continue;
+                $key = $trigger->getAttribute(CaptureEvidence::DIALOG_TRIGGER);
+                foreach ($this->documentScopes($document) as $scope) {
+                    if (!SourceDom::elementContains($scope, $trigger)) continue;
+                    $panels = $xpath->query('.//*[@' . CaptureEvidence::DIALOG_PANEL . '=' . $this->xpathLiteral($key) . ']', $scope);
+                    if (!$panels || 1 !== $panels->length) continue;
+                    $panel = $panels->item(0);
+                    if (!$panel instanceof DOMElement || !SourceDom::hasClass($panel, CaptureEvidence::DROPDOWN_CLASS)) continue;
+                    $state = $this->restingPresentation($panel);
+                    if (array() === $state) continue;
+                    // Keep capture tokens and metadata until navigation lowering
+                    // consumes them; only replace the observed presentation.
+                    $snapshot = json_decode($panel->getAttribute(CaptureEvidence::EXISTING_PANEL), true);
+                    foreach (array('class', 'style') as $name) {
+                        if (!array_key_exists($name, $snapshot['resting'])) continue;
+                        $value = $snapshot['resting'][$name];
+                        if (null === $value) $panel->removeAttribute($name); else $panel->setAttribute($name, $value);
+                    }
+                    if ($state['hidden']) $panel->setAttribute('hidden', ''); else $panel->removeAttribute('hidden');
+                    $panel->removeAttribute('data-dropdown-shown');
+                    $changed = true;
+                }
+            }
+            if ($changed) $file = ArtifactNormalizer::withTextPayload($file, HtmlSerialization::documentHtml($document));
+        }
+        unset($file);
     }
 
     private function isNavigationDropdownTrigger(DOMElement $trigger): bool
