@@ -55,6 +55,13 @@ final class CssSelectorCompoundInspector
                 return true;
             }
         }
+        foreach ( $compound['not'] ?? array() as $negated ) {
+            foreach ( $negated['compounds'] ?? array() as $nested ) {
+                if ( self::containsDataAttribute($nested) ) {
+                    return true;
+                }
+            }
+        }
         foreach ( $compound['any'] ?? array() as $group ) {
             foreach ( $group['alternatives'] ?? array() as $alternative ) {
                 foreach ( $alternative['compounds'] ?? array() as $nested ) {
@@ -86,7 +93,7 @@ final class CssSelectorCompoundInspector
         }
         foreach ( $compound['not'] ?? array() as $negated ) {
             foreach ( $negated['compounds'] ?? array() as $nested ) {
-                if ( array() !== ($nested['attributes'] ?? array()) || self::hasLiveAttributePredicate($nested) ) {
+                if ( self::hasLiveAttributePredicate($nested) ) {
                     return true;
                 }
             }

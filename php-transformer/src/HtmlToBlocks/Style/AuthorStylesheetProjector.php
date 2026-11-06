@@ -2037,6 +2037,21 @@ final class AuthorStylesheetProjector
                 array_push($rewritten, ...$pseudoProjection);
                 continue;
             }
+            // Attribute carriers are keyed by the authored selector. Resolve the
+            // complete captured predicate before rewriting a negation to its
+            // live state class, which would change that identity.
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            if ($parsed['supported'] && str_contains($selector, ':not(')) {
+                $sourceMatches = $this->matchingSourceElements($selector, $parsed, $context);
+                if (array() !== $sourceMatches) {
+                    $attributeProjection = $this->projectSourceAttributeAncestrySelector($selector, $parsed, $sourceMatches, $context, $controlWrapper)
+                        ?? $this->projectSourceAttributeSelector($selector, $parsed, $sourceMatches, $context, $controlWrapper);
+                    if (null !== $attributeProjection) {
+                        array_push($rewritten, ...$attributeProjection);
+                        continue;
+                    }
+                }
+            }
             $selector = $this->projectSourceAttributeNegationStateSelector($selector, $context);
             $parsed = $context->sourceStyles->parsedSelector($selector);
             if ( ! $parsed['supported'] ) {
