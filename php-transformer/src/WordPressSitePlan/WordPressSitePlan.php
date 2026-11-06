@@ -782,12 +782,18 @@ PHP;
             $plan['reference_semantics']['synced_patterns'] = SyncedPatternProjection::REFERENCE_CONTRACT;
         }
         $consumers = AssetConsumers::inventory($plan);
+        $unreferenced = AssetConsumers::unreferencedImages($plan);
+        $unwritten = array();
         foreach ($plan['assets'] as &$asset) {
             $asset['consumers'] = $consumers[$asset['token']] ?? array();
-            $asset['destination'] = AssetConsumers::destination($asset['consumers']);
+            $asset['destination'] = AssetConsumers::destination($asset['consumers'], $asset, $unreferenced);
             $asset['theme_write_reasons'] = self::themeWriteReasons($asset['consumers'], $asset['destination']);
+            if ('none' === $asset['destination']) $unwritten[$asset['target_path']] = true;
         }
         unset($asset);
+        // An image nothing references is not materialized; its row and token
+        // remain so the plan still reports what the source carried.
+        if (array() !== $unwritten) $plan['writes'] = array_values(array_filter($plan['writes'], static fn(array $write): bool => !isset($unwritten[$write['target_path']])));
         $plan = self::withContentConservation($plan, $compiled['pages']);
         $plan['plan_identity'] = self::planIdentity($plan);
         self::assertValid($plan);
@@ -1157,10 +1163,17 @@ PHP;
                 if (!in_array($template['slug'], $boundTemplates, true) && 0 !== $references) throw new InvalidArgumentException('WordPress site plan has an unproven template part binding.');
             }
         }
+        // Resolution rewrites tokens to URLs, so a resolved plan keeps the
+        // unresolved plan's proof for unwritten assets.
+        $unreferenced = isset($plan['resolution']) ? array_fill_keys(array_column(array_filter($plan['assets'], static fn(array $asset): bool => 'none' === ($asset['destination'] ?? null)), 'token'), true) : AssetConsumers::unreferencedImages($plan);
         foreach ( $plan['assets'] as $asset ) {
             $expectedConsumers = $asset['consumers'] ?? array();
-            if (($asset['consumers'] ?? null) !== $expectedConsumers || ($asset['destination'] ?? null) !== AssetConsumers::destination($expectedConsumers) || ($asset['theme_write_reasons'] ?? null) !== self::themeWriteReasons($expectedConsumers, $asset['destination'])) throw new InvalidArgumentException('Asset consumers or destination are stale.');
+            if (($asset['consumers'] ?? null) !== $expectedConsumers || ($asset['destination'] ?? null) !== AssetConsumers::destination($expectedConsumers, $asset, $unreferenced) || ($asset['theme_write_reasons'] ?? null) !== self::themeWriteReasons($expectedConsumers, $asset['destination'])) throw new InvalidArgumentException('Asset consumers or destination are stale.');
             $target = $asset['target_path'];
+            if ('none' === $asset['destination']) {
+                if (isset($writesByTarget[$target])) throw new InvalidArgumentException('WordPress site plan writes an unreferenced asset.');
+                continue;
+            }
             if ('media_library' === $asset['destination'] && !isset($writesByTarget[$target])) continue;
             if ( ! isset($writesByTarget[$target]) || 'theme_asset' !== ($writesByTarget[$target]['kind'] ?? null) || $writesByTarget[$target]['source_path'] !== $asset['source_path'] ) {
                 throw new InvalidArgumentException('WordPress site plan asset lacks a write.');

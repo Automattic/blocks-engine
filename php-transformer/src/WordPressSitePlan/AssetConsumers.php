@@ -47,10 +47,41 @@ final class AssetConsumers
         return $consumers;
     }
 
-    /** @param list<array<string,mixed>> $consumers */
-    public static function destination(array $consumers): string
+    /** @param list<array<string,mixed>> $consumers @param array<string,true>|null $unreferenced */
+    public static function destination(array $consumers, array $asset = array(), ?array $unreferenced = null): string
     {
         foreach ($consumers as $consumer) if ('block' === $consumer['kind']) return 'media_library';
+        if (null !== $unreferenced && isset($unreferenced[$asset['token'] ?? ''])) return 'none';
         return 'theme';
+    }
+
+    /**
+     * Image assets no plan member references. Static references are declared
+     * tokens only, so a token absent from every page, template, part, pattern,
+     * menu, theme, runtime record and other write is unreachable. Script
+     * references must be proven before absence counts. Pruned writes can be
+     * the only referrer of another image, so this runs to a fixpoint.
+     *
+     * @param array<string,mixed> $plan
+     * @return array<string,true>|null Null when unreferenced assets cannot be proven.
+     */
+    public static function unreferencedImages(array $plan): ?array
+    {
+        if ('proven' !== ($plan['reference_semantics']['dynamic_script_references'] ?? null)) return null;
+        $images = array();
+        foreach ($plan['assets'] as $asset) {
+            if ('asset' === ($asset['kind'] ?? null) && str_starts_with((string) ($asset['mime_type'] ?? ''), 'image/')) $images[$asset['token']] = $asset['target_path'];
+        }
+        $unreferenced = array();
+        do {
+            $pruned = array_flip(array_intersect_key($images, $unreferenced));
+            $haystack = json_encode(array_diff_key($plan, array('assets' => true, 'reference_tokens' => true, 'writes' => true, 'plan_identity' => true)), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+                . json_encode(array_values(array_filter($plan['writes'], static fn(array $write): bool => !isset($pruned[$write['target_path']]) && 'theme_bootstrap' !== ($write['kind'] ?? null))), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            $next = array();
+            foreach ($images as $token => $target) if (!str_contains($haystack, WordPressSitePlan::TOKEN_PREFIX . $token . '}}')) $next[$token] = true;
+            $stable = $next === $unreferenced;
+            $unreferenced = $next;
+        } while (!$stable);
+        return $unreferenced;
     }
 }
