@@ -1,0 +1,46 @@
+<?php
+declare(strict_types=1);
+
+// A disclosure group whose items follow a leading heading is still recognized
+// as core/accordion: the heading stays an ordinary heading before the
+// accordion and the CSS-collapsed, inert panels start closed. Non-items
+// interleaved with or trailing the items do not form an accordion, and a
+// heading-led run of native <details> stays core/details (#4765).
+
+require dirname(__DIR__, 2) . '/vendor/autoload.php';
+
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+
+$item = static fn(string $question, string $answer): string => '<div class="faq-item">'
+    . '<button class="faq-q" type="button" aria-expanded="false">' . $question . '</button>'
+    . '<div class="faq-a" inert=""><div><p>' . $answer . '</p></div></div></div>';
+$page = static fn(string $group): string => '<!doctype html><html><head><style>'
+    . '.faq-item{border-bottom:1px solid #ccc}.faq-q{appearance:none;width:100%;background:transparent;border:none;text-align:left;padding:18px 36px 18px 0;font-weight:600}'
+    . '.faq-a{display:grid;grid-template-rows:0fr}.faq-q[aria-expanded="true"] + .faq-a{grid-template-rows:1fr}.faq-a > div{overflow:hidden}'
+    . '</style></head><body><main><div class="faq-group">' . $group . '</div></main></body></html>';
+$first = $item('What is the first question?', 'This is the first answer, hidden until opened.');
+$second = $item('What is the second question?', 'This is the second answer, hidden until opened.');
+$transform = static fn(string $group): string => (string) (new HtmlTransformer())->transform($page($group))->toArray()['serialized_blocks'];
+$fail = static function (string $message, string $markup): void { fwrite(STDERR, "FAIL: {$message}\n{$markup}\n"); exit(1); };
+
+foreach (array(
+    'leading heading' => array('<h3>General</h3>', '/<!-- wp:heading \{"level":3\} --><h3 class="wp-block-heading">General<\/h3>/'),
+    'leading heading and intro' => array('<h3>General</h3><p>Common questions.</p>', '/General<\/h3>.*Common questions\./s'),
+) as $label => [$leading, $leadingPattern]) {
+    $markup = $transform($leading . $first . $second);
+    if (1 !== substr_count($markup, '<!-- wp:accordion -->') && 1 !== substr_count($markup, '<!-- wp:accordion {')) $fail("{$label}: the items become one core/accordion", $markup);
+    if (2 !== substr_count($markup, '<!-- wp:accordion-item')) $fail("{$label}: both items are accordion items", $markup);
+    if (1 !== preg_match($leadingPattern, $markup)) $fail("{$label}: the leading siblings stay ordinary blocks", $markup);
+    if (1 !== preg_match('/General<\/h3>.*<!-- wp:accordion[ -]/s', $markup)) $fail("{$label}: the leading siblings stay before the accordion", $markup);
+    if (str_contains($markup, 'openByDefault')) $fail("{$label}: the accordion starts collapsed", $markup);
+}
+
+foreach (array(
+    'interleaved' => $first . '<h3>More</h3>' . $second,
+    'trailing' => '<h3>General</h3>' . $first . $second . '<p>Still stuck? Contact us.</p>',
+    'native details' => '<h3>General</h3><details><summary>First?</summary><p>One.</p></details><details><summary>Second?</summary><p>Two.</p></details>',
+) as $label => $group) {
+    if (str_contains($transform($group), '<!-- wp:accordion')) $fail("{$label}: non-items outside a leading run do not form an accordion", $transform($group));
+}
+
+fwrite(STDOUT, "accordion leading heading tests: passed\n");
