@@ -2977,14 +2977,22 @@ final class StyleResolver implements ElementPresentationResolver
      * The text alignment a block inherits from source wrappers the conversion
      * removes, or which an editor reset would otherwise hide. The nearest
      * cascaded declaration decides, including stylesheet-owned alignment.
-     * Author rules need lifting only when they differ from the editor default.
+     * Author rules need lifting only when they differ from the editor default,
+     * and never when a media-conditional rule on the path re-aligns the text.
      */
     public function inheritedTextAlignmentDeclaration(DOMElement $element): string
     {
+        $conditional = array() !== $this->session->sourceStyleResolutionState()->conditionalRules();
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
             $declarations = $this->cssDeclarations($this->specificityResolvedPresentationStyle($node));
             $value = CssValueInspector::comparable((string) ($declarations['text-align'] ?? ''));
             if ( in_array($value, array( '', 'inherit', 'unset' ), true) ) {
+                // Only resting at this width: a media-conditional rule here
+                // overrides the inherited value elsewhere, so lifting the
+                // ancestor's alignment onto the block would silence it.
+                if ( $conditional && $this->hasConditionalStyleFamily($node, 'text-align') ) {
+                    return '';
+                }
                 continue;
             }
             $local = array(
@@ -2993,6 +3001,12 @@ final class StyleResolver implements ElementPresentationResolver
             );
             if ( ! in_array($value, $local, true)
                 && 'start' === $this->comparableTextAlignment($value, $this->isRightToLeftElement($element)) ) {
+                return '';
+            }
+            // A media-conditional rule on the deciding stylesheet owner
+            // re-aligns the text at other widths; a static lift would
+            // freeze the resting value over it.
+            if ( $conditional && ! in_array($value, $local, true) && $this->hasConditionalStyleFamily($node, 'text-align') ) {
                 return '';
             }
 
