@@ -30,6 +30,9 @@ final class TextLeafElementConverter implements ElementConverter
      */
     private const TAGS = array('address', 'noscript', 'marquee', 'blink', 'pre', 'plaintext', 'hr', 'br');
 
+    /** Source identities that must survive lowering to paragraph/group/pre. */
+    public const LOWERED_TAGS = array('address', 'noscript', 'marquee', 'blink', 'plaintext');
+
     public function __construct(
         private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMaterialization $richTextMaterializer,
         private readonly \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime $runtime,
