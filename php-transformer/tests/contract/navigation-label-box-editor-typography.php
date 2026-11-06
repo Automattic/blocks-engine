@@ -10,9 +10,10 @@ use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityRunner;
 $source = '<!doctype html><html><head><title>Navigation</title><style>.label{font:700 17px/1.4 Sora,sans-serif;letter-spacing:.08em;color:purple;text-transform:uppercase}nav ul{display:flex;gap:24px;list-style:none}</style></head><body><nav><ul><li><div class="wrap"><div class="label"><a href="#about">About</a></div></div></li><li><div class="wrap"><div class="label"><a href="#services">Services</a></div></div></li></ul></nav></body></html>';
 $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(array('path' => 'index.html', 'kind' => 'html', 'content' => $source))))->toArray();
 $frontend = array('blocks' => $result['serialized_blocks'], 'assets' => array_values(array_filter($result['assets'], static fn(array $asset): bool => 'editor' !== ($asset['stylesheet_target'] ?? 'both'))));
-// Baseline captured on trunk: serialized blocks (including runtime box
-// metadata) and every non-editor asset must remain byte-for-byte identical.
-if ('714e8e4289515473892231fac21c975433b2b3263cdf8350396237ee4d4acbe7' !== hash('sha256', json_encode($frontend))) {
+// Baseline after navigation target sharing: equivalent links and retained
+// label boxes share markers and structural selectors instead of enumerating positions.
+// Keep serialized runtime metadata and every non-editor asset byte-locked.
+if ('37bcabce32c151be72163b427766f37399be4b36475b6e2542c7b962bc0ce824' !== hash('sha256', json_encode($frontend))) {
     throw new RuntimeException('Frontend markup or stylesheet output changed.');
 }
 $native = StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($result['serialized_blocks']);

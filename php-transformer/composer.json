@@ -767,6 +767,7 @@
       "php tests/unit/styled-media-grid.php",
       "php tests/unit/cover-style-resolver.php",
       "php tests/unit/css-stylesheet-transformer.php",
+      "php tests/unit/route-variant-selector-sharing.php",
       "php tests/unit/route-selector-match-index-scaling.php",
       "php tests/unit/serialized-block-whitespace.php",
       "php tests/unit/stylesheet-selector-budget.php",

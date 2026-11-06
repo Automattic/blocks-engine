@@ -33,7 +33,7 @@ $css = implode("\n", array_map(static fn (array $asset): string => 'css' === ($a
 $assert(1 === preg_match('/<!-- wp:navigation-submenu \{[^\n]*blocks-engine-submenu-icon-[a-f0-9]+/', $markup), 'Core\'s toggle stands in for the source chevron.');
 $item = '\.wp-block-navigation__container>\.wp-block-navigation-item:nth-child\(3\)';
 $assert(1 === preg_match('/' . $item . '[^{},]*\{display:inline-flex\}/', $css, $row, PREG_OFFSET_CAPTURE), 'The toggle item keeps its inline box as Core\'s row, so the chevron stays beside the label.');
-$assert(1 === preg_match('/nth-child\(-n\+3\)[^{}]*\{display:inline-block\}/', $css, $authored, PREG_OFFSET_CAPTURE) && $authored[0][1] < $row[0][1], 'The row follows the item\'s authored display rule at its cascade position.');
+$assert(1 === preg_match('/' . $item . '[^{}]*\{display:inline-block\}/', $css, $authored, PREG_OFFSET_CAPTURE) && $authored[0][1] < $row[0][1], 'The row follows the item\'s authored display rule at its cascade position.');
 $assert(0 === preg_match('/:nth-child\([12]\)[^{},]*\{display:inline-flex\}/', $css), 'Items without a toggle keep their authored display.');
 
 echo "navigation submenu toggle row contract passed\n";

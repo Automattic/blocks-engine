@@ -651,17 +651,19 @@ final class NavigationPatternContext
      */
     public function recordNavigationSubjects(array &$blocks, DOMElement $source): void
     {
-        // Item classes live in a shared wp_navigation post; they cannot name
-        // a particular placement. Address each item by its ordered position
-        // under a per-reference host instead, including nested submenu items.
-        $targets = array();
-        $collect = static function (array $items, string $parent) use (&$collect, &$targets): void {
+        // Keep distinct source presentations on their structural carriers.
+        // Equally styled sibling runs share one structural address, which
+        // survives menu consolidation even when placement markers differ.
+        $targets = $levelCounts = array();
+        $collect = static function (array $items, string $parent) use (&$collect, &$targets, &$levelCounts): void {
             $position = 0;
+            $levelCounts[$parent] = count(array_filter($items, static fn(array $item): bool => in_array($item['blockName'] ?? '', array('core/navigation-link', 'core/navigation-submenu'), true)));
             foreach ($items as $block) {
                 if (!in_array($block['blockName'] ?? '', array('core/navigation-link', 'core/navigation-submenu'), true)) continue;
                 $item = $parent . '>.wp-block-navigation-item:nth-child(' . (++$position) . ')';
                 foreach (preg_split('/\s+/', trim($block['attrs']['className'] ?? '')) ?: array() as $marker) {
-                    if (str_starts_with($marker, 'blocks-engine-navigation-')) $targets[$marker][] = $item;
+                    if (!str_starts_with($marker, 'blocks-engine-navigation-')) continue;
+                    $targets[$marker][] = $item;
                 }
                 $boxTarget = $item;
                 foreach ($block['attrs']['metadata']['blocksEngineNavigationAnchor']['boxes'] ?? array() as $box) {
@@ -679,8 +681,25 @@ final class NavigationPatternContext
                 continue;
             }
             $current = $this->withoutCurrentItemPresentation($block);
-            $targets = array();
+            $targets = $levelCounts = array();
             $collect($block['innerBlocks'] ?? array(), '');
+            foreach ($targets as $marker => $paths) {
+                foreach (array_reverse($levelCounts, true) as $parent => $count) {
+                    $pattern = '/^' . preg_quote($parent, '/') . '>\\.wp-block-navigation-item:nth-child\\([0-9]+\\)(.*)$/';
+                    $groups = array();
+                    foreach ($paths as $path) {
+                        if (preg_match($pattern, $path, $match)) $groups[$match[1]][] = $path;
+                    }
+                    foreach ($groups as $suffix => $members) {
+                        if (count($members) !== $count || $count < 2) continue;
+                        $paths = array_values(array_diff($paths, $members));
+                        $paths[] = $parent . '>.wp-block-navigation-item' . $suffix;
+                    }
+                }
+                $targets[$marker] = str_starts_with($marker, 'blocks-engine-navigation-anchor-') && count($targets[$marker]) > 1
+                    ? array(' .wp-block-navigation-item.' . $marker)
+                    : $paths;
+            }
             if (array() === $targets && array() === $current) {
                 $this->publishInheritedNavigationPresentation($block, $source, '');
                 continue;
@@ -691,6 +710,11 @@ final class NavigationPatternContext
             // An ancestor may record this same emitted block again. Its first
             // correspondence owns the instance and all subsequent projections.
             preg_match('/(?:^|\s)(blocks-engine-navigation-instance-[a-f0-9]{12}-[0-9]+)(?:\s|$)/', (string) ($block['attrs']['className'] ?? ''), $existing);
+            // Instance identity describes resting subjects, not how many of
+            // their structural addresses collapsed on this captured route.
+            foreach ($resting as $marker => $addresses) {
+                $resting[$marker] = array(' .wp-block-navigation-item' . (str_starts_with($marker, 'blocks-engine-navigation-box-') ? ' .' : '.') . $marker);
+            }
             $scope = $existing[1] ?? $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-instance', $this->navigationSourceIdentity($source) . json_encode($resting));
             $block['attrs']['className'] = SourceDom::mergeClassNames($block['attrs']['className'] ?? '', $scope);
             $this->recordCurrentItemPresentation($current, $scope, $source);
@@ -1126,14 +1150,19 @@ final class NavigationPatternContext
                 }
             }
         }
-        $position = 0;
-        for ($sibling = $element->previousSibling; null !== $sibling; $sibling = $sibling->previousSibling) {
-            if ($sibling instanceof DOMElement) ++$position;
-        }
         $projections = $this->session->authorSelectorProjectionState();
         $classes = preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array();
         $classes = array_values(array_filter(array_diff($classes, SourceClassIdentity::routeState($element)), static fn(string $class): bool => !$projections->isCurrentNavigationClass($class, $element) && !$projections->selectsCurrentNavigationState('.' . $class, $element)));
-        $identity = array(strtolower($element->tagName), $element->getAttribute('id'), implode(' ', $classes), $element->getAttribute('style'), \Automattic\BlocksEngine\PhpTransformer\Support\NavigationUrl::serialize($element->getAttribute('href')), $position, $rules);
+        // Core's submenu row can require a different rendered display from
+        // ordinary links even when their source declarations are identical.
+        $hasSubmenu = false;
+        if ('item' === $kind) {
+            foreach ($element->childNodes as $child) {
+                if ($child instanceof DOMElement && in_array(strtolower($child->tagName), array('ul', 'ol'), true)) $hasSubmenu = true;
+            }
+        }
+        $identity = array(strtolower($element->tagName), $element->getAttribute('id'), implode(' ', $classes), $element->getAttribute('style'), $rules);
+        if ($hasSubmenu) $identity[] = 'submenu-row';
         return $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-' . $kind, (string) json_encode($identity));
     }
 

@@ -981,7 +981,7 @@ $navInherited = ( new HtmlTransformer() )->transform(
 )->toArray();
 $navInheritedCss = implode("\n", array_column($navInherited['assets'] ?? array(), 'content'));
 $navInheritedMarkup = (string) ($navInherited['serialized_blocks'] ?? '');
-$assert(str_contains($navInheritedCss, '.wp-block-navigation-item:nth-child(1)>div') && str_contains($navInheritedCss, '{color:rgb(238,255,255);font-family:helvetica-w01-roman;font-size:15.75px}') && str_contains($navInheritedMarkup, '"boxes":[{"tag":"div"'), 'menu presentation stays on its retained native source wrapper rather than freezing the inherited anchor');
+$assert(str_contains($navInheritedCss, '.wp-block-navigation__container>.wp-block-navigation-item>div') && str_contains($navInheritedCss, '{color:rgb(238,255,255);font-family:helvetica-w01-roman;font-size:15.75px}') && str_contains($navInheritedMarkup, '"boxes":[{"tag":"div"'), 'menu presentation stays on its retained native source wrapper rather than freezing the inherited anchor');
 $assert(! str_contains($navInheritedCss, '.wp-block-navigation.menu.navbar .wp-block-navigation-item__content{color:#000') && ! str_contains($navInheritedCss, 'font-family:Arial;font-size:10px}'), 'recovery reads the source menu rather than the document default that surrounds it');
 preg_match('/<!--\s*wp:navigation\s*(\{.*?\})\s*-->/s', $navInheritedMarkup, $navInheritedAttrs);
 $navInheritedBlock = $navInheritedAttrs[1] ?? '';
