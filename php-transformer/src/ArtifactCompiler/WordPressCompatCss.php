@@ -21,6 +21,9 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EditorShellBoundar
  */
 final class WordPressCompatCss
 {
+    /** Class tokens a script sets to reveal a menu list; the replay materializes them. */
+    private const REVEAL_STATE = '(?:is-)?(?:visible|shown|open|opened|active|ready|loaded|expanded)';
+
     /** @var array<string, string> */
     private array $cssCache = array();
     /** @var array{string, string, string}|null */
@@ -143,8 +146,9 @@ final class WordPressCompatCss
             preg_match_all('/[.#]([A-Za-z_][\w-]*)/', $selector, $tokens);
             foreach ($tokens[1] as $token) {
                 // Route-state projection strips the served item's state
-                // classes from the documents; the replay restores them.
-                if (isset($this->scriptTokens[$token]) || SourceClassIdentity::containsCurrentStateToken($token) || in_array($token, SourceClassIdentity::DISCLOSURE_CLASSES, true)) $static = false;
+                // classes from the documents, and the structure replay
+                // materializes reveal states; neither is in the documents.
+                if (isset($this->scriptTokens[$token]) || SourceClassIdentity::containsCurrentStateToken($token) || 1 === preg_match('/^' . self::REVEAL_STATE . '$/i', $token)) $static = false;
             }
         }
         $parsed = $static ? CssSelectorMatcher::parse($selector) : array('supported' => false);
@@ -631,10 +635,10 @@ final class WordPressCompatCss
         $tail = substr($selector, $matchStart + $matchLength);
         if ( '' === trim($tail) ) {
             if ( ! preg_match('/(?:^|;)\s*(?:visibility\s*:\s*visible\b|opacity\s*:\s*1(?:\.0+)?\b|display\s*:\s*(?!none\b)[^;}]+)/i', $body)
-                || ! preg_match('/\.(?:is-)?(?:visible|shown|open|opened|active|ready|loaded|expanded)\b/i', $listClasses) ) {
+                || ! preg_match('/\.' . self::REVEAL_STATE . '\b/i', $listClasses) ) {
                 return array();
             }
-            $stableListClasses = preg_replace('/\.(?:is-)?(?:visible|shown|open|opened|active|ready|loaded|expanded)\b/i', '', $listClasses);
+            $stableListClasses = preg_replace('/\.' . self::REVEAL_STATE . '\b/i', '', $listClasses);
             if ( ! is_string($stableListClasses) || $stableListClasses === $listClasses || ! preg_match('/(?:nav|menu)/i', $stableListClasses) ) {
                 return array();
             }
