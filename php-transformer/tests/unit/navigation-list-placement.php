@@ -177,8 +177,9 @@ $assert(
 $rowFloat = array_values(array_filter($rowRules, static fn (array $rule): bool => str_contains($rule['body'], 'float:right')));
 $rowMargin = array_values(array_filter($rowRules, static fn (array $rule): bool => 1 === preg_match('/(?:^|;)margin(?:-left)?:/', $rule['body'])));
 $assert(
-    1 === count($rowFloat) && 1 === count($rowMargin),
-    'float and margin are each stated by exactly one author rule',
+    1 === count($rowFloat) && 2 === count($rowMargin)
+        && 1 === count(array_filter($rowMargin, static fn(array $rule): bool => str_contains($rule['selector'], 'nav.wp-block-navigation.blocks-engine-navigation-list-box-'))),
+    'float stays on the host and list margin also reaches the dedicated rendered box subject',
     json_encode(array( $rowFloat, $rowMargin ))
 );
 $assert(
