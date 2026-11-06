@@ -273,6 +273,13 @@ final class NavigationPattern implements PatternRecognizerInterface
             return null;
         }
 
+        // Image-only links are brand content, even when alt text supplies an
+        // accessible name. Defer the whole candidate to linked image conversion;
+        // mixed menus still keep their logo item alongside the text links.
+        if ( $this->hasOnlyImageLinks($element) ) {
+            return null;
+        }
+
         // A landmark can own layout around a separate, deeply nested list and
         // disclosure. Let recursion reach those occurrences instead of mapping
         // their enclosing layout wrapper to one synthetic submenu item.
@@ -3063,6 +3070,24 @@ final class NavigationPattern implements PatternRecognizerInterface
         $picture = $parent instanceof DOMElement && 'picture' === strtolower($parent->tagName) ? $parent : null;
 
         return array( 'image' => $image, 'picture' => $picture );
+    }
+
+    /** A menu needs at least one link whose content is not just an image. */
+    private function hasOnlyImageLinks(DOMElement $element): bool
+    {
+        $links = $element->getElementsByTagName('a');
+        if ( 0 === $links->length ) {
+            return false;
+        }
+        foreach ( $links as $link ) {
+            if ( ! $link instanceof DOMElement
+                || '' !== trim($link->textContent ?? '')
+                || null === $this->singleUnnamedBrandImage($link) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function navigationBlockFromItem(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?NavigationPatternContext $navigationContext = null, ?array &$listItems = null): ?array
