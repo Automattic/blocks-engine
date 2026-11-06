@@ -2693,8 +2693,8 @@ final class ArtifactCompiler
                 $primaryByPath[$projection['path']][$projection['content']] = true;
             }
         }
-        // Explicit shared-part projections apply site-wide. Inline landmarks
-        // belong to their member group; page projections belong to their owner.
+        // Shared-part projections apply site-wide unless their inline landmark
+        // carries member-only ancestor context; page projections have an owner.
         $sharedByPath = array();
         $memberShellsByPath = array();
         $pageByPath = array();
@@ -3902,12 +3902,29 @@ final class ArtifactCompiler
                     $asset['compilation'] = array('scope' => 'shared', 'source_paths' => array_keys($members));
                     $assets[] = $asset;
                 }
-                // A shared landmark's synthetic ancestor context is common
-                // only to its members, not necessarily to every site route.
-                // Reconcile these projections with member pages, never with
-                // the site-wide stylesheet base.
+                // Keep site-wide reconciliation (including richtext reset
+                // exclusions) unless the synthetic ancestors carry state that
+                // is not common to every route. Other landmark identities still
+                // count: sharing markup is not evidence of sharing route state.
+                $siteContexts = array();
+                foreach ($documents as $document) {
+                    $siteContexts[] = $document['rows'][$area][$variant]['context'] ?? array();
+                }
+                $siteContext = self::sharedSourceShellAncestorContext($siteContexts);
+                $siteProjections = array();
+                if ($context !== $siteContext) {
+                    $siteOpen = ''; $siteClose = '';
+                    foreach (array_slice($siteContext, 2) as $ancestor) { $siteOpen .= '<' . $ancestor['tag'] . self::sourceShellAttributes($ancestor['attributes']) . '>'; $siteClose = '</' . $ancestor['tag'] . '>' . $siteClose; }
+                    $siteSynthetic = '<!doctype html><html' . self::sourceShellAttributes($siteContext[0]['attributes'] ?? array()) . '><head>' . $head . '</head><body' . self::sourceShellAttributes($siteContext[1]['attributes'] ?? array()) . '>' . $siteOpen . $canonicalMarkup . $siteClose . '</body></html>';
+                    $siteCompiled = $this->compileHtmlDocumentBlocks($siteSynthetic, $sourcePath, $files, 'artifact-shared-shell', $generatedBlockNamespace, true, array(), max(0, count($siteContext) - 2));
+                    foreach ($siteCompiled['author_stylesheet_projections'] as $projection) {
+                        $siteProjections[$projection['path']] = $projection['content'];
+                    }
+                }
                 foreach ($compiled['author_stylesheet_projections'] as $projection) {
-                    $projection['member_owners'] = array_keys($members);
+                    // Only scope stylesheets whose projection actually depends
+                    // on the additional member context, not unrelated resets.
+                    if ($context !== $siteContext && ($siteProjections[$projection['path']] ?? null) !== $projection['content']) $projection['member_owners'] = array_keys($members);
                     $authorStylesheetProjections[] = $projection;
                 }
                 $runtimeScriptProjections = array_merge($runtimeScriptProjections, $compiled['runtime_script_projections']);
