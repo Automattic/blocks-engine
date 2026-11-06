@@ -69,7 +69,7 @@ document.body.innerHTML = "<pre id=measurement>" + JSON.stringify(result) + "</p
         $lines = array();
         $assert(0 === $exitCode && 1 === preg_match('/<pre id="measurement">(.*?)<\/pre>/s', $dom, $matches), 'Browser emits layout measurements.');
         $measure = json_decode(html_entity_decode($matches[1]), true, 512, JSON_THROW_ON_ERROR);
-        $assert('2' === $measure['column'], $width . ': overlay stage occupies the content column: ' . json_encode($measure));
+        $assert('1' === $measure['column'], $width . ': overlay stage spans the grid columns: ' . json_encode($measure));
         $assert('absolute' === $measure['trackPosition'] && '1 / 1 / 1 / 1' === $measure['trackArea'], $width . ': track retains source absolute positioning and grid placement.');
         $assert(abs($measure['stage'] - $measure['track']) < 1, $width . ': source grid placement cannot collapse the track into an outer control column: ' . json_encode($measure));
         $assert($measure['stage'] > 0 && abs($measure['root'] - $measure['stage']) < 1 && abs($measure['stage'] - $measure['slide']) < 1 && $measure['text'] > 0, $width . ': active slide and quote have stage width, not zero width.');
