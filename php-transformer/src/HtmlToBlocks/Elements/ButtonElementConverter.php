@@ -11,6 +11,9 @@ use DOMElement;
 /** Converts buttons through search, image-carrier, and generic precedence. */
 final class ButtonElementConverter implements ElementConverter
 {
+    /** Largest used size, in CSS pixels, still read as an icon rather than content media. */
+    private const ICON_SCALE_MAX_PX = 64.0;
+
     public function __construct(
         private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier $sourceElementClassifier,
         private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock,
@@ -57,7 +60,7 @@ final class ButtonElementConverter implements ElementConverter
             return ConversionOutcome::handled($this->context->runtimeButton($element));
         }
 
-        if ( $this->sourceElementClassifier->isImageCarrierButton($element) || ! $this->sourceElementClassifier->isRichTextButtonLabel($element) ) {
+        if ( $this->sourceElementClassifier->isImageCarrierButton($element) || $this->hasContentScaleImage($element) || ! $this->sourceElementClassifier->isRichTextButtonLabel($element) ) {
             $children = $this->context->convertChildren($element, $fallbacks, true);
             if ( array() !== $children ) {
                 return ConversionOutcome::handled(
@@ -86,6 +89,37 @@ final class ButtonElementConverter implements ElementConverter
         }
 
         return ConversionOutcome::handled($this->context->convertButton($element));
+    }
+
+    /**
+     * Whether the button paints an image at content scale.
+     *
+     * core/button's label is phrasing text, so lowering there swaps every
+     * image for its alt text. That is right for icons beside a label, and the
+     * structural classifier keeps unsized or caption-repeating images apart.
+     * An image whose resolved used size exceeds icon scale on either axis is
+     * content, though: flattening it to alt text would drop a visible logo or
+     * photo, whatever caption sits beside it.
+     */
+    private function hasContentScaleImage(DOMElement $element): bool
+    {
+        if ( 'submit' === strtolower(SourceDom::attr($element, 'type')) ) {
+            return false;
+        }
+
+        foreach ( $element->getElementsByTagName('img') as $image ) {
+            $size = $this->context->imageFixedPixelSize($image);
+            if ( null === $size ) {
+                return false;
+            }
+            foreach ( array( 'width', 'height' ) as $axis ) {
+                if ( null !== $size[ $axis ] && self::ICON_SCALE_MAX_PX < $size[ $axis ] ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private function hasAccessibleIconOnlyContent(DOMElement $element): bool

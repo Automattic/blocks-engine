@@ -828,6 +828,15 @@ PHP;
                 if (is_string($type)) $pages[$page['source_path']] .= "\n" . implode("\n", $byType[$type] ?? array());
             }
         }
+        // Queries in shared templates render the same post-scoped data as
+        // queries in page bodies (including related-post titles).
+        foreach ($plan['templates'] ?? array() as $template) {
+            if (!preg_match_all('/<!-- wp:query (\{.*?\}) \/?-->/s', (string) ($template['canonical_block_markup'] ?? ''), $queries)) continue;
+            foreach ($queries[1] as $json) {
+                $type = json_decode($json, true)['query']['postType'] ?? null;
+                if (is_string($type)) $shared .= "\n" . implode("\n", $byType[$type] ?? array());
+            }
+        }
         $findings = array();
         foreach ($documents as $document) {
             if (!is_array($document) || !is_string($document['block_markup'] ?? null) || !is_string($document['source_path'] ?? null)) continue;
@@ -3625,6 +3634,7 @@ PHP;
         $localTimesByIndex = array();
         $structuredTypes = array();
         $pageEvidenceByIndex = array();
+        $dateSlotsByIndex = array();
         foreach ($documents as $index => $document) {
             if (!is_array($document) || !self::safePath($document['source_path'] ?? null)) throw new InvalidArgumentException('Compiled site document is invalid.');
             $metadata = is_array($document['metadata'] ?? null) ? $document['metadata'] : array();
@@ -3632,14 +3642,32 @@ PHP;
             $routes[$index] = '/' === $path ? '/' : '/' . trim($path, '/');
             $structuredTypes[$index] = self::structuredPageTypes($document);
             $localTimesByIndex[$index] = array();
+            $dateSlotsByIndex[$index] = array();
             // Repeated article metadata on pagination, and the listed entries'
             // dates on a category or tag archive, are not an independent
             // publication and must not vote in listing or dated-site inference.
-            $evidenceByIndex[$index] = null === self::paginationParentRoute($routes[$index]) && !TaxonomyProjection::isTermRoute($routes[$index]) ? $this->publicationEvidence($document, $localTimesByIndex[$index]) : array();
+            $evidenceByIndex[$index] = null === self::paginationParentRoute($routes[$index]) && !TaxonomyProjection::isTermRoute($routes[$index]) ? $this->publicationEvidence($document, $localTimesByIndex[$index], $dateSlotsByIndex[$index]) : array();
             $pageTypes = array_intersect(array('WebPage', 'AboutPage', 'ContactPage', 'CollectionPage'), $structuredTypes[$index]);
             if (!array_intersect(array('Article', 'BlogPosting', 'NewsArticle'), $structuredTypes[$index]) && $pageTypes) {
                 $evidenceByIndex[$index] = array();
                 $pageEvidenceByIndex[$index] = array_values(array_map(static fn(string $type): array => array('source' => 'json-ld:' . $type), $pageTypes));
+            }
+        }
+        // Unmarked builder dates become evidence only when the same source
+        // slot varies across sibling routes. Count routes, not captures, so
+        // a lone date or identical template chrome cannot establish a slot.
+        $dateSlotsByParent = array();
+        foreach ($dateSlotsByIndex as $index => $slots) {
+            if (!empty($documents[$index]['entrypoint']) || isset($pageEvidenceByIndex[$index])) continue;
+            foreach ($slots as $identity => $slot) $dateSlotsByParent[self::parentRoutePath($routes[$index])][$identity][$routes[$index]] = $slot['text'];
+        }
+        foreach ($dateSlotsByIndex as $index => $slots) {
+            if (!empty($documents[$index]['entrypoint']) || isset($pageEvidenceByIndex[$index])) continue;
+            foreach ($slots as $identity => $slot) {
+                $texts = $dateSlotsByParent[self::parentRoutePath($routes[$index])][$identity] ?? array();
+                if (count(array_unique($texts)) < 2 || count($evidenceByIndex[$index]) >= 16) continue;
+                $row = array('source' => 'html:visible-date', 'publication_timestamp' => $slot['publication_timestamp']);
+                if (!in_array($row, $evidenceByIndex[$index], true)) $evidenceByIndex[$index][] = $row;
             }
         }
         $indexByRoute = array_flip($routes);
@@ -3933,7 +3961,7 @@ PHP;
         return array_values(array_unique($types));
     }
     /** @param array<string,mixed> $document @param array<string,string> $localTimes Non-zero-offset representations keyed by UTC instant. @return array<int,array<string,string>> */
-    private function publicationEvidence(array $document, array &$localTimes): array
+    private function publicationEvidence(array $document, array &$localTimes, array &$dateSlots): array
     {
         $html = is_string($document['html'] ?? null) ? $document['html'] : '';
         if ('' === trim($html) && is_string($document['block_markup'] ?? null)) $html = $document['block_markup'];
@@ -3950,7 +3978,7 @@ PHP;
         foreach (HtmlMarkupParser::htmlMarkupNodes($html) as $node) if ('rawtext' === ($node['kind'] ?? null) && 'script' === ($node['name'] ?? null) && 'application/ld+json' === strtolower(trim((string) ($node['attributes']['type'] ?? '')))) foreach ($this->jsonLdPublicationEvidence(json_decode($node['content'], true), $timestamp) as $row) $add($evidence, $row['source'], $row['publication_timestamp'] ?? null);
         $route = is_string($document['metadata']['route_path'] ?? null) ? $document['metadata']['route_path'] : self::pageRoutePath((string) $document['source_path'], self::entryRootFromDocuments(array($document)));
         if (preg_match('~/(?:[0-9]{4})/(?:0[1-9]|1[0-2])(?:/|$)~', $route)) $add($evidence, 'route:dated');
-        foreach ($this->visiblePublicationEvidence($html, $timestamp) as $row) {
+        foreach ($this->visiblePublicationEvidence($html, $timestamp, $dateSlots) as $row) {
             $add($evidence, $row['source'], $row['publication_timestamp'] ?? null);
         }
         foreach (($document['document_metadata']['meta'] ?? array()) as $meta) {
@@ -3969,8 +3997,8 @@ PHP;
         }
         return array_values($unique);
     }
-    /** @return array<int,array<string,string>> */
-    private function visiblePublicationEvidence(string $html, callable $timestamp): array
+    /** @param array<string,array<string,string>> $dateSlots @return array<int,array<string,string>> */
+    private function visiblePublicationEvidence(string $html, callable $timestamp, array &$dateSlots): array
     {
         $rows = array();
         foreach ($this->publicationHtmlFragments($html) as $fragment) {
@@ -3979,14 +4007,20 @@ PHP;
                     continue;
                 }
                 $attributes = is_array($node['attributes'] ?? null) ? $node['attributes'] : array();
-                if (!self::isVisibleDateElement((string) ($node['name'] ?? ''), $attributes)) {
-                    continue;
+                $visibleDate = self::isVisibleDateElement((string) ($node['name'] ?? ''), $attributes);
+                $identities = array();
+                if (in_array($node['name'] ?? '', array('p', 'span', 'div', 'li', 'td', 'mark'), true)) {
+                    foreach (array('id', 'data-element-id') as $key) {
+                        if (is_string($attributes[$key] ?? null) && '' !== trim($attributes[$key])) $identities[] = $key . ':' . $attributes[$key];
+                    }
                 }
+                if (!$visibleDate && array() === $identities) continue;
                 $text = self::elementInnerText($fragment, (string) $node['name'], $node['inner_offset']);
                 $timestamp(trim(preg_replace('/\s+/', ' ', $text) ?? $text));
                 $parsed = self::parseVisiblePublicationTimestamp($text);
                 if (null !== $parsed) {
-                    $rows[] = array('source' => 'html:visible-date', 'publication_timestamp' => $parsed);
+                    if ($visibleDate) $rows[] = array('source' => 'html:visible-date', 'publication_timestamp' => $parsed);
+                    else foreach ($identities as $identity) $dateSlots[$identity] = array('text' => $text, 'publication_timestamp' => $parsed);
                 }
             }
         }
@@ -4683,7 +4717,7 @@ PHP;
             $shared = $this->sharedPostChromeIdentities($posts);
             $groups = array();
             foreach ($posts as $index => $post) {
-                $transformed = $this->transformPostChromeDocument($post['canonical_block_markup'], $post, $post['route']['path'] ?? '', $shared);
+                $transformed = $this->transformPostChromeDocument($post['canonical_block_markup'], $post, $post['route']['path'] ?? '', $shared, null, $posts);
                 // Editor labels describe the source article, not its layout.
                 $identityMarkup = preg_replace_callback('/<!-- wp:([a-z0-9\/-]+) (\{.*?\})(\s*\/?)-->/s', static function (array $match): string {
                     $attrs = json_decode($match[2], true);
@@ -4767,7 +4801,7 @@ PHP;
         $leadImages = array();
         foreach ($posts as $postIndex => $post) {
             $route = (string) ($post['route']['path'] ?? '');
-            $documents[$postIndex] = $this->transformPostChromeDocument($post['canonical_block_markup'], $post, $route, $shared);
+            $documents[$postIndex] = $this->transformPostChromeDocument($post['canonical_block_markup'], $post, $route, $shared, null, $posts);
             $retained = $documents[$postIndex]['retained'];
             if (count($retained) < 2) continue;
             $lead = $retained[0];
@@ -4778,11 +4812,12 @@ PHP;
         $single = null;
         $singleMenus = array();
         $bodies = array();
+        $excerpts = array();
         foreach ($posts as $postIndex => $post) {
             $route = is_string($post['route']['path'] ?? null) ? $post['route']['path'] : '';
             $transformed = $documents[$postIndex];
             if ($promoteLead) {
-                $transformed = $this->transformPostChromeDocument($post['canonical_block_markup'], $post, $route, $shared, $transformed['retained'][0]['offset']);
+                $transformed = $this->transformPostChromeDocument($post['canonical_block_markup'], $post, $route, $shared, $transformed['retained'][0]['offset'], $posts);
             }
             if (!$transformed['title'] || (!$transformed['date'] && !$transformed['shared']) || '' === trim($transformed['body']) || 1 !== substr_count($transformed['template'], '<!-- wp:post-content')) {
                 return array('pages' => $pages, 'single' => null);
@@ -4808,10 +4843,12 @@ PHP;
                 return array('pages' => $pages, 'single' => null);
             }
             $bodies[$indexes[$postIndex]] = $transformed['body'];
+            if (null !== ($transformed['excerpt'] ?? null)) $excerpts[$indexes[$postIndex]] = $transformed['excerpt'];
         }
         foreach ($bodies as $index => $body) {
             $pages[$index]['canonical_block_markup'] = $body;
             $pages[$index]['content_hash'] = self::contentHash($body);
+            if (isset($excerpts[$index])) $pages[$index]['metadata']['excerpt'] = $excerpts[$index];
             if ($promoteLead) $pages[$index]['metadata']['featured_image'] = $leadImages[array_search($index, $indexes, true)];
         }
         return array('pages' => $pages, 'single' => $single);
@@ -4890,11 +4927,100 @@ PHP;
         return $shared ?? array();
     }
     /**
+     * Select the smallest post-title-following container owning most varying
+     * text. Only move the slot when every outside variation has a native home;
+     * otherwise the original factoring retains all of the authored content.
+     *
+     * @return array{range:?array,slots:array<int,string>,excerpt:?string}
+     */
+    private function postChromeBodySelection(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, array $post, string $route, array $shared, array $posts): array
+    {
+        $fallback = array('range' => null, 'slots' => array(), 'excerpt' => null);
+        $titleEnd = null;
+        $varying = array();
+        foreach ($index->ranges() as $range) {
+            if (array() !== $index->children($range)) continue;
+            $slice = substr($index->markup, $range['offset'], $range['length']);
+            $kind = $this->classifyPostChromeBlock($slice, $post, $route, $index);
+            if ('title' === $kind) $titleEnd = $range['offset'] + $range['length'];
+            if (isset($shared[ShellExtraction::identityMarkup($slice)]) || in_array($kind, array('title', 'date', 'comments', 'chrome', 'share', 'skip'), true)) continue;
+            $varying[] = $range;
+        }
+        if (null === $titleEnd) return $fallback;
+        $textLeaves = array_filter($varying, static fn(array $leaf): bool => '' !== ListingExcerptProjection::text(substr($index->markup, $leaf['offset'], $leaf['length'])));
+        $best = null;
+        foreach ($index->ranges() as $candidate) {
+            if ($candidate['offset'] < $titleEnd || array() === $index->children($candidate)) continue;
+            $count = 0;
+            foreach ($varying as $leaf) {
+                if ($leaf['offset'] < $candidate['offset'] || $leaf['offset'] + $leaf['length'] > $candidate['offset'] + $candidate['length']) continue;
+                if ('' !== ListingExcerptProjection::text(substr($index->markup, $leaf['offset'], $leaf['length']))) ++$count;
+            }
+            if ($count < 2 || $count <= count($textLeaves) / 2) continue;
+            if (null === $best || $candidate['length'] < $best['length']) $best = $candidate;
+        }
+        if (null === $best) return $fallback;
+        $slots = array();
+        $excerpt = null;
+        foreach ($varying as $leaf) {
+            if ($leaf['offset'] >= $best['offset'] && $leaf['offset'] < $best['offset'] + $best['length']) continue;
+            foreach ($slots as $offset => $unused) {
+                // An enclosing related section already owns this leaf.
+                foreach ($index->ranges() as $owner) if ($owner['offset'] === $offset && $leaf['offset'] < $offset + $owner['length']) continue 3;
+            }
+            $slice = substr($index->markup, $leaf['offset'], $leaf['length']);
+            if ($leaf['offset'] < $best['offset']) {
+                // Excerpts are plain text: do not flatten links, emphasis or
+                // other rich structure into a different rendering contract.
+                if (null !== $excerpt || 'paragraph' !== self::listingBlockName($slice) || !preg_match('/<p\b[^>]*>[^<]*<\/p>/s', $slice)) return $fallback;
+                // A source description owns post_excerpt downstream; only a
+                // matching lede can share that field.
+                if (null !== ListingExcerptProjection::description($post) && !ListingExcerptProjection::matches($slice, $post)) return $fallback;
+                $excerpt = ListingExcerptProjection::text($slice);
+                $attrs = self::listingBlockAttributes($slice);
+                // A fixed generous limit keeps long ledes intact without
+                // making excerpt word counts part of template identity.
+                $attrs['excerptLength'] = 10000;
+                $attrs['showMoreOnNewLine'] = false;
+                $attrs['moreText'] = '';
+                $slots[$leaf['offset']] = '<!-- wp:post-excerpt ' . BlockAttributes::encode($attrs) . ' /-->';
+                continue;
+            }
+            $related = null;
+            foreach ($index->ranges() as $owner) {
+                if ($owner['offset'] <= $best['offset'] + $best['length'] || $leaf['offset'] < $owner['offset'] || $leaf['offset'] >= $owner['offset'] + $owner['length']) continue;
+                $source = substr($index->markup, $owner['offset'], $owner['length']);
+                if ('section' !== (self::listingBlockAttributes($source)['tagName'] ?? null)) continue;
+                $children = $index->children($owner);
+                if (count($children) < 2) continue;
+                $heading = substr($index->markup, $children[0]['offset'], $children[0]['length']);
+                if ('heading' !== self::listingBlockName($heading) || !isset($shared[ShellExtraction::identityMarkup($heading)])) continue;
+                $start = $children[1]['offset'];
+                $last = $children[count($children) - 1];
+                $length = $last['offset'] + $last['length'] - $start;
+                $links = substr($index->markup, $start, $length);
+                preg_match_all('/<a\b[^>]*href="([^"]+)"[^>]*>(.*?)<\/a>/s', $links, $matches);
+                if (array() === $matches[1] || '' !== trim(strip_tags(preg_replace('/<a\b[^>]*>.*?<\/a>|<!--.*?-->/s', '', $links) ?? ''))) continue;
+                $routes = array_column(array_column($posts, 'route'), 'path');
+                foreach ($matches[1] as $href) if (!in_array(self::hrefRoute(html_entity_decode($href, ENT_QUOTES | ENT_HTML5), $route), $routes, true)) continue 2;
+                $query = '<!-- wp:query ' . BlockAttributes::encode(array('query' => array('postType' => 'post', 'perPage' => count($matches[1]), 'inherit' => false, 'exclude' => array()))) . ' --><div class="wp-block-query"><!-- wp:post-template --><!-- wp:post-title {"isLink":true,"level":3} /--><!-- /wp:post-template --></div><!-- /wp:query -->';
+                $related = array('offset' => $owner['offset'], 'markup' => substr_replace($source, $query, $start - $owner['offset'], $length));
+                break;
+            }
+            if (null === $related) {
+                $this->recordUnitFinding(array('code' => 'wordpress_site_plan_post_chrome_order_retained', 'source_path' => $post['source_path'], 'message' => 'Outside body variation has no native slot; retained original post-content placement to avoid dropping content.'));
+                return $fallback;
+            }
+            $slots[$related['offset']] = $related['markup'];
+        }
+        return array('range' => $best, 'slots' => $slots, 'excerpt' => $excerpt);
+    }
+    /**
      * @param array<string,mixed> $post
      * @param array<string,true> $shared
      * @return array{template:string,body:string,title:bool,date:bool,shared:bool,content:bool,retained:array<int,array{offset:int,length:int}>}
      */
-    private function transformPostChromeDocument(string $markup, array $post, string $route, array $shared, ?int $featuredOffset = null): array
+    private function transformPostChromeDocument(string $markup, array $post, string $route, array $shared, ?int $featuredOffset = null, array $posts = array()): array
     {
         $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
         $postIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex((string) ($post['canonical_block_markup'] ?? ''));
@@ -4919,6 +5045,14 @@ PHP;
             if (null !== $contentRange) { $contentRange = null; break; }
             $contentRange = $candidate;
         }
+        $slots = array();
+        $excerpt = null;
+        if (null === $contentRange) {
+            $selection = $this->postChromeBodySelection($index, $post, $route, $shared, $posts);
+            $contentRange = $selection['range'];
+            $slots = $selection['slots'];
+            $excerpt = $selection['excerpt'];
+        }
         $template = '';
         $body = '';
         $title = false;
@@ -4931,7 +5065,7 @@ PHP;
             if ($range['offset'] > $cursor) {
                 $template .= substr($markup, $cursor, $range['offset'] - $cursor);
             }
-            $transformed = $this->transformPostChromeRange($index, $postIndex, $range, $post, $route, $shared, false, $featuredOffset, $contentRange);
+            $transformed = $this->transformPostChromeRange($index, $postIndex, $range, $post, $route, $shared, false, $featuredOffset, $contentRange, $slots);
             $template .= $transformed['template'];
             $body .= $transformed['body'];
             $title = $title || $transformed['title'];
@@ -4944,7 +5078,7 @@ PHP;
         if ($cursor < strlen($markup)) {
             $template .= substr($markup, $cursor);
         }
-        return array('template' => $template, 'body' => $body, 'title' => $title, 'date' => $date, 'shared' => $sharedChrome, 'content' => $content, 'retained' => $retained);
+        return array('template' => $template, 'body' => $body, 'title' => $title, 'date' => $date, 'shared' => $sharedChrome, 'content' => $content, 'retained' => $retained, 'excerpt' => $excerpt);
     }
     /**
      * @param array{offset:int,length:int} $range
@@ -4952,11 +5086,15 @@ PHP;
      * @param array<string,true> $shared
      * @return array{template:string,body:string,title:bool,date:bool,shared:bool,content:bool,retained:array<int,array{offset:int,length:int}>}
      */
-    private function transformPostChromeRange(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $postIndex, array $range, array $post, string $route, array $shared, bool $dateContext = false, ?int $featuredOffset = null, ?array $contentRange = null): array
+    private function transformPostChromeRange(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $postIndex, array $range, array $post, string $route, array $shared, bool $dateContext = false, ?int $featuredOffset = null, ?array $contentRange = null, array $slots = array()): array
     {
         $markup = $index->markup;
         $slice = substr($markup, $range['offset'], $range['length']);
         $empty = array('template' => $slice, 'body' => '', 'title' => false, 'date' => false, 'shared' => false, 'content' => false, 'retained' => array());
+        if (isset($slots[$range['offset']])) {
+            $empty['template'] = $slots[$range['offset']];
+            return $empty;
+        }
         if (null !== $contentRange && $range === $contentRange) {
             $children = $index->children($range);
             $start = $children[0]['offset'];
@@ -5022,7 +5160,7 @@ PHP;
             && ListingExcerptProjection::text($slice) === ListingExcerptProjection::text(substr($markup, $children[0]['offset'], $children[0]['length']))
             && ($dateContext || 'date' === $this->classifyPostChromeBlock($slice, $post, $route, $postIndex));
         foreach ($children as $child) {
-            $transformed = $this->transformPostChromeRange($index, $postIndex, $child, $post, $route, $shared, $childDateContext, $featuredOffset, $contentRange);
+            $transformed = $this->transformPostChromeRange($index, $postIndex, $child, $post, $route, $shared, $childDateContext, $featuredOffset, $contentRange, $slots);
             if ($transformed['content'] && $emittedContent) {
                 // The subtree leaves the template, and with it any title or
                 // date it placed: neither is found. Shared blocks inside it
@@ -7764,6 +7902,8 @@ PHP;
     {
         $value = trim(preg_replace('/\s+/', ' ', $value) ?? $value);
         if ('' === $value) return null;
+        // Builder bylines commonly prefix a full date with its weekday.
+        $value = preg_replace('/^(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+/i', '', $value) ?? $value;
         $iso = self::normalizePublicationTimestamp($value);
         if (null !== $iso) return $iso;
         if (preg_match('/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/', $value, $match)) {

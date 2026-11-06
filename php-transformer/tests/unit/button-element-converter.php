@@ -105,11 +105,23 @@ foreach (array(
     'named icon and label' => '<button type="button"><img src="search.svg" width="16" height="16" alt="Search icon"> Search</button>',
     'unsized named icon and label' => '<button type="button"><img src="search.svg" alt="Search icon"> Search</button>',
     'decorative icon and label' => '<button type="button"><img src="search.svg" width="16" height="16" alt=""> Search</button>',
+    'stylesheet-sized icon and label' => '<style>.b img { width: 20px; height: auto; }</style><button class="b" type="button"><img src="search.svg" alt="Search icon"> Search</button>',
 ) as $label => $html) {
     $result = ( new HtmlTransformer() )->transform('<main>' . $html . '</main>')->toArray();
     $markup = (string) ($result['serialized_blocks'] ?? '');
     $assert(str_contains($markup, '<!-- wp:button '), $label . ' stays a core/button');
     $assert(! str_contains($markup, '<!-- wp:group') && ! str_contains($markup, '<!-- wp:image'), $label . ' is not re-homed into media content');
+}
+
+foreach (array(
+    'stylesheet-sized logo beside a distinct caption' => '<style>.b img { width: 160px; height: auto; }</style><button class="b" type="button"><img src="logo.png" alt="Example logo"><span>Other caption</span></button>',
+    'attribute-sized photo beside a distinct caption' => '<button type="button"><img src="logo.png" width="640" height="480" alt="Example logo"><span>Other caption</span></button>',
+) as $label => $html) {
+    $result = ( new HtmlTransformer() )->transform('<main>' . $html . '<h1>Hero heading</h1></main>')->toArray();
+    $markup = (string) ($result['serialized_blocks'] ?? '');
+    $assert(str_contains($markup, '<!-- wp:image') && str_contains($markup, 'src="logo.png" alt="Example logo"'), $label . ' keeps the content image as an image block');
+    $assert(! str_contains($markup, 'Example logo<span>') && ! str_contains($markup, '<!-- wp:button '), $label . ' is not flattened into button alt text');
+    $assert(1 === substr_count($markup, '>Other caption<'), $label . ' keeps its caption exactly once');
 }
 
 $nestedGallery = ( new HtmlTransformer() )->transform('<main><button type="button"><div style="aspect-ratio:4/3"><img src="photo.webp" alt="Garden" srcset="photo.webp 640w, photo-large.webp 1280w"></div><span>Garden</span></button></main>')->toArray();

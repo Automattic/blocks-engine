@@ -46,7 +46,7 @@ foreach ( array( 'block', 'flex', 'grid' ) as $display ) {
         if ( 'block' !== $display ) {
             $assertSame($position, $hero['attrs']['contentPosition'] ?? null, 'Source axes map to contentPosition.');
             if ( 'top left' === $position ) {
-                $assertTrue(str_contains($result['serialized_blocks'], 'class="wp-block-cover has-custom-content-position is-position-top-left hero"'), 'Top-left hero saves custom position classes before the source class.');
+                $assertTrue(str_contains($result['serialized_blocks'], 'class="wp-block-cover has-custom-content-position is-position-top-left hero blocks-engine-cover-consumed-background"'), 'Top-left hero saves custom position classes before the source class.');
             } else {
                 $assertTrue(! str_contains($result['serialized_blocks'], 'has-custom-content-position'), 'Centered hero omits custom position classes.');
             }
@@ -249,6 +249,10 @@ foreach ( array( 'utility hero' => array( '<h1>Strategy</h1>', 'core/cover' ), '
     $result = $transformHtml('<style>.x .c1-u{display:flex;flex-direction:column;min-height:360px}.x .c1-z{background-size:auto,cover}@media (min-width:768px){.x .c1-14{background-image:linear-gradient(rgba(0,0,0,.25),rgba(0,0,0,.25)),url(/media/1346-6.jpg)}}@media (max-width:767px){.x .c1-15{background-image:linear-gradient(rgba(0,0,0,.25),rgba(0,0,0,.25)),url(/media/1346-2.webp)}}</style><div class="x"><div class="c1-u c1-z c1-14 c1-15">' . $content . '</div><p>After</p></div>');
     $names = $blockNames($result['blocks'] ?? array());
     $assertSame('core/cover' === $expected, in_array('core/cover', $names, true), 'Painted ' . $name . ' cover recognition.');
+    // The cover owns the consumed background; the source rules (base and
+    // media-only alike) stop painting its wrapper under the cover image.
+    $css = implode("\n", array_column($result['assets'] ?? array(), 'content'));
+    $assertSame('core/cover' === $expected, str_contains($result['serialized_blocks'] ?? '', 'blocks-engine-cover-consumed-background') && str_contains($css, ':root .wp-block-cover.blocks-engine-cover-consumed-background{background-image:none!important}'), 'Painted ' . $name . ' cover suppresses its consumed source background.');
 }
 
 $fallbacks = array( array( 'blockName' => 'existing/fallback' ) );

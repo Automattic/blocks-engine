@@ -4,8 +4,8 @@ declare(strict_types=1);
 /**
  * Dead author-selector projection check.
  *
- * A projected selector that binds to no element in the document scope it was
- * emitted for is definitionally a bug. The pre-#1954 golden-bull failure was
+ * A source-bound selector whose projection binds to no element in the document
+ * scope it was emitted for has lost its binding. The pre-#1954 golden-bull failure was
  * exactly this shape: `.h-9` / `.h-14` / `.w-14` projected onto semantic and
  * richtext markers that occurred zero times in any emitted document.
  */
@@ -28,6 +28,7 @@ $assert = static function (bool $condition, string $message) use (&$failures, &$
     fwrite(STDERR, 'FAIL: ' . $message . PHP_EOL);
 };
 
+$sourceHaystacks = array_fill_keys(array('index.html', 'about.html'), '<div class="h-9 h-14 border-primary"></div>');
 $reporter = new DeadProjectedSelectorReporter();
 $deadMarker = 'blocks-engine-semantic-8ed8be17a645-5';
 $liveMarker = 'blocks-engine-semantic-8ed8be17a645-9';
@@ -54,7 +55,8 @@ $dead = $reporter->evaluate(
             'scope'       => 'index.html',
         ),
     ),
-    array('index.html' => $deadHaystack)
+    array('index.html' => $deadHaystack),
+    $sourceHaystacks
 );
 $assert('error' === $dead->status(), 'a marker that appears in no document is an error');
 $assert(1 === count($dead->findings), 'one unbound authored selector produces one finding');
@@ -75,7 +77,8 @@ $deadRichtext = $reporter->evaluate(
             'scope'       => 'index.html',
         ),
     ),
-    array('index.html' => $deadHaystack)
+    array('index.html' => $deadHaystack),
+    $sourceHaystacks
 );
 $assert(1 === count($deadRichtext->findings) && '.h-14' === ($deadRichtext->findings[0]['source_selector'] ?? ''), 'a dead richtext-marker projection is reported');
 
@@ -90,7 +93,8 @@ $live = $reporter->evaluate(
             'scope'       => 'index.html',
         ),
     ),
-    array('index.html' => $liveHaystack)
+    array('index.html' => $liveHaystack),
+    $sourceHaystacks
 );
 $assert('pass' === $live->status() && array() === $live->findings, 'a marker present in the emitted document is not reported');
 
@@ -103,7 +107,8 @@ $liveRichtext = $reporter->evaluate(
             'scope'       => 'index.html',
         ),
     ),
-    array('index.html' => $richtextHaystack)
+    array('index.html' => $richtextHaystack),
+    $sourceHaystacks
 );
 $assert(array() === $liveRichtext->findings, 'a richtext marker present in markup is not reported');
 
@@ -116,7 +121,8 @@ $keptClass = $reporter->evaluate(
             'scope'       => 'index.html',
         ),
     ),
-    array('index.html' => $classHaystack)
+    array('index.html' => $classHaystack),
+    $sourceHaystacks
 );
 $assert(array() === $keptClass->findings, 'a class-bound projection that kept the authored class remains live even when its document-local marker is absent');
 
@@ -129,7 +135,8 @@ $slashUtility = $reporter->evaluate(
             'scope'       => 'index.html',
         ),
     ),
-    array('index.html' => $deadHaystack)
+    array('index.html' => $deadHaystack),
+    $sourceHaystacks
 );
 $assert(array() === $slashUtility->findings, 'a rewritten unused utility with no engine binding marker is not a dead projection');
 
@@ -147,7 +154,8 @@ $scoped = $reporter->evaluate(
     array(
         'index.html' => $deadHaystack,
         'about.html' => $liveHaystack,
-    )
+    ),
+    $sourceHaystacks
 );
 $assert(array() === $scoped->findings, 'a projection is checked only against the document scope it was emitted for');
 
@@ -163,30 +171,67 @@ $wrongScope = $reporter->evaluate(
     array(
         'index.html' => $liveHaystack,
         'about.html' => $deadHaystack,
-    )
+    ),
+    $sourceHaystacks
 );
 $assert(1 === count($wrongScope->findings), 'a page-scoped projection is dead when its own document does not carry the marker, even if another document does');
+
+// --- unused source rules and cross-scope aggregation ---------------------------
+
+$bindings = array();
+foreach ( array('index.html', 'about.html', 'unused.html', 'live.html', 'unknown.html') as $scope ) {
+    $bindings[] = array('authored' => '.wp-block-table:not(.absent)', 'projected' => $deadProjected, 'stylesheet' => 'site.css', 'scope' => $scope);
+}
+$sourceBound = '<figure class="wp-block-table"></figure>';
+$aggregated = $reporter->evaluate(
+    $bindings,
+    array('live.html' => '<div class="' . $deadMarker . '"></div>'),
+    array(
+        'index.html' => $sourceBound,
+        'about.html' => $sourceBound,
+        'live.html' => $sourceBound,
+        'unused.html' => '<style>.wp-block-table{color:red}</style><p class="absent">Unused</p>',
+    )
+);
+$assert(1 === count($aggregated->findings), 'one stylesheet/selector pair produces one finding across scopes');
+$assert(array('index.html', 'about.html') === ($aggregated->findings[0]['context']['scopes'] ?? null), 'only source-bound scopes with a dead projection are listed');
+$unused = $reporter->evaluate(
+    $bindings,
+    array(),
+    array_fill_keys(array_column($bindings, 'scope'), '<style>.wp-block-table{color:red}</style><p class="absent">Unused</p>')
+);
+$assert(array() === $unused->findings, 'an authored selector absent from source markup is not a lost binding');
+$uncheckable = $reporter->evaluate(
+    array(array('authored' => 'p:not(.h-9)', 'projected' => $deadProjected, 'scope' => 'index.html')),
+    array(),
+    $sourceHaystacks
+);
+$assert(array() === $uncheckable->findings, 'an uncheckable source selector is not evidence of a lost binding');
 
 // --- report shape --------------------------------------------------------------
 
 $report = $reporter->report(
     array(array('authored' => '.h-9', 'projected' => $deadProjected, 'stylesheet' => 'site.css', 'scope' => 'index.html')),
-    array('index.html' => $deadHaystack)
+    array('index.html' => $deadHaystack),
+    $sourceHaystacks
 );
 $assert(DeadProjectedSelectorReporter::SCHEMA === ($report['schema'] ?? ''), 'the report declares its schema');
 $assert('error' === ($report['status'] ?? ''), 'the report carries the evaluation status');
 
 $first = $reporter->evaluate(
     array(array('authored' => '.h-9', 'projected' => $deadProjected, 'scope' => 'index.html')),
-    array('index.html' => $deadHaystack)
+    array('index.html' => $deadHaystack),
+    $sourceHaystacks
 )->findings;
 $reporter->evaluate(
     array(array('authored' => '.other', 'projected' => $liveProjected, 'scope' => 'index.html')),
-    array('index.html' => $liveHaystack)
+    array('index.html' => $liveHaystack),
+    $sourceHaystacks
 );
 $assert($first === $reporter->evaluate(
     array(array('authored' => '.h-9', 'projected' => $deadProjected, 'scope' => 'index.html')),
-    array('index.html' => $deadHaystack)
+    array('index.html' => $deadHaystack),
+    $sourceHaystacks
 )->findings, 'answers do not drift as the reporter is reused');
 
 // --- HtmlTransformer surfaces the finding on a dropped projection identity -----
@@ -205,6 +250,26 @@ $assert('error' === ($droppedReport['status'] ?? ''), 'the HtmlTransformer repor
 $assert('.ghost-bind' === ($droppedFinding['source_selector'] ?? ''), 'the HtmlTransformer finding names the authored selector');
 $assert(str_contains((string) ($droppedFinding['selector'] ?? ''), 'blocks-engine-richtext-'), 'the HtmlTransformer finding names the projected richtext marker');
 $assert('html' === (($droppedFinding['context']['scopes'] ?? array())[0] ?? ''), 'the HtmlTransformer finding names the scope checked');
+
+// --- artifact diagnostics consolidate shared stylesheet losses -----------------
+
+$lostBindingArtifact = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        array('path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="site.css"><span class="ghost-bind"></span><p>Home</p>'),
+        array('path' => 'about.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="site.css"><span class="ghost-bind"></span><p>About</p>'),
+        array('path' => 'unused.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="site.css"><p>Unused</p>'),
+        array('path' => 'site.css', 'kind' => 'css', 'content' => '.ghost-bind{height:36px}.wp-element-button{color:red}'),
+    ),
+))->toArray();
+$lostFindings = array_values(array_filter(
+    $lostBindingArtifact['diagnostics'] ?? array(),
+    static fn (array $diagnostic): bool => DeadProjectedSelectorReporter::CODE === ($diagnostic['code'] ?? '')
+));
+$assert(1 === count($lostFindings), 'artifact reports a shared lost binding once and omits unused source selectors');
+$lostScopes = $lostFindings[0]['context']['scopes'] ?? array();
+sort($lostScopes);
+$assert(array('about.html', 'index.html') === $lostScopes, 'artifact finding lists every affected source scope');
 
 // --- live class-bound chrome across documents is not a false positive ----------
 

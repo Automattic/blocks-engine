@@ -92,6 +92,32 @@ $assert(
     $css($columns)
 );
 
+$collapsible = (new HtmlTransformer())->transform(
+    '<style>'
+    . '.faq-a{display:grid;grid-template-rows:0fr;transition:grid-template-rows 0.25s}'
+    . '.faq-q[aria-expanded="true"] + .faq-a{grid-template-rows:1fr}'
+    . '.faq-a > div{overflow:hidden}'
+    . '.faq-b{display:grid;grid-template-rows:0.0fr}'
+    . '.faq-c{display:grid;grid-template-rows:0fr 1fr}'
+    . '</style>'
+    . '<div class="faq-item"><button class="faq-q" type="button" aria-expanded="false">What is the first question?</button>'
+    . '<div class="faq-a"><div><p>This is the first answer, hidden until opened.</p></div></div></div>'
+    . '<div class="faq-b"><div><p>Second answer.</p></div></div>'
+    . '<div class="faq-c"><p>Hidden</p><p>Shown</p></div>'
+)->toArray();
+$collapsibleCss = $css($collapsible);
+$assert(
+    (bool) preg_match('/\.faq-a\{[^}]*grid-template-rows:0fr/', $collapsibleCss)
+        && (bool) preg_match('/\.faq-b\{[^}]*grid-template-rows:0\.0fr/', $collapsibleCss),
+    'zero-valued fractional row tracks keep collapse patterns collapsed',
+    $collapsibleCss
+);
+$assert(
+    (bool) preg_match('/\.faq-c\{[^}]*grid-template-rows:0fr min-content/', $collapsibleCss),
+    'zero-valued fractional row tracks survive alongside collapsed non-zero tracks',
+    $collapsibleCss
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Responsive footer geometry unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);

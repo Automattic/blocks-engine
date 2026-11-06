@@ -2863,11 +2863,33 @@ final class StyleResolver implements ElementPresentationResolver
      */
     public function authorNormalDeclarationSpecificity(DOMElement $element, array $properties): array
     {
+        return $this->authorDeclarationSpecificity($element, $properties, false);
+    }
+
+    /**
+     * Highest specificity among the matching author rules that declare any of
+     * the given properties with `!important`, at any viewport. A generated
+     * `!important` override has to be more specific than each of them.
+     *
+     * @param list<string> $properties
+     * @return array{int, int, int}
+     */
+    public function authorImportantDeclarationSpecificity(DOMElement $element, array $properties): array
+    {
+        return $this->authorDeclarationSpecificity($element, $properties, true);
+    }
+
+    /**
+     * @param list<string> $properties
+     * @return array{int, int, int}
+     */
+    private function authorDeclarationSpecificity(DOMElement $element, array $properties, bool $important): array
+    {
         $wanted = array_fill_keys(array_map('strtolower', $properties), true);
         $highest = array( 0, 0, 0 );
         foreach ( $this->matchingStyleRules($element, 'static-conditional') as $rule ) {
             foreach ( $rule['declarations'] as $property => $value ) {
-                if ( ! isset($wanted[ strtolower((string) $property) ]) || CssValueInspector::isImportant((string) $value) ) {
+                if ( ! isset($wanted[ strtolower((string) $property) ]) || $important !== CssValueInspector::isImportant((string) $value) ) {
                     continue;
                 }
                 $specificity = $this->mediaTextSelectorSpecificity((string) ( $rule['selector'] ?? '' ));
