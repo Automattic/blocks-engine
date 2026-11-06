@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TextLeafElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\Support\InlineBodyStyle;
@@ -372,7 +373,10 @@ final class StylesheetAnalysisComposer
                     $tagName = strtolower($typeSpan['name']);
                     // A hyphenated name is a custom element only when it can name an
                     // HTML element; CSS also accepts idents like `--sxs` that no element has.
-                    if ( in_array($tagName, array('div', 'figure', 'form', 'label', 'li', 'mark', 'nav', 'p'), true) || ( str_contains($tagName, '-') && EngineMarker::isDeclaredKind('source-' . $tagName) ) ) {
+                    // Text leaves lowered to a different tag need the same source
+                    // identity carrier as structural lowering. This keeps the full
+                    // authored cascade (including conditional rules), not a snapshot.
+                    if ( in_array($tagName, array('div', 'figure', 'form', 'label', 'li', 'mark', 'nav', 'p'), true) || in_array($tagName, TextLeafElementConverter::LOWERED_TAGS, true) || ( str_contains($tagName, '-') && EngineMarker::isDeclaredKind('source-' . $tagName) ) ) {
                         $sourceTags[$tagName] = true;
                     }
                 }
