@@ -32,10 +32,8 @@ final class WordPressCompatCss
     private ?ClassAttributeSelectorProjection $classAttributeSelectors = null;
     /** @var list<\DOMDocument>|null Source documents an authored replay must match in. */
     private ?array $sourceDocuments = null;
-    /** @var array<string, list<\DOMElement>> */
+    /** @var array<string, list<\DOMElement>> Source elements by `*`, tag, `.class` and `#id`. */
     private array $sourceCandidates = array();
-    /** @var array<string, true> */
-    private array $sourceTokens = array();
     /** @var array<string, true> Identifier tokens any page script names. */
     private array $scriptTokens = array();
     /** @var array<string, bool> */
@@ -120,7 +118,6 @@ final class WordPressCompatCss
         $this->sourceLiveness = array();
         $this->sourceDocuments = array();
         $this->sourceCandidates = array('*' => array());
-        $this->sourceTokens = array();
         foreach ($this->siteMarkerDocuments ?? array() as $html) {
             $document = new \DOMDocument();
             $previous = libxml_use_internal_errors(true);
@@ -131,16 +128,15 @@ final class WordPressCompatCss
             foreach ($document->getElementsByTagName('*') as $element) {
                 $this->sourceCandidates['*'][] = $element;
                 $this->sourceCandidates[strtolower($element->tagName)][] = $element;
-                foreach (preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $class) {
+                // Keys follow CssSelectorMatcher: class tokens split on HTML
+                // whitespace, and an id is also held by its editor anchor class.
+                $ids = $element->hasAttribute('id') ? array($element->getAttribute('id') => true) : array();
+                foreach (array_unique(preg_split('/[\x09\x0A\x0C\x0D\x20]+/', trim($element->getAttribute('class'))) ?: array()) as $class) {
                     if ('' === $class) continue;
-                    $this->sourceTokens[$class] = true;
                     $this->sourceCandidates['.' . $class][] = $element;
+                    if (null !== ($anchorId = EngineMarker::editorAnchorId($class))) $ids[$anchorId] = true;
                 }
-                if ($element->hasAttribute('id')) {
-                    $id = $element->getAttribute('id');
-                    $this->sourceTokens[$id] = true;
-                    $this->sourceCandidates['#' . $id][] = $element;
-                }
+                foreach (array_keys($ids) as $id) $this->sourceCandidates['#' . $id][] = $element;
             }
         }
     }
@@ -167,26 +163,28 @@ final class WordPressCompatCss
                 // materializes reveal states; neither is in the documents.
                 if (isset($this->scriptTokens[$token]) || SourceClassIdentity::containsCurrentStateToken($token) || 1 === preg_match('/^' . SourceClassIdentity::REVEAL_STATE . '$/i', $token)) $static = false;
             }
-            // Every compound of a static arm must match some element, so a
-            // class or id no document carries makes the arm dead.
-            if ($static) {
-                foreach ($tokens[1] as $token) {
-                    if (!isset($this->sourceTokens[$token])) return $this->sourceLiveness[$selector] = false;
-                }
-            }
         }
         $parsed = $static ? CssSelectorMatcher::parse($selector) : array('supported' => false);
         if (!($parsed['supported'] ?? false)) return $this->sourceLiveness[$selector] = true;
-        $compound = preg_split('/[\s>+~]+/', trim($selector)) ?: array();
-        $rightmost = (string) end($compound);
-        $candidateKey = null;
-        preg_match_all('/[.#]([A-Za-z_][\w-]*)/', $rightmost, $rightTokens, PREG_SET_ORDER);
-        foreach ($rightTokens as $tokenMatch) {
-            $key = $tokenMatch[0][0] . $tokenMatch[1];
-            if (isset($this->sourceCandidates[$key]) && (null === $candidateKey || count($this->sourceCandidates[$key]) < count($this->sourceCandidates[$candidateKey]))) $candidateKey = $key;
+        // Only an evaluable arm reaches the index. Every compound of the parsed
+        // selector must match a source element, so a required tag, class or id
+        // no document carries makes the arm dead, and the subject is sought
+        // only among elements holding the rarest requirement of the last
+        // compound. Negated and alternative arguments require nothing.
+        $candidateKey = '*';
+        $last = count($parsed['compounds']) - 1;
+        foreach ($parsed['compounds'] as $index => $compound) {
+            $keys = array_merge(
+                null === $compound['type'] ? array() : array(strtolower($compound['type'])),
+                array_map(static fn(string $class): string => '.' . $class, $compound['classes']),
+                array_map(static fn(string $id): string => '#' . $id, $compound['ids'])
+            );
+            foreach ($keys as $key) {
+                if (!isset($this->sourceCandidates[$key])) return $this->sourceLiveness[$selector] = false;
+                if ($index === $last && count($this->sourceCandidates[$key]) < count($this->sourceCandidates[$candidateKey])) $candidateKey = $key;
+            }
         }
-        if (null === $candidateKey && preg_match('/^([a-z][a-z0-9]*)/i', $rightmost, $tagMatch)) $candidateKey = strtolower($tagMatch[1]);
-        foreach ($this->sourceCandidates[$candidateKey ?? '*'] ?? array() as $element) {
+        foreach ($this->sourceCandidates[$candidateKey] as $element) {
             if (CssSelectorMatcher::matches($element, $parsed, true)['matches']) return $this->sourceLiveness[$selector] = true;
         }
         return $this->sourceLiveness[$selector] = false;
