@@ -6501,6 +6501,18 @@ final class StyleResolver implements ElementPresentationResolver
         return $cache->selectorMatchCache->styleRuleCandidates($element, $collection, $index);
     }
 
+    /** A parent selector's box declarations need a box on the lowered child. */
+    public function sourceChildHasParentBoxStyling(DOMElement $element): bool
+    {
+        foreach ( $this->matchingStyleRules($element, 'static-conditional') as $rule ) {
+            if ( ! str_contains((string) ($rule['selector'] ?? ''), '>') ) continue;
+            foreach ( array_keys($rule['declarations'] ?? array()) as $property ) {
+                if ( preg_match('/^(?:margin|padding|border|background|width|height|min-width|max-width|min-height|max-height|inline-size|block-size|min-inline-size|max-inline-size|min-block-size|max-block-size|box-shadow|overflow|position|inset|top|right|bottom|left|transform|opacity|float|clear|flex|align-self|justify-self|grid)(?:-|$)/', $property) ) return true;
+            }
+        }
+        return false;
+    }
+
     /** A source-only keyboard shortcut, with no painted content at rest. */
     public function isFocusRevealedSkipLink(DOMElement $element, string $sourcePath = ''): bool
     {
