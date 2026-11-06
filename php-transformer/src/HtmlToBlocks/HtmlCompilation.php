@@ -221,6 +221,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private const WRAPPER_CONTENT_SHAPE_DEPTH = 2;
     use DomHelpersTrait;
 
+    private function innerHtml(DOMElement $element): string
+    {
+        return SourceDom::innerHtml($element, $this->styleResolver->serializedInlineStyle(...));
+    }
+
     private readonly AuthorLayoutOwnership $authorLayoutOwnership;
 
     private const LANDMARK_GROUP_TAGS = array('header', 'footer');

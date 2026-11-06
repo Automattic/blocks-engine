@@ -864,7 +864,8 @@ final class NavigationPattern implements PatternRecognizerInterface
             $links[] = $this->createBlock->createBlock('core/navigation-link', array_filter(array(
                 'label' => SourceDom::innerHtmlWithProjectedMarkers(
                     $anchor,
-                    static fn (DOMElement $labelElement): array => $context->navigationContext()?->sourcePresentationMarkers($labelElement) ?? array()
+                    static fn (DOMElement $labelElement): array => $context->navigationContext()?->sourcePresentationMarkers($labelElement) ?? array(),
+                    static fn (DOMElement $labelElement): string => $context->navigationContext()?->serializedInlineStyle($labelElement) ?? SourceDom::attr($labelElement, 'style')
                 ),
                 'url' => SourceDom::safeNavigationUrl(SourceDom::attr($anchor, 'href')),
                 'kind' => 'custom',
@@ -3297,12 +3298,13 @@ final class NavigationPattern implements PatternRecognizerInterface
             static fn (DOMElement $element): array => array_merge(
                 $navigationContext->labelPresentationMarkers($element),
                 $navigationContext->ownsLabelTypography($element) ? array( NavigationPatternContext::LABEL_TYPOGRAPHY_BOX_CLASS ) : array()
-            )
+            ),
+            $navigationContext->serializedInlineStyle(...)
         );
 
         // The transformer's own serializer performs rich-text lowering the plain
         // clone cannot. Prefer it whenever no marker had to be carried.
-        $html = $markered === SourceDom::innerHtml($anchor) ? $innerHtml($anchor) : $markered;
+        $html = $markered === SourceDom::innerHtml($anchor, $navigationContext->serializedInlineStyle(...)) ? $innerHtml($anchor) : $markered;
         return preg_replace('/<!--[\s\S]*?-->/', '', $html) ?? $html;
     }
 

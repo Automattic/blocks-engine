@@ -882,19 +882,33 @@ final class StyleResolver implements ElementPresentationResolver
         return $this->authorDeclarationsAtViewport($element, $properties, self::DESKTOP_REFERENCE_WIDTH, $excludeCaptureDisclosure);
     }
 
+    /** Preserve authored inline CSS except typography already supplied by the parent. */
+    public function serializedInlineStyle(DOMElement $element): string
+    {
+        $style = SourceDom::attr($element, 'style');
+        // Lowered RichText carriers already own their effective declarations;
+        // their synthetic ancestry is not the original inheritance context.
+        if ('mark' === strtolower($element->tagName) && 'none' === SourceDom::attr($element, 'role')) return $style;
+        $declarations = $this->cssDeclarations($style);
+        $effective = $this->withoutRedundantInheritedTypography($element, $declarations);
+
+        return $effective === $declarations ? $style : $this->cssDeclarationString($effective);
+    }
+
     /**
-     * The element to serialize as RichText: a clone without the boundary
-     * whitespace its flex and grid containers (at the reference viewport)
-     * never paint, or the element itself when there is none.
-     * {@see SourceDom::withoutBlockifiedBoundaryWhitespace()}
+     * Serialize RichText without unpainted flex/grid boundary whitespace or
+     * redundant inherited typography. Resolve styles against source ancestry.
      */
     public function richTextSerializationSource(DOMElement $element): DOMElement
     {
-        return SourceDom::withoutBlockifiedBoundaryWhitespace($element, function (DOMElement $container): bool {
+        $serialized = SourceDom::withoutBlockifiedBoundaryWhitespace($element, function (DOMElement $container): bool {
             $display = CssValueInspector::comparable($this->referenceViewportAuthorDeclarations($container, array( 'display' ))['display'] ?? '');
 
             return 1 === preg_match('/(?<![\w-])(?:inline-)?(?:flex|grid)(?![\w-])/', $display);
         });
+        $clone = SourceDom::canonicalizedSerializationClone($serialized);
+        SourceDom::projectInlineStyles($element, $clone, $this->serializedInlineStyle(...));
+        return $clone;
     }
 
     /**
@@ -3483,9 +3497,67 @@ final class StyleResolver implements ElementPresentationResolver
         if ( $this->isCssAllResetValue((string) ($declarations['all'] ?? '')) ) {
             unset($declarations['all']);
         }
-        $cache->declarations[$cacheKey] = $declarations;
+        $cache->declarations[$cacheKey] = $this->withoutRedundantInheritedTypography($element, $declarations);
 
         return $cache->declarations[$cacheKey];
+    }
+
+    /**
+     * @param array<string, string> $declarations
+     * @return array<string, string>
+     */
+    public function withoutRedundantInheritedTypography(DOMElement $element, array $declarations): array
+    {
+        $parent = $element->parentNode;
+        if ( $parent instanceof DOMElement ) {
+            foreach ( array( 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform', 'color' ) as $property ) {
+                if ( ! isset($declarations[$property]) ) {
+                    continue;
+                }
+                $inherited = $this->resolvedInheritedTypographyValue($parent, $property);
+                $value = $this->resolveCssVariablesInValue(CssValueInspector::withoutImportant($declarations[$property]), $element);
+                // Equal relative expressions need not compute equally at two
+                // levels (for example font-size:120% or font-weight:bolder).
+                if ( ('font-size' === $property && preg_match('/(?:%|[0-9.](?:em|ex|ch)\b)|^(?:larger|smaller)$/i', $value))
+                    || ('font-weight' === $property && in_array(strtolower(trim($value)), array( 'bolder', 'lighter' ), true)) ) {
+                    continue;
+                }
+                if ( '' !== $inherited && $this->comparableInheritedTypography($value) === $this->comparableInheritedTypography($inherited) ) {
+                    unset($declarations[$property]);
+                }
+            }
+        }
+        return $declarations;
+    }
+
+    private function comparableInheritedTypography(string $value): string
+    {
+        $value = $this->context->cssComparableValue($value);
+        $value = str_replace(array( '"', "'" ), '', $value);
+
+        return trim(preg_replace('/\s+/', ' ', $value) ?? $value);
+    }
+
+    /** Read the source cascade, not the presentation declarations we prune. */
+    private function resolvedInheritedTypographyValue(DOMElement $element, string $property): string
+    {
+        for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
+            $declarations = $this->cssDeclarations($this->specificityResolvedPresentationStyle($current));
+            $value = CssValueInspector::withoutImportant((string) ($declarations[$property] ?? ''));
+            $value = $this->resolveCssVariablesInValue($value, $current);
+            $keyword = strtolower(trim($value));
+            if ( '' === $keyword || in_array($keyword, array( 'inherit', 'unset' ), true) ) {
+                continue;
+            }
+            // Do not guess defaults or compare unresolved values as computed ones.
+            if ( in_array($keyword, array( 'initial', 'revert', 'revert-layer' ), true) || str_contains($value, 'var(') ) {
+                return '';
+            }
+
+            return $value;
+        }
+
+        return '';
     }
 
     /**

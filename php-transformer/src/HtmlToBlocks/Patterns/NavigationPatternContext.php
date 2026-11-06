@@ -192,6 +192,11 @@ final class NavigationPatternContext
      * text presentation. Such an element (a logo heading) is what paints the
      * label, so it must survive the label's inline reduction.
      */
+    public function serializedInlineStyle(DOMElement $element): string
+    {
+        return $this->styleResolver?->serializedInlineStyle($element) ?? SourceDom::attr($element, 'style');
+    }
+
     public function ownsLabelTypography(DOMElement $element): bool
     {
         if ( ! $this->styleResolver instanceof StyleResolver || 1 !== preg_match('/^(?:' . NavigationPattern::BLOCK_LEVEL_LABEL_TAGS . ')$/i', $element->tagName) ) {
@@ -209,7 +214,7 @@ final class NavigationPatternContext
         }
         $declarations = $hasElementChildren
             ? $this->styleResolver->presentationDeclarations($element)
-            : $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($element));
+            : $this->styleResolver->withoutRedundantInheritedTypography($element, $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($element)));
         foreach ( array( 'font-family', 'font-size', 'font-weight', 'letter-spacing', 'text-transform', 'color', 'line-height', 'font-style' ) as $property ) {
             if ( '' !== trim((string) ($declarations[ $property ] ?? '')) ) {
                 return true;
@@ -987,7 +992,7 @@ final class NavigationPatternContext
 
     private function hasNavigationSubjectPresentation(DOMElement $element): bool
     {
-        if ('' !== trim($element->getAttribute('style'))) return true;
+        if ('' !== trim($element->getAttribute('style')) && array() !== $this->styleResolver->presentationDeclarations($element)) return true;
         foreach ($this->session->authorStyleAnalysis()->styleRules() as $rule) {
             if (array() === $rule['declarations']) continue;
             foreach ($rule['selectors'] as $selector) {
