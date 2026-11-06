@@ -12,13 +12,23 @@ foreach (array(
     'page' => array('page', null),
     'location' => array('location', null),
     'empty current value' => array('', null),
+    'nested hidden' => array('page', null, 'hidden'),
+    'nested responsive flex' => array('page', null, 'md:flex'),
+    'nested hidden responsive flex' => array('page', null, 'hidden md:flex'),
+    'nested neutral' => array('page', null, 'links'),
+    'nested hidden different label' => array('page', 'label', 'hidden'),
+    'nested responsive flex different href' => array('page', 'href', 'md:flex'),
     'different label' => array('page', 'label'),
     'different href' => array('page', 'href'),
-) as $case => [$currentValue, $difference]) {
+) as $case => $row) {
+    [$currentValue, $difference] = $row;
+    $containerClass = $row[2] ?? null;
     $files = array();
     foreach (array('index.html' => 'Home', 'about/index.html' => 'About', 'services/index.html' => 'Services') as $path => $title) {
         $links = '';
-        foreach (array('services' => 'Services', 'about' => 'About') as $slug => $label) {
+        $items = array('services' => 'Services', 'about' => 'About');
+        if (null !== $containerClass) $items['contact'] = 'Contact';
+        foreach ($items as $slug => $label) {
             $current = $title === $label;
             $href = '/' . $slug . '/';
             if ('Services' === $title && 'about' === $slug) {
@@ -27,7 +37,8 @@ foreach (array(
             }
             $links .= '<a ' . ($current ? 'aria-current="' . $currentValue . '" class="text-fg"' : 'class="text-muted hover:text-fg"') . ' href="' . $href . '">' . $label . '</a>';
         }
-        $files[$path] = '<!DOCTYPE html><html><head><title>' . $title . '</title><style>@layer utilities{.flex{display:flex}.gap-6{gap:1.5rem}.text-muted{color:#888}.text-fg{color:#111}.hover\\:text-fg:hover{color:#111}.p-4{padding:1rem}}</style></head><body><header class="p-4"><nav aria-label="Main"><div class="flex gap-6"><a href="/">Brand</a><div class="flex gap-6">' . $links . '</div></div></nav></header><main><h1>' . $title . '</h1><p>Welcome to ' . $title . '.</p></main><footer class="p-4"><p>© Brand</p></footer></body></html>';
+        $links = null === $containerClass ? $links : '<div class="' . $containerClass . '">' . $links . '</div>';
+        $files[$path] = '<!DOCTYPE html><html><head><title>' . $title . '</title><style>@layer utilities{.flex{display:flex}.gap-6{gap:1.5rem}.text-muted{color:#888}.text-fg{color:#111}.hover\\:text-fg:hover{color:#111}.p-4{padding:1rem}}</style></head><body><header class="p-4"><nav aria-label="Main"><div class="flex gap-6"><a href="/">Brand</a><div class="' . (null === $containerClass ? 'flex gap-6' : 'actions') . '">' . $links . '</div></div></nav></header><main><h1>' . $title . '</h1><p>Welcome to ' . $title . '.</p></main><footer class="p-4"><p>© Brand</p></footer></body></html>';
     }
     $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray()['source_reports']['wordpress_site_plan'];
     WordPressSitePlan::assertValid($plan);
