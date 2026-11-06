@@ -131,6 +131,9 @@ final class WrapperCoalescer
         ), static fn (mixed $value): bool => false !== $value && array() !== $value);
     }
 
+    /** @var array<string, array{tagName: string, attributes: array<string, string>}|null> */
+    private array $parsedWrapperCache = array();
+
     /** @param array<string, mixed> $block @return array{tagName: string, attributes: array<string, string>, opening: string, closing: string}|null */
     public function groupWrapperDescriptor(array $block): ?array
     {
@@ -150,22 +153,33 @@ final class WrapperCoalescer
         if (! preg_match('/^<([a-z][a-z0-9-]*)\b/i', $opening, $match) || '' === $closing) {
             return null;
         }
-        $tagName = strtolower($match[1]);
-        $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $opening . $closing . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
-        $element = $loaded ? $document->getElementsByTagName($tagName)->item(0) : null;
-        if (! $element instanceof DOMElement) {
-            return null;
-        }
-        $attributes = array();
-        foreach ( $element->attributes ?? array() as $attribute ) {
-            if ( ! HtmlAttributeName::isIntegerKey($attribute->nodeName) ) {
-                $attributes[strtolower($attribute->nodeName)] = (string) $attribute->nodeValue;
+        $cacheKey = $opening . "\0" . $closing;
+        if (! array_key_exists($cacheKey, $this->parsedWrapperCache)) {
+            $tagName = strtolower($match[1]);
+            $document = new DOMDocument();
+            $previous = libxml_use_internal_errors(true);
+            $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $opening . $closing . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+            libxml_clear_errors();
+            libxml_use_internal_errors($previous);
+            $element = $loaded ? $document->getElementsByTagName($tagName)->item(0) : null;
+            $parsed = null;
+            if ($element instanceof DOMElement) {
+                $attributes = array();
+                foreach ( $element->attributes ?? array() as $attribute ) {
+                    if ( ! HtmlAttributeName::isIntegerKey($attribute->nodeName) ) {
+                        $attributes[strtolower($attribute->nodeName)] = (string) $attribute->nodeValue;
+                    }
+                }
+                $parsed = array('tagName' => $tagName, 'attributes' => $attributes);
             }
+            // Bound lifetime memory for long-lived compile sessions.
+            if (count($this->parsedWrapperCache) >= 256) array_shift($this->parsedWrapperCache);
+            $this->parsedWrapperCache[$cacheKey] = $parsed;
         }
+        $parsed = $this->parsedWrapperCache[$cacheKey];
+        if (null === $parsed) return null;
+        $tagName = $parsed['tagName'];
+        $attributes = $parsed['attributes'];
         // Attribute-only carriers may project core editor styles. A shell must
         // already render every geometry token on this exact saved wrapper.
         preg_match_all('/(?:^|\s)(be-inline-geometry-[^\s]+)/', (string) ($block['attrs']['className'] ?? ''), $geometryClasses);
