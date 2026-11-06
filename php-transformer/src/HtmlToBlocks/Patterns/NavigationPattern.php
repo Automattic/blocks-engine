@@ -4461,25 +4461,37 @@ final class NavigationPattern implements PatternRecognizerInterface
             $key = trim($trigger->getAttribute(CaptureEvidence::DIALOG_TRIGGER));
             if ($key !== trim($trigger->getAttribute('aria-controls')) || !$this->navigationWillClaimItem($node)) continue;
             foreach ($this->submenuContainers($node, $anchor) as $container) {
-                if ($this->elementCarriesDialogPanel($container, $key)) return true;
+                $panel = $this->dialogPanelIn($container, $key);
+                // A panel declared as a modal dialog is an overlay the trigger
+                // opens, not a submenu of the trigger's item: the dialog
+                // projection keeps it working instead of a submenu that the
+                // navigation recognizer never emits.
+                if ($panel instanceof DOMElement && !$this->isModalDialogPanel($panel)) return true;
             }
         }
         return false;
+    }
+
+    private function dialogPanelIn(DOMElement $element, string $key): ?DOMElement
+    {
+        if ($element->getAttribute(CaptureEvidence::DIALOG_PANEL) === $key || $element->getAttribute('id') === $key) return $element;
+        foreach ($element->getElementsByTagName('*') as $descendant) {
+            if ($descendant instanceof DOMElement && ($descendant->getAttribute(CaptureEvidence::DIALOG_PANEL) === $key || $descendant->getAttribute('id') === $key)) return $descendant;
+        }
+        return null;
+    }
+
+    private function isModalDialogPanel(DOMElement $panel): bool
+    {
+        return 'true' === strtolower(trim($panel->getAttribute('aria-modal')))
+            || in_array(strtolower(trim($panel->getAttribute('role'))), array('dialog', 'alertdialog'), true)
+            || 'dialog' === strtolower($panel->tagName);
     }
 
     private function navigationWillClaimItem(DOMElement $item): bool
     {
         for ($node = $item; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null) {
             if ($this->claimsBeforeAuthorOwnedLayout($node) || $this->hasNavigationSignal($node)) return true;
-        }
-        return false;
-    }
-
-    private function elementCarriesDialogPanel(DOMElement $element, string $key): bool
-    {
-        if ($element->getAttribute(CaptureEvidence::DIALOG_PANEL) === $key || $element->getAttribute('id') === $key) return true;
-        foreach ($element->getElementsByTagName('*') as $descendant) {
-            if ($descendant instanceof DOMElement && ($descendant->getAttribute(CaptureEvidence::DIALOG_PANEL) === $key || $descendant->getAttribute('id') === $key)) return true;
         }
         return false;
     }
