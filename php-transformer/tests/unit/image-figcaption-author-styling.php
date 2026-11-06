@@ -10,8 +10,8 @@ declare(strict_types=1);
  * its classes had nowhere to land: the rendered caption was a bare
  * `<figcaption class="wp-element-caption">` and the author rule that drew its
  * padding, background, border and font size matched nothing. The source
- * caption's classes now ride the rendered figcaption, so those rules keep
- * applying while the caption stays the image block's editable caption.
+ * caption's rules now target a generated figure carrier and its caption,
+ * keeping presentation without classes that invalidate core save (#4508).
  */
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
@@ -53,7 +53,7 @@ foreach ( $result['assets'] ?? array() as $asset ) {
 }
 
 $assert(1 === preg_match_all('/<!-- wp:image /', $markup), 'the figure lowers to one core/image block', $markup);
-$assert(str_contains($markup, '<figcaption class="wp-element-caption cap">'), 'the rendered caption carries the source caption class', $markup);
+$assert(str_contains($markup, '<figcaption class="wp-element-caption">'), 'the rendered caption has exactly the core save class', $markup);
 $assert(str_contains($markup, '<strong>Jane Doe</strong>') && str_contains($markup, 'Structural engineer.'), 'the caption content stays the image caption rich text', $markup);
 $assert(! str_contains($markup, 'captionClassName'), 'the internal caption-class channel never reaches the serialized comment', $markup);
 
@@ -110,6 +110,41 @@ if ( $caption instanceof DOMElement ) {
         });
         $assert($strongReached, 'the caption content keeps the author typography rule', $css);
     }
+}
+
+// The exact reduced page from #4508: both width-only images must agree
+// with WordPress 7.1.4 block-library image save, not a PHP round-trip.
+$issuePage = '<!doctype html><html><head><meta charset="utf-8"><title>Figure</title><style>'
+    . '.mt-sm{margin-top:1rem}.text-center{text-align:center}.text-sm{font-size:.875rem}.font-bold{font-weight:700}'
+    . '.w-full{width:100%}.h-auto{height:auto}.object-cover{object-fit:cover}'
+    . '</style></head><body><main>'
+    . '<figure><img alt="A photo" width="800" height="600" class="w-full object-cover" src="photo.jpg" style="aspect-ratio: 4 / 3"><figcaption class="mt-sm text-center text-sm font-bold">Weddings</figcaption></figure>'
+    . '<div><img alt="Banner" class="w-full h-auto object-cover" src="photo.jpg"></div>'
+    . '</main></body></html>';
+$issueResult = ( new HtmlTransformer() )->transform($issuePage, array())->toArray();
+$issueMarkup = (string) ($issueResult['serialized_blocks'] ?? '');
+$assert(2 === preg_match_all('/<!-- wp:image /', $issueMarkup), 'the issue reduction produces two native images', $issueMarkup);
+$assert(str_contains($issueMarkup, '<figcaption class="wp-element-caption">Weddings</figcaption>'), 'the issue caption matches core save exactly', $issueMarkup);
+$assert(2 === substr_count($issueMarkup, 'object-fit:cover;width:100%;height:auto'), 'both issue images emit core save width-only styles', $issueMarkup);
+$assert(! str_contains($issueMarkup, 'captionClassName'), 'the issue reduction never serializes captionClassName', $issueMarkup);
+$issueDocument = new DOMDocument();
+$issueDocument->loadHTML('<?xml encoding="utf-8" ?>' . $issueMarkup, LIBXML_NOERROR | LIBXML_NOWARNING);
+$issueCaption = $issueDocument->getElementsByTagName('figcaption')->item(0);
+$reached = array();
+foreach ( $issueResult['assets'] ?? array() as $asset ) {
+    if ( 'css' !== ($asset['kind'] ?? '') || ! $issueCaption instanceof DOMElement ) {
+        continue;
+    }
+    (new CssStylesheetTransformer())->visitStyleRules((string) ($asset['content'] ?? ''), static function (string $prelude, string $body) use ($issueCaption, &$reached): void {
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+            if ( CssSelectorMatcher::matches($issueCaption, CssSelectorMatcher::parse($selector))['matches'] ) {
+                $reached[] = str_replace(' ', '', $body);
+            }
+        }
+    });
+}
+foreach ( array('margin-top:1rem', 'text-align:center', 'font-size:.875rem', 'font-weight:700') as $declaration ) {
+    $assert(str_contains(implode(';', $reached), $declaration), 'the issue caption retains ' . $declaration, implode(';', $reached));
 }
 
 if ( 0 < $failures ) {

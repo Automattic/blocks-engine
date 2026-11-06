@@ -10732,20 +10732,28 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $caption = $this->firstChildElement($figure, 'figcaption');
             if ( $caption instanceof DOMElement ) {
                 $attrs['caption'] = $this->innerHtml($caption);
+                // Core saves only wp-element-caption on this inner part. Bind
+                // author rules to a figure carrier, including rich-text subjects
+                // whose selectors depended on the source caption's classes.
+                $projections = $this->session->authorSelectorProjectionState();
+                $captionCarrier = $projections->ensureSemanticMarker($caption->getNodePath() ?? '');
+                $subjects = array(array($caption, '.' . $captionCarrier . ' > figcaption.wp-element-caption'));
+                while ( array() !== $subjects ) {
+                    [ $subject, $selector ] = array_pop($subjects);
+                    $projections->installInnerSubject($subject->getNodePath() ?? '', $selector);
+                    $index = 0;
+                    foreach ( $subject->childNodes as $child ) {
+                        if ( $child instanceof DOMElement ) {
+                            ++$index;
+                            $subjects[] = array($child, $selector . ' > ' . strtolower($child->tagName) . ':nth-child(' . $index . ')');
+                        }
+                    }
+                }
                 $captionMarginClassName = $this->styleResolver->imageCaptionMarginClassName($caption);
                 if ( '' !== $captionMarginClassName ) {
                     $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $captionMarginClassName);
                 }
-                // core/image's save() writes the caption <figcaption> itself, so
-                // the source caption's classes have no attribute that reaches
-                // it. Carry them onto the rendered figcaption (see
-                // BlockFactory::imageHtml()) the way media-text carries its
-                // source figure's classes, so the caption keeps the box the
-                // author drew and rules keyed on those classes keep matching.
-                $captionClassName = trim($this->attr($caption, 'class'));
-                if ( '' !== $captionClassName ) {
-                    $attrs['captionClassName'] = $captionClassName;
-                }
+                $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $captionCarrier);
             }
         }
 

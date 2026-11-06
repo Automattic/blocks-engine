@@ -232,10 +232,8 @@ final class BlockFactory
             unset($attrs['minHeightUnit']);
         }
         if ( 'core/image' === $name ) {
-            // Internal-only: consumed by imageHtml() to build the caption
-            // figcaption's class list, but not a real core/image attribute —
-            // core's save() never reads it back, so it never belongs in the
-            // serialized comment.
+            // Legacy internal channel, not a core/image attribute. Core save
+            // keeps only wp-element-caption; author styles use figure carriers.
             unset($attrs['captionClassName']);
         }
         if ( 'core/media-text' === $name ) {
@@ -854,13 +852,9 @@ final class BlockFactory
             );
             $img = '<a' . $this->htmlAttrs($linkAttrs) . '>' . $img . '</a>';
         }
-        // `captionClassName` is an internal-only key (stripped from the
-        // serialized comment attrs in commentAttrs()): core/image's save()
-        // writes the caption <figcaption> itself and has no attribute that
-        // reaches it, so a source <figcaption>'s classes are carried here
-        // directly rather than dropped. See HtmlCompilation::convertImageElement().
-        $captionClass = SourceDom::mergeClassNames('wp-element-caption', (string) ($attrs['captionClassName'] ?? ''));
-        $caption = ! empty($attrs['caption']) ? '<figcaption class="' . htmlspecialchars($captionClass, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $this->preserveRichTextPunctuation((string) $attrs['caption']) . '</figcaption>' : '';
+        // Core's save() emits only wp-element-caption; presentation rules for
+        // source caption classes are projected onto the figure carrier instead.
+        $caption = ! empty($attrs['caption']) ? '<figcaption class="wp-element-caption">' . $this->preserveRichTextPunctuation((string) $attrs['caption']) . '</figcaption>' : '';
         return '<figure' . $this->blockSupportAttrs($figureAttrs, $baseClass) . '>' . $img . $caption . '</figure>';
     }
 
@@ -909,11 +903,7 @@ final class BlockFactory
             }
 
             if ( ! array_key_exists('height', $attrs) || null === $attrs['height'] ) {
-                // Gutenberg 7.1 adds height:auto when a percentage-width image
-                // also has a native aspect ratio.
-                if ( ! $this->isPercentageWidth((string) ($attrs['width'] ?? '')) || array_key_exists('aspectRatio', $attrs) ) {
-                    $style[] = 'height:auto';
-                }
+                $style[] = 'height:auto';
             } else {
                 $style[] = 'height:' . $this->imageDimensionCssValue((string) $attrs['height']);
             }

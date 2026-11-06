@@ -77,7 +77,7 @@ foreach ( $cases as $name => $case ) {
         $class = preg_match('/<figure class="[^"]*\b(be-inline-geometry-[a-f0-9]{16})\b/', $page, $m) ? $m[1] : '';
         $carried = '' !== $class && 1 === preg_match('/\.wp-block-image\.' . $class . '>img[^{]*\{[^}]*(?<![\w-])width:100%/', $css);
         $assert(
-            str_contains($page, 'style="width:100%"') || $carried,
+            str_contains($page, 'style="width:100%;height:auto"') || $carried,
             "$name: the image keeps the source percentage width on the page.\n$page\n$css"
         );
     }
