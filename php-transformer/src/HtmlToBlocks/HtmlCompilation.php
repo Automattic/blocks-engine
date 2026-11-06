@@ -3946,7 +3946,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $this->projectedNavigation
             ),
             new MediaPatternContext(
-                fn (DOMElement $sourceElement): string => $this->styleResolver->mergedPresentationStyle($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->styleResolver->coverPresentationStyle($sourceElement),
                 fn (string $url): string => $this->resolvedAssetImageUrl($url),
                 fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => array_merge(
                     $this->styleResolver->mediaTextPresentationAttributes($sourceElement, $excludedGeometryProperties),
