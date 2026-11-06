@@ -39,7 +39,7 @@ foreach ($currentAssets as $asset) {
     foreach (array('index.html', 'nosotros.html', 'team.html') as $source) {
         $assert(in_array($source, $owners, true), 'Every menu route, including the current submenu parent and an inactive source DOM, enqueues current-item paint: ' . $source);
     }
-    preg_match('/\\$blocks_engine_presentation_styles = (array \\(.*?\\n\\));\\n/s', $bootstrap, $editorMatch);
+    preg_match('/\\$blocks_engine_presentation_styles = (\\(static function .*?\\}\\)\\(\\));\\n/s', $bootstrap, $editorMatch);
     $editorStyles = isset($editorMatch[1]) ? eval('return ' . $editorMatch[1] . ';') : array();
     $assert(in_array($asset['target_path'], array_column($editorStyles, 'target_path'), true), 'The editor canvas receives shared current-item paint.');
 }
