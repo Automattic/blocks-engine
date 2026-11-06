@@ -303,6 +303,7 @@
       "php tests/contract/device-document-shared-chrome.php",
       "php tests/contract/html-include-page-local-limits.php",
       "php tests/contract/captured-navigation-runtime.php",
+      "php tests/contract/navigation-modal-menu-trigger.php",
       "php tests/contract/capture-receipt-routes.php",
       "php tests/contract/shared-navigation-entity.php",
       "php tests/contract/shared-navigation-entity-item-classes.php",

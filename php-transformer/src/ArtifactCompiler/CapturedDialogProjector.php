@@ -24,6 +24,8 @@ final class CapturedDialogProjector
     private const MAX_DIALOG_STATES_PER_PAGE = 16;
     private const MAX_GALLERY_STATES_PER_PAGE = 8;
     private const MAX_DIALOG_BYTES = 65536;
+    /** The viewport overlay the capture disclosure runtime opens a modal panel as. */
+    private const MODAL_OVERLAY_STYLE = 'display:block;position:fixed;inset:0;z-index:2147483646;overflow:auto;background:#fff';
 
     /** @var list<DOMElement> Panels proven by the existing complete gallery contract. */
     private array $nativeGalleryPanels = array();
@@ -989,6 +991,13 @@ final class CapturedDialogProjector
         $resting = is_array($snapshot) ? ($snapshot['resting'] ?? null) : null;
         if (! is_array($resting)) return array();
         $opened = is_array($snapshot['opened'] ?? null) ? $snapshot['opened'] : array('class' => $panel->getAttribute('class'), 'style' => $panel->getAttribute('style'));
+        // A modal panel (`aria-modal`, neither dropdown nor source-placed) is
+        // opened by the capture runtime as a viewport overlay. Its content
+        // (a fixed drawer without insets, say) is laid out against that
+        // overlay, so the adopted panel opens with the same geometry.
+        if ('true' === strtolower(trim($panel->getAttribute('aria-modal'))) && ! SourceDom::hasClass($panel, CaptureEvidence::DROPDOWN_CLASS) && ! $panel->hasAttribute(CaptureEvidence::OBSERVED_PLACEMENT) && is_array($opened)) {
+            $opened['style'] = trim(rtrim(trim((string) ($opened['style'] ?? '')), ';') . ';' . self::MODAL_OVERLAY_STYLE, ';');
+        }
         $state = CapturedDialogBlockGenerator::restingState(array('closed' => $resting, 'opened' => $opened));
         if (array() === $state) return array();
         $state['hidden'] = true === ($resting['hidden'] ?? null);
