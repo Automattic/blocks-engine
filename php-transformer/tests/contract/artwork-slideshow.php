@@ -9,9 +9,11 @@ $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
 };
 
+// Real-site shape: the generated stage and viewport are static unless the
+// carousel owns a containing block; the absolute source track retains grid-area.
 $source = '<html><head><style>
 body{margin:0}.slideshow.carousel{display:grid;grid-template-columns:auto minmax(0,1fr) auto;width:100%;height:355px}
-.viewport{position:relative;height:355px}.track-slider{position:absolute!important;width:100%;height:355px}
+.viewport{height:355px}.track-slider{position:absolute!important;width:100%;height:355px;grid-area:1/1/1/1}
 .carousel__slide{position:absolute;width:100%}.controls{display:grid;grid-template-columns:1fr 1fr;align-items:center;height:100%}
 .arrow{width:32px;height:32px}.previous{justify-self:var(--nav-button-prev-self-justify)}
 .next{justify-self:var(--nav-button-next-self-justify)}.next svg{transform:scaleX(var(--nav-button-next-circle-scaleX-transform))}
@@ -41,7 +43,8 @@ try {
         $document = '<!doctype html><html><head><style>' . $css . ' body{width:' . $width . 'px}</style></head><body>' . $artwork['serialized_blocks'] . '<script>
 const root = document.querySelector(".blocks-engine-authored-carousel");
 const stage = root.querySelector(".blocks-engine-authored-carousel__source-stage");
-const slide = root.querySelector(".blocks-engine-authored-carousel__track > :first-child");
+const track = root.querySelector(".blocks-engine-authored-carousel__track");
+const slide = track.firstElementChild;
 const next = root.querySelector("[data-carousel-next]");
 const prev = root.querySelector("[data-carousel-previous]");
 const box = el => el.getBoundingClientRect();
@@ -49,6 +52,8 @@ const text = document.createRange(); text.selectNodeContents(slide.querySelector
 const result = {
     root: box(root).width, stage: box(stage).width, slide: box(slide).width, text: text.getBoundingClientRect().width,
     column: getComputedStyle(stage).gridColumnStart,
+    trackPosition: getComputedStyle(track).position, trackArea: getComputedStyle(track).gridArea,
+    track: box(track).width,
     visibility: getComputedStyle(slide).visibility, opacity: getComputedStyle(slide).opacity,
     nextTransform: getComputedStyle(next.querySelector("svg")).transform,
     grid: getComputedStyle(next.parentElement).display,
@@ -65,6 +70,8 @@ document.body.innerHTML = "<pre id=measurement>" + JSON.stringify(result) + "</p
         $assert(0 === $exitCode && 1 === preg_match('/<pre id="measurement">(.*?)<\/pre>/s', $dom, $matches), 'Browser emits layout measurements.');
         $measure = json_decode(html_entity_decode($matches[1]), true, 512, JSON_THROW_ON_ERROR);
         $assert('2' === $measure['column'], $width . ': overlay stage occupies the content column: ' . json_encode($measure));
+        $assert('absolute' === $measure['trackPosition'] && '1 / 1 / 1 / 1' === $measure['trackArea'], $width . ': track retains source absolute positioning and grid placement.');
+        $assert(abs($measure['stage'] - $measure['track']) < 1, $width . ': source grid placement cannot collapse the track into an outer control column: ' . json_encode($measure));
         $assert($measure['stage'] > 0 && abs($measure['root'] - $measure['stage']) < 1 && abs($measure['stage'] - $measure['slide']) < 1 && $measure['text'] > 0, $width . ': active slide and quote have stage width, not zero width.');
         $assert('visible' === $measure['visibility'] && '1' === $measure['opacity'], $width . ': active quote is visible.');
         $assert('matrix(-1, 0, 0, 1, 0, 0)' === $measure['nextTransform'], $width . ': next artwork retains its source mirror.');
