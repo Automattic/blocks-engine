@@ -58,12 +58,12 @@ final class FormControlMetadataBuilder
     }
 
     /** @return array<int, array<string, mixed>> */
-    public function controls(DOMElement $form): array
+    public function controls(DOMElement $form, array $additionalControls = array()): array
     {
         $controls = array();
         $order = 0;
-        foreach ( FormControlClassifier::controlElements($form) as $control ) {
-            $metadata = $this->control($control);
+        foreach ( FormControlClassifier::controlElements($form, $additionalControls) as $control ) {
+            $metadata = $this->control($control, in_array($control, $additionalControls, true));
             if ( array() !== $metadata ) {
                 $marker = $this->session?->authorSelectorProjectionState()->tagMarker($control->tagName) ?? '';
                 if ( '' !== $marker ) {
@@ -393,9 +393,9 @@ final class FormControlMetadataBuilder
     }
 
     /** @return array<string, mixed> */
-    public function control(DOMElement $control): array
+    public function control(DOMElement $control, bool $recognizedControl = false): array
     {
-        if ( ! FormControlClassifier::isControlElement($control) ) {
+        if ( ! $recognizedControl && ! FormControlClassifier::isControlElement($control) ) {
             return array();
         }
 

@@ -98,12 +98,15 @@ final class FormControlClassifier
         );
     }
 
-    /** @return array<int, DOMElement> */
-    public static function controlElements(DOMElement $form): array
+    /**
+     * @param list<DOMElement> $additionalControls Explicitly recognized non-native controls.
+     * @return array<int, DOMElement>
+     */
+    public static function controlElements(DOMElement $form, array $additionalControls = array()): array
     {
         $controls = array();
         foreach ( $form->getElementsByTagName('*') as $control ) {
-            if ( $control instanceof DOMElement && self::isControlElement($control) && ! self::isNonAuthoredControl($control) ) {
+            if ( $control instanceof DOMElement && (self::isControlElement($control) || in_array($control, $additionalControls, true)) && ! self::isNonAuthoredControl($control) ) {
                 $controls[] = $control;
             }
         }
@@ -116,11 +119,12 @@ final class FormControlClassifier
      * that paints it. Layout and presentation describe these boxes; control
      * semantics stay on `controlElements()`, index for index.
      *
+     * @param list<DOMElement> $additionalControls
      * @return array<int, DOMElement>
      */
-    public static function presentedControlElements(DOMElement $form): array
+    public static function presentedControlElements(DOMElement $form, array $additionalControls = array()): array
     {
-        return array_map(self::presentingElement(...), self::controlElements($form));
+        return array_map(self::presentingElement(...), self::controlElements($form, $additionalControls));
     }
 
     /**
