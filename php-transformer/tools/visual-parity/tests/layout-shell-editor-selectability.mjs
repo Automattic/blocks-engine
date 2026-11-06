@@ -30,7 +30,7 @@ import { chromium } from 'playwright';
 const transformerRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const generated = JSON.parse(execFileSync('php', ['-r', `
 require $argv[1] . '/vendor/autoload.php';
-$html = '<p>Editable content</p>';
+$html = '<img src="https://example.com/image.jpg" alt="Editable image">';
 for ($depth = 0; $depth < 8; ++$depth) $html = '<div id="shell-' . $depth . '" class="shell-' . $depth . ' blocks-engine-source-div-fixture-3">' . $html . '</div>';
 $result = (new \\Automattic\\BlocksEngine\\PhpTransformer\\HtmlToBlocks\\HtmlTransformer())->transform($html)->toArray();
 $shellDefinition = null;

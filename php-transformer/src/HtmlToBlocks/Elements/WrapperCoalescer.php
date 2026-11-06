@@ -113,9 +113,14 @@ final class WrapperCoalescer
     public function foldWrapperChain(array $chain, array $terminal): array
     {
         // Compression must not trade native structure editing for a generated
-        // block. These entries already have canonical core/group save shapes;
-        // retain those boundaries and their source attributes verbatim.
-        if (! $this->sourceElementClassifier->isLayoutShellBlock($terminal)) {
+        // block. Retain native content boundaries, but leave media and control
+        // chains on their existing shell path. Controls already introduce their
+        // own layout wrapper (core/buttons); expanding their source chain adds
+        // wrapper debt without exposing another content editing surface.
+        if (! $this->sourceElementClassifier->isLayoutShellBlock($terminal)
+            && ! in_array($terminal['blockName'] ?? null, array('core/image', 'core/buttons'), true)
+            && ! ('core/group' === ($terminal['blockName'] ?? null) && empty($terminal['innerBlocks']))
+        ) {
             $children = 'core/freeform' === ($terminal['blockName'] ?? null)
                 ? ($terminal['innerBlocks'] ?? array()) : array($terminal);
             foreach (array_reverse($chain) as $entry) {
@@ -126,7 +131,9 @@ final class WrapperCoalescer
                 $group['innerContent'] = array_merge(array($wrapper['opening']), array_fill(0, count($children), null), array($wrapper['closing']));
                 $children = array($group);
             }
-            if (isset($children[0])) return $children[0];
+            if (isset($children[0])) {
+                return $children[0];
+            }
         }
         $terminalIsShell = $this->sourceElementClassifier->isLayoutShellBlock($terminal);
         $terminalBlocks = $terminalIsShell ? $terminal['innerBlocks'] : (is_array($terminal['innerBlocks'] ?? null) && 'core/freeform' === ($terminal['blockName'] ?? null) ? $terminal['innerBlocks'] : array($terminal));

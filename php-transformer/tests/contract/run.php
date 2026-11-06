@@ -3239,8 +3239,8 @@ $safeInlineSvg = ( new HtmlTransformer() )->transform(
 $safeInlineSvgSerialized = (string) ($safeInlineSvg['serialized_blocks'] ?? '');
 $assert('success' === ($safeInlineSvg['status'] ?? ''), 'safe inline SVG does not trip strict fallback gates', (string) ($safeInlineSvg['status'] ?? ''));
 $assert(array() === ($safeInlineSvg['fallbacks'] ?? array()), 'safe decorative inline SVG is consumed instead of recorded as fallback metadata');
-$assert('core/group' === ($safeInlineSvg['blocks'][0]['blockName'] ?? '') && 'section' === ($safeInlineSvg['blocks'][0]['attrs']['tagName'] ?? '') && 'core/group' === ($safeInlineSvg['blocks'][0]['innerBlocks'][0]['blockName'] ?? ''), 'decorative inline SVG preserves its CSS-addressable semantic wrapper chain as native groups');
-$assert('core/image' === ($safeInlineSvg['blocks'][0]['innerBlocks'][0]['innerBlocks'][0]['blockName'] ?? ''), 'icon-context decorative SVG is represented as native core/image, not dynamic core/icon');
+$assert(str_ends_with((string) ($safeInlineSvg['blocks'][0]['blockName'] ?? ''), '/layout-shell') && array('section', 'div') === array_column($safeInlineSvg['blocks'][0]['attrs']['wrappers'] ?? array(), 'tagName'), 'decorative inline SVG preserves its CSS-addressable semantic wrapper chain in one editor shell');
+$assert('core/image' === ($safeInlineSvg['blocks'][0]['innerBlocks'][0]['blockName'] ?? ''), 'icon-context decorative SVG is represented as native core/image, not dynamic core/icon');
 $assert(str_contains($safeInlineSvgSerialized, '<!-- wp:image'), 'icon-context inline SVG is serialized through core/image');
 $assert(str_contains($safeInlineSvgSerialized, 'assets/materialized-svg/'), 'decorative inline SVG uses a materialized SVG asset source');
 $assert(! str_contains($safeInlineSvgSerialized, 'style="width:16px;height:16px"'), 'unsized decorative SVG does not turn its viewBox into used pixel dimensions');

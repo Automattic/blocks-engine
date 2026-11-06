@@ -192,6 +192,10 @@ final class ElementConversionPrelude
         }
 
         if ( 'span' === $tagName && 0 < $element->getElementsByTagName('form')->length ) {
+            $search = $this->searchBlockConverter->searchBlockFromWrapper($element);
+            if ( null !== $search ) {
+                return ConversionOutcome::handled($search);
+            }
             $children = ($this->convertChildren)($element, $fallbacks, $captureUnsupported);
             return ConversionOutcome::handled(array() === $children ? null : $this->createBlock->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $children, $element));
         }
