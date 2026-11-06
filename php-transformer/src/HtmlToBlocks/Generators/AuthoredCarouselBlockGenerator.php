@@ -308,14 +308,35 @@ const startAutoplay = ( root, context ) => {
         root,
         window.setInterval(
             withScope( () => {
-                if ( ! context.paused ) show( context.index + 1 );
+                if ( ! context.paused ) show( context.index + 1, false );
             } ),
             interval
         )
     );
 };
 
-const syncSlideshow = ( root, context ) => {
+// Stay inside the carousel: never fall back to a document scrolling element.
+const revealThumbnail = ( control, root ) => {
+    for ( let container = control.parentElement; container && container !== root; container = container.parentElement ) {
+        const style = window.getComputedStyle( container );
+        const horizontal = /^(auto|scroll|hidden)$/.test( style.overflowX ) && container.scrollWidth > container.clientWidth;
+        const vertical = /^(auto|scroll|hidden)$/.test( style.overflowY ) && container.scrollHeight > container.clientHeight;
+        if ( ! horizontal && ! vertical ) continue;
+        const bounds = container.getBoundingClientRect();
+        const thumbnail = control.getBoundingClientRect();
+        const left = bounds.left + container.clientLeft;
+        const top = bounds.top + container.clientTop;
+        if ( horizontal ) {
+            container.scrollLeft += thumbnail.left < left ? thumbnail.left - left : Math.max( 0, thumbnail.right - left - container.clientWidth );
+        }
+        if ( vertical ) {
+            container.scrollTop += thumbnail.top < top ? thumbnail.top - top : Math.max( 0, thumbnail.bottom - top - container.clientHeight );
+        }
+        return;
+    }
+};
+
+const syncSlideshow = ( root, context, reveal = false ) => {
     if ( 'slideshow' !== context.presentation ) {
         return;
     }
@@ -339,8 +360,8 @@ const syncSlideshow = ( root, context ) => {
             control.classList.toggle( 'blocks-engine-authored-carousel__' + kind + '--active', active );
             if ( active ) {
                 control.setAttribute( 'aria-current', 'true' );
-                if ( 'thumbnail' === kind && ! window.matchMedia( '(prefers-reduced-motion: reduce)' ).matches ) {
-                    control.scrollIntoView( { block: 'nearest', inline: 'nearest' } );
+                if ( reveal && 'thumbnail' === kind && ! window.matchMedia( '(prefers-reduced-motion: reduce)' ).matches ) {
+                    revealThumbnail( control, root );
                 }
             } else {
                 control.removeAttribute( 'aria-current' );
@@ -362,7 +383,7 @@ const syncSrcSwap = ( root, context ) => {
     } );
 };
 
-const show = ( requested ) => {
+const show = ( requested, reveal = true ) => {
     const context = getContext();
     const { ref } = getElement();
     const root = rootOf( ref );
@@ -379,7 +400,7 @@ const show = ( requested ) => {
         syncSrcSwap( root, context );
         return;
     }
-    syncSlideshow( root, context );
+    syncSlideshow( root, context, reveal );
     if ( 'slideshow' === context.presentation ) {
         return;
     }
