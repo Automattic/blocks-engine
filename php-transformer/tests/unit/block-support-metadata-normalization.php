@@ -43,7 +43,7 @@ $navigation = $runtime->normalizeBlockSupportAttributes('core/navigation', array
 $assert(isset($navigation['fallbackStyle']['spacing']['padding']['top']) && isset($navigation['fallbackStyle']['typography']['textDecoration']) && isset($navigation['fallbackStyle']['border']['width']), 'Navigation rejects unsupported spacing, skipped typography, and border.');
 $navigationResult = ( new HtmlTransformer() )->transform('<nav class="menu" style="margin-left:auto"><a href="/">Home</a></nav>')->toArray();
 $navigationCss = implode("\n", array_column($navigationResult['assets'] ?? array(), 'content'));
-$assert(! isset($navigationResult['blocks'][0]['attrs']['style']['spacing']['margin']) && str_contains($navigationCss, '.wp-block-navigation.menu{margin-left:auto}'), 'Navigation carries metadata-rejected spacing on its rendered block class.');
+$assert(! isset($navigationResult['blocks'][0]['attrs']['style']['spacing']['margin']) && 1 === preg_match('/\\.wp-block-navigation\\.blocks-engine-navigation-instance-[a-f0-9]{12}-[0-9]+\\{margin-left:auto\\}/', $navigationCss), 'Navigation carries metadata-rejected spacing on its rendered instance class.');
 
 $spacerResult = ( new HtmlTransformer() )->transform('<style>.signal{display:block;width:24px;height:4px;background:var(--green)}</style><main><span class="signal"></span></main>')->toArray();
 $spacer = $spacerResult['blocks'][0]['innerBlocks'][0] ?? array();
