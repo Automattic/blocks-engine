@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ScrollStateBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
 use DOMElement;
@@ -15,14 +16,11 @@ final class ScrollStateConverter implements ElementConverter
 {
     /**
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): array<int, array<string, mixed>> $convertChildren
-     * @param Closure(DOMElement, array<int, string>): string $inlineCarrierClassName the generated carrier
-     *        class restating the element's carried inline declarations (custom properties its descendants
-     *        read, inline geometry) minus the excluded properties, or '' when nothing needs carrying
      */
     public function __construct(
         private readonly HtmlTransformerSession $session,
         private readonly Closure $convertChildren,
-        private readonly Closure $inlineCarrierClassName
+        private readonly StyleResolver $styleResolver
     ) {
     }
 
@@ -69,7 +67,7 @@ final class ScrollStateConverter implements ElementConverter
                 $toggled = array_merge($toggled, array_map('strtolower', array_map('strval', array_keys($target['properties']))));
             }
         }
-        $className = trim(SourceDom::attr($element, 'class') . ' ' . ($this->inlineCarrierClassName)($element, $toggled));
+        $className = trim(SourceDom::attr($element, 'class') . ' ' . $this->styleResolver->inlineGeometryClassName($element, $toggled));
 
         $attrs = array_filter(array(
             'tagName' => 'div' === $tagName ? '' : $tagName,
