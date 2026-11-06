@@ -342,6 +342,16 @@ PHP;
             if ('' !== $sourcePath && '' !== $targetPath) $this->routeSources[$sourcePath] = $targetPath;
             if ('' !== $targetPath) $this->routeTargets['/' === $targetPath ? '/' : '/' . trim($targetPath, '/')] = $targetPath;
         }
+        // Native date archives are document roots, not materialized pages, but
+        // their captured file paths still participate in link resolution.
+        $entryRoot = self::entryRootFromDocuments($compiled['pages']);
+        foreach ($compiled['pages'] as $document) {
+            if (!self::isDateArchiveDocument($document)) continue;
+            $path = $document['metadata']['route_path'] ?? self::pageRoutePath($document['source_path'], $entryRoot);
+            $target = '/' . trim($path, '/') . '/';
+            $this->routeSources[$document['source_path']] = $target;
+            $this->routeTargets['/' . trim($path, '/')] = $target;
+        }
         $this->routeLinkedFragments = $this->routeLinkedFragments($documents, $routeMap);
         $this->missingMedia = new MissingMediaRecovery($this->strictMissingMedia, array_column($assets, 'target_path'));
         $missingFonts = new MissingFontSourceRecovery($this->strictMissingMedia);
@@ -7418,7 +7428,7 @@ PHP;
         $content = preg_replace_callback('/(\b(?:href|action|data-[a-z0-9_-]*url)\s*=\s*["\'])([^"\']+)(["\'])/i', $replace, $content) ?? $content;
         // Companion block attributes carry editable HTML as a JSON string, so
         // route-bearing attributes use escaped quotes rather than HTML quotes.
-        $content = preg_replace_callback('/(\b(?:href|action|data-[a-z0-9_-]*url)\s*=\s*\\\\")([^"\\\\]*)(\\\\")/i', $replace, $content) ?? $content;
+        $content = preg_replace_callback('/(\b(?:href|action|data-[a-z0-9_-]*url)\s*=\s*\\\\")((?:\\\\\/|[^"\\\\])*)(\\\\")/i', $replace, $content) ?? $content;
         $content = preg_replace_callback('/(\b(?:href|action|data-[a-z0-9_-]*url)\s*=\s*\\\\u0022)(.*?)(\\\\u0022)/i', $replace, $content) ?? $content;
         $jsonPattern = '/(["\'](?:url|href|action)["\']\s*:\s*["\'])([^"\']+)(["\'])/i';
         $offset = 0;
@@ -7614,6 +7624,9 @@ PHP;
     /** @param array<int,array<string,mixed>> $routes */
     private function resolveRouteReference(string $value, string $origin, array $routes): ?string
     {
+        // JSON permits escaped solidi in both URL fields and embedded HTML.
+        // They are serialization, not path separators authored as backslashes.
+        $value = str_replace('\\/', '/', $value);
         if (preg_match('~^#(.+)$~s', $value, $fragment) && isset($this->routeLinkedFragments[$origin][$fragment[1]], $this->routeSources[$origin])) return $this->routeSources[$origin] . $value;
         if ('' === $value || preg_match('~^(?://|#|\?)~', $value)) return null;
         $suffix = ''; if (preg_match('/^([^?#]*)(.*)$/', $value, $match)) { $value = $match[1]; $suffix = $match[2]; }
