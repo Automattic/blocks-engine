@@ -699,7 +699,7 @@ PHP;
             if (isset($pageSources[$document['source_path']]) || isset($paginationOwners[$document['source_path']]) || isset($paginationSources[$document['source_path']])) continue;
             $path = $routeBySource[$document['source_path']] ?? $document['metadata']['route_path'] ?? self::pageRoutePath($document['source_path'], $entryRoot);
             $metadata = $document['document_metadata'] ?? array();
-            $rootDocuments[] = array('reconciliation_identity' => self::identity('page', $document['source_path'], $document['source_path']), 'route' => array('path' => $path), 'document_metadata' => array_intersect_key($metadata, array('root_attributes' => true, 'body_attributes' => true)));
+            $rootDocuments[] = array('source_path' => $document['source_path'], 'reconciliation_identity' => self::identity('page', $document['source_path'], $document['source_path']), 'route' => array('path' => $path), 'document_metadata' => array_intersect_key($metadata, array('root_attributes' => true, 'body_attributes' => true)));
         }
         $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens, $pages, $menus, $runtimeEmoji, $rootDocuments), $assetWrites);
         $unitFindings = array_merge($this->unitFindingDiagnostics(), NavigationInstanceDiagnostics::collect($assets, $emittedMarkup . "\n" . implode("\n", self::markups($menus))));
@@ -1050,7 +1050,13 @@ PHP;
         self::assertAuthorEntities($plan['author_entities'], $pagesBySource);
         $expectedCandidatePages = self::attachWholePageCandidates(array_map(static function (array $page): array { unset($page['whole_page_candidates']); return $page; }, $plan['pages']), RuntimeDeclarations::materialize($plan['runtime_declarations'], $runtimeRecords), $records);
         foreach ($plan['pages'] as $index => $page) if (($expectedCandidatePages[$index]['whole_page_candidates'] ?? null) !== ($page['whole_page_candidates'] ?? null)) throw new InvalidArgumentException('Whole-page candidates are stale, duplicated, or detached from their canonical source pages.');
+        $rootDocumentsBySource = array_column($plan['theme']['document_roots'] ?? array(), null, 'source_path');
+        foreach ($rootDocumentsBySource as $source => $document) $archiveDocuments[$source] ??= $document;
         foreach ($plan['assets'] as $asset) foreach ($asset['scopes'] ?? array() as $scope) if ('global' !== $scope['kind']) {
+            if ('archive' === $scope['kind']) {
+                if (!isset($rootDocumentsBySource[$scope['source_path']]) || $scope['route_path'] !== trim($rootDocumentsBySource[$scope['source_path']]['route']['path'], '/')) throw new InvalidArgumentException('An archive asset scope does not match its captured document.');
+                continue;
+            }
             $page = $pagesBySource[$scope['source_path']] ?? $archiveDocuments[$scope['source_path']] ?? null;
             if (!is_array($page) || $scope['kind'] !== ('post' === $page['post_type'] ? 'post' : 'page') || $scope['route_path'] !== trim($page['route']['path'], '/') || $scope['reconciliation_identity'] !== $page['reconciliation_identity'] || $scope['front_page'] !== ('/' === $page['route']['path'])) throw new InvalidArgumentException('A page asset scope does not match its canonical page.');
         }
@@ -6332,7 +6338,7 @@ PHP;
         $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void {";
         $importLoaded = self::importLoadedStylesheets($assets);
         $stylesheetAttributes = array();
-        $stylesheetEnqueues = self::stylesheetEnqueues($assets, $pages);
+        $stylesheetEnqueues = self::stylesheetEnqueues($assets, $pages, $rootDocuments);
         // Each source document's ordered stylesheet instances form one route
         // block; a repeated resource gets one handle per instance, same URI.
         if (array_filter($stylesheetEnqueues, static fn(array $enqueue): bool => isset($enqueue['route']))) $lines[] = '    $blocks_engine_route_styles = false;';
@@ -6638,11 +6644,13 @@ PHP;
      *
      * @param array<int,array<string,mixed>> $assets
      * @param array<int,array<string,mixed>> $pages
+     * @param array<int,array<string,mixed>> $rootDocuments Captured documents omitted from pages.
      * @return array<int,array<string,mixed>>
      */
-    private static function stylesheetEnqueues(array $assets, array $pages): array
+    private static function stylesheetEnqueues(array $assets, array $pages, array $rootDocuments = array()): array
     {
         $pagesBySource = array_column($pages, null, 'source_path');
+        $archivesBySource = array_column($rootDocuments, null, 'source_path');
         $assetsBySource = array_column($assets, null, 'source_path');
         $before = $after = $instances = array();
         $firstManaged = count($assets);
@@ -6654,9 +6662,9 @@ PHP;
             if (array() === $occurrences && is_string($parent)) $occurrences = $assetsBySource[$parent]['stylesheet_instances'] ?? array();
             foreach ($occurrences as $occurrence) {
                 $source = $occurrence['source_path'];
-                if (!isset($pagesBySource[$source])) continue;
-                if (!array_filter($asset['scopes'], static fn(array $scope): bool => 'global' === $scope['kind'] || ($scope['source_path'] ?? null) === $source)) continue;
-                $scope = self::stylesheetPageScope($pagesBySource[$source]);
+                if (!isset($pagesBySource[$source]) && !isset($archivesBySource[$source])) continue;
+                if (!isset($archivesBySource[$source]) && !array_filter($asset['scopes'], static fn(array $scope): bool => 'global' === $scope['kind'] || ($scope['source_path'] ?? null) === $source)) continue;
+                $scope = isset($pagesBySource[$source]) ? self::stylesheetPageScope($pagesBySource[$source]) : array('kind' => 'archive', 'source_path' => $source, 'route_path' => trim($archivesBySource[$source]['route']['path'], '/'));
                 $instances[$source][] = array('asset' => $asset, 'scope' => $scope, 'route' => $source, 'condition' => self::bootstrapScopeCondition($scope), 'media' => $occurrence['media'], 'handle' => 'blocks-engine-instance-' . substr(hash('sha256', $asset['target_path'] . "\0" . $source . "\0" . $occurrence['order']), 0, 16), 'order' => $occurrence['order'], 'resource_order' => $index) + self::stylesheetDeviceAttributes($occurrence);
             }
             if (!empty($asset['frame_fallback'])) {
@@ -6698,7 +6706,7 @@ PHP;
         $assets = is_array($plan['assets'] ?? null) ? $plan['assets'] : array();
         $importLoaded = self::importLoadedStylesheets($assets);
         $sequence = array();
-        foreach (self::stylesheetEnqueues($assets, is_array($plan['pages'] ?? null) ? $plan['pages'] : array()) as $enqueue) {
+        foreach (self::stylesheetEnqueues($assets, is_array($plan['pages'] ?? null) ? $plan['pages'] : array(), $plan['theme']['document_roots'] ?? array()) as $enqueue) {
             $asset = $enqueue['asset'];
             if (!empty($enqueue['fallback']) || isset($importLoaded[$asset['target_path']])) continue;
             $owned = isset($enqueue['route']) ? $sourcePath === $enqueue['route'] : ('global' === $enqueue['scope']['kind'] || $sourcePath === ($enqueue['scope']['source_path'] ?? null));
@@ -6754,6 +6762,7 @@ PHP;
     private static function bootstrapScopeCondition(array $scope): string
     {
         if ('global' === ($scope['kind'] ?? null)) return 'true';
+        if ('archive' === ($scope['kind'] ?? null)) return var_export($scope['route_path'], true) . ' === blocks_engine_archive_path()';
         if (!empty($scope['front_page'])) return 'is_front_page()';
         if ('post' === ($scope['kind'] ?? null)) return "is_singular( 'post' ) && " . var_export($scope['reconciliation_identity'], true) . " === get_post_meta( get_queried_object_id(), '_blocks_engine_reconciliation_identity', true )";
         return "0 !== ( \$blocks_engine_page_id = " . self::DOCUMENT_ID_EXPRESSION . " ) && ( '' !== ( \$blocks_engine_page_identity = get_post_meta( \$blocks_engine_page_id, '_blocks_engine_reconciliation_identity', true ) ) ? " . var_export($scope['reconciliation_identity'], true) . " === \$blocks_engine_page_identity : 'page' === get_post_type( \$blocks_engine_page_id ) && " . var_export($scope['route_path'], true) . " === trim( get_page_uri( \$blocks_engine_page_id ), '/' ) )";
@@ -6762,9 +6771,13 @@ PHP;
     {
         if (!is_array($scopes) || array() === $scopes) throw new InvalidArgumentException('WordPress site plan asset scopes must be a nonempty array.');
         foreach ($scopes as $scope) {
-            if (!is_array($scope) || !in_array($scope['kind'] ?? null, array('global', 'page', 'post'), true)) throw new InvalidArgumentException('WordPress site plan asset scope is invalid.');
+            if (!is_array($scope) || !in_array($scope['kind'] ?? null, array('global', 'page', 'post', 'archive'), true)) throw new InvalidArgumentException('WordPress site plan asset scope is invalid.');
             if ('global' === $scope['kind']) {
                 if (array('kind') !== array_keys($scope)) throw new InvalidArgumentException('A global asset scope cannot declare page fields.');
+                continue;
+            }
+            if ('archive' === $scope['kind']) {
+                if (array('kind', 'source_path', 'route_path') !== array_keys($scope) || !self::safePath($scope['source_path']) || !is_string($scope['route_path'])) throw new InvalidArgumentException('An archive asset scope is structurally invalid.');
                 continue;
             }
             if (array('kind', 'source_path', 'route_path', 'reconciliation_identity', 'front_page') !== array_keys($scope) || !self::safePath($scope['source_path']) || !is_string($scope['route_path']) || !self::hash($scope['reconciliation_identity']) || !is_bool($scope['front_page'])) throw new InvalidArgumentException('A page asset scope is structurally invalid.');

@@ -1556,6 +1556,14 @@
         "class": "integrity",
         "count": 1
       },
+      "InvalidArgumentException('An archive asset scope does not match its captured document.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('An archive asset scope is structurally invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
       "InvalidArgumentException('A page asset scope does not match its canonical page.')": {
         "class": "integrity",
         "count": 1
