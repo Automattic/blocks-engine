@@ -26,6 +26,8 @@ $elementFrom = static function (string $html, string $tagName): DOMElement {
 };
 
 $recorded = array();
+$session = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession(new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()));
+$session->fallbackEmitter()->configure(array(), array( array( 'src' => '/form.js' ) ), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeSelectorState(array(), array(), array()));
 $metadataBuilder = new FormControlMetadataBuilder(static function (DOMElement $element): string {
     $id = $element->getAttribute('id');
     return '' !== $id ? '#' . $id : strtolower($element->tagName);
@@ -36,7 +38,7 @@ $recorder = new FormRuntimeIslandRecorder(
         $recorded[] = compact('element', 'kind', 'reason', 'capability', 'metadata');
     },
     static fn (DOMElement $element): array => $element->hasAttribute('data-event') ? array( 'submit' => 'handle' ) : array(),
-    static fn (DOMElement $element): array => $element->hasAttribute('data-script') ? array( array( 'src' => '/form.js' ) ) : array()
+    $session
 );
 
 $form = $elementFrom('<form id="signup" action="/join" data-event data-script><input name="email" required><select name="plan"><option>Free</option></select></form>', 'form');

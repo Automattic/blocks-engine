@@ -54,7 +54,7 @@ $runtimeRecorder = new FormRuntimeIslandRecorder(
         $recorded[] = compact('kind', 'reason', 'capability', 'metadata');
     },
     $eventMetadata,
-    static fn (DOMElement $element): array => array()
+    $session
 );
 $authoredRegistry = $session->requireGeneratedBlockRegistry();
 $authoredConverter = new AuthoredFormControlBlockConverter(
@@ -74,7 +74,6 @@ $controlConverter = new ReadableFormControlBlockConverter(
     new Runtime(),
     $eventMetadata,
     $isRuntimeDomTarget,
-    static fn (DOMElement $element): array => array( 'blockName' => 'core/html', 'attrs' => array( 'content' => 'preserved' ) ),
     $presentationAttributes,
     $createBlock,
     $session

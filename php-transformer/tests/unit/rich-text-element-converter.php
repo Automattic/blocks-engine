@@ -43,7 +43,6 @@ $makeConverter = static function (array $overrides = array()): RichTextElementCo
         'richTextWithInlineSafeButtonsLowered' => static fn (DOMElement $e, string $c): ?string => null,
         'requiresHtmlFallback'              => static fn (string $c): bool => false,
         'containsNativeSvgImageObject'      => static fn (string $c): bool => false,
-        'htmlPreservationBlock'             => static fn (DOMElement $e): array => array('blockName' => 'core/html'),
         'authoredMarqueeBlock'              => static fn (DOMElement $e): ?array => null,
         'hasEmptyVisualInlineChild'         => static fn (DOMElement $e): bool => false,
         'hasBoxChromeWrapperStyling'        => static fn (DOMElement $e): bool => false,
@@ -67,7 +66,6 @@ $makeConverter = static function (array $overrides = array()): RichTextElementCo
             'requiresHtmlFallback' => $c['requiresHtmlFallback'],
             'containsNativeSvgImageObject' => $c['containsNativeSvgImageObject'],
         )), new Runtime(), new RichTextElementContext(
-        $c['htmlPreservationBlock'],
         $c['authoredMarqueeBlock'],
         $c['hasEmptyVisualInlineChild'],
         $c['hasBoxChromeWrapperStyling'],

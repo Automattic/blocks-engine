@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Closure;
 use DOMElement;
 
@@ -12,13 +13,12 @@ final class FormRuntimeIslandRecorder
     /**
      * @param Closure(DOMElement, string, string, string, array<string, mixed>): void $recordRuntimeIsland
      * @param Closure(DOMElement): array<string, mixed>                                $eventMetadata
-     * @param Closure(DOMElement): array<int, array<string, mixed>>                    $requiredScriptsForElement
      */
     public function __construct(
         private readonly FormControlMetadataBuilder $metadataBuilder,
         private readonly Closure $recordRuntimeIsland,
         private readonly Closure $eventMetadata,
-        private readonly Closure $requiredScriptsForElement
+        private readonly HtmlTransformerSession $session
     ) {
     }
 
@@ -32,7 +32,7 @@ final class FormRuntimeIslandRecorder
             'control_count'    => count($controls),
             'events'           => ($this->eventMetadata)($element),
             'readable_blocks'  => null !== $readableFormBlock ? array( $readableFormBlock ) : array(),
-            'required_scripts' => ($this->requiredScriptsForElement)($element),
+            'required_scripts' => $this->session->fallbackEmitter()->requiredScriptsForElement($element),
         ));
     }
 
@@ -61,7 +61,7 @@ final class FormRuntimeIslandRecorder
         return array(
             'control'          => $this->metadataBuilder->control($element),
             'events'           => ($this->eventMetadata)($element),
-            'required_scripts' => ($this->requiredScriptsForElement)($element),
+            'required_scripts' => $this->session->fallbackEmitter()->requiredScriptsForElement($element),
         );
     }
 }

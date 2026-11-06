@@ -308,7 +308,7 @@ final class RuntimeIslandAnalyzer
                         'target_count'      => count($targets),
                         'targets'           => $targets,
                         'app_shell_signals' => $this->runtimeAppShellSignals($element),
-                        'required_scripts'  => $this->context->requiredScriptsForElement($element),
+                        'required_scripts'  => $this->session->fallbackEmitter()->requiredScriptsForElement($element),
                     ));
                 }
             }
@@ -502,7 +502,7 @@ final class RuntimeIslandAnalyzer
         if ( ! $this->canRetainRuntimeDomContractNatively($element, $blockName) ) {
             $this->recordRuntimeIsland($element, 'dom', 'runtime_dom_target', 'client_script_execution', array(
                 'events'           => SourceDom::eventMetadata($element),
-                'required_scripts' => $this->context->requiredScriptsForElement($element),
+                'required_scripts' => $this->session->fallbackEmitter()->requiredScriptsForElement($element),
             ));
             $this->recordRuntimeDomFallback($element, $blockName);
         } else {

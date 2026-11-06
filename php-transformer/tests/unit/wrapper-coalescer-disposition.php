@@ -84,7 +84,6 @@ $makeCoalescer = static function (array $runtimeDomSelectors = array(), array $o
             }
             return $out;
         },
-        static fn (DOMElement $element): array => array(),
         static fn (string $html): ?DOMElement => null,
         static fn (DOMElement $element): bool => false
     ), $pseudoFormAnalyzer);

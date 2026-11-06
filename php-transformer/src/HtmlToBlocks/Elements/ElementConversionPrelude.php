@@ -65,7 +65,6 @@ final class ElementConversionPrelude
     /**
      * @param Closure(DOMElement, array<int, array<string, mixed>>&, bool): array<int, array<string, mixed>> $convertChildren
      * @param Closure(DOMElement, array<int, array<string, mixed>>&, bool): ?array<string, mixed> $convertElement
-     * @param Closure(DOMElement): array<string, mixed> $htmlPreservationBlock
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array<string, mixed> $linkedRuntimeControl
      * @param Closure(DOMElement, array<int, array<string, mixed>>&, array<int, class-string>): ?array<string, mixed> $recognizePatterns
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array<string, mixed> $proofBackedWrapperCoalescing
@@ -94,7 +93,6 @@ final class ElementConversionPrelude
         private readonly TransformationProvenanceState $provenance,
         private readonly Closure $convertChildren,
         private readonly Closure $convertElement,
-        private readonly Closure $htmlPreservationBlock,
         private readonly Closure $linkedRuntimeControl,
         private readonly Closure $recognizePatterns,
         private readonly AuthorLayoutOwnership $authorLayoutOwnership,
@@ -179,7 +177,7 @@ final class ElementConversionPrelude
             if ( null !== $linked ) {
                 return ConversionOutcome::handled($linked);
             }
-            return ConversionOutcome::handled(($this->htmlPreservationBlock)($element));
+            return ConversionOutcome::handled($this->createBlock->htmlPreservationBlock($element));
         }
 
         $nativeForm = $this->nativeGetFormControls->convert($element, $tagName, $fallbacks);
@@ -266,7 +264,7 @@ final class ElementConversionPrelude
                 'target_count' => count($targets),
                 'targets' => $targets,
             ));
-            return ConversionOutcome::handled(($this->htmlPreservationBlock)($element));
+            return ConversionOutcome::handled($this->createBlock->htmlPreservationBlock($element));
         }
 
         if ( 'form' === $tagName ) {
@@ -288,7 +286,7 @@ final class ElementConversionPrelude
                     return ConversionOutcome::handled($navigation);
                 }
             }
-            return ConversionOutcome::handled(($this->htmlPreservationBlock)($element));
+            return ConversionOutcome::handled($this->createBlock->htmlPreservationBlock($element));
         }
 
         if ( ('div' === $tagName || str_contains($tagName, '-')) && null !== ($this->layoutGeometryProofFor)($element) ) {

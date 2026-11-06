@@ -205,7 +205,7 @@ use DOMElement;
 use DOMNode;
 
 /** Run-scoped compiler for one HTML document. */
-final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy, PatternTreeConverter, ButtonLinkLeftovers
+final class HtmlCompilation extends SourceBlockCreator implements RichTextInlinePolicy, PatternTreeConverter, ButtonLinkLeftovers
 {
     private const GENERATED_COMPONENT_MIN_SOURCE_DEPTH = 14;
 
@@ -479,6 +479,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->commercePattern = $this->createCommercePattern();
         $this->sourceElementDescription = new SourceElementDescription($this->sourceElementClassifier, $this->commercePattern);
         $this->session = new HtmlTransformerSession($this->runtime, $this->sourceElementDescription);
+        parent::__construct($this->session);
         $this->stylesheetAssetStage = new StylesheetAssetStage($this->session);
         $this->blockFactory      = new BlockFactory();
         $this->backgroundImageExtractor = new BackgroundImageExtractor();
@@ -611,7 +612,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $inlineContentConverter = new InlineContentElementConverter($this->sourceElementClassifier, $this, $this->richTextMaterializer, new InlineContentElementContext(
             fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => $this->recognizePatterns($element, $fallbacks, $patterns),
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
-            fn (DOMElement $element): array => $this->htmlPreservationBlock($element),
             fn (DOMElement $element): ?array => $this->inlineSvgTextGroupBlockFromElement($element),
             fn (DOMElement $element): bool => $this->ownsPositioningGeometry($element),
             fn (DOMElement $element, array &$fallbacks): ?array => $this->positionedInlineCarrierBlock($element, $fallbacks),
@@ -677,7 +677,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->blockMaterializer = new BlockMaterializer($this->blockFactory, $this->runtimeIslands);
         $this->runtimeResourceConverter = new RuntimeResourceElementConverter(
             $this->session,
-            fn (DOMElement $element): array => $this->htmlPreservationBlock($element),
             $this
         );
         $this->formRuntimeIslandRecorder = new FormRuntimeIslandRecorder(
@@ -686,7 +685,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $this->runtimeIslands->recordRuntimeIsland($element, $kind, $reason, $capability, $metadata);
             },
             fn (DOMElement $element): array => $this->eventMetadata($element),
-            fn (DOMElement $element): array => $this->requiredScriptsForElement($element)
+            $this->session
         );
         $this->readableFormControlBlockConverter = new ReadableFormControlBlockConverter(
             $this->formControlMetadataBuilder,
@@ -695,7 +694,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->runtime,
             fn (DOMElement $element): array => $this->eventMetadata($element),
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
-            fn (DOMElement $element): array => $this->htmlPreservationBlock($element),
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
             $this,
             $this->session
@@ -783,9 +781,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 return $this->readableFormBlockBuilder->build($element, $allowFormEvents, $fallbacks);
             },
             fn (DOMElement $element): bool => $this->formRuntimeRequirementAnalyzer->requiresPreservation($element),
-            fn (DOMElement $element): array => $this->htmlPreservationBlock($element),
             fn (DOMElement $element): bool => $this->pseudoFormAnalyzer->isProviderPseudoForm($element)
-        ));
+        ), $this);
         $this->buttonLinkDispatcher = new ButtonLinkDispatcher($this->sourceElementClassifier, $this->createButtonLinkDispatchContext());
         $buttonConverter = new ButtonElementConverter($this->sourceElementClassifier, $this, $this->styleResolver, new ButtonElementContext(
             fn (DOMElement $element): bool => $this->searchBlockConverter->isReplacedSearchClusterControl($element),
@@ -938,7 +935,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                     'target_count' => count($targets),
                     'targets' => $targets,
                     'app_shell_signals' => $this->runtimeIslands->runtimeAppShellSignals($element),
-                    'required_scripts' => $this->requiredScriptsForElement($element),
+                    'required_scripts' => $this->session->fallbackEmitter()->requiredScriptsForElement($element),
                 ));
                 return $this->htmlPreservationBlock($element);
             },
@@ -1113,7 +1110,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->session->transformationProvenanceState(),
             $convertChildren,
             fn (DOMElement $element, array &$fallbacks, bool $captureUnsupported): ?array => $this->convertElement($element, $fallbacks, $captureUnsupported),
-            fn (DOMElement $element): array => $this->htmlPreservationBlock($element),
             fn (DOMElement $element, array &$fallbacks): ?array => $this->linkedRuntimeControlBlockFromAnchor($element, $fallbacks),
             $recognizePatterns,
             $this->authorLayoutOwnership,
@@ -1167,7 +1163,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         return new SearchBlockConversionContext(
             $this->styleResolver,
-            fn (DOMElement $element): array => $this->htmlPreservationBlock($element)
         );
     }
 
@@ -1206,7 +1201,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         return new RuntimeIslandContext(
             fn (DOMElement $element): iterable => SourceDom::descendantElements($element),
-            fn (DOMElement $element): array => $this->requiredScriptsForElement($element),
             fn (string $html): ?DOMElement => $this->preservedHtmlRootElement($html),
             fn (DOMElement $element): bool => $this->hasWorkspaceSurface($element)
         );
@@ -1228,7 +1222,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             function (DOMElement $element, array &$fallbacks): ?array {
                 return $this->mediaLayoutTableColumnsBlock($element, $fallbacks);
             },
-            fn (DOMElement $element): array => $this->htmlPreservationBlock($element),
             fn (DOMElement $element): array => $this->tableAttributesBuilder->tableAttributes($element)
         );
     }
@@ -1269,7 +1262,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function createRichTextElementContext(): RichTextElementContext
     {
         return new RichTextElementContext(
-            fn (DOMElement $element): array => $this->htmlPreservationBlock($element),
             fn (DOMElement $element): ?array => $this->authoredMarqueeRecognizer->authoredMarqueeBlock($element),
             fn (DOMElement $element): bool => $this->hasEmptyVisualInlineChild($element),
             fn (DOMElement $element): bool => $this->hasBoxChromeWrapperStyling($element),
@@ -9688,14 +9680,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     }
 
     /**
-     * @return array<int, array<string, mixed>>
-     */
-    private function requiredScriptsForElement(DOMElement $element): array
-    {
-        return $this->session->fallbackEmitter()->requiredScriptsForElement($element);
-    }
-
-    /**
      * Resolve the generated custom-block namespace from transform options,
      * defaulting to a generic namespace for standalone transforms.
      *
@@ -9716,11 +9700,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $ancestorPath = $ancestor->getNodePath();
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) if ( $node->getNodePath() === $ancestorPath ) return true;
         return false;
-    }
-
-    private function htmlPreservationBlock(DOMElement $element): array
-    {
-        return $this->createBlock('core/html', array( 'content' => SourceDom::safeFallbackHtml($element, $this->session->authorSelectorProjectionState()->tagMarkers()) ), array(), $element);
     }
 
     private function backgroundImageBlockFromElement(DOMElement $element): ?array

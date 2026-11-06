@@ -69,7 +69,6 @@ $makeRuntimeIslands = static function (array $domSelectors): RuntimeIslandAnalyz
 
     return new RuntimeIslandAnalyzer($session, new SourceElementClassifier(), new RuntimeIslandContext(
         $descendants,
-        static fn (DOMElement $e): array => array(),
         static fn (string $h): ?DOMElement => null,
         static fn (DOMElement $e): bool => false
     ), new PseudoFormAnalyzer($metadataBuilder, static fn (DOMElement $e): string => strtolower($e->tagName)));
@@ -117,7 +116,7 @@ $runtimeButton  = $makeDispatcher(array(
             $islandRecorded = 'control' === $kind;
         },
         static fn (DOMElement $e): array => array(),
-        static fn (DOMElement $e): array => array()
+        new HtmlTransformerSession(new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()))
     ),
 ));
 $assert('core/html' === ($runtimeButton->convertButton($elementFrom('<button id="mount">go</button>'))['blockName'] ?? ''), 'runtime-button-preserved-as-leftover');

@@ -6,7 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use DOMElement;
 
-final class ProbeBlockCreator implements SourceBlockCreator
+final class ProbeBlockCreator extends SourceBlockCreator
 {
     /**
      * @param array<string, mixed> $attrs
