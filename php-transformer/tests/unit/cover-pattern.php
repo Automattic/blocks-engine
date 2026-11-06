@@ -55,6 +55,23 @@ foreach ( array( 'block', 'flex', 'grid' ) as $display ) {
     }
 }
 
+foreach ( array( 'renditions' => array( '.25', 'hero-large.jpg', true ), 'numbered renditions' => array( '.25', '/media/1346-6.jpg', true, '/media/1346-2.webp' ), 'different overlay' => array( '.5', 'hero-large.jpg', false ), 'different photo' => array( '.25', 'other.jpg', false ), 'missing viewport' => array( '.25', '', false ) ) as $name => $case ) {
+    [$opacity, $url, $isCover, $small] = $case + array( 3 => 'hero-small.jpg' );
+    $html = '<style>.hero{min-height:500px;display:flex;align-items:center;justify-content:center;background-size:cover;background-position:center}'
+        . '@media (max-width:767px){.hero{background-image:linear-gradient(rgba(0,0,0,.25),rgba(0,0,0,.25)),url(' . $small . ')}}'
+        . ( '' === $url ? '' : '@media (min-width:768px){.hero{background-image:linear-gradient(rgba(0,0,0,' . $opacity . '),rgba(0,0,0,' . $opacity . ')),url(' . $url . ')}}' )
+        . '</style><section class="hero"><h1>Strategy and Communication</h1></section>';
+    $result = (new HtmlTransformer())->transform($html)->toArray();
+    $hero = $result['blocks'][0] ?? array();
+    $assertSame($isCover, 'core/cover' === ($hero['blockName'] ?? ''), $name . ': responsive cover recognition.');
+    if ( $isCover ) {
+        $assertSame($url, $hero['attrs']['url'] ?? null, $name . ': widest rendition becomes editable.');
+        $assertSame('section', $hero['attrs']['tagName'] ?? null, 'Responsive cover retains its landmark.');
+        $assertSame(25, $hero['attrs']['dimRatio'] ?? null, 'Responsive cover retains overlay opacity.');
+        $assertSame('#000000', $hero['attrs']['customOverlayColor'] ?? null, 'Responsive cover retains overlay color.');
+    }
+}
+
 $fixture = (new HtmlTransformer())->transform((string) file_get_contents(dirname(__DIR__) . '/fixtures/cover-layout-heroes.html'))->toArray();
 $fixtureNames = array_column($fixture['blocks'], 'blockName');
 $assertSame(array( 'core/cover', 'core/cover', 'core/cover', 'core/cover', 'core/cover', 'core/cover', 'core/group' ), $fixtureNames, 'Flex/grid fixture supports stacked children and rejects space-between columns.');

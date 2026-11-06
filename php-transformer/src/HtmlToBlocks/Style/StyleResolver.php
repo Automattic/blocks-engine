@@ -4913,9 +4913,24 @@ final class StyleResolver implements ElementPresentationResolver
      */
     public function isDisplayNoneAtEveryViewport(DOMElement $element): bool
     {
-        $widths = array( self::DESKTOP_REFERENCE_WIDTH );
+        foreach ( $this->propertyViewportWidths($element, array( 'display' )) as $width ) {
+            $display = (string) ( $this->cssDeclarations($this->resolvedCascadeStyle($element, 'static-conditional', $width))['display'] ?? '' );
+            if ( 'none' !== CssValueInspector::comparable($display) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** @param list<string> $properties
+     * @return list<float>
+     */
+    private function propertyViewportWidths(DOMElement $element, array $properties): array
+    {
+        $widths = array( (float) self::DESKTOP_REFERENCE_WIDTH );
         foreach ( $this->matchingStyleRules($element, 'static-conditional') as $rule ) {
-            if ( ! isset($rule['declarations']['display']) ) {
+            if ( array() === array_intersect_key($rule['declarations'], array_flip($properties)) ) {
                 continue;
             }
             foreach ( $rule['conditions'] ?? array() as $condition ) {
@@ -4928,14 +4943,66 @@ final class StyleResolver implements ElementPresentationResolver
                 }
             }
         }
-        foreach ( array_unique($widths, SORT_REGULAR) as $width ) {
-            $display = (string) ( $this->cssDeclarations($this->resolvedCascadeStyle($element, 'static-conditional', (float) $width))['display'] ?? '' );
-            if ( 'none' !== CssValueInspector::comparable($display) ) {
-                return false;
+        $widths = array_values(array_unique($widths, SORT_REGULAR));
+        sort($widths, SORT_NUMERIC);
+        return $widths;
+    }
+
+    /**
+     * Promote only a viewport-invariant photo/overlay to editable cover media.
+     * Other conditional presentation remains stylesheet-owned.
+     */
+    public function coverPresentationStyle(DOMElement $element): string
+    {
+        $style = $this->mergedPresentationStyle($element);
+        $extractor = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor();
+        if ( '' !== $extractor->urlFromStyle($style)
+            || array() === $this->session->sourceStyleResolutionState()->conditionalRules()
+        ) {
+            return $style;
+        }
+
+        $base = $this->cssDeclarations($style);
+        foreach ( array( 'background', 'background-image' ) as $property ) {
+            if ( isset($base[$property]) && 'none' !== CssValueInspector::comparable($base[$property]) ) {
+                return $style;
             }
         }
 
-        return true;
+        $signature = null;
+        $widestImage = '';
+        $widths = array_merge(array( 1.0 ), $this->propertyViewportWidths($element, array( 'background', 'background-image', 'all' )));
+        sort($widths, SORT_NUMERIC);
+        foreach ( $widths as $width ) {
+            $declarations = $this->cssDeclarations($this->resolvedCascadeStyle($element, 'static-conditional', $width));
+            $image = '';
+            // The cascade replays shorthands and longhands in winning order.
+            foreach ( $declarations as $property => $value ) {
+                if ( 'background' === $property || 'background-image' === $property ) {
+                    $image = $value;
+                }
+            }
+            $url = $extractor->urlFromStyle('background-image:' . $image);
+            if ( '' === $url || 1 !== preg_match_all('/\burl\(\s*(?:(["\'])(.*?)\1|([^)]*))\s*\)/is', $image) ) {
+                return $style;
+            }
+            // Only known size suffixes / resizing parameters establish rendition
+            // identity; unrelated filenames must not become an editable photo.
+            // Builders number renditions (`photo-2.webp`, `photo-6.jpg`) and
+            // swap formats per density, so neither suffix nor extension counts.
+            $identity = (string) preg_replace('/(?:[-_@](?:small|medium|large|\d+x\d+|\d{1,2}x?))?\.(?:jpe?g|png|webp|avif|gif)(?=[?#]|$)/i', '', $url);
+            $identity = (string) preg_replace('/([?&])(?:w|h|width|height|rs)=[^&#]*/i', '$1', $identity);
+            $identity = rtrim(str_replace('?&', '?', $identity), '?&');
+            $overlay = preg_replace('/\burl\(\s*(?:(["\'])(.*?)\1|([^)]*))\s*\)/is', 'url()', $image);
+            $current = array( $identity, $overlay );
+            if ( null !== $signature && $signature !== $current ) {
+                return $style;
+            }
+            $signature = $current;
+            $widestImage = $image;
+        }
+
+        return $style . ';background-image:' . $widestImage;
     }
 
     /**
