@@ -205,6 +205,9 @@ $assert(str_contains($visibleIconLabel, '<span aria-hidden="true">→</span>'), 
 
 $classHiddenLabel = $firstNavigationLabel('<style>.hidden{display:none}</style><nav><a href="/"><div><h3>Studio Name</h3><span aria-hidden="true" class="hidden">Studio Name</span><span aria-hidden="true" style="display:none">Studio Name</span></div></a><a href="/x">X</a></nav>');
 $assert('Studio Name' === trim(strip_tags($classHiddenLabel)) && ! str_contains($classHiddenLabel, 'aria-hidden'), 'navigation labels omit both class-hidden and inline-hidden copies beside a heading');
+// Rules reaching the label through the anchor's ancestors (`nav a h3`) only match live nodes.
+$styledLabel = $firstNavigationLabel('<style>.hidden{display:none}nav a h3{font-family:Montserrat,sans-serif}</style><nav><a href="/"><div><h3 class="logo">Studio Name</h3><span aria-hidden="true" class="hidden">Studio Name</span></div></a><a href="/x">X</a></nav>');
+$assert(str_contains($styledLabel, 'blocks-engine-label-typography') && ! str_contains($styledLabel, 'aria-hidden'), 'stripping copies keeps typography from ancestor-scoped rules');
 $responsiveLabel = $firstNavigationLabel('<style>@media (max-width:600px){.hidden{display:none}}</style><nav><a href="/">Brand<span aria-hidden="true" class="hidden">Brand</span></a><a href="/x">X</a></nav>');
 $assert(str_contains($responsiveLabel, 'aria-hidden'), 'navigation labels retain copies visible above a breakpoint');
 $revealedLabel = $firstNavigationLabel('<style>@media (min-width:600px){.hidden{display:inline !important}}</style><nav><a href="/">Brand<span aria-hidden="true" class="hidden" style="display:none">Brand</span></a><a href="/x">X</a></nav>');

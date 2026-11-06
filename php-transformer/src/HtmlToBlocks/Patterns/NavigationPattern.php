@@ -3301,33 +3301,41 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
         }
 
+        // Detached clones cannot supply cascade context, so every style lookup
+        // below resolves a cloned element through the live node it copies.
+        $liveNodes = new \SplObjectStorage();
         if ( array() !== $measurementCopies ) {
-            // Resolve selectors against live nodes, then remove matching subtrees
-            // only from the clone. Detached clones cannot supply cascade context.
-            $anchor = $anchor->cloneNode(true);
-            foreach ( iterator_to_array($anchor->getElementsByTagName('*')) as $index => $candidate ) {
+            // Remove matching subtrees only from the clone; the source DOM stays intact.
+            $clone = $anchor->cloneNode(true);
+            $liveNodes[$clone] = $anchor;
+            $liveDescendants = iterator_to_array($anchor->getElementsByTagName('*'));
+            foreach ( iterator_to_array($clone->getElementsByTagName('*')) as $index => $candidate ) {
+                $liveNodes[$candidate] = $liveDescendants[$index];
                 if ( isset($measurementCopies[$index]) ) {
                     $candidate->parentNode?->removeChild($candidate);
                 }
             }
+            $anchor = $clone;
         }
+        $live = static fn (DOMElement $element): DOMElement => isset($liveNodes[$element]) ? $liveNodes[$element] : $element;
 
         if ( ! $navigationContext instanceof NavigationPatternContext ) {
             return preg_replace('/<!--[\s\S]*?-->/', '', $innerHtml($anchor)) ?? $innerHtml($anchor);
         }
 
+        $inlineStyle = static fn (DOMElement $element): string => $navigationContext->serializedInlineStyle($live($element));
         $markered = SourceDom::innerHtmlWithProjectedMarkers(
             $anchor,
             static fn (DOMElement $element): array => array_merge(
-                $navigationContext->labelPresentationMarkers($element),
-                $navigationContext->ownsLabelTypography($element) ? array( NavigationPatternContext::LABEL_TYPOGRAPHY_BOX_CLASS ) : array()
+                $navigationContext->labelPresentationMarkers($live($element)),
+                $navigationContext->ownsLabelTypography($live($element)) ? array( NavigationPatternContext::LABEL_TYPOGRAPHY_BOX_CLASS ) : array()
             ),
-            $navigationContext->serializedInlineStyle(...)
+            $inlineStyle
         );
 
         // The transformer's own serializer performs rich-text lowering the plain
         // clone cannot. Prefer it whenever no marker had to be carried.
-        $html = $markered === SourceDom::innerHtml($anchor, $navigationContext->serializedInlineStyle(...)) ? $innerHtml($anchor) : $markered;
+        $html = $markered === SourceDom::innerHtml($anchor, $inlineStyle) ? $innerHtml($anchor) : $markered;
         return preg_replace('/<!--[\s\S]*?-->/', '', $html) ?? $html;
     }
 
