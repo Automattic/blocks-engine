@@ -152,8 +152,8 @@ final class RichTextElementContext
 
     /**
      * A heading or paragraph with no text whose only content is one media
-     * element lowers that element through the shared media routes (embed, image) instead of
-     * keeping an inline image or a core/html island.
+     * element lowers it through the shared media routes (a paragraph takes only
+     * the embed route) instead of keeping an inline image or a core/html island.
      *
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
