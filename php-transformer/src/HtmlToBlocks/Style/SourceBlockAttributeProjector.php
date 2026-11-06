@@ -168,6 +168,11 @@ final class SourceBlockAttributeProjector
         }
         if ( 'core/paragraph' === $name && $facts->isInlineSourceElement ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);
+            if ( $this->styleResolver->sourceChildHasParentBoxStyling($sourceElement) ) {
+                // The projected parent > child rule now addresses this carrier.
+                // display:contents would discard its margin/paint/geometry.
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SOURCE_BOX_PARAGRAPH_CLASS);
+            }
             if ( 'a' === $sourceTagName && $this->sourceAnchorHasNoTextDecoration($sourceElement) ) {
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS);
             }
