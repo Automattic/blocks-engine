@@ -289,12 +289,15 @@ final class NavigationPattern implements PatternRecognizerInterface
             return null;
         }
 
+        // A dialog menu's links bound to the served route keep their own
+        // markup: a navigation link has no place for the binding.
         foreach ( $element->getElementsByTagName('*') as $descendant ) {
             if ( $descendant instanceof DOMElement
                 && (('menu' === strtolower(trim(SourceDom::attr($descendant, 'aria-haspopup')))
                         && '' === trim($descendant->textContent ?? '')
                         && (SourceDom::isBoundCapturedDialogTrigger($descendant) || $descendant->hasAttribute(CaptureEvidence::DIALOG_TRIGGER)))
-                    || 'details' === strtolower($descendant->tagName)) ) {
+                    || 'details' === strtolower($descendant->tagName)
+                    || ('a' === strtolower($descendant->tagName) && $descendant->hasAttribute('data-blocks-engine-route-state') && $this->isInsideDialog($descendant))) ) {
                 return null;
             }
         }
@@ -4189,6 +4192,17 @@ final class NavigationPattern implements PatternRecognizerInterface
      * can make toggle projection choose a convertible descendant submenu while
      * suppressing the panel, losing the parent items and their hierarchy.
      */
+    private function isInsideDialog(DOMElement $element): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( 'dialog' === strtolower($node->tagName) || 'dialog' === strtolower(trim($node->getAttribute('role'))) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function isInsideCapturedDialogPanel(DOMElement $element): bool
     {
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {

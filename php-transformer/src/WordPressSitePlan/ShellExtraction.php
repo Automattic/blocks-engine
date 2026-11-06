@@ -3576,10 +3576,11 @@ final class ShellExtraction
                 }
                 $group = '' !== $match[1][0] ? 1 : ('' !== ($match[2][0] ?? '') ? 2 : 3);
                 [$value, $offset] = $match[$group];
-                // The route number is the trailing digit run after a non-digit stem,
-                // whether hyphenated (top-101), underscored (top_101) or glued (top101).
-                // The stem keeps its separator, so the placeholder stays a valid id.
-                $row[] = array('id', $value, $offset, preg_match('/^(.*[^0-9])[0-9]+$/', $value, $stem) ? $stem[1] . '#' : $value);
+                // The route number is the id's one digit run, whether a trailing
+                // suffix (top-101, top_101, top101), a builder's instance prefix
+                // (n-101-navId-mobile) or the whole id (`id="5"`). The stem keeps
+                // its separators, so the placeholder stays a valid id.
+                $row[] = array('id', $value, $offset, preg_match('/^([^0-9]*)[0-9]+([^0-9]*)$/', $value, $stem) ? $stem[1] . '#' . $stem[2] : $value);
             }
             $rows[$index] = $row;
             $groups[json_encode(array_column($row, 3))][] = $index;
@@ -3589,23 +3590,32 @@ final class ShellExtraction
             if (count($indexes) < 2) continue;
             foreach ($rows[$indexes[0]] as $position => [$kind, , , $stem]) {
                 if ($stem === $rows[$indexes[0]][$position][1]) continue;
-                $variants = array(); $safe = true;
+                // A candidate whose id is referenced keeps it, and so stays out of
+                // a part the others share; the rest canonicalize among themselves.
+                $variants = array(); $kept = array();
                 foreach ($indexes as $index) {
                     $value = $rows[$index][$position][1];
+                    if ('data' !== $kind && self::stylesheetTargetsId($value, $stylesheetIds)) continue;
+                    if ('data' !== $kind && preg_match('/(?:href\s*=\s*["\']#' . preg_quote($value, '/') . '["\']|(?:aria-controls|for)\s*=\s*["\']' . preg_quote($value, '/') . '["\'])/i', $markups[$index])) continue;
                     $variants[$value] = true;
-                    if ('data' === $kind) continue;
-                    if (self::stylesheetTargetsId($value, $stylesheetIds)) { $safe = false; break; }
-                    if (preg_match('/(?:href\s*=\s*["\']#' . preg_quote($value, '/') . '["\']|(?:aria-controls|for)\s*=\s*["\']' . preg_quote($value, '/') . '["\'])/i', $markups[$index])) { $safe = false; break; }
+                    $kept[] = $index;
                 }
-                if (!$safe || count($variants) < 2 || ('data' === $kind && count($variants) !== count($indexes))) continue;
-                foreach ($indexes as $index) $replace[$index][$position] = str_replace('#', '__route__', 'data' === $kind ? substr($stem, strpos($stem, '=') + 1) : $stem);
+                if (count($variants) < 2 || ('data' === $kind && count($variants) !== count($indexes))) continue;
+                foreach ($kept as $index) $replace[$index][$position] = str_replace('#', '__route__', 'data' === $kind ? substr($stem, strpos($stem, '=') + 1) : $stem);
             }
         }
         foreach ($replace as $index => $positions) {
             krsort($positions);
+            $followed = array();
             foreach ($positions as $position => $to) {
-                [, $from, $offset] = $rows[$index][$position];
+                [$kind, $from, $offset] = $rows[$index][$position];
                 $markups[$index] = substr_replace($markups[$index], $to, $offset, strlen($from));
+                if ('id' === $kind) $followed[] = array($from, $to);
+            }
+            // A value naming a canonicalized id (a builder's `toggleid`, a
+            // dialog's trigger list) is the same route number, so it follows.
+            foreach ($followed as [$from, $to]) {
+                $markups[$index] = preg_replace('/(="|(?<=[\[,:])")' . preg_quote($from, '/') . '"/', '${1}' . $to . '"', $markups[$index]) ?? $markups[$index];
             }
         }
         return $markups;
