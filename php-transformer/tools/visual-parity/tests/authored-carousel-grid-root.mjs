@@ -19,6 +19,11 @@ const variants = {
   'responsive mirror': (html) => html.replace('</style>', '@media(max-width:600px){.next{transform:scaleX(1)}} </style>'),
   'combined transform': (html) => html.replace('transform:scaleX(-1)', 'transform:translateY(-50%) scaleX(-1)'),
   'important mirror': (html) => html.replace('transform:scaleX(-1)}', 'transform:scaleX(-1)!important}'),
+  'id important mirror': (html) => html.replace('.next{justify-self:end;transform:scaleX(-1)}', '#slideshow .next{justify-self:end;transform:scaleX(-1)!important}').replace('<div class="slideshow"', '<div id="slideshow" class="slideshow"'),
+  'layered mirror': (html) => html.replace('.next{justify-self:end;transform:scaleX(-1)}', '@layer source{.next{justify-self:end;transform:scaleX(-1)}}'),
+  'layered important mirror': (html) => html.replace('.next{justify-self:end;transform:scaleX(-1)}', '@layer source{.next{justify-self:end;transform:scaleX(-1)!important}}'),
+  'individual rotation': (html) => html.replace('transform:scaleX(-1)', 'rotate:30deg;transform:scaleX(-1)'),
+  'inline important mirror': (html) => html.replace('transform:scaleX(-1)', '').replace('<button class="arrow next"', '<button style="transform:scaleX(-1)!important" class="arrow next"'),
   'rotated arrow': (html) => html.replace('transform:scaleX(-1)', 'transform:rotate(30deg)'),
   // A rotation after one flip turns the other way once it becomes a setting.
   'flip then rotation': (html) => html.replace('transform:scaleX(-1)', 'transform:scaleX(-1) rotate(30deg)'),
@@ -46,14 +51,14 @@ try {
     const output = compile(source);
     assert.match(output.markup, /blocks-engine-authored-carousel--slideshow/);
     assert.ok(!output.markup.includes('"transform"') && !output.markup.includes('control-transform'), `${name} stores no raw transform: ${output.markup.slice(0, 200)}`);
-    if (name === 'base') {
+    if (name === 'base' || name.includes('important mirror') || name === 'layered mirror') {
       assert.match(output.markup, /"nextControlOrientation":\{"flipHorizontal":true,"flipVertical":false,"rotation":0\}/);
       assert.match(output.markup, /blocks-engine-authored-carousel__next[^"]*is-flip-horizontal/);
     }
     if (name === 'flip then rotation') {
       assert.match(output.markup, /"nextControlOrientation":\{"flipHorizontal":true,"flipVertical":false,"rotation":330\}/);
     }
-    if (name === 'scaled arrow' || name === 'responsive mirror') {
+    if (name === 'scaled arrow' || name === 'responsive mirror' || name === 'individual rotation') {
       assert.doesNotMatch(output.markup, /__control--oriented/);
     }
     for (const width of [390, 768, 1440]) {
@@ -87,7 +92,7 @@ try {
       assert.deepEqual(after.next.orientation, before.next.orientation, `next arrow keeps its authored orientation: ${label}`);
       assert.ok(!before.previous.mirrored && !after.previous.mirrored, `previous arrow is not mirrored: ${label}`);
       const middle = (box, stage) => box.y + box.height / 2 - stage.y;
-      if (name === 'responsive mirror' || name === 'scaled arrow' || name.includes('combined transform')) {
+      if (name === 'responsive mirror' || name === 'scaled arrow' || name.includes('combined transform') || name === 'individual rotation') {
         assert.equal(after.next.transform, before.next.transform, `uncaptured source transform survives: ${label}`);
       } else {
         assert.ok(Math.abs(middle(after.next, after.stage) - after.stage.height / 2) < 1, `next arrow stays vertically centered: ${label}`);
