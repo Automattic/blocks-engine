@@ -1156,8 +1156,14 @@ final class NavigationPatternContext
         return $marker;
     }
 
-    /** @return list<array{tag: string, marker: string, style: string, className: string}> */
-    public function navigationAnchorBoxes(DOMElement $anchor, DOMElement $item): array
+    /**
+     * A submenu parent's boxes may also hold the source disclosure glyph beside
+     * the link; Core's submenu icon renders in its stead, so the glyph does not
+     * stop its box from carrying the label's presentation.
+     *
+     * @return list<array{tag: string, marker: string, style: string, className: string}>
+     */
+    public function navigationAnchorBoxes(DOMElement $anchor, DOMElement $item, bool $submenuParent = false): array
     {
         if (!$this->session instanceof HtmlTransformerSession) return array();
         $boxes = array();
@@ -1172,6 +1178,7 @@ final class NavigationPatternContext
                 if ($child instanceof DOMElement) {
                     // The item's own submenu toggle shares the row; it is not a second label.
                     if ('button' === strtolower($child->tagName) && in_array(strtolower($child->getAttribute('aria-haspopup')), array('true', 'menu'), true)) continue;
+                    if ($submenuParent && self::isDisclosureGlyph($child, $anchor)) continue;
                     $children[] = $child;
                 } elseif (XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '')) return array();
             }
@@ -1204,6 +1211,15 @@ final class NavigationPatternContext
             $node = $node->parentNode;
         }
         return array_reverse($boxes);
+    }
+
+    /** A text-free, link-free sibling of the link that paints only an SVG glyph. */
+    private static function isDisclosureGlyph(DOMElement $element, DOMElement $anchor): bool
+    {
+        return !SourceDom::elementContains($element, $anchor)
+            && '' === trim($element->textContent ?? '')
+            && 0 === $element->getElementsByTagName('a')->length
+            && ('svg' === strtolower($element->tagName) || 0 < $element->getElementsByTagName('svg')->length);
     }
 
     /** Equivalent menu occurrences share identity, while different source cascades do not. */

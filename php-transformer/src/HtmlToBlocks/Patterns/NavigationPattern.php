@@ -3520,7 +3520,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             $itemAttrs['metadata']['blocksEngineNavigationAnchor'] = array('style' => $anchor->getAttribute('style'), 'className' => $anchorClassName);
             if ('' !== trim($anchor->getAttribute('id'))) $itemAttrs['metadata']['blocksEngineNavigationAnchor']['id'] = $anchor->getAttribute('id');
             if ('' !== trim($item->getAttribute('style'))) $itemAttrs['metadata']['blocksEngineNavigationAnchor']['itemStyle'] = $item->getAttribute('style');
-            $boxes = $navigationContext->navigationAnchorBoxes($anchor, $item);
+            $boxes = $navigationContext->navigationAnchorBoxes($anchor, $item, null !== $submenuContainer);
             // A wrapper box renders on every route too, so it drops route state like the anchor.
             if ($isCurrentNavigationItem) foreach ($boxes as $index => $box) $boxes[$index]['className'] = (string) ($this->withoutAuthoredCurrentNavigationSignals(array('className' => $box['className']))['className'] ?? '');
             if (array() !== $boxes) $itemAttrs['metadata']['blocksEngineNavigationAnchor']['boxes'] = $boxes;
