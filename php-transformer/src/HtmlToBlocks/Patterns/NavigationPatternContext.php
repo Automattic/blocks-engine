@@ -1163,8 +1163,11 @@ final class NavigationPatternContext
             if (!in_array($tag, array('div', 'span'), true)) return array();
             $children = array();
             foreach ($node->childNodes as $child) {
-                if ($child instanceof DOMElement) $children[] = $child;
-                elseif (XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '')) return array();
+                if ($child instanceof DOMElement) {
+                    // The item's own submenu toggle shares the row; it is not a second label.
+                    if ('button' === strtolower($child->tagName) && in_array(strtolower($child->getAttribute('aria-haspopup')), array('true', 'menu'), true)) continue;
+                    $children[] = $child;
+                } elseif (XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '')) return array();
             }
             if (1 !== count($children)) return array();
             $marker = $this->navigationSubjectMarker($node, 'box');
