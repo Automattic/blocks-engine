@@ -34,6 +34,13 @@ final class EditorStaticStateAssets
                 $owners[$text][$owner] = true;
             }
         }
+        // Owner sets are unordered: discovery order must not split otherwise identical runs.
+        $ownerSets = array();
+        foreach ($owners as $text => $set) {
+            $pages = array_keys($set);
+            sort($pages, SORT_STRING);
+            $ownerSets[$text] = $pages;
+        }
         $resources = array();
         foreach ($units as $index => $texts) {
             $shared = false;
@@ -41,19 +48,19 @@ final class EditorStaticStateAssets
             if (!$shared) continue;
             $asset = $assets[$index];
             $parts = array();
-            $unique = '';
-            $flush = static function () use (&$unique, &$parts): void {
-                if ('' !== $unique) $parts[] = $unique;
-                $unique = '';
-            };
             foreach ($texts as $text) {
-                if (count($owners[$text]) > 1) { $flush(); $parts[] = $text; }
-                else $unique .= $text;
+                $set = $ownerSets[$text];
+                $last = count($parts) - 1;
+                if ($last >= 0 && $parts[$last]['owners'] === $set) {
+                    $parts[$last]['text'] .= $text;
+                } else {
+                    $parts[] = array('text' => $text, 'owners' => $set);
+                }
             }
-            $flush();
             $paths = array();
-            foreach ($parts as $text) {
-                $prefix = isset($owners[$text]) && count($owners[$text]) > 1 ? 'shared-' : 'page-' . substr(hash('sha256', $asset['source_path']), 0, 16) . '-';
+            foreach ($parts as $part) {
+                $text = $part['text'];
+                $prefix = count($part['owners']) > 1 ? 'shared-' : 'page-' . substr(hash('sha256', $asset['source_path']), 0, 16) . '-';
                 $path = 'assets/css/editor-static-state-' . $prefix . hash('sha256', $text) . '.css';
                 $paths[] = $path;
                 if (isset($resources[$path])) {
