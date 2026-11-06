@@ -399,7 +399,7 @@ final class ThemeJsonProjection
                 }
                 if (null === $src) continue;
                 $style = isset($properties['font-style']) && '' !== $properties['font-style'] ? $properties['font-style'] : null;
-                $weight = isset($properties['font-weight']) && '' !== $properties['font-weight'] ? $properties['font-weight'] : null;
+                $weight = isset($properties['font-weight']) && '' !== $properties['font-weight'] ? $properties['font-weight'] : 'auto';
                 $range = trim((string) ($properties['unicode-range'] ?? ''));
                 $range = strlen($range) <= 1024 && preg_match('/^U\+[0-9A-F?]{1,6}(?:-[0-9A-F]{1,6})?(?:\s*,\s*U\+[0-9A-F?]{1,6}(?:-[0-9A-F]{1,6})?)*$/i', $range)
                     ? strtoupper(preg_replace('/\s*,\s*/', ', ', $range) ?? $range)
@@ -409,7 +409,7 @@ final class ThemeJsonProjection
                 $seen[$key] = true;
                 $face = array('family' => $family, 'src' => $src);
                 if (null !== $style) $face['fontStyle'] = $style;
-                if (null !== $weight) $face['fontWeight'] = $weight;
+                $face['fontWeight'] = $weight;
                 if (null !== $range) $face['unicodeRange'] = $range;
                 $faces[] = $face;
             }

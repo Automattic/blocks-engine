@@ -201,6 +201,18 @@ $assert(
     json_encode( $faced['styles']['typography'] ?? null )
 );
 
+// Missing descriptors use the CSS @font-face default without changing declared weights.
+$defaultWeightProjection = $project( array(
+    $cssAsset( '@font-face{font-family:Variable;src:url(fonts/variable.woff2)}@font-face{font-family:Variable;font-weight:700;src:url(fonts/variable-bold.woff2)}body{font-family:Variable}' ),
+    array( 'kind' => 'font', 'source_path' => 'assets/fonts/variable.woff2', 'target_path' => 'assets/fonts/variable.woff2', 'mime_type' => 'font/woff2' ),
+    array( 'kind' => 'font', 'source_path' => 'assets/fonts/variable-bold.woff2', 'target_path' => 'assets/fonts/variable-bold.woff2', 'mime_type' => 'font/woff2' ),
+) );
+$defaultWeightFaces = array();
+foreach ( $defaultWeightProjection['theme']['settings']['typography']['fontFamilies'] ?? array() as $family ) {
+    foreach ( $family['fontFace'] ?? array() as $face ) $defaultWeightFaces[] = $face['fontWeight'] ?? null;
+}
+$assert( array( 'auto', '700' ) === $defaultWeightFaces, '7d: absent font-weight projects as auto while explicit weight remains unchanged', json_encode( $defaultWeightFaces ) );
+
 // ---------------------------------------------------------------------------
 // 8. Class-scoped typography never projects as Global Styles. The used stack
 //    still registers as an editor-facing family so it is selectable.
