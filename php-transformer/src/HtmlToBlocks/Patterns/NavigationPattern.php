@@ -11,6 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InertScaffoldingSuppressor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProjectionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CoreSelectorScoping;
@@ -3292,6 +3293,25 @@ final class NavigationPattern implements PatternRecognizerInterface
      */
     private function labelHtml(DOMElement $anchor, callable $innerHtml, ?NavigationPatternContext $navigationContext): string
     {
+        $measurementCopies = array();
+        $displayNone = null !== $navigationContext ? $navigationContext->isDisplayNoneAtEveryViewport(...) : null;
+        foreach ( $anchor->getElementsByTagName('*') as $index => $descendant ) {
+            if ( InertScaffoldingSuppressor::isMeasurementCopy($descendant, $displayNone) ) {
+                $measurementCopies[$index] = true;
+            }
+        }
+
+        if ( array() !== $measurementCopies ) {
+            // Resolve selectors against live nodes, then remove matching subtrees
+            // only from the clone. Detached clones cannot supply cascade context.
+            $anchor = $anchor->cloneNode(true);
+            foreach ( iterator_to_array($anchor->getElementsByTagName('*')) as $index => $candidate ) {
+                if ( isset($measurementCopies[$index]) ) {
+                    $candidate->parentNode?->removeChild($candidate);
+                }
+            }
+        }
+
         if ( ! $navigationContext instanceof NavigationPatternContext ) {
             return preg_replace('/<!--[\s\S]*?-->/', '', $innerHtml($anchor)) ?? $innerHtml($anchor);
         }
