@@ -6441,6 +6441,28 @@ PHP;
         return $writes;
     }
 
+    /** @param array<string,array<string,mixed>> $routes @return list<string> */
+    private static function routeStylesheetTable(array $routes): array
+    {
+        $sequences = $indices = $matches = array();
+        foreach ($routes as $route) {
+            $key = serialize($route['styles']);
+            if (!isset($indices[$key])) { $indices[$key] = count($sequences); $sequences[] = $route['styles']; }
+            // Handles belong to occurrences, not resources: never intern them
+            // into a sequence shared by different source documents.
+            $matches[] = '    if ( ' . $route['condition'] . ' ) $blocks_engine_style_routes[] = [' . $indices[$key] . ',' . BootstrapData::literal($route['handles']) . '];';
+        }
+        return array_merge(array(
+            '    $blocks_engine_style_sequences = ' . BootstrapData::literal($sequences) . ';',
+            '    $blocks_engine_style_routes = [];',
+        ), $matches, array(
+            '    foreach ( $blocks_engine_style_routes as [$sequence, $handles] ) {',
+            '        $blocks_engine_route_styles = true;',
+            '        foreach ( $blocks_engine_style_sequences[$sequence] as $position => $style ) wp_enqueue_style( $handles[$position], get_theme_file_uri( $style[0] ), array(), null, \'\' !== $style[1] ? $style[1] : \'all\' );',
+            '    }',
+        ));
+    }
+
     /** @param array<int,array<string,mixed>> $assets */
     private static function bootstrap(array $assets, array $scripts = array(), array $parts = array(), array $tokens = array(), array $templates = array(), array $pages = array(), array $menus = array(), bool $runtimeEmoji = false, array $rootDocuments = array()): string
     {
@@ -6479,7 +6501,8 @@ PHP;
         // Each source document's ordered stylesheet instances form one route
         // block; a repeated resource gets one handle per instance, same URI.
         if (array_filter($stylesheetEnqueues, static fn(array $enqueue): bool => isset($enqueue['route']))) $lines[] = '    $blocks_engine_route_styles = false;';
-        $route = null;
+        $routeRows = array();
+        $routePosition = null;
         foreach ($stylesheetEnqueues as $enqueue) {
             $asset = $enqueue['asset'];
             if ('editor' === ($asset['stylesheet_target'] ?? 'both') || isset($importLoaded[$asset['target_path']])) continue;
@@ -6494,16 +6517,17 @@ PHP;
             if (isset($deviceAttributes[CaptureEvidence::DEVICE_STYLE])) $stylesheetAttributes[$enqueue['handle']] = ($stylesheetAttributes[$enqueue['handle']] ?? array()) + $deviceAttributes;
             $media = '' !== $enqueue['media'] ? ', ' . var_export($enqueue['media'], true) : '';
             $call = "wp_enqueue_style( " . var_export($enqueue['handle'], true) . ", get_theme_file_uri( " . var_export(self::encodedAssetUrlPath($asset['target_path']), true) . " ), array(), null{$media} );";
-            if (null !== $route && ($enqueue['route'] ?? null) !== $route) { $lines[] = '    }'; $route = null; }
             if (isset($enqueue['route'])) {
-                if (null === $route) { $route = $enqueue['route']; $lines[] = "    if ( {$enqueue['condition']} ) {"; $lines[] = '        $blocks_engine_route_styles = true;'; }
-                $lines[] = "        {$call}";
+                if (null === $routePosition) $routePosition = count($lines);
+                $routeRows[$enqueue['route']]['condition'] = $enqueue['condition'];
+                $routeRows[$enqueue['route']]['styles'][] = array(self::encodedAssetUrlPath($asset['target_path']), $enqueue['media'], $stylesheetAttributes[$enqueue['handle']] ?? array());
+                $routeRows[$enqueue['route']]['handles'][] = $enqueue['handle'];
                 continue;
             }
             $condition = empty($enqueue['fallback']) ? $enqueue['condition'] : '! $blocks_engine_route_styles';
             $lines[] = "    if ( {$condition} ) {$call}";
         }
-        if (null !== $route) $lines[] = '    }';
+        if (null !== $routePosition) array_splice($lines, $routePosition, 0, self::routeStylesheetTable($routeRows));
         $attributes = array();
         foreach ($scripts as $script) {
             $handle = 'blocks-engine-script-' . substr(hash('sha256', $script['identity']), 0, 12);
@@ -6574,15 +6598,20 @@ PHP;
                 $scopeIndex = $scopeIndices[$key];
                 $files[$file]['scopes'][$scopeIndex] = $scopeIndex;
                 $files[$file]['template_part_slugs'] = array_values(array_unique(array_merge($files[$file]['template_part_slugs'], $style['template_part_slugs'])));
-                $replay[] = array($file, $scopeIndex, $style['handle'], $style['media'], !empty($style['fallback']), $style['template_part_slugs']);
+                $entry = array($file, $scopeIndex, $style['handle'], $style['media'], !empty($style['fallback']), $style['template_part_slugs']);
+                foreach (array(5 => array(), 4 => false, 3 => '') as $field => $default) {
+                    if ($entry[$field] !== $default) break;
+                    array_pop($entry);
+                }
+                $replay[] = $entry;
             }
             foreach ($files as &$file) $file['scopes'] = array_values($file['scopes']);
             unset($file);
-            $lines[] = '$blocks_engine_presentation_scopes = ' . var_export($scopes, true) . ';';
-            $lines[] = '$blocks_engine_presentation_styles = ' . var_export($files, true) . ';';
-            $lines[] = '$blocks_engine_presentation_replay = ' . var_export($replay, true) . ';';
+            $lines[] = BootstrapData::table('blocks_engine_presentation_scopes', $scopes);
+            $lines[] = BootstrapData::table('blocks_engine_presentation_styles', $files);
+            $lines[] = '$blocks_engine_presentation_replay = ' . BootstrapData::literal($replay) . ';';
             $lines[] = '$blocks_engine_presentation_sequence = array();';
-            $lines[] = 'foreach ( $blocks_engine_presentation_replay as $entry ) { $style = $blocks_engine_presentation_styles[ $entry[0] ]; $style[\'scopes\'] = array( $blocks_engine_presentation_scopes[ $entry[1] ] ); $style[\'handle\'] = $entry[2]; $style[\'media\'] = $entry[3]; $style[\'fallback\'] = $entry[4]; $style[\'template_part_slugs\'] = $entry[5]; $blocks_engine_presentation_sequence[] = $style; }';
+            $lines[] = 'foreach ( $blocks_engine_presentation_replay as $entry ) { $style = $blocks_engine_presentation_styles[ $entry[0] ]; $style[\'scopes\'] = array( $blocks_engine_presentation_scopes[ $entry[1] ] ); $style[\'handle\'] = $entry[2]; $style[\'media\'] = $entry[3] ?? \'\'; $style[\'fallback\'] = $entry[4] ?? false; $style[\'template_part_slugs\'] = $entry[5] ?? array(); $blocks_engine_presentation_sequence[] = $style; }';
             $lines[] = "\$blocks_engine_presentation_matches = static function ( array \$style, ?WP_Post \$post, bool \$site_editor ): bool {";
             $lines[] = "    \$matches = \$site_editor; if ( ! \$matches && \$post instanceof WP_Post ) foreach ( \$style['scopes'] as \$scope ) {";
             $lines[] = "        if ( 'wp_template_part' === \$post->post_type && in_array( basename( (string) \$post->post_name ), \$style['template_part_slugs'], true ) ) { \$matches = true; break; }";
