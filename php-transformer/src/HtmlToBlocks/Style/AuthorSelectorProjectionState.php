@@ -260,6 +260,36 @@ final class AuthorSelectorProjectionState
         foreach ($classes as $class) $this->currentNavigationClasses[$class] = true;
     }
 
+    /** @var array<string,true> Source classes resting navigation items wear in place of the current item's state. */
+    private array $restingNavigationClasses = array();
+
+    /**
+     * Record the classes a served item swaps out: every resting peer wears
+     * them, the current item does not.
+     *
+     * @param list<string> $classes
+     */
+    public function markRestingNavigationClasses(array $classes): void
+    {
+        foreach ($classes as $class) $this->restingNavigationClasses[$class] = true;
+    }
+
+    /**
+     * Whether a selector addresses only resting navigation items: it names a
+     * class the served item swaps out. A shared menu renders every item with
+     * one resting subject, so this paint must skip the runtime current item
+     * as the source current item lacked it.
+     */
+    public function selectsRestingNavigationState(string $selector): bool
+    {
+        if (array() === $this->restingNavigationClasses || $this->selectsCurrentNavigationState($selector)) return false;
+        preg_match_all('/\.((?:\\.|[A-Za-z0-9_-])+)/', $selector, $classes);
+        foreach ($classes[1] as $class) {
+            if (isset($this->restingNavigationClasses[stripslashes($class)])) return true;
+        }
+        return false;
+    }
+
     public function isCurrentNavigationClass(string $class, ?DOMElement $element = null): bool
     {
         if ('page_item' === $class || 1 === preg_match('/^page-item-\d+$/', $class)) {
@@ -312,6 +342,18 @@ final class AuthorSelectorProjectionState
             return (string) preg_replace('/\.wp-block-navigation-item(?![\w-]).*$/', '.wp-block-navigation-item :is(.wp-block-navigation-item__content[aria-current="page"],:where(.wp-block-navigation-submenu.current-menu-item>.wp-block-navigation-item__content,.wp-block-navigation-submenu.current-menu-item>:not(.wp-block-navigation__submenu-container) .wp-block-navigation-item__content))', $subject, 1);
         }
         return (string) preg_replace('/\.wp-block-navigation-item(?![\w-])/', '.wp-block-navigation-item:has(.wp-block-navigation-item__content[aria-current="page"])', $subject, 1);
+    }
+
+    /**
+     * A navigation subject while its item is not the served route: the
+     * complement of currentNavigationSubject(), at zero added specificity.
+     */
+    public static function restingNavigationSubject(string $subject): string
+    {
+        if (str_contains($subject, '.wp-block-navigation-item__content')) {
+            return $subject . ':where(:not([aria-current="page"],.wp-block-navigation-submenu.current-menu-item>.wp-block-navigation-item__content,.wp-block-navigation-submenu.current-menu-item>:not(.wp-block-navigation__submenu-container) .wp-block-navigation-item__content))';
+        }
+        return (string) preg_replace('/\.wp-block-navigation-item(?![\w-])/', '.wp-block-navigation-item:where(:not(.current-menu-item))', $subject, 1);
     }
 
     /** @var array<string,string> Source anchor paths whose identity belongs to Core's rendered a, not li. */

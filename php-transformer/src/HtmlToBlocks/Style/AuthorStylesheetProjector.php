@@ -2206,7 +2206,9 @@ final class AuthorStylesheetProjector
                 $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
                 // One shared carrier baseline defeats Core defaults while the
                 // original specificity and order arbitrate author declarations.
-                if ($context->selectorProjections->selectsCurrentNavigationState(substr($selector, 0, null === $parsed['pseudo_state_suffix_span'] ? null : $parsed['pseudo_state_suffix_span']['start']))) $target = AuthorSelectorProjectionState::currentNavigationSubject($target);
+                $stateSelector = substr($selector, 0, null === $parsed['pseudo_state_suffix_span'] ? null : $parsed['pseudo_state_suffix_span']['start']);
+                if ($context->selectorProjections->selectsCurrentNavigationState($stateSelector)) $target = AuthorSelectorProjectionState::currentNavigationSubject($target);
+                elseif ($context->selectorProjections->selectsRestingNavigationState($stateSelector)) $target = AuthorSelectorProjectionState::restingNavigationSubject($target);
                 $rewritten[] = ':root ' . $target . $this->selectorSpecificityShims($parsed, $context) . $suffix;
             }
             if (array() === $otherSubjects) continue;
@@ -3026,6 +3028,7 @@ final class AuthorStylesheetProjector
                 // the shared carrier baseline every other rule on that item gets;
                 // otherwise Core defaults and lower ranked author rules win.
                 if ($context->selectorProjections->selectsCurrentNavigationState($selector)) $navigationTarget = AuthorSelectorProjectionState::currentNavigationSubject($navigationTarget);
+                elseif ($context->selectorProjections->selectsRestingNavigationState($selector)) $navigationTarget = AuthorSelectorProjectionState::restingNavigationSubject($navigationTarget);
                 $projected[] = ':root ' . $scope . $navigationTarget . $this->selectorSpecificityShims($parsed, $context);
                 continue;
             }
@@ -4596,7 +4599,9 @@ final class AuthorStylesheetProjector
                 $target = $context->selectorProjections->navigationSubject($path);
                 if ( '' === $target || ! $context->selectorProjections->isNavigationToggleRowItem($path) ) continue;
                 $state = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
-                if ( $context->selectorProjections->selectsCurrentNavigationState(substr($selector, 0, null === $parsed['pseudo_state_suffix_span'] ? null : $parsed['pseudo_state_suffix_span']['start'])) ) $target = AuthorSelectorProjectionState::currentNavigationSubject($target);
+                $stateSelector = substr($selector, 0, null === $parsed['pseudo_state_suffix_span'] ? null : $parsed['pseudo_state_suffix_span']['start']);
+                if ( $context->selectorProjections->selectsCurrentNavigationState($stateSelector) ) $target = AuthorSelectorProjectionState::currentNavigationSubject($target);
+                elseif ( $context->selectorProjections->selectsRestingNavigationState($stateSelector) ) $target = AuthorSelectorProjectionState::restingNavigationSubject($target);
                 $selectors[] = ':root ' . $target . $this->selectorSpecificityShims($parsed, $context) . $state;
             }
         }

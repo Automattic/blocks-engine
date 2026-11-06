@@ -1117,7 +1117,8 @@ final class NavigationPatternContext
             if ($peerAnchor instanceof DOMElement) $peerAnchors[] = $peerAnchor;
         }
         $classes = static fn(DOMElement $element): array => array_values(array_unique(array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn(string $class): bool => '' !== $class)));
-        $own = static function (DOMElement $element, array $peers) use ($classes): array {
+        $restingClasses = array();
+        $own = static function (DOMElement $element, array $peers) use ($classes, &$restingClasses): array {
             $lists = array();
             foreach ($peers as $peer) {
                 $list = $classes($peer);
@@ -1131,6 +1132,9 @@ final class NavigationPatternContext
             // peers shares the served route's state (an overflow parent holding
             // the served item), so it is no evidence those classes rest.
             $swapped = $replaces ? array_diff($current, reset($resting)[0]) : array();
+            // What the resting peers wear in place of those classes is resting
+            // state: the served item does not have it.
+            if ($replaces) foreach (array_diff(reset($resting)[0], $current) as $class) $restingClasses[] = $class;
             $peerClasses = array();
             foreach ($lists as $group) {
                 if (array() !== $swapped && array() === array_diff($swapped, $group[0])) continue;
@@ -1139,7 +1143,9 @@ final class NavigationPatternContext
             return array_values(array_filter($current, static fn(string $class): bool => !isset($peerClasses[$class])
                 && ($replaces || ($element->hasAttribute('aria-current') && 'false' !== strtolower(trim($element->getAttribute('aria-current')))) || MenuVocabulary::containsCurrentStateToken($class))));
         };
-        $this->session->authorSelectorProjectionState()->markCurrentNavigationClasses(array_merge($own($item, $peerItems), $item->isSameNode($anchor) ? array() : $own($anchor, $peerAnchors)));
+        $projections = $this->session->authorSelectorProjectionState();
+        $projections->markCurrentNavigationClasses(array_merge($own($item, $peerItems), $item->isSameNode($anchor) ? array() : $own($anchor, $peerAnchors)));
+        $projections->markRestingNavigationClasses($restingClasses);
     }
 
     public function navigationItemSubjectMarker(DOMElement $item): string
