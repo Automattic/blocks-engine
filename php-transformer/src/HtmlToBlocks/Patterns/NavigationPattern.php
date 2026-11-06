@@ -3396,17 +3396,28 @@ final class NavigationPattern implements PatternRecognizerInterface
      * Whether the source item has a button that stands in for its label or
      * opens the submenu beside it.
      */
-    private function hasSubmenuDisclosureControl(DOMElement $item, DOMElement $anchor, ?DOMElement $submenuContainer): bool
+    private function hasSubmenuDisclosureControl(DOMElement $item, DOMElement $anchor, ?DOMElement $submenuContainer, ?NavigationPatternContext $navigationContext): bool
     {
-        if ( $this->isSubmenuToggleControl($anchor) ) return true;
+        // A link that announces its popup but leads to a page is still a link;
+        // its submenu opens on hover/focus.
+        if ( $this->isSubmenuToggleControl($anchor) && ! $this->leadsToPage($anchor) ) return true;
         foreach ( $item->getElementsByTagName('button') as $button ) {
-            if ( ! $button instanceof DOMElement ) continue;
+            // A visually hidden button is a keyboard affordance; it paints no indicator.
+            if ( ! $button instanceof DOMElement || $navigationContext?->isVisuallyHiddenControl($button) ) continue;
             for ( $node = $button; $node instanceof DOMElement; $node = $node->parentNode ) {
                 if ( null !== $submenuContainer && $node->isSameNode($submenuContainer) ) continue 2;
             }
             return true;
         }
         return false;
+    }
+
+    /** Whether the label is a link to a destination rather than a button. */
+    private function leadsToPage(DOMElement $anchor): bool
+    {
+        $href = trim($anchor->getAttribute('href'));
+        return 'a' === strtolower($anchor->tagName) && 'button' !== strtolower(trim($anchor->getAttribute('role')))
+            && '' !== $href && ! str_starts_with($href, '#') && ! str_starts_with(strtolower($href), 'javascript:');
     }
 
     /**
@@ -3466,7 +3477,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             if ( '' === $iconMarker && ! $item->isSameNode($anchor) ) {
                 $navigationContext?->recordSubmenuToggle(
                     $anchor,
-                    $this->hasSubmenuDisclosureControl($item, $anchor, $submenuContainer)
+                    $this->hasSubmenuDisclosureControl($item, $anchor, $submenuContainer, $navigationContext)
                 );
             }
         }

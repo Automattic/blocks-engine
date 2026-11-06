@@ -475,6 +475,7 @@ final class NavigationPatternContext
      * Carry a replaced disclosure glyph's own box, not the label or panel box.
      * Only a unique SVG outside the link and submenu is an unambiguous trigger;
      * failing that, a unique SVG trailing the link's label is its indicator.
+     * A glyph the source hides at rest paints nothing and stands in for nothing.
      */
     public function submenuIconGeometryMarker(DOMElement $item, DOMElement $anchor, DOMElement $submenu): string
     {
@@ -483,8 +484,8 @@ final class NavigationPatternContext
         foreach ( $item->getElementsByTagName('svg') as $svg ) {
             $excluded = false;
             for ( $node = $svg; $node instanceof DOMElement; $node = $node->parentNode ) {
-                if ( $node->isSameNode($anchor) || $node->isSameNode($submenu) ) $excluded = true;
                 if ( $node->isSameNode($item) ) break;
+                if ( $node->isSameNode($anchor) || $node->isSameNode($submenu) || $this->styleResolver->isVisuallyHiddenAtRest($node) ) { $excluded = true; break; }
             }
             if ( ! $excluded ) $candidates[] = $svg;
         }
@@ -586,6 +587,12 @@ final class NavigationPatternContext
         if ( ! $hasDisclosureControl ) {
             $this->unindicatedSubmenuParents[$toggle->getNodePath() ?? ''] = true;
         }
+    }
+
+    /** Whether the source paints nothing for this control at rest (a focus-only affordance). */
+    public function isVisuallyHiddenControl(DOMElement $control): bool
+    {
+        return $this->styleResolver instanceof StyleResolver && $this->styleResolver->isVisuallyHiddenAtRest($control);
     }
 
     /** Whether a toggle under this source element paints its own indicator. */
