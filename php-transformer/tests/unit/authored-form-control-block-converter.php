@@ -121,6 +121,13 @@ $assert('submit' === ($buttonBlock['attrs']['type'] ?? '') && 'send' === ($butto
 $assert('<button type="submit" class="send" style="letter-spacing:0.1em">Join &amp; Go</button>' === ($buttonBlock['innerHTML'] ?? ''), 'styled-button-emits-native-markup');
 $assert($registry->has(AuthoredButtonBlockGenerator::class), 'styled-button-registers-generated-definition');
 
+$iconButton = $elementFrom('<button data-styled type="button" aria-label="Decrement"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 11H5v2h14v-2Z"></path></svg></button>', 'button');
+$iconBlock = $converter->button($iconButton);
+$assert('Decrement' === ($iconBlock['attrs']['ariaLabel'] ?? ''), 'icon-button-retains-accessible-name');
+$assert(! isset($iconBlock['attrs']['text']) || '' === $iconBlock['attrs']['text'], 'icon-button-does-not-invent-caption');
+$assert(1 === count($iconBlock['attrs']['contentParts'] ?? array()), 'icon-button-retains-svg-content');
+$assert(str_contains((string) ($iconBlock['innerHTML'] ?? ''), '<svg'), 'icon-button-renders-svg');
+
 if ( $failures ) {
     fwrite(STDERR, implode("\n", $failures) . "\n");
     exit(1);
