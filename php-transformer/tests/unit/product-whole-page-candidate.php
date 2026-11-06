@@ -30,6 +30,10 @@ $result = $compile($files);
 $plan = $planOf($result);
 $claims = $candidates($plan);
 $assert(array('products/lamp.html') === array_keys($claims), 'Only the detail page has a whole-page candidate.');
+$numericProduct = $product('/products/1234');
+$numericProduct['name'] = '1234';
+$numericResult = $compile(array('index.html' => '<main><h1>Shop</h1></main>', 'products/1234.html' => $page($numericProduct, $purchase)));
+$assert(array('products/1234.html') === array_keys($candidates($planOf($numericResult))), 'A numeric product slug compiles and claims its detail page.');
 WordPressSitePlan::assertValid($plan);
 $assert($claims === $candidates($planOf($compile(array_reverse($files, true)))), 'Candidate identities are stable under file reordering.');
 

@@ -1530,7 +1530,7 @@ final class ArtifactCompiler
             }
         }
         foreach ($products as $productSlug => &$product) {
-            $product['id'] = 'product:' . hash('sha256', $productSlug);
+            $product['id'] = 'product:' . hash('sha256', (string) $productSlug);
             // Only a claimed detail page names the product's route; others keep their URL.
             if (isset($product['whole_page_candidate'])) $product['source_route'] = $pageRoutes[$product['source_path']];
         }
