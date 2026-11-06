@@ -44,4 +44,36 @@ $assert(!str_contains($ordinaryMedia['pages'][0]['canonical_block_markup'], 'sty
 $unsafe = $compile('@media(max-width:600px){.body{color:#000!important}}');
 $assert(str_contains($unsafe['pages'][0]['canonical_block_markup'], 'style="color:rgb(255, 255, 255)"'), 'A breakpoint that can override the inline colour still prevents binding.');
 
+// Reduced sole-button paragraph from #4618, plus the outline link from #4643.
+foreach (array(
+    'sole-button paragraph' => array(
+        str_replace('class="btn btn--primary"', 'class="btn btn--primary" style="background:#b9276b;color:#ffffff"', file_get_contents(dirname(__DIR__) . '/fixtures/button-in-paragraph.html')),
+        array('backgroundColor' => '#b9276b', 'textColor' => '#ffffff'),
+    ),
+    'outline anchor' => array(
+        '<!doctype html><html><body><main><a href="/contact/" class="btn" style="display:inline-block;padding:8px 24px;border:2px solid #b9276b;background:transparent;color:#b9276b">Contact</a></main></body></html>',
+        array('borderColor' => '#b9276b'),
+    ),
+) as $label => [$html, $expected]) {
+    $buttonPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html)))->toArray()['source_reports']['wordpress_site_plan'];
+    $buttonMarkup = $buttonPlan['pages'][0]['canonical_block_markup'];
+    $tokens = array();
+    foreach ($buttonPlan['writes'] as $write) {
+        if ('theme.json' !== $write['target_path']) continue;
+        $theme = json_decode($write['payload']['data'], true, 512, JSON_THROW_ON_ERROR);
+        $tokens = array_column($theme['settings']['color']['palette'], 'slug', 'color');
+    }
+    $assert(1 === preg_match('/<!-- wp:button (\{.*?\}) -->(.*?)<!-- \/wp:button -->/s', $buttonMarkup, $button), $label . ' remains a native button.');
+    $attrs = json_decode($button[1], true, 512, JSON_THROW_ON_ERROR);
+    foreach ($expected as $attribute => $color) {
+        $assert(isset($tokens[$color]) && $tokens[$color] === ($attrs[$attribute] ?? null), $label . ' binds ' . $attribute . ' to its palette token.');
+        $section = 'borderColor' === $attribute ? 'border' : 'color';
+        $key = array('borderColor' => 'color', 'backgroundColor' => 'background', 'textColor' => 'text')[$attribute];
+        $property = array('borderColor' => 'border-color', 'backgroundColor' => 'background-color', 'textColor' => 'color')[$attribute];
+        $assert(!isset($attrs['style'][$section][$key]) && !str_contains($button[2], $property . ':' . $color), $label . ' removes the literal ' . $property . '.');
+        $class = 'borderColor' === $attribute ? 'has-' . $tokens[$color] . '-border-color' : 'has-' . $tokens[$color] . ('backgroundColor' === $attribute ? '-background-color' : '-color');
+        $assert(str_contains($button[2], $class), $label . ' saves the core preset class.');
+    }
+}
+
 echo "Exact palette literal binding contract passed.\n";
