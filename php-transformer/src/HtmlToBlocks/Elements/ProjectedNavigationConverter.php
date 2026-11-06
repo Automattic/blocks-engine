@@ -746,7 +746,12 @@ final class ProjectedNavigationConverter implements ElementConverter
         if ( null === $panel || ! $this->hiddenAtCollapsedViewport($panel) ) {
             return '';
         }
-        $wrapper = '.wp-block-group:has(> ' . $host . ')';
+        // The override is `!important`, so it must also outrank the panel's
+        // own important author `display` rules (an ID-scoped document switch,
+        // for one); an `:is()` arm of IDs that never matches adds the weight.
+        [$ids] = $this->styleResolver->authorImportantDeclarationSpecificity($panel, array( 'display' ));
+        $weight = 0 < $ids ? ':is(.wp-block-group,' . str_repeat('#blocks-engine-panel', $ids + 1) . ')' : '';
+        $wrapper = '.wp-block-group' . $weight . ':has(> ' . $host . ')';
 
         return $wrapper . '{display:contents!important}'
             . $wrapper . '>:not(' . $host . '){display:none!important}';
