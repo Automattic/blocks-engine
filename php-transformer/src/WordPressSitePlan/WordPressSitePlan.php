@@ -3625,6 +3625,7 @@ PHP;
         $localTimesByIndex = array();
         $structuredTypes = array();
         $pageEvidenceByIndex = array();
+        $dateSlotsByIndex = array();
         foreach ($documents as $index => $document) {
             if (!is_array($document) || !self::safePath($document['source_path'] ?? null)) throw new InvalidArgumentException('Compiled site document is invalid.');
             $metadata = is_array($document['metadata'] ?? null) ? $document['metadata'] : array();
@@ -3632,14 +3633,32 @@ PHP;
             $routes[$index] = '/' === $path ? '/' : '/' . trim($path, '/');
             $structuredTypes[$index] = self::structuredPageTypes($document);
             $localTimesByIndex[$index] = array();
+            $dateSlotsByIndex[$index] = array();
             // Repeated article metadata on pagination, and the listed entries'
             // dates on a category or tag archive, are not an independent
             // publication and must not vote in listing or dated-site inference.
-            $evidenceByIndex[$index] = null === self::paginationParentRoute($routes[$index]) && !TaxonomyProjection::isTermRoute($routes[$index]) ? $this->publicationEvidence($document, $localTimesByIndex[$index]) : array();
+            $evidenceByIndex[$index] = null === self::paginationParentRoute($routes[$index]) && !TaxonomyProjection::isTermRoute($routes[$index]) ? $this->publicationEvidence($document, $localTimesByIndex[$index], $dateSlotsByIndex[$index]) : array();
             $pageTypes = array_intersect(array('WebPage', 'AboutPage', 'ContactPage', 'CollectionPage'), $structuredTypes[$index]);
             if (!array_intersect(array('Article', 'BlogPosting', 'NewsArticle'), $structuredTypes[$index]) && $pageTypes) {
                 $evidenceByIndex[$index] = array();
                 $pageEvidenceByIndex[$index] = array_values(array_map(static fn(string $type): array => array('source' => 'json-ld:' . $type), $pageTypes));
+            }
+        }
+        // Unmarked builder dates become evidence only when the same source
+        // slot varies across sibling routes. Count routes, not captures, so
+        // a lone date or identical template chrome cannot establish a slot.
+        $dateSlotsByParent = array();
+        foreach ($dateSlotsByIndex as $index => $slots) {
+            if (!empty($documents[$index]['entrypoint']) || isset($pageEvidenceByIndex[$index])) continue;
+            foreach ($slots as $identity => $slot) $dateSlotsByParent[self::parentRoutePath($routes[$index])][$identity][$routes[$index]] = $slot['text'];
+        }
+        foreach ($dateSlotsByIndex as $index => $slots) {
+            if (!empty($documents[$index]['entrypoint']) || isset($pageEvidenceByIndex[$index])) continue;
+            foreach ($slots as $identity => $slot) {
+                $texts = $dateSlotsByParent[self::parentRoutePath($routes[$index])][$identity] ?? array();
+                if (count(array_unique($texts)) < 2 || count($evidenceByIndex[$index]) >= 16) continue;
+                $row = array('source' => 'html:visible-date', 'publication_timestamp' => $slot['publication_timestamp']);
+                if (!in_array($row, $evidenceByIndex[$index], true)) $evidenceByIndex[$index][] = $row;
             }
         }
         $indexByRoute = array_flip($routes);
@@ -3933,7 +3952,7 @@ PHP;
         return array_values(array_unique($types));
     }
     /** @param array<string,mixed> $document @param array<string,string> $localTimes Non-zero-offset representations keyed by UTC instant. @return array<int,array<string,string>> */
-    private function publicationEvidence(array $document, array &$localTimes): array
+    private function publicationEvidence(array $document, array &$localTimes, array &$dateSlots): array
     {
         $html = is_string($document['html'] ?? null) ? $document['html'] : '';
         if ('' === trim($html) && is_string($document['block_markup'] ?? null)) $html = $document['block_markup'];
@@ -3950,7 +3969,7 @@ PHP;
         foreach (HtmlMarkupParser::htmlMarkupNodes($html) as $node) if ('rawtext' === ($node['kind'] ?? null) && 'script' === ($node['name'] ?? null) && 'application/ld+json' === strtolower(trim((string) ($node['attributes']['type'] ?? '')))) foreach ($this->jsonLdPublicationEvidence(json_decode($node['content'], true), $timestamp) as $row) $add($evidence, $row['source'], $row['publication_timestamp'] ?? null);
         $route = is_string($document['metadata']['route_path'] ?? null) ? $document['metadata']['route_path'] : self::pageRoutePath((string) $document['source_path'], self::entryRootFromDocuments(array($document)));
         if (preg_match('~/(?:[0-9]{4})/(?:0[1-9]|1[0-2])(?:/|$)~', $route)) $add($evidence, 'route:dated');
-        foreach ($this->visiblePublicationEvidence($html, $timestamp) as $row) {
+        foreach ($this->visiblePublicationEvidence($html, $timestamp, $dateSlots) as $row) {
             $add($evidence, $row['source'], $row['publication_timestamp'] ?? null);
         }
         foreach (($document['document_metadata']['meta'] ?? array()) as $meta) {
@@ -3969,8 +3988,8 @@ PHP;
         }
         return array_values($unique);
     }
-    /** @return array<int,array<string,string>> */
-    private function visiblePublicationEvidence(string $html, callable $timestamp): array
+    /** @param array<string,array<string,string>> $dateSlots @return array<int,array<string,string>> */
+    private function visiblePublicationEvidence(string $html, callable $timestamp, array &$dateSlots): array
     {
         $rows = array();
         foreach ($this->publicationHtmlFragments($html) as $fragment) {
@@ -3979,14 +3998,20 @@ PHP;
                     continue;
                 }
                 $attributes = is_array($node['attributes'] ?? null) ? $node['attributes'] : array();
-                if (!self::isVisibleDateElement((string) ($node['name'] ?? ''), $attributes)) {
-                    continue;
+                $visibleDate = self::isVisibleDateElement((string) ($node['name'] ?? ''), $attributes);
+                $identities = array();
+                if (in_array($node['name'] ?? '', array('p', 'span', 'div', 'li', 'td', 'mark'), true)) {
+                    foreach (array('id', 'data-element-id') as $key) {
+                        if (is_string($attributes[$key] ?? null) && '' !== trim($attributes[$key])) $identities[] = $key . ':' . $attributes[$key];
+                    }
                 }
+                if (!$visibleDate && array() === $identities) continue;
                 $text = self::elementInnerText($fragment, (string) $node['name'], $node['inner_offset']);
                 $timestamp(trim(preg_replace('/\s+/', ' ', $text) ?? $text));
                 $parsed = self::parseVisiblePublicationTimestamp($text);
                 if (null !== $parsed) {
-                    $rows[] = array('source' => 'html:visible-date', 'publication_timestamp' => $parsed);
+                    if ($visibleDate) $rows[] = array('source' => 'html:visible-date', 'publication_timestamp' => $parsed);
+                    else foreach ($identities as $identity) $dateSlots[$identity] = array('text' => $text, 'publication_timestamp' => $parsed);
                 }
             }
         }
@@ -7764,6 +7789,8 @@ PHP;
     {
         $value = trim(preg_replace('/\s+/', ' ', $value) ?? $value);
         if ('' === $value) return null;
+        // Builder bylines commonly prefix a full date with its weekday.
+        $value = preg_replace('/^(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+/i', '', $value) ?? $value;
         $iso = self::normalizePublicationTimestamp($value);
         if (null !== $iso) return $iso;
         if (preg_match('/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/', $value, $match)) {
