@@ -6659,6 +6659,28 @@ final class StyleResolver implements ElementPresentationResolver
         return $declarations;
     }
 
+    /**
+     * Buttons do not inherit line-height by default. Restate the UA line box
+     * when a generated WordPress control would otherwise inherit page type.
+     * Authored values (including inherit) and existing Core toggles keep theirs.
+     *
+     * @param array<string, string> $declarations Unfiltered source presentation.
+     */
+    public function buttonUserAgentLineHeight(DOMElement $element, array $declarations): ?string
+    {
+        if ( 'button' !== strtolower($element->tagName) || isset($declarations['line-height'])
+            || in_array('wp-block-accordion-heading__toggle', preg_split('/\s+/', $element->getAttribute('class')) ?: array(), true) ) {
+            return null;
+        }
+        // The font shorthand sets line-height too: a global keyword (font:inherit)
+        // or an explicit /line-height is authored; otherwise it resets to normal.
+        $font = strtolower(trim(CssValueInspector::withoutImportant((string) ($declarations['font'] ?? ''))));
+        if ( '' !== $font && ( in_array($font, array( 'inherit', 'unset', 'revert', 'revert-layer' ), true) || str_contains($font, '/') ) ) {
+            return null;
+        }
+        return 'normal';
+    }
+
     /** SVG/state presentation also needs the unfiltered paint and motion stream. */
     public function resolvedSourceStateDeclarations(DOMElement $element): array
     {

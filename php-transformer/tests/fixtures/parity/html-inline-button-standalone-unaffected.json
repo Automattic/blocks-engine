@@ -23,6 +23,6 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:buttons -->" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "wp-element-button\" style=\"border-radius:0px\">Sign in</button>" }
+    { "path": "serialized_blocks", "assert": "contains", "value": "wp-element-button\" style=\"border-radius:0px;line-height:normal\">Sign in</button>" }
   ]
 }
