@@ -79,7 +79,7 @@ final class InlineContentElementConverter implements ElementConverter
             if ( $this->context->retainsRuntimeTextLeafInRichText($element) ) {
                 return ConversionOutcome::handled($this->createBlock->createBlock('core/paragraph', array('content' => SourceDom::outerHtml($element)), array(), $element));
             }
-            return ConversionOutcome::handled($this->context->htmlPreservationBlock($element));
+            return ConversionOutcome::handled($this->createBlock->htmlPreservationBlock($element));
         }
 
         $inlineSvgTextGroup = $this->context->inlineSvgTextGroupBlock($element);
@@ -90,7 +90,7 @@ final class InlineContentElementConverter implements ElementConverter
         if ( 0 < $element->getElementsByTagName('svg')->length && '' !== trim($this->runtime->stripAllTags(SourceDom::outerHtml($element))) ) {
             $content = $this->richTextMaterializer->contentWithMaterializedSvgImages($element, SourceDom::outerHtml($element));
             if ( null === $content || $this->richTextMaterializer->requiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
-                return ConversionOutcome::handled($this->context->htmlPreservationBlock($element));
+                return ConversionOutcome::handled($this->createBlock->htmlPreservationBlock($element));
             }
 
             return ConversionOutcome::handled($this->createBlock->createBlock('core/paragraph', array( 'content' => $content ), array(), $element));

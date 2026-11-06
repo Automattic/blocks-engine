@@ -18,7 +18,6 @@ final class ReadableFormControlBlockConverter
     /**
      * @param Closure(DOMElement): array<string, mixed>                                                     $eventMetadata
      * @param Closure(DOMElement): bool                                                                     $isRuntimeDomTarget
-     * @param Closure(DOMElement): array<string, mixed>                                                     $htmlPreservationBlock
      * @param Closure(DOMElement): array<string, mixed>                                                     $presentationAttributes
      */
     public function __construct(
@@ -28,7 +27,6 @@ final class ReadableFormControlBlockConverter
         private readonly Runtime $runtime,
         private readonly Closure $eventMetadata,
         private readonly Closure $isRuntimeDomTarget,
-        private readonly Closure $htmlPreservationBlock,
         private readonly Closure $presentationAttributes,
         private readonly SourceBlockCreator $createBlock,
         private readonly HtmlTransformerSession $session
@@ -77,7 +75,7 @@ final class ReadableFormControlBlockConverter
                 }
             }
 
-            return ($this->htmlPreservationBlock)($element);
+            return $this->createBlock->htmlPreservationBlock($element);
         }
 
         if ( 'input' === $tagName && 'search' === FormControlClassifier::controlType($element) ) {
@@ -89,7 +87,7 @@ final class ReadableFormControlBlockConverter
                 $label = 'Search';
             }
 
-            return ($this->htmlPreservationBlock)($element);
+            return $this->createBlock->htmlPreservationBlock($element);
         }
 
         // Prose summaries cannot carry an associated label's inline markup.
@@ -177,7 +175,7 @@ final class ReadableFormControlBlockConverter
                             return $selectBlock;
                         }
                     }
-                    return ($this->htmlPreservationBlock)($element);
+                    return $this->createBlock->htmlPreservationBlock($element);
                 }
 
                 $summary = $this->controlText($control);

@@ -148,7 +148,7 @@ final class RichTextElementConverter implements ElementConverter
         // before the HTML fallback gate rejects media inside their wrappers.
         $hasStructuralHtml = $this->richTextMaterializer->hasStructuralHtml($content);
         if ( ! $hasStructuralHtml && $this->richTextMaterializer->requiresHtmlFallbackForElement($element, $content) ) {
-            return $this->context->htmlPreservationBlock($element);
+            return $this->createBlock->htmlPreservationBlock($element);
         }
 
         if ( ! $hasStructuralHtml && '' === trim($this->runtime->stripAllTags($content))
@@ -430,7 +430,7 @@ final class RichTextElementConverter implements ElementConverter
                 return $pictureRow;
             }
 
-            return $this->context->htmlPreservationBlock($element);
+            return $this->createBlock->htmlPreservationBlock($element);
         }
 
         // A paragraph carrying box chrome around an empty inline child is a

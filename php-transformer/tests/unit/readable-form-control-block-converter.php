@@ -49,7 +49,7 @@ $runtimeRecorder = new FormRuntimeIslandRecorder(
         $recorded[] = compact('kind', 'reason', 'capability', 'metadata');
     },
     static fn (DOMElement $element): array => array(),
-    static fn (DOMElement $element): array => array()
+    $session
 );
 $authoredRegistry = $session->requireGeneratedBlockRegistry();
 $authoredConverter = new AuthoredFormControlBlockConverter(
@@ -69,7 +69,6 @@ $converter = new ReadableFormControlBlockConverter(
     new Runtime(),
     static fn (DOMElement $element): array => $element->hasAttribute('data-event') ? array( 'change' => true ) : array(),
     static fn (DOMElement $element): bool => $element->hasAttribute('data-runtime'),
-    static fn (DOMElement $element): array => array( 'blockName' => 'core/html', 'attrs' => array( 'content' => 'preserved-' . strtolower($element->tagName) ) ),
     $presentationAttributes,
     $createBlock,
     $session
