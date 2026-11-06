@@ -1072,16 +1072,24 @@ final class NavigationPatternContext
         }
         $classes = static fn(DOMElement $element): array => array_values(array_unique(array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn(string $class): bool => '' !== $class)));
         $own = static function (DOMElement $element, array $peers) use ($classes): array {
-            $peerClasses = array();
             $lists = array();
             foreach ($peers as $peer) {
                 $list = $classes($peer);
                 sort($list);
                 $lists[implode(' ', $list)][] = $list;
-                foreach ($list as $class) $peerClasses[$class] = true;
             }
             $current = $classes($element);
-            $replaces = (bool) array_filter($lists, static fn(array $group): bool => count($group) > 1 && array() !== array_intersect($group[0], $current) && array() !== array_diff($group[0], $current));
+            $resting = array_filter($lists, static fn(array $group): bool => count($group) > 1 && array() !== array_intersect($group[0], $current) && array() !== array_diff($group[0], $current));
+            $replaces = array() !== $resting;
+            // A peer wearing every class the item swaps in over its resting
+            // peers shares the served route's state (an overflow parent holding
+            // the served item), so it is no evidence those classes rest.
+            $swapped = $replaces ? array_diff($current, reset($resting)[0]) : array();
+            $peerClasses = array();
+            foreach ($lists as $group) {
+                if (array() !== $swapped && array() === array_diff($swapped, $group[0])) continue;
+                foreach ($group[0] as $class) $peerClasses[$class] = true;
+            }
             return array_values(array_filter($current, static fn(string $class): bool => !isset($peerClasses[$class])
                 && ($replaces || ($element->hasAttribute('aria-current') && 'false' !== strtolower(trim($element->getAttribute('aria-current')))) || MenuVocabulary::containsCurrentStateToken($class))));
         };

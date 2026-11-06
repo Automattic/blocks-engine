@@ -3650,6 +3650,12 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( is_array($currentSources) && array() !== $currentSources ) {
             $itemAttrs['metadata']['blocksEngineCurrentSources'] = array_values(array_filter($currentSources, 'is_string'));
         }
+        // A URL-less parent painted by route is the section holding the
+        // served item: the runtime marks it current on the routes whose item
+        // its submenu displays.
+        if ( $submenuContainer instanceof DOMElement && ! isset($itemAttrs['metadata']['blocksEngineCurrentSources']) && $item->hasAttribute(RouteStateProjector::CURRENT_SECTION_ATTRIBUTE) ) {
+            $itemAttrs['metadata']['blocksEngineCurrentSection'] = true;
+        }
 
         if ( $isCurrentNavigationItem ) {
             $itemAttrs['className'] = trim((string) ($itemAttrs['className'] ?? '') . ' blocks-engine-current-navigation-item');

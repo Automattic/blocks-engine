@@ -365,6 +365,15 @@ final class RouteStateProjector
 
     public const CURRENT_SOURCES_ATTRIBUTE = 'data-blocks-engine-current-sources';
 
+    public const CURRENT_SECTION_ATTRIBUTE = 'data-blocks-engine-current-section';
+
+    private static function sortedClasses(string $classes): string
+    {
+        $list = preg_split('/\s+/', trim($classes)) ?: array();
+        sort($list, SORT_STRING);
+        return implode(' ', array_unique($list));
+    }
+
     private const NAVIGATION_ROOT = "self::nav or @role='navigation' or ((self::ul or self::ol) and (@role='menu' or @role='menubar'))";
 
     /**
@@ -407,15 +416,38 @@ final class RouteStateProjector
                         $link ??= $child;
                         $current = $current || self::marksCurrent($child);
                     }
+                    $boxed = false;
+                    if (null === $link && 'li' === strtolower($item->tagName)) {
+                        // A boxed submenu toggle is evidence only of its section.
+                        foreach ($xpath->query('.//a | .//button', $item) ?: array() as $candidate) {
+                            for ($cursor = $candidate->parentNode; $cursor instanceof DOMElement && !$cursor->isSameNode($item); $cursor = $cursor->parentNode) {
+                                if (in_array(strtolower($cursor->tagName), array('ul', 'ol'), true) || 'menu' === $cursor->getAttribute('role')) continue 2;
+                            }
+                            $link = $candidate instanceof DOMElement ? $candidate : null;
+                            $boxed = null !== $link;
+                            break;
+                        }
+                    }
                     if (null === $link) continue;
                     $key = $position . substr((string) $item->getNodePath(), strlen($root)) . ':' . trim((string) preg_replace('/\s+/', ' ', $link->textContent));
-                    $items[$key][$index] = array('node' => $item, 'current' => $current, 'href' => trim($link->getAttribute('href')));
+                    $items[$key][$index] = array('node' => $item, 'current' => $current, 'href' => trim($link->getAttribute('href')), 'classes' => $link->getAttribute('class'), 'section' => $item !== $link && null !== $xpath->query('.//ul | .//ol | .//*[@role="menu"]', $item)?->item(0));
+                    if ($boxed) $items[$key][$index]['current'] = false;
                 }
             }
         }
         $route = static fn(string $path): string => trim((string) preg_replace('~(?:^|/)index(?:\.html?)?$|\.html?$~i', '', ArtifactPath::stripQueryAndFragment($path)), '/');
         $changed = array();
         foreach ($items as $rows) {
+            // A URL-less submenu parent whose own link reads differently by
+            // route is painted as the section holding the served item.
+            $first = reset($rows);
+            if (count($rows) > 1 && $first['section'] && ('' === $first['href'] || '#' === $first['href'][0])
+                && count(array_unique(array_map(static fn(array $row): string => self::sortedClasses($row['classes']), $rows))) > 1) {
+                foreach ($rows as $index => $row) {
+                    $row['node']->setAttribute(self::CURRENT_SECTION_ATTRIBUTE, 'true');
+                    $changed[$index] = true;
+                }
+            }
             $current = array_keys(array_filter($rows, static fn(array $row): bool => $row['current']));
             if (array() === $current || count($current) === count($rows)) continue;
             $named = array();
