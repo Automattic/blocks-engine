@@ -20,7 +20,7 @@ foreach (array(
     $markup = $result['serialized_blocks'];
     foreach (array(
         'paragraph' => str_contains($markup, '<!-- wp:paragraph'),
-        'glyph mark' => 1 === preg_match('/<mark[^>]*class="(?:fas fa-x fa-5x|custom)"/', $markup),
+        'glyph mark' => 1 === preg_match('/<mark[^>]*class="(?:fas fa-x fa-5x|custom) has-inline-color"/', $markup),
         'presentation role' => str_contains($markup, 'role="none"'),
         'font' => str_contains($markup, 'font-family:ContractIcons'),
         'size' => str_contains($markup, 'font-size:5em'),
