@@ -10025,7 +10025,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                     $image = $this->imageOnlyCarrierElement($carrier);
                     $safe = true;
                     for ( $node = $image?->parentNode; $node instanceof DOMElement && ! $node->isSameNode($anchor); $node = $node->parentNode ) {
-                        $customHost = ! in_array(strtolower($node->tagName), array('div', 'span'), true);
+                        if ( 'picture' === strtolower($node->tagName) ) {
+                            if ( $this->sourceElementClassifier->hasPictureSourceSelection($node) ) {
+                                $safe = false;
+                                break;
+                            }
+                        }
+                        $customHost = ! in_array(strtolower($node->tagName), array('div', 'span', 'picture'), true);
                         if ( $customHost && ( null === SourceDom::imageOnlyCustomElement($node)
                             || null === $this->nativeImageInCustomHost($node, $image) ) ) {
                             $safe = false;
@@ -10041,10 +10047,23 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                     }
                     if ( $safe && $image instanceof DOMElement ) {
                         $host = $image->parentNode;
+                        if ( $host instanceof DOMElement && 'picture' === strtolower($host->tagName) ) {
+                            $host = $host->parentNode;
+                        }
                         if ( $host instanceof DOMElement && null !== SourceDom::imageOnlyCustomElement($host) ) {
                             $media = $this->nativeImageInCustomHost($host, $image);
                             if ( null !== $media ) {
-                                return $this->layoutShellBlockForElements(array($anchor, $carrier), array($media), $anchor);
+                                // The custom-host block already retains the host and
+                                // picture. Keep every outer presentation box as well,
+                                // in source order, rather than flattening the chain.
+                                $wrappers = array();
+                                for ( $node = $host->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+                                    array_unshift($wrappers, $node);
+                                    if ( $node->isSameNode($anchor) ) {
+                                        break;
+                                    }
+                                }
+                                return $this->layoutShellBlockForElements($wrappers, array($media), $anchor);
                             }
                         }
                         return $this->convertImageElement($image, $carrier, null, $anchor);
