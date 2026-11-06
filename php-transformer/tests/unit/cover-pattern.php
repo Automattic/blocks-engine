@@ -243,6 +243,14 @@ $assertNull($match($texture, array( $heading ), array(), array(), $fallbacks, $r
 $assertSame(0, $record['convertCalls'], 'Repeating background does not convert children.');
 
 // 6. Gate 3 rejects empty converted children and discards local fallbacks.
+// Utility-class builders name no hero: the painting rule alone makes it a candidate.
+// An empty painted layer (grain texture) stays stylesheet-owned.
+foreach ( array( 'utility hero' => array( '<h1>Strategy</h1>', 'core/cover' ), 'empty texture' => array( '', 'core/group' ) ) as $name => [$content, $expected] ) {
+    $result = $transformHtml('<style>.x .c1-u{display:flex;flex-direction:column;min-height:360px}.x .c1-z{background-size:auto,cover}@media (min-width:768px){.x .c1-14{background-image:linear-gradient(rgba(0,0,0,.25),rgba(0,0,0,.25)),url(/media/1346-6.jpg)}}@media (max-width:767px){.x .c1-15{background-image:linear-gradient(rgba(0,0,0,.25),rgba(0,0,0,.25)),url(/media/1346-2.webp)}}</style><div class="x"><div class="c1-u c1-z c1-14 c1-15">' . $content . '</div><p>After</p></div>');
+    $names = $blockNames($result['blocks'] ?? array());
+    $assertSame('core/cover' === $expected, in_array('core/cover', $names, true), 'Painted ' . $name . ' cover recognition.');
+}
+
 $fallbacks = array( array( 'blockName' => 'existing/fallback' ) );
 $record = array();
 $empty = $elementFromHtml('<section style="background-image:url(empty.jpg);background-size:cover"></section>');

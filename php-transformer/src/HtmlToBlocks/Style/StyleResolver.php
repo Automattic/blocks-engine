@@ -5333,15 +5333,24 @@ final class StyleResolver implements ElementPresentationResolver
         return $this->highValueStyleBoundaryPolicy()->matches($element);
     }
 
-    /** Image crop recognition is structural and selector-driven, not name-driven. */
+    /**
+     * Image crop and painted-photo recognition are structural and
+     * selector-driven, not name-driven: utility-class builders give a hero no
+     * vocabulary token, only rules that paint it.
+     */
     private function hasGenericRecognitionDemand(DOMElement $element): bool
     {
-        if ('img' !== strtolower($element->tagName)) {
+        $img = 'img' === strtolower($element->tagName);
+        // Only a painted box holding content can be a cover; empty decorative
+        // layers (grain, texture) keep their stylesheet ownership.
+        if ( ! $img && '' === trim($element->textContent) ) {
             return false;
         }
-
         foreach ( $this->matchingStyleRules($element, 'static-conditional') as $rule ) {
-            if (array_intersect(array('aspect-ratio', 'object-fit', 'object-position'), array_keys($rule['declarations']))) {
+            if ( $img && array_intersect(array('aspect-ratio', 'object-fit', 'object-position'), array_keys($rule['declarations'])) ) {
+                return true;
+            }
+            if ( ! $img && 1 === preg_match('/\burl\(/i', ($rule['declarations']['background-image'] ?? '') . ($rule['declarations']['background'] ?? '')) ) {
                 return true;
             }
         }
