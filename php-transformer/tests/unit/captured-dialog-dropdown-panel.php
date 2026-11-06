@@ -144,6 +144,17 @@ $assert(!preg_match('/<[^>]+(?:class="[^"]*mmODQd|data-dropdown-shown="true"|sty
 $assert(1 === preg_match('/<div[^>]*\\shidden(?:="[^"]*")?[^>]*id="data-blocks-engine-capture-dialog-0"/', $unverifiedMarkup), 'the compiled unowned panel remains hidden at rest', $unverifiedMarkup);
 $assert(!str_contains($unverifiedMarkup, 'data-blocks-engine-triggers=') && !str_contains($unverifiedMarkup, 'navigation-submenu'), 'unverified evidence does not invent an interaction owner', $unverifiedMarkup);
 
+// Without the shown marker, the recorded opened attributes still prove that
+// capture left this dropdown open. Already-resting and non-dropdown panels do not.
+$withoutShown = str_replace(' data-dropdown-shown="true"', '', $unverifiedHtml);
+$openedProjection = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CapturedDialogProjector())->project(array(array('path' => 'index.html', 'content' => $withoutShown)));
+$assert(str_contains($openedProjection['files'][0]['content'], 'hidden=""'), 'opened snapshot attributes alone identify the unowned dropdown envelope');
+$restingHtml = str_replace(array('class="dva_z0 mmODQd data-blocks-engine-capture-dropdown"', ' style="inset: 49px 0px auto auto; display: block ; visibility: visible !important;"'), array('class="dva_z0 data-blocks-engine-capture-dropdown"', ''), $withoutShown);
+foreach (array('already resting' => $restingHtml, 'non-dropdown' => str_replace(' data-blocks-engine-capture-dropdown', '', $unverifiedHtml), 'unmarked' => str_replace(' data-blocks-engine-capture-dialog-panel="data-blocks-engine-capture-dialog-0"', '', $unverifiedHtml)) as $case => $untouchedHtml) {
+    $untouched = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CapturedDialogProjector())->project(array(array('path' => 'index.html', 'content' => $untouchedHtml)));
+    $assert($untouchedHtml === $untouched['files'][0]['content'], $case . ' stays byte-identical');
+}
+
 $definition = (new CapturedDialogBlockGenerator())->definition('site/captured-dialog');
 $css = (string) ($definition['assets']['style.css'] ?? '');
 $assert('file:./style.css' === ($definition['block_json']['style'] ?? null), 'the dialog block ships a stylesheet');
