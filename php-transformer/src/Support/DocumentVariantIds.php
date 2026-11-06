@@ -27,10 +27,11 @@ final class DocumentVariantIds
      */
     public static function suffixForClass(string $class): ?string
     {
-        if ( CaptureEvidence::MOBILE_DOCUMENT_CLASS === $class ) {
-            return CaptureEvidence::VARIANT_ID_SUFFIX_PREFIX . 'mobile';
+        $profile = CaptureEvidence::deviceDocumentProfile($class);
+        if ( null !== $profile ) {
+            return 'desktop' === $profile ? '' : CaptureEvidence::VARIANT_ID_SUFFIX_PREFIX . $profile;
         }
-        if ( CaptureEvidence::DESKTOP_DOCUMENT_CLASS === $class || 'site-document-variant-default' === $class ) {
+        if ( 'site-document-variant-default' === $class ) {
             return '';
         }
         if ( 1 === preg_match('/^site-document-variant-([a-z][a-z0-9_-]{0,31})$/', $class, $match) ) {

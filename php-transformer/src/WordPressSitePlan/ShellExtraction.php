@@ -61,7 +61,7 @@ final class ShellExtraction
                 $opening = substr($markup, $wrapper['offset'], $nodes[$children[0]]['offset'] - $wrapper['offset']);
                 if (!preg_match('/\bclass="([^"]*)"/', $opening, $match)) continue;
                 $classes = preg_split('/\s+/', $match[1]) ?: array();
-                if (array() === array_intersect($classes, array(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, CaptureEvidence::MOBILE_DOCUMENT_CLASS))) continue;
+                if (array() === array_filter($classes, CaptureEvidence::isDeviceDocumentClass(...))) continue;
                 $roots = array();
                 foreach ($children as $position => $child) {
                     if (self::nodesHoldMain($markup, $nodes, array($child))) $roots[] = $position;
@@ -75,7 +75,7 @@ final class ShellExtraction
                 $trailing = array_slice($children, $roots[0] + 1);
                 if (array() === $trailing) continue;
                 $closing = substr($markup, $nodes[$children[count($children) - 1]]['end'], $wrapper['end'] - $nodes[$children[count($children) - 1]]['end']);
-                $device = in_array(CaptureEvidence::MOBILE_DOCUMENT_CLASS, $classes, true) ? 'mobile' : 'desktop';
+                $device = CaptureEvidence::deviceDocumentProfile((string) current(array_filter($classes, CaptureEvidence::isDeviceDocumentClass(...)))) ?? 'desktop';
                 foreach ($trailing as $child) {
                     $range = array('offset' => $nodes[$child]['offset'], 'length' => $nodes[$child]['end'] - $nodes[$child]['offset']);
                     $bindings = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, array($range));
@@ -2827,7 +2827,7 @@ final class ShellExtraction
 
     private function retainsResponsiveVariantLandmark(string $markup, string $area): bool
     {
-        if (1 !== preg_match('/(?:' . preg_quote(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, '/') . '|' . preg_quote(CaptureEvidence::MOBILE_DOCUMENT_CLASS, '/') . '|site-document-variant-[a-z][a-z0-9_-]{0,31})/', $markup)) {
+        if (1 !== preg_match('/(?:' . preg_quote(CaptureEvidence::ATTRIBUTE_PREFIX, '/') . '[a-z][a-z0-9_-]{0,63}-document|site-document-variant-[a-z][a-z0-9_-]{0,31})/', $markup)) {
             return false;
         }
         return array() !== $this->nestedLandmarkCandidates(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup), '', $area);
@@ -3058,14 +3058,14 @@ final class ShellExtraction
 
     public static function isResponsiveVariantClass(string $class): bool
     {
-        return in_array($class, array(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, CaptureEvidence::MOBILE_DOCUMENT_CLASS), true)
+        return CaptureEvidence::isDeviceDocumentClass($class)
             || 1 === preg_match('/^site-document-variant-[a-z][a-z0-9_-]{0,31}$/', $class);
     }
 
     private static function responsiveVariantRank(string $class): int
     {
         if (in_array($class, array(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, 'site-document-variant-default'), true)) return 0;
-        if (str_contains($class, 'mobile')) return 1;
+        if (CaptureEvidence::MOBILE_DOCUMENT_CLASS === $class) return 1;
         return 2;
     }
 
