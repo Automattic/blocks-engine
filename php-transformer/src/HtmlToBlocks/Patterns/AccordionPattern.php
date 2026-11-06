@@ -28,7 +28,8 @@ final class AccordionPattern implements PatternRecognizerInterface
             return null;
         }
 
-        $itemElements = $this->accordionItemElements($element);
+        $leadingElements = array();
+        $itemElements = $this->accordionItemElements($element, $leadingElements);
         if ( array() === $itemElements ) {
             return null;
         }
@@ -43,7 +44,7 @@ final class AccordionPattern implements PatternRecognizerInterface
             $items[] = $item;
         }
 
-        $attributes = $presentationAttributes($element);
+        $attributes = array() === $leadingElements ? $presentationAttributes($element) : array();
         for ($node = $itemElements[0]->parentNode, $depth = 0; $node instanceof DOMElement && $depth < 8; $node = $node->parentNode, $depth++) {
             if ('true' === strtolower(SourceDom::attr($node, CaptureEvidence::EXCLUSIVE_DISCLOSURES))) {
                 $attributes['autoclose'] = true;
@@ -51,8 +52,26 @@ final class AccordionPattern implements PatternRecognizerInterface
             }
             if ($node->isSameNode($element)) break;
         }
+        if ( array() === $leadingElements ) {
+            return new PatternRecognitionResult(
+                $createBlock('core/accordion', $attributes, $items, $element),
+                $fallbacks
+            );
+        }
+
+        // Leading siblings such as a group heading or intro stay ordinary
+        // blocks before the accordion; the container keeps its presentation.
+        $blocks = array();
+        foreach ( $leadingElements as $leading ) {
+            $block = $converter->element($leading, $fallbacks, true);
+            if ( null !== $block ) {
+                $blocks[] = $block;
+            }
+        }
+        $blocks[] = $createBlock('core/accordion', $attributes, $items, null);
+
         return new PatternRecognitionResult(
-            $createBlock('core/accordion', $attributes, $items, $element),
+            $createBlock('core/group', $presentationAttributes($element), $blocks, $element),
             $fallbacks
         );
     }
@@ -234,9 +253,14 @@ final class AccordionPattern implements PatternRecognizerInterface
     }
 
     /**
+     * The container's accordion items. Non-item siblings may lead a single
+     * contiguous run of items (a group heading or intro); they are returned
+     * through $leading. Non-items between or after items are not allowed.
+     *
+     * @param list<DOMElement> $leading
      * @return list<DOMElement>
      */
-    private function accordionItemElements(DOMElement $element): array
+    private function accordionItemElements(DOMElement $element, array &$leading = array()): array
     {
         $signalRoots = array( $element );
         $children = $this->directChildElements($element);
@@ -257,6 +281,42 @@ final class AccordionPattern implements PatternRecognizerInterface
             }
         }
 
+        $items = $this->itemRun($children, $signalRoots);
+        if ( array() !== $items ) {
+            return $items;
+        }
+
+        $offset = 0;
+        while ( $offset < count($children) && ! $this->isAccordionItemElement($children[ $offset ]) ) {
+            $offset++;
+        }
+        if ( 0 === $offset ) {
+            return array();
+        }
+        // Native <details> already map 1:1 to core/details, so a heading-led
+        // run of them stays as authored; only scripted disclosures need the
+        // accordion to keep their collapsed state.
+        $run = array_slice($children, $offset);
+        foreach ( $run as $child ) {
+            if ( 'details' === strtolower($child->tagName) ) {
+                return array();
+            }
+        }
+        $items = $this->itemRun($run, $signalRoots);
+        if ( array() !== $items ) {
+            $leading = array_slice($children, 0, $offset);
+        }
+
+        return $items;
+    }
+
+    /**
+     * @param list<DOMElement> $children
+     * @param list<DOMElement> $signalRoots
+     * @return list<DOMElement>
+     */
+    private function itemRun(array $children, array $signalRoots): array
+    {
         if ( $this->allDisclosureItemElements($children) ) {
             return $children;
         }
