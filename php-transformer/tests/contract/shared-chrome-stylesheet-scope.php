@@ -226,8 +226,8 @@ $splitDocument = static function (string $headerHtml, string $main) use ($splitH
 $split = (new ArtifactCompiler())->compile(array(
     'entrypoint' => 'index.html',
     'files' => array(
-        'index.html' => $splitDocument($splitHeader('index.html', 'about.html'), '<main><h1>Home</h1></main>'),
-        'about.html' => $splitDocument($splitHeader('index.html', 'about.html'), '<main><h1>About</h1></main>'),
+        'index.html' => $splitDocument($splitHeader('index.html', 'about.html'), '<main><h1 class="home-only">Home</h1></main>'),
+        'about.html' => $splitDocument($splitHeader('index.html', 'about.html'), '<main><h1 class="about-only">About</h1></main>'),
         'team.html' => $splitDocument($splitHeader('index.html', 'about.html'), '<main><h1>Team</h1></main>'),
         'css/home.css' => array('path' => 'css/home.css', 'kind' => 'css', 'content' => $splitChrome . '.home-only{color:#111111}'),
         'css/about.css' => array('path' => 'css/about.css', 'kind' => 'css', 'content' => $splitChrome . '.about-only{color:#222222}'),

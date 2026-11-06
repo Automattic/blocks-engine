@@ -18,7 +18,7 @@
       "files": [
         {
           "path": "index.html",
-          "content": "<main><link rel=\"stylesheet\" href=\"styles/site.css\"><h1>CSS refs</h1></main>",
+          "content": "<main><link rel=\"stylesheet\" href=\"styles/site.css\"><h1 class=\"hero\">CSS refs</h1></main>",
           "mime_type": "text/html",
           "role": "entry"
         },

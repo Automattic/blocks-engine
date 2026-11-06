@@ -2955,7 +2955,8 @@ final class ArtifactCompiler
         if (0 === $documents) return $files;
         $pruner = new UnreachableSelectorPruner($texts);
         foreach ($files as &$file) {
-            if ('css' !== ($file['kind'] ?? '') || !is_string($file['content'] ?? null)) continue;
+            // Only the projected sheets the pages load; other CSS is inventory.
+            if ('css' !== ($file['kind'] ?? '') || !isset($file['provenance']['projected_from_hash']) || !is_string($file['content'] ?? null)) continue;
             $content = $pruner->prune($file['content']);
             if ($content !== $file['content']) $file = $this->projectedStylesheetFile($file, $file['path'], $content);
         }
