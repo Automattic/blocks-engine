@@ -101,7 +101,8 @@ final class InertScaffoldingSuppressor implements ElementConverter
     public static function isMeasurementCopy(DOMElement $element, ?callable $isDisplayNoneAtEveryViewport = null): bool
     {
         if ( ! in_array(strtolower($element->tagName), array( 'div', 'span' ), true)
-            || 'true' !== strtolower(trim(SourceDom::attr($element, 'aria-hidden'))) ) {
+            || 'true' !== strtolower(trim(SourceDom::attr($element, 'aria-hidden')))
+            || ! self::duplicatesVisibleSiblingText($element) ) {
             return false;
         }
 
@@ -117,6 +118,35 @@ final class InertScaffoldingSuppressor implements ElementConverter
         }
 
         return 'none' === CssValueInspector::comparable($display);
+    }
+
+    /**
+     * A text-fitting copy repeats text its visible siblings already render.
+     * Hidden panels a script reveals (menus, overlays, dialogs) carry their
+     * own content or none, so they are never mistaken for copies.
+     */
+    private static function duplicatesVisibleSiblingText(DOMElement $element): bool
+    {
+        $text = self::comparableText($element->textContent);
+        if ( '' === $text || ! $element->parentNode instanceof DOMElement ) {
+            return false;
+        }
+
+        $visibleText = '';
+        foreach ( $element->parentNode->childNodes as $sibling ) {
+            if ( $sibling === $element
+                || ( $sibling instanceof DOMElement && 'true' === strtolower(trim(SourceDom::attr($sibling, 'aria-hidden'))) ) ) {
+                continue;
+            }
+            $visibleText .= ' ' . $sibling->textContent;
+        }
+
+        return str_contains(self::comparableText($visibleText), $text);
+    }
+
+    private static function comparableText(string $text): string
+    {
+        return mb_strtolower(trim((string) preg_replace('/\s+/u', ' ', $text)));
     }
 
     /**
