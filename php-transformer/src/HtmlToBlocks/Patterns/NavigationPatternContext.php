@@ -1012,7 +1012,11 @@ final class NavigationPatternContext
      * one. Record what marks it current, so its identity and its current-only
      * paint can follow the served route instead of this snapshot: a state
      * class its item or anchor carries that its peers do not. A peer-unique
-     * class such as a per-item language hook is the item's own, not state.
+     * class such as a per-item language hook is the item's own, not state,
+     * unless it names state or replaces resting classes: when peers share
+     * one class list and the served item keeps part of it but swaps the rest
+     * for classes no peer carries (atomic utility classes, say), those
+     * classes are its state.
      */
     public function recordCurrentNavigationItem(DOMElement $item, DOMElement $anchor): void
     {
@@ -1027,11 +1031,20 @@ final class NavigationPatternContext
             $peerAnchor = $item->isSameNode($anchor) ? $peer : ($peer->getElementsByTagName($anchor->tagName)->item(0));
             if ($peerAnchor instanceof DOMElement) $peerAnchors[] = $peerAnchor;
         }
-        $own = static function (DOMElement $element, array $peers): array {
+        $classes = static fn(DOMElement $element): array => array_values(array_unique(array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn(string $class): bool => '' !== $class)));
+        $own = static function (DOMElement $element, array $peers) use ($classes): array {
             $peerClasses = array();
-            foreach ($peers as $peer) foreach (preg_split('/\s+/', trim($peer->getAttribute('class'))) ?: array() as $class) $peerClasses[$class] = true;
-            return array_values(array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn(string $class): bool => '' !== $class && !isset($peerClasses[$class])
-                && MenuVocabulary::containsCurrentStateToken($class)));
+            $lists = array();
+            foreach ($peers as $peer) {
+                $list = $classes($peer);
+                sort($list);
+                $lists[implode(' ', $list)][] = $list;
+                foreach ($list as $class) $peerClasses[$class] = true;
+            }
+            $current = $classes($element);
+            $replaces = (bool) array_filter($lists, static fn(array $group): bool => count($group) > 1 && array() !== array_intersect($group[0], $current) && array() !== array_diff($group[0], $current));
+            return array_values(array_filter($current, static fn(string $class): bool => !isset($peerClasses[$class])
+                && ($replaces || MenuVocabulary::containsCurrentStateToken($class))));
         };
         $this->session->authorSelectorProjectionState()->markCurrentNavigationClasses(array_merge($own($item, $peerItems), $item->isSameNode($anchor) ? array() : $own($anchor, $peerAnchors)));
     }
