@@ -117,8 +117,9 @@ final class WrapperCoalescer
         // chains on their existing shell path. Controls already introduce their
         // own layout wrapper (core/buttons); expanding their source chain adds
         // wrapper debt without exposing another content editing surface.
-        if (! $this->sourceElementClassifier->isLayoutShellBlock($terminal)
-            && ! in_array($terminal['blockName'] ?? null, array('core/image', 'core/buttons'), true)
+        if (! $this->hasResponsiveCounterpart($terminal)
+            && ! $this->sourceElementClassifier->isLayoutShellBlock($terminal)
+            && ! in_array($terminal['blockName'] ?? null, array('core/image', 'core/buttons', 'core/freeform'), true)
             && ! ('core/group' === ($terminal['blockName'] ?? null) && empty($terminal['innerBlocks']))
         ) {
             $children = 'core/freeform' === ($terminal['blockName'] ?? null)
@@ -156,6 +157,25 @@ final class WrapperCoalescer
             '_editability_runtime_owned' => (bool) array_filter($chain, static fn (array $entry): bool => !empty($entry['block']['_editability_runtime_owned'])) || ($terminalIsShell && !empty($terminal['_editability_runtime_owned'])),
             '_editability_visual_owned' => (bool) array_filter($chain, static fn (array $entry): bool => !empty($entry['block']['_editability_visual_owned'])) || ($terminalIsShell && !empty($terminal['_editability_visual_owned'])),
         ), static fn (mixed $value): bool => false !== $value && array() !== $value);
+    }
+
+    /**
+     * Responsive correspondence owns the projected wrapper boundary as well as
+     * the content leaf. Keep that boundary's existing serialization contract.
+     *
+     * @param array<string, mixed> $block
+     */
+    private function hasResponsiveCounterpart(array $block): bool
+    {
+        if (preg_match('/(?:^|\s)be-responsive-counterpart-[a-f0-9]{12}(?:\s|$)/', (string) ($block['attrs']['className'] ?? ''))) {
+            return true;
+        }
+        foreach ($block['innerBlocks'] ?? array() as $child) {
+            if ($this->hasResponsiveCounterpart($child)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** @param array<string, mixed> $block @return array{tagName: string, attributes: array<string, string>, opening: string, closing: string}|null */

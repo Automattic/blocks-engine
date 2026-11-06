@@ -169,7 +169,7 @@ $neutralResult = (new ArtifactCompiler())->compile(array(
     'files' => array(array('path' => 'website/index.html', 'content' => '<!doctype html><html><body><div id="neutral-outer"><div id="neutral-inner"><p>Neutral editable copy</p></div></div></body></html>')),
 ))->toArray();
 $neutralBlocks = (string) ($neutralResult['serialized_blocks'] ?? '');
-$assert(1 === substr_count($neutralBlocks, '<!-- wp:custom/layout-shell') && str_contains($neutralBlocks, 'id="neutral-outer"') && str_contains($neutralBlocks, 'id="neutral-inner"') && str_contains($neutralBlocks, '>Neutral editable copy<'), 'Two neutral wrappers fold into one shell while retaining exact wrapper order and editable children.');
+$assert(!str_contains($neutralBlocks, '<!-- wp:custom/layout-shell') && str_contains($neutralBlocks, '<!-- wp:group') && str_contains($neutralBlocks, 'id="neutral-outer"') && str_contains($neutralBlocks, 'id="neutral-inner"') && str_contains($neutralBlocks, '>Neutral editable copy<'), 'Neutral content wrappers remain core groups while retaining exact wrapper order and editable children.');
 
 // The report explains a retained wrapper on the deepest path using bounded,
 // generic reason codes rather than producer-specific implementation details.
