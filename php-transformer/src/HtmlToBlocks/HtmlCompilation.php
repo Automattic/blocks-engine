@@ -6484,6 +6484,15 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
     private function replaceRichTextStylingHookWithMark(DOMElement $element): bool
     {
+        // A carrier this pipeline already materialized states its resolved
+        // declarations inline. Resolving it again would read the detached,
+        // classless mark against the author cascade, where a universal rule
+        // can win and freeze a value the first pass deliberately left to the
+        // author's class rules (a responsive padding, say). Keep it as is.
+        if ( $this->isMaterializedRichTextCarrier($element) ) {
+            return true;
+        }
+
         $sourceIsLink = 'a' === strtolower($element->tagName);
         if ( ! $sourceIsLink && $this->containsUnlowerableMark($element) ) {
             return false;
@@ -6587,6 +6596,17 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $element->removeAttribute('style');
         $element->appendChild($mark);
         return true;
+    }
+
+    /**
+     * A `<mark>` stating its RichText marker inline is a carrier the conversion
+     * produced: source markup carries its marker as a data attribute, and only
+     * a materialized carrier states it in its style.
+     */
+    private function isMaterializedRichTextCarrier(DOMElement $element): bool
+    {
+        return 'mark' === strtolower($element->tagName)
+            && '' !== trim((string) ($this->styleResolver->cssDeclarations($this->attr($element, 'style'))['--blocks-engine-richtext-marker'] ?? ''));
     }
 
     /**

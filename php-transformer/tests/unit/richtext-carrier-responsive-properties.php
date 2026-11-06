@@ -45,4 +45,39 @@ if ('32px' !== ($resolved['font-size'] ?? null) || 'inline-block' !== ($resolved
     throw new RuntimeException('The author rules no longer style the carrier at rest: ' . json_encode($resolved));
 }
 
+// Normalizing the paragraph's RichText meets the carrier a second time. A
+// universal reset must not win there: the carrier already states what it
+// owns, and the pill's padding (with a narrow-screen variant) belongs to its
+// class rules.
+$css = '* { padding: 0; }'
+    . '.eyebrow { display: inline-block; padding: 6px 14px; background: #e6eef8; border-radius: 999px; }'
+    . '@media (max-width: 700px) { .eyebrow { padding: 5px 11px; } }';
+$html = '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Pill eyebrow</title><style>' . $css . '</style></head><body><main>'
+    . '<section><span class="eyebrow">New feature</span><h2>Example heading</h2></section>'
+    . '</main></body></html>';
+
+$result = (new HtmlTransformer())->transform($html, array())->toArray();
+$dom = new DOMDocument();
+$previous = libxml_use_internal_errors(true);
+$dom->loadHTML('<?xml encoding="utf-8" ?>' . StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($result['serialized_blocks']));
+libxml_clear_errors();
+libxml_use_internal_errors($previous);
+
+$carrier = null;
+foreach ($dom->getElementsByTagName('mark') as $mark) {
+    if ('New feature' === trim($mark->textContent)) {
+        $carrier = $mark;
+    }
+}
+if (! $carrier instanceof DOMElement) {
+    throw new RuntimeException('Expected the eyebrow as a rich-text marker carrier: ' . $result['serialized_blocks']);
+}
+if (str_contains($carrier->getAttribute('style'), 'padding')) {
+    throw new RuntimeException('The carrier inlines a reset padding that outranks the class rules: ' . $carrier->getAttribute('style'));
+}
+$resolved = (new StaticCssCascade($dom, implode("\n", array_column($result['assets'], 'content'))))->resolve($carrier, array('padding'), array());
+if ('6px 14px' !== ($resolved['padding'] ?? null)) {
+    throw new RuntimeException('The class rules no longer pad the carrier at rest: ' . json_encode($resolved));
+}
+
 echo "Rich-text carriers leave responsive properties to the author rules\n";
