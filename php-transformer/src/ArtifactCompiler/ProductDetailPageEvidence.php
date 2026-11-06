@@ -18,24 +18,80 @@ final class ProductDetailPageEvidence
         return $host . '/' . SchemaProductEvidence::urlRoute($url, $source) . (is_string($query) ? '?' . $query : '');
     }
 
+    /** Resolve only the caption of this control's own option group. */
+    private static function optionGroupLabel(DOMElement $select): string
+    {
+        $group = $select->parentNode;
+        while ($group instanceof DOMElement && 'fieldset' !== strtolower($group->tagName) && 'group' !== $group->getAttribute('role')) {
+            $group = $group->parentNode;
+        }
+        if (!$group instanceof DOMElement) return '';
+        $caption = '';
+        if ('fieldset' === strtolower($group->tagName)) {
+            foreach ($group->childNodes as $child) {
+                if ($child instanceof DOMElement && 'legend' === strtolower($child->tagName)) {
+                    $caption = $child->textContent;
+                    break;
+                }
+            }
+        }
+        if ('' === trim($caption)) {
+            $parts = array();
+            $visit = static function (DOMElement $element) use (&$visit, &$parts, $select): bool {
+                if ($element === $select) return false;
+                // Never borrow option text or another control/group's caption.
+                if (in_array(strtolower($element->tagName), array('input', 'select', 'textarea', 'button', 'fieldset', 'script', 'style'), true) || 'group' === $element->getAttribute('role')) return true;
+                $containsSelect = false;
+                $containsControl = false;
+                foreach ($element->getElementsByTagName('*') as $descendant) {
+                    if ($descendant === $select) $containsSelect = true;
+                    if (in_array(strtolower($descendant->tagName), array('input', 'select', 'textarea', 'button'), true)) $containsControl = true;
+                }
+                if ($containsControl && !$containsSelect) return true;
+                foreach ($element->childNodes as $child) {
+                    if ($child instanceof DOMElement && !$visit($child)) return false;
+                    if ($child instanceof \DOMText) $parts[] = $child->textContent;
+                }
+                return true;
+            };
+            foreach ($group->childNodes as $child) {
+                if ($child instanceof DOMElement && !$visit($child)) break;
+            }
+            $caption = implode(' ', $parts);
+        }
+        return rtrim(trim(preg_replace('/\s+/u', ' ', $caption) ?? ''), ': ');
+    }
+
     public static function fill(array &$row, array $schema, array $purchase, array $files, array $fallbacks, array &$diagnostics): void
     {
         $source = $purchase['source'] ?? $row['source_path'];
         $record = static function (string $field) use (&$diagnostics, $source, $row, $purchase): void {
             $diagnostics[] = array('code' => 'product_page_field_derived', 'severity' => 'info', 'source_path' => $source, 'slug' => $row['slug'], 'field' => $field, 'selector' => $purchase['selector'] ?? '', 'message' => 'Product ' . $field . ' filled from joined detail-page evidence.');
         };
+        $html = '';
+        foreach ($files as $file) if ($source === ($file['path'] ?? null)) $html = $file['content'] ?? '';
+        $document = new DOMDocument();
+        $elements = array();
+        if ('' !== $html) {
+            $document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NOERROR | LIBXML_NOWARNING);
+            foreach ($document->getElementsByTagName('*') as $element) $elements[SourceDom::elementSelector($element)] = $element;
+        }
         if (!array_key_exists('hasVariant', $schema) && !isset($row['variants']) && !in_array('ProductGroup', (array) ($schema['@type'] ?? array()), true)) {
             $combinations = array(array());
             foreach ($purchase['controls'] ?? array() as $control) {
-                if ('select' !== ($control['tag'] ?? '') || empty($control['label'])) continue;
+                if ('select' !== ($control['tag'] ?? '')) continue;
+                $label = trim((string) ($control['label'] ?? ''));
+                $select = $elements[$control['selector'] ?? ''] ?? null;
+                if ('' === $label && $select instanceof DOMElement) $label = self::optionGroupLabel($select);
+                if ('' === $label) continue;
                 $options = array();
                 foreach ($control['options'] ?? array() as $option) {
                     $value = trim((string) ($option['value'] ?? ''));
                     if ('' === $value || !empty($option['disabled'])) continue;
-                    $key = SchemaProductEvidence::productSlug($control['label']);
+                    $key = SchemaProductEvidence::productSlug($label);
                     $valueSlug = SchemaProductEvidence::productSlug($value);
                     if ('' === $key || '' === $valueSlug) continue;
-                    $options[$valueSlug] = array('key' => $key, 'label' => $control['label'], 'value' => $valueSlug, 'value_label' => $option['label'] ?? $value);
+                    $options[$valueSlug] = array('key' => $key, 'label' => $label, 'value' => $valueSlug, 'value_label' => $option['label'] ?? $value);
                 }
                 if (!$options) continue;
                 if (count($combinations) * count($options) > 1000) {
@@ -63,18 +119,10 @@ final class ProductDetailPageEvidence
                 }
             }
         }
-        $html = '';
-        foreach ($files as $file) if ($source === ($file['path'] ?? null)) $html = $file['content'] ?? '';
-        if ('' === $html) return;
-        $document = new DOMDocument();
-        $document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NOERROR | LIBXML_NOWARNING);
-        $owner = null;
-        foreach ($document->getElementsByTagName('*') as $element) {
-            if (SourceDom::elementSelector($element) === ($purchase['selector'] ?? '')) { $owner = $element; break; }
-        }
+        $owner = $elements[$purchase['selector'] ?? ''] ?? null;
         if (!$owner instanceof DOMElement) return;
         if (!isset($row['images']) && isset($row['image'])) {
-            // The nearest non-document ancestor containing images is the detail container.
+            // The detail container must include the declared image, not just a purchase badge.
             for ($container = $owner; $container instanceof DOMElement && !in_array(strtolower($container->tagName), array('body', 'html'), true); $container = $container->parentNode) {
                 $images = $container->getElementsByTagName('img');
                 if (0 === $images->length) continue;
@@ -111,7 +159,7 @@ final class ProductDetailPageEvidence
                     $record('images');
                     break;
                 }
-                break;
+                if (isset($row['images'])) break;
             }
         }
         if (isset($row['category']) || array_key_exists('category', $schema)) return;
