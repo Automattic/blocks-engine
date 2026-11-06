@@ -546,6 +546,7 @@
       "php tests/unit/captured-dialog-projector.php",
       "php tests/unit/captured-dialog-source-panel-box.php",
       "php tests/unit/captured-dialog-native-dialog-panel.php",
+      "php tests/unit/captured-native-dialog-content-panel.php",
       "php tests/unit/empty-native-dialog.php",
       "php tests/unit/captured-dialog-shared-resting-panel.php",
       "php tests/unit/captured-header-panel-ownership.php",
