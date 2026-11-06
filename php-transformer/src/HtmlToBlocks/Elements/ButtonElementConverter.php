@@ -97,9 +97,11 @@ final class ButtonElementConverter implements ElementConverter
      * core/button's label is phrasing text, so lowering there swaps every
      * image for its alt text. That is right for icons beside a label, and the
      * structural classifier keeps unsized or caption-repeating images apart.
-     * An image whose resolved used size exceeds icon scale on either axis is
-     * content, though: flattening it to alt text would drop a visible logo or
-     * photo, whatever caption sits beside it.
+     * An image whose used size exceeds icon scale on either axis at every
+     * viewport -- a fixed size, or the guaranteed minimum of a fluid one such
+     * as `clamp(320px, 30vw, 480px)` -- is content, though: flattening it to
+     * alt text would drop a visible logo or photo, whatever caption sits
+     * beside it.
      */
     private function hasContentScaleImage(DOMElement $element): bool
     {
@@ -108,7 +110,7 @@ final class ButtonElementConverter implements ElementConverter
         }
 
         foreach ( $element->getElementsByTagName('img') as $image ) {
-            $size = $this->context->imageFixedPixelSize($image);
+            $size = $this->context->imageMinimumPixelSize($image);
             if ( null === $size ) {
                 return false;
             }

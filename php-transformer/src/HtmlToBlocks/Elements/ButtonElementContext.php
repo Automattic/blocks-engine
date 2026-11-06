@@ -16,7 +16,7 @@ final class ButtonElementContext
         private readonly ?Closure $isRuntimeDomTarget = null,
         private readonly ?Closure $runtimeButton = null,
         private readonly ?Closure $convertButtonWrapperGroup = null,
-        private readonly ?Closure $imageFixedPixelSize = null
+        private readonly ?Closure $imageMinimumPixelSize = null
     ) {
     }
 
@@ -55,13 +55,13 @@ final class ButtonElementContext
     }
 
     /**
-     * The image's resolved used size in CSS pixels per fixed axis, or null when
-     * the transformer supplies no style resolution.
+     * The image's guaranteed minimum used size in CSS pixels per bounded axis,
+     * or null when the transformer supplies no style resolution.
      *
      * @return array{width: ?float, height: ?float}|null
      */
-    public function imageFixedPixelSize(DOMElement $image): ?array
+    public function imageMinimumPixelSize(DOMElement $image): ?array
     {
-        return $this->imageFixedPixelSize instanceof Closure ? ($this->imageFixedPixelSize)($image) : null;
+        return $this->imageMinimumPixelSize instanceof Closure ? ($this->imageMinimumPixelSize)($image) : null;
     }
 }
