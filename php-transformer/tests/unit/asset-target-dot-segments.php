@@ -18,7 +18,7 @@ $hasDotRun = static fn(string $path): bool => str_contains($path, '..');
 // concatenate theme stylesheets (WordPress.com `_static/??`) reject any path
 // containing `..`, so the theme would render unstyled. Every emitted target
 // must keep `..` out of its segments, and every reference must follow it.
-$html = '<!doctype html><html><head><link rel="stylesheet" href="_astro/_..BD0pHwwn.css"></head><body><main><h1 class="probe">Home</h1><img src="media/a...b.png" alt="Probe"></main></body></html>';
+$html = '<!doctype html><html><head><link rel="stylesheet" href="_astro/_..BD0pHwwn.css"></head><body><main class="bg"><h1 class="probe">Home</h1><img src="media/a...b.png" alt="Probe"></main></body></html>';
 $result = $compile(array(
     array('path' => 'index.html', 'content' => $html),
     array('path' => '_astro/_..BD0pHwwn.css', 'content' => '.probe{color:#c00}.bg{background:url(../media/a...b.png)}'),

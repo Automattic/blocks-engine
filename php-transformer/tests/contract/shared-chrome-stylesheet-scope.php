@@ -25,7 +25,7 @@ $header = static function (string $home, string $about): string {
 $document = static function (string $header, string $main) use ($css): string {
     return '<!doctype html><html><head><style>' . $css . '</style><link rel="stylesheet" href="route.css"></head><body>'
         . '<div id="site-root"><div id="masterPage">' . $header
-        . '<div id="PAGES_CONTAINER"><div class="route-grid">' . $main . '</div></div></div></div>'
+        . '<div id="PAGES_CONTAINER"><div class="route-grid">' . $main . '<p class="route-only">Route</p></div></div></div></div>'
         . '</body></html>';
 };
 

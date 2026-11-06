@@ -44,17 +44,28 @@ final class UnreachableSelectorPruner
 
     public function prune(string $css): string
     {
-        return (new CssStylesheetTransformer())->transformStyleRules($css, function (string $prelude, string $body): string {
+        $pruned = (new CssStylesheetTransformer())->transformStyleRules($css, function (string $prelude, string $body): string {
             $arms = CssStylesheetTransformer::splitSelectorList($prelude);
             if (null === $arms) return $prelude . '{' . $body . '}';
             $kept = array_values(array_filter($arms, fn (string $arm): bool => $this->reachable($arm)));
             if (count($kept) === count($arms)) return $prelude . '{' . $body . '}';
-            return array() === $kept ? '' : implode(',', $kept) . '{' . $body . '}';
+            // Comments ahead of the rule (licenses, source maps) stay in place.
+            $comments = preg_match('#^(?:\s*/\*.*?\*/)+\s*#s', $prelude, $leading) ? $leading[0] : '';
+            if (array() === $kept) return $comments;
+            if ('' !== $comments && !str_starts_with($kept[0], $comments)) $kept[0] = $comments . ltrim($kept[0]);
+            return implode(',', $kept) . '{' . $body . '}';
         });
+        if ($pruned === $css) return $css;
+        // Grouping rules whose every rule was dropped go with them.
+        do {
+            $pruned = (string) preg_replace('/@(?:-webkit-)?(?:media|supports|container|layer|document)\b[^{};]*\{\s*\}/i', '', $pruned, -1, $count);
+        } while (0 < $count);
+        return $pruned;
     }
 
     public function reachable(string $selector): bool
     {
+        $selector = (string) preg_replace('#/\*.*?\*/#s', ' ', $selector);
         if (str_contains($selector, '\\') || 1 === preg_match('/[^\x20-\x7E\t\n\r]/', $selector)) return true;
         foreach (self::requiredTokens($selector) as $token) {
             if (!$this->sourceNamed($token)) return false;

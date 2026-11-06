@@ -2949,7 +2949,8 @@ final class ArtifactCompiler
             if ('html' === ($file['kind'] ?? '')) ++$documents;
             // Metadata carries captured interaction states.
             if (is_array($file['metadata'] ?? null) && array() !== $file['metadata']) $texts[] = (string) json_encode($file['metadata']);
-            if (empty($file['binary']) && is_string($file['content'] ?? null)) $texts[] = $file['content'];
+            $text = $file['content'] ?? (in_array($file['kind'] ?? '', array('html', 'js', 'json', 'svg', 'text'), true) && is_string($file['content_base64'] ?? null) ? base64_decode($file['content_base64'], true) : null);
+            if (is_string($text) && '' !== $text) $texts[] = $text;
         }
         if (0 === $documents) return $files;
         $pruner = new UnreachableSelectorPruner($texts);
