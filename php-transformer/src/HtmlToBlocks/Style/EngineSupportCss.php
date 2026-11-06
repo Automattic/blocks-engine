@@ -136,7 +136,12 @@ final class EngineSupportCss
                 // makes every block root `position:relative`; keep the figure
                 // static there so the image resolves against the same
                 // containing block as on the front end.
-                . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '.wp-block-image{position:static}';
+                . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '.wp-block-image{position:static}'
+                // A linked image adds core's inline-block anchor between the
+                // figure and the image. Shrink-to-fit, it sizes from the image
+                // whose percentages size from it, so the fill collapses. Let
+                // the anchor fill the figure so the image resolves against it.
+                . ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '.blocks-engine-linked-image-figure)>a{display:block;width:100%;height:100%}';
         }
         if ( str_contains($serializedBlocks, RichTextElementConverter::EMPTY_SOURCE_PARAGRAPH_CLASS) ) {
             // Saved, an empty source text block is an empty element with no line
