@@ -22,6 +22,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 
 $failures = 0;
 $passes = 0;
@@ -153,7 +154,7 @@ $assert(
     $capturedIconDisclosure['frontend']
 );
 $assert(
-    str_contains($capturedIconDisclosure['blocks'], '<span class="screen-reader-text" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0">Menu</span>'),
+    str_contains($capturedIconDisclosure['blocks'], SourceDom::visuallyHiddenLabel('Menu')),
     'an icon-only disclosure preserves its accessible source label in core summary markup',
     $capturedIconDisclosure['blocks']
 );
