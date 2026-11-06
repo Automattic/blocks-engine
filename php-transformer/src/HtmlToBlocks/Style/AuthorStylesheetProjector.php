@@ -371,6 +371,7 @@ final class AuthorStylesheetProjector
         $rules = '' === $this->styleResolver->cssDeclarationString($inner)
             ? ''
             : $this->rewriteStyleRule($prelude, $this->styleResolver->cssDeclarationString($inner), $context, $inConditional);
+        $rules .= $this->tableVerticalMarginRules($prelude, $margins, $context);
         $css = $rules
             . $this->marginSelectorPrelude($prelude, $context) . '{' . $this->styleResolver->cssDeclarationString($margins) . '}'
             . $imageRule
@@ -644,6 +645,44 @@ final class AuthorStylesheetProjector
 
         return implode(',', array_map(static fn (string $selector): string => trim($selector) . $scope, $projected))
             . '{' . $this->styleResolver->cssDeclarationString($borders) . '}';
+    }
+
+    /** @param array<string, string> $margins */
+    private function tableVerticalMarginRules(string $prelude, array $margins, AuthorStylesheetProjectionContext $context): string
+    {
+        $vertical = array();
+        foreach ( $margins as $property => $value ) {
+            if ( 'margin' === $property ) {
+                $important = CssValueInspector::isImportant($value) ? '!important' : '';
+                $sides = CssValueInspector::expandBoxShorthand(CssValueInspector::withoutImportant($value));
+                $vertical['margin-top'] = $sides[0] . $important;
+                $vertical['margin-bottom'] = $sides[2] . $important;
+            } elseif ( in_array($property, array( 'margin-top', 'margin-bottom', 'margin-block', 'margin-block-start', 'margin-block-end' ), true) ) {
+                $vertical[$property] = $value;
+            }
+        }
+        if ( array() === $vertical ) {
+            return '';
+        }
+        $rules = array();
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            // Class-only rules already follow their source class onto the figure.
+            if ( ! $parsed['supported'] || 'table' !== (CssSelectorCompoundInspector::rightmost($parsed['compounds'])['type'] ?? null) ) {
+                continue;
+            }
+            foreach ( $this->matchingSourceElements($selector, $parsed, $context) as $table ) {
+                $marker = $context->selectorProjections->tableMarker($table->getNodePath() ?? '');
+                if ( '' === $marker ) {
+                    continue;
+                }
+                $target = $this->projectSemanticLeafSelector($selector, $parsed, $marker, $context);
+                $rules[] = $target . ':not(.' . $context->authorStyles->classSpecificityShim() . '){' . $this->styleResolver->cssDeclarationString($vertical) . '}';
+                // The inner table remains the horizontal-margin and border owner.
+                $rules[] = '.' . $marker . '>table{margin-block:0!important}';
+            }
+        }
+        return implode('', array_unique($rules));
     }
 
     private function marginSelectorPrelude(string $prelude, AuthorStylesheetProjectionContext $context): string
