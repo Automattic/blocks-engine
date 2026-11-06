@@ -118,7 +118,7 @@ WordPressSitePlan::assertValid($stagedPlan);
 
 // Font alternatives are filtered in their owning face, never recovered as images.
 $fonts = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
-    'index.html' => '<link rel="stylesheet" href="styles/fonts.css"><main><h1>Fonts</h1></main>',
+    'index.html' => '<link rel="stylesheet" href="styles/fonts.css"><main><h1>Fonts</h1><div class="banner"></div></main>',
     'styles/fonts.css' => '@font-face{font-family:"Complete";src:url(../fonts/present.woff2) format("woff2")} '
         . '@font-face{font-family:"Split";unicode-range:U+0000-00FF;src:local("Split, Local"),url(../fonts/missing.woff2) format("woff2"),url(../fonts/present.woff2) format("woff2") tech(variations),url(../fonts/present.woff) format("woff")} '
         . '@font-face{font-family:"Split";unicode-range:U+0100-017F;src:url(../fonts/absent.woff2) format("woff2")} '
