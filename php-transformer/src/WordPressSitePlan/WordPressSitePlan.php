@@ -6558,6 +6558,13 @@ PHP;
             $lines[] = "        \$routes = array( " . implode(', ', array_map(static fn(string $source, string $route): string => var_export($source, true) . ' => ' . var_export($route, true), array_keys($currentSourceRoutes), $currentSourceRoutes)) . " );";
             $lines[] = "        \$current = null !== \$served && ( is_array( \$sources ) ? in_array( \$served, array_map( static fn ( \$source ) => is_string( \$source ) ? ( \$routes[ \$source ] ?? null ) : null, \$sources ), true ) : '/' . trim( (string) parse_url( \$url, PHP_URL_PATH ), '/' ) === \$served );";
             $lines[] = "    }";
+            if ('navigation-submenu' === $navigationBlock) {
+                // A section parent is current while its submenu displays the
+                // served item; an item the submenu keeps hidden is shown elsewhere.
+                $lines[] = '    if ( ! $current && ! empty( $block[\'attrs\'][\'metadata\'][\'blocksEngineCurrentSection\'] ) && false !== ( $menu = strpos( $content, \'<ul\' ) ) && preg_match_all( \'/<li\\b([^>]*)>(?:(?!<li\\b).)*?<a\\b[^>]*\\baria-current="page"/s\', substr( $content, $menu ), $items ) ) {';
+                $lines[] = '        foreach ( $items[1] as $item ) $current = $current || ! preg_match( \'/\\bstyle="[^"]*\\bdisplay\\s*:\\s*none\\b/i\', $item );';
+                $lines[] = '    }';
+            }
             $lines[] = "    if ( ! \$current ) return \$content;";
             if ('navigation-submenu' === $navigationBlock) {
                 // Only the outer item is current, never a descendant or ancestor.

@@ -306,8 +306,10 @@ final class AuthorSelectorProjectionState
         // item must receive this paint when Core renders another route.
         // Source boxes restored around the anchor are not necessarily direct
         // children of the LI, so target Core's current anchor as a descendant.
+        // A URL-less section toggle is current through its item, which the
+        // runtime marks current-menu-item; its own submenu's items are not.
         if (str_contains($subject, '.wp-block-navigation-item__content')) {
-            return (string) preg_replace('/\.wp-block-navigation-item(?![\w-]).*$/', '.wp-block-navigation-item .wp-block-navigation-item__content[aria-current="page"]', $subject, 1);
+            return (string) preg_replace('/\.wp-block-navigation-item(?![\w-]).*$/', '.wp-block-navigation-item :is(.wp-block-navigation-item__content[aria-current="page"],:where(.wp-block-navigation-submenu.current-menu-item>.wp-block-navigation-item__content,.wp-block-navigation-submenu.current-menu-item>:not(.wp-block-navigation__submenu-container) .wp-block-navigation-item__content))', $subject, 1);
         }
         return (string) preg_replace('/\.wp-block-navigation-item(?![\w-])/', '.wp-block-navigation-item:has(.wp-block-navigation-item__content[aria-current="page"])', $subject, 1);
     }
