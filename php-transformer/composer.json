@@ -788,6 +788,7 @@
       "php tests/unit/wordpress-compat-specificity-shims.php",
       "php tests/unit/wordpress-compat-anchor-boundary.php",
       "php tests/unit/wordpress-compat-source-liveness.php",
+      "php tests/unit/unreachable-selector-pruning.php",
       "php tests/unit/wordpress-compat-nav-anchor-replay-growth.php",
       "php tests/unit/print-media-custom-property-scope.php",
       "php tests/unit/wordpress-body-class-collision.php",
