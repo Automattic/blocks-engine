@@ -6668,6 +6668,12 @@ final class StyleResolver implements ElementPresentationResolver
             || in_array('wp-block-accordion-heading__toggle', preg_split('/\s+/', $element->getAttribute('class')) ?: array(), true) ) {
             return null;
         }
+        // The font shorthand sets line-height too: a global keyword (font:inherit)
+        // or an explicit /line-height is authored; otherwise it resets to normal.
+        $font = strtolower(trim(CssValueInspector::withoutImportant((string) ($declarations['font'] ?? ''))));
+        if ( '' !== $font && ( in_array($font, array( 'inherit', 'unset', 'revert', 'revert-layer' ), true) || str_contains($font, '/') ) ) {
+            return null;
+        }
         return 'normal';
     }
 
