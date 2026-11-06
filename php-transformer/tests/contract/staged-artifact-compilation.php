@@ -338,6 +338,7 @@ $sitePlan = $whole['source_reports']['wordpress_site_plan'] ?? array();
 $siteAssets = array_column($sitePlan['assets'] ?? array(), null, 'source_path');
 $siteWrites = array_column($sitePlan['writes'] ?? array(), null, 'target_path');
 $bootstrap = (string) ($siteWrites['functions.php']['payload']['data'] ?? '');
+$bootstrap = \Automattic\BlocksEngine\PhpTransformer\Tests\Support\BootstrapStyles::expand($bootstrap);
 $assert(array(array('kind' => 'global')) === ($siteAssets['assets/site.css']['scopes'] ?? null), 'Shared stylesheets retain an explicit global runtime scope.');
 $assert('about.html' === ($siteAssets['assets/about.css']['scopes'][0]['source_path'] ?? null) && 1 === preg_match("~'about' === trim\\( get_page_uri\\( \\\$blocks_engine_page_id \\), '/' \\) \\) \\) \\{\\n        \\\$blocks_engine_route_styles = true;\\n(        wp_enqueue_style\\([^\\n]+\\n)*        wp_enqueue_style\\( '[^']+', get_theme_file_uri\\( 'assets/assets/about\\.css' \\)~", $bootstrap) && 1 === substr_count($bootstrap, "get_theme_file_uri( 'assets/assets/about.css' )"), 'Page-owned stylesheets enqueue only inside their canonical WordPress route block, with the route comparison as the fallback after reconciliation identity.');
 $assert('(min-width: 48rem)' === ($siteAssets['assets/about.css']['media'] ?? null) && str_contains($bootstrap, "array(), null, '(min-width: 48rem)'"), 'Stylesheet media conditions are retained as canonical frontend enqueue arguments.');
