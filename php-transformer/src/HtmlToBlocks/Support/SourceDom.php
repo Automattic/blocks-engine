@@ -602,7 +602,13 @@ final class SourceDom
         // A document scope is a declared source-body boundary, independent of
         // presentation classes or a fixed set of device/profile names.
         if ($element->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) && 1 === preg_match('/^[a-z][a-z0-9_-]{0,63}$/', trim(EngineMarker::deviceScopeValue($element)))) return true;
-        foreach ( preg_split('/\s+/', trim(self::attr($element, 'class'))) ?: array() as $class ) {
+        $classes = $element->getAttribute('class');
+        // Nearly every element on an ancestor walk carries none of the
+        // variant classes; skip tokenizing those.
+        if ( ! str_contains($classes, 'site-document-variant-') && ! str_contains($classes, CaptureEvidence::DESKTOP_DOCUMENT_CLASS) && ! str_contains($classes, CaptureEvidence::MOBILE_DOCUMENT_CLASS) ) {
+            return false;
+        }
+        foreach ( preg_split('/\s+/', trim($classes)) ?: array() as $class ) {
             if ( str_starts_with($class, 'site-document-variant-') || in_array($class, array( CaptureEvidence::DESKTOP_DOCUMENT_CLASS, CaptureEvidence::MOBILE_DOCUMENT_CLASS ), true) ) {
                 return true;
             }
