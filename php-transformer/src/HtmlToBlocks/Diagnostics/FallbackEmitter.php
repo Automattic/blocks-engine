@@ -13,7 +13,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeSelectorS
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
-use Closure;
 use DOMDocument;
 use DOMElement;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
@@ -40,11 +39,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
  *  - Per-document configuration (`fallbackProvenance`, `runtimeScriptMetadata`,
  *    `RuntimeSelectorState`) is injected via {@see configure()} once per
  *    transform.
- *  - `sourceContext()` enrichment is deeply entangled with the transformer's
- *    DOM-classification subsystem (structure signals, interactive attributes,
- *    etc.) which is *not* a fallback concern; rather than dragging that whole
- *    tree into this module it is injected as a resolver closure so the canonical
- *    implementation stays in HtmlTransformer.
+ *  - Source-context enrichment is supplied by SourceElementDescription.
  *  - Small shared leaves (`eventMetadata`, `isSafeSvgContent`, `dedupeArrayRows`,
  *    `runtimeIslandSelector`) are duplicated here (HtmlTransformer keeps its own
  *    copies for non-fallback callers) so this module needs no transformer
@@ -101,16 +96,9 @@ final class FallbackEmitter
     /** @var array<string, string> */
     private array $generatedBlockIdentities = array();
 
-    /**
-     * @param Closure(DOMElement): array<string, mixed> $sourceContextResolver
-     *        Resolves the shared `sourceContext` enrichment for an element. The
-     *        canonical implementation lives in HtmlTransformer because it spans
-     *        the broader DOM-classification subsystem rather than the fallback
-     *        concern.
-     */
     public function __construct(
         private readonly Runtime $runtime,
-        private readonly Closure $sourceContextResolver
+        private readonly SourceElementDescription $sourceElementDescription
     ) {
         $this->classifier     = new SubtreeClassifier();
         $this->blockGenerator = new CustomBlockGenerator();
@@ -479,7 +467,7 @@ final class FallbackEmitter
             'tag'             => 'svg',
             'selector'        => $this->elementSelector($element),
             'attributes'      => $this->safeSvgAttributes($element),
-            'context'         => $this->sourceContext($element),
+            'context'         => $this->sourceElementDescription->sourceContext($element),
             'classification'  => $this->classifyFallbackSubtree($element),
             'events'          => $this->eventMetadata($element),
             'text_length'     => strlen(trim($element->textContent ?? '')),
@@ -517,7 +505,7 @@ final class FallbackEmitter
             'tag'             => 'canvas',
             'selector'        => $this->elementSelector($element),
             'attributes'      => $this->safeCanvasAttributes($element),
-            'context'         => $this->sourceContext($element),
+            'context'         => $this->sourceElementDescription->sourceContext($element),
             'classification'  => $this->classifyFallbackSubtree($element),
             'events'                 => $this->eventMetadata($element),
             'script_dependency_hint' => '' !== $id
@@ -565,7 +553,7 @@ final class FallbackEmitter
             'tag'             => 'script',
             'selector'        => $this->elementSelector($element),
             'attributes'      => $this->safeScriptAttributes($element),
-            'context'         => $this->sourceContext($element),
+            'context'         => $this->sourceElementDescription->sourceContext($element),
             'classification'  => $this->classifyFallbackSubtree($element),
             'events'          => $this->eventMetadata($element),
             'script_role'        => $scriptRole,
@@ -604,7 +592,7 @@ final class FallbackEmitter
             'tag'                => 'script',
             'selector'           => $this->elementSelector($element),
             'attributes'         => $this->safeScriptAttributes($element),
-            'context'            => $this->sourceContext($element),
+            'context'            => $this->sourceElementDescription->sourceContext($element),
             'script_role'        => $scriptRole,
             'script_source_kind' => 'inline',
             'body'               => $boundedBody['text'],
@@ -645,7 +633,7 @@ final class FallbackEmitter
             'tag'             => 'template',
             'selector'        => $this->elementSelector($element),
             'attributes'      => $attributes,
-            'context'         => $this->sourceContext($element),
+            'context'         => $this->sourceElementDescription->sourceContext($element),
             'classification'  => $this->classifyFallbackSubtree($element),
             'template_role'   => $this->templateRole($element),
             'text_length'     => strlen(trim($element->textContent ?? '')),
@@ -679,7 +667,7 @@ final class FallbackEmitter
             'source_bytes'        => $boundedHtml['bytes'],
             'source_truncated'    => $boundedHtml['truncated'],
             'attributes'          => $this->htmlAttributes($element),
-            'context'             => $this->sourceContext($element),
+            'context'             => $this->sourceElementDescription->sourceContext($element),
             'required_assets'     => array(),
             'required_scripts'    => array(),
         ), $metadata), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value));
@@ -749,14 +737,6 @@ final class FallbackEmitter
     private function elementMatchesRuntimeSelector(DOMElement $element, string $selector): bool
     {
         return RuntimeSelectorVocabulary::matchesElement($element, $selector, array( 'canvas' ));
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function sourceContext(DOMElement $element): array
-    {
-        return ( $this->sourceContextResolver )($element);
     }
 
     /**

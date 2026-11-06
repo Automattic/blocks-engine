@@ -15,6 +15,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlAttributeName;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription;
 use Closure;
 use DOMDocument;
 use DOMElement;
@@ -59,16 +60,11 @@ use LogicException;
  * detection, standalone-inline-leaf detection, ...) that also need them,
  * instead of keeping a second copy.
  *
- * Three closures remain, each because the primitive it wraps is genuinely
+ * Two closures remain, each because the primitive it wraps is genuinely
  * shared by call sites with no wrapper-coalescing relationship at all, so
  * moving *those* primitives here — rather than duplicating them — would
  * recreate the coupling this refactor removes:
  *
- *  - `$structureSignals`: commerce/name-price-row/card-count heuristics
- *    (`commercePattern`, `cardLikeChildCount()`, `looksLikeNamePriceRow()`)
- *    that only exist on `HtmlCompilation` and are used by several unrelated
- *    conversions (`shouldPreserveWrapper()`, `shouldPreserveEmptyVisualElement()`,
- *    provenance recording, ...).
  *  - `$soleElementChild`: DOM traversal that skips inert/hidden empty
  *    children; its own dependency chain (`isInertHiddenEmptyElement()` /
  *    `sourceElementStartsHidden()`) is called from a dozen unrelated sites
@@ -90,7 +86,6 @@ use LogicException;
 final class WrapperCoalescer
 {
     /**
-     * @param Closure(DOMElement): array<string, mixed> $structureSignals
      * @param Closure(DOMElement): ?DOMElement $soleElementChild
      * @param Closure(DOMElement): bool $isImageOnlyAnchor
      */
@@ -100,7 +95,7 @@ final class WrapperCoalescer
         private readonly StyleResolver $styleResolver,
         private readonly SourceBlockCreator $createBlock,
         private readonly HtmlTransformerSession $session,
-        private readonly Closure $structureSignals,
+        private readonly SourceElementDescription $sourceElementDescription,
         private readonly Closure $soleElementChild,
         private readonly Closure $isImageOnlyAnchor
     ) {
@@ -838,7 +833,7 @@ final class WrapperCoalescer
     /** @param array<string, mixed> $childBlock */
     private function hasBlockingStructureSignals(DOMElement $element, array $childBlock): bool
     {
-        $signals = ($this->structureSignals)($element);
+        $signals = $this->sourceElementDescription->structureSignals($element);
         if ( 'core/image' === ($childBlock['blockName'] ?? null) ) {
             unset($signals['card_like'], $signals['grid_like'], $signals['section_container_like']);
         }
@@ -944,7 +939,7 @@ final class WrapperCoalescer
             || ! $this->hasOnlyRenderNeutralInlineGeometry($element)
             || array() !== $this->interactiveAttributes($element)
             || array() !== SourceDom::safeDataAttributes($element)
-            || array() !== ($this->structureSignals)($element)
+            || array() !== $this->sourceElementDescription->structureSignals($element)
             || $this->sourceElementClassifier->hasMotionStructureToken($element)
             || ! $this->hasOnlyRenderNeutralBoxAffectingDeclarations($element)
         ) {

@@ -50,7 +50,7 @@ $elementFrom = static function (string $html): DOMElement {
 
 $makeRuntimeIslands = static function (array $domSelectors): RuntimeIslandAnalyzer {
     $behavioral = array_fill_keys($domSelectors, true);
-    $session = new HtmlTransformerSession(new Runtime(), static fn (DOMElement $element): array => array());
+    $session = new HtmlTransformerSession(new Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()));
     $session->installRuntimeSelectorState(new RuntimeSelectorState(
         array_fill_keys($domSelectors, true),
         $behavioral,

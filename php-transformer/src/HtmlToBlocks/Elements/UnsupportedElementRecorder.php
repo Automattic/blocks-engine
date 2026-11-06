@@ -59,7 +59,7 @@ final class UnsupportedElementRecorder
             'tag'             => $tagName,
             'selector'        => SourceDom::elementSelector($element),
             'attributes'      => SourceDom::htmlAttributes($element),
-            'context'         => $this->context->sourceContext($element),
+            'context'         => $this->context->sourceElementDescription->sourceContext($element),
             'classification'  => $this->session->fallbackEmitter()->classifyFallbackSubtree($element),
             'events'          => SourceDom::eventMetadata($element),
             'text_length'     => strlen(trim($element->textContent ?? '')),

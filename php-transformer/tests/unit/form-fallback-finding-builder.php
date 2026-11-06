@@ -31,7 +31,7 @@ $elementFrom = static function (string $html): DOMElement {
     throw new RuntimeException('No element parsed');
 };
 
-$session = new HtmlTransformerSession(new Runtime(), static fn (DOMElement $element): array => array());
+$session = new HtmlTransformerSession(new Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()));
 $selector = static fn (DOMElement $element): string => '#' . ($element->getAttribute('id') ?: strtolower($element->tagName));
 $metadataBuilder = new FormControlMetadataBuilder(
     $selector,
@@ -57,7 +57,7 @@ $session->transformationProvenanceState()->installFallback(array( 'provenance' =
 $context = new FormFallbackFindingContext(
     $session,
     static fn (DOMElement $element): array => array( '#existing-runtime' ),
-    static fn (DOMElement $element): array => array( 'source' => 'fixture' ),
+    new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()),
     static function (array $block, string $role, array $selectors, ?DOMElement $anchorElement = null) use (&$bindingCalls, $selector): array {
         $anchor = null !== $anchorElement ? $selector($anchorElement) : null;
         $bindingCalls[] = compact('block', 'role', 'selectors', 'anchor');
@@ -92,7 +92,7 @@ $assert(array( '#existing-runtime' ) === ($finding['binding']['selectors'] ?? ar
 $assert(! isset($finding['binding']['anchor']), 'real-form-binding-has-no-source-element-anchor');
 $assert(str_contains($finding['html'] ?? '', '<form id="signup"'), 'bounded-html');
 $assert(strlen($finding['html']) === ($finding['html_bytes'] ?? 0) && false === ($finding['html_truncated'] ?? true), 'bounded-html-metadata');
-$assert(array( 'source' => 'fixture' ) === ($finding['context'] ?? array()), 'source-context');
+$assert($context->sourceElementDescription->sourceContext($form) === ($finding['context'] ?? array()), 'source-context');
 $assert('fixture' === ($finding['provenance'] ?? ''), 'diagnostic-builder');
 $assert(! isset($finding['form_boundary']), 'real-form-has-no-pseudo-boundary');
 

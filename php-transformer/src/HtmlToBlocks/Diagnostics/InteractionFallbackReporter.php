@@ -16,7 +16,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
-use Closure;
 use DOMElement;
 
 /**
@@ -34,7 +33,6 @@ final class InteractionFallbackReporter
     private const MAX_INTERACTION_CANDIDATES = 100;
 
     /**
-     * @param Closure(DOMElement): array<string, mixed> $sourceContextResolver
      */
     public function __construct(
         private readonly FormControlMetadataBuilder $formControlMetadataBuilder,
@@ -42,7 +40,7 @@ final class InteractionFallbackReporter
         private readonly RuntimeIslandAnalyzer $runtimeIslands,
         private readonly Runtime $runtime,
         private readonly HtmlTransformerSession $session,
-        private readonly Closure $sourceContextResolver
+        private readonly SourceElementDescription $sourceElementDescription
     ) {
     }
 
@@ -197,7 +195,7 @@ final class InteractionFallbackReporter
                 'tag'                 => strtolower($element->tagName),
                 'selector'            => $this->elementSelector($element),
                 'attributes'          => $this->htmlAttributes($element),
-                'context'             => $this->sourceContext($element),
+                'context'             => $this->sourceElementDescription->sourceContext($element),
                 'events'              => $this->eventMetadata($element),
                 'interaction_signals' => $signals,
                 'controlled_target'   => $this->controlledTarget($element),
@@ -451,14 +449,6 @@ final class InteractionFallbackReporter
             'modal' => 'preserve_dialog_markup_or_runtime',
             default => 'preserve_static_markup_with_runtime_note',
         };
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function sourceContext(DOMElement $element): array
-    {
-        return ( $this->sourceContextResolver )($element);
     }
 
     private function transformationProvenance(): TransformationProvenanceState

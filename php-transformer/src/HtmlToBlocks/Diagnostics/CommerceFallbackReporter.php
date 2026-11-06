@@ -43,7 +43,8 @@ final class CommerceFallbackReporter
         private readonly CommerceStructureRecognizer $recognizer,
         private readonly Runtime $runtime,
         private readonly TransformationProvenanceState $provenance,
-        private readonly RuntimeIslandAnalyzer $runtimeIslands
+        private readonly RuntimeIslandAnalyzer $runtimeIslands,
+        private readonly SourceElementDescription $sourceElementDescription
     ) {
     }
 
@@ -184,7 +185,7 @@ final class CommerceFallbackReporter
                 'tag'               => strtolower($element->tagName),
                 'selector'          => SourceDom::elementSelector($element),
                 'container_selector' => SourceDom::elementSelector($element),
-                'context'           => $this->sourceContext($element),
+                'context'           => $this->sourceElementDescription->sourceContext($element, includeStructureSignals: false, retainLinkTabindex: true),
                 'products'          => $products,
                 'product_count'     => count($products),
                 // The whole grid as one provider-replaceable region. Its
@@ -867,7 +868,7 @@ final class CommerceFallbackReporter
                 'tag'               => strtolower($element->tagName),
                 'selector'          => SourceDom::elementSelector($element),
                 'container_selector' => SourceDom::elementSelector($element),
-                'context'           => $this->sourceContext($element),
+                'context'           => $this->sourceElementDescription->sourceContext($element, includeStructureSignals: false, retainLinkTabindex: true),
                 'controls'          => $controlGroups,
                 'control_count'     => count($controlGroups),
             ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->provenance->fallback());
@@ -982,7 +983,7 @@ final class CommerceFallbackReporter
                 'source_format' => 'html',
                 'tag' => strtolower($element->tagName),
                 'selector' => SourceDom::elementSelector($element),
-                'context' => $this->sourceContext($element),
+                'context' => $this->sourceElementDescription->sourceContext($element, includeStructureSignals: false, retainLinkTabindex: true),
                 'binding' => $binding,
             ), $this->provenance->fallback());
         }
@@ -1049,7 +1050,7 @@ final class CommerceFallbackReporter
                 'summary_selector'  => SourceDom::elementSelector($summary),
                 'placement'         => $this->cartViewPlacement($scope),
                 'runtime_selectors' => $runtimeSelectors,
-                'context'           => $this->sourceContext($scope),
+                'context'           => $this->sourceElementDescription->sourceContext($scope, includeStructureSignals: false, retainLinkTabindex: true),
                 'binding'           => $this->blockBinding(array(), 'commerce_cart', $runtimeSelectors, $scope),
             ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->provenance->fallback());
         }
@@ -1099,7 +1100,7 @@ final class CommerceFallbackReporter
                 'tag'               => strtolower($region['element']->tagName),
                 'selector'          => $region['selector'],
                 'runtime_selectors' => $region['runtime_selectors'],
-                'context'           => $this->sourceContext($region['element']),
+                'context'           => $this->sourceElementDescription->sourceContext($region['element'], includeStructureSignals: false, retainLinkTabindex: true),
                 'binding'           => $this->blockBinding(array(), 'commerce_checkout', $region['runtime_selectors'], $region['element']),
             ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->provenance->fallback());
         }
@@ -1310,47 +1311,4 @@ final class CommerceFallbackReporter
         return $binding;
     }
 
-    /**
-     * @return array<string, mixed>
-     */
-    private function sourceContext(DOMElement $element): array
-    {
-        $parent = $element->parentNode;
-        return array_filter(array(
-            'selector'                => SourceDom::elementSelector($element),
-            'parent_tag'              => $parent instanceof DOMElement && 'body' !== strtolower($parent->tagName) ? strtolower($parent->tagName) : '',
-            'ancestor_tags'           => SourceDom::ancestorTags($element),
-            'nearest_heading'         => SourceDom::nearestPreviousHeadingText($element),
-            'role'                    => SourceDom::attr($element, 'role'),
-            'id'                      => SourceDom::attr($element, 'id'),
-            'class_names'             => SourceDom::classNames($element),
-            'ancestor_class_names'    => $this->ancestorClassNames($element),
-            'data_attributes'         => SourceDom::safeDataAttributes($element),
-            'interactive_attributes'  => $this->interactiveAttributes($element),
-        ), static fn (mixed $value): bool => '' !== $value && array() !== $value);
-    }
-
-    /** @return list<string> */
-    private function ancestorClassNames(DOMElement $element): array
-    {
-        $classes = array();
-        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement && 'body' !== strtolower($ancestor->tagName); $ancestor = $ancestor->parentNode ) {
-            array_push($classes, ...SourceDom::classNames($ancestor));
-        }
-
-        return array_values(array_unique($classes));
-    }
-
-    /**
-     * @return array<string, bool|string>
-     */
-    private function interactiveAttributes(DOMElement $element): array
-    {
-        return array_filter(array(
-            'tabindex'      => SourceDom::attr($element, 'tabindex'),
-            'aria-expanded' => SourceDom::attr($element, 'aria-expanded'),
-            'aria-controls' => SourceDom::attr($element, 'aria-controls'),
-            'has_events'    => array() !== SourceDom::eventMetadata($element),
-        ), static fn (mixed $value): bool => false !== $value && '' !== $value);
-    }
 }

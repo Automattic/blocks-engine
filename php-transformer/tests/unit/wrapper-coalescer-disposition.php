@@ -57,7 +57,7 @@ $elementFrom = static function (string $html): DOMElement {
  */
 $makeCoalescer = static function (array $runtimeDomSelectors = array(), array $overrides = array()) use ($elementFrom): WrapperCoalescer {
     $runtime = new Runtime();
-    $session = new HtmlTransformerSession($runtime, static fn (DOMElement $element): array => array());
+    $session = new HtmlTransformerSession($runtime, new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()));
 
     $selectorState = new RuntimeSelectorState(array_fill_keys($runtimeDomSelectors, true), array_fill_keys($runtimeDomSelectors, true), array());
     $session->installRuntimeSelectorState($selectorState);
@@ -112,7 +112,6 @@ $makeCoalescer = static function (array $runtimeDomSelectors = array(), array $o
     $session->transformationProvenanceState()->registerSource(array('source_digest' => hash('sha256', SourceDom::safeFallbackHtml($elementFrom('<p>Copy</p>')))), false);
 
     $defaults = array(
-        'structureSignals' => static fn (DOMElement $e): array => array(),
         'soleElementChild' => static fn (DOMElement $e): ?DOMElement => $e->firstElementChild,
         'isImageOnlyAnchor' => static fn (DOMElement $e): bool => false,
     );
@@ -124,7 +123,7 @@ $makeCoalescer = static function (array $runtimeDomSelectors = array(), array $o
         $styleResolver,
         $createBlock,
         $session,
-        $c['structureSignals'],
+        new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()),
         $c['soleElementChild'],
         $c['isImageOnlyAnchor']
     );
@@ -171,9 +170,7 @@ $dataWrapper = $elementFrom('<div data-state="open"><p>Copy</p></div>');
 $dataReason = $makeCoalescer()->coalescingDisposition($dataWrapper, array('blockName' => 'core/group'))->reason;
 $assert('has_data_attributes_without_proof' === $dataReason, 'data-attribute-names-reason', $dataReason);
 
-$structureSignalReason = $makeCoalescer(array(), array(
-    'structureSignals' => static fn (DOMElement $e): array => array('visual_layer' => true),
-))->coalescingDisposition($elementFrom('<div class="card"><p>Copy</p></div>'), array('blockName' => 'core/group'))->reason;
+$structureSignalReason = $makeCoalescer()->coalescingDisposition($elementFrom('<div class="card"><p>Copy</p></div>'), array('blockName' => 'core/group'))->reason;
 $assert('has_structure_signals_without_proof' === $structureSignalReason, 'structure-signal-names-reason', $structureSignalReason);
 
 // No `_source_provenance_id` and not a `core/image` child, so
