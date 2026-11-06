@@ -47,6 +47,11 @@ final class CssRuleTree
             if ($offset >= $length) break;
             $top = CssSyntaxScanner::isTopLevel($state);
             $next = CssSyntaxScanner::consume($source, $offset, $state);
+            // A stray `)` or `]` is an ordinary token to CSS Syntax: it
+            // invalidates only its declaration or prelude, never the block
+            // structure. Unquoted `url(data:…%23var(--x)…)` ends at the first
+            // `)` and leaves one behind, as Google Sites' stylesheets do.
+            if (null === $next && (')' === $source[$offset] || ']' === $source[$offset])) $next = $offset + 1;
             if (null === $next) { $valid = false; break; }
             if ($top && $next === $offset + 1) {
                 if ('{' === $source[$offset]) {
