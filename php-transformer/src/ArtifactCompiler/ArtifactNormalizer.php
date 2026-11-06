@@ -730,8 +730,7 @@ final class ArtifactNormalizer
             // inline bodies extracted from base64 HTML or resolved includes.
             $file['content'] = $this->normalizeContent($file['content']);
             $digest = hash('sha256', ($file['intent'] ?? '') . "\0" . ($file['type'] ?? '') . "\0" . $file['content']);
-            $kind = $file['kind'];
-            $path = isset($file['inline_references']) ? $file['path'] : 'inline/' . $digest . '.' . $kind;
+            $path = isset($file['inline_references']) ? $file['path'] : 'inline/' . $digest . '.' . $file['kind'];
             if (!isset($indexes[$path])) {
                 $indexes[$path] = count($result);
                 foreach (array('source_path', 'stylesheet_index', 'stylesheet_link_position', 'media', 'source_media', 'placement', 'selector', 'defer', 'async', 'superseded_by', 'metadata') as $field) unset($file[$field]);
@@ -758,9 +757,7 @@ final class ArtifactNormalizer
     {
         $rows = array();
         foreach ($files as $file) {
-            // Direct projector inputs may be unnormalized occurrence records.
-            // Establish their required kind when building the occurrence row,
-            // from the producer source rather than an HTML default or MIME type.
+            // Direct projector inputs can be unnormalized occurrence records.
             if (in_array($file['source'] ?? '', array('inline-style', 'inline-script'), true)) {
                 $file['kind'] = 'inline-style' === $file['source'] ? 'css' : 'js';
             }

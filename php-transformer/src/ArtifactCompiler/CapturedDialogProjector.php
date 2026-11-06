@@ -225,18 +225,18 @@ final class CapturedDialogProjector
         $diagnostics = array();
         $report = CapturedInteractionReport::read($files);
         if (null === $report) {
-            return $this->retireOwnedDisclosureWithoutProjection($files, array());
+            return $this->adoptNativeDialogsWithoutReport($files, array());
         }
         if (!CapturedInteractionReport::valid($report) || ! is_array($report['pages'] ?? null)) {
             return array('files' => $files, 'diagnostics' => array($this->diagnostic('captured_interactions_invalid', 'warning', 'The captured interaction report has an unsupported schema or pages shape.')), 'projected_count' => 0);
         }
         if (! $this->hasDialogStates($report['pages'])) {
-            return $this->retireOwnedDisclosureWithoutProjection($files, $diagnostics);
+            return $this->adoptNativeDialogsWithoutReport($files, $diagnostics);
         }
 
         $receipt = CaptureReceiptReport::read($files);
         if (null === $receipt || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null) || ! is_array($receipt['routes'] ?? null)) {
-            return $this->retireOwnedDisclosureWithoutProjection($files, array_merge($diagnostics, array($this->diagnostic('captured_interactions_route_map_missing', 'warning', 'Captured dialogs were not projected because the capture receipt route map is unavailable.'))));
+            return $this->adoptNativeDialogsWithoutReport($files, array_merge($diagnostics, array($this->diagnostic('captured_interactions_route_map_missing', 'warning', 'Captured dialogs were not projected because the capture receipt route map is unavailable.'))));
         }
 
         $routes = CaptureReceiptRoutes::resolve($files, $receipt);
@@ -453,6 +453,8 @@ final class CapturedDialogProjector
     {
         $previous = libxml_use_internal_errors(true);
         $document = new DOMDocument('1.0', 'UTF-8');
+        // Implied document containers keep sibling fragment panels outside the
+        // first trigger element; NOIMPLIED can nest them inside that button.
         $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NONET);
         libxml_clear_errors();
         libxml_use_internal_errors($previous);
@@ -1124,9 +1126,48 @@ final class CapturedDialogProjector
         return false;
     }
 
+    /** Adopt only marked native panels left unclaimed by navigation retirement. */
+    private function adoptNativeDialogsWithoutReport(array $files, array $diagnostics): array
+    {
+        $result = $this->retireOwnedDisclosureWithoutProjection($files, $diagnostics);
+        $retired = array();
+        foreach ($result['files'] as $index => $file) {
+            $content = $file['content'] ?? null;
+            $path = (string) ($file['path'] ?? '');
+            if (!preg_match('/\.html?$/i', $path) || !is_string($content)
+                || $content !== ($files[$index]['content'] ?? null)
+                || !str_contains($content, CaptureEvidence::DIALOG_PANEL)
+                || !str_contains($content, CaptureEvidence::DIALOG_TRIGGER)) continue;
+            $previous = libxml_use_internal_errors(true);
+            $document = new DOMDocument('1.0', 'UTF-8');
+            $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $content, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+            libxml_clear_errors();
+            libxml_use_internal_errors($previous);
+            if (!$loaded) continue;
+            $xpath = new DOMXPath($document);
+            $matched = false;
+            foreach ($document->getElementsByTagName('dialog') as $panel) {
+                $key = trim($panel->getAttribute(CaptureEvidence::DIALOG_PANEL));
+                if ('' === $key) continue;
+                $triggers = $xpath->query('//*[@' . CaptureEvidence::DIALOG_TRIGGER . '=' . $this->xpathLiteral($key) . ']');
+                if ($triggers && $triggers->length > 0) { $matched = true; break; }
+            }
+            if (!$matched) continue;
+            $projection = $this->projectPage($content, array(), $path);
+            $result['diagnostics'] = array_merge($result['diagnostics'], $projection['diagnostics']);
+            if (0 === $projection['projected_count'] && array() === $projection['retired_scripts']) continue;
+            $result['files'][$index] = ArtifactNormalizer::withTextPayload($file, $projection['html']);
+            $projection['script_bindings']?->rebind($result['files'], $path);
+            $result['projected_count'] += $projection['projected_count'];
+            $retired[$path] = $projection['retired_scripts'];
+        }
+        $result['native_runtime_replacements'] = array_merge($result['native_runtime_replacements'], $this->omitRetiredDisclosureScripts($result['files'], $retired));
+        return $result;
+    }
+
     /**
-     * In-place capture wiring is independent of interaction probing. Adopt
-     * bounded local panels and retire only runtimes whose bindings are proven.
+     * Navigation ownership is proven from in-place controls, independently of
+     * interaction probing. Non-navigation triggers still prevent retirement.
      *
      * @param array<int, array<string, mixed>> $files
      * @param array<int, array<string, mixed>> $diagnostics
@@ -1135,27 +1176,35 @@ final class CapturedDialogProjector
     private function retireOwnedDisclosureWithoutProjection(array $files, array $diagnostics): array
     {
         $retired = array();
-        $projected = 0;
         foreach ($files as $index => $file) {
             $content = $file['content'] ?? null;
             $path = (string) ($file['path'] ?? '');
-            if (!preg_match('/\.html?$/i', $path) || !is_string($content) || !str_contains($content, CaptureEvidence::DIALOG_TRIGGER)) continue;
-            // In-place capture markers prove local wiring without a separate
-            // interaction report or route receipt. Reuse the same bounded
-            // adoption and runtime-retirement checks as report-backed pages.
-            $projection = $this->projectPage($content, array(), $path);
-            $diagnostics = array_merge($diagnostics, $projection['diagnostics']);
-            if (0 < $projection['projected_count'] || array() !== $projection['retired_scripts']) {
-                $files[$index] = ArtifactNormalizer::withTextPayload($file, $projection['html']);
-                $projection['script_bindings']?->rebind($files, $path);
-                $projected += $projection['projected_count'];
-                $retired[$path] = $projection['retired_scripts'];
+            if (!preg_match('/\.html?$/i', $path) || !is_string($content) || !str_contains($content, CaptureEvidence::DISCLOSURE_RUNTIME) || !str_contains($content, CaptureEvidence::DIALOG_TRIGGER)) continue;
+            $previous = libxml_use_internal_errors(true);
+            $document = new DOMDocument('1.0', 'UTF-8');
+            $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $content, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+            libxml_clear_errors();
+            libxml_use_internal_errors($previous);
+            if (!$loaded || $this->hasUnrecognizedRuntime($document)) continue;
+            if ($this->hasRestingInlinePanel($document)) {
+                $diagnostics[] = $this->restingInlineDiagnostic($path);
                 continue;
             }
+            if (!$this->hasNavigationOwnedDialogTrigger($document) || !$this->everyDialogTriggerIsBound($document)) continue;
+            $scriptBindings = new ScriptOccurrenceBindings($document);
+            $this->consumeNavigationOwnedCloseHelpers($document);
+            if ($this->hasDialogCloseHelper($document)) continue;
+            $pageRetired = $this->retireRecognizedRuntime($document, CaptureEvidence::DISCLOSURE_RUNTIME, 'native_navigation_submenu_replaces_capture_disclosure');
+            if (array() === $pageRetired) continue;
+            $html = HtmlSerialization::documentHtml($document);
+            if (!is_string($html)) continue;
+            $files[$index] = ArtifactNormalizer::withTextPayload($files[$index], $html);
+            $scriptBindings->rebind($files, $path);
+            $retired[$path] = $pageRetired;
         }
 
         $proofs = $this->omitRetiredDisclosureScripts($files, $retired);
-        return array('files' => $files, 'diagnostics' => $diagnostics, 'projected_count' => $projected, 'native_runtime_replacements' => $proofs);
+        return array('files' => $files, 'diagnostics' => $diagnostics, 'projected_count' => 0, 'native_runtime_replacements' => $proofs);
     }
 
     /** @param array<int, DOMElement> $triggers */
