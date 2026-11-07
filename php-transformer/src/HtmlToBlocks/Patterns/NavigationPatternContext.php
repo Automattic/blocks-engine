@@ -36,7 +36,10 @@ final class NavigationPatternContext
         private readonly ?HtmlTransformerSession $session = null,
         private readonly ?SvgMaterializer $svgMaterializer = null,
         private readonly ?ProjectedNavigationConverter $projectedNavigation = null,
-        private readonly NavigationUnderlineColorResolver $underlineColorResolver = new NavigationUnderlineColorResolver()
+        private readonly NavigationUnderlineColorResolver $underlineColorResolver = new NavigationUnderlineColorResolver(),
+        // A probe recognizes a menu only to classify its source element; the
+        // conversion that emits the menu publishes its subjects.
+        private readonly bool $publishesSubjects = true
     ) {
     }
 
@@ -702,6 +705,9 @@ final class NavigationPatternContext
      */
     public function recordNavigationSubjects(array &$blocks, DOMElement $source): void
     {
+        if (!$this->publishesSubjects) {
+            return;
+        }
         // Keep distinct source presentations on their structural carriers.
         // Equally styled sibling runs share one structural address, which
         // survives menu consolidation even when placement markers differ.
@@ -1143,8 +1149,23 @@ final class NavigationPatternContext
             return array_values(array_filter($current, static fn(string $class): bool => !isset($peerClasses[$class])
                 && ($replaces || ($element->hasAttribute('aria-current') && 'false' !== strtolower(trim($element->getAttribute('aria-current')))) || MenuVocabulary::containsCurrentStateToken($class))));
         };
+        // Source boxes between the item and its link can carry the state
+        // (Google Sites marks its item box `aria-current`): compare each with
+        // the box at the same depth in every peer.
+        $boxClasses = array();
+        $depth = 0;
+        for ($box = $anchor->parentNode; $box instanceof DOMElement && !$box->isSameNode($item); $box = $box->parentNode) {
+            $depth++;
+            $peerBoxes = array();
+            foreach ($peerAnchors as $peerAnchor) {
+                $peerBox = $peerAnchor;
+                for ($step = 0; $step < $depth && $peerBox instanceof DOMElement; $step++) $peerBox = $peerBox->parentNode;
+                if ($peerBox instanceof DOMElement && $peerBox->tagName === $box->tagName) $peerBoxes[] = $peerBox;
+            }
+            if (array() !== $peerBoxes) $boxClasses = array_merge($boxClasses, $own($box, $peerBoxes));
+        }
         $projections = $this->session->authorSelectorProjectionState();
-        $projections->markCurrentNavigationClasses(array_merge($own($item, $peerItems), $item->isSameNode($anchor) ? array() : $own($anchor, $peerAnchors)));
+        $projections->markCurrentNavigationClasses(array_merge($own($item, $peerItems), $item->isSameNode($anchor) ? array() : $own($anchor, $peerAnchors), $boxClasses));
         $projections->markRestingNavigationClasses($restingClasses);
     }
 

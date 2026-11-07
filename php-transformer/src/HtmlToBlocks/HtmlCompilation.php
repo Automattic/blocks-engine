@@ -4051,7 +4051,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             presentationAttributes: fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->styleResolver->presentationAttributes($sourceElement, $excludedGeometryProperties),
             navigationContext: new NavigationPatternContext(
                 $this->styleResolver,
-                session: $this->session
+                session: $this->session,
+                publishesSubjects: false
             ),
             markupContext: new MarkupPatternContext(
                 $this->session

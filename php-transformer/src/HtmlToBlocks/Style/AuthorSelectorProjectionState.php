@@ -344,7 +344,10 @@ final class AuthorSelectorProjectionState
         if (str_contains($subject, '.wp-block-navigation-item__content')) {
             return (string) preg_replace('/\.wp-block-navigation-item(?![\w-]).*$/', '.wp-block-navigation-item :is(.wp-block-navigation-item__content[aria-current="page"],:where(.wp-block-navigation-submenu.current-menu-item>.wp-block-navigation-item__content,.wp-block-navigation-submenu.current-menu-item>:not(.wp-block-navigation__submenu-container) .wp-block-navigation-item__content))', $subject, 1);
         }
-        return (string) preg_replace('/\.wp-block-navigation-item(?![\w-])/', '.wp-block-navigation-item:has(.wp-block-navigation-item__content[aria-current="page"])', $subject, 1);
+        // Every route's served item reaches here with its own position; the
+        // runtime current link already names the item, so no position stays.
+        $subject = (string) preg_replace('/(\.wp-block-navigation-item)(?![\w-]):nth-child\(\d+\)/', '$1', $subject);
+        return (string) preg_replace('/\.wp-block-navigation-item(?![\w-])(?!.*\.wp-block-navigation-item(?![\w-]))/', '.wp-block-navigation-item:has(>.wp-block-navigation-item__content[aria-current="page"],>:not(.wp-block-navigation__submenu-container) .wp-block-navigation-item__content[aria-current="page"])', $subject, 1);
     }
 
     /**
