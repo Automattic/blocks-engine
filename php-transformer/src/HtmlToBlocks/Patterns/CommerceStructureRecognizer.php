@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
@@ -652,7 +653,7 @@ final class CommerceStructureRecognizer
             }
             for ( $node = $element->parentNode; $node instanceof DOMElement && $node !== $root->parentNode; $node = $node->parentNode ) {
                 $tag = strtolower($node->tagName);
-                if ( in_array($tag, array( 'html', 'body' ), true) ) {
+                if ( in_array($tag, array( 'html', 'body' ), true) || $node->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) ) {
                     break;
                 }
                 $boundary = 'form' === $tag
