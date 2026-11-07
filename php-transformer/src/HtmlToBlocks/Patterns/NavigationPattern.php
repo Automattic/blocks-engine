@@ -4063,7 +4063,10 @@ final class NavigationPattern implements PatternRecognizerInterface
      */
     private function isHiddenPanelBehind(DOMElement $element, DOMElement $toggle, NavigationPatternContext $context): bool
     {
-        if ( $this->containsNode($element, $toggle) || 'always' !== $context->projectedOverlayMenu($toggle) ) {
+        // A menu kept open inside its own source panel (overlay "never") still
+        // renders that panel as a shell around the navigation.
+        if ( $this->containsNode($element, $toggle) || 'never' === $this->overlayMenu($element, $context)
+            || 'always' !== $context->projectedOverlayMenu($toggle) ) {
             return false;
         }
         for ( $node = $element; $node instanceof DOMElement && ! $this->containsNode($node, $toggle); $node = $node->parentNode ) {
