@@ -144,6 +144,17 @@ final class SvgMaterializer implements SvgElementMaterializer
         return $this->restoreSvgCasing($this->inlineSvgMaterializationMarkup($html, $element));
     }
 
+    /** Sanitized SVG markup that renders as an isolated image, author paint included. */
+    public function standaloneSvgMarkup(DOMElement $element): string
+    {
+        $html = $this->context->sanitizeInlineSvgMarkup($element);
+        if ( '' === $html || ! SourceDom::isSafeSvgContent($html) ) {
+            return '';
+        }
+
+        return $this->withStandaloneDescendantPaint($element, $this->materializeSanitizedSvgMarkup($html, $element));
+    }
+
     /**
      * A standalone SVG image cannot see the page stylesheet, and sanitization
      * drops the SVG's own `<style>` (which the page cascade already owns). Bake
@@ -173,6 +184,9 @@ final class SvgMaterializer implements SvgElementMaterializer
             $declarations = array();
             foreach ( array( 'fill', 'fill-opacity', 'stroke', 'stroke-opacity', 'stroke-width' ) as $property ) {
                 $value = trim(preg_replace('/\s*!\s*important\s*$/i', '', (string) ($matched[$property] ?? '')) ?? '');
+                if ( str_contains($value, 'var(') ) {
+                    $value = trim($this->styleResolver->resolveCssVariablesInValue($value, $source));
+                }
                 // The cascade parser already drops url()/expression() values;
                 // also refuse var() (an isolated image has no custom properties)
                 // and markup or escape characters. An identical presentation
@@ -1310,23 +1324,37 @@ final class SvgMaterializer implements SvgElementMaterializer
             return $html;
         }
 
+        // The first element with a referenced id is its definition, as in the
+        // browser. Copy its <defs>, or a bare sprite <symbol> on its own.
         $definitions = array();
-        foreach ( $element->ownerDocument->getElementsByTagName('defs') as $defs ) {
-            if ( ! $defs instanceof DOMElement || $this->svgDefinitionBelongsTo($defs, $element) ) {
+        foreach ( $element->ownerDocument->getElementsByTagName('*') as $definition ) {
+            $id = $definition instanceof DOMElement ? trim(SourceDom::attr($definition, 'id')) : '';
+            if ( '' === $id || ! isset($references[$id]) || $this->svgDefinitionBelongsTo($definition, $element) ) {
                 continue;
             }
-            foreach ( $defs->getElementsByTagName('*') as $definition ) {
-                if ( $definition instanceof DOMElement && isset($references[trim(SourceDom::attr($definition, 'id'))]) ) {
-                    $definitions[] = $this->context->safeFallbackHtml($defs);
-                    break;
-                }
+            unset($references[$id]);
+            $defs = $definition;
+            while ( $defs instanceof DOMElement && 'defs' !== strtolower($defs->tagName) ) {
+                $defs = $defs->parentNode;
+            }
+            if ( $defs instanceof DOMElement ) {
+                $definitions[] = $this->context->safeFallbackHtml($defs);
+            } elseif ( 'symbol' === strtolower($definition->tagName) ) {
+                $definitions[] = '<defs>' . $this->context->safeFallbackHtml($definition) . '</defs>';
             }
         }
         if ( array() === $definitions ) {
             return $html;
         }
 
-        return preg_replace('/<\/svg>\s*$/i', implode('', array_unique($definitions)) . '</svg>', $html, 1) ?? $html;
+        // Copied definitions paint through the referencing <use>, which
+        // inherits the SVG's color.
+        $copied = implode('', array_unique($definitions));
+        if ( false !== stripos($copied, 'currentColor') ) {
+            $copied = preg_replace('/\bcurrentColor\b/i', $this->inheritedSvgColor($element), $copied) ?? $copied;
+        }
+
+        return preg_replace('/<\/svg>\s*$/i', $copied . '</svg>', $html, 1) ?? $html;
     }
 
     private function svgDefinitionBelongsTo(DOMElement $definition, DOMElement $svg): bool
