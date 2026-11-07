@@ -3556,10 +3556,38 @@ final class StyleResolver implements ElementPresentationResolver
      */
     public function withoutRedundantInheritedTypography(DOMElement $element, array $declarations): array
     {
+        // These tag defaults override inheritance even when the authored value
+        // equals the parent's value, so removing it would change rendering.
+        $tagDefaults = array(
+            'a' => array( 'color' ),
+            'b' => array( 'font-weight' ),
+            'strong' => array( 'font-weight' ),
+            'th' => array( 'font-weight' ),
+            'em' => array( 'font-style' ),
+            'i' => array( 'font-style' ),
+            'cite' => array( 'font-style' ),
+            'var' => array( 'font-style' ),
+            'dfn' => array( 'font-style' ),
+            'address' => array( 'font-style' ),
+            'h1' => array( 'font-size', 'font-weight' ),
+            'h2' => array( 'font-size', 'font-weight' ),
+            'h3' => array( 'font-size', 'font-weight' ),
+            'h4' => array( 'font-size', 'font-weight' ),
+            'h5' => array( 'font-size', 'font-weight' ),
+            'h6' => array( 'font-size', 'font-weight' ),
+            'small' => array( 'font-size' ),
+            'sub' => array( 'font-size' ),
+            'sup' => array( 'font-size' ),
+            'code' => array( 'font-family' ),
+            'kbd' => array( 'font-family' ),
+            'pre' => array( 'font-family' ),
+            'samp' => array( 'font-family' ),
+        );
+        $ownDefaults = $tagDefaults[strtolower($element->tagName)] ?? array();
         $parent = $element->parentNode;
         if ( $parent instanceof DOMElement ) {
             foreach ( array( 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform', 'color' ) as $property ) {
-                if ( ! isset($declarations[$property]) ) {
+                if ( ! isset($declarations[$property]) || in_array($property, $ownDefaults, true) ) {
                     continue;
                 }
                 $inherited = $this->resolvedInheritedTypographyValue($parent, $property);

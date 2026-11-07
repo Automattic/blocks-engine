@@ -444,6 +444,7 @@
       "@test:unit"
     ],
     "test:unit": [
+      "php tests/unit/inherited-typography-tag-defaults.php",
       "php tests/unit/block-markup-index.php",
       "php tests/unit/captured-interaction-report.php",
       "php tests/unit/interactive-surface-precedence.php",
