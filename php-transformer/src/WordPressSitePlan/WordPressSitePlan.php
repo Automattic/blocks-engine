@@ -6410,6 +6410,9 @@ PHP;
             // Resolve copied author URLs before recovery judges them against the
             // generated stylesheet's directory (which is not their origin).
             if ('editor-static-state' === ($asset['source'] ?? null) && is_string($content)) $content = $references->cssFromOrigins($content, $authorStylesheetOrigins);
+            // An inline stylesheet's urls are relative to the documents that held
+            // the <style>, not to its generated inline/ path.
+            if ('inline-style' === ($asset['source'] ?? null) && is_string($content)) $content = $references->cssFromOrigins($content, array_column($asset['inline_references'] ?? array(), 'source_path'));
             if (is_string($content)) $content = $references->content($content, (string) ($asset['reference_origin'] ?? $asset['source_path']));
             if (is_array($asset['payload_reference'] ?? null)) { $writes[] = $this->referenceWrite('theme_asset', $asset['target_path'], $asset['source_path'], $asset['payload_reference']); continue; }
             $base64Transport = is_string($asset['content_base64'] ?? null);
