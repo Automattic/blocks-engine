@@ -1619,6 +1619,11 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // Author-selector preparation marks source nodes for later projection.
         // General style matching begins only after those source mutations settle.
         $this->session->sourceStyleResolutionState()->invalidateSelectorMatches();
+        $styledElements = iterator_to_array((new \DOMXPath($document))->query('.//*[@style]', $body));
+        foreach ( $styledElements as $styledElement ) {
+            $this->styleResolver->dropAuthorOverriddenInlineDeclarations($styledElement);
+        }
+        $this->session->sourceStyleResolutionState()->invalidateSelectorMatches();
         $this->styleResolver->collectEditorHiddenStateFindings($body);
         $this->session->reusableComponentState()->installRecognition($this->reusableComponentRecognizer->recognize($body));
 
