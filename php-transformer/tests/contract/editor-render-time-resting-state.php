@@ -68,6 +68,13 @@ foreach ($itemStyles as $marker => $style) {
     $assert(!str_contains($frontendCss, $rule), 'The frontend keeps its render filter as the only owner of the item style: ' . $marker);
 }
 
+// RichText writes white-space:pre-wrap inline on the editable label. A nowrap
+// menu must not become breakable there, or its flex parent squeezes it and the
+// trailing items overflow the editor canvas.
+$assert((bool) preg_match('/\.wp-block-navigation-item:is\(([^)]*)\) \.wp-block-navigation-item__label\[contenteditable\]\{text-wrap-mode:inherit!important\}/', $editorCss, $labelRule), 'The editor label inherits the item\'s line wrapping.');
+foreach (array_keys($itemStyles) as $marker) $assert(str_contains($labelRule[1], '.' . $marker), 'The label wrapping rule covers ' . $marker);
+$assert(!str_contains($frontendCss, '__label[contenteditable]'), 'The frontend has no editable label to correct.');
+
 // Template parts, templates, and the Site Editor have no captured route. Their
 // canvas must still carry the root state every captured document shares.
 $bootstrap = DocumentRootContext::bootstrap($plan['pages']);

@@ -1258,16 +1258,16 @@ final class NavigationPatternContext
         // The item's inline style travels as render-time metadata, which the
         // editor never applies. The marker's identity includes that style, so
         // one marker always names one declaration list.
+        $declarations = array();
         if ($this->styleResolver instanceof StyleResolver && '' !== trim($item->getAttribute('style'))) {
-            $declarations = array();
             foreach ($this->styleResolver->cssDeclarations($item->getAttribute('style')) as $property => $value) {
                 $value = trim(CssValueInspector::withoutImportant((string) $value));
                 if (!preg_match('/^-{0,2}[a-z][a-z0-9-]*$/i', (string) $property) || '' === $value || preg_match('/[{};<>\\@]|url\s*\(/i', $value)) continue;
                 // Inline declarations outrank every normal author rule.
                 $declarations[] = strtolower((string) $property) . ':' . $value . '!important';
             }
-            $this->session->generatedSupportStylesheetState()->registerNavigationEditorItemStyle($marker, implode(';', $declarations));
         }
+        $this->session->generatedSupportStylesheetState()->registerNavigationEditorItemStyle($marker, implode(';', $declarations));
         return $marker;
     }
 
