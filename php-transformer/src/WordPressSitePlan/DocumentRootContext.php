@@ -212,7 +212,11 @@ add_filter( 'template_include', static function ( string $template ) use ( $bloc
     if ( wp_normalize_path( $template ) === wp_normalize_path( ABSPATH . WPINC . '/template-canvas.php' ) && array_diff_key( $blocks_engine_document_attributes( 'body' ), array( 'class' => true ) ) ) return get_theme_file_path( 'document-canvas.php' );
     return $template;
 } );
-add_filter( 'block_editor_settings_all', static function ( array $settings, $context ) use ( &$blocks_engine_document_roots ): array {
+add_filter( 'block_editor_settings_all', static function ( array $settings, $context ) use ( &$blocks_engine_document_roots, &$blocks_engine_document_fallback ): array {
+    // Template parts, templates, and the Site Editor have no captured route.
+    // Their canvas shows shared chrome, so it gets the root state every
+    // captured document shares, as unowned frontend requests do.
+    $settings['blocksEngineDocumentContext'] = array( 'html' => $blocks_engine_document_fallback['attributes'] ?? array(), 'body' => $blocks_engine_document_fallback['body_attributes'] ?? array() );
     if ( empty( $context->post->ID ) ) return $settings;
     $identity = get_post_meta( $context->post->ID, '_blocks_engine_reconciliation_identity', true );
     foreach ( $blocks_engine_document_roots as $row ) {

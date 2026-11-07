@@ -74,6 +74,30 @@ final class GeneratedSupportStylesheetState
         $this->navigationEditorTypography[$marker . serialize($conditions)] = compact('marker', 'declarations', 'conditions');
     }
 
+    /** @var array<string, array{marker: string, declarations: string}> Editor-only restatement of item styles applied at render time. */
+    private array $navigationEditorItemStyles = array();
+
+    /**
+     * A source item's inline style reaches Core's LI only through a frontend
+     * render filter. The editor renders the item itself, so it needs the same
+     * resting declarations, at inline precedence, from its static-state sheet.
+     */
+    public function registerNavigationEditorItemStyle(string $marker, string $declarations): void
+    {
+        if ('' === $marker || '' === $declarations) return;
+        $this->navigationEditorItemStyles[$marker] = compact('marker', 'declarations');
+    }
+
+    /** @return list<string> */
+    public function navigationEditorItemStyleRules(): array
+    {
+        $rules = array();
+        foreach ($this->navigationEditorItemStyles as $entry) {
+            $rules[] = ':root .wp-block-navigation .wp-block-navigation-item.' . $entry['marker'] . '{' . $entry['declarations'] . '}';
+        }
+        return $rules;
+    }
+
     /** @return list<string> */
     public function navigationEditorTypographyRules(): array
     {
