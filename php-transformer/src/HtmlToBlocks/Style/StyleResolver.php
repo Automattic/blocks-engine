@@ -5192,6 +5192,7 @@ final class StyleResolver implements ElementPresentationResolver
             'font-weight',
             'letter-spacing',
             'line-height',
+            'text-align',
             'text-transform',
             'white-space',
         ), true) ) {

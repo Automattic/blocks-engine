@@ -66,4 +66,17 @@ foreach (array(false, true) as $mobile) {
     }
     if ($mobile && !preg_match('/@media screen and \\(max-width:1023px\\)\\{[^{}]*\\{font-family:sora/', $editorCss)) throw new RuntimeException('Mobile typography lost its media condition: ' . $editorCss);
 }
+// A label box that centres the link (GoDaddy logo) centres it in the editor too.
+$source = '<!doctype html><html><head><title>Navigation</title><style>.bar{display:flex;justify-content:center}.logo{text-align:center}</style></head><body><nav><ul><li><div class="bar"><div class="logo"><a href="/">Studio Name</a></div></div></li><li><a href="/x">X</a></li></ul></nav></body></html>';
+$result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(array('path' => 'index.html', 'kind' => 'html', 'content' => $source))))->toArray();
+$dom = new DOMDocument();
+@$dom->loadHTML(StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($result['serialized_blocks']));
+foreach (iterator_to_array((new DOMXPath($dom))->query('//*[contains(@class,"blocks-engine-navigation-box-")]')) as $box) {
+    while ($box->firstChild) $box->parentNode->insertBefore($box->firstChild, $box);
+    $box->parentNode->removeChild($box);
+}
+$cascade = new StaticCssCascade($dom, implode("\n", array_column(array_filter($result['assets'], static fn(array $asset): bool => 'editor' === ($asset['stylesheet_target'] ?? 'both')), 'content')));
+$aligned = array();
+foreach ($dom->getElementsByTagName('a') as $link) $aligned[trim($link->textContent)] = $cascade->resolve($link, array('text-align'), array())['text-align'] ?? '';
+if (array('Studio Name' => 'center', 'X' => '') !== $aligned) throw new RuntimeException('Editor link alignment: ' . json_encode($aligned));
 echo "Navigation label-box typography reaches editor links without changing frontend output\n";

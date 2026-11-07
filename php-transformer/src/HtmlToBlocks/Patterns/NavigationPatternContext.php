@@ -1191,7 +1191,7 @@ final class NavigationPatternContext
             // link's own cascade too, so a link override beats box inheritance.
             foreach (array_merge(array(array()), $this->styleResolver->navigationEditorTypographyConditions($anchor)) as $conditions) {
                 $typography = array();
-                foreach (array('font-family', 'font-size', 'font-weight', 'letter-spacing', 'line-height', 'color', 'text-transform') as $property) {
+                foreach (array('font-family', 'font-size', 'font-weight', 'letter-spacing', 'line-height', 'color', 'text-transform', 'text-align') as $property) {
                     $value = $this->styleResolver->authoredInheritedPropertyWinner($anchor, $property, true, $conditions);
                     if ('' !== $value) $typography[$property] = $value;
                 }
