@@ -1714,11 +1714,17 @@ final class NavigationPatternContext
         // This background is replacement DOM artwork, not an authored anchor
         // background. Projected anchor resets (including shared route styles)
         // must not erase the SVG that Core cannot persist in its label.
+        $scale = $this->navigationLinkIconScale($svg, $element);
         $background = ';background-image:url("data:image/svg+xml,' . rawurlencode($markup) . '")'
-            . ';background-repeat:no-repeat;background-position:center;background-size:contain';
+            . ';background-repeat:no-repeat;background-position:center;background-size:'
+            . (1.0 === $scale ? 'contain' : round($scale * 100, 4) . '% ' . round($scale * 100, 4) . '%');
 
         if ( '' === trim($element->textContent ?? '') ) {
-            $declarations = 'display:inline-block;' . $box . $background . ';font-size:0;line-height:0;color:transparent';
+            // The icon is the anchor's only content. A source item can keep its
+            // own text line box (e.g. `display:inline-block` with an inherited
+            // line-height), where a baseline-aligned box sits below the item
+            // and its `overflow:hidden` clips the icon away.
+            $declarations = 'display:inline-block;vertical-align:top;' . $box . $background . ';font-size:0;line-height:0;color:transparent';
             $marker = 'blocks-engine-navigation-link-icon-' . substr(hash('sha256', $declarations . json_encode($responsiveBoxes)), 0, 12);
             $this->session->generatedSupportStylesheetState()->registerNavigationLinkIcon($marker, $declarations);
             $this->session->generatedSupportStylesheetState()->registerNavigationIconBoxes($marker, $responsiveBoxes);
@@ -1803,6 +1809,30 @@ final class NavigationPatternContext
     }
 
     /** Resolve the rendered box of a navigation icon from its source geometry. */
+    /**
+     * Uniform `scale()` transforms between the anchor and its SVG enlarge the
+     * artwork around its center (an icon set scaled by a custom property, say).
+     * The replacement background carries that factor; any other transform is
+     * left as authored artwork size.
+     */
+    private function navigationLinkIconScale(DOMElement $svg, DOMElement $anchor): float
+    {
+        $scale = 1.0;
+        for ( $node = $svg; $node instanceof DOMElement && ! $node->isSameNode($anchor); $node = $node->parentNode ) {
+            $transform = trim((string) ($this->styleResolver->referenceViewportAuthorDeclarations($node, array( 'transform' ))['transform'] ?? ''));
+            $transform = trim(preg_replace('/\s*!\s*important\s*$/i', '', $this->styleResolver->resolveCssVariablesInValue($transform, $node)) ?? '');
+            if ( '' === $transform || 'none' === strtolower($transform) ) {
+                continue;
+            }
+            if ( 1 !== preg_match('/^scale\(\s*(\d+(?:\.\d+)?)\s*\)$/i', $transform, $match) ) {
+                return 1.0;
+            }
+            $scale *= (float) $match[1];
+        }
+
+        return $scale > 0 ? $scale : 1.0;
+    }
+
     private function navigationLinkIconBox(DOMElement $svg, ?array $conditions = null): string
     {
         if ( ! $this->styleResolver instanceof StyleResolver ) {
