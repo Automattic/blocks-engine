@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\SchemaProductEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CustomElementRuntimeDependency;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormFallbackFindingContext;
@@ -1190,6 +1191,7 @@ final class CommerceFallbackReporter
         $scope = $summary;
         for ( $node = $summary; $node instanceof DOMElement; $node = $node->parentNode ) {
             if ( in_array(strtolower($node->tagName), array( 'html', 'body', 'main', 'header', 'footer', 'nav' ), true)
+                || $node->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE)
                 || '' !== ShellLandmarkPolicy::landmarkKind($node->tagName, SourceDom::attr($node, 'role')) ) {
                 break;
             }

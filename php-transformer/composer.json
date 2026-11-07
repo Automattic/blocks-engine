@@ -1228,6 +1228,7 @@
       "php tests/unit/commerce-price-text.php",
       "php tests/unit/product-page-localized-price-binding.php",
       "php tests/unit/hidden-cart-view-scope.php",
+      "php tests/unit/capture-document-cart-view-scope.php",
       "php tests/unit/product-grid-card-identity.php",
       "php tests/unit/product-grid-inline-svg.php",
       "php tests/unit/product-card-link-slug.php",
