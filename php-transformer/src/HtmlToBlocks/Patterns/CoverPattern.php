@@ -231,6 +231,12 @@ final class CoverPattern implements PatternRecognizerInterface
         if ( preg_match('/^#[0-9a-f]{6}$/', $overlayColor) ) {
             $attrs['customOverlayColor'] = $overlayColor;
         }
+        // Background properties are excluded from presentation attributes, so
+        // recover the overlay from the resolved source before promoting it.
+        $overlayGradient = $this->styleResolver->overlayGradientFromStyle($style);
+        if ( ! isset($attrs['style']['color']['gradient']) && '' !== $overlayGradient && ! $this->isUniformOverlayGradient($overlayGradient) ) {
+            $attrs['style']['color']['gradient'] = $overlayGradient;
+        }
         $this->promoteDesignGradient($attrs, $dim);
         $this->removeConsumedGradient($attrs);
 
