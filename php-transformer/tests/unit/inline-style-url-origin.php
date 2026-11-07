@@ -7,9 +7,10 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 // generated inline/ stylesheet it is published as. An upload packaged under a
 // wrapper folder must still resolve the image to its imported file
 // (Automattic/blocks-engine#4747), with no placeholder and no missing-media warning.
+// The painted element is not a cover, so the url stays in the inline stylesheet.
 $assert = static function (bool $ok, string $message): void { if (!$ok) throw new RuntimeException($message); };
 $page = '<html><head><style>.hero{min-height:480px;background:linear-gradient(180deg,rgba(20,20,22,.15) 0%,rgba(20,20,22,.78) 100%),url("images/coffee-bar.jpg") center/cover no-repeat}</style></head>'
-    . '<body><main><section class="hero"><h1>Coffee</h1></section><p>Fresh beans.</p></main></body></html>';
+    . '<body><main><h1>Coffee</h1><p>Fresh beans.</p><footer class="hero"><p>Visit us.</p></footer></main></body></html>';
 $result = (new ArtifactCompiler())->compile(array(
     'entrypoint' => 'website/index.html',
     'files' => array(

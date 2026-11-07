@@ -1174,6 +1174,38 @@
       }
     },
     "src/HtmlToBlocks/Style/FormPresentationGraphBuilder.php": {
+      "InvalidArgumentException('Form control row fact is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Form control row has no layout evidence.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Form control row member is duplicated.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Form control row members are invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Form control row precedence is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Form control row property is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Form control row variant is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Form control rows are invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
       "InvalidArgumentException('Form element diagnostics must describe the element, not the stylesheet.')": {
         "class": "integrity",
         "count": 1
