@@ -3124,6 +3124,19 @@ final class AuthorStylesheetProjector
         return array_values(array_unique($projected));
     }
 
+    /** @param array<string, mixed> $parsed */
+    private function sourceAttributeMarker(string $selector, array $parsed, DOMElement $element, AuthorStylesheetProjectionContext $context): string
+    {
+        $rightmost = CssSelectorCompoundInspector::rightmost($parsed['compounds'] ?? array());
+        if ( null !== $parsed['pseudo_state_suffix_span']
+            || ! CssSelectorCompoundInspector::containsDataAttribute($rightmost)
+            || CssSelectorCompoundInspector::hasLiveAttributePredicate($rightmost)
+        ) {
+            return '';
+        }
+        return $context->selectorProjections->attributeMarker($element->getNodePath() ?? '', $selector);
+    }
+
     /** @param array<string, mixed> $parsed @param list<DOMElement> $matches @return list<string>|null */
     private function projectSourceAttributeSelector(string $selector, array $parsed, array $matches, AuthorStylesheetProjectionContext $context, bool $controlWrapper = false): ?array
     {
@@ -3246,6 +3259,12 @@ final class AuthorStylesheetProjector
             $hasUnmarkedImage = false;
             foreach ( $ordinaryImages as $element ) {
                 $marker = $context->selectorProjections->imageWrapperMarker($element->getNodePath() ?? '');
+                if ( '' === $marker ) {
+                    // A static data predicate is not carried to the native image;
+                    // its attribute marker moves to the figure, so reach the leaf
+                    // through that marker, as the figure's own box rule does.
+                    $marker = $this->sourceAttributeMarker($selector, $parsed, $element, $context);
+                }
                 if ( '' === $marker ) {
                     $hasUnmarkedImage = true;
                     continue;
