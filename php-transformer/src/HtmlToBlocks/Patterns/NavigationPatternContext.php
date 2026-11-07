@@ -583,10 +583,87 @@ final class NavigationPatternContext
         // an intrinsic box when the author did not specify an explicit width.
         $box = array_merge(array('width' => 'auto', 'height' => 'auto', 'margin' => '0', 'padding' => '0', 'border' => '0 solid transparent', 'box-sizing' => 'content-box', 'flex-shrink' => '0', 'display' => 'flex', 'align-items' => 'center', 'justify-content' => 'center'), $box);
         $glyph = array_merge(array('margin' => '0', 'padding' => '0', 'flex-shrink' => '0'), $glyph);
+        $placement = $inAnchor ? array() : $this->outOfFlowSubmenuIconPlacement($item, $container);
+        $box = array_merge($box, $placement);
         $marker = 'blocks-engine-submenu-icon-' . substr(hash('sha256', $serialize($box) . $serialize($glyph)), 0, 16);
         $this->session->generatedSupportStylesheetState()->registerNavigationSubmenuIconGeometry($marker, $serialize($box), $serialize($glyph));
-        $this->session->authorSelectorProjectionState()->markNavigationToggleRowItem($item->getNodePath() ?? '');
+        if ( array() === $placement ) $this->session->authorSelectorProjectionState()->markNavigationToggleRowItem($item->getNodePath() ?? '');
         return $marker;
+    }
+
+    /**
+     * An absolutely positioned glyph box sits beside the label, outside its
+     * row (Google Sites places the chevron in the item box's left padding).
+     * Core's toggle is a child of the item, so the source insets are re-based
+     * from the glyph's containing block onto the item: horizontal lengths
+     * shift by the boxes between them, and vertical insets carry unchanged
+     * because those boxes add no vertical edges and their margins collapse
+     * through the item. A containing block outside the item, or edges that
+     * cannot be summed, keep the toggle in Core's row.
+     *
+     * @return array<string, string>
+     */
+    private function outOfFlowSubmenuIconPlacement(DOMElement $item, DOMElement $container): array
+    {
+        $read = fn(DOMElement $element, array $properties): array => $this->styleResolver->referenceViewportAuthorDeclarations($element, $properties);
+        $own = $read($container, array('position', 'left', 'right', 'top', 'bottom', 'transform'));
+        if ( 'absolute' !== strtolower(trim((string) ($own['position'] ?? ''))) ) return array();
+
+        $chain = array();
+        $containingBlock = null;
+        for ( $node = $container->parentNode; $node instanceof DOMElement && ! $node->isSameNode($item); $node = $node->parentNode ) {
+            $chain[] = $node;
+            if ( null === $containingBlock && 'static' !== strtolower(trim((string) ($read($node, array('position'))['position'] ?? 'static'))) ) $containingBlock = $node;
+        }
+        if ( ! $node instanceof DOMElement ) return array();
+        $chain = null === $containingBlock ? array() : array_slice($chain, array_search($containingBlock, $chain, true));
+
+        // Side lengths, in px, of a box property; null when one cannot be read.
+        $sides = static function (array $declarations, string $property): ?array {
+            $values = isset($declarations[$property]) ? CssValueInspector::expandBoxShorthand((string) $declarations[$property]) : array('0', '0', '0', '0');
+            foreach ( array('top', 'right', 'bottom', 'left') as $index => $side ) {
+                $longhand = 'border-width' === $property ? 'border-' . $side . '-width' : $property . '-' . $side;
+                if ( isset($declarations[$longhand]) ) $values[$index] = (string) $declarations[$longhand];
+            }
+            $lengths = array();
+            foreach ( $values as $value ) {
+                if ( 1 !== preg_match('/^(-?[0-9]*\.?[0-9]+)(?:px)?$/D', trim($value), $match) || ( '0' !== trim($value) && ! str_ends_with(trim($value), 'px') ) ) return null;
+                $lengths[] = (float) $match[1];
+            }
+            return $lengths;
+        };
+        $edgeProperties = array('margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'border-width', 'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width');
+        $offset = array('left' => 0.0, 'right' => 0.0);
+        foreach ( array_merge(array($item), $chain) as $box ) {
+            $declarations = $read($box, $edgeProperties);
+            $margin = $sides($declarations, 'margin');
+            $padding = $sides($declarations, 'padding');
+            $border = $sides($declarations, 'border-width');
+            if ( null === $margin || null === $padding || null === $border || 0.0 !== $padding[0] + $padding[2] + $border[0] + $border[2] ) return array();
+            $isItem = $box->isSameNode($item);
+            $isContainingBlock = null !== $containingBlock && $box->isSameNode($containingBlock);
+            // The item's padding edge is the reference; the containing
+            // block's own padding edge is the target.
+            $offset['left'] += ( $isItem ? 0 : $margin[3] + $border[3] ) + ( $isContainingBlock ? 0 : $padding[3] );
+            $offset['right'] += ( $isItem ? 0 : $margin[1] + $border[1] ) + ( $isContainingBlock ? 0 : $padding[1] );
+        }
+        if ( null === $containingBlock ) $offset = array('left' => 0.0, 'right' => 0.0);
+
+        $placement = array('position' => 'absolute');
+        foreach ( array('left', 'right', 'top', 'bottom') as $side ) {
+            $value = strtolower(trim((string) ($own[$side] ?? '')));
+            if ( '' === $value || 'auto' === $value ) continue;
+            if ( 1 === preg_match('/^(-?[0-9]*\.?[0-9]+)px$|^0$/D', $value, $match) ) {
+                $placement[$side] = ( (float) ($match[1] ?? 0) + ($offset[$side] ?? 0.0) ) . 'px';
+            } elseif ( in_array($side, array('top', 'bottom'), true) && 1 === preg_match('/^-?[0-9]*\.?[0-9]+%$/D', $value) ) {
+                $placement[$side] = $value;
+            } else {
+                return array();
+            }
+        }
+        $transform = trim((string) ($own['transform'] ?? ''));
+        if ( 1 === preg_match('/^(?:translate[XY]?\(\s*-?[0-9.]+(?:px|%)?(?:\s*,\s*-?[0-9.]+(?:px|%)?)?\s*\)\s*)+$/D', $transform) ) $placement['transform'] = $transform;
+        return $placement;
     }
 
     /**
