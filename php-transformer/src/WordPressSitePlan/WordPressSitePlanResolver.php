@@ -26,7 +26,11 @@ final class WordPressSitePlanResolver
         $themeUri = self::normalizeThemeUri($context['theme_uri'] ?? null);
         $attachments = self::normalizeAttachments($context['attachment_resolutions'] ?? array(), $plan['assets']);
         $references = self::references($plan['reference_tokens'], $themeUri, $attachments);
-        foreach ($plan['pages'] as &$page) $page['resolved_block_markup'] = self::resolveMarkup($page['canonical_block_markup'], $references, $attachments);
+        foreach ($plan['pages'] as &$page) {
+            $page['resolved_block_markup'] = self::resolveMarkup($page['canonical_block_markup'], $references, $attachments);
+            // Bound post fields render the same references as block markup.
+            foreach ($page['metadata']['post_meta'] ?? array() as $key => $value) if (is_string($value)) $page['metadata']['post_meta'][$key] = self::resolvePayload($value, $references);
+        }
         unset($page);
         foreach ($plan['template_parts'] as &$part) $part['resolved_block_markup'] = self::resolveMarkup($part['canonical_block_markup'], $references, $attachments);
         unset($part);
