@@ -504,6 +504,8 @@
       "php tests/unit/form-visual-part-label-side.php",
       "php tests/unit/runtime-declarations-streaming-hash.php",
       "php tests/unit/runtime-entity-composition-byte-limit.php",
+      "php tests/unit/site-plan-aggregate-inline-entities.php",
+      "php tests/unit/form-layout-stylesheet-diagnostic-budget.php",
       "php tests/unit/external-metric-declarations.php",
       "php tests/unit/runtime-script-evidence-analyzer.php",
       "php tests/unit/declared-document-role-button.php",
