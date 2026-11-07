@@ -1185,15 +1185,14 @@ final class ArtifactCompiler
         $pageProducts = array();
         $detailPages = array();
         $entryRoot = dirname($entryPath);
-        $schemaProducts = SchemaProductEvidence::rows($files, $slug, $price, $diagnostics, $productRoutes, $pageProducts, $detailPages, '.' === $entryRoot ? '' : $entryRoot);
+        $pageEvidence = array();
+        $schemaProducts = SchemaProductEvidence::rows($files, $slug, $price, $diagnostics, $productRoutes, $pageProducts, $detailPages, '.' === $entryRoot ? '' : $entryRoot, $pageEvidence);
         // Match the plan's page route, including explicit routes and entry roots.
         $pageRoutes = array();
         foreach ($files as $file) {
             $path = $file['path'] ?? '';
             $relative = '.' !== $entryRoot && str_starts_with($path, $entryRoot . '/') ? substr($path, strlen($entryRoot) + 1) : $path;
-            $route = SchemaProductEvidence::urlRoute('/' . $relative, $path);
-            $segments = array_map($slug, explode('/', $route));
-            $pageRoutes[$path] = $file['metadata']['route_path'] ?? '/' . implode('/', $segments);
+            $pageRoutes[$path] = $file['metadata']['route_path'] ?? SchemaProductEvidence::pageRoute('/' . $relative, $path, '.' === $entryRoot ? '' : $entryRoot);
             if ('page' !== ($file['metadata']['post_type'] ?? 'page')) unset($detailPages[$path]);
         }
         $products = array();
@@ -1472,6 +1471,9 @@ final class ArtifactCompiler
                         $diagnostics[] = $this->rejectedFormGraphDiagnostic($fallback, $sourcePath, $selector, 'presentation_graph', $error->getMessage());
                     }
                 }
+            }
+            if (isset($detailPages[$sourcePath]) && $detailPages[$sourcePath] === ($pageRoutes[$sourcePath] ?? null)) {
+                ProductDetailPageEvidence::fill($schemaProducts[$productSlug], $pageEvidence[$sourcePath] ?? array(), $fallback, $files, $pageRoutes, '.' === $entryRoot ? '' : $entryRoot, $diagnostics);
             }
             // A purchase form belongs to shop, not a competing form provider.
             unset($forms[$sourcePath . "\n" . $selector]);

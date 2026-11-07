@@ -56,7 +56,7 @@ final class SchemaProductEvidence
      * @param string $entryRoot Directory of the entrypoint; page routes are relative to it.
      * @return array<string,array<string,mixed>> Product rows keyed by slug.
      */
-    public static function rows(array $files, callable $slug, callable $price, array &$diagnostics = array(), array &$routes = array(), array &$pageProducts = array(), array &$detailPages = array(), string $entryRoot = ''): array
+    public static function rows(array $files, callable $slug, callable $price, array &$diagnostics = array(), array &$routes = array(), array &$pageProducts = array(), array &$detailPages = array(), string $entryRoot = '', array &$pageEvidence = array()): array
     {
         $entryRoot = trim($entryRoot, '/');
         $documents = array();
@@ -116,6 +116,7 @@ final class SchemaProductEvidence
                     }
                     if (null === $row) continue;
                     [$productSlug, $fields] = $row;
+                    $pageEvidence[$path] = $product;
                     $tokens = array('slug:' . $productSlug);
                     $identity = '';
                     foreach (array('productGroupID', 'sku', '@id') as $key) {
@@ -125,7 +126,8 @@ final class SchemaProductEvidence
                         if ('' !== $value) { $identity = $key . ':' . $value; break; }
                     }
                     if ('' !== $identity) $tokens = array('id:' . $identity);
-                    $route = self::urlRoute($fields['url'] ?? '/' . $pagePath, $path);
+                    $routeUrl = !isset($product['url']) && !isset($product['offers']['url']) ? '/' . self::entryRelative($path, $entryRoot) : ($fields['url'] ?? '/' . self::entryRelative($path, $entryRoot));
+                    $route = ltrim(self::pageRoute($routeUrl, $path, $entryRoot), '/');
                     if (!$listing && 1 === count($pageClaims) && '' !== $pagePath && $route === $pagePath) $detailPages[$path] = '/' . $route;
                     $hasRoute = isset($product['url']) || isset($product['offers']['url']) || in_array('ProductGroup', (array) ($product['@type'] ?? array()), true);
                     if ($hasRoute) {
@@ -397,6 +399,14 @@ final class SchemaProductEvidence
             elseif ('' !== $part && '.' !== $part) $parts[] = $part;
         }
         return self::routePath(implode('/', $parts));
+    }
+
+    /** Normalize links and captured paths to the plan's entry-root-relative route. */
+    public static function pageRoute(string $url, string $source, string $entryRoot): string
+    {
+        $relativeSource = self::entryRelative($source, $entryRoot);
+        $route = self::urlRoute($url, $relativeSource);
+        return '/' . implode('/', array_map(self::productSlug(...), explode('/', $route)));
     }
 
     /** Source path relative to the entrypoint directory. */
