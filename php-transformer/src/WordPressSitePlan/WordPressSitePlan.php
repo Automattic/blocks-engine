@@ -843,6 +843,19 @@ PHP;
                 if (is_string($type)) $shared .= "\n" . implode("\n", $byType[$type] ?? array());
             }
         }
+        // A post-date block in a shared template renders each post's own
+        // publication date in the authored format.
+        foreach ($plan['templates'] ?? array() as $template) {
+            if (!preg_match_all('/<!-- wp:post-date (\{.*?\}) \/?-->/s', (string) ($template['canonical_block_markup'] ?? ''), $dates)) continue;
+            foreach ($dates[1] as $json) {
+                $format = json_decode($json, true)['format'] ?? null;
+                if (!is_string($format)) continue;
+                foreach ($plan['pages'] as $page) {
+                    $published = $page['publication_local_time'] ?? $page['publication_timestamp'] ?? null;
+                    if (is_string($published) && false !== ($date = date_create_immutable($published))) $pages[$page['source_path']] .= "\n" . $date->format($format);
+                }
+            }
+        }
         $findings = array();
         foreach ($documents as $document) {
             if (!is_array($document) || !is_string($document['block_markup'] ?? null) || !is_string($document['source_path'] ?? null)) continue;
@@ -4831,7 +4844,8 @@ PHP;
         $single = null;
         $singleMenus = array();
         $bodies = array();
-        $excerpts = array();
+        $postMeta = array();
+        $featuredImages = array();
         foreach ($posts as $postIndex => $post) {
             $route = is_string($post['route']['path'] ?? null) ? $post['route']['path'] : '';
             $transformed = $documents[$postIndex];
@@ -4850,7 +4864,12 @@ PHP;
                 return array('pages' => $pages, 'single' => null);
             }
             if (null === $single) {
-                $single = $this->replaceListingArchives($transformed['template'], $posts);
+                $single = preg_replace_callback('/<!-- wp:([a-z0-9\/-]+) (\{.*?\})(\s*\/?)-->/s', static function (array $match) use ($posts): string {
+                    $attrs = json_decode($match[2], true);
+                    if (!is_array($attrs)) return $match[0];
+                    foreach ($posts as $peer) if (($attrs['metadata']['name'] ?? null) === ($peer['title'] ?? null)) unset($attrs['metadata']['name']);
+                    return '<!-- wp:' . $match[1] . ' ' . BlockAttributes::encode($attrs) . ($match[3] ?? '') . '-->';
+                }, $this->replaceListingArchives($transformed['template'], $posts)) ?? $transformed['template'];
                 $singleMenus = NavigationEntityProjection::renderedMenus($single);
             }
             // After factoring, a post renders only the single template and its
@@ -4862,13 +4881,15 @@ PHP;
                 return array('pages' => $pages, 'single' => null);
             }
             $bodies[$indexes[$postIndex]] = $transformed['body'];
-            if (null !== ($transformed['excerpt'] ?? null)) $excerpts[$indexes[$postIndex]] = $transformed['excerpt'];
+            if (null !== ($transformed['featured'] ?? null)) $featuredImages[$indexes[$postIndex]] = $transformed['featured'];
+            foreach ($transformed['fields'] ?? array() as $source => $values) $postMeta[$source] = ($postMeta[$source] ?? array()) + $values;
         }
         foreach ($bodies as $index => $body) {
             $pages[$index]['canonical_block_markup'] = $body;
             $pages[$index]['content_hash'] = self::contentHash($body);
-            if (isset($excerpts[$index])) $pages[$index]['metadata']['excerpt'] = $excerpts[$index];
+            if (isset($postMeta[$pages[$index]['source_path']])) $pages[$index]['metadata']['post_meta'] = ($pages[$index]['metadata']['post_meta'] ?? array()) + $postMeta[$pages[$index]['source_path']];
             if ($promoteLead) $pages[$index]['metadata']['featured_image'] = $leadImages[array_search($index, $indexes, true)];
+            elseif (isset($featuredImages[$index])) $pages[$index]['metadata']['featured_image'] = $featuredImages[$index];
         }
         return array('pages' => $pages, 'single' => $single);
     }
@@ -4946,15 +4967,15 @@ PHP;
         return $shared ?? array();
     }
     /**
-     * Select the smallest post-title-following container owning most varying
+     * Select the smallest post-title-following container owning the most varying
      * text. Only move the slot when every outside variation has a native home;
      * otherwise the original factoring retains all of the authored content.
      *
-     * @return array{range:?array,slots:array<int,string>,excerpt:?string}
+     * @return array{range:?array,slots:array<int,string>,fields:array}
      */
-    private function postChromeBodySelection(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, array $post, string $route, array $shared, array $posts): array
+    private function postChromeBodySelection(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, array $post, string $route, array $shared, array $posts, ?int $featuredOffset = null): array
     {
-        $fallback = array('range' => null, 'slots' => array(), 'excerpt' => null);
+        $fallback = array('range' => null, 'slots' => array(), 'fields' => array(), 'featured' => null);
         $titleEnd = null;
         $varying = array();
         foreach ($index->ranges() as $range) {
@@ -4962,12 +4983,13 @@ PHP;
             $slice = substr($index->markup, $range['offset'], $range['length']);
             $kind = $this->classifyPostChromeBlock($slice, $post, $route, $index);
             if ('title' === $kind) $titleEnd = $range['offset'] + $range['length'];
+            if ($range['offset'] === $featuredOffset) continue;
             if (isset($shared[ShellExtraction::identityMarkup($slice)]) || in_array($kind, array('title', 'date', 'comments', 'chrome', 'share', 'skip'), true)) continue;
             $varying[] = $range;
         }
         if (null === $titleEnd) return $fallback;
-        $textLeaves = array_filter($varying, static fn(array $leaf): bool => '' !== ListingExcerptProjection::text(substr($index->markup, $leaf['offset'], $leaf['length'])));
         $best = null;
+        $bestCount = 0;
         foreach ($index->ranges() as $candidate) {
             if ($candidate['offset'] < $titleEnd || array() === $index->children($candidate)) continue;
             $count = 0;
@@ -4975,64 +4997,107 @@ PHP;
                 if ($leaf['offset'] < $candidate['offset'] || $leaf['offset'] + $leaf['length'] > $candidate['offset'] + $candidate['length']) continue;
                 if ('' !== ListingExcerptProjection::text(substr($index->markup, $leaf['offset'], $leaf['length']))) ++$count;
             }
-            if ($count < 2 || $count <= count($textLeaves) / 2) continue;
-            if (null === $best || $candidate['length'] < $best['length']) $best = $candidate;
+            if ($count < 2 || $count < $bestCount) continue;
+            if ($count > $bestCount || null === $best || $candidate['length'] < $best['length']) {
+                $best = $candidate;
+                $bestCount = $count;
+            }
         }
         if (null === $best) return $fallback;
         $slots = array();
-        $excerpt = null;
+        $fields = array();
+        $featured = null;
+        // Project corresponding related sections together, just like index cards.
+        // This supplies the card classifier with variation across all posts.
+        // A section is a container led by a shared heading.
+        $sectionItems = static function (\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $sectionIndex, array $owner, array $shared): ?array {
+            $children = $sectionIndex->children($owner);
+            if (count($children) < 2) return null;
+            $heading = substr($sectionIndex->markup, $children[0]['offset'], $children[0]['length']);
+            if ('heading' !== self::listingBlockName($heading) || !isset($shared[ShellExtraction::identityMarkup($heading)])) return null;
+            return array('heading' => ShellExtraction::identityMarkup($heading), 'items' => array_slice($children, 1));
+        };
+        $sections = array();
+        foreach ($index->ranges() as $owner) {
+            if ($owner['offset'] < $best['offset'] + $best['length']) continue;
+            $section = $sectionItems($index, $owner, $shared);
+            if (null !== $section) $sections[] = $section + array('owner' => $owner);
+        }
+        foreach ($sections as $section) {
+            $cardMarkup = '';
+            foreach ($posts as $peer) {
+                $peerIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($peer['canonical_block_markup']);
+                foreach ($peerIndex->ranges() as $owner) {
+                    $peerSection = $sectionItems($peerIndex, $owner, $shared);
+                    if (null === $peerSection || $section['heading'] !== $peerSection['heading']) continue;
+                    foreach ($peerSection['items'] as $child) $cardMarkup .= substr($peerIndex->markup, $child['offset'], $child['length']);
+                    break;
+                }
+            }
+            $cardIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($cardMarkup);
+            $cards = $this->listingCardRanges($cardIndex, $posts, 1);
+            if (null === $cards) continue;
+            // Never replace a whole section if some authored child has no card
+            // projection. Let the normal fallback retain its source order.
+            foreach ($cardIndex->topLevel() as $child) {
+                foreach ($cards as $card) {
+                    if ($child['offset'] >= $card['offset'] && $child['offset'] + $child['length'] <= $card['offset'] + $card['length']) continue 2;
+                }
+                continue 2;
+            }
+            $cardFields = array();
+            $bound = array();
+            foreach ($cards as $card) {
+                $ordinal = 0;
+                foreach ($cardIndex->ranges() as $range) {
+                    if ($range['offset'] < $card['offset'] || $range['offset'] + $range['length'] > $card['offset'] + $card['length']) continue;
+                    $slice = substr($cardMarkup, $range['offset'], $range['length']);
+                    if ('paragraph' !== self::listingBlockName($slice)) continue;
+                    $key = 'blocks_engine_post_field_' . substr(hash('sha256', $section['heading'] . ':' . $ordinal++), 0, 12);
+                    $cardFields[$card['post']['source_path']][$key] = ListingFieldProjection::content(array($slice));
+                    $bound[$range['offset']] = ListingFieldProjection::paragraph($slice, self::listingBlockAttributes($slice), $key, '');
+                }
+            }
+            $template = $this->listingCardTemplate($cardIndex, $cards, $cardFields, $bound);
+            if (null === $template) continue;
+            $items = $section['items'];
+            $start = $items[0]['offset'];
+            $end = $items[count($items) - 1]['offset'] + $items[count($items) - 1]['length'];
+            $slots[$section['owner']['offset']] = substr($index->markup, $section['owner']['offset'], $start - $section['owner']['offset']) . self::listingQueryMarkup(count($items), $template) . substr($index->markup, $end, $section['owner']['offset'] + $section['owner']['length'] - $end);
+            foreach ($cardFields as $source => $values) $fields[$source] = ($fields[$source] ?? array()) + $values;
+        }
         foreach ($varying as $leaf) {
             if ($leaf['offset'] >= $best['offset'] && $leaf['offset'] < $best['offset'] + $best['length']) continue;
             foreach ($slots as $offset => $unused) {
                 // An enclosing related section already owns this leaf.
-                foreach ($index->ranges() as $owner) if ($owner['offset'] === $offset && $leaf['offset'] < $offset + $owner['length']) continue 3;
+                foreach ($index->ranges() as $owner) if ($owner['offset'] === $offset && $leaf['offset'] >= $offset && $leaf['offset'] < $offset + $owner['length']) continue 3;
             }
             $slice = substr($index->markup, $leaf['offset'], $leaf['length']);
-            if ($leaf['offset'] < $best['offset']) {
-                // Excerpts are plain text: do not flatten links, emphasis or
-                // other rich structure into a different rendering contract.
-                if (null !== $excerpt || 'paragraph' !== self::listingBlockName($slice) || !preg_match('/<p\b[^>]*>[^<]*<\/p>/s', $slice)) return $fallback;
-                // A source description owns post_excerpt downstream; only a
-                // matching lede can share that field.
-                if (null !== ListingExcerptProjection::description($post) && !ListingExcerptProjection::matches($slice, $post)) return $fallback;
-                $excerpt = ListingExcerptProjection::text($slice);
-                $attrs = self::listingBlockAttributes($slice);
-                // A fixed generous limit keeps long ledes intact without
-                // making excerpt word counts part of template identity.
-                $attrs['excerptLength'] = 10000;
-                $attrs['showMoreOnNewLine'] = false;
-                $attrs['moreText'] = '';
-                $slots[$leaf['offset']] = '<!-- wp:post-excerpt ' . BlockAttributes::encode($attrs) . ' /-->';
+            if ('paragraph' === self::listingBlockName($slice)) {
+                // Slot identity is structural, never a byte offset or source text.
+                $path = array();
+                $node = $leaf;
+                do {
+                    $parent = $index->parent($node);
+                    $siblings = null === $parent ? $index->topLevel() : $index->children($parent);
+                    $path[] = array_search($node, $siblings, true);
+                    $node = $parent;
+                } while (null !== $node);
+                $key = 'blocks_engine_post_field_' . substr(hash('sha256', json_encode($path)), 0, 12);
+                $fields[$post['source_path']][$key] = ListingFieldProjection::content(array($slice));
+                $slots[$leaf['offset']] = ListingFieldProjection::paragraph($slice, self::listingBlockAttributes($slice), $key, '');
                 continue;
             }
-            $related = null;
-            foreach ($index->ranges() as $owner) {
-                if ($owner['offset'] <= $best['offset'] + $best['length'] || $leaf['offset'] < $owner['offset'] || $leaf['offset'] >= $owner['offset'] + $owner['length']) continue;
-                $source = substr($index->markup, $owner['offset'], $owner['length']);
-                if ('section' !== (self::listingBlockAttributes($source)['tagName'] ?? null)) continue;
-                $children = $index->children($owner);
-                if (count($children) < 2) continue;
-                $heading = substr($index->markup, $children[0]['offset'], $children[0]['length']);
-                if ('heading' !== self::listingBlockName($heading) || !isset($shared[ShellExtraction::identityMarkup($heading)])) continue;
-                $start = $children[1]['offset'];
-                $last = $children[count($children) - 1];
-                $length = $last['offset'] + $last['length'] - $start;
-                $links = substr($index->markup, $start, $length);
-                preg_match_all('/<a\b[^>]*href="([^"]+)"[^>]*>(.*?)<\/a>/s', $links, $matches);
-                if (array() === $matches[1] || '' !== trim(strip_tags(preg_replace('/<a\b[^>]*>.*?<\/a>|<!--.*?-->/s', '', $links) ?? ''))) continue;
-                $routes = array_column(array_column($posts, 'route'), 'path');
-                foreach ($matches[1] as $href) if (!in_array(self::hrefRoute(html_entity_decode($href, ENT_QUOTES | ENT_HTML5), $route), $routes, true)) continue 2;
-                $query = '<!-- wp:query ' . BlockAttributes::encode(array('query' => array('postType' => 'post', 'perPage' => count($matches[1]), 'inherit' => false, 'exclude' => array()))) . ' --><div class="wp-block-query"><!-- wp:post-template --><!-- wp:post-title {"isLink":true,"level":3} /--><!-- /wp:post-template --></div><!-- /wp:query -->';
-                $related = array('offset' => $owner['offset'], 'markup' => substr_replace($source, $query, $start - $owner['offset'], $length));
-                break;
+            // A varying lead image ahead of the body is the post's featured image.
+            if ($leaf['offset'] < $best['offset'] && null === $featured && 'image' === self::listingBlockName($slice) && null !== ($image = self::listingCardImage($slice))) {
+                $featured = $image;
+                $slots[$leaf['offset']] = self::postFeaturedImageMarkup($slice);
+                continue;
             }
-            if (null === $related) {
-                $this->recordUnitFinding(array('code' => 'wordpress_site_plan_post_chrome_order_retained', 'source_path' => $post['source_path'], 'message' => 'Outside body variation has no native slot; retained original post-content placement to avoid dropping content.'));
-                return $fallback;
-            }
-            $slots[$related['offset']] = $related['markup'];
+            $this->recordUnitFinding(array('code' => 'wordpress_site_plan_post_chrome_order_retained', 'source_path' => $post['source_path'], 'message' => 'Outside body variation has no native slot; retained original post-content placement to avoid dropping content.'));
+            return $fallback;
         }
-        return array('range' => $best, 'slots' => $slots, 'excerpt' => $excerpt);
+        return array('range' => $best, 'slots' => $slots, 'fields' => $fields, 'featured' => $featured);
     }
     /**
      * @param array<string,mixed> $post
@@ -5065,12 +5130,14 @@ PHP;
             $contentRange = $candidate;
         }
         $slots = array();
-        $excerpt = null;
+        $fields = array();
+        $featured = null;
         if (null === $contentRange) {
-            $selection = $this->postChromeBodySelection($index, $post, $route, $shared, $posts);
+            $selection = $this->postChromeBodySelection($index, $post, $route, $shared, $posts, $featuredOffset);
             $contentRange = $selection['range'];
             $slots = $selection['slots'];
-            $excerpt = $selection['excerpt'];
+            $fields = $selection['fields'];
+            $featured = $selection['featured'];
         }
         $template = '';
         $body = '';
@@ -5097,7 +5164,7 @@ PHP;
         if ($cursor < strlen($markup)) {
             $template .= substr($markup, $cursor);
         }
-        return array('template' => $template, 'body' => $body, 'title' => $title, 'date' => $date, 'shared' => $sharedChrome, 'content' => $content, 'retained' => $retained, 'excerpt' => $excerpt);
+        return array('template' => $template, 'body' => $body, 'title' => $title, 'date' => $date, 'shared' => $sharedChrome, 'content' => $content, 'retained' => $retained, 'fields' => $fields, 'featured' => $featured);
     }
     /**
      * @param array{offset:int,length:int} $range
@@ -5512,7 +5579,7 @@ PHP;
     /**
      * @param array<int,array{offset:int,length:int,route:string,post:array<string,mixed>}> $cards
      */
-    private function listingCardTemplate(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $documentIndex, array $cards, array &$fields): ?string
+    private function listingCardTemplate(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $documentIndex, array $cards, array &$fields, array $boundGroups = array()): ?string
     {
         $markup = $documentIndex->markup;
         // A hidden empty binding may have been dropped during lowering. Use
@@ -5533,7 +5600,6 @@ PHP;
             }
         }
         $groups = $this->listingLinkedMetadataGroups($documentIndex, $first);
-        $boundGroups = array();
         foreach ($groups as $index => $group) {
             $key = 'blocks_engine_listing_labels_' . substr(hash('sha256', $group['markup']), 0, 12);
             $content = ListingFieldProjection::content($group['paragraphs']);
@@ -6227,7 +6293,7 @@ PHP;
         if (preg_match('/^(\d{1,2})-(\d{1,2})-(\d{4})$/', $value, $match)) {
             return ((int) $match[1] > 12 && (int) $match[2] <= 12) ? 'j-n-Y' : 'n-j-Y';
         }
-        foreach (array('M j, Y' => '/^[A-Z][a-z]{2} \d{1,2}, \d{4}$/', 'F j, Y' => '/^[A-Z][a-z]+ \d{1,2}, \d{4}$/', 'j M Y' => '/^\d{1,2} [A-Z][a-z]{2} \d{4}$/', 'j F Y' => '/^\d{1,2} [A-Z][a-z]+ \d{4}$/') as $format => $pattern) {
+        foreach (array('l, F j, Y' => '/^[A-Z][a-z]+day, [A-Z][a-z]+ \d{1,2}, \d{4}$/', 'M j, Y' => '/^[A-Z][a-z]{2} \d{1,2}, \d{4}$/', 'F j, Y' => '/^[A-Z][a-z]+ \d{1,2}, \d{4}$/', 'j M Y' => '/^\d{1,2} [A-Z][a-z]{2} \d{4}$/', 'j F Y' => '/^\d{1,2} [A-Z][a-z]+ \d{4}$/') as $format => $pattern) {
             if (1 === preg_match($pattern, $value)) {
                 return $format;
             }
