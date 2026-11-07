@@ -4058,6 +4058,19 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function navigationContainerAttributes(DOMElement $element, callable $presentationAttributes, ?NavigationPatternContext $navigationContext = null): array
     {
         $attrs = $this->withoutCoreNavigationClasses($presentationAttributes($element));
+        $toggle = $navigationContext?->navigationToggleControl($element);
+        if ( $toggle instanceof DOMElement && ! $this->containsNode($element, $toggle)
+            && 'always' === $navigationContext?->projectedOverlayMenu($toggle) ) {
+            // An always-collapsed menu whose opener sits outside the element:
+            // the element is the hidden panel, and the navigation root only ever
+            // renders the opener. The panel's box belongs to Core's panel.
+            $attrs['metadata']['blocksEngineNavigationContainer']['className'] = SourceDom::mergeClassNames(
+                (string) ($attrs['metadata']['blocksEngineNavigationContainer']['className'] ?? ''),
+                (string) ($attrs['className'] ?? '')
+            );
+            $attrs['metadata']['blocksEngineNavigationContainer']['ownsSource'] = true;
+            unset($attrs['className']);
+        }
         $list = $this->navigationListSource($element);
         if ( $list instanceof DOMElement ) {
             $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::LIST_NAVIGATION_CLASS);
@@ -4070,7 +4083,16 @@ final class NavigationPattern implements PatternRecognizerInterface
             $listAttrs = $this->withoutCoreNavigationClasses($presentationAttributes($list));
             $listClasses = trim((string) ($listAttrs['className'] ?? ''));
             if ( '' !== $listClasses ) {
-                $attrs['className'] = implode(' ', array_values(array_unique(array_filter(preg_split('/\s+/', trim((string) ($attrs['className'] ?? '') . ' ' . $listClasses)) ?: array()))));
+                if ( true === ($attrs['metadata']['blocksEngineNavigationContainer']['ownsSource'] ?? false) ) {
+                    // The list renders inside that panel, so its classes follow it.
+                    $attrs['metadata']['blocksEngineNavigationContainer']['className'] = SourceDom::mergeClassNames(
+                        (string) ($attrs['metadata']['blocksEngineNavigationContainer']['className'] ?? ''),
+                        $listClasses,
+                        implode(' ', $navigationContext?->sourcePresentationMarkers($list) ?? array())
+                    );
+                } else {
+                    $attrs['className'] = implode(' ', array_values(array_unique(array_filter(preg_split('/\s+/', trim((string) ($attrs['className'] ?? '') . ' ' . $listClasses)) ?: array()))));
+                }
             }
 
             $listGap = (string) ($listAttrs['style']['spacing']['blockGap'] ?? '');

@@ -6862,6 +6862,12 @@ PHP;
             $lines[] = "}, 10, 1 );";
             break;
         }
+        foreach (array_merge($templates, $parts, $pages) as $document) {
+            if (str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), 'blocksEngineNavigationContainer')) {
+                $lines[] = NavigationContainerRuntime::source();
+                break;
+            }
+        }
         $hasNavigationLink = false;
         foreach (array_merge($templates, $parts, $pages) as $document) {
             if (str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), 'blocksEngineNavigationOpener')) {

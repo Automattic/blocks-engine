@@ -215,7 +215,18 @@ final class SourceBlockAttributeProjector
                 (string) ($attrs['metadata']['blocksEngineNavigationAnchor']['className'] ?? '')
             );
         }
-        $projectionClassName = $contentOwnsProjection || $navigationAnchorOwnsProjection
+        // A navigation built from its collapsed panel renders that panel as
+        // Core's responsive container; the panel's projection belongs there.
+        $navigationPanelOwnsProjection = 'core/navigation' === $name
+            && true === ($attrs['metadata']['blocksEngineNavigationContainer']['ownsSource'] ?? false);
+        if ($navigationPanelOwnsProjection) {
+            $attrs['metadata']['blocksEngineNavigationContainer']['className'] = $this->sourceProjectionClassName(
+                $sourceElement,
+                $context,
+                (string) ($attrs['metadata']['blocksEngineNavigationContainer']['className'] ?? '')
+            );
+        }
+        $projectionClassName = $contentOwnsProjection || $navigationAnchorOwnsProjection || $navigationPanelOwnsProjection
             ? $baseClassName
             : $this->sourceProjectionClassName($sourceElement, $context, $baseClassName);
         if ( '' !== $projectionClassName ) {
