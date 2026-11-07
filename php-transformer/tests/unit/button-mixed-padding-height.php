@@ -22,7 +22,9 @@ foreach ( array( false, true ) as $direct ) {
         $dom = new DOMDocument();
         @$dom->loadHTML($result['serialized_blocks']);
         $xpath = new DOMXPath($dom);
-        foreach ( array( 'Get a quote' => false, 'Request a quote' => true, 'Call us' => true ) as $label => $linkOwned ) {
+        // A bare inline-flex button in block flow participates inline, so its
+        // link owns the size like the flex-item buttons' links do.
+        foreach ( array( 'Get a quote' => $direct, 'Request a quote' => true, 'Call us' => true ) as $label => $linkOwned ) {
             $link = $xpath->query('//*[self::a or self::button][normalize-space(.)="' . $label . '"]')->item(0);
             $classes = $link?->parentNode?->attributes?->getNamedItem('class')?->nodeValue ?? '';
             preg_match('/\bblocks-engine-control-[\w-]+/', $classes, $marker);

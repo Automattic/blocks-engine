@@ -293,7 +293,7 @@ final class EngineSupportCss
                 }
                 $buttonCss .= ':where(' . $selector . ')>.wp-block-button__link{' . $declarations . '}' . $axisRules;
             }
-            foreach ( array( 'inline-block', 'block', 'flex', 'inline-flex' ) as $display ) {
+            foreach ( array( 'inline-block', 'block', 'flex', 'inline-flex', 'inline-grid', 'inline-table' ) as $display ) {
                 $modifier = $neutralButton . '-display-' . $display;
                 if ( str_contains($serializedBlocks, $modifier) ) {
                     $buttonCss .= ':where(.' . $neutralButton . '.' . $modifier . ')>.wp-block-button__link{display:' . $display . '!important}';
