@@ -6696,8 +6696,16 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $candidate = $this->collectWrapperChain($block);
         $chain = $candidate['chain'];
         $terminal = $candidate['terminal'];
+        // Native Group trees already expose their structure through core tools.
+        // Do not replace them with a generated companion just to reduce depth.
+        // Keep folding around non-native terminals that need shell transport.
+        $nativeGroupTree = ('core/group' === ($terminal['blockName'] ?? null)
+            || ('core/freeform' === ($terminal['blockName'] ?? null)
+                && array() !== array_filter($terminal['innerBlocks'] ?? array(), static fn (array $child): bool => 'core/group' === ($child['blockName'] ?? null))))
+            && 'div' === ($terminal['attrs']['tagName'] ?? 'div')
+            && array() === array_filter($chain, static fn (array $entry): bool => 'div' !== ($entry['descriptor']['tagName'] ?? null));
         $terminalIsShell = $this->sourceElementClassifier->isLayoutShellBlock($terminal);
-        if (2 <= count($chain) || (array() !== $chain && $terminalIsShell)) {
+        if (!$nativeGroupTree && (2 <= count($chain) || (array() !== $chain && $terminalIsShell))) {
             return $this->foldWrapperChain($chain, $terminal);
         }
 

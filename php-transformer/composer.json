@@ -638,6 +638,7 @@
       "php tests/unit/navigation-toggle-recognition-memo.php",
       "php tests/unit/collapsed-viewport-declaring-rules.php",
       "php tests/unit/projected-branch-compression.php",
+      "php tests/unit/native-wrapper-chain-editability.php",
       "php tests/unit/core-block-capability-matrix.php",
       "php tests/unit/core-block-snapshot-validity.php",
       "php tests/unit/core-block-inline-geometry-save-validity.php",
