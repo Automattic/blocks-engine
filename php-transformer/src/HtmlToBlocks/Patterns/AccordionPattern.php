@@ -111,11 +111,13 @@ final class AccordionPattern implements PatternRecognizerInterface
             }
 
             // An unlinked read-more control beside an already visible body
-            // does not establish a disclosure relationship.
+            // does not establish a disclosure relationship; an inert panel
+            // is closed content, not an already visible body.
             if ( 'details' !== strtolower($item->tagName)
                 && ! $this->hasClass($item, 'wp-block-accordion-item')
                 && '' === $this->trimmedAttribute($stateControl, 'aria-controls')
                 && ! $startsHidden($panel)
+                && ! $panel->hasAttribute('inert')
             ) {
                 return null;
             }
@@ -576,6 +578,7 @@ final class AccordionPattern implements PatternRecognizerInterface
             }
         }
 
+        $siblings = array();
         foreach ( $this->directChildElements($item) as $child ) {
             if ( $child->isSameNode($title) ) {
                 continue;
@@ -586,6 +589,12 @@ final class AccordionPattern implements PatternRecognizerInterface
             if ( 'region' === $role || str_contains($class, 'panel') || str_contains($class, 'content') || str_contains($class, 'body') || str_contains($class, 'answer') ) {
                 return $child;
             }
+            $siblings[] = $child;
+        }
+
+        // A stateful toggle's only sibling is the panel it expands.
+        if ( 1 === count($siblings) && $title->parentNode === $item && $title->hasAttribute('aria-expanded') ) {
+            return $siblings[0];
         }
 
         return null;

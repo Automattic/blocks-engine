@@ -19,9 +19,7 @@
             "retagged span>p [blocks-engine-synthetic-paragraph]": 20
         },
         "11-nonprofit-campaign": {
-            "added div [blocks-engine-control]": 4,
-            "added div [blocks-engine-layout-child-button]": 4,
-            "added div [blocks-engine-layout-neutral-buttons]": 4,
+            "added div [blocks-engine-control]": 12,
             "added figure [blocks-engine-synthetic-image-figure]": 6,
             "added img": 7,
             "added mark": 10,
@@ -54,9 +52,7 @@
             "retagged span>p [blocks-engine-synthetic-paragraph]": 30
         },
         "13-realistic-small-business": {
-            "added div [blocks-engine-control]": 10,
-            "added div [blocks-engine-layout-child-button]": 9,
-            "added div [blocks-engine-layout-neutral-buttons]": 9,
+            "added div [blocks-engine-control]": 28,
             "added div [blocks-engine-semantic]": 3,
             "added figure [blocks-engine-synthetic-image-figure]": 8,
             "added img": 14,
@@ -78,9 +74,7 @@
             "retagged svg>img": 2
         },
         "14-restaurant": {
-            "added div [blocks-engine-control]": 4,
-            "added div [blocks-engine-layout-child-button]": 1,
-            "added div [blocks-engine-layout-neutral-buttons]": 1,
+            "added div [blocks-engine-control]": 6,
             "added div [blocks-engine-semantic]": 4,
             "added figure [blocks-engine-synthetic-image-figure]": 3,
             "added img": 6,
@@ -100,9 +94,7 @@
             "retagged svg>img": 1
         },
         "15-saas": {
-            "added div [blocks-engine-control]": 10,
-            "added div [blocks-engine-layout-child-button]": 3,
-            "added div [blocks-engine-layout-neutral-buttons]": 3,
+            "added div [blocks-engine-control]": 16,
             "added div [blocks-engine-semantic]": 3,
             "added figure [blocks-engine-synthetic-image-figure]": 3,
             "added img": 4,
@@ -123,7 +115,7 @@
             "added a": 33,
             "added figure [blocks-engine-synthetic-image-figure]": 13,
             "added img": 14,
-            "added mark": 1,
+            "added mark": 2,
             "added p [blocks-engine-inline-layout-carrier]": 2,
             "added p [blocks-engine-synthetic-paragraph]": 13,
             "added p [blocks-engine-synthetic-svg-paragraph]": 1,
@@ -141,9 +133,7 @@
         },
         "17-markdown-blog-launch-site": {
             "added a": 2,
-            "added div [blocks-engine-control]": 8,
-            "added div [blocks-engine-layout-child-button]": 2,
-            "added div [blocks-engine-layout-neutral-buttons]": 2,
+            "added div [blocks-engine-control]": 12,
             "added figure [blocks-engine-synthetic-image-figure]": 3,
             "added img": 3,
             "added p [blocks-engine-inline-layout-carrier]": 7,
@@ -165,8 +155,7 @@
         },
         "18-static-content-library": {
             "added a": 12,
-            "added div [blocks-engine-control]": 16,
-            "added div [blocks-engine-layout-child-button]": 1,
+            "added div [blocks-engine-control]": 17,
             "added figure [blocks-engine-synthetic-image-figure]": 10,
             "added img": 18,
             "added mark": 2,
@@ -183,9 +172,7 @@
             "retagged svg>img": 6
         },
         "19-product-catalog": {
-            "added div [blocks-engine-control]": 16,
-            "added div [blocks-engine-layout-child-button]": 1,
-            "added div [blocks-engine-layout-neutral-buttons]": 1,
+            "added div [blocks-engine-control]": 18,
             "added figure [blocks-engine-synthetic-image-figure]": 9,
             "added img": 9,
             "added mark": 1,
@@ -219,9 +206,9 @@
         },
         "20-switchback-woocommerce-extra-hard": {
             "added a": 16,
-            "added div [blocks-engine-control]": 26,
-            "added div [blocks-engine-layout-child-button]": 2,
-            "added div [blocks-engine-layout-neutral-buttons]": 2,
+            "added div [blocks-engine-control]": 28,
+            "added div [blocks-engine-layout-child-button]": 1,
+            "added div [blocks-engine-layout-neutral-buttons]": 1,
             "added figure [blocks-engine-synthetic-image-figure]": 2,
             "added img": 16,
             "added mark": 1,
@@ -284,9 +271,7 @@
             "retagged span>p [blocks-engine-synthetic-paragraph]": 4
         },
         "23-recipe-blog": {
-            "added div [blocks-engine-control]": 6,
-            "added div [blocks-engine-layout-child-button]": 1,
-            "added div [blocks-engine-layout-neutral-buttons]": 1,
+            "added div [blocks-engine-control]": 8,
             "added mark": 2,
             "added p [blocks-engine-inline-layout-carrier]": 22,
             "added p [blocks-engine-synthetic-paragraph]": 34,
@@ -301,9 +286,7 @@
         },
         "24-podcast-show": {
             "added a": 6,
-            "added div [blocks-engine-control]": 22,
-            "added div [blocks-engine-layout-child-button]": 1,
-            "added div [blocks-engine-layout-neutral-buttons]": 1,
+            "added div [blocks-engine-control]": 24,
             "added img": 8,
             "added mark": 5,
             "added p": 1,
@@ -324,9 +307,7 @@
             "retagged svg>img": 1
         },
         "25-real-estate": {
-            "added div [blocks-engine-control]": 4,
-            "added div [blocks-engine-layout-child-button]": 2,
-            "added div [blocks-engine-layout-neutral-buttons]": 2,
+            "added div [blocks-engine-control]": 8,
             "added figure [blocks-engine-synthetic-image-figure]": 1,
             "added img": 1,
             "added mark": 1,
@@ -391,9 +372,7 @@
         },
         "28-enterprise-b2b": {
             "added a": 1,
-            "added div [blocks-engine-control]": 12,
-            "added div [blocks-engine-layout-child-button]": 1,
-            "added div [blocks-engine-layout-neutral-buttons]": 1,
+            "added div [blocks-engine-control]": 14,
             "added figure [blocks-engine-synthetic-image-figure]": 7,
             "added img": 8,
             "added p": 1,
@@ -430,9 +409,7 @@
             "retagged span>p [blocks-engine-synthetic-paragraph]": 17
         },
         "3-artist-music": {
-            "added div [blocks-engine-control]": 12,
-            "added div [blocks-engine-layout-child-button]": 2,
-            "added div [blocks-engine-layout-neutral-buttons]": 2,
+            "added div [blocks-engine-control]": 16,
             "added mark": 2,
             "added p [blocks-engine-synthetic-paragraph]": 2,
             "removed button": 1,
@@ -506,8 +483,7 @@
             "retagged svg>img": 1
         },
         "34-comparison-review-site": {
-            "added div [blocks-engine-layout-child-button]": 1,
-            "added div [blocks-engine-layout-neutral-buttons]": 1,
+            "added div [blocks-engine-control]": 2,
             "added img": 2,
             "added input": 1,
             "added mark": 2,
@@ -606,9 +582,7 @@
         },
         "4-course-education": {
             "added a": 1,
-            "added div [blocks-engine-control]": 10,
-            "added div [blocks-engine-layout-child-button]": 2,
-            "added div [blocks-engine-layout-neutral-buttons]": 2,
+            "added div [blocks-engine-control]": 14,
             "added figure [blocks-engine-synthetic-image-figure]": 5,
             "added img": 6,
             "added mark": 3,
@@ -648,10 +622,7 @@
             "retagged svg>img": 1
         },
         "41-generative-art-studio": {
-            "added div [blocks-engine-attribute]": 4,
-            "added div [blocks-engine-control]": 4,
-            "added div [blocks-engine-layout-child-button]": 4,
-            "added div [blocks-engine-layout-neutral-buttons]": 4,
+            "added div [blocks-engine-control]": 12,
             "added figure [blocks-engine-synthetic-image-figure]": 6,
             "added img": 9,
             "added mark": 9,
@@ -663,18 +634,18 @@
             "removed ul": 3,
             "retagged div>p": 1,
             "retagged div>p [blocks-engine-lowered-paragraph]": 4,
-            "retagged div>p [blocks-engine-synthetic-paragraph]": 4,
+            "retagged div>p [blocks-engine-synthetic-paragraph]": 8,
             "retagged nav>div [wp-block-group]": 3,
             "retagged span>mark": 11,
-            "retagged span>p [blocks-engine-synthetic-paragraph]": 11
+            "retagged span>mark [blocks-engine-attribute]": 4,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 7
         },
         "42-immersive-product-launch": {
-            "added div [blocks-engine-attribute]": 4,
             "added figure [blocks-engine-synthetic-image-figure]": 1,
             "added img": 1,
             "added mark": 1,
             "added p [blocks-engine-inline-layout-carrier]": 10,
-            "added p [blocks-engine-synthetic-paragraph]": 28,
+            "added p [blocks-engine-synthetic-paragraph]": 25,
             "added p [blocks-engine-synthetic-svg-paragraph]": 3,
             "added ul [blocks-engine-social-source-cluster]": 1,
             "removed a": 3,
@@ -683,18 +654,18 @@
             "removed nav": 1,
             "removed svg": 1,
             "retagged div>p [blocks-engine-lowered-paragraph]": 6,
-            "retagged div>p [blocks-engine-synthetic-paragraph]": 1,
+            "retagged div>p [blocks-engine-synthetic-paragraph]": 3,
             "retagged span>div [blocks-engine-semantic]": 1,
-            "retagged span>mark": 10,
+            "retagged span>mark": 8,
+            "retagged span>mark [blocks-engine-attribute]": 2,
             "retagged span>p [blocks-engine-synthetic-paragraph]": 18,
             "retagged svg>img": 3
         },
         "43-interactive-space-explorer": {
-            "added div [blocks-engine-attribute]": 4,
             "added figure [blocks-engine-synthetic-image-figure]": 1,
             "added img": 1,
             "added mark": 1,
-            "added p [blocks-engine-synthetic-paragraph]": 19,
+            "added p [blocks-engine-synthetic-paragraph]": 15,
             "added p [blocks-engine-synthetic-svg-paragraph]": 3,
             "added ul [blocks-engine-social-source-cluster]": 1,
             "removed a": 3,
@@ -705,12 +676,11 @@
             "retagged div>p [blocks-engine-lowered-paragraph]": 6,
             "retagged div>p [blocks-engine-synthetic-paragraph]": 1,
             "retagged span>div [blocks-engine-semantic]": 4,
-            "retagged span>mark": 19,
-            "retagged span>p [blocks-engine-synthetic-paragraph]": 17,
+            "retagged span>mark": 15,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 21,
             "retagged svg>img": 3
         },
         "44-experimental-zine": {
-            "added div [blocks-engine-attribute]": 3,
             "added div [blocks-engine-control]": 2,
             "added figure [blocks-engine-synthetic-image-figure]": 3,
             "added img": 3,
@@ -724,9 +694,11 @@
             "removed svg": 3,
             "removed ul": 3,
             "retagged div>p [blocks-engine-lowered-paragraph]": 3,
+            "retagged div>p [blocks-engine-synthetic-paragraph]": 3,
             "retagged nav>div [wp-block-group]": 3,
             "retagged span>mark": 4,
-            "retagged span>p [blocks-engine-synthetic-paragraph]": 25
+            "retagged span>mark [blocks-engine-attribute]": 3,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 22
         },
         "45-markdown-ssg-blog": {
             "added div [blocks-engine-control]": 42,
@@ -851,8 +823,7 @@
             "retagged svg>img": 1
         },
         "57-webgl-shader-gallery": {
-            "added div [blocks-engine-layout-child-button]": 1,
-            "added div [blocks-engine-layout-neutral-buttons]": 1,
+            "added div [blocks-engine-control]": 2,
             "added mark": 4,
             "added p [blocks-engine-synthetic-paragraph]": 4,
             "removed button": 1,
@@ -969,9 +940,7 @@
         },
         "7-event-conference": {
             "added a": 1,
-            "added div [blocks-engine-control]": 4,
-            "added div [blocks-engine-layout-child-button]": 8,
-            "added div [blocks-engine-layout-neutral-buttons]": 6,
+            "added div [blocks-engine-control]": 18,
             "added figure [blocks-engine-synthetic-image-figure]": 3,
             "added img": 5,
             "added input": 1,
@@ -1005,9 +974,7 @@
             "retagged svg>img": 1
         },
         "71-beyond-the-block": {
-            "added div [blocks-engine-control]": 4,
-            "added div [blocks-engine-layout-child-button]": 1,
-            "added div [blocks-engine-layout-neutral-buttons]": 1,
+            "added div [blocks-engine-control]": 6,
             "added mark": 13,
             "added p [blocks-engine-inline-layout-carrier]": 12,
             "added p [blocks-engine-synthetic-paragraph]": 4,
@@ -1023,14 +990,13 @@
         "72-why-wordpress": {
             "added a": 1,
             "added cite": 3,
-            "added div [blocks-engine-attribute]": 4,
             "added div [blocks-engine-control]": 10,
             "added figure [blocks-engine-synthetic-image-figure]": 6,
             "added img": 24,
             "added mark": 3,
             "added p": 1,
             "added p [blocks-engine-inline-layout-carrier]": 19,
-            "added p [blocks-engine-synthetic-paragraph]": 10,
+            "added p [blocks-engine-synthetic-paragraph]": 7,
             "added span": 3,
             "removed a": 2,
             "removed button": 1,
@@ -1041,20 +1007,19 @@
             "retagged blockquote>p [blocks-engine-synthetic-paragraph]": 3,
             "retagged div>p": 3,
             "retagged div>p [blocks-engine-lowered-paragraph]": 1,
-            "retagged div>p [blocks-engine-synthetic-paragraph]": 4,
+            "retagged div>p [blocks-engine-synthetic-paragraph]": 6,
             "retagged figcaption>span": 3,
             "retagged figure>blockquote [wp-block-quote]": 3,
             "retagged nav>div [wp-block-group]": 3,
             "retagged p>div [wp-block-group]": 1,
             "retagged span>div [blocks-engine-semantic]": 3,
             "retagged span>div [wp-block-spacer]": 1,
-            "retagged span>mark": 9,
+            "retagged span>mark": 7,
+            "retagged span>mark [blocks-engine-attribute]": 2,
             "retagged span>p [blocks-engine-synthetic-paragraph]": 4
         },
         "73-h44-lacrosse": {
-            "added div [blocks-engine-control]": 8,
-            "added div [blocks-engine-layout-child-button]": 1,
-            "added div [blocks-engine-layout-neutral-buttons]": 1,
+            "added div [blocks-engine-control]": 10,
             "added p [blocks-engine-inline-layout-carrier]": 1,
             "added p [blocks-engine-synthetic-paragraph]": 29,
             "removed button": 1,
@@ -1066,9 +1031,7 @@
             "retagged svg>img": 1
         },
         "74-lumen-coffee": {
-            "added div [blocks-engine-control]": 4,
-            "added div [blocks-engine-layout-child-button]": 3,
-            "added div [blocks-engine-layout-neutral-buttons]": 3,
+            "added div [blocks-engine-control]": 10,
             "added figure [blocks-engine-synthetic-image-figure]": 2,
             "added img": 2,
             "added mark": 2,
@@ -1107,9 +1070,7 @@
             "retagged svg>img": 7
         },
         "77-fernwood-plants": {
-            "added div [blocks-engine-control]": 4,
-            "added div [blocks-engine-layout-child-button]": 1,
-            "added div [blocks-engine-layout-neutral-buttons]": 1,
+            "added div [blocks-engine-control]": 6,
             "added figure [blocks-engine-synthetic-image-figure]": 2,
             "added img": 3,
             "added p [blocks-engine-inline-layout-carrier]": 5,
@@ -1141,8 +1102,7 @@
             "retagged svg>img": 2
         },
         "79-law-firm": {
-            "added div [blocks-engine-layout-child-button]": 1,
-            "added div [blocks-engine-layout-neutral-buttons]": 1,
+            "added div [blocks-engine-control]": 2,
             "added p [blocks-engine-synthetic-paragraph]": 1,
             "removed nav": 2,
             "retagged address>p": 2,
@@ -1151,9 +1111,7 @@
         },
         "8-local-service-business": {
             "added a": 2,
-            "added div [blocks-engine-control]": 6,
-            "added div [blocks-engine-layout-child-button]": 5,
-            "added div [blocks-engine-layout-neutral-buttons]": 5,
+            "added div [blocks-engine-control]": 16,
             "added figure [blocks-engine-synthetic-image-figure]": 45,
             "added img": 53,
             "added mark": 2,
@@ -1313,9 +1271,7 @@
             "removed ul": 1
         },
         "9-membership-community": {
-            "added div [blocks-engine-control]": 12,
-            "added div [blocks-engine-layout-child-button]": 4,
-            "added div [blocks-engine-layout-neutral-buttons]": 4,
+            "added div [blocks-engine-control]": 20,
             "added figure [blocks-engine-synthetic-image-figure]": 17,
             "added img": 26,
             "added mark": 5,

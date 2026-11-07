@@ -8,7 +8,7 @@ const transformerRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)
 const generated = JSON.parse(execFileSync('php', ['-r', `
 require $argv[1] . '/vendor/autoload.php';
 $html = '<section class="hero"><div class="background"></div><div class="content">Copy</div></section>';
-for ($depth = 0; $depth < 8; ++$depth) $html = '<div id="shell-' . $depth . '" class="shell-' . $depth . ' blocks-engine-source-div-fixture-3">' . $html . '</div>';
+for ($depth = 0; $depth < 21; ++$depth) $html = '<div id="shell-' . $depth . '" class="shell-' . $depth . ' blocks-engine-source-div-fixture-3">' . $html . '</div>';
 $html = '<style>.hero{position:relative;width:600px;height:220px}.background{position:absolute;inset:0}.content{position:relative;padding:40px}</style>' . $html;
 $result = (new \\Automattic\\BlocksEngine\\PhpTransformer\\HtmlToBlocks\\HtmlTransformer())->transform($html)->toArray();
 echo json_encode(array('css' => implode("\\n", array_map(static fn(array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $result['assets'] ?? array())), 'serializedBlocks' => (string) ($result['serialized_blocks'] ?? '')));

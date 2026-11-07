@@ -64,6 +64,13 @@ final class CaptureEvidence
 
     /** Class prefix hooking an id-less element's width-scoped style rules; followed by 12 lowercase hex digits. */
     public const RESPONSIVE_PROJECTION_CLASS_PREFIX = 'data-blocks-engine-capture-responsive-';
+    /**
+     * Class prefix of a width-scoped alias for a class token a source script
+     * toggles with the viewport; followed by 12 lowercase hex digits. The
+     * alias name encodes the widths measured on its own route, and only the
+     * rules the capture copied for it give it presentation.
+     */
+    public const VIEWPORT_CLASS_PREFIX = 'data-blocks-engine-capture-width-class-';
     /** Class prefix pairing responsive counterparts; followed by 12 lowercase hex digits. */
     public const RESPONSIVE_COUNTERPART_CLASS_PREFIX = 'data-blocks-engine-capture-responsive-counterpart-';
     /** Source identity of a responsive counterpart element. */

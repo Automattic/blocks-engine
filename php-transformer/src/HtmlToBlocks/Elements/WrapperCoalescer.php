@@ -302,9 +302,13 @@ final class WrapperCoalescer
             && ! $element->hasAttribute('data-node-view-content')
             && ! $element->hasAttribute('data-node-view-content-inner')
             && ! $element->hasAttribute('style')) return false;
+        // A zero-width border paints nothing, and with no border or padding
+        // box-sizing cannot change the box, so a universal reset is inert here.
+        $zeroWidthBorder = (new StyleAttributeMapper())->allBorderWidthsZero($declarations);
         foreach ($declarations as $name => $value) {
             // This invalid spelling has no rendering effect and no carrier.
             if ('whitespace' === $name || $this->isInheritedTextProperty($name)) continue;
+            if ('box-sizing' === $name || ($zeroWidthBorder && preg_match('/^border(?:-(?:top|right|bottom|left))?(?:-(?:width|style|color))?$/', $name))) continue;
             if (in_array($name, array('width', 'height'), true) && '100%' === CssValueInspector::comparable($value)) {
                 $parent = $element->parentNode;
                 if (! $parent instanceof DOMElement) return false;

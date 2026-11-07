@@ -2883,6 +2883,37 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Drop inline declarations an unconditional author `!important` rule
+     * overrides on this element. They never render, so reading them as the
+     * element's authored presentation (block attributes, geometry carriers)
+     * would project a value the source never showed.
+     */
+    public function dropAuthorOverriddenInlineDeclarations(DOMElement $element): void
+    {
+        $inline = $this->verbatimCssDeclarations(SourceDom::attr($element, 'style'));
+        if ( array() === $inline ) {
+            return;
+        }
+        $overridden = array();
+        foreach ( $this->matchingStyleRules($element, 'static') as $rule ) {
+            foreach ( $rule['declarations'] as $property => $value ) {
+                if ( CssValueInspector::isImportant((string) $value) ) {
+                    $overridden[ strtolower((string) $property) ] = true;
+                }
+            }
+        }
+        $kept = array();
+        foreach ( $inline as $property => $value ) {
+            if ( ! isset($overridden[ $property ]) || CssValueInspector::isImportant((string) $value) ) {
+                $kept[] = $property . ': ' . $value;
+            }
+        }
+        if ( count($kept) !== count($inline) ) {
+            $element->setAttribute('style', array() === $kept ? '' : implode(';', $kept) . ';');
+        }
+    }
+
+    /**
      * @param list<string> $properties
      * @return array{int, int, int}
      */
@@ -3556,10 +3587,38 @@ final class StyleResolver implements ElementPresentationResolver
      */
     public function withoutRedundantInheritedTypography(DOMElement $element, array $declarations): array
     {
+        // These tag defaults override inheritance even when the authored value
+        // equals the parent's value, so removing it would change rendering.
+        $tagDefaults = array(
+            'a' => array( 'color' ),
+            'b' => array( 'font-weight' ),
+            'strong' => array( 'font-weight' ),
+            'th' => array( 'font-weight' ),
+            'em' => array( 'font-style' ),
+            'i' => array( 'font-style' ),
+            'cite' => array( 'font-style' ),
+            'var' => array( 'font-style' ),
+            'dfn' => array( 'font-style' ),
+            'address' => array( 'font-style' ),
+            'h1' => array( 'font-size', 'font-weight' ),
+            'h2' => array( 'font-size', 'font-weight' ),
+            'h3' => array( 'font-size', 'font-weight' ),
+            'h4' => array( 'font-size', 'font-weight' ),
+            'h5' => array( 'font-size', 'font-weight' ),
+            'h6' => array( 'font-size', 'font-weight' ),
+            'small' => array( 'font-size' ),
+            'sub' => array( 'font-size' ),
+            'sup' => array( 'font-size' ),
+            'code' => array( 'font-family' ),
+            'kbd' => array( 'font-family' ),
+            'pre' => array( 'font-family' ),
+            'samp' => array( 'font-family' ),
+        );
+        $ownDefaults = $tagDefaults[strtolower($element->tagName)] ?? array();
         $parent = $element->parentNode;
         if ( $parent instanceof DOMElement ) {
             foreach ( array( 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform', 'color' ) as $property ) {
-                if ( ! isset($declarations[$property]) ) {
+                if ( ! isset($declarations[$property]) || in_array($property, $ownDefaults, true) ) {
                     continue;
                 }
                 $inherited = $this->resolvedInheritedTypographyValue($parent, $property);
@@ -5164,6 +5223,7 @@ final class StyleResolver implements ElementPresentationResolver
             'font-weight',
             'letter-spacing',
             'line-height',
+            'text-align',
             'text-transform',
             'white-space',
         ), true) ) {
