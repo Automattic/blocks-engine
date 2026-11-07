@@ -40,6 +40,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveMed
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\SvgArtworkBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\VisualIframeBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\IntrinsicVisualMediaHeight;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EmptyElementFootprint;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\DesignUsageCollector;
@@ -285,6 +286,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly RichTextElementConverter $richTextConverter;
 
     private readonly StyleResolver $styleResolver;
+    private ?IntrinsicVisualMediaHeight $intrinsicVisualMediaHeight = null;
     private readonly EmptyElementFootprint $emptyElementFootprint;
 
     private readonly GeneratedBlockStyleProjector $generatedBlockStyleProjector;
@@ -5220,12 +5222,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         if ( null !== $richTextAttribute && isset($attrs[$richTextAttribute]) ) {
             $attrs[$richTextAttribute] = CommentTextRunBoundaries::apply((string) $attrs[$richTextAttribute]);
         }
-        // Set by cssOwnedGroupAttributes() when the container is a CSS-owned
-        // layout element whose direct-child topology changed during
-        // conversion. applyIntrinsicVisualMediaHeight() below synthesizes its
-        // own, independent fixed-height carrier for every core/group; without
-        // this flag it does not know about — and silently re-pins — the exact
-        // unsafe constraint cssOwnedGroupAttributes() already excluded.
+        // Pass CSS-owned topology changes to IntrinsicVisualMediaHeight::apply()
+        // so its independent height carrier cannot re-pin an unsafe constraint.
         $unsafeFixedHeightTopologyChange = ! empty($attrs['unsafeFixedHeightTopologyChange']);
         unset($attrs['unsafeFixedHeightTopologyChange']);
         if ( ! $preserveInlineLayoutLeaf ) {
@@ -5262,7 +5260,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         if ( $sourceElement instanceof DOMElement ) {
             $sourceTagName = strtolower($sourceElement->tagName);
             if ( in_array($name, array( 'core/group', 'core/column', 'core/columns' ), true) ) {
-                $attrs = $this->applyIntrinsicVisualMediaHeight($sourceElement, $attrs, $unsafeFixedHeightTopologyChange);
+                $attrs = ($this->intrinsicVisualMediaHeight ??= new IntrinsicVisualMediaHeight($this->styleResolver, $this->session->sourceStyleResolutionState()))->apply($sourceElement, $attrs, $unsafeFixedHeightTopologyChange);
             }
             $logicalControl = $logicalSourceElement ?? $sourceElement;
             $logicalControlPath = $logicalControl->getNodePath() ?? '';
@@ -5949,12 +5947,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     }
 
     /**
-     * Flag a CSS-owned group's attrs as riding an unsafe fixed-height
-     * exclusion so createBlock() can pass that fact to
-     * applyIntrinsicVisualMediaHeight(), which independently synthesizes its
-     * own fixed-height carrier and must honor the same exclusion. The flag
-     * itself never reaches serialized block markup — createBlock() consumes
-     * and strips it before attrs are used to build the block.
+     * Pass unsafe CSS-owned height exclusions to IntrinsicVisualMediaHeight::apply().
+     * createBlock() strips this flag before serializing block markup.
      *
      * @param array<string, mixed> $attrs
      * @return array<string, mixed>
@@ -10998,160 +10992,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $block;
     }
 
-
-    /**
-     * @param bool $unsafeFixedHeightTopologyChange Set by cssOwnedGroupAttributes()
-     *     via createBlock() when $element is a CSS-owned layout container whose
-     *     direct-child topology changed during conversion. A fixed `height`
-     *     synthesized here is exactly as unsafe as the one that call already
-     *     excludes, for the same reason: the source author sized the box for
-     *     its own children, and converted children can need different room.
-     * @return array<string, mixed>
-     */
-    private function applyIntrinsicVisualMediaHeight(DOMElement $element, array $attrs, bool $unsafeFixedHeightTopologyChange = false): array
-    {
-        $geometry = array();
-        $presentation = $this->styleResolver->presentationDeclarations($element);
-        $inline = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
-        foreach ( array( 'height', 'min-height' ) as $property ) {
-            if ( 'height' === $property && $unsafeFixedHeightTopologyChange ) {
-                continue;
-            }
-            $family = $this->styleResolver->responsivePropertyFamily($property);
-            if ( array() !== $this->session->sourceStyleResolutionState()->conditionalRules()
-                && $this->styleResolver->hasConditionalStyleFamily($element, $family)
-                && ! $this->styleResolver->inlineOwnsResponsiveProperty($property, $family, $inline)
-            ) {
-                continue;
-            }
-            $value = trim(CssValueInspector::withoutImportant((string) ($presentation[ $property ] ?? '')));
-            if ( preg_match('/^(?:\d+|\d*\.\d+)(?:px)?$/', $value) && 0.0 < (float) $value ) {
-                $geometry[ $property ] = str_ends_with($value, 'px') ? $value : $value . 'px';
-            }
-        }
-        $height = $this->intrinsicVisualMediaHeight($element);
-        if ( '' !== $height && ! isset($geometry['height']) && ! isset($geometry['min-height']) ) {
-            $geometry['min-height'] = $height;
-        }
-        if ( array() === $geometry ) {
-            return $attrs;
-        }
-
-        $carrier = $this->styleResolver->inlineGeometryClassName(
-            $element,
-            array(),
-            array_keys($geometry),
-            $geometry
-        );
-        if ( '' !== $carrier ) {
-            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $carrier);
-        }
-        return $attrs;
-    }
-
-    private function intrinsicVisualMediaHeight(DOMElement $element): string
-    {
-        $parent = $element->parentNode;
-        if ( $parent instanceof DOMElement ) {
-            $parentPosition = strtolower(trim((string) ($this->styleResolver->structuralPresentationDeclarations($parent)['position'] ?? '')));
-            if ( in_array($parentPosition, array( 'absolute', 'fixed' ), true) ) {
-                return '';
-            }
-        }
-        $own = $this->styleResolver->presentationDeclarations($element);
-        foreach ( array( 'height', 'min-height' ) as $property ) {
-            $value = trim(CssValueInspector::withoutImportant((string) ($own[ $property ] ?? '')));
-            if ( preg_match('/^(?:\d+|\d*\.\d+)(?:px)?$/', $value) && 0.0 < (float) $value ) {
-                return '';
-            }
-        }
-        foreach ( $element->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-            if ( $this->hasInFlowContent($child) || $this->inFlowDescendantHasDefiniteBlockSize($child) ) {
-                return '';
-            }
-        }
-
-        foreach ( $element->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-            $position = strtolower(trim((string) ($this->styleResolver->structuralPresentationDeclarations($child)['position'] ?? '')));
-            if ( ! in_array($position, array( 'absolute', 'fixed' ), true) ) {
-                continue;
-            }
-            foreach ( $child->getElementsByTagName('img') as $image ) {
-                if ( ! $image instanceof DOMElement ) {
-                    continue;
-                }
-                for ( $carrier = $image->parentNode; $carrier instanceof DOMElement && $carrier !== $child; $carrier = $carrier->parentNode ) {
-                    $carrierPosition = strtolower(trim((string) ($this->styleResolver->structuralPresentationDeclarations($carrier)['position'] ?? '')));
-                    if ( 'sticky' === $carrierPosition ) {
-                        continue 2;
-                    }
-                }
-                $imageDeclarations = $this->styleResolver->structuralPresentationDeclarations($image);
-                $objectFit = strtolower(trim(CssValueInspector::withoutImportant((string) ($imageDeclarations['object-fit'] ?? ''))));
-                if ( in_array($objectFit, array( 'cover', 'contain' ), true) ) {
-                    continue;
-                }
-                $height = trim(CssValueInspector::withoutImportant((string) ($imageDeclarations['height'] ?? '')));
-                if ( preg_match('/^(?:\d+|\d*\.\d+)$/', $height) ) {
-                    $height .= 'px';
-                }
-                if ( preg_match('/^(?:\d+|\d*\.\d+)px$/', $height) && 0.0 < (float) $height ) {
-                    return $height;
-                }
-            }
-        }
-
-        return '';
-    }
-
-    private function inFlowDescendantHasDefiniteBlockSize(DOMElement $element): bool
-    {
-        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        $position = strtolower(trim((string) ($declarations['position'] ?? '')));
-        if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
-            return false;
-        }
-        foreach ( array( 'height', 'min-height' ) as $property ) {
-            $value = trim(CssValueInspector::withoutImportant((string) ($declarations[ $property ] ?? '')));
-            if ( preg_match('/^(?:\d+|\d*\.\d+)(?:px)?$/', $value) && 0.0 < (float) $value ) {
-                return true;
-            }
-        }
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && $this->inFlowDescendantHasDefiniteBlockSize($child) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private function hasInFlowContent(DOMElement $element): bool
-    {
-        $position = strtolower(trim((string) ($this->styleResolver->structuralPresentationDeclarations($element)['position'] ?? '')));
-        if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
-            return false;
-        }
-        if ( in_array(strtolower($element->tagName), array( 'img', 'picture', 'svg', 'video', 'audio', 'iframe', 'canvas' ), true) ) {
-            return true;
-        }
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement ) {
-                if ( $this->hasInFlowContent($child) ) {
-                    return true;
-                }
-            } elseif ( '' !== trim($child->textContent ?? '') ) {
-                return true;
-            }
-        }
-        return false;
-    }
 
     private function imageSourceUrl(DOMElement $image): string
     {

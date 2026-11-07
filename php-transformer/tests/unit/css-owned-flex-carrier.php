@@ -144,7 +144,7 @@ $assert(
 // The fixed height above rides an INLINE style. A stylesheet-owned fixed
 // height — e.g. an ID selector, as commonly authored — reaches the geometry
 // carrier through a second, independent mechanism: createBlock()'s
-// applyIntrinsicVisualMediaHeight(), which re-derives height from merged
+// IntrinsicVisualMediaHeight::apply(), which re-derives height from merged
 // presentation declarations for every core/group regardless of CSS
 // ownership. Before this fix it did not know about the topology-changed
 // exclusion cssOwnedGroupAttributes() applies, so it silently re-pinned the
@@ -188,7 +188,7 @@ $assert(
 // Control: the SAME stylesheet-owned fixed height, with topology UNCHANGED
 // (both children stay paragraphs), still receives the intrinsic-height
 // carrier — proving the topology-changed exclusion above did not regress the
-// legitimate case applyIntrinsicVisualMediaHeight() exists to serve.
+// legitimate case IntrinsicVisualMediaHeight::apply() exists to serve.
 $stylesheetOwnedStable = $transformWithCss(
     '<aside id="pin"><p>One</p><p>Two</p></aside>',
     $stylesheetOwnedCss
