@@ -2162,6 +2162,44 @@ final class SvgMaterializer implements SvgElementMaterializer
         return false;
     }
 
+    /**
+     * Foreign namespace metadata has no SVG rendering semantics. HTML parsers
+     * may leave prefixes unresolved, so also consult declarations in scope.
+     */
+    public static function isForeignSvgAttribute(DOMElement $element, string $name, string $value): bool
+    {
+        $namespaces = array(
+            'http://www.w3.org/2000/svg',
+            'http://www.w3.org/1999/xlink',
+            'http://www.w3.org/XML/1998/namespace',
+        );
+        if ( 'xmlns' === $name || str_starts_with($name, 'xmlns:') ) {
+            return ! in_array($value, $namespaces, true);
+        }
+        if ( ! str_contains($name, ':') ) {
+            return false;
+        }
+        $prefix = explode(':', $name, 2)[0];
+        $attribute = $element->getAttributeNode($name);
+        $namespace = false !== $attribute ? $attribute->namespaceURI : null;
+        if ( null === $namespace || '' === $namespace ) {
+            $namespace = $element->lookupNamespaceURI($prefix);
+        }
+        if ( null === $namespace || '' === $namespace ) {
+            for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode ) {
+                if ( $current->hasAttribute('xmlns:' . $prefix) ) {
+                    $namespace = $current->getAttribute('xmlns:' . $prefix);
+                    break;
+                }
+            }
+        }
+        // HTML SVG commonly omits the standard prefix declarations.
+        if ( null === $namespace || '' === $namespace ) {
+            $namespace = array('xlink' => $namespaces[1], 'xml' => $namespaces[2])[$prefix] ?? '';
+        }
+        return ! in_array($namespace, $namespaces, true);
+    }
+
     public static function isPassiveSvgMarkup(DOMElement $element): bool
     {
         // Full set of safe SVG structure/presentation/text/filter elements. These carry
@@ -2266,6 +2304,9 @@ final class SvgMaterializer implements SvgElementMaterializer
         }
 
         foreach ( SourceDom::htmlAttributes($element) as $name => $value ) {
+            if ( self::isForeignSvgAttribute($element, $name, $value) ) {
+                continue;
+            }
             $name = strtolower($name);
             $isInertDataAttribute = str_starts_with($name, 'data-') && 'data-dom-store' !== $name;
             // Icon exporters annotate groups with a variant name. It is not an
