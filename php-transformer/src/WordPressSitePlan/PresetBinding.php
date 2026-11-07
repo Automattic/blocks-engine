@@ -732,10 +732,11 @@ final class PresetBinding
                 ++$bound;
                 continue;
             }
-            if (!$safe && null !== $slug && is_string($literal) && $this->inlinePreset($style->color, $key, 'color', $slug, $declarations, $property, $literal)) {
+            if (!$safe && 'important' !== $reason && null !== $slug && is_string($literal) && $this->inlinePreset($style->color, $key, 'color', $slug, $declarations, $property, $literal)) {
                 // A preset class is !important and would mask the state or
-                // override rule; the inline declaration keeps its place in
-                // the cascade and only reads its value from the token.
+                // breakpoint rule; the inline declaration keeps its place in
+                // the cascade and only reads its value from the token. An
+                // author !important rule that always wins stays a refusal.
                 ++$bound;
                 continue;
             }

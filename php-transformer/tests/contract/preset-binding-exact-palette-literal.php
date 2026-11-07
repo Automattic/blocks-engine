@@ -49,7 +49,7 @@ $assert($important['theme']['design_system']['metrics']['refusal_reasons']['impo
 $ordinaryMedia = $compile('@media(max-width:600px){.body{color:#000}}');
 $assert(!str_contains($ordinaryMedia['pages'][0]['canonical_block_markup'], 'style="color:rgb(255, 255, 255)"'), 'An ordinary breakpoint cannot override a direct inline colour.');
 $unsafe = $compile('@media(max-width:600px){.body{color:#000!important}}');
-$assert(str_contains($unsafe['pages'][0]['canonical_block_markup'], 'style="color:var(--wp--preset--color--' . $white . ')"') && !str_contains($unsafe['pages'][0]['canonical_block_markup'], 'has-' . $white . '-color'), 'A breakpoint that can override the inline colour keeps an inline declaration rather than a preset class.');
+$assert(str_contains($unsafe['pages'][0]['canonical_block_markup'], 'style="color:rgb(255, 255, 255)"'), 'A breakpoint that can override the inline colour still prevents binding.');
 
 // Reduced sole-button paragraph from #4618, plus the outline link from #4643.
 foreach (array(
