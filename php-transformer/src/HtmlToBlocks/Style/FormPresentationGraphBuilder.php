@@ -1063,7 +1063,7 @@ final class FormPresentationGraphBuilder
     {
         if (!is_array($fact) || array_diff(array_keys($fact), $keys) || array_diff($keys, array_keys($fact)) || !is_int($fact['index']) || $fact['index'] < 0 || $fact['index'] >= self::MAX_CONTROLS || !is_string($fact['source_selector']) || '' === trim($fact['source_selector']) || strlen($fact['source_selector']) > 2048 || !is_array($fact['styles']) || !is_array($fact['provenance'])) throw new InvalidArgumentException('Form control row fact is invalid.');
         self::assertRowStyles($fact['styles'], $properties);
-        self::assertProvenance($fact['provenance'], $fact['styles'], null);
+        self::assertProvenance($fact['provenance'], $fact['styles'], null, array_merge(self::PROPERTIES, self::ROW_ONLY_PROPERTIES));
     }
 
     private static function assertControlRows(mixed $rows): array
@@ -1093,7 +1093,7 @@ final class FormPresentationGraphBuilder
         foreach ($variant['precedence'] as $property => $rank) {
             if (!in_array($property, $item ? self::ROW_ITEM_PROPERTIES : self::ROW_PROPERTIES, true) || !isset($variant['style_patch'][self::key($property)]) || !is_array($rank) || array_diff(array_keys($rank), array('source_order', 'specificity', 'important')) || !is_int($rank['source_order'] ?? null) || !is_int($rank['specificity'] ?? null) || !is_bool($rank['important'] ?? null)) throw new InvalidArgumentException('Form control row precedence is invalid.');
         }
-        self::assertProvenance($variant['provenance'], $variant['style_patch'], $variant['condition']);
+        self::assertProvenance($variant['provenance'], $variant['style_patch'], $variant['condition'], array_merge(self::PROPERTIES, self::ROW_ONLY_PROPERTIES));
     }
 
     /** @param list<DOMElement> $ancestors @return array{container:array<string,mixed>,variants:list<array<string,mixed>}|null */
@@ -1314,12 +1314,12 @@ final class FormPresentationGraphBuilder
         foreach ( $styles as $key => $value ) if ( ! is_string($key) || ! in_array($key, array_map(self::key(...), $properties), true) || ! is_string($value) || '' === trim($value) || strlen($value) > self::MAX_STYLE_VALUE_BYTES ) throw new InvalidArgumentException('Form presentation style is invalid.');
     }
 
-    private static function assertProvenance(array $provenance, array $styles, ?array $condition): void
+    private static function assertProvenance(array $provenance, array $styles, ?array $condition, array $properties = self::PROPERTIES): void
     {
         if ( count($provenance) > self::MAX_PROVENANCE ) throw new InvalidArgumentException('Form presentation provenance exceeds its limit.');
         foreach ( $provenance as $fact ) {
             if ( is_array($fact) && array_diff(array_keys($fact), array( 'source_path', 'source_sha256', 'selector', 'condition', 'properties' )) ) throw new InvalidArgumentException('Form presentation provenance has unknown keys.');
-            if ( ! is_array($fact) || ! is_string($fact['source_path'] ?? null) || '' === ArtifactPath::safeRelativePath($fact['source_path']) || ArtifactPath::safeRelativePath($fact['source_path']) !== $fact['source_path'] || ! preg_match('/^[a-f0-9]{64}$/', $fact['source_sha256'] ?? '') || ! is_string($fact['selector'] ?? null) || '' === trim($fact['selector']) || strlen($fact['selector']) > 1024 || ! is_array($fact['properties'] ?? null) || array() === $fact['properties'] || array_filter($fact['properties'], static fn (mixed $property): bool => ! is_string($property) || ! in_array($property, self::PROPERTIES, true) || ! isset($styles[self::key($property)])) || ($condition !== null && ($fact['condition'] ?? null) !== $condition) || ($condition === null && ($fact['condition'] ?? null) !== null) ) throw new InvalidArgumentException('Form presentation provenance is invalid.');
+            if ( ! is_array($fact) || ! is_string($fact['source_path'] ?? null) || '' === ArtifactPath::safeRelativePath($fact['source_path']) || ArtifactPath::safeRelativePath($fact['source_path']) !== $fact['source_path'] || ! preg_match('/^[a-f0-9]{64}$/', $fact['source_sha256'] ?? '') || ! is_string($fact['selector'] ?? null) || '' === trim($fact['selector']) || strlen($fact['selector']) > 1024 || ! is_array($fact['properties'] ?? null) || array() === $fact['properties'] || array_filter($fact['properties'], static fn (mixed $property): bool => ! is_string($property) || ! in_array($property, $properties, true) || ! isset($styles[self::key($property)])) || ($condition !== null && ($fact['condition'] ?? null) !== $condition) || ($condition === null && ($fact['condition'] ?? null) !== null) ) throw new InvalidArgumentException('Form presentation provenance is invalid.');
         }
     }
 
