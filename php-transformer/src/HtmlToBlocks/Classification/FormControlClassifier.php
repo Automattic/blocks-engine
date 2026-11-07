@@ -181,7 +181,8 @@ final class FormControlClassifier
      */
     public static function isNonAuthoredControl(DOMElement $control): bool
     {
-        if ( false === ( NativeControlState::payload($control)['rendered'] ?? null ) ) {
+        if ( false === ( NativeControlState::payload($control)['rendered'] ?? null )
+            && self::hasRenderedFormPeer($control) ) {
             return true;
         }
         if ( 'hidden' === self::controlType($control) ) {
@@ -213,6 +214,31 @@ final class FormControlClassifier
         }
 
         return false;
+    }
+
+    /**
+     * Non-rendering distinguishes decoys only beside another rendered field.
+     * Submit buttons carry no captured native state and do not establish that
+     * a form's fields rendered. Outside a form, keep the original exclusion.
+     */
+    private static function hasRenderedFormPeer(DOMElement $control): bool
+    {
+        for ( $form = $control->parentNode; $form instanceof DOMElement; $form = $form->parentNode ) {
+            if ( 'form' !== strtolower($form->tagName) ) {
+                continue;
+            }
+            foreach ( $form->getElementsByTagName('*') as $peer ) {
+                if ( $peer instanceof DOMElement && $peer !== $control
+                    && in_array(strtolower($peer->tagName), self::DATA_ENTRY_TAGS, true)
+                    && false !== ( NativeControlState::payload($peer)['rendered'] ?? null ) ) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        return true;
     }
 
     /**

@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CaptureReplayScripts;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
@@ -67,6 +68,29 @@ foreach (array(
     $control = $doc->getElementsByTagName('textarea')->item(0);
     $valid = in_array($case, array('not rendered', 'rendered', 'absent'), true);
     $assert($valid === (null !== NativeControlState::attributes($control)), "{$case}: optional rendering observation must be boolean");
+
+    // #4967: the entire form may have been in a closed panel at capture.
+    $nameState = array_replace($input, array('type' => 'text', 'value' => '', 'checked' => false)) + $observation;
+    $page = '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Unrendered form control</title></head><body><main>'
+        . '<h1>Request</h1><form><label>Name<input type="text" name="name"' . $marker($nameState)
+        . '></label><button type="submit">Send</button></form></main></body></html>';
+    $doc = new DOMDocument(); $doc->loadHTML($page);
+    $assert(!FormControlClassifier::isNonAuthoredControl($doc->getElementsByTagName('input')->item(0)), "{$case}: sole input remains authored, regardless of submit button");
+    $closed = (new HtmlTransformer())->transform($page)->toArray();
+    $assert(!in_array('core/html', array_column($flatten($closed['blocks']), 'blockName'), true), "{$case}: reduced page has no core/html");
+    $finding = array_values(array_filter($closed['fallbacks'], static fn (array $fallback): bool => 'form_requires_runtime' === ($fallback['reason'] ?? '')))[0] ?? array();
+    $assert('materialize_detected_form_with_form_provider' === ($finding['actionability'] ?? ''), "{$case}: reduced page is a detected form");
+}
+// Scope rendering evidence to the owning form, not the surrounding page.
+$unrendered = '<textarea' . $marker($trapState + array('rendered' => false)) . '></textarea>';
+foreach (array(
+    'all unrendered' => array('<form>' . $unrendered . $unrendered . '</form>', false),
+    'other form' => array('<form>' . $unrendered . '</form><form><input></form>', false),
+    'rendered peer' => array('<form>' . $unrendered . '<input></form>', true),
+    'outside form' => array($unrendered, true),
+) as $case => [$html, $excluded]) {
+    $doc = new DOMDocument(); $doc->loadHTML($html);
+    $assert($excluded === FormControlClassifier::isNonAuthoredControl($doc->getElementsByTagName('textarea')->item(0)), "{$case}: rendering evidence respects form ownership");
 }
 $sourceWithReplay = $source . '<script data-blocks-engine-capture-native-control-runtime>window.capturedReplayExecuted=true;document.querySelector("input[data-blocks-engine-capture-native-control-state]").checked=true;</script>';
 $artifact = (new ArtifactCompiler())->compile(array('block_namespace' => 'neutral', 'files' => array('index.html' => $sourceWithReplay)))->toArray();
