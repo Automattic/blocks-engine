@@ -46,6 +46,7 @@ use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ValidationException
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 use DOMDocument;
 use DOMElement;
+use DOMXPath;
 
 final class ArtifactCompiler
 {
@@ -2096,6 +2097,7 @@ final class ArtifactCompiler
     {
         $html = $this->withoutMaterializedScriptTags($html, $entryPath, $files);
         $html = $this->withoutMaterializedStyleTags($html, $entryPath, $files);
+        $html = $this->withInlinedSvgSpriteSymbols($html, $entryPath, $files);
         $html = preg_replace_callback('/<img\s+[^>]*src\s*=\s*(["\'])([^"\']+)\1[^>]*>/i', function (array $matches) use ($entryPath, $files): string {
             $asset = $this->findAssetByHtmlReference((string) $matches[2], $entryPath, $files);
             if ( is_array($asset) && 'image/svg+xml' === ($asset['mime_type'] ?? '') && ! $this->isSafeImageAsset($asset) ) {
@@ -2106,6 +2108,71 @@ final class ArtifactCompiler
         }, $html) ?? $html;
 
         return $html;
+    }
+
+    /**
+     * An SVG `<use>` that names a symbol in a sprite file shipped with the
+     * artifact (`href="/icons.svg#mail"`) renders that symbol in the source.
+     * Copy each referenced symbol, and the definitions it references in turn,
+     * into a hidden sprite in the document and point the `<use>` at the local
+     * copy, so the icon survives as same-document artwork.
+     *
+     * @param array<int, array<string, mixed>> $files
+     */
+    private function withInlinedSvgSpriteSymbols(string $html, string $entryPath, array $files): string
+    {
+        if ( ! preg_match('/<use\b[^>]*\s(?:xlink:)?href\s*=\s*["\'][^"\'#]+#/i', $html) ) {
+            return $html;
+        }
+
+        $sprites = array();
+        $definitions = array();
+        $html = preg_replace_callback('/(<use\b[^>]*?\s(?:xlink:)?href\s*=\s*)(["\'])([^"\'#]+)#([^"\']+)\2/i', function (array $match) use ($entryPath, $files, &$sprites, &$definitions): string {
+            $path = html_entity_decode($match[3], ENT_QUOTES | ENT_HTML5);
+            if ( ! array_key_exists($path, $sprites) ) {
+                $asset = $this->findAssetByHtmlReference($path, $entryPath, $files);
+                $content = is_array($asset) && 'image/svg+xml' === ($asset['mime_type'] ?? '') ? (string) ($asset['content'] ?? '') : '';
+                $sprite = new DOMDocument();
+                $sprites[$path] = '' !== $content && $this->isSafeSvgContent($content) && $sprite->loadXML($content, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING) ? new DOMXPath($sprite) : null;
+            }
+            $xpath = $sprites[$path];
+            $id = html_entity_decode($match[4], ENT_QUOTES | ENT_HTML5);
+            if ( ! $xpath instanceof DOMXPath || ! $this->collectSvgSpriteDefinition($xpath, $id, $definitions) ) {
+                return $match[0];
+            }
+
+            return $match[1] . $match[2] . '#' . htmlspecialchars($id, ENT_QUOTES) . $match[2];
+        }, $html) ?? $html;
+        if ( array() === $definitions ) {
+            return $html;
+        }
+
+        // One <defs> per definition, so an icon copies only what it uses.
+        $sprite = '<svg aria-hidden="true" style="display:none"><defs>' . implode('</defs><defs>', $definitions) . '</defs></svg>';
+        $count = 0;
+        $html = preg_replace_callback('/<body\b[^>]*>/i', static fn (array $body): string => $body[0] . $sprite, $html, 1, $count) ?? $html;
+
+        return $count > 0 ? $html : $sprite . $html;
+    }
+
+    /** @param array<string, string> $definitions */
+    private function collectSvgSpriteDefinition(DOMXPath $xpath, string $id, array &$definitions): bool
+    {
+        if ( isset($definitions[$id]) ) {
+            return true;
+        }
+        $nodes = '' === $id || str_contains($id, '"') ? false : $xpath->query('//*[@id="' . $id . '"]');
+        $node = false !== $nodes ? $nodes->item(0) : null;
+        if ( ! $node instanceof DOMElement ) {
+            return false;
+        }
+        $definitions[$id] = (string) $node->ownerDocument?->saveXML($node);
+        preg_match_all('/\burl\(\s*["\']?#([^\s"\')]+)|\bhref\s*=\s*["\']#([^"\']+)/i', $definitions[$id], $references, PREG_SET_ORDER);
+        foreach ( $references as $reference ) {
+            $this->collectSvgSpriteDefinition($xpath, '' !== $reference[1] ? $reference[1] : $reference[2], $definitions);
+        }
+
+        return true;
     }
 
     /**

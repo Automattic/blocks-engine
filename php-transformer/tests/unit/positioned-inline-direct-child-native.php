@@ -23,7 +23,7 @@ $failures = array();
 if ( str_contains($blocks, '<!-- wp:html') ) {
     $failures[] = 'carrier is preserved as core/html';
 }
-preg_match('/"class":"wp-block-group glyph[^"]*\b(blocks-engine-semantic-[0-9a-f]+-\d+)/', $blocks, $marker);
+preg_match('/class="wp-block-group glyph[^"]*\b(blocks-engine-semantic-[0-9a-f]+-\d+)/', $blocks, $marker);
 if ( ! isset($marker[1]) || ! preg_match('/' . preg_quote($marker[1], '/') . '[^{}]*\{[^}]*display:inline-block;position:relative/', $css) ) {
     $failures[] = 'the .icon>span rule does not reach the converted child';
 }

@@ -294,7 +294,7 @@ final class ArtifactNormalizer
                     $path
                 );
             }
-            foreach ( array('placement', 'type', 'media', 'source_media', 'source_path', 'selector', 'stylesheet_index', 'superseded_by') as $field ) {
+            foreach ( array('placement', 'type', 'media', 'source_media', CaptureEvidence::DEVICE_STYLE, 'source_path', 'selector', 'stylesheet_index', 'superseded_by') as $field ) {
                 if ( isset($file[$field]) && is_scalar($file[$field]) && '' !== trim((string) $file[$field]) ) {
                     $normalized[$field] = (string) $file[$field];
                 }
@@ -623,7 +623,7 @@ final class ArtifactNormalizer
                     continue;
                 }
                 $linkPosition = count(array_filter($linkOffsets, static fn(int $offset): bool => $offset < $style['offset']));
-                $styles[] = array( 'content' => $css, 'media' => $this->htmlAttribute($attributes, 'media'), 'source_media' => array_key_exists(CaptureEvidence::SOURCE_MEDIA, \Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner::attributes($attributes)) ? StyleTagScanner::authorMedia($attributes) : null, 'type' => $this->htmlAttribute($attributes, 'type'), 'link_position' => $linkPosition );
+                $styles[] = array( 'content' => $css, 'media' => $this->htmlAttribute($attributes, 'media'), 'source_media' => array_key_exists(CaptureEvidence::SOURCE_MEDIA, \Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner::attributes($attributes)) ? StyleTagScanner::authorMedia($attributes) : null, CaptureEvidence::DEVICE_STYLE => $this->htmlAttribute($attributes, CaptureEvidence::DEVICE_STYLE), 'type' => $this->htmlAttribute($attributes, 'type'), 'link_position' => $linkPosition );
             }
             // Spacing and custom properties inline on <body> are data the
             // reader sees, but the document is re-wrapped in a bare <body>
@@ -656,7 +656,7 @@ final class ArtifactNormalizer
                     'media' => $style['media'],
                     'source_media' => $style['source_media'] ?? null,
                     'type' => $style['type'],
-                ));
+                ) + ('' !== ($style[CaptureEvidence::DEVICE_STYLE] ?? '') ? array(CaptureEvidence::DEVICE_STYLE => $style[CaptureEvidence::DEVICE_STYLE]) : array()));
             }
         }
 
@@ -725,7 +725,7 @@ final class ArtifactNormalizer
                 $result[] = $file;
                 continue;
             }
-            $references = $file['inline_references'] ?? array(array_intersect_key($file, array_flip(array('source_path', 'stylesheet_index', 'stylesheet_link_position', 'media', 'source_media', 'placement', 'selector', 'defer', 'async', 'superseded_by', 'metadata'))));
+            $references = $file['inline_references'] ?? array(array_intersect_key($file, array_flip(array('source_path', 'stylesheet_index', 'stylesheet_link_position', 'media', 'source_media', CaptureEvidence::DEVICE_STYLE, 'placement', 'selector', 'defer', 'async', 'superseded_by', 'metadata'))));
             // Address the same canonical bytes payload() will publish, including
             // inline bodies extracted from base64 HTML or resolved includes.
             $file['content'] = $this->normalizeContent($file['content']);
@@ -733,7 +733,7 @@ final class ArtifactNormalizer
             $path = isset($file['inline_references']) ? $file['path'] : 'inline/' . $digest . '.' . $file['kind'];
             if (!isset($indexes[$path])) {
                 $indexes[$path] = count($result);
-                foreach (array('source_path', 'stylesheet_index', 'stylesheet_link_position', 'media', 'source_media', 'placement', 'selector', 'defer', 'async', 'superseded_by', 'metadata') as $field) unset($file[$field]);
+                foreach (array('source_path', 'stylesheet_index', 'stylesheet_link_position', 'media', 'source_media', CaptureEvidence::DEVICE_STYLE, 'placement', 'selector', 'defer', 'async', 'superseded_by', 'metadata') as $field) unset($file[$field]);
                 $file['path'] = $path;
                 $file['inline_references'] = array();
                 $result[] = $file;
