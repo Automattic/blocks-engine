@@ -5276,7 +5276,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                                 && ('' !== trim($this->attr($logicalControl, 'class')) || '' !== trim($this->attr($logicalControl, 'id'))))
                             || ( 'button' === $sourceTagName
                                 && ('' !== trim($this->attr($sourceElement, 'class')) || '' !== trim($this->attr($sourceElement, 'id')))))));
-            $preserveGeneratedStyle = ('core/button' === $name && $this->sourceElementClassifier->hasLogoBrandSignal($sourceElement))
+            // Accordion headings project inherited control typography; keep the
+            // standard fallback for properties core does not support (line-height).
+            $preserveGeneratedStyle = 'core/accordion-heading' === $name
+                || ('core/button' === $name && $this->sourceElementClassifier->hasLogoBrandSignal($sourceElement))
                 || ('core/spacer' === $name && $this->emptyElementFootprint->isEmptyVisualInlineCandidate($sourceElement));
             $attrs = $this->sourceBlockAttributeProjector->project(
                 $name,
