@@ -1117,7 +1117,8 @@ final class NavigationPatternContext
             if ($peerAnchor instanceof DOMElement) $peerAnchors[] = $peerAnchor;
         }
         $classes = static fn(DOMElement $element): array => array_values(array_unique(array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn(string $class): bool => '' !== $class)));
-        $own = static function (DOMElement $element, array $peers) use ($classes): array {
+        $restingClasses = array();
+        $own = static function (DOMElement $element, array $peers) use ($classes, &$restingClasses): array {
             $lists = array();
             foreach ($peers as $peer) {
                 $list = $classes($peer);
@@ -1131,6 +1132,9 @@ final class NavigationPatternContext
             // peers shares the served route's state (an overflow parent holding
             // the served item), so it is no evidence those classes rest.
             $swapped = $replaces ? array_diff($current, reset($resting)[0]) : array();
+            // What the resting peers wear in place of those classes is resting
+            // state: the served item does not have it.
+            if ($replaces) foreach (array_diff(reset($resting)[0], $current) as $class) $restingClasses[] = $class;
             $peerClasses = array();
             foreach ($lists as $group) {
                 if (array() !== $swapped && array() === array_diff($swapped, $group[0])) continue;
@@ -1139,7 +1143,9 @@ final class NavigationPatternContext
             return array_values(array_filter($current, static fn(string $class): bool => !isset($peerClasses[$class])
                 && ($replaces || ($element->hasAttribute('aria-current') && 'false' !== strtolower(trim($element->getAttribute('aria-current')))) || MenuVocabulary::containsCurrentStateToken($class))));
         };
-        $this->session->authorSelectorProjectionState()->markCurrentNavigationClasses(array_merge($own($item, $peerItems), $item->isSameNode($anchor) ? array() : $own($anchor, $peerAnchors)));
+        $projections = $this->session->authorSelectorProjectionState();
+        $projections->markCurrentNavigationClasses(array_merge($own($item, $peerItems), $item->isSameNode($anchor) ? array() : $own($anchor, $peerAnchors)));
+        $projections->markRestingNavigationClasses($restingClasses);
     }
 
     public function navigationItemSubjectMarker(DOMElement $item): string
@@ -1150,8 +1156,14 @@ final class NavigationPatternContext
         return $marker;
     }
 
-    /** @return list<array{tag: string, marker: string, style: string, className: string}> */
-    public function navigationAnchorBoxes(DOMElement $anchor, DOMElement $item): array
+    /**
+     * A submenu parent's boxes may also hold the source disclosure glyph beside
+     * the link; Core's submenu icon renders in its stead, so the glyph does not
+     * stop its box from carrying the label's presentation.
+     *
+     * @return list<array{tag: string, marker: string, style: string, className: string}>
+     */
+    public function navigationAnchorBoxes(DOMElement $anchor, DOMElement $item, bool $submenuParent = false): array
     {
         if (!$this->session instanceof HtmlTransformerSession) return array();
         $boxes = array();
@@ -1163,8 +1175,12 @@ final class NavigationPatternContext
             if (!in_array($tag, array('div', 'span'), true)) return array();
             $children = array();
             foreach ($node->childNodes as $child) {
-                if ($child instanceof DOMElement) $children[] = $child;
-                elseif (XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '')) return array();
+                if ($child instanceof DOMElement) {
+                    // The item's own submenu toggle shares the row; it is not a second label.
+                    if ('button' === strtolower($child->tagName) && in_array(strtolower($child->getAttribute('aria-haspopup')), array('true', 'menu'), true)) continue;
+                    if ($submenuParent && self::isDisclosureGlyph($child, $anchor)) continue;
+                    $children[] = $child;
+                } elseif (XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '')) return array();
             }
             if (1 !== count($children)) return array();
             $marker = $this->navigationSubjectMarker($node, 'box');
@@ -1195,6 +1211,15 @@ final class NavigationPatternContext
             $node = $node->parentNode;
         }
         return array_reverse($boxes);
+    }
+
+    /** A text-free, link-free sibling of the link that paints only an SVG glyph. */
+    private static function isDisclosureGlyph(DOMElement $element, DOMElement $anchor): bool
+    {
+        return !SourceDom::elementContains($element, $anchor)
+            && '' === trim($element->textContent ?? '')
+            && 0 === $element->getElementsByTagName('a')->length
+            && ('svg' === strtolower($element->tagName) || 0 < $element->getElementsByTagName('svg')->length);
     }
 
     /** Equivalent menu occurrences share identity, while different source cascades do not. */

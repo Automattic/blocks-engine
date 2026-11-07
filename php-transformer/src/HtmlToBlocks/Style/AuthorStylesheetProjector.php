@@ -229,6 +229,7 @@ final class AuthorStylesheetProjector
             return implode(',', $runtime) . '{' . $body . '}'
                 . (array() === $lowered ? '' : $this->projectStyleRule(implode(',', $lowered), $body, $context, $inConditional, $ancestors, $outerConditions));
         }
+        $body = $this->withoutConsumedCoverBackgroundImages($prelude, $body, $context);
         $lifted = ColorSchemeVariant::liftPrelude($prelude);
         $this->contentBoxRestated = false;
         $this->contentBoxOrder = null;
@@ -240,6 +241,48 @@ final class AuthorStylesheetProjector
         }
 
         return $this->moveContentBoxRestatements($css, $context, array( ...$outerConditions, ...$ancestors ));
+    }
+
+    /**
+     * A core/cover that consumed its source's stylesheet background owns that
+     * image as an editable attachment. When every subject of a rule is such a
+     * cover, its background image layers become `none`: the value stays valid,
+     * its other layers and declarations keep their cascade, and the theme no
+     * longer ships images nothing displays. Pseudo-element, unmatched and
+     * mixed-subject rules keep their images.
+     */
+    private function withoutConsumedCoverBackgroundImages(string $prelude, string $body, AuthorStylesheetProjectionContext $context): string
+    {
+        if ( ! preg_match('/\bbackground(?:-image)?\s*:[^;}]*url\(/i', $body) ) {
+            return $body;
+        }
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+            if ( str_contains($selector, '::') || preg_match('/:(?:before|after|first-line|first-letter)\b/i', $selector) ) {
+                return $body;
+            }
+            $selector = preg_replace(self::STATE_PSEUDO_CLASS_PATTERN, '', $selector) ?? $selector;
+            $subjects = $this->matchingSourceElements($selector, $context->sourceStyles->parsedSelector($selector), $context);
+            if ( array() === $subjects ) {
+                return $body;
+            }
+            foreach ( $subjects as $element ) {
+                if ( ! $context->selectorProjections->consumedCoverBackground($element->getNodePath() ?? '') ) {
+                    return $body;
+                }
+            }
+        }
+        foreach ( $this->styleResolver->verbatimCssDeclarations($body) as $property => $value ) {
+            if ( 'background' !== $property && 'background-image' !== $property ) {
+                continue;
+            }
+            $pruned = preg_replace('/-webkit-image-set\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)|image-set\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)/i', 'none', $value) ?? $value;
+            $pruned = preg_replace('/url\(\s*(?:"[^"]*"|\'[^\']*\'|[^)]*)\s*\)/i', 'none', $pruned) ?? $pruned;
+            if ( $pruned !== $value ) {
+                $body = str_replace($value, $pruned, $body);
+            }
+        }
+
+        return $body;
     }
 
     private function targetsRuntimeCommentForm(string $selector, AuthorStylesheetProjectionContext $context): bool
@@ -1889,12 +1932,21 @@ final class AuthorStylesheetProjector
      * A subject naming the image by class or id follows that identity. A
      * type-only positioned image also needs its figure to own the source box:
      * leaving that figure static would introduce an in-flow flex/grid item.
+     * That holds only for a selector naming positioned images alone: its
+     * figure arm reaches every figure the type matches, so a global `img`
+     * rule would also restyle the figures of static images.
      * Attributes stay on the <img>. Classes and id must be on the figure, so a
      * class the figure did not keep leaves the authored selector alone.
      *
      * @param array<string, mixed> $parsed
      */
-    private function projectImageFigureSubjectSelector(string $selector, array $parsed, DOMElement $element, AuthorStylesheetProjectionContext $context): ?string
+    private function isPositionedImage(DOMElement $element): bool
+    {
+        return 'img' === strtolower($element->tagName)
+            && in_array(CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($element)['position'] ?? '')), array( 'absolute', 'fixed' ), true);
+    }
+
+    private function projectImageFigureSubjectSelector(string $selector, array $parsed, DOMElement $element, AuthorStylesheetProjectionContext $context, bool $namesOnlyPositionedImages): ?string
     {
         if ( 'img' !== strtolower($element->tagName) ) {
             return null;
@@ -1908,10 +1960,9 @@ final class AuthorStylesheetProjector
         }
         $compounds = $parsed['compounds'];
         $subject = CssSelectorCompoundInspector::rightmost($compounds);
-        $position = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($element)['position'] ?? ''));
         // Only an explicit type subject can use the existing type-span rewrite;
         // an img nested in :where() must remain a leaf selector.
-        $positionedTypeSubject = in_array($position, array( 'absolute', 'fixed' ), true)
+        $positionedTypeSubject = $namesOnlyPositionedImages
             && 1 === preg_match('/^img\b/i', substr($selector, (int) ($parsed['rightmost_compound_span']['start'] ?? 0)));
         if ( 'img' !== strtolower((string) ($subject['type'] ?? ''))
             || ( array() === ($subject['classes'] ?? array()) && array() === ($subject['ids'] ?? array())
@@ -2198,7 +2249,9 @@ final class AuthorStylesheetProjector
                 $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
                 // One shared carrier baseline defeats Core defaults while the
                 // original specificity and order arbitrate author declarations.
-                if ($context->selectorProjections->selectsCurrentNavigationState(substr($selector, 0, null === $parsed['pseudo_state_suffix_span'] ? null : $parsed['pseudo_state_suffix_span']['start']))) $target = AuthorSelectorProjectionState::currentNavigationSubject($target);
+                $stateSelector = substr($selector, 0, null === $parsed['pseudo_state_suffix_span'] ? null : $parsed['pseudo_state_suffix_span']['start']);
+                if ($context->selectorProjections->selectsCurrentNavigationState($stateSelector)) $target = AuthorSelectorProjectionState::currentNavigationSubject($target);
+                elseif ($context->selectorProjections->selectsRestingNavigationState($stateSelector)) $target = AuthorSelectorProjectionState::restingNavigationSubject($target);
                 $rewritten[] = ':root ' . $target . $this->selectorSpecificityShims($parsed, $context) . $suffix;
             }
             if (array() === $otherSubjects) continue;
@@ -2308,8 +2361,9 @@ final class AuthorStylesheetProjector
             // the figure: the box the image bridge already fills.
             $figureSubjects = array();
             $otherMatches = array();
+            $namesOnlyPositionedImages = array() === array_filter($matches, fn (DOMElement $element): bool => ! $this->isPositionedImage($element));
             foreach ( $matches as $element ) {
-                $figureSubject = $this->projectImageFigureSubjectSelector($selector, $parsed, $element, $context);
+                $figureSubject = $this->projectImageFigureSubjectSelector($selector, $parsed, $element, $context, $namesOnlyPositionedImages);
                 if ( null === $figureSubject ) {
                     $otherMatches[] = $element;
                 } else {
@@ -3017,6 +3071,7 @@ final class AuthorStylesheetProjector
                 // the shared carrier baseline every other rule on that item gets;
                 // otherwise Core defaults and lower ranked author rules win.
                 if ($context->selectorProjections->selectsCurrentNavigationState($selector)) $navigationTarget = AuthorSelectorProjectionState::currentNavigationSubject($navigationTarget);
+                elseif ($context->selectorProjections->selectsRestingNavigationState($selector)) $navigationTarget = AuthorSelectorProjectionState::restingNavigationSubject($navigationTarget);
                 $projected[] = ':root ' . $scope . $navigationTarget . $this->selectorSpecificityShims($parsed, $context);
                 continue;
             }
@@ -3039,6 +3094,13 @@ final class AuthorStylesheetProjector
                 $target = '.' . $marker;
             }
             $shims = $this->selectorSpecificityShims($parsed, $context);
+            if ( 'img' === strtolower($element->tagName)
+                && null !== $context->selectorProjections->imageFigure($element->getNodePath() ?? '') ) {
+                // Image identity hooks move onto the synthetic figure. The
+                // matched subject is still its image, not that carrier box.
+                $projected[] = NativeImageLeafPresentation::selectors($scope . ':where(' . $target . ')', $shims);
+                continue;
+            }
             if ( '' !== $context->selectorProjections->controlMarker($element->getNodePath() ?? '') ) {
                 if ( $controlWrapper && LayoutParticipation::BOX_LINK !== LayoutParticipation::resolve($element, $this->styleResolver)->participatingBox() ) {
                     // Outer box spacing belongs to the layout item, not its link.
@@ -3060,6 +3122,19 @@ final class AuthorStylesheetProjector
             $projected[] = $scope . ':where(' . $target . ')' . $shims;
         }
         return array_values(array_unique($projected));
+    }
+
+    /** @param array<string, mixed> $parsed */
+    private function sourceAttributeMarker(string $selector, array $parsed, DOMElement $element, AuthorStylesheetProjectionContext $context): string
+    {
+        $rightmost = CssSelectorCompoundInspector::rightmost($parsed['compounds'] ?? array());
+        if ( null !== $parsed['pseudo_state_suffix_span']
+            || ! CssSelectorCompoundInspector::containsDataAttribute($rightmost)
+            || CssSelectorCompoundInspector::hasLiveAttributePredicate($rightmost)
+        ) {
+            return '';
+        }
+        return $context->selectorProjections->attributeMarker($element->getNodePath() ?? '', $selector);
     }
 
     /** @param array<string, mixed> $parsed @param list<DOMElement> $matches @return list<string>|null */
@@ -3184,6 +3259,12 @@ final class AuthorStylesheetProjector
             $hasUnmarkedImage = false;
             foreach ( $ordinaryImages as $element ) {
                 $marker = $context->selectorProjections->imageWrapperMarker($element->getNodePath() ?? '');
+                if ( '' === $marker ) {
+                    // A static data predicate is not carried to the native image;
+                    // its attribute marker moves to the figure, so reach the leaf
+                    // through that marker, as the figure's own box rule does.
+                    $marker = $this->sourceAttributeMarker($selector, $parsed, $element, $context);
+                }
                 if ( '' === $marker ) {
                     $hasUnmarkedImage = true;
                     continue;
@@ -4587,7 +4668,9 @@ final class AuthorStylesheetProjector
                 $target = $context->selectorProjections->navigationSubject($path);
                 if ( '' === $target || ! $context->selectorProjections->isNavigationToggleRowItem($path) ) continue;
                 $state = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
-                if ( $context->selectorProjections->selectsCurrentNavigationState(substr($selector, 0, null === $parsed['pseudo_state_suffix_span'] ? null : $parsed['pseudo_state_suffix_span']['start'])) ) $target = AuthorSelectorProjectionState::currentNavigationSubject($target);
+                $stateSelector = substr($selector, 0, null === $parsed['pseudo_state_suffix_span'] ? null : $parsed['pseudo_state_suffix_span']['start']);
+                if ( $context->selectorProjections->selectsCurrentNavigationState($stateSelector) ) $target = AuthorSelectorProjectionState::currentNavigationSubject($target);
+                elseif ( $context->selectorProjections->selectsRestingNavigationState($stateSelector) ) $target = AuthorSelectorProjectionState::restingNavigationSubject($target);
                 $selectors[] = ':root ' . $target . $this->selectorSpecificityShims($parsed, $context) . $state;
             }
         }

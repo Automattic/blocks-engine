@@ -47,10 +47,52 @@ final class AssetConsumers
         return $consumers;
     }
 
-    /** @param list<array<string,mixed>> $consumers */
-    public static function destination(array $consumers): string
+    /** @param list<array<string,mixed>> $consumers @param array<string,true>|null $unreferenced */
+    public static function destination(array $consumers, array $asset = array(), ?array $unreferenced = null): string
     {
         foreach ($consumers as $consumer) if ('block' === $consumer['kind']) return 'media_library';
+        if (null !== $unreferenced && isset($unreferenced[$asset['token'] ?? ''])) return 'none';
         return 'theme';
+    }
+
+    /**
+     * Image assets no plan member references. Static references are declared
+     * tokens only, and plan metadata (featured images, reports) names assets
+     * by target path, so an image whose token and target path are absent from
+     * every page, template, part, pattern, menu, theme, runtime record and
+     * other write is unreachable. Script references must be proven before
+     * absence counts. An image's own write never references it; an SVG write
+     * can reference another image, so pruned SVGs stop counting until the set
+     * is stable.
+     *
+     * @param array<string,mixed> $plan
+     * @return array<string,true>|null Null when unreferenced assets cannot be proven.
+     */
+    public static function unreferencedImages(array $plan): ?array
+    {
+        if ('proven' !== ($plan['reference_semantics']['dynamic_script_references'] ?? null)) return null;
+        $images = array();
+        foreach ($plan['assets'] as $asset) {
+            if ('asset' === ($asset['kind'] ?? null) && str_starts_with((string) ($asset['mime_type'] ?? ''), 'image/')) $images[$asset['token']] = $asset['target_path'];
+        }
+        $imageTargets = array_flip($images);
+        $flags = JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE;
+        $base = json_encode(array_diff_key($plan, array('assets' => true, 'reference_tokens' => true, 'writes' => true, 'plan_identity' => true)), $flags)
+            . json_encode(array_values(array_filter($plan['writes'], static fn(array $write): bool => !isset($imageTargets[$write['target_path']]) && 'theme_bootstrap' !== ($write['kind'] ?? null))), $flags);
+        $imagePayloads = array();
+        foreach ($plan['writes'] as $write) if (isset($imageTargets[$write['target_path']]) && 'utf8' === ($write['payload']['encoding'] ?? null)) $imagePayloads[$write['target_path']] = (string) ($write['canonical_payload'] ?? $write['payload']['data'] ?? '');
+        $unreferenced = array();
+        do {
+            $haystack = $base;
+            foreach ($imagePayloads as $target => $payload) if (!isset($unreferenced[$imageTargets[$target]])) $haystack .= "\n" . $payload;
+            $next = array();
+            foreach ($images as $token => $target) {
+                $referenced = str_contains($haystack, WordPressSitePlan::TOKEN_PREFIX . $token . '}}') || str_contains($haystack, '"' . $target . '"');
+                if (!$referenced) $next[$token] = true;
+            }
+            $stable = $next === $unreferenced;
+            $unreferenced = $next;
+        } while (!$stable);
+        return $unreferenced;
     }
 }

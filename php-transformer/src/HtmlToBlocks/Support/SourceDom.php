@@ -42,6 +42,20 @@ use DOMText;
  */
 final class SourceDom
 {
+    /**
+     * A text label that is read but not painted. It gives a text-less control
+     * its accessible name as content, which core blocks require to render.
+     * The clip is inline so it holds without theme CSS. The label is pinned to
+     * its containing block's origin: left at its static position inside a
+     * scroller that is not positioned, it would escape that clip and widen
+     * the page.
+     */
+    public static function visuallyHiddenLabel(string $label): string
+    {
+        return '<span class="screen-reader-text" style="position:absolute;top:0;left:0;width:1px;height:1px;padding:0;margin:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0">'
+            . htmlspecialchars($label, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</span>';
+    }
+
     public static function anchorIsHeadingWrapped(DOMElement $anchor, DOMElement $boundary): bool
     {
         for ( $node = $anchor; $node instanceof DOMElement && ! $node->isSameNode($boundary); $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
@@ -602,7 +616,13 @@ final class SourceDom
         // A document scope is a declared source-body boundary, independent of
         // presentation classes or a fixed set of device/profile names.
         if ($element->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) && 1 === preg_match('/^[a-z][a-z0-9_-]{0,63}$/', trim(EngineMarker::deviceScopeValue($element)))) return true;
-        foreach ( preg_split('/\s+/', trim(self::attr($element, 'class'))) ?: array() as $class ) {
+        $classes = $element->getAttribute('class');
+        // Nearly every element on an ancestor walk carries none of the
+        // variant classes; skip tokenizing those.
+        if ( ! str_contains($classes, 'site-document-variant-') && ! str_contains($classes, CaptureEvidence::DESKTOP_DOCUMENT_CLASS) && ! str_contains($classes, CaptureEvidence::MOBILE_DOCUMENT_CLASS) ) {
+            return false;
+        }
+        foreach ( preg_split('/\s+/', trim($classes)) ?: array() as $class ) {
             if ( str_starts_with($class, 'site-document-variant-') || in_array($class, array( CaptureEvidence::DESKTOP_DOCUMENT_CLASS, CaptureEvidence::MOBILE_DOCUMENT_CLASS ), true) ) {
                 return true;
             }

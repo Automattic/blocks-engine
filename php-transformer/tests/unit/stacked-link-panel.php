@@ -31,7 +31,7 @@ $css = implode("\n", array_column($result['assets'] ?? array(), 'content'));
 $markup = (string) ($result['serialized_blocks'] ?? '');
 
 $assert(str_contains($markup, 'blocks-engine-synthetic-paragraph'), 'panel links lower to synthetic paragraph carriers', $markup);
-$assert(str_contains($css, ':where(p.blocks-engine-synthetic-paragraph)>a{margin:inherit}'), 'the anchor takes the sibling spacing its display:contents carrier matched', $css);
+$assert(str_contains($css, ':where(p.blocks-engine-synthetic-paragraph:not(.blocks-engine-source-box-paragraph))>a{margin:inherit}'), 'the anchor takes the sibling spacing its display:contents carrier matched', $css);
 $assert(1 === preg_match('/\.wp-block-buttons\{[^}]*width:100%/', $css) && 1 === preg_match('/>\.wp-block-button__link\{[^}]*width:100%/', $css), 'a block-level flow button fills the line instead of shrinking to its label', $css);
 
 $inRow = ( new HtmlTransformer() )->transform(

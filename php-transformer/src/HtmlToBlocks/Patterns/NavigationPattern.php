@@ -97,7 +97,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             return true;
         }
 
-        return MenuVocabulary::isCurrentPageLinkRun($element) || $this->hasHeaderLinkCluster($element) || $this->hasRepeatedLinkItems($element) || $this->hasButtonDropdownChild($element) || $this->holdsAriaMenu($element);
+        return $this->isWrappedLandmarkLinkRun($element) || MenuVocabulary::isCurrentPageLinkRun($element) || $this->hasHeaderLinkCluster($element) || $this->hasRepeatedLinkItems($element) || $this->hasButtonDropdownChild($element) || $this->holdsAriaMenu($element);
     }
 
     /**
@@ -3503,9 +3503,11 @@ final class NavigationPattern implements PatternRecognizerInterface
         $anchorAttrs = $this->withoutCoreNavigationClasses($presentationAttributes($anchor));
         if ($isCurrentNavigationItem) $navigationContext?->recordCurrentNavigationItem($item, $anchor);
         // Submenu toggles (buttons, or links declared as buttons) have their
-        // own rendered content subject, just like ordinary links. Leave the
-        // existing linked-submenu path unchanged.
-        $subjectMarker = $item->isSameNode($anchor) || (null !== $submenuContainer && ! $this->isSubmenuToggleControl($anchor)) ? '' : ($navigationContext?->navigationAnchorSubjectMarker($anchor, $item) ?? '');
+        // own rendered content subject, just like ordinary links. A linked
+        // submenu does too once its link sits inside wrapper boxes, so it keeps
+        // the boxes its sibling links keep; a link placed directly in its item
+        // stays on the plain linked-submenu path.
+        $subjectMarker = $item->isSameNode($anchor) || (null !== $submenuContainer && ! $this->isSubmenuToggleControl($anchor) && $anchor->parentNode?->isSameNode($item)) ? '' : ($navigationContext?->navigationAnchorSubjectMarker($anchor, $item) ?? '');
         if ('' !== $subjectMarker) {
             $anchorClassName = (string) ($anchorAttrs['className'] ?? $anchor->getAttribute('class'));
             // The subject renders on every route; the served route's own hooks do not.
@@ -3518,7 +3520,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             $itemAttrs['metadata']['blocksEngineNavigationAnchor'] = array('style' => $anchor->getAttribute('style'), 'className' => $anchorClassName);
             if ('' !== trim($anchor->getAttribute('id'))) $itemAttrs['metadata']['blocksEngineNavigationAnchor']['id'] = $anchor->getAttribute('id');
             if ('' !== trim($item->getAttribute('style'))) $itemAttrs['metadata']['blocksEngineNavigationAnchor']['itemStyle'] = $item->getAttribute('style');
-            $boxes = $navigationContext->navigationAnchorBoxes($anchor, $item);
+            $boxes = $navigationContext->navigationAnchorBoxes($anchor, $item, null !== $submenuContainer);
             // A wrapper box renders on every route too, so it drops route state like the anchor.
             if ($isCurrentNavigationItem) foreach ($boxes as $index => $box) $boxes[$index]['className'] = (string) ($this->withoutAuthoredCurrentNavigationSignals(array('className' => $box['className']))['className'] ?? '');
             if (array() !== $boxes) $itemAttrs['metadata']['blocksEngineNavigationAnchor']['boxes'] = $boxes;
@@ -5287,7 +5289,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             return true;
         }
 
-        if ( MenuVocabulary::isCurrentPageLinkRun($element) || $this->hasHeaderLinkCluster($element) || $this->hasRepeatedLinkItems($element) || $this->isMenuPanelContent($element) || $this->hasButtonDropdownChild($element) ) {
+        if ( $this->isWrappedLandmarkLinkRun($element) || MenuVocabulary::isCurrentPageLinkRun($element) || $this->hasHeaderLinkCluster($element) || $this->hasRepeatedLinkItems($element) || $this->isMenuPanelContent($element) || $this->hasButtonDropdownChild($element) ) {
             return true;
         }
 
@@ -5395,6 +5397,42 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
         }
 
+        return false;
+    }
+
+    /**
+     * When controls prevent a landmark from becoming one navigation block,
+     * recursion still reaches its link run. Keep the landmark's structural proof
+     * through plain wrappers rather than requiring menu vocabulary on the run.
+     */
+    private function isWrappedLandmarkLinkRun(DOMElement $element): bool
+    {
+        $anchors = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') ) {
+                return false;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            if ( 'a' !== strtolower($child->tagName) || '' === trim($this->attr($child, 'href')) ) {
+                return false;
+            }
+            ++$anchors;
+        }
+        if ( 2 > $anchors ) {
+            return false;
+        }
+        for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+            if ( MenuVocabulary::isMenuLandmark($parent) ) {
+                // Direct landmark children retain the existing brand/label
+                // ambiguity rules; this proof belongs to wrapped link runs.
+                return ! $parent->isSameNode($element->parentNode);
+            }
+            if ( ! in_array(strtolower($parent->tagName), array( 'div', 'span', 'section' ), true) ) {
+                return false;
+            }
+        }
         return false;
     }
 

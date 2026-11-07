@@ -1396,7 +1396,9 @@ final class SvgMaterializer implements SvgElementMaterializer
      */
     public static function ensureSvgImageNamespace(string $html): string
     {
-        if ( ! preg_match('/<svg\b[^>]*\sxmlns\s*=/i', $html) ) {
+        // Only the root element counts: a nested `<svg xmlns>` (as Wix emits
+        // inside its shape wrapper) leaves the document root unnamespaced.
+        if ( ! preg_match('/^\s*<svg\b[^>]*\sxmlns\s*=/i', $html) ) {
             $html = preg_replace('/<svg\b/i', '<svg xmlns="http://www.w3.org/2000/svg"', $html, 1) ?? $html;
         }
         if ( preg_match('/<[a-z][^>]*\sxlink:[a-z]+\s*=/i', $html) && ! preg_match('/^\s*<svg\b[^>]*\sxmlns:xlink\s*=/i', $html) ) {
@@ -1884,12 +1886,14 @@ final class SvgMaterializer implements SvgElementMaterializer
 
     private function svgLengthAttributeForImage(string $value): string
     {
-        $value = trim($value);
-        if ( '' === $value || ! preg_match('/^\d+(?:\.\d+)?$/', $value) ) {
+        // An SVG width/height attribute is a CSS length: `40` and `40px` both
+        // size the box to 40 CSS pixels. Rejecting the explicit unit would
+        // drop the authored size and fall back to the viewBox dimensions.
+        if ( 1 !== preg_match('/^(\d+(?:\.\d+)?)(?:px)?$/i', trim($value), $match) ) {
             return '';
         }
 
-        return $value . 'px';
+        return $match[1] . 'px';
     }
 
     private function svgImageAlt(DOMElement $element): string

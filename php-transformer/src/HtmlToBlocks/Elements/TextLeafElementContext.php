@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CodePresentation;
 use Closure;
 use DOMElement;
 
@@ -17,13 +18,10 @@ use DOMElement;
 final class TextLeafElementContext
 {
     /**
-     * @param Closure(DOMElement, DOMElement): array<string, mixed>                            $codePresentationAttributes
-     * @param Closure(DOMElement): string                                                      $codeContent
      * @param Closure(DOMElement, array<int, array<string, mixed>>, bool): array<int, array<string, mixed>> $convertChildren
      */
     public function __construct(
-        private readonly Closure $codePresentationAttributes,
-        private readonly Closure $codeContent,
+        private readonly CodePresentation $codePresentation,
         private readonly Closure $convertChildren
     ) {
     }
@@ -33,12 +31,12 @@ final class TextLeafElementContext
      */
     public function codePresentationAttributes(DOMElement $pre, DOMElement $code): array
     {
-        return ($this->codePresentationAttributes)($pre, $code);
+        return $this->codePresentation->attributes($pre, $code);
     }
 
     public function codeContent(DOMElement $code): string
     {
-        return ($this->codeContent)($code);
+        return $this->codePresentation->content($code);
     }
 
     /**

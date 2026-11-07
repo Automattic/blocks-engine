@@ -72,11 +72,13 @@ final class ShellExtraction
                 // shell extractor's responsibility, not a trailing scaffold.
                 $root = $nodes[$children[$roots[0]]];
                 if (preg_match('/"tagName"\s*:\s*"main"/', $root['attributes'])) continue;
+                $leading = array_slice($children, 0, $roots[0]);
                 $trailing = array_slice($children, $roots[0] + 1);
-                if (array() === $trailing) continue;
+                if (array() === $leading && array() === $trailing) continue;
                 $closing = substr($markup, $nodes[$children[count($children) - 1]]['end'], $wrapper['end'] - $nodes[$children[count($children) - 1]]['end']);
                 $device = CaptureEvidence::deviceDocumentProfile((string) current(array_filter($classes, CaptureEvidence::isDeviceDocumentClass(...)))) ?? 'desktop';
-                foreach ($trailing as $child) {
+                $sides = array_fill_keys($leading, 'leading') + array_fill_keys($trailing, 'trailing');
+                foreach ($sides as $child => $side) {
                     $range = array('offset' => $nodes[$child]['offset'], 'length' => $nodes[$child]['end'] - $nodes[$child]['offset']);
                     $bindings = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, array($range));
                     if ($bindings['blocked'] || array() !== $bindings['refs']) continue;
@@ -87,6 +89,7 @@ final class ShellExtraction
                     $variants[$device]['opening'] ??= $opening;
                     $variants[$device]['closing'] ??= $closing;
                     $variants[$device]['siblings'][$identity]['markup'] ??= $sibling;
+                    $variants[$device]['siblings'][$identity]['position'] = $side;
                     $variants[$device]['siblings'][$identity]['sources'][(string) $page['source_path']] = true;
                     $removals[] = $range;
                 }
@@ -99,10 +102,10 @@ final class ShellExtraction
         }
         $shared = '';
         foreach ($variants as $variant) {
-            $siblings = '';
+            $leading = ''; $trailing = '';
             foreach ($variant['siblings'] as $sibling) {
                 if (count($sibling['sources']) === $postCount) {
-                    $siblings .= $sibling['markup'];
+                    if ('leading' === $sibling['position']) $leading .= $sibling['markup']; else $trailing .= $sibling['markup'];
                     continue;
                 }
                 preg_match('/"anchor"\s*:\s*"([^"]+)"|\bid="([^"]+)"|\bclass="([^"]+)"/', $sibling['markup'], $label);
@@ -113,7 +116,7 @@ final class ShellExtraction
                     $diagnostics[] = array('code' => 'wordpress_site_plan_document_chrome_varying_omitted', 'severity' => 'info', 'source_path' => $source, 'anchor_or_class' => $anchor, 'message' => 'Omitted per-post document chrome (' . $anchor . '); per-request output is not shared template design.');
                 }
             }
-            if ('' !== $siblings) $shared .= $variant['opening'] . $siblings . $variant['closing'];
+            if ('' !== $leading || '' !== $trailing) $shared .= $variant['opening'] . $leading . '<!-- wp:post-content /-->' . $trailing . $variant['closing'];
         }
         if ('' !== $shared) $chrome['single'] = $shared;
         return array('pages' => $pages, 'chrome' => $chrome, 'diagnostics' => $diagnostics);
@@ -626,6 +629,14 @@ final class ShellExtraction
             }
         }
         foreach ($ranges as $range) {
+            $block = substr($markup, $range['offset'], $range['length']);
+            // A complete labelled shell owns its descendants. Looking for
+            // unlabeled chrome inside it can mistake its link row for another
+            // header and its trailing controls for a footer when a preceding
+            // document sibling prevents the outer first-child match.
+            $openingBlock = strstr($block, '-->', true) ?: '';
+            if (1 === preg_match('/"tagName":"(?:header|footer)"|"role":"(?:banner|contentinfo)"/', $openingBlock)
+                && !self::containsMainLandmark($block) && !str_contains($block, '<!-- wp:heading')) continue;
             $children = $index->children($range);
             if (array() === $children) continue;
             $opening = substr($markup, $range['offset'], $children[0]['offset'] - $range['offset']);
@@ -3352,8 +3363,7 @@ final class ShellExtraction
                     // colour or underline after moving presentation to the title.
                     $attrs['style']['elements']['link']['color']['text'] = 'inherit';
                     $attrs['style']['elements']['link']['typography']['textDecoration'] = $presentation['text-decoration-line'] ?? 'none';
-                    $replacement = '<!-- wp:site-title ' . BlockAttributes::encode($attrs) . ' /-->';
-                    $evidence[$signature][$index][] = array('candidate' => $candidateIndex, 'offset' => $node['offset'], 'length' => $node['end'] - $node['offset'], 'leaf_offset' => $leaf['offset'], 'leaf_length' => $leaf['end'] - $leaf['offset'], 'replacement' => $replacement);
+                    $evidence[$signature][$index][] = array('candidate' => $candidateIndex, 'offset' => $node['offset'], 'length' => $node['end'] - $node['offset'], 'leaf_offset' => $leaf['offset'], 'leaf_length' => $leaf['end'] - $leaf['offset'], 'attributes' => $attrs, 'entrypoint_heading' => !empty($page['entrypoint']) && 'heading' === $leaf['name']);
                 }
             }
         }
@@ -3361,14 +3371,21 @@ final class ShellExtraction
             if ($applicable < 2 || count($routes) !== $applicable) continue;
             // Ambiguous repeated labels are not structural wordmark evidence.
             if (array_filter($routes, static fn(array $matches): bool => 1 !== count($matches))) continue;
+            // Every copy of the shared part carries the entrypoint's evidence,
+            // irrespective of which route supplies the extracted template part.
+            $entrypointHeading = false;
+            foreach ($routes as $matches) if ($matches[0]['entrypoint_heading']) $entrypointHeading = true;
             foreach ($routes as $index => $matches) {
                 $match = $matches[0];
+                $attrs = $match['attributes'];
+                $attrs['metadata']['blocksEngineWordmarkHeading'] = $entrypointHeading;
+                $replacement = '<!-- wp:site-title ' . BlockAttributes::encode($attrs) . ' /-->';
                 $candidate = &$pages[$index]['shell_candidates'][$match['candidate']];
                 $markup = $candidate['rest_markup'] ?? $candidate['markup'];
                 $identity = substr_replace($markup, '<!-- shared-wordmark:' . $signature . ' -->', $match['offset'], $match['length']);
                 $candidate['identity_markup'] = self::normalizeNestedChromeMarkup($identity);
                 $candidate['wordmark_route_state'] = true;
-                $part = substr_replace($markup, $match['replacement'], $match['leaf_offset'], $match['leaf_length']);
+                $part = substr_replace($markup, $replacement, $match['leaf_offset'], $match['leaf_length']);
                 $candidate['template_part_markup'] = self::landmarkPartMarkup(self::withoutCurrentNavigationState($part), 'header');
                 unset($candidate);
             }
@@ -3996,7 +4013,12 @@ final class ShellExtraction
                 $own = array_diff_key($attrs, array_flip(array('className', 'style', 'color', 'typography', 'anchor', 'anchorClassName')));
                 $attrs = array_merge($peer, $own);
                 $peerClasses = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
-                $stable = array_values(array_filter($classes, static fn(string $class): bool => '' !== $class && !self::isCurrentPageClass($class, $peerClasses) && !preg_match('/^blocks-engine-navigation-(?:current|link)-color-[a-f0-9]{64}$/', $class) && !preg_match('/^blocks-engine-navigation-link-color-states-\d+$/', $class) && !preg_match('/^be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?$/', $class) && !in_array($class, $peerClasses, true)));
+                // A current item may swap arbitrary author utilities rather
+                // than name its state. Match the producer's structural proof:
+                // shared presentation plus missing resting classes identifies
+                // the item's peer-unique replacement classes as route state.
+                $replaces = array() !== array_intersect($classes, $peerClasses) && array() !== array_diff($peerClasses, $classes);
+                $stable = array_values(array_filter($classes, static fn(string $class): bool => '' !== $class && (!$replaces || str_starts_with($class, 'blocks-engine-') || str_starts_with($class, 'be-')) && !self::isCurrentPageClass($class, $peerClasses) && !preg_match('/^blocks-engine-navigation-(?:current|link)-color-[a-f0-9]{64}$/', $class) && !preg_match('/^blocks-engine-navigation-link-color-states-\d+$/', $class) && !preg_match('/^be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?$/', $class) && !in_array($class, $peerClasses, true)));
                 // The part keeps the item's own link-state carrier, which the
                 // navigation-root current-color rule resolves its state against.
                 $stateCarriers = $semanticIdentity ? array() : array_values(array_filter($classes, static fn(string $class): bool => 1 === preg_match('/^blocks-engine-navigation-link-color-states-\d+$/', $class)));

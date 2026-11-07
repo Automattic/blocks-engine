@@ -64,6 +64,9 @@ final class StyleResolver implements ElementPresentationResolver
 
     private ?InlineGeometry $inlineGeometry = null;
 
+    /** @var array<string, array{property: string, value: string, important: bool}> */
+    private array $mediaTextDeclarationNormalizationCache = array();
+
     /**
      * Whether an element's block keeps a native core grid layout attribute,
      * keyed by the presentation cache's element key. Parents are queried once
@@ -2977,14 +2980,22 @@ final class StyleResolver implements ElementPresentationResolver
      * The text alignment a block inherits from source wrappers the conversion
      * removes, or which an editor reset would otherwise hide. The nearest
      * cascaded declaration decides, including stylesheet-owned alignment.
-     * Author rules need lifting only when they differ from the editor default.
+     * Author rules need lifting only when they differ from the editor default,
+     * and never when a media-conditional rule on the path re-aligns the text.
      */
     public function inheritedTextAlignmentDeclaration(DOMElement $element): string
     {
+        $conditional = array() !== $this->session->sourceStyleResolutionState()->conditionalRules();
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
             $declarations = $this->cssDeclarations($this->specificityResolvedPresentationStyle($node));
             $value = CssValueInspector::comparable((string) ($declarations['text-align'] ?? ''));
             if ( in_array($value, array( '', 'inherit', 'unset' ), true) ) {
+                // Only resting at this width: a media-conditional rule here
+                // overrides the inherited value elsewhere, so lifting the
+                // ancestor's alignment onto the block would silence it.
+                if ( $conditional && $this->hasConditionalStyleFamily($node, 'text-align') ) {
+                    return '';
+                }
                 continue;
             }
             $local = array(
@@ -2993,6 +3004,12 @@ final class StyleResolver implements ElementPresentationResolver
             );
             if ( ! in_array($value, $local, true)
                 && 'start' === $this->comparableTextAlignment($value, $this->isRightToLeftElement($element)) ) {
+                return '';
+            }
+            // A media-conditional rule on the deciding stylesheet owner
+            // re-aligns the text at other widths; a static lift would
+            // freeze the resting value over it.
+            if ( $conditional && ! in_array($value, $local, true) && $this->hasConditionalStyleFamily($node, 'text-align') ) {
                 return '';
             }
 
@@ -3539,10 +3556,38 @@ final class StyleResolver implements ElementPresentationResolver
      */
     public function withoutRedundantInheritedTypography(DOMElement $element, array $declarations): array
     {
+        // These tag defaults override inheritance even when the authored value
+        // equals the parent's value, so removing it would change rendering.
+        $tagDefaults = array(
+            'a' => array( 'color' ),
+            'b' => array( 'font-weight' ),
+            'strong' => array( 'font-weight' ),
+            'th' => array( 'font-weight' ),
+            'em' => array( 'font-style' ),
+            'i' => array( 'font-style' ),
+            'cite' => array( 'font-style' ),
+            'var' => array( 'font-style' ),
+            'dfn' => array( 'font-style' ),
+            'address' => array( 'font-style' ),
+            'h1' => array( 'font-size', 'font-weight' ),
+            'h2' => array( 'font-size', 'font-weight' ),
+            'h3' => array( 'font-size', 'font-weight' ),
+            'h4' => array( 'font-size', 'font-weight' ),
+            'h5' => array( 'font-size', 'font-weight' ),
+            'h6' => array( 'font-size', 'font-weight' ),
+            'small' => array( 'font-size' ),
+            'sub' => array( 'font-size' ),
+            'sup' => array( 'font-size' ),
+            'code' => array( 'font-family' ),
+            'kbd' => array( 'font-family' ),
+            'pre' => array( 'font-family' ),
+            'samp' => array( 'font-family' ),
+        );
+        $ownDefaults = $tagDefaults[strtolower($element->tagName)] ?? array();
         $parent = $element->parentNode;
         if ( $parent instanceof DOMElement ) {
             foreach ( array( 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform', 'color' ) as $property ) {
-                if ( ! isset($declarations[$property]) ) {
+                if ( ! isset($declarations[$property]) || in_array($property, $ownDefaults, true) ) {
                     continue;
                 }
                 $inherited = $this->resolvedInheritedTypographyValue($parent, $property);
@@ -4144,34 +4189,46 @@ final class StyleResolver implements ElementPresentationResolver
         int $sequence,
         ?int $layer = null
     ): void {
-        $property = str_starts_with($property, '--') ? $property : strtolower($property);
-        $important = 1 === preg_match('/\s*!\s*important\s*$/i', $rawValue);
-        $value = trim(preg_replace('/\s*!\s*important\s*$/i', '', $rawValue) ?? $rawValue);
+        $cacheKey = serialize(array($property, $rawValue));
+        if (! isset($this->mediaTextDeclarationNormalizationCache[$cacheKey])) {
+            $normalizedProperty = str_starts_with($property, '--') ? $property : strtolower($property);
+            $important = 1 === preg_match('/\s*!\s*important\s*$/i', $rawValue);
+            $value = trim(preg_replace('/\s*!\s*important\s*$/i', '', $rawValue) ?? $rawValue);
+
+            if ('flex-flow' === $normalizedProperty) {
+                $normalizedProperty = 'flex-direction';
+                // A var() flow is statically unresolvable — keep it verbatim so the
+                // strict gate declines on it instead of defaulting to row.
+                if (1 !== preg_match('/var\s*\(/i', $value)) {
+                    $flowDirection = null;
+                    foreach (CssValueSplitter::splitTopLevelWhitespace(strtolower($value)) as $component) {
+                        if (in_array($component, array('row', 'row-reverse', 'column', 'column-reverse'), true)) {
+                            $flowDirection = $component;
+                            break;
+                        }
+                    }
+                    $value = $flowDirection ?? (in_array(strtolower($value), array('inherit', 'unset', 'revert', 'revert-layer'), true) ? strtolower($value) : 'row');
+                }
+            }
+
+            // The strict gates only read the grow factor of the `flex` shorthand;
+            // folding it into `flex-grow` lets source order decide between them.
+            if ('flex' === $normalizedProperty) {
+                $normalizedProperty = 'flex-grow';
+                $value = $this->flexShorthandGrowFactor($value);
+            }
+            $this->mediaTextDeclarationNormalizationCache[$cacheKey] = array(
+                'property' => $normalizedProperty,
+                'value' => $value,
+                'important' => $important,
+            );
+        }
+        $normalized = $this->mediaTextDeclarationNormalizationCache[$cacheKey];
+        $property = $normalized['property'];
+        $value = $normalized['value'];
+        $important = $normalized['important'];
         if ('' === $property || '' === $value) {
             return;
-        }
-
-        if ('flex-flow' === $property) {
-            $property = 'flex-direction';
-            // A var() flow is statically unresolvable — keep it verbatim so the
-            // strict gate declines on it instead of defaulting to row.
-            if (1 !== preg_match('/var\s*\(/i', $value)) {
-                $flowDirection = null;
-                foreach (CssValueSplitter::splitTopLevelWhitespace(strtolower($value)) as $component) {
-                    if (in_array($component, array('row', 'row-reverse', 'column', 'column-reverse'), true)) {
-                        $flowDirection = $component;
-                        break;
-                    }
-                }
-                $value = $flowDirection ?? (in_array(strtolower($value), array('inherit', 'unset', 'revert', 'revert-layer'), true) ? strtolower($value) : 'row');
-            }
-        }
-
-        // The strict gates only read the grow factor of the `flex` shorthand;
-        // folding it into `flex-grow` lets source order decide between them.
-        if ('flex' === $property) {
-            $property = 'flex-grow';
-            $value = $this->flexShorthandGrowFactor($value);
         }
 
         $incoming = array( 'important' => $important, 'inline' => $inline, 'specificity' => $specificity, 'sequence' => $sequence, 'layer' => $layer );
@@ -6499,6 +6556,18 @@ final class StyleResolver implements ElementPresentationResolver
         $cache = $this->session->sourceStyleResolutionState();
         $index = $cache->ruleCandidateIndexes[$collection] ??= $this->styleRuleCandidateIndex($collection);
         return $cache->selectorMatchCache->styleRuleCandidates($element, $collection, $index);
+    }
+
+    /** A parent selector's box declarations need a box on the lowered child. */
+    public function sourceChildHasParentBoxStyling(DOMElement $element): bool
+    {
+        foreach ( $this->matchingStyleRules($element, 'static-conditional') as $rule ) {
+            if ( ! str_contains((string) ($rule['selector'] ?? ''), '>') ) continue;
+            foreach ( array_keys($rule['declarations'] ?? array()) as $property ) {
+                if ( preg_match('/^(?:margin|padding|border|background|width|height|min-width|max-width|min-height|max-height|inline-size|block-size|min-inline-size|max-inline-size|min-block-size|max-block-size|box-shadow|overflow|position|inset|top|right|bottom|left|transform|opacity|float|clear|flex|align-self|justify-self|grid)(?:-|$)/', $property) ) return true;
+            }
+        }
+        return false;
     }
 
     /** A source-only keyboard shortcut, with no painted content at rest. */

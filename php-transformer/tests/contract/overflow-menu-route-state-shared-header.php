@@ -22,8 +22,15 @@ $assert = static function (bool $condition, string $message): void { if (! $cond
 // holds the links again, the served one again marked only by a class swap and
 // a tracking value. The producer ships the panel's resting and opened HTML as
 // snapshot attributes on the panel and trigger.
+// The capture swept the viewport too: the builder's overflow script toggles a
+// class on the bar items with the width (no rule names it), and the capture
+// carried each toggle as a width-scoped alias whose name encodes the
+// breakpoint it measured on that route, so the names differ by route. One
+// alias the stylesheet does name (the More item's spacing) reads the same on
+// every route.
 // The three routes share one header design, so they share one header part.
-$link = static fn (string $href, string $label, string $route, string $copy): string => '<li><a href="' . $href . '" class="' . ($href === $route ? "{$copy}-on" : "{$copy}-off") . ('bar' === $copy ? ($href === $route ? ' x-a x-u' : ' x-a x-r') : '') . '">' . $label . '</a></li>';
+$widthAlias = static fn (string $route, string $href): string => 'data-blocks-engine-capture-width-class-' . substr(hash('sha256', $route . "\n" . $href), 0, 12);
+$link = static fn (string $href, string $label, string $route, string $copy): string => '<li' . ('bar' === $copy ? ' class="nav-item ' . $widthAlias($route, $href) . '"' : '') . '><a href="' . $href . '" class="' . ($href === $route ? "{$copy}-on" : "{$copy}-off") . ('bar' === $copy ? ($href === $route ? ' x-a x-u' : ' x-a x-r') : '') . '">' . $label . '</a></li>';
 $modal = static function (string $route, int $number) use ($link): string {
     $key = 'data-blocks-engine-capture-dialog-0';
     $items = '';
@@ -45,7 +52,7 @@ $page = static function (string $route, string $title, int $number, bool $overfl
     $header = '/' === $route
         ? '<header class="hero"><div class="hero-inner"><a href="/" class="brand">Acme</a><nav><ul>' . $bar . '</ul></nav></div></header>'
         : '<header class="bar"><a href="/" id="logo-' . $number . '" data-track="Logo.Link.' . $number . '.click" class="brand"><p>Acme</p></a>'
-            . '<nav><ul>' . $bar . '<li class="more"><a href="#" class="more-link' . ($overflowed ? ' u-line u-pad' : '') . '"><span class="more-label">More</span></a><ul>' . $drawer . '</ul></li></ul></nav>' . $modal($route, $number) . '</header>';
+            . '<nav><ul>' . $bar . '<li class="more data-blocks-engine-capture-width-class-0123456789ab"><a href="#" class="more-link' . ($overflowed ? ' u-line u-pad' : '') . '"><span class="more-label">More</span></a><ul>' . $drawer . '</ul></li></ul></nav>' . $modal($route, $number) . '</header>';
     return '<!doctype html><html><head><meta charset="utf-8"><title>' . $title . '</title><link rel="stylesheet" href="/style.css"><script data-blocks-engine-capture-disclosure-runtime="true">' . $runtime . '</script></head><body>'
         . $header . '<main class="content"><h1>' . $title . '</h1><p>' . $title . ' body text.</p></main>'
         . '<footer class="foot"><p>Copyright 2026 Acme. All rights reserved.</p></footer></body></html>';
@@ -70,7 +77,8 @@ $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'f
     'c/index.html' => $page('/c/', 'Route C', 404, true),
     'style.css' => '.bar,.hero{display:flex;padding:16px;background:#222}.hero-inner{display:flex;gap:8px}.brand{color:#fff}'
         . '.hero-off{color:#eee}.hero-on{color:#0ff}.bar-off{color:#fff}.bar-on{color:#ff0}.drawer-off{color:#ccc}.drawer-on{color:#f0f}.more-link{color:#fff}.u-line{border-bottom:1px solid}.u-pad{padding-bottom:4px}.more-label{margin-right:4px}.x-a{line-height:1.5}.x-r{padding-bottom:6px}.x-u{border-bottom:2px solid #f00}'
-        . '.burger{display:none}.modal-off{color:#ddd}.modal-on{color:#0f0}@media (max-width:767px){.burger{display:block;width:24px;height:24px}}',
+        . '.burger{display:none}.modal-off{color:#ddd}.modal-on{color:#0f0}@media (max-width:767px){.burger{display:block;width:24px;height:24px}}'
+        . '@media (min-width:1200px){.data-blocks-engine-capture-width-class-0123456789ab{margin-left:8px}}',
 )))->toArray()['source_reports']['wordpress_site_plan'];
 WordPressSitePlan::assertValid($plan);
 
@@ -125,4 +133,7 @@ foreach (array('/a', '/b', '/c') as $href) {
 }
 $resting = (string) $document->saveHTML();
 $assert(!str_contains($resting, 'modal-on') && !str_contains($resting, 'Modal.Link.Active'), 'No route bakes its served dialog link into the part.');
+// Width aliases no rule names carry no presentation; the alias a rule names stays.
+$assert(!preg_match('/data-blocks-engine-capture-width-class-(?!0123456789ab)[a-f0-9]{12}/', $part . $menus[0]), 'No unstyled per-route width alias reaches the shared header.');
+$assert(str_contains($part . $menus[0], 'data-blocks-engine-capture-width-class-0123456789ab'), 'A width alias a rule names keeps its class.');
 echo "overflow-menu-route-state-shared-header: ok\n";

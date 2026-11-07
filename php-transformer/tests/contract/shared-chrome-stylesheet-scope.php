@@ -103,7 +103,7 @@ $assert($routeScoped, 'Route-only CSS retains non-global applicability.');
 // blocks are route-independent ("true") or the no-route fallback.
 $enqueues = static function (array $plan): array {
     $bootstrap = (string) (array_column($plan['writes'], null, 'target_path')['functions.php']['payload']['data'] ?? '');
-    $frontend = (string) strstr($bootstrap, "add_action( 'wp_enqueue_scripts'");
+    $frontend = (string) strstr(\Automattic\BlocksEngine\PhpTransformer\Tests\Support\BootstrapStyles::expand($bootstrap), "add_action( 'wp_enqueue_scripts'");
     $frontend = substr($frontend, 0, (int) strpos($frontend, '}, 1 );'));
     preg_match_all('/^    if \( (.+?) \) \{\n((?:        [^\n]+\n)+)    \}$/m', $frontend, $blocks, PREG_SET_ORDER);
     $routes = array();
@@ -116,8 +116,7 @@ $enqueues = static function (array $plan): array {
     foreach ($lines as $line) $global[$line[1]][] = $line[2];
     $registries = array();
     foreach (array('styles', 'scopes', 'replay') as $name) {
-        if (1 !== preg_match('/\$blocks_engine_presentation_' . $name . ' = (array \(.*?\n\));\n/s', $bootstrap, $match)) throw new RuntimeException('Missing presentation registry: ' . $name);
-        $registries[$name] = eval('return ' . $match[1] . ';');
+        $registries[$name] = \Automattic\BlocksEngine\PhpTransformer\Tests\Support\BootstrapStyles::registry($bootstrap, 'blocks_engine_presentation_' . $name);
     }
     $editor = array();
     foreach ($registries['replay'] as $entry) {

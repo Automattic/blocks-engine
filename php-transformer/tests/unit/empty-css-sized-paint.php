@@ -34,4 +34,15 @@ foreach ( array( 'aspect-ratio:3/2', 'height:80px' ) as $geometry ) {
     $assert(str_contains($css, $geometry), 'source geometry remains stylesheet-owned');
 }
 
+// Only an explicit zero alpha is transparent: opaque black serialized as
+// rgb(0, 0, 0) (Wix's colorUnderlay, painted through an ancestor custom
+// property) keeps its absolutely positioned underlay.
+foreach ( array( 'rgb(0, 0, 0)' => true, 'rgba(0, 0, 0, 0)' => false, 'rgb(0 0 0 / 0)' => false ) as $color => $survives ) {
+    $markup = (string) (( new HtmlTransformer() )->transform(
+        '<style>#col{--c:' . $color . ';position:relative} .underlay{background-color:var(--c)} .layers{position:absolute;inset:0} .layers .fill{width:100%;height:100%;position:absolute;top:0}</style>'
+        . '<div id="col"><div class="layers"><div class="underlay fill"></div></div><div><h2>Title</h2><p>Text here.</p></div></div>'
+    )->toArray()['serialized_blocks'] ?? '');
+    $assert($survives === str_contains($markup, 'underlay fill'), $color . ' underlay ' . ($survives ? 'survives' : 'drops'));
+}
+
 echo "Empty CSS-sized paint passed.\n";

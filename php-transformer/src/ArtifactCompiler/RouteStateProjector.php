@@ -72,6 +72,7 @@ final class RouteStateProjector
                 }
             }
         }
+        $files = self::withoutUnstyledViewportClassAliases($files);
         // Route bindings record class names, so they read the aligned ones.
         $files = self::withRouteAlignedChromeClasses($files);
         $files = self::bindNavigationRuns(self::bindRetainedLabels($files, $entryPath));
@@ -566,6 +567,45 @@ final class RouteStateProjector
         foreach (array_keys($changed) as $index) {
             $html = HtmlSerialization::documentHtml($documents[$index]);
             if (is_string($html)) $files[$index]['content'] = $html;
+        }
+        return $files;
+    }
+
+    /**
+     * A capture carries a class token that a source script toggles with the
+     * viewport as a width-scoped alias, and copies every rule naming the
+     * token for the alias. When no rule names the token, the alias has no
+     * rules either: it renders nothing, yet its name encodes the breakpoint
+     * measured on its own route, so the same chrome carries a different name
+     * on each route and stops comparing as one design. An alias that no
+     * stylesheet names is dropped; an alias with rules keeps its name.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, array<string, mixed>>
+     */
+    private static function withoutUnstyledViewportClassAliases(array $files): array
+    {
+        $prefix = CaptureEvidence::VIEWPORT_CLASS_PREFIX;
+        $aliasPattern = '/(?<![A-Za-z0-9_-])' . preg_quote($prefix, '/') . '[a-f0-9]{12}(?![A-Za-z0-9_-])/';
+        $carriers = array_filter($files, static fn(array $file): bool => 'html' === ($file['kind'] ?? null) && is_string($file['content'] ?? null) && str_contains($file['content'], $prefix));
+        if (array() === $carriers) return $files;
+        $stylesheets = null;
+        $styled = array();
+        $isStyled = static function (string $alias) use ($files, &$stylesheets, &$styled): bool {
+            if (isset($styled[$alias])) return $styled[$alias];
+            $stylesheets ??= self::stylesheets($files);
+            $pattern = '/\.' . preg_quote($alias, '/') . '(?![A-Za-z0-9_-])/';
+            foreach ($stylesheets as $css) if (str_contains($css, $alias) && preg_match($pattern, $css)) return $styled[$alias] = true;
+            return $styled[$alias] = false;
+        };
+        foreach ($carriers as $index => $file) {
+            $content = preg_replace_callback('/(\sclass\s*=\s*)(["\'])(.*?)\2/is', static function (array $match) use ($prefix, $aliasPattern, $isStyled): string {
+                if (!str_contains($match[3], $prefix)) return $match[0];
+                $classes = preg_split('/\s+/', trim($match[3])) ?: array();
+                $kept = array_values(array_filter($classes, static fn(string $class): bool => !preg_match($aliasPattern, $class) || $isStyled($class)));
+                return $kept === $classes ? $match[0] : $match[1] . $match[2] . implode(' ', $kept) . $match[2];
+            }, $file['content']);
+            if (is_string($content)) $files[$index]['content'] = $content;
         }
         return $files;
     }

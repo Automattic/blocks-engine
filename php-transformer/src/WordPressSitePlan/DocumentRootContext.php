@@ -196,7 +196,7 @@ PHP;
         }
         unset($row);
         return "global \$blocks_engine_document_roots, \$blocks_engine_document_attributes, \$blocks_engine_document_fallback;\n"
-            . '$blocks_engine_document_attribute_bodies = ' . var_export($bodies, true) . ";\n"
+            . BootstrapData::table('blocks_engine_document_attribute_bodies', $bodies) . "\n"
             . '$blocks_engine_document_rows = ' . var_export($rows, true) . ";\n"
             . 'foreach ( $blocks_engine_document_rows as &$row ) foreach ( array( \'attributes\', \'body_attributes\' ) as $field ) $row[ $field ] = $blocks_engine_document_attribute_bodies[ $row[ $field ] ]; unset( $row );' . "\n"
             . '$blocks_engine_document_fallback = ' . var_export($fallback, true) . ";\n"

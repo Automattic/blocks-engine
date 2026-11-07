@@ -103,6 +103,15 @@ $assert(str_contains($split['pages'][0]['canonical_block_markup'], 'Keep me') &&
 $assert(str_contains($split['chrome']['single'], 'Once per page'), 'Visible scaffolds survive in page chrome.');
 $bound = array(array('payload' => array('entities' => array(array('bindings' => array(array('source_path' => 'post.html', 'search_block_markup' => $tail)))))));
 $assert($captured === $separate($captured, $bound)['pages'][0]['canonical_block_markup'], 'Runtime-bound siblings stay with their source rather than losing their anchor.');
+$sidePages = array();
+foreach (array('home', 'about') as $slug) {
+    $content = $group('content-root', '<!-- wp:group {"tagName":"main"} --><main><!-- wp:paragraph --><p>Unique ' . $slug . '</p><!-- /wp:paragraph --></main><!-- /wp:group -->');
+    $sidePages[] = array('post_type' => 'post', 'source_path' => $slug . '.html', 'canonical_block_markup' => $group('data-blocks-engine-capture-desktop-document', $group('side-nav', '<!-- wp:paragraph --><p>Shared nav</p><!-- /wp:paragraph -->') . $content . $group('side-bar', '<!-- wp:paragraph --><p>Shared sidebar</p><!-- /wp:paragraph -->')));
+}
+$sides = (new ShellExtraction(new WordPressSitePlan()))->separateCaptureDocumentChrome($sidePages, array());
+$assert(!str_contains($sides['pages'][0]['canonical_block_markup'], 'Shared nav') && !str_contains($sides['pages'][1]['canonical_block_markup'], 'Shared sidebar') && str_contains($sides['pages'][1]['canonical_block_markup'], 'Unique about'), 'Shared side regions on both sides of the content root leave route content.');
+$navAt = strpos($sides['chrome']['single'], 'Shared nav'); $slotAt = strpos($sides['chrome']['single'], '<!-- wp:post-content /-->'); $barAt = strpos($sides['chrome']['single'], 'Shared sidebar');
+$assert(false !== $navAt && false !== $slotAt && false !== $barAt && $navAt < $slotAt && $slotAt < $barAt, 'The shared document frame keeps nav, post content, and sidebar in source order inside one wrapper.');
 $unbound = $group('unbound-scaffold', '<!-- wp:paragraph --><p>Shared scaffold</p><!-- /wp:paragraph -->');
 $mixed = $separate($group('data-blocks-engine-capture-desktop-document', $root . $tail . $unbound), $bound);
 $assert(str_contains($mixed['pages'][0]['canonical_block_markup'], 'Once per page') && !str_contains($mixed['pages'][0]['canonical_block_markup'], 'Shared scaffold'), 'One bound sibling does not prevent extracting its unbound neighbor.');
