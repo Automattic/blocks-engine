@@ -5018,11 +5018,27 @@ PHP;
 
     private function sharedPostChromeIdentities(array $posts): array
     {
+        // Identity normalization rewrites attributes and block comments, never
+        // rendered text. A range whose text is not common to every post cannot
+        // be shared chrome, so only ranges with common text are normalized:
+        // that skips every container holding a post's own article.
+        $indexes = array();
+        $texts = null;
+        foreach ($posts as $key => $post) {
+            $indexes[$key] = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($post['canonical_block_markup']);
+            $postTexts = array();
+            foreach ($indexes[$key]->ranges() as $range) {
+                $postTexts[self::chromeTextKey(substr($post['canonical_block_markup'], $range['offset'], $range['length']))] = true;
+            }
+            $texts = null === $texts ? $postTexts : array_intersect_key($texts, $postTexts);
+        }
         $shared = null;
-        foreach ($posts as $post) {
+        foreach ($posts as $key => $post) {
             $identities = array();
-            foreach ((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($post['canonical_block_markup']))->ranges() as $range) {
-                $identity = $this->chromeIdentityKey(substr($post['canonical_block_markup'], $range['offset'], $range['length']));
+            foreach ($indexes[$key]->ranges() as $range) {
+                $slice = substr($post['canonical_block_markup'], $range['offset'], $range['length']);
+                if (!isset($texts[self::chromeTextKey($slice)])) continue;
+                $identity = $this->chromeIdentityKey($slice);
                 if ('' !== $identity) {
                     $identities[$identity] = true;
                 }
@@ -5031,6 +5047,14 @@ PHP;
         }
         return $shared ?? array();
     }
+
+    /** Rendered text of block markup, whitespace-insensitive, hashed. */
+    private static function chromeTextKey(string $markup): string
+    {
+        $text = strip_tags(preg_replace('/<!--.*?-->/s', '', $markup) ?? $markup);
+        return hash('xxh128', trim(preg_replace('/\s+/u', ' ', html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? $text));
+    }
+
     /**
      * Select the smallest post-title-following container owning the most varying
      * text. Only move the slot when every outside variation has a native home;
