@@ -1031,7 +1031,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element)
             ),
             $this->projectedNavigation,
-            new PhrasingSvgConverter($this->svgMaterializer, $this),
+            new PhrasingSvgConverter($this->svgMaterializer, $this, fn (DOMElement $element): bool => $this->isInertHiddenSvgStorage($element)),
              $capturedDialogConverter,
              new CapturedChoiceGroupConverter(
                  $this->session,
