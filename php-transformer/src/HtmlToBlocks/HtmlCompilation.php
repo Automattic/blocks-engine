@@ -6710,15 +6710,28 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         if (array() !== $chain) {
-            $block['_wrapper_normalization_boundary'] = 'single_wrapper';
-        } elseif (null !== $candidate['boundary']) {
+            // The terminal is already normalized. Rebuild the kept wrappers
+            // around it instead of normalizing the same subtree again from
+            // each wrapper level, which is exponential in chain depth.
+            $node = $terminal;
+            if ($candidate['terminal_in_chain']) {
+                $node = array_pop($chain)['block'];
+                $node['_wrapper_normalization_boundary'] = 'single_wrapper';
+                if (is_array($node['innerBlocks'] ?? null)) $node['innerBlocks'] = $terminal['innerBlocks'];
+            }
+            foreach (array_reverse($chain) as $entry) {
+                $node = array_merge($entry['block'], array('innerBlocks' => array($node), '_wrapper_normalization_boundary' => 'single_wrapper'));
+            }
+            return $node;
+        }
+        if (null !== $candidate['boundary']) {
             $block['_wrapper_normalization_boundary'] = $candidate['boundary'];
         }
         if (is_array($block['innerBlocks'] ?? null)) $block['innerBlocks'] = $this->compressProjectedGroupChains($block['innerBlocks']);
         return $block;
     }
 
-    /** @param array<string,mixed> $block @return array{chain:array<int,array{block:array<string,mixed>,descriptor:array<string,mixed>}>,terminal:array<string,mixed>,boundary:?string} */
+    /** @param array<string,mixed> $block @return array{chain:array<int,array{block:array<string,mixed>,descriptor:array<string,mixed>}>,terminal:array<string,mixed>,boundary:?string,terminal_in_chain:bool} */
     private function collectWrapperChain(array $block): array
     {
         $chain = array();
@@ -6733,10 +6746,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 'blockName' => 'core/freeform',
                 'innerBlocks' => $this->compressProjectedGroupChains(is_array($cursor['innerBlocks'] ?? null) ? $cursor['innerBlocks'] : array()),
             );
-            return array('chain' => $chain, 'terminal' => $terminal, 'boundary' => null);
+            return array('chain' => $chain, 'terminal' => $terminal, 'boundary' => null, 'terminal_in_chain' => true);
         }
-        if (array() === $chain) return array('chain' => array(), 'terminal' => $cursor, 'boundary' => $this->wrapperBoundaryReason($cursor));
-        return array('chain' => $chain, 'terminal' => $this->normalizeWrapperChain($cursor), 'boundary' => $this->wrapperBoundaryReason($cursor));
+        if (array() === $chain) return array('chain' => array(), 'terminal' => $cursor, 'boundary' => $this->wrapperBoundaryReason($cursor), 'terminal_in_chain' => false);
+        return array('chain' => $chain, 'terminal' => $this->normalizeWrapperChain($cursor), 'boundary' => $this->wrapperBoundaryReason($cursor), 'terminal_in_chain' => false);
     }
 
     /**
