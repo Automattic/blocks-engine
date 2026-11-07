@@ -3891,10 +3891,10 @@ final class ArtifactCompiler
      * ids; route-only stylesheets still drop out of the shell head.
      *
      * @param array<string,array{content:string,rows:array<string,mixed>}> $members
-     * @param array<string,string> $stylesheetContents
+     * @param array<int,array<string,mixed>> $files
      * @return array<string,array{content:string,rows:array<string,mixed>}>
      */
-    private static function membersSharingLandmarkStyles(array $members, string $area, int|string $variant, array $stylesheetContents): array
+    private function membersSharingLandmarkStyles(array $members, string $area, int|string $variant, array $files, string $entryPath): array
     {
         $counts = array();
         $loaded = array();
@@ -3904,7 +3904,9 @@ final class ArtifactCompiler
             preg_match_all('/<(?:link\b[^>]*|style\b[^>]*>.*?<\/style)\s*>/is', $head, $styleMatches);
             $loaded[$path] = array();
             foreach (array_unique($styleMatches[0]) as $style) {
-                $css = preg_match('/^<link\b[^>]*\bhref="([^"?#]+)/i', $style, $href) ? ($stylesheetContents[ltrim($href[1], '/')] ?? '') : $style;
+                $href = preg_match('/^<link\b[^>]*\bhref="([^"]+)"/i', $style, $hrefMatch) ? (string) strtok(html_entity_decode($hrefMatch[1]), '?#') : null;
+                // Root-relative hrefs resolve from the site root, the entry's directory.
+                $css = null === $href ? $style : (string) ($this->findAssetByHtmlReference($href, str_starts_with($href, '/') ? $entryPath : (string) $path, $files)['content'] ?? '');
                 foreach (array_unique($idMatches[1]) as $id) {
                     if (str_contains($css, $id)) { $loaded[$path][$style] = true; $counts[$style] = ($counts[$style] ?? 0) + 1; break; }
                 }
@@ -3959,10 +3961,6 @@ final class ArtifactCompiler
             $documents[(string) $file['path']] = array('content' => (string) $file['content'], 'rows' => $rows);
         }
         if (count($documents) < 2) return array('artifacts' => array(), 'assets' => array(), 'author_stylesheet_projections' => array(), 'runtime_script_projections' => array());
-        $stylesheetContents = array();
-        foreach ($files as $file) {
-            if ('css' === ($file['kind'] ?? null) && is_string($file['content'] ?? null)) $stylesheetContents[ltrim((string) ($file['path'] ?? ''), '/')] = $file['content'];
-        }
 
         $artifacts = array();
         $assets = array();
@@ -3980,7 +3978,7 @@ final class ArtifactCompiler
                 // A member whose landmark styles come from another stylesheet
                 // renders it under other rules. It keeps its own copy, so the
                 // stylesheets most members load still shape the shared shell.
-                $members = self::membersSharingLandmarkStyles($members, $area, $variant, $stylesheetContents);
+                $members = $this->membersSharingLandmarkStyles($members, $area, $variant, $files, $entryPath);
                 if (count($members) < 2) continue;
                 $sourcePath = isset($members[$entryPath]) ? $entryPath : (string) array_key_first($members);
                 // Identity excludes capture-only entrance state, but the emitted
