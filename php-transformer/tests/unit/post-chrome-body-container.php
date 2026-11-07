@@ -67,7 +67,7 @@ foreach ($plan['diagnostics'] as $diagnostic) {
 }
 $resolved = (new WordPressSitePlanResolver())->resolve($plan, array('theme_uri' => 'https://example.test/wp-content/themes/site'));
 foreach ($resolved['pages'] as $page) {
-    foreach ($page['metadata']['post_meta'] ?? array() as $value) if (str_contains($value, '{{wordpress-site-plan:') || (str_contains($value, '<img') && !str_contains($value, 'https://example.test/'))) $failures[] = 'resolved post fields carry resolved asset URLs';
+    foreach ($page['metadata']['post_meta'] ?? array() as $value) if (str_contains($value, '{{wordpress-site-plan:') || (str_contains($value, '<img') && !str_contains($value, 'https://example.test/'))) $failures[] = 'resolved post fields carry resolved asset URLs: ' . $value;
 }
 if (array() !== $failures) {
     fwrite(STDERR, 'FAIL: ' . implode("\nFAIL: ", $failures) . "\n");
