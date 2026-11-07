@@ -277,6 +277,7 @@ PHP;
     {
         $this->sourceUrl = $this->sourceUrlFromProvenance($data['provenance'] ?? array());
         $this->listingQueryContainers = array();
+        $this->chromeIdentityKeys = array();
         $this->sourceOrigin = $this->urlOrigin($this->sourceUrl);
         $this->unresolvedNavigationDiagnostics = array();
         $this->omittedUnresolvedNavigationDiagnostics = 0;
@@ -5000,13 +5001,44 @@ PHP;
      * @param array<int,array<string,mixed>> $posts
      * @return array<string,true>
      */
+    /**
+     * Post-chrome matching normalizes every nested range of every post, and
+     * the same ranges are matched again while factoring and placing slots.
+     * Keyed by content hash, each distinct range is normalized once per plan.
+     * Only membership is ever compared, so the identity is kept as a hash.
+     *
+     * @var array<string,string>
+     */
+    private array $chromeIdentityKeys = array();
+
+    private function chromeIdentityKey(string $markup): string
+    {
+        return $this->chromeIdentityKeys[hash('xxh128', $markup)] ??= ('' === ($identity = ShellExtraction::identityMarkup($markup)) ? '' : hash('xxh128', $identity));
+    }
+
     private function sharedPostChromeIdentities(array $posts): array
     {
+        // Identity normalization rewrites attributes and block comments, never
+        // rendered text. A range whose text is not common to every post cannot
+        // be shared chrome, so only ranges with common text are normalized:
+        // that skips every container holding a post's own article.
+        $indexes = array();
+        $texts = null;
+        foreach ($posts as $key => $post) {
+            $indexes[$key] = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($post['canonical_block_markup']);
+            $postTexts = array();
+            foreach ($indexes[$key]->ranges() as $range) {
+                $postTexts[self::chromeTextKey(substr($post['canonical_block_markup'], $range['offset'], $range['length']))] = true;
+            }
+            $texts = null === $texts ? $postTexts : array_intersect_key($texts, $postTexts);
+        }
         $shared = null;
-        foreach ($posts as $post) {
+        foreach ($posts as $key => $post) {
             $identities = array();
-            foreach ((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($post['canonical_block_markup']))->ranges() as $range) {
-                $identity = ShellExtraction::identityMarkup(substr($post['canonical_block_markup'], $range['offset'], $range['length']));
+            foreach ($indexes[$key]->ranges() as $range) {
+                $slice = substr($post['canonical_block_markup'], $range['offset'], $range['length']);
+                if (!isset($texts[self::chromeTextKey($slice)])) continue;
+                $identity = $this->chromeIdentityKey($slice);
                 if ('' !== $identity) {
                     $identities[$identity] = true;
                 }
@@ -5015,6 +5047,14 @@ PHP;
         }
         return $shared ?? array();
     }
+
+    /** Rendered text of block markup, whitespace-insensitive, hashed. */
+    private static function chromeTextKey(string $markup): string
+    {
+        $text = strip_tags(preg_replace('/<!--.*?-->/s', '', $markup) ?? $markup);
+        return hash('xxh128', trim(preg_replace('/\s+/u', ' ', html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? $text));
+    }
+
     /**
      * Select the smallest post-title-following container owning the most varying
      * text. Only move the slot when every outside variation has a native home;
@@ -5033,7 +5073,7 @@ PHP;
             $kind = $this->classifyPostChromeBlock($slice, $post, $route, $index);
             if ('title' === $kind) $titleEnd = $range['offset'] + $range['length'];
             if ($range['offset'] === $featuredOffset) continue;
-            if (isset($shared[ShellExtraction::identityMarkup($slice)]) || in_array($kind, array('title', 'date', 'comments', 'chrome', 'share', 'skip'), true)) continue;
+            if (isset($shared[$this->chromeIdentityKey($slice)]) || in_array($kind, array('title', 'date', 'comments', 'chrome', 'share', 'skip'), true)) continue;
             $varying[] = $range;
         }
         if (null === $titleEnd) return $fallback;
@@ -5059,12 +5099,12 @@ PHP;
         // Project corresponding related sections together, just like index cards.
         // This supplies the card classifier with variation across all posts.
         // A section is a container led by a shared heading.
-        $sectionItems = static function (\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $sectionIndex, array $owner, array $shared): ?array {
+        $sectionItems = function (\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $sectionIndex, array $owner, array $shared): ?array {
             $children = $sectionIndex->children($owner);
             if (count($children) < 2) return null;
             $heading = substr($sectionIndex->markup, $children[0]['offset'], $children[0]['length']);
-            if ('heading' !== self::listingBlockName($heading) || !isset($shared[ShellExtraction::identityMarkup($heading)])) return null;
-            return array('heading' => ShellExtraction::identityMarkup($heading), 'items' => array_slice($children, 1));
+            if ('heading' !== self::listingBlockName($heading) || !isset($shared[$this->chromeIdentityKey($heading)])) return null;
+            return array('heading' => $this->chromeIdentityKey($heading), 'items' => array_slice($children, 1));
         };
         $sections = array();
         foreach ($index->ranges() as $owner) {
@@ -5247,7 +5287,7 @@ PHP;
         if (preg_match('/\b(?:social|share-button|twitter-share)\b/', $className) || preg_match('/\bcomments?\b/i', $className) || preg_match('/comment/i', $anchor)) {
             return $empty;
         }
-        $identity = ShellExtraction::identityMarkup($slice);
+        $identity = $this->chromeIdentityKey($slice);
         // Shared markup is not proof of chrome ownership for media alone,
         // including serialized responsive media inside a shared wrapper: each
         // post may render the same image. A shared section that also carries
@@ -5510,7 +5550,7 @@ PHP;
                 if ($range['offset'] < $card['offset'] + $card['length'] && $card['offset'] < $end) continue 2;
             }
             if (array() === $markupIndex->children($range)) continue;
-            $identity = ShellExtraction::identityMarkup(substr($markup, $range['offset'], $range['length']));
+            $identity = $this->chromeIdentityKey(substr($markup, $range['offset'], $range['length']));
             if ('' !== $identity) $chrome[$identity] = true;
         }
         if (array() === $chrome) return false;
@@ -5519,7 +5559,7 @@ PHP;
             $postIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($postMarkup);
             foreach ($postIndex->ranges() as $range) {
                 if (array() === $postIndex->children($range)) continue;
-                if (isset($chrome[ShellExtraction::identityMarkup(substr($postMarkup, $range['offset'], $range['length']))])) return true;
+                if (isset($chrome[$this->chromeIdentityKey(substr($postMarkup, $range['offset'], $range['length']))])) return true;
             }
         }
         return false;
