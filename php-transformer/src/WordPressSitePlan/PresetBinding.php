@@ -184,6 +184,8 @@ final class PresetBinding
     private array $classColors = array();
     /** @var array<string,list<array<string,mixed>>> Subjects of plain colour rules per family, with their value; null when a condition or layer applies. */
     private array $restingColors = array();
+    /** @var array<string,array<string,array<string,list<int>>>> Rule indexes by kind, family and required subject token. */
+    private array $subjectBuckets = array();
     private int $bound = 0;
     /** Projected font defaults, keyed by the HTML target that inherits them. @var array<string,string> */
     private array $fontDefaults = array();
@@ -1533,7 +1535,7 @@ final class PresetBinding
      */
     private function stateMatches(string $family, array $tokens): bool
     {
-        foreach ($this->stateTokens[$family] ?? array() as $subject) {
+        foreach ($this->subjectCandidates('state', $family, $this->stateTokens[$family] ?? array(), $tokens) as $subject) {
             if (self::stateSubjectApplies($subject, $tokens)) return true;
         }
         return false;
@@ -1555,6 +1557,40 @@ final class PresetBinding
             }
         }
         return true;
+    }
+
+    /**
+     * Rules that can apply to an element with these tokens, in source order.
+     * A rule's subject compound requires each of its classes, ids and type
+     * (see stateSubjectMatches()), so each rule is filed under one required
+     * token and only the buckets for the element's own tokens are visited.
+     * Rules without such a requirement are always candidates.
+     *
+     * @param list<array<string,mixed>> $rules
+     * @param array<string,true> $tokens
+     * @return list<array<string,mixed>>
+     */
+    private function subjectCandidates(string $kind, string $family, array $rules, array $tokens): array
+    {
+        if (!isset($this->subjectBuckets[$kind][$family])) {
+            $buckets = array();
+            foreach ($rules as $index => $rule) $buckets[self::requiredSubjectToken($rule['compound'] ?? null)][] = $index;
+            $this->subjectBuckets[$kind][$family] = $buckets;
+        }
+        $buckets = $this->subjectBuckets[$kind][$family];
+        $indexes = $buckets[''] ?? array();
+        foreach ($tokens as $token => $_) if (isset($buckets[$token])) array_push($indexes, ...$buckets[$token]);
+        sort($indexes);
+        return array_map(static fn(int $index): array => $rules[$index], $indexes);
+    }
+
+    /** @param array<string,mixed>|null $compound */
+    private static function requiredSubjectToken(?array $compound): string
+    {
+        if (null === $compound) return '';
+        if (array() !== ($compound['classes'] ?? array())) return 'class:' . reset($compound['classes']);
+        if (array() !== ($compound['ids'] ?? array())) return 'id:' . reset($compound['ids']);
+        return is_string($compound['type'] ?? null) ? 'tag:' . strtolower($compound['type']) : '';
     }
 
     private function indexState(string $prelude, string $family): void
@@ -1637,7 +1673,7 @@ final class PresetBinding
         foreach (self::families($property) as $family) {
             $reaching = array();
             $winner = null;
-            foreach ($this->restingColors[$family] ?? array() as $rule) {
+            foreach ($this->subjectCandidates('resting', $family, $this->restingColors[$family] ?? array(), $tokens) as $rule) {
                 if (!self::stateSubjectApplies($rule, $tokens)) continue;
                 if (null !== $parentTokens && isset($rule['parent']) && self::requiresAbsentEngineClass($rule['parent'], $parentTokens)) continue;
                 $reaching[] = $rule;
