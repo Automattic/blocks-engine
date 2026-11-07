@@ -342,6 +342,16 @@ PHP;
             if ('' !== $sourcePath && '' !== $targetPath) $this->routeSources[$sourcePath] = $targetPath;
             if ('' !== $targetPath) $this->routeTargets['/' === $targetPath ? '/' : '/' . trim($targetPath, '/')] = $targetPath;
         }
+        // Native date archives are document roots, not materialized pages, but
+        // their captured file paths still participate in link resolution.
+        $entryRoot = self::entryRootFromDocuments($compiled['pages']);
+        foreach ($compiled['pages'] as $document) {
+            if (!self::isDateArchiveDocument($document)) continue;
+            $path = $document['metadata']['route_path'] ?? self::pageRoutePath($document['source_path'], $entryRoot);
+            $target = '/' . trim($path, '/') . '/';
+            $this->routeSources[$document['source_path']] = $target;
+            $this->routeTargets['/' . trim($path, '/')] = $target;
+        }
         $this->routeLinkedFragments = $this->routeLinkedFragments($documents, $routeMap);
         $this->missingMedia = new MissingMediaRecovery($this->strictMissingMedia, array_column($assets, 'target_path'));
         $missingFonts = new MissingFontSourceRecovery($this->strictMissingMedia);

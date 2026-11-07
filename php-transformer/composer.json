@@ -90,6 +90,7 @@
       "@test:packaging"
     ],
     "test:canonical": [
+      "php tests/contract/captured-document-link-serialization.php",
       "php tests/contract/standalone-font-glyph.php",
       "php tests/contract/responsive-inherited-text-alignment.php",
       "php tests/contract/shared-shell-generated-blocks.php",
