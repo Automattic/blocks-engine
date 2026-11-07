@@ -9,6 +9,7 @@ use Closure;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\DisclosureControlPresentation;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 
 final class PatternContext
@@ -26,12 +27,9 @@ final class PatternContext
      * @param LogoPatternContext|null $logoContext
      * @param GalleryPatternContext|null $galleryContext
      * @param Closure(DOMElement): bool|null $sourceElementStartsHidden
-     * @param Closure(DOMElement): string|null $authoredIconColor
      * @param Closure(string, string): void|null $glyphColorUndecodable
      * @param Closure(DOMElement): string|null $capturedGlyphColor
-     * @param Closure(DOMElement): bool|null $sourceElementVisuallyClipped
      * @param Closure(DOMElement): string|null $richTextContent
-     * @param Closure(DOMElement): array<string, string>|null $socialPresentationDeclarations
      * @param Closure(DOMElement): array<string, mixed>|null $socialAnchorColors
      */
     public function __construct(
@@ -48,14 +46,12 @@ final class PatternContext
         private readonly ?GalleryPatternContext $galleryContext = null,
         private readonly ?Closure $sourceElementStartsHidden = null,
         private readonly ?DisclosureControlPresentation $disclosure = null,
-        private readonly ?Closure $authoredIconColor = null,
+        private readonly ?StyleResolver $styles = null,
         private readonly ?HtmlTransformerSession $session = null,
         private readonly ?Closure $glyphColorUndecodable = null,
         private readonly ?Closure $capturedGlyphColor = null,
-        private readonly ?Closure $sourceElementVisuallyClipped = null,
         private readonly ?Closure $richTextContent = null,
-        private readonly ?Closure $socialAnchorColors = null,
-        private readonly ?Closure $socialPresentationDeclarations = null
+        private readonly ?Closure $socialAnchorColors = null
     ) {
     }
 
@@ -138,7 +134,7 @@ final class PatternContext
     /** The source box is clipped to nothing, as a screen-reader-only label is. */
     public function sourceElementVisuallyClipped(DOMElement $element): bool
     {
-        return null !== $this->sourceElementVisuallyClipped && ($this->sourceElementVisuallyClipped)($element);
+        return $this->styles?->isVisuallyClippedBox($element) ?? false;
     }
 
     /** @return array<string, mixed> Resolved anchor paint mapped to native color supports. */
@@ -150,12 +146,12 @@ final class PatternContext
     /** @return array<string, string> Resolved source CSS for social row layout and sizing. */
     public function socialPresentationDeclarations(DOMElement $element): array
     {
-        return null === $this->socialPresentationDeclarations ? array() : ($this->socialPresentationDeclarations)($element);
+        return $this->styles?->resolvedPresentationDeclarations($element) ?? array();
     }
 
     public function authoredIconColor(DOMElement $element): string
     {
-        return null === $this->authoredIconColor ? '' : (string) ($this->authoredIconColor)($element);
+        return $this->styles?->authoredInheritedPropertyWinner($element, 'color') ?? '';
     }
 
     /** @return array<string, mixed> Materialized metadata for an asset URL (mime_type, path, glyph_color, ...). */
