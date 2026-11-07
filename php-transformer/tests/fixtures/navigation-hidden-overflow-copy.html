@@ -1,0 +1,12 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Menu with hidden overflow item</title><style>
+body{margin:0}
+.menu{display:flex;gap:24px;list-style:none;margin:0;padding:0}
+</style></head><body>
+<header><nav role="navigation"><ul class="menu">
+<li><a href="/">Home</a></li>
+<li><a href="/about/">About</a></li>
+<li><a href="/contact/">Contact</a></li>
+<li style="visibility:hidden;display:none"><div><span></span></div><ul role="menu"><li role="menuitem"><a href="/">Home</a></li><li role="menuitem"><a href="/about/">About</a></li><li role="menuitem"><a href="/contact/">Contact</a></li></ul></li>
+</ul></nav></header>
+<main><h1>Page</h1></main>
+</body></html>
