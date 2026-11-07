@@ -232,9 +232,8 @@ $assert(
     $packed
 );
 
-// A wrapping nav with one list keeps the space; with two lists core gathers
-// both into one container, where the last item of the first list would gain a
-// space it did not have in the source (the lists were separate boxes).
+// A wrapping nav preserves each list's box. Inline whitespace belongs to
+// each menu independently, never between the last item and the next list.
 $wrapped = static fn (int $lists): string => '<style>.menus li{display:inline;padding-right:15px}</style><header><nav class="menus">'
     . str_repeat("\n<ul>\n<li><a href=\"/a/\">Alpha</a></li>\n<li><a href=\"/b/\">Beta</a></li>\n</ul>", $lists)
     . "\n</nav></header><main><p>Body copy.</p></main>";
@@ -242,11 +241,18 @@ $oneList = $separators($transform($wrapped(1)));
 $assert(1 === count($oneList) && str_contains($oneList[0], '.menus ' . $item), 'a list inside a wrapping nav keeps the space', json_encode($oneList));
 $twoLists = $transform($wrapped(2));
 $assert(
-    1 === substr_count((string) $twoLists['serialized_blocks'], '<!-- wp:navigation ') && 4 === substr_count((string) $twoLists['serialized_blocks'], '<!-- wp:navigation-link '),
-    'two lists in one nav become one navigation with four items',
+    2 === substr_count((string) $twoLists['serialized_blocks'], '<!-- wp:navigation ') && 4 === substr_count((string) $twoLists['serialized_blocks'], '<!-- wp:navigation-link '),
+    'two lists in one nav remain two editable menus with four items',
     substr((string) $twoLists['serialized_blocks'], 0, 300)
 );
-$keepsNoSpace($twoLists, 'padding-right:15px', 'items gathered from two source lists into one container gain no space');
+$twoListSpacing = $selectorsDeclaring($rules($authorCss($twoLists)), 'padding-right:15px');
+$assert(1 === count($twoListSpacing) && str_contains($twoListSpacing[0], $item), 'both menus keep their item padding', json_encode($twoListSpacing));
+$twoListSeparators = $separators($twoLists);
+$assert(
+    array() !== $twoListSeparators && count($twoListSeparators) === count(array_filter($twoListSeparators, static fn (string $selector): bool => str_ends_with($selector, ':not(:last-child)::after'))),
+    'each separate menu keeps whitespace only between its own items',
+    json_encode($twoListSeparators)
+);
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "Navigation item spacing tests: {$failures} failed, {$passes} passed\n");
