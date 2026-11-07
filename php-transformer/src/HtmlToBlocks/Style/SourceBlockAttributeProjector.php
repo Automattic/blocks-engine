@@ -438,7 +438,27 @@ final class SourceBlockAttributeProjector
                 $classes[] = self::LAYOUT_NEUTRAL_BUTTON_CLASS . '-author-' . $property;
             }
         }
+        if ( '' === trim((string) ($declarations['width'] ?? '')) && $this->stretchesAcrossGridTrack($element, $declarations) ) {
+            // A stretched grid item's width is its track: source-owned, like an
+            // authored width, so the shrink-to-fit reset must not replace it.
+            $classes[] = self::LAYOUT_NEUTRAL_BUTTON_CLASS . '-author-width';
+        }
         return implode(' ', $classes);
+    }
+
+    /** @param array<string, string> $declarations */
+    private function stretchesAcrossGridTrack(DOMElement $element, array $declarations): bool
+    {
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement || LayoutParticipation::GRID_ITEM !== LayoutParticipation::resolve($element, $this->styleResolver)->context ) {
+            return false;
+        }
+        $justifySelf = CssValueInspector::comparable((string) ($declarations['justify-self'] ?? ''));
+        if ( in_array($justifySelf, array( '', 'auto', 'normal' ), true) ) {
+            $parentDeclarations = $this->styleResolver->cssDeclarations($this->styleResolver->mergedPresentationStyle($parent));
+            $justifySelf = CssValueInspector::comparable((string) ($parentDeclarations['justify-items'] ?? ''));
+        }
+        return in_array($justifySelf, array( '', 'normal', 'stretch', 'legacy' ), true);
     }
 
     /** @param array<string, mixed> $attrs @return array<string, mixed> */

@@ -2895,7 +2895,11 @@ final class StyleResolver implements ElementPresentationResolver
             return;
         }
         $overridden = array();
+        $captureOnly = $this->session->authorStyleAnalysis()->captureOnlySelectors();
         foreach ( $this->matchingStyleRules($element, 'static') as $rule ) {
+            // A capture's replay stylesheet forces its opened state; that is
+            // no author rule, so the element's own inline value still stands.
+            if ( isset($captureOnly[ trim((string) ( $rule['selector'] ?? '' )) ]) ) continue;
             foreach ( $rule['declarations'] as $property => $value ) {
                 if ( CssValueInspector::isImportant((string) $value) ) {
                     $overridden[ strtolower((string) $property) ] = true;
