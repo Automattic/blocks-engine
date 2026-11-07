@@ -31,7 +31,7 @@ const transformerRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)
 const generated = JSON.parse(execFileSync('php', ['-r', `
 require $argv[1] . '/vendor/autoload.php';
 $html = '<p>Editable content</p>';
-for ($depth = 0; $depth < 8; ++$depth) $html = '<div id="shell-' . $depth . '" class="shell-' . $depth . ' blocks-engine-source-div-fixture-3">' . $html . '</div>';
+for ($depth = 0; $depth < 21; ++$depth) $html = '<div id="shell-' . $depth . '" class="shell-' . $depth . ' blocks-engine-source-div-fixture-3">' . $html . '</div>';
 $result = (new \\Automattic\\BlocksEngine\\PhpTransformer\\HtmlToBlocks\\HtmlTransformer())->transform($html)->toArray();
 $shellDefinition = null;
 foreach ( ($result['source_reports']['generated_blocks'] ?? array()) as $definition ) {
