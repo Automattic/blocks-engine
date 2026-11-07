@@ -342,6 +342,16 @@ PHP;
             if ('' !== $sourcePath && '' !== $targetPath) $this->routeSources[$sourcePath] = $targetPath;
             if ('' !== $targetPath) $this->routeTargets['/' === $targetPath ? '/' : '/' . trim($targetPath, '/')] = $targetPath;
         }
+        // Native date archives are document roots, not materialized pages, but
+        // their captured file paths still participate in link resolution.
+        $entryRoot = self::entryRootFromDocuments($compiled['pages']);
+        foreach ($compiled['pages'] as $document) {
+            if (!self::isDateArchiveDocument($document)) continue;
+            $path = $document['metadata']['route_path'] ?? self::pageRoutePath($document['source_path'], $entryRoot);
+            $target = '/' . trim($path, '/') . '/';
+            $this->routeSources[$document['source_path']] = $target;
+            $this->routeTargets['/' . trim($path, '/')] = $target;
+        }
         $this->routeLinkedFragments = $this->routeLinkedFragments($documents, $routeMap);
         $this->missingMedia = new MissingMediaRecovery($this->strictMissingMedia, array_column($assets, 'target_path'));
         $missingFonts = new MissingFontSourceRecovery($this->strictMissingMedia);
@@ -6410,6 +6420,9 @@ PHP;
             // Resolve copied author URLs before recovery judges them against the
             // generated stylesheet's directory (which is not their origin).
             if ('editor-static-state' === ($asset['source'] ?? null) && is_string($content)) $content = $references->cssFromOrigins($content, $authorStylesheetOrigins);
+            // An inline stylesheet's urls are relative to the documents that held
+            // the <style>, not to its generated inline/ path.
+            if ('inline-style' === ($asset['source'] ?? null) && is_string($content)) $content = $references->cssFromOrigins($content, array_column($asset['inline_references'] ?? array(), 'source_path'));
             if (is_string($content)) $content = $references->content($content, (string) ($asset['reference_origin'] ?? $asset['source_path']));
             if (is_array($asset['payload_reference'] ?? null)) { $writes[] = $this->referenceWrite('theme_asset', $asset['target_path'], $asset['source_path'], $asset['payload_reference']); continue; }
             $base64Transport = is_string($asset['content_base64'] ?? null);
@@ -6828,6 +6841,7 @@ PHP;
             $lines[] = "    if ( ! \$current && ( is_array( \$sources ) || ( '' !== \$url && '/' === \$url[0] && ( 1 === strlen( \$url ) || '/' !== \$url[1] ) ) ) ) {";
             $lines[] = "        \$document = " . self::DOCUMENT_ID_EXPRESSION . ";";
             $lines[] = "        \$served = is_front_page() ? '/' : ( 0 !== \$document && 'page' === get_post_type( \$document ) ? '/' . trim( (string) get_page_uri( \$document ), '/' ) : null );";
+            $lines[] = "        \$served = apply_filters( 'blocks_engine_served_route', \$served, \$document );";
             $lines[] = "        \$routes = array( " . implode(', ', array_map(static fn(string $source, string $route): string => var_export($source, true) . ' => ' . var_export($route, true), array_keys($currentSourceRoutes), $currentSourceRoutes)) . " );";
             $lines[] = "        \$current = null !== \$served && ( is_array( \$sources ) ? in_array( \$served, array_map( static fn ( \$source ) => is_string( \$source ) ? ( \$routes[ \$source ] ?? null ) : null, \$sources ), true ) : '/' . trim( (string) parse_url( \$url, PHP_URL_PATH ), '/' ) === \$served );";
             $lines[] = "    }";
@@ -6848,6 +6862,29 @@ PHP;
             $lines[] = "    return preg_replace( '/(<a\\b[^>]*\\bclass=\"[^\"]*\\bwp-block-navigation-item__content\\b[^\"]*\")/', '\$1 aria-current=\"page\"', \$content, 1 ) ?? \$content;";
             $lines[] = "}, 10, 2 );";
             }
+            // Resolve ancestry only after every item has had its exact/source
+            // evidence pass. At the container boundary we can choose one longest
+            // segment prefix, independent of item render order or submenu depth.
+            $lines[] = "add_filter( 'render_block_core/navigation', static function ( string \$content ): string {";
+            $lines[] = "    if ( preg_match( '/\\baria-current=[\"\\\x27]page[\"\\\x27]|\\bcurrent-menu-item\\b|\\bblocks-engine-current-navigation-item\\b/', \$content ) ) return \$content;";
+            $lines[] = "    \$document = " . self::DOCUMENT_ID_EXPRESSION . ";";
+            $lines[] = "    \$served = is_front_page() ? '/' : ( 0 !== \$document && 'page' === get_post_type( \$document ) ? '/' . trim( (string) get_page_uri( \$document ), '/' ) : null );";
+            $lines[] = "    \$served = apply_filters( 'blocks_engine_served_route', \$served, \$document );";
+            $lines[] = "    if ( ! is_string( \$served ) || ! str_starts_with( \$served, '/' ) ) return \$content;";
+            $lines[] = "    \$best = null; \$length = 0;";
+            $lines[] = '    preg_match_all( \'/<li\\b[^>]*>(?:(?!<li\\b|<a\\b|<button\\b).)*<a\\b[^>]*>/s\', $content, $items, PREG_OFFSET_CAPTURE );';
+            $lines[] = '    foreach ( $items[0] as $item ) {';
+            $lines[] = '        if ( ! preg_match( \'/\\bhref="([^"]*)"/\', $item[0], $href ) || ! preg_match( \'/\\bclass="[^"]*\\bwp-block-navigation-item__content\\b/\', $item[0] ) ) continue;';
+            $lines[] = '        $url = html_entity_decode( $href[1], ENT_QUOTES, \'UTF-8\' );';
+            $lines[] = '        if ( ! str_starts_with( $url, \'/\' ) || str_starts_with( $url, \'//\' ) ) continue;';
+            $lines[] = '        $path = \'/\' . trim( (string) parse_url( $url, PHP_URL_PATH ), \'/\' );';
+            $lines[] = '        if ( \'/\' !== $path && strlen( $path ) > $length && str_starts_with( $served, $path . \'/\' ) ) { $best = $item; $length = strlen( $path ); }';
+            $lines[] = '    }';
+            $lines[] = '    if ( null === $best ) return $content;';
+            $lines[] = '    $item = preg_replace( \'/<a\\b/\', \'<a aria-current="page"\', $best[0], 1 );';
+            $lines[] = '    $item = preg_replace_callback( \'/^<li\\b[^>]*>/\', static function ( array $match ): string { return str_contains( $match[0], \'class="\' ) ? preg_replace( \'/class="/\', \'class="current-menu-ancestor \', $match[0], 1 ) : substr( $match[0], 0, -1 ) . \' class="current-menu-ancestor">\'; }, $item, 1 );';
+            $lines[] = '    return substr_replace( $content, $item, $best[1], strlen( $best[0] ) );';
+            $lines[] = "}, 10, 1 );";
         }
         foreach (array_merge($templates, $parts, $pages) as $document) {
             if (!str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), CaptureEvidence::VIEWPORT_ENTRANCE)) continue;

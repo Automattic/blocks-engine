@@ -64,6 +64,72 @@ $aboutPart = (string) $part->invoke(null, $headerOf($about));
 $booksPart = (string) $part->invoke(null, $headerOf($books));
 $assert(! str_contains($aboutPart, 'is-on') && ! str_contains($booksPart, 'is-on'), 'the shared part does not freeze one page\'s selected classes', $aboutPart);
 
+// Exercise the emitted runtime, including the importer seam for non-page
+// documents. The native page route deliberately disagrees with the filter.
+$artifact = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler())->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array('index.html' => '<header><nav><a href="/">Home</a><a href="/accessories/">Accessories</a></nav></header><main>Home</main>'),
+))->toArray();
+$bootstrap = '';
+foreach ($artifact['source_reports']['wordpress_site_plan']['writes'] as $write) {
+    if ('functions.php' === ($write['target_path'] ?? null)) $bootstrap = $write['payload']['data'];
+}
+$runtime = array();
+foreach (array('navigation-link', 'navigation-submenu', 'navigation') as $name) {
+    $registration = strpos($bootstrap, "add_filter( 'render_block_core/$name',");
+    if (false === $registration) {
+        // Trunk has no container pass; keep exercising its existing item pass
+        // so the regression fails on behavior rather than closure discovery.
+        $runtime[$name] = static fn(string $content): string => $content;
+        continue;
+    }
+    $start = strpos($bootstrap, 'static function ( string $content', $registration);
+    $end = strpos($bootstrap, "\n}, 10, ", $start);
+    eval('$runtime[$name] = ' . substr($bootstrap, $start, $end + 2 - $start) . ';');
+}
+function is_singular(): bool { return true; }
+function get_queried_object_id(): int { return 42; }
+function is_front_page(): bool { return false; }
+function get_post_type(int $id): string { global $navigationPostType; return $navigationPostType; }
+function get_page_uri(int $id): string { return 'unrelated-page'; }
+function apply_filters(string $hook, mixed $value, mixed ...$args): mixed {
+    global $navigationServed, $navigationFilterCalls;
+    if ('blocks_engine_served_route' !== $hook) return $value;
+    $navigationFilterCalls[] = array($value, $args[0]);
+    return $navigationServed;
+}
+$links = array('/', '/accessories/', '/about/');
+foreach (array(
+    array('/accessories/p/sticker', $links, '/accessories/', true),
+    array('/accessories', $links, '/accessories/', false),
+    array('/accessoriesx/p/a', $links, null, false),
+    array('/a/b/c', array('/a/', '/a/b/'), '/a/b/', true),
+    array('/a/b', array('/a/', '/a/b/'), '/a/b/', false),
+    array('/unlinked', array('/'), null, false),
+    array(null, $links, null, false),
+) as [$navigationServed, $urls, $expected, $ancestor]) {
+    foreach (array('product', 'page') as $navigationPostType) {
+        foreach (array('navigation-link', 'navigation-submenu') as $itemType) {
+            $navigationFilterCalls = array();
+            $content = '<ul class="wp-block-navigation__container">';
+            foreach ($urls as $url) {
+                $item = '<li class="wp-block-navigation-item"><a class="wp-block-navigation-item__content" href="' . $url . '">Link</a></li>';
+                $content .= $runtime[$itemType]($item, array('attrs' => array('url' => $url)));
+            }
+            $content = $runtime['navigation']($content . '</ul>');
+            preg_match_all('/<a\\b[^>]*aria-current="page"[^>]*>/', $content, $currentAnchors);
+            $actual = array();
+            foreach ($currentAnchors[0] as $anchor) {
+                preg_match('/href="([^"]*)"/', $anchor, $href);
+                $actual[] = $href[1];
+            }
+            $assert($actual === (null === $expected ? array() : array($expected)), 'generated navigation chooses exact or longest section: ' . var_export($navigationServed, true), $content);
+            $assert($ancestor === str_contains($content, 'current-menu-ancestor'), 'only ancestry gets the ancestor class', $content);
+            $assert(array() !== $navigationFilterCalls && array_reduce($navigationFilterCalls, static fn(bool $valid, array $call): bool => $valid && $call === array('page' === $navigationPostType ? '/unrelated-page' : null, 42), true), 'served-route filter receives the computed route and document');
+        }
+    }
+}
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "route current navigation: {$failures} failed, {$passes} passed\n");
     exit(1);
