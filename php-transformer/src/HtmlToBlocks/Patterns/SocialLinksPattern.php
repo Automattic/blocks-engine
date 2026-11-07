@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\HtmlDimensionAttribute;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\MonochromeGlyphColor;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgPathCoverage;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use DOMElement;
@@ -322,7 +323,35 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         return 'none' !== strtolower($svg->getAttribute('fill'))
             && '' === $svg->getAttribute('stroke')
             && ($svg->getAttribute('viewBox') ?: $svg->getAttribute('viewbox')) === $core->documentElement->getAttribute('viewBox')
-            && $signature($svg) === $signature($core->documentElement);
+            && ($signature($svg) === $signature($core->documentElement) || $this->paintsSameArea($svg, $core->documentElement));
+    }
+
+    /**
+     * Builders re-export the same service glyph at a different precision or
+     * from a different start point. Compare the area each single filled path
+     * paints; any edge moving more than half a sample cell keeps source artwork.
+     */
+    private function paintsSameArea(DOMElement $svg, DOMElement $core): bool
+    {
+        $path = static function (DOMElement $root): ?DOMElement {
+            $artwork = array();
+            foreach ($root->getElementsByTagName('*') as $child) {
+                if (!in_array(strtolower($child->tagName), array('title', 'desc'), true)) $artwork[] = $child;
+            }
+            if (1 !== count($artwork) || 'path' !== strtolower($artwork[0]->tagName)) return null;
+            foreach (array('transform', 'stroke', 'opacity', 'fill-opacity', 'clip-path', 'mask', 'filter') as $name) {
+                if ($artwork[0]->hasAttribute($name)) return null;
+            }
+            return 'none' === strtolower($artwork[0]->getAttribute('fill')) ? null : $artwork[0];
+        };
+        $source = $path($svg);
+        $target = $path($core);
+        $viewBox = array_map('floatval', preg_split('/[\s,]+/', trim($core->getAttribute('viewBox'))) ?: array());
+        if (null === $source || null === $target || 4 !== count($viewBox)) return false;
+        $rule = static fn (DOMElement $node, DOMElement $root): string => strtolower($node->getAttribute('fill-rule') ?: $root->getAttribute('fill-rule') ?: 'nonzero');
+        $difference = SvgPathCoverage::maxCellDifference($source->getAttribute('d'), $rule($source, $svg), $target->getAttribute('d'), $rule($target, $core), $viewBox);
+
+        return null !== $difference && $difference <= 0.5;
     }
 
     /**

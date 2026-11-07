@@ -5,19 +5,20 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanResolver;
 
 // #4676: rich header fields, a lead image, a weekday date and related cards
 // wrapped in a grid all get native slots in one shared single template.
 $document = static fn(string $title, string $head, string $main): string => '<!doctype html><html><head><title>' . $title . '</title>' . $head . '</head><body><header><nav><a href="/">Home</a><a href="/journal/">Journal</a></nav></header><main>' . $main . '</main><footer><p>Footer</p></footer></body></html>';
 $titles = array('first' => 'First story', 'second' => 'Second story', 'third' => 'Third story');
 $slugs = array_keys($titles);
-$files = array('index.html' => $document('Home', '', '<h1>Home</h1><p>Welcome.</p>'));
+$files = array('index.html' => $document('Home', '', '<h1>Home</h1><p>Welcome.</p>'), 'img/clock.svg' => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect width="1" height="1"/></svg>');
 $ledes = array('first' => 'Lede for first.', 'second' => '<em>Lede</em> for second.', 'third' => 'Lede for third.');
 $dates = array('Thursday, January 1, 2026', 'Sunday, February 1, 2026', 'Sunday, March 1, 2026');
 foreach ($slugs as $position => $slug) {
     $next = $slugs[($position + 1) % count($slugs)];
     $head = '<meta name="description" content="SEO summary for ' . $slug . '."><script type="application/ld+json">{"@context":"https://schema.org","@type":"Article","headline":"' . $titles[$slug] . '","datePublished":"2026-0' . ($position + 1) . '-01"}</script>';
-    $files['journal/' . $slug . '/index.html'] = $document($titles[$slug], $head, '<article><header class="center"><span class="pill">Journal</span><h1>' . $titles[$slug] . '</h1><p class="lede">' . $ledes[$slug] . '</p><div class="byline"><time datetime="2026-0' . ($position + 1) . '-01">' . $dates[$position] . '</time><p class="read">' . ($position + 3) . ' min read</p></div></header><figure class="lead"><img src="/img/' . $slug . '.jpg" alt=""></figure><div class="body"><p>Body text for ' . $slug . '.</p><h2>Section of ' . $slug . '</h2><p>More body for ' . $slug . '.</p></div><aside class="author"><p>Written by</p><h3>The Team</h3></aside></article><div class="related"><h2>Related posts</h2><div class="grid"><a href="/journal/' . $next . '/" class="card"><img src="/img/' . $next . '.jpg" alt=""><h3>' . $titles[$next] . '</h3><p>' . $ledes[$next] . '</p></a></div></div>');
+    $files['journal/' . $slug . '/index.html'] = $document($titles[$slug], $head, '<article><header class="center"><span class="pill">Journal</span><h1>' . $titles[$slug] . '</h1><p class="lede">' . $ledes[$slug] . '</p><div class="byline"><time datetime="2026-0' . ($position + 1) . '-01">' . $dates[$position] . '</time><p class="read"><img src="/img/clock.svg" alt="">' . ($position + 3) . ' min read</p></div></header><figure class="lead"><img src="/img/' . $slug . '.jpg" alt=""></figure><div class="body"><p>Body text for ' . $slug . '.</p><h2>Section of ' . $slug . '</h2><p>More body for ' . $slug . '.</p></div><aside class="author"><p>Written by</p><h3>The Team</h3></aside></article><div class="related"><h2>Related posts</h2><div class="grid"><a href="/journal/' . $next . '/" class="card"><img src="/img/' . $next . '.jpg" alt=""><h3>' . $titles[$next] . '</h3><p>' . $ledes[$next] . '</p></a></div></div>');
     $files['img/' . $slug . '.jpg'] = 'image';
 }
 $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray()['source_reports']['wordpress_site_plan'];
@@ -57,12 +58,16 @@ foreach ($posts as $post) {
     if (($post['route_template'] ?? 'single') !== ($templates[0]['slug'] ?? null)) $failures[] = 'shared template used';
     $meta = $post['metadata']['post_meta'] ?? array();
     if (($meta[$keys['lede'] ?? ''] ?? null) !== $ledes[$slug]) $failures[] = 'own rich lede preserved';
-    if (($meta[$keys['read'] ?? ''] ?? null) !== ($position + 3) . ' min read') $failures[] = 'own read time preserved';
+    if (($position + 3) . ' min read' !== trim(strip_tags($meta[$keys['read'] ?? ''] ?? ''))) $failures[] = 'own read time preserved';
     if (!str_contains($post['canonical_block_markup'], 'More body for ' . $slug)) $failures[] = 'body preserved';
     if (!isset($post['metadata']['featured_image'])) $failures[] = 'own featured image';
 }
 foreach ($plan['diagnostics'] as $diagnostic) {
     if ('wordpress_site_plan_content_lost' === ($diagnostic['code'] ?? null)) $failures[] = 'no content lost: ' . json_encode($diagnostic);
+}
+$resolved = (new WordPressSitePlanResolver())->resolve($plan, array('theme_uri' => 'https://example.test/wp-content/themes/site'));
+foreach ($resolved['pages'] as $page) {
+    foreach ($page['metadata']['post_meta'] ?? array() as $value) if (str_contains($value, '{{wordpress-site-plan:') || (str_contains($value, '<img') && !str_contains($value, 'https://example.test/'))) $failures[] = 'resolved post fields carry resolved asset URLs: ' . $value;
 }
 if (array() !== $failures) {
     fwrite(STDERR, 'FAIL: ' . implode("\nFAIL: ", $failures) . "\n");

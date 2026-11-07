@@ -342,6 +342,16 @@ PHP;
             if ('' !== $sourcePath && '' !== $targetPath) $this->routeSources[$sourcePath] = $targetPath;
             if ('' !== $targetPath) $this->routeTargets['/' === $targetPath ? '/' : '/' . trim($targetPath, '/')] = $targetPath;
         }
+        // Native date archives are document roots, not materialized pages, but
+        // their captured file paths still participate in link resolution.
+        $entryRoot = self::entryRootFromDocuments($compiled['pages']);
+        foreach ($compiled['pages'] as $document) {
+            if (!self::isDateArchiveDocument($document)) continue;
+            $path = $document['metadata']['route_path'] ?? self::pageRoutePath($document['source_path'], $entryRoot);
+            $target = '/' . trim($path, '/') . '/';
+            $this->routeSources[$document['source_path']] = $target;
+            $this->routeTargets['/' . trim($path, '/')] = $target;
+        }
         $this->routeLinkedFragments = $this->routeLinkedFragments($documents, $routeMap);
         $this->missingMedia = new MissingMediaRecovery($this->strictMissingMedia, array_column($assets, 'target_path'));
         $missingFonts = new MissingFontSourceRecovery($this->strictMissingMedia);
@@ -782,7 +792,7 @@ PHP;
             $plan['reference_semantics']['synced_patterns'] = SyncedPatternProjection::REFERENCE_CONTRACT;
         }
         $consumers = AssetConsumers::inventory($plan);
-        $unreferenced = AssetConsumers::unreferencedImages($plan);
+        $unreferenced = array_merge(AssetConsumers::unreferencedImages($plan) ?? array(), self::unreferencedInlineScripts($plan));
         $unwritten = array();
         foreach ($plan['assets'] as &$asset) {
             $asset['consumers'] = $consumers[$asset['token']] ?? array();
@@ -1178,7 +1188,7 @@ PHP;
         }
         // Resolution rewrites tokens to URLs, so a resolved plan keeps the
         // unresolved plan's proof for unwritten assets.
-        $unreferenced = isset($plan['resolution']) ? array_fill_keys(array_column(array_filter($plan['assets'], static fn(array $asset): bool => 'none' === ($asset['destination'] ?? null)), 'token'), true) : AssetConsumers::unreferencedImages($plan);
+        $unreferenced = isset($plan['resolution']) ? array_fill_keys(array_column(array_filter($plan['assets'], static fn(array $asset): bool => 'none' === ($asset['destination'] ?? null)), 'token'), true) : array_merge(AssetConsumers::unreferencedImages($plan) ?? array(), self::unreferencedInlineScripts($plan));
         foreach ( $plan['assets'] as $asset ) {
             $expectedConsumers = $asset['consumers'] ?? array();
             if (($asset['consumers'] ?? null) !== $expectedConsumers || ($asset['destination'] ?? null) !== AssetConsumers::destination($expectedConsumers, $asset, $unreferenced) || ($asset['theme_write_reasons'] ?? null) !== self::themeWriteReasons($expectedConsumers, $asset['destination'])) throw new InvalidArgumentException('Asset consumers or destination are stale.');
@@ -1210,6 +1220,18 @@ PHP;
         // Bound retention for long-lived processes without an eviction index.
         if (count($validated) >= 4096) $validated = array();
         $validated[$contentHash] = true;
+    }
+
+    /** Inline scripts are published only when the script-loading plan enqueues them. */
+    private static function unreferencedInlineScripts(array $plan): array
+    {
+        $loading = (new self())->scriptLoading($plan['pages'], $plan['template_parts'], $plan['assets'], $plan['reference_tokens'], $plan['operations'], $plan['runtime_declarations']);
+        $targets = array_fill_keys(array_filter(array_column($loading['scripts'], 'local_target'), 'is_string'), true);
+        $unreferenced = array();
+        foreach ($plan['assets'] as $asset) {
+            if ('inline-script' === ($asset['source'] ?? null) && !isset($targets[$asset['target_path']])) $unreferenced[$asset['token']] = true;
+        }
+        return $unreferenced;
     }
 
     /** Explicit counted fallback: uploads have no portable relative CSS URL. */
@@ -1456,6 +1478,7 @@ PHP;
             $rowByTarget[strtolower($target)] = array_key_last($rows);
             if (isset($asset['inline_references'])) $rows[array_key_last($rows)]['inline_references'] = $asset['inline_references'];
             if (isset($asset['source_media']) && is_string($asset['source_media'])) $rows[array_key_last($rows)]['source_media'] = $asset['source_media'];
+            if (isset($asset[CaptureEvidence::DEVICE_STYLE])) $rows[array_key_last($rows)][CaptureEvidence::DEVICE_STYLE] = $asset[CaptureEvidence::DEVICE_STYLE];
             if (isset($asset['stylesheet_activation'])) {
                 $rows[array_key_last($rows)]['stylesheet_activation'] = $asset['stylesheet_activation'];
                 $rows[array_key_last($rows)]['stylesheet_source_path'] = $asset['stylesheet_source_path'] ?? $asset['path'];
@@ -1634,10 +1657,10 @@ PHP;
             }
             foreach ($assets as $index => $asset) foreach ($asset['inline_references'] ?? array() as $reference) {
                 if ('css' !== ($asset['kind'] ?? null) || $page['source_path'] !== ($reference['source_path'] ?? null)) continue;
-                $sequence[] = array(2 * (int) ($reference['stylesheet_link_position'] ?? 0), $index, (string) ($reference['source_media'] ?? $reference['media'] ?? ''), (string) ($asset['type'] ?? ''), (int) ($reference['stylesheet_index'] ?? 0));
+                $sequence[] = array(2 * (int) ($reference['stylesheet_link_position'] ?? 0), $index, (string) (isset($reference[CaptureEvidence::DEVICE_STYLE]) ? ($reference['media'] ?? '') : ($reference['source_media'] ?? $reference['media'] ?? '')), (string) ($asset['type'] ?? ''), (int) ($reference['stylesheet_index'] ?? 0), self::inlineStylesheetDeviceAttributes($reference));
             }
             foreach ($inlineIndexesByPage[(string) ($page['source_path'] ?? '')] ?? array() as $index) {
-                $sequence[] = array(2 * (int) $assets[$index]['stylesheet_link_position'], $index, (string) ($assets[$index]['media'] ?? ''), '', (int) ($assets[$index]['stylesheet_inline_order'] ?? $index));
+                $sequence[] = array(2 * (int) $assets[$index]['stylesheet_link_position'], $index, (string) ($assets[$index]['media'] ?? ''), '', (int) ($assets[$index]['stylesheet_inline_order'] ?? $index), self::inlineStylesheetDeviceAttributes($assets[$index]));
             }
             usort($sequence, static fn(array $left, array $right): int => $left[0] <=> $right[0] ?: $left[4] <=> $right[4] ?: $left[1] <=> $right[1]);
             foreach ($sequence as $order => $entry) {
@@ -2804,10 +2827,11 @@ PHP;
                     return array() === $kept ? '' : implode(',', $kept) . '{' . $body . '}';
                 }
             );
+            $contract = self::sharedChromeContract($asset);
             $sharedAsset = $asset;
             // Address the target by what is enqueued, not only the text: the same
-            // rules under another media condition or target are another asset.
-            $sharedAsset['path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', self::sharedChromeContract($asset) . "\0" . $shared), 0, 16) . '.css';
+            // rules under another media condition, target or capture device are another asset.
+            $sharedAsset['path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', $contract . "\0" . $shared), 0, 16) . '.css';
             $sharedAsset['target_path'] = $sharedAsset['path'];
             $sharedAsset['source_path'] = (string) ($asset['source_path'] ?? $asset['path'] ?? '') . '.shared-chrome';
             // Relative url() references still resolve against the stylesheet the
@@ -2829,7 +2853,7 @@ PHP;
                     $arms = CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude);
                     return implode(',', array_map(static fn(string $arm): string => preg_match('/\\[\\s*(?:' . preg_quote(EngineMarker::DEVICE_SCOPE_ATTRIBUTE, '/') . '|' . preg_quote(CaptureEvidence::DEVICE_DOCUMENT, '/') . ')\\b/i', $arm) ? $gate . ' ' . $arm : $arm, $arms)) . '{' . $body . '}';
                 });
-                $sharedAsset['path'] = $sharedAsset['target_path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', self::sharedChromeContract($asset) . "\0" . $shared), 0, 16) . '.css';
+                $sharedAsset['path'] = $sharedAsset['target_path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', $contract . "\0" . $shared), 0, 16) . '.css';
             }
             $sharedAsset = self::withRewrittenTextContent($sharedAsset, $shared);
             $sharedAsset['scopes'] = array(array('kind' => 'global'));
@@ -2852,11 +2876,11 @@ PHP;
                 foreach ($emissions as $emitted) {
                     $index = $emitted['index'];
                     $existing = $projected[$index];
-                    if ($emitted['contract'] !== self::sharedChromeContract($sharedAsset)
+                    if ($emitted['contract'] !== $contract
                         || !self::sharedChromeOriginsAgree($shared, $emitted['origin'], (string) $sharedAsset['reference_origin'], $references)) continue;
                     $combined = (new CssStylesheetTransformer())->concatenateWithoutRedundantRules(array($existing['content'], $shared));
                     $existing = self::withRewrittenTextContent($existing, $combined);
-                    $existing['path'] = $existing['target_path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', self::sharedChromeContract($existing) . "\0" . $combined), 0, 16) . '.css';
+                    $existing['path'] = $existing['target_path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', $contract . "\0" . $combined), 0, 16) . '.css';
                     $existing['token'] = 'asset-' . substr(hash('sha256', $existing['target_path']), 0, 16);
                     $existing['reconciliation_identity'] = self::identity('asset', $existing['source_path'], $existing['target_path']);
                     $existing['_stylesheet_projection_origins'][] = self::stylesheetProjectionOrigin($asset);
@@ -2872,7 +2896,7 @@ PHP;
                 $sharedAsset['reconciliation_identity'] = self::identity('asset', $sharedAsset['source_path'], $sharedAsset['target_path']);
                 $collisions[] = array('source_path' => (string) $sharedAsset['source_path'], 'colliding_source_path' => (string) $projected[$emittedShared[$sharedKey][0]['index']]['source_path'], 'target_path' => $collidingTarget, 'resolved_target_path' => (string) $sharedAsset['target_path']);
             }
-            $emittedShared[$sharedKey][] = array('origin' => (string) $sharedAsset['reference_origin'], 'contract' => self::sharedChromeContract($sharedAsset), 'index' => count($projected));
+            $emittedShared[$sharedKey][] = array('origin' => (string) $sharedAsset['reference_origin'], 'contract' => $contract, 'index' => count($projected));
             $projected[] = $sharedAsset;
         }
         return $projected;
@@ -2965,6 +2989,21 @@ PHP;
             else unset($assets[$index]['_stylesheet_projection_origins']);
         }
         if (array() === $projections) return $assets;
+        // A route without the source stylesheet still loads the slice for its
+        // shared chrome; a device-selected source keeps that selection there.
+        $deviceConditions = array();
+        foreach ($projections as $projection) {
+            $sources = array_column($assets[$projection]['_stylesheet_projection_origins'], 'source_path', 'source_path');
+            foreach ($assets as $asset) {
+                if (!isset($sources[(string) ($asset['source_path'] ?? '')])) continue;
+                foreach ($asset['stylesheet_instances'] ?? array() as $instance) {
+                    $device = self::stylesheetDeviceAttributes($instance);
+                    if (!isset($device[CaptureEvidence::DEVICE_STYLE])) continue;
+                    $conditions = array('media' => $instance['media'], 'type' => '') + $device;
+                    $deviceConditions[$projection][serialize($conditions)] = $conditions;
+                }
+            }
+        }
         $applies = static fn(array $scopes, string $document): bool => array() !== array_filter($scopes, static fn(array $scope): bool => 'global' === ($scope['kind'] ?? null) || ($scope['source_path'] ?? null) === $document);
         foreach ($pages as $page) {
             $document = (string) $page['source_path'];
@@ -2987,7 +3026,9 @@ PHP;
                         $origins[serialize($key)] = array('position' => $position) + $conditions;
                     }
                 }
-                if (array() === $origins) $origins[] = array('position' => $preceding ?? -1, 'media' => (string) ($assets[$projection]['media'] ?? ''), 'type' => '');
+                if (array() === $origins) {
+                    foreach ($deviceConditions[$projection] ?? array(array('media' => (string) ($assets[$projection]['media'] ?? ''), 'type' => '')) as $conditions) $origins[] = array('position' => $preceding ?? -1) + $conditions;
+                }
                 // Insert backwards so earlier positions do not shift.
                 usort($origins, static fn(array $left, array $right): int => $right['position'] <=> $left['position']);
                 foreach ($origins as $origin) {
@@ -3234,7 +3275,15 @@ PHP;
 
     private static function sharedChromeContract(array $asset): string
     {
-        return (string) ($asset['media'] ?? '') . "\0" . (string) ($asset['stylesheet_target'] ?? 'both') . "\0" . ('engine-support' === ($asset['source'] ?? '') ? 'engine' : 'author');
+        $devices = array();
+        foreach ($asset['stylesheet_instances'] ?? array() as $instance) {
+            foreach (self::stylesheetDeviceAttributes($instance) as $attribute => $value) {
+                if (is_string($value)) $devices[$attribute . "\0" . $value] = true;
+            }
+        }
+        $devices = array_keys($devices);
+        sort($devices, SORT_STRING);
+        return (string) ($asset['media'] ?? '') . "\0" . (string) ($asset['stylesheet_target'] ?? 'both') . "\0" . ('engine-support' === ($asset['source'] ?? '') ? 'engine' : 'author') . "\0" . implode("\0", $devices);
     }
 
     private static function sharedChromeOriginsAgree(string $css, string $origin, string $other, ?AssetReferenceCanonicalizer $references): bool
@@ -6389,6 +6438,9 @@ PHP;
             // Resolve copied author URLs before recovery judges them against the
             // generated stylesheet's directory (which is not their origin).
             if ('editor-static-state' === ($asset['source'] ?? null) && is_string($content)) $content = $references->cssFromOrigins($content, $authorStylesheetOrigins);
+            // An inline stylesheet's urls are relative to the documents that held
+            // the <style>, not to its generated inline/ path.
+            if ('inline-style' === ($asset['source'] ?? null) && is_string($content)) $content = $references->cssFromOrigins($content, array_column($asset['inline_references'] ?? array(), 'source_path'));
             if (is_string($content)) $content = $references->content($content, (string) ($asset['reference_origin'] ?? $asset['source_path']));
             if (is_array($asset['payload_reference'] ?? null)) { $writes[] = $this->referenceWrite('theme_asset', $asset['target_path'], $asset['source_path'], $asset['payload_reference']); continue; }
             $base64Transport = is_string($asset['content_base64'] ?? null);
@@ -6807,6 +6859,7 @@ PHP;
             $lines[] = "    if ( ! \$current && ( is_array( \$sources ) || ( '' !== \$url && '/' === \$url[0] && ( 1 === strlen( \$url ) || '/' !== \$url[1] ) ) ) ) {";
             $lines[] = "        \$document = " . self::DOCUMENT_ID_EXPRESSION . ";";
             $lines[] = "        \$served = is_front_page() ? '/' : ( 0 !== \$document && 'page' === get_post_type( \$document ) ? '/' . trim( (string) get_page_uri( \$document ), '/' ) : null );";
+            $lines[] = "        \$served = apply_filters( 'blocks_engine_served_route', \$served, \$document );";
             $lines[] = "        \$routes = array( " . implode(', ', array_map(static fn(string $source, string $route): string => var_export($source, true) . ' => ' . var_export($route, true), array_keys($currentSourceRoutes), $currentSourceRoutes)) . " );";
             $lines[] = "        \$current = null !== \$served && ( is_array( \$sources ) ? in_array( \$served, array_map( static fn ( \$source ) => is_string( \$source ) ? ( \$routes[ \$source ] ?? null ) : null, \$sources ), true ) : '/' . trim( (string) parse_url( \$url, PHP_URL_PATH ), '/' ) === \$served );";
             $lines[] = "    }";
@@ -6827,6 +6880,29 @@ PHP;
             $lines[] = "    return preg_replace( '/(<a\\b[^>]*\\bclass=\"[^\"]*\\bwp-block-navigation-item__content\\b[^\"]*\")/', '\$1 aria-current=\"page\"', \$content, 1 ) ?? \$content;";
             $lines[] = "}, 10, 2 );";
             }
+            // Resolve ancestry only after every item has had its exact/source
+            // evidence pass. At the container boundary we can choose one longest
+            // segment prefix, independent of item render order or submenu depth.
+            $lines[] = "add_filter( 'render_block_core/navigation', static function ( string \$content ): string {";
+            $lines[] = "    if ( preg_match( '/\\baria-current=[\"\\\x27]page[\"\\\x27]|\\bcurrent-menu-item\\b|\\bblocks-engine-current-navigation-item\\b/', \$content ) ) return \$content;";
+            $lines[] = "    \$document = " . self::DOCUMENT_ID_EXPRESSION . ";";
+            $lines[] = "    \$served = is_front_page() ? '/' : ( 0 !== \$document && 'page' === get_post_type( \$document ) ? '/' . trim( (string) get_page_uri( \$document ), '/' ) : null );";
+            $lines[] = "    \$served = apply_filters( 'blocks_engine_served_route', \$served, \$document );";
+            $lines[] = "    if ( ! is_string( \$served ) || ! str_starts_with( \$served, '/' ) ) return \$content;";
+            $lines[] = "    \$best = null; \$length = 0;";
+            $lines[] = '    preg_match_all( \'/<li\\b[^>]*>(?:(?!<li\\b|<a\\b|<button\\b).)*<a\\b[^>]*>/s\', $content, $items, PREG_OFFSET_CAPTURE );';
+            $lines[] = '    foreach ( $items[0] as $item ) {';
+            $lines[] = '        if ( ! preg_match( \'/\\bhref="([^"]*)"/\', $item[0], $href ) || ! preg_match( \'/\\bclass="[^"]*\\bwp-block-navigation-item__content\\b/\', $item[0] ) ) continue;';
+            $lines[] = '        $url = html_entity_decode( $href[1], ENT_QUOTES, \'UTF-8\' );';
+            $lines[] = '        if ( ! str_starts_with( $url, \'/\' ) || str_starts_with( $url, \'//\' ) ) continue;';
+            $lines[] = '        $path = \'/\' . trim( (string) parse_url( $url, PHP_URL_PATH ), \'/\' );';
+            $lines[] = '        if ( \'/\' !== $path && strlen( $path ) > $length && str_starts_with( $served, $path . \'/\' ) ) { $best = $item; $length = strlen( $path ); }';
+            $lines[] = '    }';
+            $lines[] = '    if ( null === $best ) return $content;';
+            $lines[] = '    $item = preg_replace( \'/<a\\b/\', \'<a aria-current="page"\', $best[0], 1 );';
+            $lines[] = '    $item = preg_replace_callback( \'/^<li\\b[^>]*>/\', static function ( array $match ): string { return str_contains( $match[0], \'class="\' ) ? preg_replace( \'/class="/\', \'class="current-menu-ancestor \', $match[0], 1 ) : substr( $match[0], 0, -1 ) . \' class="current-menu-ancestor">\'; }, $item, 1 );';
+            $lines[] = '    return substr_replace( $content, $item, $best[1], strlen( $best[0] ) );';
+            $lines[] = "}, 10, 1 );";
         }
         foreach (array_merge($templates, $parts, $pages) as $document) {
             if (!str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), CaptureEvidence::VIEWPORT_ENTRANCE)) continue;
@@ -6916,6 +6992,13 @@ PHP;
     // back onto the materialized file. Encode every segment, preserving the
     // `/` separators.
     private static function encodedAssetUrlPath(string $path): string { return implode('/', array_map('rawurlencode', explode('/', $path))); }
+
+    /** Inline occurrences store the author's media separately from captured media. @return array<string,mixed> */
+    private static function inlineStylesheetDeviceAttributes(array $occurrence): array
+    {
+        if (!isset($occurrence[CaptureEvidence::DEVICE_STYLE])) return array();
+        return self::stylesheetDeviceAttributes($occurrence) + array(CaptureEvidence::SOURCE_MEDIA => (string) ($occurrence['source_media'] ?? $occurrence['media'] ?? ''));
+    }
 
     /** @return array<string,mixed> */
     private static function stylesheetDeviceAttributes(array $occurrence): array
@@ -7156,6 +7239,11 @@ PHP;
                 $action = $entity['form']['action'] ?? null;
                 if (is_string($source) && is_string($action) && $this->isSelfPostAction($action, $source, $routes)) $entity['form']['action'] = 'blocks-engine:self-post';
                 foreach ($entity['controls'] ?? array() as $ci => $control) unset($entity['controls'][$ci]['selector']);
+                // Row selectors locate equivalent controls positionally too; keep the layout facts, not capture-specific locations.
+                foreach ($entity['presentation_graph']['control_rows'] ?? array() as $ri => $row) {
+                    unset($entity['presentation_graph']['control_rows'][$ri]['source_selector']);
+                    foreach ($row['members'] ?? array() as $mi => $member) unset($entity['presentation_graph']['control_rows'][$ri]['members'][$mi]['source_selector']);
+                }
                 // Layout graph nodes locate the same controls positionally.
                 foreach ($entity['layout_graph']['nodes'] ?? array() as $ni => $node) if (is_array($node['source'] ?? null)) unset($entity['layout_graph']['nodes'][$ni]['source']['selector']);
             }
@@ -7556,6 +7644,7 @@ PHP;
      */
     private function unresolvedNavigationLinks(string $content, string $origin, array $routes): string
     {
+        $content = $this->unresolvedBlockAttributeLinks($content, $origin, $routes);
         if (!preg_match('~(?:<|\\\\u003c)(?:a|area|form)\b~i', $content)) return $content;
         return preg_replace_callback('~(?:<|\\\\u003c)(?:a|area|form)(?=[\s/>\\\\])(?:[^>\\\\]|\\\\(?!u003e))*~i', function (array $tag) use ($origin, $routes): string {
             $replace = function (array $match) use ($origin, $routes): string {
@@ -7567,6 +7656,37 @@ PHP;
             $attribute = 1 === preg_match('~^(?:<|\\\\u003c)form~i', $markup) ? 'action' : 'href';
             foreach (array('~((?<![\w:-])' . $attribute . '\s*=\s*")([^"]*)(")~i', "~((?<![\\w:-])" . $attribute . "\\s*=\\s*')([^']*)(')~i", '~((?<![\w:-])' . $attribute . '\s*=\s*\\\\")([^"\\\\]*)(\\\\")~i', '~((?<![\w:-])' . $attribute . '\s*=\s*\\\\u0022)(.*?)(\\\\u0022)~i') as $pattern) $markup = preg_replace_callback($pattern, $replace, $markup) ?? $markup;
             return $markup;
+        }, $content) ?? $content;
+    }
+    /**
+     * Link destinations stored in block comment attributes (a navigation item's
+     * `url`, a wrapper's `href`, a form's `action`) get the same treatment as
+     * markup links. assertNoLocalBrowserReferences() walks these attributes too,
+     * so leaving them unresolved rejects the whole plan.
+     *
+     * @param array<int,array<string,mixed>> $routes
+     */
+    private function unresolvedBlockAttributeLinks(string $content, string $origin, array $routes): string
+    {
+        if (!str_contains($content, '<!-- wp:')) return $content;
+        return preg_replace_callback('~<!--\s*wp:([^\s{]+)\s+(\{.*?\})\s*(/)?-->~s', function (array $match) use ($origin, $routes): string {
+            $attrs = json_decode($match[2], true);
+            if (!is_array($attrs)) return $match[0];
+            $linkKeys = in_array(strtolower($match[1]), self::ROUTE_URL_BLOCKS, true) ? array('url', 'href', 'action') : array('href', 'action');
+            $changed = false;
+            $walk = function (array $value) use (&$walk, &$changed, $linkKeys, $origin, $routes): array {
+                foreach ($value as $key => $item) {
+                    if (is_array($item)) { $value[$key] = $walk($item); continue; }
+                    if (!is_string($key) || !is_string($item) || !in_array(strtolower($key), $linkKeys, true)) continue;
+                    $resolved = $this->unresolvedNavigationReference($item, $origin, $routes);
+                    if (null === $resolved) continue;
+                    $value[$key] = html_entity_decode($resolved, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                    $changed = true;
+                }
+                return $value;
+            };
+            $attrs = $walk($attrs);
+            return $changed ? str_replace($match[2], BlockAttributes::encode($attrs, JSON_THROW_ON_ERROR), $match[0]) : $match[0];
         }, $content) ?? $content;
     }
     /** @param array<int,array<string,mixed>> $routes */

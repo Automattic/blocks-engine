@@ -31,6 +31,19 @@ $assert(str_contains($result['serialized_blocks'], 'stroke="currentColor"'), 'Ho
 $icons = json_decode(file_get_contents(dirname(__DIR__, 2) . '/resources/wordpress-social-link-icons.json'), true);
 $matching = (new HtmlTransformer())->transform('<div class="social"><a href="https://facebook.com/example" aria-label="Facebook">' . $icons['facebook'] . '</a></div>')->toArray();
 $assert(str_contains($matching['serialized_blocks'], 'wp:social-link '), 'Matching core artwork keeps existing native output.');
+// A builder re-export of the same glyph (other precision, start point and fill
+// rule) paints the same area, so it keeps core/social-link; a visibly changed
+// feature (the crossbar one unit wider) keeps source artwork.
+$reexport = 'M22 12.061C22 6.505 17.523 2 12 2S2 6.505 2 12.061c0 5.022 3.657 9.184 8.438 9.939v-7.03h-2.54v-2.91h2.54V9.845c0-2.522 1.492-3.915 3.777-3.915 1.094 0 2.238.197 2.238.197v2.476h-1.26c-1.243 0-1.63.775-1.63 1.57v1.888h2.773l-.443 2.908h-2.33V22c4.78-.755 8.437-4.917 8.437-9.939z';
+foreach (array('re-export' => array($reexport, true), 'wider crossbar' => array(str_replace('h-2.54v-2.91h2.54', 'h-3.54v-2.91h3.54', $reexport), false)) as $label => [$d, $native]) {
+    $converted = (new HtmlTransformer())->transform('<style>.glyph{margin:0 8px 8px}</style><div class="widget widget-social"><h2>Follow</h2><div data-aid="SOCIAL_SOCIAL_LINKS"><a href="https://www.facebook.com/106416541004929" aria-label="Facebook Social Link"><svg class="glyph" viewBox="0 0 24 24" fill="currentColor" width="40" height="40"><path fill-rule="evenodd" d="' . $d . '"></path></svg></a></div></div>')->toArray();
+    $assert($native === str_contains($converted['serialized_blocks'], 'wp:social-link ') && $native !== str_contains($converted['serialized_blocks'], $d), $label . ': glyph equivalence is decided by painted area');
+    if ($native) {
+        // Core's icon keeps the source glyph box: attribute size and authored margin.
+        $glyphCss = implode("\n", array_column(array_filter($converted['assets'], static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+        $assert(1 === preg_match('/> ?a ?> ?svg\)[^{]*\{width:40px;height:40px\}/', $glyphCss) && 1 === preg_match('/> ?a ?> ?svg\)[^{]*\{margin:0 8px 8px\}/', $glyphCss), $label . ': core glyph keeps the source size hints and margin');
+    }
+}
 $custom = (new HtmlTransformer())->transform('<div class="social"><a href="https://facebook.com/example" aria-label="Custom Facebook"><svg viewBox="0 0 24 24"><path d="M0 0h12v12z"/></svg></a></div>')->toArray();
 $assert(str_contains($custom['serialized_blocks'], 'M0 0h12v12z'), 'Wrong core artwork is avoided even without capture metadata.');
 $assert(str_contains($custom['serialized_blocks'], '<a '), 'Uncaptured custom artwork remains linked.');

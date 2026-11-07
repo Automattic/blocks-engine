@@ -123,8 +123,9 @@ final class ShellExtraction
     }
 
     /**
-     * Isolated artifacts prove equal source landmarks across routes. Compare and
-     * emit that shell, not page-cascade projections; retain page ranges for removal.
+     * Isolated artifacts prove equal source landmarks across routes. Responsive
+     * variants retain page-compiled presentation inside their device shells;
+     * isolated identity must not replace selector-derived classes on those boxes.
      * @param array<int,array<string,mixed>> $pages
      * @param array<int,array<string,mixed>> $artifacts
      * @return array<int,array<string,mixed>>
@@ -160,7 +161,11 @@ final class ShellExtraction
                     if ($bindings['blocked'] || array() !== $bindings['refs']) continue;
                     $page['_source_shared_variant_identities'][$area][$class][$row['identity_markup']] = array(
                         'identity_markup' => self::normalizeNestedChromeMarkup($artifact['canonical_block_markup']),
-                        'template_part_markup' => self::landmarkPartMarkup(self::withoutCurrentNavigationState($artifact['canonical_block_markup']), $area),
+                        // The isolated artifact proves identity, not presentation:
+                        // its stylesheet context can differ from the page's and
+                        // omit selector-derived attribute classes. Emit the
+                        // compiled page landmark under its original device shell.
+                        'template_part_markup' => self::landmarkPartMarkup(self::withoutCurrentNavigationState($row['markup']), $area),
                     );
                 }
             }

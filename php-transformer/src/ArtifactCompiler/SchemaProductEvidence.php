@@ -365,8 +365,10 @@ final class SchemaProductEvidence
         $properties = $product['additionalProperty'] ?? array();
         if (!is_array($properties)) $properties = array();
         if (!array_is_list($properties)) $properties = array($properties);
+        $attributeOrder = array();
         foreach (is_array($variesBy) ? $variesBy : array($variesBy) as $property) {
             $key = preg_replace('~^https?://schema.org/~', '', self::name($property));
+            $attributeOrder[] = $slug($key);
             if (in_array($key, array('size', 'color', 'material', 'pattern'), true) && isset($product[$key])) {
                 $properties[] = array('@type' => 'PropertyValue', 'name' => ucfirst($key), 'value' => $product[$key]);
             }
@@ -380,7 +382,13 @@ final class SchemaProductEvidence
             $valueSlug = $slug($value);
             if ('' !== $key && '' !== $valueSlug) $attributes[$key] = array('key' => $key, 'label' => $label, 'value' => $valueSlug, 'value_label' => $value);
         }
-        return array_values($attributes);
+        $ordered = array();
+        foreach ($attributeOrder as $key) {
+            if (!isset($attributes[$key])) continue;
+            $ordered[] = $attributes[$key];
+            unset($attributes[$key]);
+        }
+        return array_merge($ordered, array_values($attributes));
     }
 
     private static function name(mixed $value): string
