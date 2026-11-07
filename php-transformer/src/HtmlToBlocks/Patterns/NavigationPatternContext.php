@@ -595,11 +595,12 @@ final class NavigationPatternContext
      * An absolutely positioned glyph box sits beside the label, outside its
      * row (Google Sites places the chevron in the item box's left padding).
      * Core's toggle is a child of the item, so the source insets are re-based
-     * from the glyph's containing block onto the item: horizontal lengths
-     * shift by the boxes between them, and vertical insets carry unchanged
-     * because those boxes add no vertical edges and their margins collapse
-     * through the item. A containing block outside the item, or edges that
-     * cannot be summed, keep the toggle in Core's row.
+     * from the glyph's containing block onto the item. Core's item is a flex
+     * item and contains its children's margins, so the containing block sits
+     * inside it by the margins, borders and padding of the boxes between them:
+     * lengths shift by that offset, and percentages are rescaled from the
+     * containing block to the item. A containing block outside the item, or
+     * edges that are not px lengths, keep the toggle in Core's row.
      *
      * @return array<string, string>
      */
@@ -616,9 +617,9 @@ final class NavigationPatternContext
             if ( null === $containingBlock && 'static' !== strtolower(trim((string) ($read($node, array('position'))['position'] ?? 'static'))) ) $containingBlock = $node;
         }
         if ( ! $node instanceof DOMElement ) return array();
-        $chain = null === $containingBlock ? array() : array_slice($chain, array_search($containingBlock, $chain, true));
+        $chain = null === $containingBlock ? array() : array_slice($chain, (int) array_search($containingBlock, $chain, true));
 
-        // Side lengths, in px, of a box property; null when one cannot be read.
+        // Side lengths in px (top, right, bottom, left); null when one is not a px length.
         $sides = static function (array $declarations, string $property): ?array {
             $values = isset($declarations[$property]) ? CssValueInspector::expandBoxShorthand((string) $declarations[$property]) : array('0', '0', '0', '0');
             foreach ( array('top', 'right', 'bottom', 'left') as $index => $side ) {
@@ -627,36 +628,39 @@ final class NavigationPatternContext
             }
             $lengths = array();
             foreach ( $values as $value ) {
-                if ( 1 !== preg_match('/^(-?[0-9]*\.?[0-9]+)(?:px)?$/D', trim($value), $match) || ( '0' !== trim($value) && ! str_ends_with(trim($value), 'px') ) ) return null;
-                $lengths[] = (float) $match[1];
+                if ( 1 !== preg_match('/^(-?[0-9]*\\.?[0-9]+)px$|^0$/D', trim($value), $match) ) return null;
+                $lengths[] = (float) ($match[1] ?? 0);
             }
             return $lengths;
         };
         $edgeProperties = array('margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'border-width', 'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width');
-        $offset = array('left' => 0.0, 'right' => 0.0);
-        foreach ( array_merge(array($item), $chain) as $box ) {
+        // The item's padding edge is the reference; the containing block's
+        // own padding edge is the target.
+        $itemPadding = $sides($read($item, $edgeProperties), 'padding');
+        if ( null === $itemPadding ) return array();
+        $offset = array_combine(array('top', 'right', 'bottom', 'left'), $itemPadding);
+        foreach ( $chain as $box ) {
             $declarations = $read($box, $edgeProperties);
             $margin = $sides($declarations, 'margin');
             $padding = $sides($declarations, 'padding');
             $border = $sides($declarations, 'border-width');
-            if ( null === $margin || null === $padding || null === $border || 0.0 !== $padding[0] + $padding[2] + $border[0] + $border[2] ) return array();
-            $isItem = $box->isSameNode($item);
-            $isContainingBlock = null !== $containingBlock && $box->isSameNode($containingBlock);
-            // The item's padding edge is the reference; the containing
-            // block's own padding edge is the target.
-            $offset['left'] += ( $isItem ? 0 : $margin[3] + $border[3] ) + ( $isContainingBlock ? 0 : $padding[3] );
-            $offset['right'] += ( $isItem ? 0 : $margin[1] + $border[1] ) + ( $isContainingBlock ? 0 : $padding[1] );
+            if ( null === $margin || null === $padding || null === $border ) return array();
+            foreach ( array('top', 'right', 'bottom', 'left') as $index => $side ) {
+                $offset[$side] += $margin[$index] + $border[$index] + ( $box->isSameNode($containingBlock) ? 0 : $padding[$index] );
+            }
         }
-        if ( null === $containingBlock ) $offset = array('left' => 0.0, 'right' => 0.0);
 
         $placement = array('position' => 'absolute');
-        foreach ( array('left', 'right', 'top', 'bottom') as $side ) {
+        $number = static fn(float $value): string => rtrim(rtrim(number_format($value, 4, '.', ''), '0'), '.') ?: '0';
+        foreach ( array('left' => 'right', 'right' => 'left', 'top' => 'bottom', 'bottom' => 'top') as $side => $opposite ) {
             $value = strtolower(trim((string) ($own[$side] ?? '')));
             if ( '' === $value || 'auto' === $value ) continue;
-            if ( 1 === preg_match('/^(-?[0-9]*\.?[0-9]+)px$|^0$/D', $value, $match) ) {
-                $placement[$side] = ( (float) ($match[1] ?? 0) + ($offset[$side] ?? 0.0) ) . 'px';
-            } elseif ( in_array($side, array('top', 'bottom'), true) && 1 === preg_match('/^-?[0-9]*\.?[0-9]+%$/D', $value) ) {
-                $placement[$side] = $value;
+            if ( 1 === preg_match('/^(-?[0-9]*\\.?[0-9]+)px$|^0$/D', $value, $match) ) {
+                $placement[$side] = $number((float) ($match[1] ?? 0) + $offset[$side]) . 'px';
+            } elseif ( 1 === preg_match('/^(-?[0-9]*\\.?[0-9]+)%$/D', $value, $match) ) {
+                $share = (float) $match[1] / 100;
+                $shift = $offset[$side] - $share * ( $offset[$side] + $offset[$opposite] );
+                $placement[$side] = 0.0 === $shift ? $value : 'calc(' . $value . ' + ' . $number($shift) . 'px)';
             } else {
                 return array();
             }
