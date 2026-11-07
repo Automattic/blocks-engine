@@ -7619,6 +7619,7 @@ PHP;
      */
     private function unresolvedNavigationLinks(string $content, string $origin, array $routes): string
     {
+        $content = $this->unresolvedBlockAttributeLinks($content, $origin, $routes);
         if (!preg_match('~(?:<|\\\\u003c)(?:a|area|form)\b~i', $content)) return $content;
         return preg_replace_callback('~(?:<|\\\\u003c)(?:a|area|form)(?=[\s/>\\\\])(?:[^>\\\\]|\\\\(?!u003e))*~i', function (array $tag) use ($origin, $routes): string {
             $replace = function (array $match) use ($origin, $routes): string {
@@ -7630,6 +7631,37 @@ PHP;
             $attribute = 1 === preg_match('~^(?:<|\\\\u003c)form~i', $markup) ? 'action' : 'href';
             foreach (array('~((?<![\w:-])' . $attribute . '\s*=\s*")([^"]*)(")~i', "~((?<![\\w:-])" . $attribute . "\\s*=\\s*')([^']*)(')~i", '~((?<![\w:-])' . $attribute . '\s*=\s*\\\\")([^"\\\\]*)(\\\\")~i', '~((?<![\w:-])' . $attribute . '\s*=\s*\\\\u0022)(.*?)(\\\\u0022)~i') as $pattern) $markup = preg_replace_callback($pattern, $replace, $markup) ?? $markup;
             return $markup;
+        }, $content) ?? $content;
+    }
+    /**
+     * Link destinations stored in block comment attributes (a navigation item's
+     * `url`, a wrapper's `href`, a form's `action`) get the same treatment as
+     * markup links. assertNoLocalBrowserReferences() walks these attributes too,
+     * so leaving them unresolved rejects the whole plan.
+     *
+     * @param array<int,array<string,mixed>> $routes
+     */
+    private function unresolvedBlockAttributeLinks(string $content, string $origin, array $routes): string
+    {
+        if (!str_contains($content, '<!-- wp:')) return $content;
+        return preg_replace_callback('~<!--\s*wp:([^\s{]+)\s+(\{.*?\})\s*(/)?-->~s', function (array $match) use ($origin, $routes): string {
+            $attrs = json_decode($match[2], true);
+            if (!is_array($attrs)) return $match[0];
+            $linkKeys = in_array(strtolower($match[1]), self::ROUTE_URL_BLOCKS, true) ? array('url', 'href', 'action') : array('href', 'action');
+            $changed = false;
+            $walk = function (array $value) use (&$walk, &$changed, $linkKeys, $origin, $routes): array {
+                foreach ($value as $key => $item) {
+                    if (is_array($item)) { $value[$key] = $walk($item); continue; }
+                    if (!is_string($key) || !is_string($item) || !in_array(strtolower($key), $linkKeys, true)) continue;
+                    $resolved = $this->unresolvedNavigationReference($item, $origin, $routes);
+                    if (null === $resolved) continue;
+                    $value[$key] = html_entity_decode($resolved, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                    $changed = true;
+                }
+                return $value;
+            };
+            $attrs = $walk($attrs);
+            return $changed ? str_replace($match[2], BlockAttributes::encode($attrs, JSON_THROW_ON_ERROR), $match[0]) : $match[0];
         }, $content) ?? $content;
     }
     /** @param array<int,array<string,mixed>> $routes */
