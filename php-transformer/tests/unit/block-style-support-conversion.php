@@ -224,8 +224,7 @@ $cascadeHtml = '<style>#target{width:12rem}.authored-important{width:8rem!import
 $cascadeResult = ( new HtmlTransformer() )->transform($cascadeHtml, array())->toArray();
 $cascadeMarkup = (string) ($cascadeResult['serialized_blocks'] ?? '');
 $cascadeCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), is_array($cascadeResult['assets'] ?? null) ? $cascadeResult['assets'] : array()));
-$assert(str_contains($cascadeMarkup, 'be-inline-geometry-') && str_contains($cascadeCss, 'width:30rem !important'), '37: carrier preserves inline width against authored ID selectors', $cascadeMarkup . "\n" . $cascadeCss);
-$assert(strpos($cascadeCss, '.be-inline-geometry-') < strpos($cascadeCss, '.authored-important{width:8rem!important}'), '38: authored !important rule remains ordered after the carrier', $cascadeCss);
+$assert(! str_contains($cascadeMarkup . $cascadeCss, '30rem') && str_contains($cascadeCss, '.authored-important{width:8rem!important}'), '37: an inline width the authored !important rule overrides is not projected', $cascadeMarkup . "\n" . $cascadeCss);
 $cascadeParity = ( new StaticStyleParityRunner() )->compareSourceToTransformWithGeometry($cascadeHtml);
 $assert(1.0 === (float) ($cascadeParity['static_v1']['parity']['score'] ?? 0.0), '39: static v1 remains comparable for cascade fixture', json_encode($cascadeParity['static_v1']['parity'] ?? array()));
 $assert(1.0 === (float) ($cascadeParity['geometry_v2']['parity']['score'] ?? 0.0), '40: geometry v2 respects authored !important cascade', json_encode($cascadeParity['geometry_v2']['parity'] ?? array()));
