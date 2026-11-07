@@ -36,10 +36,13 @@ foreach ($cases as $name => $thumbnail) {
     $assert(1 !== preg_match('/wp:custom\/(gallery|collection)-|responsive-media/', $markup), $name . ': no generated or responsive-media blocks.');
     $assert(3 === preg_match_all('/<!-- wp:image /', $markup), $name . ': each thumbnail is one core/image.');
     if ('custom image host' === $name) {
-        // An accepted custom host keeps the trunk custom-host contract: the link
-        // and box ride in a layout shell around the native image.
+        // The link and thumbnail box still surround the custom host, whose
+        // retained box is now an editable core group around the native image.
+        $document = new DOMDocument();
+        @$document->loadHTML($markup);
+        $xpath = new DOMXPath($document);
         for ($i = 1; $i <= 3; ++$i) {
-            $assert(1 === preg_match('#<a href="/post-' . $i . '/"><div class="thumb"><!-- wp:custom/layout-shell#', $markup), $name . ': thumbnail ' . $i . ' keeps its link and box around the image.');
+            $assert(1 === $xpath->query('//a[@href="/post-' . $i . '/"]/div[@class="thumb"]/div[contains(concat(" ",normalize-space(@class)," ")," wp-block-group ")]//img[@alt="Thumb"]')->length, $name . ': thumbnail ' . $i . ' keeps its link and box around the image.');
         }
         continue;
     }

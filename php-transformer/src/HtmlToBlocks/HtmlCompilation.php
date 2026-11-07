@@ -11147,12 +11147,16 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $block['attrs']['className'] = $this->mergeClassNames((string) ($block['attrs']['className'] ?? ''), 'blocks-engine-custom-host-image');
         $block = $this->blockFactory->rebuild($block, $block['attrs']);
         // Preserve the host's box and identity separately from the editable
-        // image. In particular an id and captured image metadata are not a
-        // reason to make the image itself an opaque HTML editing surface.
+        // image. A single transparent host is an ordinary core group; static
+        // capture metadata does not require a companion block. Picture source
+        // topology still needs the retained wrapper chain.
         $this->session->authorSelectorProjectionState()->ensureTagMarker(strtolower($host->tagName));
         $wrappers = array($host);
         if ($picture instanceof DOMElement && $picture !== $host) {
             $wrappers[] = $picture;
+        }
+        if (1 === count($wrappers)) {
+            return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($host), array($block), $host);
         }
         return $this->layoutShellBlockForElements($wrappers, array($block), $host);
     }
