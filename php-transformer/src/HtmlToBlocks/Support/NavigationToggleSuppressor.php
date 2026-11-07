@@ -1790,7 +1790,7 @@ final class NavigationToggleSuppressor
             if ( $signature === $this->sourceNavigationSignature($candidate)
                 && ($this->hasMobileNavigationSignal($navigationRoot)
                     || ($this->hasMobileNavigationSignal($candidate) && ! $this->isContentNavigationBesideChromeVariant($navigationRoot, $candidate)))
-                && ($this->hasMenuVisibilityEvidence($navigationRoot) || $this->hasMenuVisibilityEvidence($candidate))
+                && (null === SourceDom::documentVariantRoot($navigationRoot) || $this->hasMenuVisibilityEvidence($navigationRoot) || $this->hasMenuVisibilityEvidence($candidate))
             ) {
                 return true;
             }
