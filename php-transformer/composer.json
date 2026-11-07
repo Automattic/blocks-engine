@@ -587,6 +587,8 @@
       "php tests/unit/header-anchor-conditional-display.php",
       "php tests/unit/collapse-panel-outranks-id-display.php",
       "php tests/unit/navigation-submenu-parent-anchor-boxes.php",
+      "php tests/unit/navigation-current-item-box-state.php",
+      "php tests/unit/navigation-probe-subject-publication.php",
       "php tests/unit/captured-dialog-projector.php",
       "php tests/unit/captured-dialog-source-panel-box.php",
       "php tests/unit/captured-dialog-native-dialog-panel.php",

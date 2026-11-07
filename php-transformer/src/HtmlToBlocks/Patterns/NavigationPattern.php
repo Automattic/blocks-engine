@@ -3497,6 +3497,10 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function navigationItemAttributes(DOMElement $item, DOMElement $anchor, ?DOMElement $submenuContainer, array $baseAttrs, callable $presentationAttributes, ?NavigationPatternContext $navigationContext = null): array
     {
         $hasAuthoredCurrentState = $this->hasCurrentNavigationSignal($item) || $this->hasCurrentNavigationSignal($anchor);
+        // A source box between the item and its link can carry the state.
+        for ($box = $anchor->parentNode; !$hasAuthoredCurrentState && $box instanceof DOMElement && !$box->isSameNode($item); $box = $box->parentNode) {
+            $hasAuthoredCurrentState = $this->hasCurrentNavigationSignal($box);
+        }
         $isCurrentNavigationItem = $hasAuthoredCurrentState
             || (null !== $navigationContext && $navigationContext->targetsCurrentDocument($anchor->getAttribute('href')));
         $itemAttrs = $item->isSameNode($anchor) ? array() : $this->withoutCoreNavigationClasses($presentationAttributes($item));
