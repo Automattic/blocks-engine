@@ -1679,7 +1679,7 @@ final class NavigationPatternContext
             return '';
         }
 
-        $markup = $this->svgMaterializer->restoreSvgCasing($this->svgMaterializer->sanitizeInlineSvgMarkup($svg));
+        $markup = $this->svgMaterializer->standaloneSvgMarkup($svg);
         if ( '' === $markup || ! SourceDom::isSafeSvgContent($markup) ) {
             return '';
         }
