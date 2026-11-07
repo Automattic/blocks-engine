@@ -92,8 +92,10 @@ final class FormPresentationGraphBuilder
         'text-align', 'text-decoration', 'text-indent', 'text-transform', 'vertical-align', 'width',
         'align-self', 'bottom', 'flex', 'flex-basis', 'flex-grow', 'flex-shrink', 'inset', 'justify-self',
         'left', 'margin-block', 'margin-inline', 'order', 'position', 'right', 'top', 'transform', 'z-index',
-        'flex-direction', 'flex-wrap', 'flex-flow', 'align-items', 'justify-content', 'gap', 'column-gap', 'grid-template-columns'
+        'flex-direction', 'flex-wrap', 'flex-flow', 'align-items', 'justify-content', 'gap'
     );
+    /** Row distribution facts only; element presentation keeps the shared vocabulary. */
+    private const ROW_ONLY_PROPERTIES = array('column-gap', 'grid-template-columns');
 
     private array $diagnostics = array();
     /** @var array<string,true> Stylesheet facts, separate from the current element's limits. */
@@ -540,7 +542,7 @@ final class FormPresentationGraphBuilder
         $this->unrepresentable = array();
         $groupCaptions = $this->captionElements($form);
         $controlsForCustomProperties = array_merge($this->presentationElements($form), $groupCaptions['elements']);
-        $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, $this->cascadeFilter($controlsForCustomProperties), CssAnalysisLimits::MAX_SCANNED_SELECTORS);
+        $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, array_merge(self::PROPERTIES, self::ROW_ONLY_PROPERTIES), CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, $this->cascadeFilter($controlsForCustomProperties), CssAnalysisLimits::MAX_SCANNED_SELECTORS);
         $customPropertyAnalysis = (new CssRuleAnalyzer())->analyze(
             $stylesheets,
             $inlineCss,
@@ -1054,7 +1056,7 @@ final class FormPresentationGraphBuilder
     private static function assertRowStyles(array $styles, array $properties): void
     {
         if (array_diff(array_keys($styles), array_map(self::key(...), $properties))) throw new InvalidArgumentException('Form control row property is invalid.');
-        self::assertStyles($styles);
+        self::assertStyles($styles, array_merge(self::PROPERTIES, self::ROW_ONLY_PROPERTIES));
     }
 
     private static function assertRowFact(mixed $fact, array $keys, array $properties): void
@@ -1307,9 +1309,9 @@ final class FormPresentationGraphBuilder
         } elseif ( array_diff(array_keys($group['source_css']), array( 'state' )) ) throw new InvalidArgumentException('Form presentation visual group unknown CSS state is invalid.');
     }
 
-    private static function assertStyles(array $styles): void
+    private static function assertStyles(array $styles, array $properties = self::PROPERTIES): void
     {
-        foreach ( $styles as $key => $value ) if ( ! is_string($key) || ! in_array($key, array_map(self::key(...), self::PROPERTIES), true) || ! is_string($value) || '' === trim($value) || strlen($value) > self::MAX_STYLE_VALUE_BYTES ) throw new InvalidArgumentException('Form presentation style is invalid.');
+        foreach ( $styles as $key => $value ) if ( ! is_string($key) || ! in_array($key, array_map(self::key(...), $properties), true) || ! is_string($value) || '' === trim($value) || strlen($value) > self::MAX_STYLE_VALUE_BYTES ) throw new InvalidArgumentException('Form presentation style is invalid.');
     }
 
     private static function assertProvenance(array $provenance, array $styles, ?array $condition): void
@@ -1435,9 +1437,10 @@ final class FormPresentationGraphBuilder
     /** @param list<array<string, mixed>> $rules */
     private function matched(DOMElement $element, array $rules, bool $expandFlex = false): array
     {
+        $allowed = $expandFlex ? array_merge(self::PROPERTIES, self::ROW_ONLY_PROPERTIES) : self::PROPERTIES;
         if ( $element->hasAttribute('style') ) {
             $inline = $element->getAttribute('style');
-            $rules[] = array( 'inline' => true, 'selector' => '[style]', 'declarations' => CssRuleAnalyzer::declarations($inline, self::PROPERTIES), 'condition' => null, 'path' => 'inline-style', 'hash' => hash('sha256', $inline), 'order' => PHP_INT_MAX, 'specificity' => 10000 );
+            $rules[] = array( 'inline' => true, 'selector' => '[style]', 'declarations' => CssRuleAnalyzer::declarations($inline, $allowed), 'condition' => null, 'path' => 'inline-style', 'hash' => hash('sha256', $inline), 'order' => PHP_INT_MAX, 'specificity' => 10000 );
         }
         $base = array(); $conditional = array(); $matched = 0;
         foreach ( $rules as $rule ) {
@@ -1448,7 +1451,7 @@ final class FormPresentationGraphBuilder
             foreach ( $rule['declarations'] as $declarationOrder => $declaration ) {
                 $declarations = $expandFlex && 'flex' === $declaration['name'] ? $this->flexLonghands($declaration['value']) : $this->flexFlowLonghands($declaration);
                 foreach ( $declarations as $name => $value ) {
-                    if ( ! in_array($name, self::PROPERTIES, true) ) continue;
+                    if ( ! in_array($name, $allowed, true) ) continue;
                     $important = 1 === preg_match('/\s*!important\s*$/i', $value);
                     $resolved = preg_replace('/\s*!important\s*$/i', '', $value) ?? $value;
                     $fact = array( 'value' => $resolved, 'path' => $rule['path'], 'hash' => $rule['hash'], 'selector' => $rule['selector'], 'order' => $rule['order'], 'declaration_order' => $declarationOrder, 'specificity' => $rule['specificity'], 'important' => $important, 'layer' => $rule['layer'] ?? null );
