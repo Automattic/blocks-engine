@@ -11263,7 +11263,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $block;
     }
 
-    /** Keep geometry and out-of-flow topology on the existing carrier. */
+    /** Keep links, geometry and out-of-flow topology on the existing carrier. */
     private function canGroupPicturelessImageHost(DOMElement $host, DOMElement $image, ?DOMElement $link): bool
     {
         if ($link instanceof DOMElement
@@ -11275,6 +11275,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return false;
         }
         for ($ancestor = $host->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
+            if ('a' === strtolower($ancestor->tagName)) {
+                return false;
+            }
             $position = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($ancestor)['position'] ?? ''));
             if (in_array($position, array('absolute', 'fixed', 'sticky'), true)) {
                 return false;
