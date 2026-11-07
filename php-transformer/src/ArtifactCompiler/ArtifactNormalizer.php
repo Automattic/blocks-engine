@@ -806,7 +806,7 @@ final class ArtifactNormalizer
             $scriptIndex = 0;
             foreach ( HtmlTagScanner::scan($content, 'script') as $script ) {
                 ++$scriptIndex;
-                if (CaptureReplayScripts::isReplayScript($script['tag'])) continue;
+                if (CaptureReplayScripts::isReplayScript($script['tag']) || array_key_exists(CaptureEvidence::CHOICE_RUNTIME, HtmlTagScanner::attributes($script['tag']))) continue;
                 $attributes = $script['attributes'];
                 $body = trim($script['content']);
                 if ( '' === $body || '' !== $this->htmlAttribute($attributes, 'src') || ! $this->isExecutableScriptType($this->htmlAttribute($attributes, 'type')) ) {

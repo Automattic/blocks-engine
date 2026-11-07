@@ -782,7 +782,7 @@ PHP;
             $plan['reference_semantics']['synced_patterns'] = SyncedPatternProjection::REFERENCE_CONTRACT;
         }
         $consumers = AssetConsumers::inventory($plan);
-        $unreferenced = AssetConsumers::unreferencedImages($plan);
+        $unreferenced = array_merge(AssetConsumers::unreferencedImages($plan) ?? array(), self::unreferencedInlineScripts($plan));
         $unwritten = array();
         foreach ($plan['assets'] as &$asset) {
             $asset['consumers'] = $consumers[$asset['token']] ?? array();
@@ -1178,7 +1178,7 @@ PHP;
         }
         // Resolution rewrites tokens to URLs, so a resolved plan keeps the
         // unresolved plan's proof for unwritten assets.
-        $unreferenced = isset($plan['resolution']) ? array_fill_keys(array_column(array_filter($plan['assets'], static fn(array $asset): bool => 'none' === ($asset['destination'] ?? null)), 'token'), true) : AssetConsumers::unreferencedImages($plan);
+        $unreferenced = isset($plan['resolution']) ? array_fill_keys(array_column(array_filter($plan['assets'], static fn(array $asset): bool => 'none' === ($asset['destination'] ?? null)), 'token'), true) : array_merge(AssetConsumers::unreferencedImages($plan) ?? array(), self::unreferencedInlineScripts($plan));
         foreach ( $plan['assets'] as $asset ) {
             $expectedConsumers = $asset['consumers'] ?? array();
             if (($asset['consumers'] ?? null) !== $expectedConsumers || ($asset['destination'] ?? null) !== AssetConsumers::destination($expectedConsumers, $asset, $unreferenced) || ($asset['theme_write_reasons'] ?? null) !== self::themeWriteReasons($expectedConsumers, $asset['destination'])) throw new InvalidArgumentException('Asset consumers or destination are stale.');
@@ -1210,6 +1210,18 @@ PHP;
         // Bound retention for long-lived processes without an eviction index.
         if (count($validated) >= 4096) $validated = array();
         $validated[$contentHash] = true;
+    }
+
+    /** Inline scripts are published only when the script-loading plan enqueues them. */
+    private static function unreferencedInlineScripts(array $plan): array
+    {
+        $loading = (new self())->scriptLoading($plan['pages'], $plan['template_parts'], $plan['assets'], $plan['reference_tokens'], $plan['operations'], $plan['runtime_declarations']);
+        $targets = array_fill_keys(array_filter(array_column($loading['scripts'], 'local_target'), 'is_string'), true);
+        $unreferenced = array();
+        foreach ($plan['assets'] as $asset) {
+            if ('inline-script' === ($asset['source'] ?? null) && !isset($targets[$asset['target_path']])) $unreferenced[$asset['token']] = true;
+        }
+        return $unreferenced;
     }
 
     /** Explicit counted fallback: uploads have no portable relative CSS URL. */
