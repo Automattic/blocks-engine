@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSpecificityProjection;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\SourceTargetProjectionState;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\HtmlDimensionAttribute;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 use DOMText;
@@ -57,7 +58,16 @@ final class SocialSourceStyleProjector
                 $targets->record(SourceDom::elementSelector($glyph), ':root :where(.' . $marker . '>a)::before', $this->styles->cssDeclarationString($declarations));
             }
             $nativeGlyph = $fontGlyph ? '>a::before' : '>a>svg';
-            $properties = array_fill_keys(array('font-size', 'font-family', 'font-style', 'font-weight', 'line-height', 'vertical-align', 'width', 'height', 'display', 'color', 'content'), true);
+            $properties = array_fill_keys(array('font-size', 'font-family', 'font-style', 'font-weight', 'line-height', 'vertical-align', 'width', 'height', 'display', 'color', 'content', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left'), true);
+            // Width and height attributes are presentational hints: they size
+            // the artwork above Core's 1em glyph but below every author rule,
+            // so record them first at Core's own weight.
+            $hinted = array();
+            foreach (array('width', 'height') as $dimension) {
+                $pixels = $fontGlyph ? null : HtmlDimensionAttribute::pixels($glyph->getAttribute($dimension));
+                if (null !== $pixels && 0 < $pixels) $hinted[$dimension] = $pixels . 'px';
+            }
+            if (array() !== $hinted) $targets->record(SourceDom::elementSelector($glyph), ':root :where(.' . $marker . $nativeGlyph . '):not(.' . $author->classSpecificityShim() . '):not(' . $author->specificityShim() . ')', $this->styles->cssDeclarationString($hinted));
             (new CssStylesheetTransformer())->visitStyleRules($author->combinedCss(), function (string $prelude, string $body, array $conditions) use ($glyph, $marker, $nativeGlyph, $fontGlyph, $properties, $author, $targets): void {
                 $declarations = array_intersect_key($this->styles->verbatimCssDeclarations($body), $properties);
                 if (array() === $declarations) return;
