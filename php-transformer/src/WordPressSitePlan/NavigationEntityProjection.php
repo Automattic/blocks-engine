@@ -182,8 +182,9 @@ final class NavigationEntityProjection
     /**
      * Source item classes mean what their own page's stylesheet says, so the
      * shared entity keeps only the classes every reference's item carries.
-     * Per-reference item presentation is addressed through its navigation
-     * instance scope; document-seeded engine markers stay canonical.
+     * Document-seeded engine markers stay canonical. Each reference also keeps
+     * its own navigation subject markers: its item rules are scoped by its
+     * navigation instance, so they bind only inside that reference.
      */
     private static function sharedItemClasses(array $occurrences): string
     {
@@ -194,24 +195,30 @@ final class NavigationEntityProjection
                 preg_split('/\s+/', trim((string) ($attrs['metadata']['blocksEngineNavigationAnchor']['className'] ?? '')), -1, PREG_SPLIT_NO_EMPTY) ?: array(),
             );
         };
+        $isSubject = static fn(string $token): bool => 1 === preg_match('/^blocks-engine-navigation-(?:item|anchor|box)-[a-f0-9]{12}-\d+$/D', $token);
         $shared = null;
+        $subjects = array();
         foreach ($occurrences as $occurrence) {
             preg_match_all($pattern, $occurrence['inner'], $matches);
             $items = array_map(static fn(string $json): array => $classes(json_decode($json, true) ?: array()), $matches[1]);
+            foreach ($items as $position => $item) {
+                foreach (array(0, 1) as $side) foreach (array_filter($item[$side], $isSubject) as $token) $subjects[$position][$side][$token] = true;
+            }
             $shared = null === $shared ? $items : array_map(static fn(array $left, array $right): array => array(
                 array_intersect($left[0], $right[0] ?? array()), array_intersect($left[1], $right[1] ?? array()),
             ), $shared, $items);
         }
-        $keep = static fn(array $tokens, array $common): string => implode(' ', array_filter($tokens, static fn(string $token): bool =>
-            in_array($token, $common, true) || EngineMarker::isSpecificityShim($token) || 1 === preg_match('/^blocks-engine-[a-z0-9-]+-[a-f0-9]{12}-\d+$/D', $token)));
+        $keep = static fn(array $tokens, array $common, array $own): string => implode(' ', array_unique(array_merge(array_filter($tokens, static fn(string $token): bool =>
+            in_array($token, $common, true) || EngineMarker::isSpecificityShim($token) || 1 === preg_match('/^blocks-engine-[a-z0-9-]+-[a-f0-9]{12}-\d+$/D', $token)), array_keys($own))));
         $position = 0;
-        return preg_replace_callback($pattern, static function (array $match) use ($classes, $keep, $shared, &$position): string {
+        return preg_replace_callback($pattern, static function (array $match) use ($classes, $keep, $shared, $subjects, &$position): string {
+            $own = $subjects[$position] ?? array();
             $common = $shared[$position++] ?? array(array(), array());
             $attrs = json_decode($match[1], true);
             if (!is_array($attrs)) return $match[0];
             $before = $classes($attrs);
-            $item = $keep($before[0], $common[0]);
-            $anchor = $keep($before[1], $common[1]);
+            $item = $keep($before[0], $common[0], $own[0] ?? array());
+            $anchor = $keep($before[1], $common[1], $own[1] ?? array());
             if ($item === implode(' ', $before[0]) && $anchor === implode(' ', $before[1])) return $match[0];
             if ('' === $item) unset($attrs['className']); else $attrs['className'] = $item;
             if (isset($attrs['metadata']['blocksEngineNavigationAnchor']['className'])) $attrs['metadata']['blocksEngineNavigationAnchor']['className'] = $anchor;
