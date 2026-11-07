@@ -7192,7 +7192,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 return true;
             }
             $id = $current->getAttribute('id');
-            if ( '' !== $id && 0 < $xpath->query('.//*[@aria-expanded][@aria-controls="' . str_replace('"', '', $id) . '"]', $container)->length ) {
+            if ( '' !== $id && 0 < $xpath->query('.//*[@aria-expanded][not(@aria-haspopup) or @aria-haspopup="false"][@aria-controls="' . str_replace('"', '', $id) . '"]', $container)->length ) {
                 return true;
             }
         }
@@ -7200,22 +7200,30 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return false;
     }
 
-    /** A disclosure control, or a heading that wraps one. */
+    /**
+     * A disclosure control, or a heading that wraps one. A popup trigger
+     * (`aria-haspopup`) opens a menu, whose links are navigation.
+     */
     private function isDisclosureControlCarrier(DOMElement $element): bool
     {
         if ( $element->hasAttribute('aria-expanded') ) {
-            return true;
+            return $this->isPlainDisclosureControl($element);
         }
         if ( 1 !== preg_match('/^h[1-6]$/', strtolower($element->tagName)) ) {
             return false;
         }
         foreach ( $element->getElementsByTagName('*') as $descendant ) {
             if ( $descendant instanceof DOMElement && $descendant->hasAttribute('aria-expanded') ) {
-                return true;
+                return $this->isPlainDisclosureControl($descendant);
             }
         }
 
         return false;
+    }
+
+    private function isPlainDisclosureControl(DOMElement $control): bool
+    {
+        return in_array(strtolower(trim($control->getAttribute('aria-haspopup'))), array('', 'false'), true);
     }
 
     private function isVerifiedCollectionItemList(DOMElement $element): bool
