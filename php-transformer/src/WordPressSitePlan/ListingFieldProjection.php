@@ -42,11 +42,11 @@ final class ListingFieldProjection
     public static function content(array $paragraphs): string
     {
         $content = '';
+        // Slice the authored inner markup rather than reserializing it: libxml
+        // percent-encodes URL attributes on some versions, which would corrupt
+        // reference tokens such as image sources.
         foreach ($paragraphs as $markup) {
-            $document = new DOMDocument();
-            $document->loadHTML('<?xml encoding="UTF-8"><body>' . $markup . '</body>', LIBXML_NOERROR | LIBXML_NOWARNING);
-            $paragraph = $document->getElementsByTagName('p')->item(0);
-            foreach ($paragraph?->childNodes ?? array() as $child) $content .= $document->saveHTML($child);
+            if (preg_match('/<p\b[^>]*>(.*)<\/p>/s', $markup, $match)) $content .= $match[1];
         }
         return $content;
     }
