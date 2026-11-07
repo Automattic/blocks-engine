@@ -3984,14 +3984,12 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 $this->session->generatedSupportStylesheetState(),
                 fn (DOMElement $element): string => SvgMaterializer::ensureSvgImageNamespace($this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element)))
             ),
-            fn (DOMElement $sourceElement): string => $this->styleResolver->authoredInheritedPropertyWinner($sourceElement, 'color'),
+            $this->styleResolver,
             $this->session,
             fn (string $mimeType, string $src) => $this->recordGlyphColorUndecodable($mimeType, $src),
             fn (DOMElement $glyph): string => null !== $this->capturedGlyphColors && isset($this->capturedGlyphColors[$glyph]) ? $this->capturedGlyphColors[$glyph] : '',
-            fn (DOMElement $sourceElement): bool => $this->styleResolver->isVisuallyClippedBox($sourceElement),
             fn (DOMElement $sourceElement): string => $this->inlineRichTextContent($sourceElement),
-            fn (DOMElement $sourceElement): array => $this->socialAnchorColors($sourceElement),
-            fn (DOMElement $sourceElement): array => $this->styleResolver->resolvedPresentationDeclarations($sourceElement)
+            fn (DOMElement $sourceElement): array => $this->socialAnchorColors($sourceElement)
         );
     }
 
@@ -4079,10 +4077,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                  $this->session->generatedSupportStylesheetState(),
                  fn (DOMElement $element): string => SvgMaterializer::ensureSvgImageNamespace($this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element)))
              ),
-             sourceElementVisuallyClipped: fn (DOMElement $sourceElement): bool => $this->styleResolver->isVisuallyClippedBox($sourceElement),
              socialAnchorColors: fn (DOMElement $sourceElement): array => $this->socialAnchorColors($sourceElement),
-             socialPresentationDeclarations: fn (DOMElement $sourceElement): array => $this->styleResolver->resolvedPresentationDeclarations($sourceElement),
-             authoredIconColor: fn (DOMElement $sourceElement): string => $this->styleResolver->authoredInheritedPropertyWinner($sourceElement, 'color')
+             styles: $this->styleResolver
          );
     }
 
