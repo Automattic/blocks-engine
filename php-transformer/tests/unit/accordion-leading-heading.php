@@ -51,4 +51,24 @@ foreach (array(
     if (str_contains($transform($group), '<!-- wp:accordion')) $fail("{$label}: non-items outside a leading run do not form an accordion", $transform($group));
 }
 
+// A link inside an answer is panel content, not navigation: it must not make
+// the enclosing containers defer to their children and skip the accordion
+// (#4869). An outer wrapper of such groups yields one accordion per group,
+// never one accordion whose items are the groups.
+$linked = $item('What is the first question?', 'This answer has <a href="/demo">a link</a>.');
+$group = static fn(string $heading): string => '<div class="faq-group"><h3>' . $heading . '</h3>' . $linked . $second . '</div>';
+$transformSection = static fn(string $body): string => (string) (new HtmlTransformer())->transform('<!doctype html><html><head><style>'
+    . '.faq-section{padding:40px}.faq-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}.faq-a{display:grid;grid-template-rows:0fr}.faq-a > div{overflow:hidden}'
+    . '</style></head><body><main><section class="faq-section"><h2>Questions</h2>' . $body . '</section></main></body></html>')->toArray()['serialized_blocks'];
+$accordions = static fn(string $markup): int => (int) preg_match_all('/<!-- wp:accordion( \{| -->)/', $markup);
+foreach (array(
+    'linked answer' => array($group('General'), 1),
+    'outer wrapper of linked groups' => array('<div class="faq-grid">' . $group('General') . $group('Billing') . '</div>', 2),
+) as $label => [$body, $expected]) {
+    $markup = $transformSection($body);
+    if ($expected !== $accordions($markup)) $fail("{$label}: each group becomes its own core/accordion", $markup);
+    if (2 * $expected !== substr_count($markup, '<!-- wp:accordion-item')) $fail("{$label}: each group has two accordion items", $markup);
+    if (1 === preg_match('/toggle-title">(General|Billing)</', $markup)) $fail("{$label}: a group heading is not an accordion question", $markup);
+}
+
 fwrite(STDOUT, "accordion leading heading tests: passed\n");

@@ -7158,10 +7158,72 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 return false;
             }
 
-            $hasNavigationDescendant = $hasNavigationDescendant || 'nav' === strtolower($child->tagName) || 0 < $child->getElementsByTagName('a')->length;
+            $hasNavigationDescendant = $hasNavigationDescendant || 'nav' === strtolower($child->tagName) || $this->hasLinkOutsideDisclosurePanels($child, $element);
         }
 
         return $hasNavigationDescendant;
+    }
+
+    /**
+     * A link inside a disclosure panel is panel content, such as a link in an
+     * FAQ answer. It is not evidence of a navigation region, so it must not
+     * stop the container's disclosure items from being recognized.
+     */
+    private function hasLinkOutsideDisclosurePanels(DOMElement $child, DOMElement $container): bool
+    {
+        foreach ( $child->getElementsByTagName('a') as $anchor ) {
+            if ( ! $this->isInsideDisclosurePanel($anchor, $container) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isInsideDisclosurePanel(DOMElement $node, DOMElement $container): bool
+    {
+        $xpath = new \DOMXPath($container->ownerDocument);
+        for ( $current = $node->parentNode; $current instanceof DOMElement && ! $current->isSameNode($container); $current = $current->parentNode ) {
+            $previous = $current->previousSibling;
+            while ( null !== $previous && ! $previous instanceof DOMElement ) {
+                $previous = $previous->previousSibling;
+            }
+            if ( $previous instanceof DOMElement && $this->isDisclosureControlCarrier($previous) ) {
+                return true;
+            }
+            $id = $current->getAttribute('id');
+            if ( '' !== $id && 0 < $xpath->query('.//*[@aria-expanded][not(@aria-haspopup) or @aria-haspopup="false"][@aria-controls="' . str_replace('"', '', $id) . '"]', $container)->length ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * A disclosure control, or a heading that wraps one. A popup trigger
+     * (`aria-haspopup`) opens a menu, whose links are navigation.
+     */
+    private function isDisclosureControlCarrier(DOMElement $element): bool
+    {
+        if ( $element->hasAttribute('aria-expanded') ) {
+            return $this->isPlainDisclosureControl($element);
+        }
+        if ( 1 !== preg_match('/^h[1-6]$/', strtolower($element->tagName)) ) {
+            return false;
+        }
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && $descendant->hasAttribute('aria-expanded') ) {
+                return $this->isPlainDisclosureControl($descendant);
+            }
+        }
+
+        return false;
+    }
+
+    private function isPlainDisclosureControl(DOMElement $control): bool
+    {
+        return in_array(strtolower(trim($control->getAttribute('aria-haspopup'))), array('', 'false'), true);
     }
 
     private function isVerifiedCollectionItemList(DOMElement $element): bool

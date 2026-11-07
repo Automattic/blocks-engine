@@ -418,6 +418,11 @@ final class AccordionPattern implements PatternRecognizerInterface
         if ( 'details' === strtolower($element->tagName) ) {
             return true;
         }
+        // A container of disclosure items (an FAQ group under its own
+        // heading) is an accordion of its own, not one item of an outer one.
+        if ( $this->containsDisclosureItemRun($element) ) {
+            return false;
+        }
 
         $class = strtolower($this->trimmedAttribute($element, 'class'));
         if ( str_contains($class, 'item')
@@ -431,6 +436,22 @@ final class AccordionPattern implements PatternRecognizerInterface
         $title = $this->titleElement($element);
 
         return $title instanceof DOMElement && ( $this->isDisclosureTitle($title) || $this->isItemLevelDisclosure($element, $title) );
+    }
+
+    private function containsDisclosureItemRun(DOMElement $element): bool
+    {
+        $disclosures = 0;
+        foreach ( $this->directChildElements($element) as $child ) {
+            if ( 'details' === strtolower($child->tagName) ) {
+                continue;
+            }
+            $title = $this->titleElement($child);
+            if ( $title instanceof DOMElement && ( $this->isDisclosureTitle($title) || $this->isItemLevelDisclosure($child, $title) ) && 2 <= ++$disclosures ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
