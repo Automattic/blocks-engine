@@ -12194,8 +12194,17 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         if ( array() !== $linkAttrs && ! $this->linkWrapperPropagator->propagateLinkWrapper($children, $linkAttrs) ) {
             $this->recordDroppedLinkWrapper($anchor);
         }
+        // The link now lives on the children, so the group is the anchor's box.
+        // An author rule that selects the anchor (a card link laid out as a
+        // flex column) must follow it onto the group via a semantic marker.
+        $attrs = $this->styleResolver->presentationAttributes($anchor);
+        $path = $anchor->getNodePath() ?? '';
+        $projections = $this->session->authorSelectorProjectionState();
+        if ( '' !== $path && $projections->isControlPath($path) ) {
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), ...$projections->semanticCarrierClasses($projections->ensureSemanticMarker($path), $path));
+        }
 
-        return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($anchor), $children, $anchor);
+        return $this->createBlock('core/group', $attrs, $children, $anchor);
     }
 
     /**
