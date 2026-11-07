@@ -523,6 +523,7 @@
       "php tests/unit/route-slug.php",
       "php tests/unit/responsive-media-block.php",
       "php tests/unit/custom-image-native-host.php",
+      "php tests/unit/custom-host-native-image-link.php",
       "php tests/unit/image-link-anchor.php",
       "php tests/unit/image-transform-reference-box.php",
       "php tests/unit/image-auto-margin-centering.php",

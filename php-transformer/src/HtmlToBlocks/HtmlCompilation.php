@@ -10034,9 +10034,12 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         if ( ! $image instanceof DOMElement && 0 < $anchor->getElementsByTagName('img')->length ) {
             $host = $this->elementElementChildren($anchor);
             if (1 === count($host) && ($customImage = SourceDom::imageOnlyCustomElement($host[0])) instanceof DOMElement) {
-                $media = $this->nativeImageInCustomHost($host[0], $customImage);
+                // A single retained host does not need a separate link
+                // editing surface. Let core/image own the destination while
+                // the host continues to own its captured presentation box.
+                $media = $this->nativeImageInCustomHost($host[0], $customImage, $anchor);
                 if (null !== $media) {
-                    return $this->layoutShellBlockForElements(array($anchor), array($media), $anchor);
+                    return $media;
                 }
             }
             // Flatten a single image nested in inert presentation boxes just as
@@ -11110,7 +11113,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     }
 
     /** Retain a static host box around independently editable native media. */
-    private function nativeImageInCustomHost(DOMElement $host, DOMElement $image): ?array
+    private function nativeImageInCustomHost(DOMElement $host, DOMElement $image, ?DOMElement $link = null): ?array
     {
         // Retain inline hosts and metadata-backed captured media boxes.
         // Ordinary block hosts keep the conservative clipping/crop policy;
@@ -11138,7 +11141,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             && $this->sourceElementClassifier->hasPictureSourceSelection($picture)) {
             return null;
         }
-        $block = $this->convertImageElement($image);
+        $block = $this->convertImageElement($image, null, null, $link);
         if (null === $block || 'core/image' !== $block['blockName']) {
             return null;
         }
