@@ -7214,6 +7214,11 @@ PHP;
                 $action = $entity['form']['action'] ?? null;
                 if (is_string($source) && is_string($action) && $this->isSelfPostAction($action, $source, $routes)) $entity['form']['action'] = 'blocks-engine:self-post';
                 foreach ($entity['controls'] ?? array() as $ci => $control) unset($entity['controls'][$ci]['selector']);
+                // Row selectors locate equivalent controls positionally too; keep the layout facts, not capture-specific locations.
+                foreach ($entity['presentation_graph']['control_rows'] ?? array() as $ri => $row) {
+                    unset($entity['presentation_graph']['control_rows'][$ri]['source_selector']);
+                    foreach ($row['members'] ?? array() as $mi => $member) unset($entity['presentation_graph']['control_rows'][$ri]['members'][$mi]['source_selector']);
+                }
                 // Layout graph nodes locate the same controls positionally.
                 foreach ($entity['layout_graph']['nodes'] ?? array() as $ni => $node) if (is_array($node['source'] ?? null)) unset($entity['layout_graph']['nodes'][$ni]['source']['selector']);
             }
