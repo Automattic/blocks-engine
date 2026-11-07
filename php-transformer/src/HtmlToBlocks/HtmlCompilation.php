@@ -11154,7 +11154,21 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         if ($picture instanceof DOMElement && $picture !== $host) {
             $wrappers[] = $picture;
         }
-        return $this->layoutShellBlockForElements($wrappers, array($block), $host);
+        // Hosts without a picture retain their existing presentation carrier
+        // (including linked thumbnail boxes). Only split the static picture
+        // boundary into independently editable containers.
+        if (count($wrappers) === 1) {
+            return $this->layoutShellBlockForElements($wrappers, array($block), $host);
+        }
+        // These boxes have no source-selection behavior. Expose each as a
+        // native container rather than coalescing the chain into a companion.
+        foreach (array_reverse($wrappers) as $wrapper) {
+            $attrs = $this->cssOwnedGroupAttributes($wrapper);
+            $attrs['tagName'] = $wrapper === $host ? 'div' : 'picture';
+            $block = $this->createBlock('core/group', $attrs, array($block), $wrapper);
+            $block['_native_custom_wrapper_hook'] = true;
+        }
+        return $block;
     }
 
     /** Only erase the host when its box and identity are inert. */
