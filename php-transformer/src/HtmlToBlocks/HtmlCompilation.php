@@ -2783,7 +2783,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $settleableAuthorCss = '' !== trim($authorCss)
             ? $authorCss
             : implode("\n\n", array_column($authorStylesheetProjections, 'content'));
-        $afterAuthorCss->addAll(CascadeLayer::REVEAL_SETTLE, ( new RevealAnimationSettler() )->settleRules($settleableAuthorCss));
+        // Read replay bindings from the input markup: leaf attributes may have
+        // moved into render metadata by the time blocks are serialized.
+        $afterAuthorCss->addAll(CascadeLayer::REVEAL_SETTLE, ( new RevealAnimationSettler() )->settleRules($settleableAuthorCss, '', $html));
         // DOMDocument synthesizes a body for fragments; its margin belongs to
         // the host document, not to the imported content.
         $bodyDeclarations = preg_match('/<(?:html|body)\b/i', $html)

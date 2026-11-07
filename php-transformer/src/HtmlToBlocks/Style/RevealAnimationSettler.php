@@ -3,9 +3,12 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlMarkupParser;
 
 /**
  * Settle captured entrance animations that can never reach their end state.
@@ -15,7 +18,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
  * paused` until its runtime stamps `data-motion-enter="done"`, older themes hold
  * `opacity:0` until an IntersectionObserver adds an in-view class. Capture can also
  * hand the animation to a scroll-driven timeline (`animation-timeline: view()`).
- * Import carries the CSS and drops the driver, so the animation is left in a state
+ * When import carries the CSS without a replay driver, the animation is left in a state
  * it cannot leave: `animation-fill-mode: backwards` pins the element to the `0%`
  * keyframe, and with a paused play state or a timeline that never becomes active
  * that keyframe is forever. When `0%` is `opacity: 0`, the content is in the DOM,
@@ -91,15 +94,18 @@ final class RevealAnimationSettler
 
     /**
      * Repair rules for every rule in the stylesheet that leaves content parked
-     * in a reveal animation's hidden start state.
+     * in a reveal animation's hidden start state. Frontend callers supply the
+     * input markup to preserve bindings owned by viewport-entrance replay;
+     * callers rendering a static document can omit it.
      *
      * @return list<string>
      */
-    public function settleRules(string $css, string $keyframeCss = ''): array
+    public function settleRules(string $css, string $keyframeCss = '', string $html = ''): array
     {
         if ( 1 !== preg_match('/(?:^|[;{\s])animation(?:-[a-z-]+)?\s*:/i', $css) ) {
             return array();
         }
+        $replayedBindings = $this->replayedBindings($html);
         $keyframes = array();
         $candidates = array();
         $settled = array();
@@ -128,10 +134,21 @@ final class RevealAnimationSettler
             if ( null === $endState ) {
                 continue;
             }
+            $exclusions = array();
+            foreach ( $this->animationConfiguration($declarations)['names'] as $name ) {
+                foreach ( $replayedBindings[$name] ?? array() as $stateSelector ) {
+                    $exclusions[$stateSelector] = true;
+                }
+            }
             foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
                 $selector = $this->settleableSelector($selector);
                 if ( '' === $selector ) {
                     continue;
+                }
+                // A shared author rule can target driven and undriven elements.
+                // Exclude only the replay states that own this animation binding.
+                if ( array() !== $exclusions ) {
+                    $selector .= ':not(:where(' . implode(',', array_keys($exclusions)) . '))';
                 }
                 foreach ( $endState as $property => $value ) {
                     $settled[$selector][$property] = $value;
@@ -151,6 +168,41 @@ final class RevealAnimationSettler
         }
 
         return $rules;
+    }
+
+    /**
+     * Replay state already travels with the markup; no parallel driver registry
+     * is needed. Exact attribute selectors also cover targets without IDs and
+     * preserve undriven matches of the same authored selector.
+     *
+     * @return array<string, list<string>>
+     */
+    private function replayedBindings(string $html): array
+    {
+        $bindings = array();
+        if ( ! str_contains($html, CaptureEvidence::VIEWPORT_ENTRANCE) ) {
+            return $bindings;
+        }
+        foreach ( HtmlMarkupParser::htmlMarkupNodes($html) as $node ) {
+            $value = $node['attributes'][CaptureEvidence::VIEWPORT_ENTRANCE] ?? null;
+            if ( ! is_string($value) ) {
+                continue;
+            }
+            $value = html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            $state = json_decode($value, true);
+            if ( ! is_array($state) || ! is_array($state['attributes'] ?? null) || ! is_array($state['threshold'] ?? null) || ! is_array($state['cssAnimations'] ?? null) ) {
+                continue;
+            }
+            $selector = '[' . CaptureEvidence::VIEWPORT_ENTRANCE . '=' . CssIdent::escape($value) . ']';
+            foreach ( $state['cssAnimations'] as $binding ) {
+                $name = $binding['name'] ?? null;
+                if ( is_string($name) && '' !== $name ) {
+                    $bindings[$name][] = $selector;
+                }
+            }
+        }
+
+        return $bindings;
     }
 
     /**
