@@ -732,6 +732,13 @@ final class PresetBinding
                 ++$bound;
                 continue;
             }
+            if (!$safe && null !== $slug && is_string($literal) && $this->inlinePreset($style->color, $key, 'color', $slug, $declarations, $property, $literal)) {
+                // A preset class is !important and would mask the state or
+                // override rule; the inline declaration keeps its place in
+                // the cascade and only reads its value from the token.
+                ++$bound;
+                continue;
+            }
             if (!$safe) {
                 $this->refuse($reason);
                 continue;
@@ -773,7 +780,15 @@ final class PresetBinding
             'fontFamily' => array('fontFamily', 'font-family', 'has-%s-font-family'),
         );
         foreach ($typography as $key => [$attribute, $property, $presetClass]) {
-            if ($isLink || isset($attributes->{$attribute})) continue;
+            if ($isLink && !isset($attributes->{$attribute})) {
+                // Button links carry no font preset class; an inline preset
+                // variable renders the same value from the same declaration.
+                $literal = $style->typography->{$key} ?? null;
+                $slug = is_string($literal) && !str_starts_with($literal, 'var:') ? $this->presetSlug($property, $literal, null) : null;
+                if (null !== $slug && $this->inlinePreset($style->typography, $key, $property, $slug, $declarations, $property, $literal)) ++$bound;
+                continue;
+            }
+            if (isset($attributes->{$attribute})) continue;
             // The responsive typography carrier owns the base and media
             // declarations. A core size class is !important and would freeze
             // it at one step; bind its stylesheet declarations instead.
@@ -1763,6 +1778,24 @@ final class PresetBinding
         $matches = array_keys(array_filter($declarations, static fn(array $declaration): bool => $declaration[0] === $property));
         if (1 !== count($matches) || $declarations[$matches[0]][1] !== $value) return false;
         $declarations[$matches[0]][1] = $replacement;
+        return true;
+    }
+
+    /**
+     * Rewrites an inline literal that equals a token to the token's inline
+     * preset variable (`var:preset|color|primary`, which core serializes as
+     * `var(--wp--preset--color--primary)`). Unlike a preset class this adds
+     * no `!important` and keeps the declaration where it was, so it renders
+     * exactly as before until the token changes in Global Styles.
+     *
+     * @param list<array{0:string,1:string}> $declarations
+     */
+    private function inlinePreset(\stdClass $group, string $key, string $kind, string $slug, array &$declarations, string $property, string $literal): bool
+    {
+        if ('color' === $kind && null === CssColor::parse($literal)) return false;
+        $type = 'color' === $kind ? 'color' : $kind;
+        if (!self::replaceDeclaration($declarations, $property, $literal, 'var(--wp--preset--' . $type . '--' . $slug . ')')) return false;
+        $group->{$key} = 'var:preset|' . $type . '|' . $slug;
         return true;
     }
 

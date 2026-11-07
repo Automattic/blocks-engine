@@ -34,8 +34,11 @@ $assert($white === ($attributes['textColor'] ?? null), 'An exact palette literal
 $assert(!isset($attributes['style']['color']['text']) && !str_contains($light[2], 'color:') && str_contains($light[2], 'has-text-color') && str_contains($light[2], 'has-' . $white . '-color'), 'Core preset attributes and classes replace the inline text declaration.');
 
 $unsafe = $compile('.body:hover{color:#fff}');
-$assert(str_contains($unsafe['pages'][0]['canonical_block_markup'], 'style="color:rgb(255, 255, 255)"'), 'Reachable state_variant rules keep the literal.');
-$assert($unsafe['theme']['design_system']['metrics']['refusal_reasons']['state_variant'] > 0, 'The safety refusal remains reported.');
+// A preset class (!important) would mask the reachable state rule, so the
+// inline declaration stays where it is and only reads the token's variable.
+$stateMarkup = $unsafe['pages'][0]['canonical_block_markup'];
+$assert(str_contains($stateMarkup, 'style="color:var(--wp--preset--color--' . $white . ')"') && str_contains($stateMarkup, '"color":{"text":"var:preset|color|' . $white . '"}') && !str_contains($stateMarkup, 'has-' . $white . '-color'), 'Reachable state_variant rules keep the inline declaration, bound to the preset variable.');
+$assert(0 === $unsafe['theme']['design_system']['metrics']['refusal_reasons']['state_variant'], 'An inline preset variable is not a refusal.');
 // An author !important rule overrides the inline colour, so the source never
 // renders it: the literal is neither kept nor bound, and the author rule paints.
 $important = $compile('.body{color:#fff!important}');
@@ -46,7 +49,7 @@ $assert($important['theme']['design_system']['metrics']['refusal_reasons']['impo
 $ordinaryMedia = $compile('@media(max-width:600px){.body{color:#000}}');
 $assert(!str_contains($ordinaryMedia['pages'][0]['canonical_block_markup'], 'style="color:rgb(255, 255, 255)"'), 'An ordinary breakpoint cannot override a direct inline colour.');
 $unsafe = $compile('@media(max-width:600px){.body{color:#000!important}}');
-$assert(str_contains($unsafe['pages'][0]['canonical_block_markup'], 'style="color:rgb(255, 255, 255)"'), 'A breakpoint that can override the inline colour still prevents binding.');
+$assert(str_contains($unsafe['pages'][0]['canonical_block_markup'], 'style="color:var(--wp--preset--color--' . $white . ')"') && !str_contains($unsafe['pages'][0]['canonical_block_markup'], 'has-' . $white . '-color'), 'A breakpoint that can override the inline colour keeps an inline declaration rather than a preset class.');
 
 // Reduced sole-button paragraph from #4618, plus the outline link from #4643.
 foreach (array(
