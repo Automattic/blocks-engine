@@ -781,9 +781,11 @@ final class PresetBinding
             'fontFamily' => array('fontFamily', 'font-family', 'has-%s-font-family'),
         );
         foreach ($typography as $key => [$attribute, $property, $presetClass]) {
-            if ($isLink && !isset($attributes->{$attribute})) {
-                // Button links carry no font preset class; an inline preset
-                // variable renders the same value from the same declaration.
+            if ($isLink) {
+                // Button links carry no font preset class; a family equal to
+                // a preset stack reads its variable from the same inline
+                // declaration. Sizes stay as authored beside the element size.
+                if ('fontFamily' !== $key || isset($attributes->{$attribute})) continue;
                 $literal = $style->typography->{$key} ?? null;
                 $slug = is_string($literal) && !str_starts_with($literal, 'var:') ? $this->presetSlug($property, $literal, null) : null;
                 if (null !== $slug && $this->inlinePreset($style->typography, $key, $property, $slug, $declarations, $property, $literal)) ++$bound;

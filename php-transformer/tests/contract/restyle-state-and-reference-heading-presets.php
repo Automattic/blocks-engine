@@ -54,7 +54,7 @@ $assert(str_contains($button[2], 'background-color:var(--wp--preset--color--' . 
 $assert(!str_contains($button[2], 'has-' . $primary . '-background-color'), 'No !important preset class masks the hover rule.');
 $family = $families['Georgia, serif'] ?? null;
 $assert(is_string($family), 'The body font is a font-family preset.');
-$assert('var:preset|font-family|' . $family === ($attributes['style']['typography']['fontFamily'] ?? null) && str_contains($button[2], 'font-family:var(--wp--preset--font-family--' . $family . ')'), 'A button font equal to a preset stack reads the preset inline.');
+$assert('var:preset|font-family|' . $family === ($attributes['style']['typography']['fontFamily'] ?? null) && str_contains($button[2], 'font-family:var(--wp--preset--font-family--' . $family . ')'), 'A button font family equal to a preset stack reads the preset inline.');
 $assert(0 === $plan['theme']['design_system']['metrics']['refusal_reasons']['state_variant'], 'Inline preset variables are not state_variant refusals.');
 
 echo "Restyle state and reference heading presets contract passed.\n";
