@@ -11,8 +11,8 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
  * Reports author-selector projections whose binding identities appear in no
  * emitted document scope they were produced for.
  *
- * A projected selector that matches nothing is definitionally a bug: the
- * authored declaration disappears instead of degrading. Confirming each
+ * A projected selector that matches nothing is a bug only when the authored
+ * selector was bound in the corresponding source document. Confirming each
  * projected prelude still binds is a lookup against identities the projector
  * already emitted and documents the compiler already holds — not a re-render.
  *
@@ -34,8 +34,9 @@ final class DeadProjectedSelectorReporter
      * @param list<array{authored: string, projected: string, stylesheet?: string, scope?: string}> $bindings
      * @param array<string, string> $haystacksByScope Serialized markup keyed by the
      *        document scope a projection was emitted for.
+     * @param array<string, string> $sourceHaystacksByScope Original document markup.
      */
-    public function evaluate(array $bindings, array $haystacksByScope): DeadProjectedSelectorEvaluation
+    public function evaluate(array $bindings, array $haystacksByScope, array $sourceHaystacksByScope): DeadProjectedSelectorEvaluation
     {
         $groups = array();
         foreach ( $bindings as $binding ) {
@@ -56,9 +57,19 @@ final class DeadProjectedSelectorReporter
             $groups[$key]['projected'][$projected] = true;
         }
 
+        // Stylesheet text is not evidence of an element binding in the source.
+        foreach ( $sourceHaystacksByScope as &$sourceMarkup ) {
+            $sourceMarkup = preg_replace('/<!--.*?-->|<(style|script)\b[^>]*>.*?<\/\1\s*>/is', '', $sourceMarkup) ?? '';
+        }
+        unset($sourceMarkup);
+
         $findings = array();
         foreach ( $groups as $group ) {
             $scope = $group['scope'];
+            $sourceMarkup = $sourceHaystacksByScope[$scope] ?? '';
+            if ( true !== $this->preludeIsBound($group['authored'], $sourceMarkup, false) ) {
+                continue;
+            }
             $haystack = $haystacksByScope[$scope] ?? '';
             $projectedSelectors = array_keys($group['projected']);
             $live = false;
@@ -78,8 +89,16 @@ final class DeadProjectedSelectorReporter
                 continue;
             }
 
-            $scopes = array() === $scope ? array() : array($scope);
-            $findings[] = ConversionFindingContract::withClassification(array(
+            $key = $group['stylesheet'] . "\0" . $group['authored'];
+            if ( isset($findings[$key]) ) {
+                $findings[$key]['context']['scopes'][] = $scope;
+                $findings[$key]['context']['projected_selectors'] = array_values(array_unique(array_merge(
+                    $findings[$key]['context']['projected_selectors'],
+                    $projectedSelectors
+                )));
+                continue;
+            }
+            $findings[$key] = ConversionFindingContract::withClassification(array(
                 'code'            => self::CODE,
                 'severity'        => 'warning',
                 'source_selector' => $group['authored'],
@@ -91,31 +110,32 @@ final class DeadProjectedSelectorReporter
                 'context'         => array(
                     'stylesheet'          => $group['stylesheet'],
                     'projected_selectors' => $projectedSelectors,
-                    'scopes'              => $scopes,
+                    'scopes'              => array($scope),
                 ),
             ));
         }
 
-        return new DeadProjectedSelectorEvaluation($findings);
+        return new DeadProjectedSelectorEvaluation(array_values($findings));
     }
 
     /**
      * @param list<array{authored: string, projected: string, stylesheet?: string, scope?: string}> $bindings
      * @param array<string, string> $haystacksByScope
+     * @param array<string, string> $sourceHaystacksByScope
      * @return array<string, mixed>
      */
-    public function report(array $bindings, array $haystacksByScope): array
+    public function report(array $bindings, array $haystacksByScope, array $sourceHaystacksByScope): array
     {
-        return $this->evaluate($bindings, $haystacksByScope)->report();
+        return $this->evaluate($bindings, $haystacksByScope, $sourceHaystacksByScope)->report();
     }
 
     /**
      * Whether any selector in a projected prelude still binds in $haystack.
      * Null when the prelude has no checkable binding identity.
      */
-    private function preludeIsBound(string $prelude, string $haystack): ?bool
+    private function preludeIsBound(string $prelude, string $haystack, bool $requireProjection = true): ?bool
     {
-        if ( array() === $this->hashedEngineMarkers($prelude) ) {
+        if ( $requireProjection && array() === $this->hashedEngineMarkers($prelude) ) {
             return null;
         }
 
@@ -219,7 +239,7 @@ final class DeadProjectedSelectorReporter
         $tokens = array();
         if ( preg_match_all('/\.([A-Za-z_][\w-]*)/', $selector, $classes) ) {
             foreach ( $classes[1] as $class ) {
-                if ( ! str_starts_with($class, 'blocks-engine-') && ! str_starts_with($class, 'wp-block') ) {
+                if ( ! str_starts_with($class, 'blocks-engine-') ) {
                     $tokens[] = $class;
                 }
             }

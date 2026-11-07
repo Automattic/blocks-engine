@@ -492,7 +492,7 @@ final class AuthorStyleRuleProjector
     private function projectIntrinsicGridRowTracks(string $prelude, string $body, array $declarations, AuthorStyleAnalysis $authorStyles, SourceStyleResolutionState $sourceStyles): string
     {
         $rows = (string) ($declarations['grid-template-rows'] ?? '');
-        if ( ! $this->gridTemplateRowsContainFractionalTrack($rows) ) {
+        if ( ! $this->gridTemplateRowsContainFractionalTrack($rows) || $this->gridTemplateRowsHaveUnequalFlexFactors($rows) ) {
             return $body;
         }
         $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
@@ -1055,6 +1055,19 @@ final class AuthorStyleRuleProjector
         return $this->isDefiniteBlockSize($track);
     }
 
+    /**
+     * Unequal factors (`1fr 8fr 1fr`) are proportional geometry: an auto-height
+     * grid sizes one `fr` from its content, so a track no item fills alone
+     * still takes its share. `min-content` would collapse it to zero.
+     */
+    private function gridTemplateRowsHaveUnequalFlexFactors(string $rows): bool
+    {
+        preg_match_all('/(?<![\w.-])([\d.]+)fr\b/i', $rows, $matches);
+        $factors = array_unique(array_map(static fn (string $factor): float => (float) $factor, $matches[1]));
+
+        return 1 < count(array_filter($factors, static fn (float $factor): bool => 0.0 < $factor));
+    }
+
     private function gridTemplateRowsContainFractionalTrack(string $rows): bool
     {
         foreach ( CssValueSplitter::splitTopLevelWhitespace(CssValueInspector::withoutImportant($rows)) as $track ) {
@@ -1068,7 +1081,7 @@ final class AuthorStyleRuleProjector
     private function gridRowTrackIsFractional(string $track): bool
     {
         $track = trim($track);
-        if ( 1 === preg_match('/^[\d.]+fr$/i', $track) ) {
+        if ( $this->isNonZeroFlexibleTrack($track) ) {
             return true;
         }
         if ( 1 !== preg_match('/^repeat\(\s*(.+)\)$/i', $track, $matches) ) {
@@ -1077,6 +1090,12 @@ final class AuthorStyleRuleProjector
         $parts = CssValueSplitter::splitTopLevel($matches[1], array( ',' ));
         $list = $parts[1] ?? '';
         return '' !== $list && $this->gridTemplateRowsContainFractionalTrack($list);
+    }
+
+    /** A `0fr` track absorbs no leftover space; it is a deliberate collapse (e.g. `0fr` → `1fr` disclosure panels). */
+    private function isNonZeroFlexibleTrack(string $track): bool
+    {
+        return 1 === preg_match('/^[\d.]+fr$/i', $track) && 1 !== preg_match('/^0*\.?0*fr$/i', $track);
     }
 
     private function collapseFractionalGridRowTracks(string $rows): string
@@ -1090,7 +1109,7 @@ final class AuthorStyleRuleProjector
     private function collapseFractionalGridRowTrack(string $track): string
     {
         $track = trim($track);
-        if ( 1 === preg_match('/^[\d.]+fr$/i', $track) ) {
+        if ( $this->isNonZeroFlexibleTrack($track) ) {
             return 'min-content';
         }
         if ( 1 !== preg_match('/^repeat\(\s*(.+)\)$/i', $track, $matches) ) {

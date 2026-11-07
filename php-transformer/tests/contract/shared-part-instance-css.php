@@ -40,7 +40,7 @@ $target = $asset['target_path'];
 $editorTarget = $target;
 $assert(isset($writes[$editorTarget]) && str_contains($writes[$editorTarget]['payload']['data'], $rule[1]), 'Editor stylesheet carries the part instance declarations.');
 $bootstrap = $writes['functions.php']['payload']['data'];
-$frontend = (string) strstr($bootstrap, "add_action( 'wp_enqueue_scripts'");
+$frontend = (string) strstr(\Automattic\BlocksEngine\PhpTransformer\Tests\Support\BootstrapStyles::expand($bootstrap), "add_action( 'wp_enqueue_scripts'");
 $frontend = substr($frontend, 0, (int) strpos($frontend, '}, 1 );'));
 preg_match_all('/^    if \( (.+?) \) \{\n((?:        [^\n]+\n)+)    \}$/m', $frontend, $branches, PREG_SET_ORDER);
 $assert(count($branches) >= 2, 'Both routes have enqueue branches.');

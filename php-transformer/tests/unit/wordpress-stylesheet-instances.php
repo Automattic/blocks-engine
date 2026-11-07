@@ -26,6 +26,7 @@ foreach (array('index.html' => array('a.css', 'b.css', 'a.css'), 'reverse.html' 
     if (array_values($sequence) !== $expected) throw new RuntimeException('A document retains repeated and conflicting stylesheet instance order.');
 }
 $bootstrap = (string) array_column($plan['writes'], null, 'target_path')['functions.php']['payload']['data'];
+$bootstrap = \Automattic\BlocksEngine\PhpTransformer\Tests\Support\BootstrapStyles::expand($bootstrap);
 if (!preg_match('/if \( is_front_page\(\) \) \{\n((?:        [^\n]+\n)+)    \}/', $bootstrap, $block) || !preg_match_all("/wp_enqueue_style\\( '([^']+)', get_theme_file_uri\\( '([^']+)' \\)/", $block[1], $calls)) throw new RuntimeException('The front-page route publishes one ordered stylesheet block.');
 if (array('a.css', 'b.css', 'a.css') !== array_map('basename', $calls[2]) || 3 !== count(array_unique($calls[1])) || $calls[2][0] !== $calls[2][2]) throw new RuntimeException('A,B,A publishes three distinct handles, with both A instances on one resource URI.');
 // Hosts without the generated bootstrap replay the same per-document sequence.

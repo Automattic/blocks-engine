@@ -72,6 +72,35 @@ $assert(0 === ($invalid['source_reports']['captured_interactions']['projected_ch
 $assert(! str_contains($invalidMarkup, 'inline-choice-site/captured-choice-group'), 'incomplete inline evidence keeps the current output');
 $assert(str_contains((string) json_encode($invalid['source_reports'] ?? array()), 'captured_choice_group_incomplete'), 'incomplete inline evidence emits the projector diagnostic');
 
+// A valid producer runtime can still describe a group the engine cannot replay.
+require_once __DIR__ . '/../fixtures/captured-components.php';
+$ineligibleState = array(
+    'status' => 'captured',
+    'kind' => 'choice-group',
+    'trigger' => array('selector' => '.sizes button', 'tag' => 'button'),
+    'choiceGroup' => array(
+        'group' => array('selector' => '.sizes', 'tag' => 'div'),
+        'choices' => array(),
+        'transition' => array('selectedIndex' => 0, 'selected' => array(), 'html' => $group(0), 'htmlBytes' => strlen($group(0))),
+        'replay' => 'unsupported',
+        'restoration' => 'verified',
+        'coverage' => 'complete',
+    ),
+);
+$declined = (new ArtifactCompiler())->compile(array(
+    'entrypoint' => 'website/index.html',
+    'files' => array(
+        array('path' => 'website/index.html', 'content' => $page(array(array('transitions' => $transitions)))) ,
+        array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/order/', 'path' => 'website/index.html'))))),
+        array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v2', 'pages' => array(array('sourceUrl' => 'https://example.test/order/', 'components' => captured_components(array($ineligibleState))))))),
+    ),
+))->toArray();
+$declinedMarkup = (string) ($declined['serialized_blocks'] ?? '');
+$declinedPlan = $declined['source_reports']['wordpress_site_plan'] ?? array();
+$assert(str_contains((string) json_encode($declined['source_reports'] ?? array()), 'captured_choice_group_ineligible'), 'declined inline group retains its diagnostic through public compilation');
+$assert(! str_contains($declinedMarkup, 'configFor') && ! str_contains($declinedMarkup, 'data-blocks-engine-capture-choice'), 'declined group output contains neither capture runtime nor choice markers');
+$assert(array() !== $declinedPlan && array() === array_values(array_filter($declinedPlan['assets'] ?? array(), static fn(array $asset): bool => 'inline-script' === ($asset['source'] ?? null))), 'declined capture runtime is not an inline-script asset in the site plan');
+
 if (0 !== $failures) {
     fwrite(STDERR, "captured-choice-group-inline-runtime failed: {$failures} failure(s), {$passes} pass(es)\n");
     exit(1);

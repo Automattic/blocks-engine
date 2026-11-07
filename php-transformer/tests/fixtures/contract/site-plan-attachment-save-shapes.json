@@ -2,7 +2,7 @@
   "_source": "@wordpress/block-library 10.0.0 wp.blocks.getSaveContent; parsed resolved attributes, empty inner blocks (matching parser innerHTML)",
   "issue-3993": {
     "attributes": {
-      "className": "hero",
+      "className": "hero blocks-engine-cover-consumed-background",
       "url": "https://example.test/uploads/bg.jpg",
       "alt": "",
       "dimRatio": 0,
@@ -13,11 +13,11 @@
       },
       "id": 41
     },
-    "inner_html": "<div class=\"wp-block-cover hero\" style=\"min-height:90vh\"><img class=\"wp-block-cover__image-background wp-image-41\" alt=\"\" src=\"https://example.test/uploads/bg.jpg\" data-object-fit=\"cover\"/><span aria-hidden=\"true\" class=\"wp-block-cover__background has-background-dim-0 has-background-dim\"></span><div class=\"wp-block-cover__inner-container\"></div></div>"
+    "inner_html": "<div class=\"wp-block-cover hero blocks-engine-cover-consumed-background\" style=\"min-height:90vh\"><img class=\"wp-block-cover__image-background wp-image-41\" alt=\"\" src=\"https://example.test/uploads/bg.jpg\" data-object-fit=\"cover\"/><span aria-hidden=\"true\" class=\"wp-block-cover__background has-background-dim-0 has-background-dim\"></span><div class=\"wp-block-cover__inner-container\"></div></div>"
   },
   "cover-with-inner-image": {
     "attributes": {
-      "className": "hero",
+      "className": "hero blocks-engine-cover-consumed-background",
       "url": "https://example.test/uploads/bg.jpg",
       "alt": "",
       "dimRatio": 0,
@@ -28,6 +28,6 @@
       },
       "id": 41
     },
-    "inner_html": "<div class=\"wp-block-cover hero\" style=\"min-height:90vh\"><img class=\"wp-block-cover__image-background wp-image-41\" alt=\"\" src=\"https://example.test/uploads/bg.jpg\" data-object-fit=\"cover\"/><span aria-hidden=\"true\" class=\"wp-block-cover__background has-background-dim-0 has-background-dim\"></span><div class=\"wp-block-cover__inner-container\"></div></div>"
+    "inner_html": "<div class=\"wp-block-cover hero blocks-engine-cover-consumed-background\" style=\"min-height:90vh\"><img class=\"wp-block-cover__image-background wp-image-41\" alt=\"\" src=\"https://example.test/uploads/bg.jpg\" data-object-fit=\"cover\"/><span aria-hidden=\"true\" class=\"wp-block-cover__background has-background-dim-0 has-background-dim\"></span><div class=\"wp-block-cover__inner-container\"></div></div>"
   }
 }

@@ -119,6 +119,16 @@ $assert(
     $pureVariableHeightCss
 );
 
+$minimum = ( new HtmlTransformer() )->transform(
+    '<style>.cta{min-width:100px;padding:12px 16px;background:#a2a372}</style><main><div class="box"><button class="cta" type="button">Book Now</button></div></main>'
+)->toArray();
+$minimumCss = implode('', array_map(static fn (array $asset): string => 'css' === ( $asset['kind'] ?? '' ) ? (string) ( $asset['content'] ?? '' ) : '', $minimum['assets'] ?? array()));
+$assert(
+    str_contains($minimumCss, 'wp-block-button__link):not(be-t-0){min-width:inherit}') && ! str_contains($minimumCss, '{width:100%'),
+    '11: a minimum width floors the shrink-to-fit link instead of filling the wrapper',
+    $minimumCss
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, PHP_EOL . "button wrapper inner fill tests: {$passes} passed, {$failures} FAILED" . PHP_EOL);
     exit(1);

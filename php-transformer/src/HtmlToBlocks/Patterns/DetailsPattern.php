@@ -87,7 +87,7 @@ final class DetailsPattern implements PatternRecognizerInterface
         if ($summary instanceof DOMElement && '' === trim(strip_tags($summaryHtml))) {
             $label = $this->summaryLabel($element, $summary);
             if ('' !== $label) {
-                $summaryHtml .= '<span class="screen-reader-text" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0">' . htmlspecialchars($label, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</span>';
+                $summaryHtml .= SourceDom::visuallyHiddenLabel($label);
             }
         }
         if ($summary instanceof DOMElement) {

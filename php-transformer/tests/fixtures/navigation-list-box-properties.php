@@ -9,6 +9,12 @@ for ($i = 1; $i <= 20; ++$i) $scrollItems .= '<li><a href="/' . $i . '">Section 
 $rowItems = '';
 for ($i = 1; $i <= 14; ++$i) $rowItems .= '<li><a href="/about-' . $i . '">About link ' . $i . '</a></li>';
 return array(
+    // #4762: webehappylife.com /accessories category sub-navigation.
+    'category-separators' => '<!doctype html><html><head><style>
+.nested-category-children{margin:10px 0;padding:0;display:flex;list-style:none}
+.nested-category-children li{display:flex}
+.breadcrumb-separator{display:block;margin:0 10px;color:#888}
+</style></head><body><div class="product-list-category-subnav-container"><div class="product-list-nav"><ul class="nested-category-children"><li><a href="/accessories/dad-hat">Dad Hat</a><span class="breadcrumb-separator" aria-hidden="true">|</span></li><li><a href="/accessories/stickers">Stickers</a></li></ul></div></div></body></html>',
     'hidden' => '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Nav hide</title><style>
 .site-header .header-top .main-menu > ul{display:none;gap:24px;list-style:none;margin:0;padding:0}
 @media (min-width:1279px){.site-header .header-top .main-menu > ul{display:flex}}

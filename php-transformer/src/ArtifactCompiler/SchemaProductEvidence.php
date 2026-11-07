@@ -56,7 +56,7 @@ final class SchemaProductEvidence
      * @param string $entryRoot Directory of the entrypoint; page routes are relative to it.
      * @return array<string,array<string,mixed>> Product rows keyed by slug.
      */
-    public static function rows(array $files, callable $slug, callable $price, array &$diagnostics = array(), array &$routes = array(), array &$pageProducts = array(), array &$detailPages = array(), string $entryRoot = ''): array
+    public static function rows(array $files, callable $slug, callable $price, array &$diagnostics = array(), array &$routes = array(), array &$pageProducts = array(), array &$detailPages = array(), string $entryRoot = '', array &$pageEvidence = array()): array
     {
         $entryRoot = trim($entryRoot, '/');
         $documents = array();
@@ -109,13 +109,14 @@ final class SchemaProductEvidence
             }
             foreach ($schemas as $schema) {
                 foreach (self::typedNodes($schema, 'Product') as $product) {
-                    $row = self::row($product, $path, $slug, $price, $siteNames);
+                    $row = self::row($product, $path, $pagePath, $slug, $price, $siteNames);
                     if (null !== $row && isset($row[1]['_variants_undeclared'])) {
                         unset($row[1]['_variants_undeclared']);
                         $diagnostics[] = array('code' => 'product_variants_undeclared', 'severity' => 'warning', 'source_path' => $path, 'message' => 'ProductGroup variants lack declared, distinct attribute combinations.', 'slug' => $row[0]);
                     }
                     if (null === $row) continue;
                     [$productSlug, $fields] = $row;
+                    $pageEvidence[$path] = $product;
                     $tokens = array('slug:' . $productSlug);
                     $identity = '';
                     foreach (array('productGroupID', 'sku', '@id') as $key) {
@@ -125,7 +126,8 @@ final class SchemaProductEvidence
                         if ('' !== $value) { $identity = $key . ':' . $value; break; }
                     }
                     if ('' !== $identity) $tokens = array('id:' . $identity);
-                    $route = self::urlRoute($fields['url'] ?? '/' . $path, $path);
+                    $routeUrl = !isset($product['url']) && !isset($product['offers']['url']) ? '/' . self::entryRelative($path, $entryRoot) : ($fields['url'] ?? '/' . self::entryRelative($path, $entryRoot));
+                    $route = ltrim(self::pageRoute($routeUrl, $path, $entryRoot), '/');
                     if (!$listing && 1 === count($pageClaims) && '' !== $pagePath && $route === $pagePath) $detailPages[$path] = '/' . $route;
                     $hasRoute = isset($product['url']) || isset($product['offers']['url']) || in_array('ProductGroup', (array) ($product['@type'] ?? array()), true);
                     if ($hasRoute) {
@@ -204,7 +206,7 @@ final class SchemaProductEvidence
      * @param list<string> $siteNames
      * @return array{0:string,1:array<string,mixed>,2:string}|null
      */
-    private static function row(array $product, string $path, callable $slug, callable $price, array $siteNames): ?array
+    private static function row(array $product, string $path, string $pagePath, callable $slug, callable $price, array $siteNames): ?array
     {
         $offers = $product['offers'] ?? array();
         if (is_array($offers) && array_is_list($offers)) $offers = $offers[0] ?? array();
@@ -224,7 +226,7 @@ final class SchemaProductEvidence
             foreach (is_array($children) ? $children : array() as $child) {
                 if (!is_array($child) || !in_array('Product', (array) ($child['@type'] ?? array()), true)) continue;
                 $variantImages = array_merge($variantImages, self::images($child['image'] ?? null, self::name($child['name'] ?? null)));
-                $variant = self::row($child, $path, $slug, $price, array());
+                $variant = self::row($child, $path, $pagePath, $slug, $price, array());
                 if (null === $variant) { $declared = false; continue; }
                 $fields = $variant[1];
                 $attributes = self::attributes($child, $product['variesBy'] ?? array(), $slug);
@@ -252,13 +254,13 @@ final class SchemaProductEvidence
         }
         if ('' === $name || '' === $regularPrice) return null;
         $url = is_string($product['url'] ?? null) ? $product['url'] : (is_string($offers['url'] ?? null) ? $offers['url'] : '');
-        if ('' === trim($url) && $isGroup) $url = '/' . self::routePath($path);
+        if ('' === trim($url) && $isGroup) $url = '/' . $pagePath;
         $urlPath = (string) (parse_url($url, PHP_URL_PATH) ?: '');
         $segments = array_values(array_filter(explode('/', trim($urlPath, '/')), 'strlen'));
         $productSlug = $slug($segments ? preg_replace('/\.html?$/i', '', (string) end($segments)) : $name);
         if ('' === $productSlug) return null;
         $fields = array('name' => $name, 'slug' => $productSlug, 'regular_price' => $regularPrice, 'source_path' => $path);
-        $fields['url'] = '' !== $url ? $url : '/' . $path;
+        $fields['url'] = '' !== $url ? $url : '/' . $pagePath;
         if (is_string($product['description'] ?? null)) {
             $description = trim(strip_tags(html_entity_decode($product['description'], ENT_QUOTES | ENT_HTML5, 'UTF-8')));
             if ('' !== $description) $fields['description'] = $description;
@@ -363,8 +365,10 @@ final class SchemaProductEvidence
         $properties = $product['additionalProperty'] ?? array();
         if (!is_array($properties)) $properties = array();
         if (!array_is_list($properties)) $properties = array($properties);
+        $attributeOrder = array();
         foreach (is_array($variesBy) ? $variesBy : array($variesBy) as $property) {
             $key = preg_replace('~^https?://schema.org/~', '', self::name($property));
+            $attributeOrder[] = $slug($key);
             if (in_array($key, array('size', 'color', 'material', 'pattern'), true) && isset($product[$key])) {
                 $properties[] = array('@type' => 'PropertyValue', 'name' => ucfirst($key), 'value' => $product[$key]);
             }
@@ -378,7 +382,13 @@ final class SchemaProductEvidence
             $valueSlug = $slug($value);
             if ('' !== $key && '' !== $valueSlug) $attributes[$key] = array('key' => $key, 'label' => $label, 'value' => $valueSlug, 'value_label' => $value);
         }
-        return array_values($attributes);
+        $ordered = array();
+        foreach ($attributeOrder as $key) {
+            if (!isset($attributes[$key])) continue;
+            $ordered[] = $attributes[$key];
+            unset($attributes[$key]);
+        }
+        return array_merge($ordered, array_values($attributes));
     }
 
     private static function name(mixed $value): string
@@ -397,6 +407,14 @@ final class SchemaProductEvidence
             elseif ('' !== $part && '.' !== $part) $parts[] = $part;
         }
         return self::routePath(implode('/', $parts));
+    }
+
+    /** Normalize links and captured paths to the plan's entry-root-relative route. */
+    public static function pageRoute(string $url, string $source, string $entryRoot): string
+    {
+        $relativeSource = self::entryRelative($source, $entryRoot);
+        $route = self::urlRoute($url, $relativeSource);
+        return '/' . implode('/', array_map(self::productSlug(...), explode('/', $route)));
     }
 
     /** Source path relative to the entrypoint directory. */

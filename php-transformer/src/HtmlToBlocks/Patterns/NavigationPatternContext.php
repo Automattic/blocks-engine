@@ -36,7 +36,10 @@ final class NavigationPatternContext
         private readonly ?HtmlTransformerSession $session = null,
         private readonly ?SvgMaterializer $svgMaterializer = null,
         private readonly ?ProjectedNavigationConverter $projectedNavigation = null,
-        private readonly NavigationUnderlineColorResolver $underlineColorResolver = new NavigationUnderlineColorResolver()
+        private readonly NavigationUnderlineColorResolver $underlineColorResolver = new NavigationUnderlineColorResolver(),
+        // A probe recognizes a menu only to classify its source element; the
+        // conversion that emits the menu publishes its subjects.
+        private readonly bool $publishesSubjects = true
     ) {
     }
 
@@ -119,6 +122,9 @@ final class NavigationPatternContext
             $this->projectSourceToNativeTarget($list, '.wp-block-navigation.' . $boxMarker,
                 $this->styleResolver->styleAttributeMapper()->serialize($gapStyle)['style']);
         }
+        if ('' !== $boxMarker && $list instanceof DOMElement) {
+            $this->projectListSeparators($list, $boxMarker);
+        }
         $identity = $this->sourceListHostIdentity($element);
 
         return trim($identity . ' ' . $boxMarker);
@@ -129,13 +135,56 @@ final class NavigationPatternContext
     {
         if (null === $this->session || !$list instanceof DOMElement || !$this->styleResolver instanceof StyleResolver) return '';
         $columns = $this->declaresColumns($list);
-        if (!$columns && !array_filter(array('display', 'overflow', 'overflow-x', 'overflow-y'), fn(string $property): bool => !$this->styleResolver->declaredPresentation($list, $property)->isEmpty())) {
+        if (!$columns && !array_filter(\Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProjectionState::NAVIGATION_LIST_BOX_PROPERTIES, fn(string $property): bool => !$this->styleResolver->declaredPresentation($list, $property)->isEmpty())) {
             return '';
         }
 
         // Named like the menu's items: by the list and the rules that match
         // it, so the shared header's list carries one marker on every route.
         return $this->session->authorSelectorProjectionState()->installNavigationListBoxSubject($list->getNodePath() ?? '', $columns ? 'block' : 'flex', $this->navigationSubjectMarker($list, 'list-box'));
+    }
+
+    /**
+     * Decorative link siblings cannot be children of a navigation-link block.
+     * A uniform trailing glyph belongs on the native item instead, leaving its
+     * label editable and its saved markup entirely owned by Core.
+     */
+    private function projectListSeparators(DOMElement $list, string $marker): void
+    {
+        $items = array();
+        foreach ($list->childNodes as $item) {
+            if ($item instanceof DOMElement) $items[] = $item;
+        }
+        if (count($items) < 2) return;
+        $separators = array();
+        $signature = null;
+        foreach ($items as $index => $item) {
+            $children = array();
+            foreach ($item->childNodes as $child) {
+                if ($child instanceof DOMElement) $children[] = $child;
+                elseif ('' !== trim($child->textContent ?? '')) return;
+            }
+            if ('li' !== strtolower($item->tagName) || !isset($children[0]) || 'a' !== strtolower($children[0]->tagName)) return;
+            if ($index === count($items) - 1 && 1 === count($children)) continue;
+            if (2 !== count($children)) return;
+            $separator = $children[1];
+            $glyph = $separator->textContent ?? '';
+            if ('true' !== strtolower($separator->getAttribute('aria-hidden')) || $separator->getElementsByTagName('*')->length > 0 || '' === trim($glyph)) return;
+            $style = $this->styleResolver->safeVisualDeclarations($this->styleResolver->resolvedPresentationDeclarations($separator));
+            $current = array($glyph, $style);
+            if (null !== $signature && $signature !== $current) return;
+            $signature = $current;
+            $separators[] = $separator;
+        }
+        if (null === $signature) return;
+        $target = 'nav.wp-block-navigation.' . $marker . ' .wp-block-navigation-item:not(:last-child)::after';
+        // CSS string escaping also handles whitespace and control characters;
+        // never interpolate source text as raw CSS syntax.
+        $content = '"' . preg_replace_callback('/["\\\\\x00-\x1f\x7f]/', static fn(array $m): string => '\\' . dechex(ord($m[0])) . ' ', $signature[0]) . '"';
+        $this->projectSourceToNativeTarget($separators[0], $target, 'content:' . $content . ';' . $this->styleResolver->cssDeclarationString($signature[1]));
+        foreach ($separators as $separator) {
+            $this->recordInnerSubject($separator, $target);
+        }
     }
 
     /**
@@ -534,10 +583,91 @@ final class NavigationPatternContext
         // an intrinsic box when the author did not specify an explicit width.
         $box = array_merge(array('width' => 'auto', 'height' => 'auto', 'margin' => '0', 'padding' => '0', 'border' => '0 solid transparent', 'box-sizing' => 'content-box', 'flex-shrink' => '0', 'display' => 'flex', 'align-items' => 'center', 'justify-content' => 'center'), $box);
         $glyph = array_merge(array('margin' => '0', 'padding' => '0', 'flex-shrink' => '0'), $glyph);
+        $placement = $inAnchor ? array() : $this->outOfFlowSubmenuIconPlacement($item, $container);
+        $box = array_merge($box, $placement);
         $marker = 'blocks-engine-submenu-icon-' . substr(hash('sha256', $serialize($box) . $serialize($glyph)), 0, 16);
         $this->session->generatedSupportStylesheetState()->registerNavigationSubmenuIconGeometry($marker, $serialize($box), $serialize($glyph));
-        $this->session->authorSelectorProjectionState()->markNavigationToggleRowItem($item->getNodePath() ?? '');
+        if ( array() === $placement ) $this->session->authorSelectorProjectionState()->markNavigationToggleRowItem($item->getNodePath() ?? '');
         return $marker;
+    }
+
+    /**
+     * An absolutely positioned glyph box sits beside the label, outside its
+     * row (Google Sites places the chevron in the item box's left padding).
+     * Core's toggle is a child of the item, so the source insets are re-based
+     * from the glyph's containing block onto the item. Core's item is a flex
+     * item and contains its children's margins, so the containing block sits
+     * inside it by the margins, borders and padding of the boxes between them:
+     * lengths shift by that offset, and percentages are rescaled from the
+     * containing block to the item. A containing block outside the item, or
+     * edges that are not px lengths, keep the toggle in Core's row.
+     *
+     * @return array<string, string>
+     */
+    private function outOfFlowSubmenuIconPlacement(DOMElement $item, DOMElement $container): array
+    {
+        $read = fn(DOMElement $element, array $properties): array => $this->styleResolver->referenceViewportAuthorDeclarations($element, $properties);
+        $own = $read($container, array('position', 'left', 'right', 'top', 'bottom', 'transform'));
+        if ( 'absolute' !== strtolower(trim((string) ($own['position'] ?? ''))) ) return array();
+
+        $chain = array();
+        $containingBlock = null;
+        for ( $node = $container->parentNode; $node instanceof DOMElement && ! $node->isSameNode($item); $node = $node->parentNode ) {
+            $chain[] = $node;
+            if ( null === $containingBlock && 'static' !== strtolower(trim((string) ($read($node, array('position'))['position'] ?? 'static'))) ) $containingBlock = $node;
+        }
+        if ( ! $node instanceof DOMElement ) return array();
+        $chain = null === $containingBlock ? array() : array_slice($chain, (int) array_search($containingBlock, $chain, true));
+
+        // Side lengths in px (top, right, bottom, left); null when one is not a px length.
+        $sides = static function (array $declarations, string $property): ?array {
+            $values = isset($declarations[$property]) ? CssValueInspector::expandBoxShorthand((string) $declarations[$property]) : array('0', '0', '0', '0');
+            foreach ( array('top', 'right', 'bottom', 'left') as $index => $side ) {
+                $longhand = 'border-width' === $property ? 'border-' . $side . '-width' : $property . '-' . $side;
+                if ( isset($declarations[$longhand]) ) $values[$index] = (string) $declarations[$longhand];
+            }
+            $lengths = array();
+            foreach ( $values as $value ) {
+                if ( 1 !== preg_match('/^(-?[0-9]*\\.?[0-9]+)px$|^0$/D', trim($value), $match) ) return null;
+                $lengths[] = (float) ($match[1] ?? 0);
+            }
+            return $lengths;
+        };
+        $edgeProperties = array('margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'border-width', 'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width');
+        // The item's padding edge is the reference; the containing block's
+        // own padding edge is the target.
+        $itemPadding = $sides($read($item, $edgeProperties), 'padding');
+        if ( null === $itemPadding ) return array();
+        $offset = array_combine(array('top', 'right', 'bottom', 'left'), $itemPadding);
+        foreach ( $chain as $box ) {
+            $declarations = $read($box, $edgeProperties);
+            $margin = $sides($declarations, 'margin');
+            $padding = $sides($declarations, 'padding');
+            $border = $sides($declarations, 'border-width');
+            if ( null === $margin || null === $padding || null === $border ) return array();
+            foreach ( array('top', 'right', 'bottom', 'left') as $index => $side ) {
+                $offset[$side] += $margin[$index] + $border[$index] + ( $box->isSameNode($containingBlock) ? 0 : $padding[$index] );
+            }
+        }
+
+        $placement = array('position' => 'absolute');
+        $number = static fn(float $value): string => rtrim(rtrim(number_format($value, 4, '.', ''), '0'), '.') ?: '0';
+        foreach ( array('left' => 'right', 'right' => 'left', 'top' => 'bottom', 'bottom' => 'top') as $side => $opposite ) {
+            $value = strtolower(trim((string) ($own[$side] ?? '')));
+            if ( '' === $value || 'auto' === $value ) continue;
+            if ( 1 === preg_match('/^(-?[0-9]*\\.?[0-9]+)px$|^0$/D', $value, $match) ) {
+                $placement[$side] = $number((float) ($match[1] ?? 0) + $offset[$side]) . 'px';
+            } elseif ( 1 === preg_match('/^(-?[0-9]*\\.?[0-9]+)%$/D', $value, $match) ) {
+                $share = (float) $match[1] / 100;
+                $shift = $offset[$side] - $share * ( $offset[$side] + $offset[$opposite] );
+                $placement[$side] = 0.0 === $shift ? $value : 'calc(' . $value . ' + ' . $number($shift) . 'px)';
+            } else {
+                return array();
+            }
+        }
+        $transform = trim((string) ($own['transform'] ?? ''));
+        if ( 1 === preg_match('/^(?:translate[XY]?\(\s*-?[0-9.]+(?:px|%)?(?:\s*,\s*-?[0-9.]+(?:px|%)?)?\s*\)\s*)+$/D', $transform) ) $placement['transform'] = $transform;
+        return $placement;
     }
 
     /**
@@ -656,6 +786,9 @@ final class NavigationPatternContext
      */
     public function recordNavigationSubjects(array &$blocks, DOMElement $source): void
     {
+        if (!$this->publishesSubjects) {
+            return;
+        }
         // Keep distinct source presentations on their structural carriers.
         // Equally styled sibling runs share one structural address, which
         // survives menu consolidation even when placement markers differ.
@@ -1071,7 +1204,8 @@ final class NavigationPatternContext
             if ($peerAnchor instanceof DOMElement) $peerAnchors[] = $peerAnchor;
         }
         $classes = static fn(DOMElement $element): array => array_values(array_unique(array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn(string $class): bool => '' !== $class)));
-        $own = static function (DOMElement $element, array $peers) use ($classes): array {
+        $restingClasses = array();
+        $own = static function (DOMElement $element, array $peers) use ($classes, &$restingClasses): array {
             $lists = array();
             foreach ($peers as $peer) {
                 $list = $classes($peer);
@@ -1085,6 +1219,9 @@ final class NavigationPatternContext
             // peers shares the served route's state (an overflow parent holding
             // the served item), so it is no evidence those classes rest.
             $swapped = $replaces ? array_diff($current, reset($resting)[0]) : array();
+            // What the resting peers wear in place of those classes is resting
+            // state: the served item does not have it.
+            if ($replaces) foreach (array_diff(reset($resting)[0], $current) as $class) $restingClasses[] = $class;
             $peerClasses = array();
             foreach ($lists as $group) {
                 if (array() !== $swapped && array() === array_diff($swapped, $group[0])) continue;
@@ -1093,7 +1230,24 @@ final class NavigationPatternContext
             return array_values(array_filter($current, static fn(string $class): bool => !isset($peerClasses[$class])
                 && ($replaces || ($element->hasAttribute('aria-current') && 'false' !== strtolower(trim($element->getAttribute('aria-current')))) || MenuVocabulary::containsCurrentStateToken($class))));
         };
-        $this->session->authorSelectorProjectionState()->markCurrentNavigationClasses(array_merge($own($item, $peerItems), $item->isSameNode($anchor) ? array() : $own($anchor, $peerAnchors)));
+        // Source boxes between the item and its link can carry the state
+        // (Google Sites marks its item box `aria-current`): compare each with
+        // the box at the same depth in every peer.
+        $boxClasses = array();
+        $depth = 0;
+        for ($box = $anchor->parentNode; $box instanceof DOMElement && !$box->isSameNode($item); $box = $box->parentNode) {
+            $depth++;
+            $peerBoxes = array();
+            foreach ($peerAnchors as $peerAnchor) {
+                $peerBox = $peerAnchor;
+                for ($step = 0; $step < $depth && $peerBox instanceof DOMElement; $step++) $peerBox = $peerBox->parentNode;
+                if ($peerBox instanceof DOMElement && $peerBox->tagName === $box->tagName) $peerBoxes[] = $peerBox;
+            }
+            if (array() !== $peerBoxes) $boxClasses = array_merge($boxClasses, $own($box, $peerBoxes));
+        }
+        $projections = $this->session->authorSelectorProjectionState();
+        $projections->markCurrentNavigationClasses(array_merge($own($item, $peerItems), $item->isSameNode($anchor) ? array() : $own($anchor, $peerAnchors), $boxClasses));
+        $projections->markRestingNavigationClasses($restingClasses);
     }
 
     public function navigationItemSubjectMarker(DOMElement $item): string
@@ -1101,11 +1255,30 @@ final class NavigationPatternContext
         if (!$this->session instanceof HtmlTransformerSession) return '';
         $marker = $this->navigationSubjectMarker($item, 'item');
         $this->pendingNavigationSubjects[$item->getNodePath() ?? ''] = array('marker' => $marker, 'target' => '.wp-block-navigation .wp-block-navigation-item.' . $marker);
+        // The item's inline style travels as render-time metadata, which the
+        // editor never applies. The marker's identity includes that style, so
+        // one marker always names one declaration list.
+        $declarations = array();
+        if ($this->styleResolver instanceof StyleResolver && '' !== trim($item->getAttribute('style'))) {
+            foreach ($this->styleResolver->cssDeclarations($item->getAttribute('style')) as $property => $value) {
+                $value = trim(CssValueInspector::withoutImportant((string) $value));
+                if (!preg_match('/^-{0,2}[a-z][a-z0-9-]*$/i', (string) $property) || '' === $value || preg_match('/[{};<>\\@]|url\s*\(/i', $value)) continue;
+                // Inline declarations outrank every normal author rule.
+                $declarations[] = strtolower((string) $property) . ':' . $value . '!important';
+            }
+        }
+        $this->session->generatedSupportStylesheetState()->registerNavigationEditorItemStyle($marker, implode(';', $declarations));
         return $marker;
     }
 
-    /** @return list<array{tag: string, marker: string, style: string, className: string}> */
-    public function navigationAnchorBoxes(DOMElement $anchor, DOMElement $item): array
+    /**
+     * A submenu parent's boxes may also hold the source disclosure glyph beside
+     * the link; Core's submenu icon renders in its stead, so the glyph does not
+     * stop its box from carrying the label's presentation.
+     *
+     * @return list<array{tag: string, marker: string, style: string, className: string}>
+     */
+    public function navigationAnchorBoxes(DOMElement $anchor, DOMElement $item, bool $submenuParent = false): array
     {
         if (!$this->session instanceof HtmlTransformerSession) return array();
         $boxes = array();
@@ -1117,8 +1290,12 @@ final class NavigationPatternContext
             if (!in_array($tag, array('div', 'span'), true)) return array();
             $children = array();
             foreach ($node->childNodes as $child) {
-                if ($child instanceof DOMElement) $children[] = $child;
-                elseif (XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '')) return array();
+                if ($child instanceof DOMElement) {
+                    // The item's own submenu toggle shares the row; it is not a second label.
+                    if ('button' === strtolower($child->tagName) && in_array(strtolower($child->getAttribute('aria-haspopup')), array('true', 'menu'), true)) continue;
+                    if ($submenuParent && self::isDisclosureGlyph($child, $anchor)) continue;
+                    $children[] = $child;
+                } elseif (XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '')) return array();
             }
             if (1 !== count($children)) return array();
             $marker = $this->navigationSubjectMarker($node, 'box');
@@ -1129,7 +1306,7 @@ final class NavigationPatternContext
             // link's own cascade too, so a link override beats box inheritance.
             foreach (array_merge(array(array()), $this->styleResolver->navigationEditorTypographyConditions($anchor)) as $conditions) {
                 $typography = array();
-                foreach (array('font-family', 'font-size', 'font-weight', 'letter-spacing', 'line-height', 'color', 'text-transform') as $property) {
+                foreach (array('font-family', 'font-size', 'font-weight', 'letter-spacing', 'line-height', 'color', 'text-transform', 'text-align') as $property) {
                     $value = $this->styleResolver->authoredInheritedPropertyWinner($anchor, $property, true, $conditions);
                     if ('' !== $value) $typography[$property] = $value;
                 }
@@ -1149,6 +1326,15 @@ final class NavigationPatternContext
             $node = $node->parentNode;
         }
         return array_reverse($boxes);
+    }
+
+    /** A text-free, link-free sibling of the link that paints only an SVG glyph. */
+    private static function isDisclosureGlyph(DOMElement $element, DOMElement $anchor): bool
+    {
+        return !SourceDom::elementContains($element, $anchor)
+            && '' === trim($element->textContent ?? '')
+            && 0 === $element->getElementsByTagName('a')->length
+            && ('svg' === strtolower($element->tagName) || 0 < $element->getElementsByTagName('svg')->length);
     }
 
     /** Equivalent menu occurrences share identity, while different source cascades do not. */
@@ -1506,7 +1692,7 @@ final class NavigationPatternContext
             return '';
         }
 
-        $markup = $this->svgMaterializer->restoreSvgCasing($this->svgMaterializer->sanitizeInlineSvgMarkup($svg));
+        $markup = $this->svgMaterializer->standaloneSvgMarkup($svg);
         if ( '' === $markup || ! SourceDom::isSafeSvgContent($markup) ) {
             return '';
         }

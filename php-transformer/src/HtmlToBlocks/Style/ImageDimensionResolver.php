@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\HtmlDimensionAttribute;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
@@ -24,6 +25,191 @@ final class ImageDimensionResolver
 {
     public function __construct(private readonly StyleResolver $styles)
     {
+    }
+
+    /**
+     * Resolve the shape constraint the authored CSS applies to the <img> at the
+     * desktop viewport, and carry it as native core/image attributes.
+     *
+     * This applies to ANY image whose resolved CSS carries the pair, however the
+     * rule reaches it -- a rule on the image itself, a blanket `img` rule, or a
+     * descendant rule. The flattened wrapper (`.hero-frame img`) is the
+     * motivating case rather than the boundary: core/image has no slot for such
+     * a wrapper, so once the carrier is dropped the constraint survives only as
+     * block attributes. An image already matching the pair loses nothing by
+     * having it stated natively.
+     *
+     * Conservative by design: emit aspectRatio/scale only when the resolved
+     * style carries BOTH an explicit, well-formed aspect-ratio AND
+     * object-fit:cover|contain. Plain images gain nothing.
+     *
+     * @return array<string, string>
+     */
+    public function shapeConstraintAttributes(DOMElement $image, string $width, string $height): array
+    {
+        $declarations = $this->styles->imageShapeDeclarations($image);
+        $aspectRatio  = $this->normalizedAspectRatio(
+            (string) ($declarations['aspect-ratio']['value'] ?? '')
+        );
+        // `object-fit:cover !important` is a common defence against core's
+        // `.wp-block-image img` rules. Strip importance symmetrically with
+        // normalizedAspectRatio, or the keyword never matches the allowlist below
+        // and the whole promotion silently declines.
+        $scale        = strtolower(CssValueInspector::withoutImportant(
+            $this->styles->resolveCssVariablesInValue(
+                (string) ($declarations['object-fit']['value'] ?? ''),
+                $image
+            )
+        ));
+
+        if ( ! in_array($scale, array( 'cover', 'contain' ), true) ) {
+            return array();
+        }
+
+        // A zero authored box is serializable but core image crop attributes
+        // would manufacture positive geometry. Negative HTML dimensions are not
+        // serializable by core/image and are discarded before block creation.
+        // In either case, fail closed rather than promoting the crop.
+        if ($this->imageHasNonPositiveDimension($image, 'width') || $this->imageHasNonPositiveDimension($image, 'height')) {
+            return array();
+        }
+
+        if ( '' === $aspectRatio
+            || ($this->imageDimensionsDetermineDifferentAspectRatio($width, $height, $aspectRatio)
+                && (($declarations['aspect-ratio']['inline'] ?? false) === true
+                    || ! $this->imageDimensionsAreIntrinsicAttributes($image)))
+        ) {
+            if ( ($declarations['object-fit']['inline'] ?? false) === true || $this->imageShapeFillsBox($declarations) ) {
+                return array( 'scale' => $scale );
+            }
+
+            return array();
+        }
+
+        return array(
+            'aspectRatio' => $aspectRatio,
+            'scale'       => $scale,
+        );
+    }
+
+    /** @param array<string, array<string, mixed>> $declarations */
+    private function imageShapeFillsBox(array $declarations): bool
+    {
+        foreach ( array( 'width', 'height' ) as $property ) {
+            $value = strtolower(CssValueInspector::withoutImportant((string) ($declarations[$property]['value'] ?? '')));
+            if ( '100%' === $value ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Normalize a CSS aspect-ratio value to WordPress' attribute form (`4/3`,
+     * `1`). Returns '' for auto/keyword/compound values the crop cannot rely on.
+     *
+     * A zero component is also refused. `aspect-ratio:0/3` is a degenerate ratio
+     * that collapses the box to nothing; authored CSS gets away with it because
+     * some other declaration constrains the element, but the promoted block
+     * attribute carries no such company.
+     */
+    private function normalizedAspectRatio(string $value): string
+    {
+        $value = strtolower(CssValueInspector::withoutImportant($value));
+        if ( '' === $value || in_array($value, array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer', 'none' ), true) ) {
+            return '';
+        }
+
+        if ( preg_match('#^(\d*\.?\d+)\s*/\s*(\d*\.?\d+)$#', $value, $matches) ) {
+            if ( 0.0 === (float) $matches[1] || 0.0 === (float) $matches[2] ) {
+                return '';
+            }
+
+            return $matches[1] . '/' . $matches[2];
+        }
+
+        if ( preg_match('#^\d*\.?\d+$#', $value) ) {
+            return 0.0 === (float) $value ? '' : $value;
+        }
+
+        return '';
+    }
+
+    private function imageDimensionsDetermineDifferentAspectRatio(string $width, string $height, string $aspectRatio): bool
+    {
+        if (! preg_match('/^(\d*\.?\d+)([a-z]+)$/i', $width, $widthMatch)
+            || ! preg_match('/^(\d*\.?\d+)([a-z]+)$/i', $height, $heightMatch)
+            || strtolower($widthMatch[2]) !== strtolower($heightMatch[2])
+            || ! preg_match('#^(\d*\.?\d+)(?:\s*/\s*(\d*\.?\d+))?$#', $aspectRatio, $ratioMatch)
+            || 0.0 >= (float) $widthMatch[1]
+            || 0.0 >= (float) $heightMatch[1]
+            || 0.0 >= (float) $ratioMatch[1]
+            || 0.0 >= (float) ($ratioMatch[2] ?? '1')) {
+            return false;
+        }
+        $ratio = (float) $ratioMatch[1] / (float) ($ratioMatch[2] ?? '1');
+        return abs(((float) $widthMatch[1] / (float) $heightMatch[1]) - $ratio) > 0.000001;
+    }
+
+    /**
+     * Whether a fixed width and height in one absolute unit already determine
+     * exactly the given aspect ratio. Percentages, mixed units and missing
+     * axes do not: they leave the box to the stylesheet-owned crop.
+     */
+    public function statesAspectRatio(string $width, string $height, string $aspectRatio): bool
+    {
+        if (! preg_match('/^(\d*\.?\d+)(px|r?em|cm|mm|in|pt|pc)$/i', $width, $widthMatch)
+            || ! preg_match('/^(\d*\.?\d+)(px|r?em|cm|mm|in|pt|pc)$/i', $height, $heightMatch)
+            || strtolower($widthMatch[2]) !== strtolower($heightMatch[2])
+            || 0.0 >= (float) $widthMatch[1]
+            || 0.0 >= (float) $heightMatch[1]
+            || ! preg_match('#^(\d*\.?\d+)(?:\s*/\s*(\d*\.?\d+))?$#', $aspectRatio)) {
+            return false;
+        }
+
+        return ! $this->imageDimensionsDetermineDifferentAspectRatio($width, $height, $aspectRatio);
+    }
+
+    /** Whether the emitted dimensions came only from the image file metadata. */
+    private function imageDimensionsAreIntrinsicAttributes(DOMElement $image): bool
+    {
+        $declarations = $this->styles->cssDeclarations(SourceDom::attr($image, 'style'));
+        foreach (array( 'width', 'height' ) as $property) {
+            $value = trim(CssValueInspector::withoutImportant((string) ($declarations[$property] ?? '')));
+            if ('' !== $value && !in_array(strtolower($value), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true)) {
+                return false;
+            }
+        }
+        return '' !== trim(SourceDom::attr($image, 'width')) && '' !== trim(SourceDom::attr($image, 'height'));
+    }
+
+    public function imageDimensionIsIntrinsicAttribute(DOMElement $image, string $property): bool
+    {
+        $declarations = $this->styles->cssDeclarations(SourceDom::attr($image, 'style'));
+        $inline = trim(CssValueInspector::withoutImportant((string) ($declarations[$property] ?? '')));
+        return ('' === $inline || in_array(strtolower($inline), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true))
+            && '' === $this->imageStylesheetDimension($image, $property)
+            && '' !== trim(SourceDom::attr($image, $property));
+    }
+
+    private function imageHasNonPositiveDimension(DOMElement $image, string $property): bool
+    {
+        $inline = trim(CssValueInspector::withoutImportant((string) ($this->styles->cssDeclarations(SourceDom::attr($image, 'style'))[ $property ] ?? '')));
+        $value = $inline;
+        if ('' === $value || in_array(strtolower($value), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true)) {
+            $value = trim(CssValueInspector::withoutImportant((string) ($this->styles->presentationDeclarations($image)[ $property ] ?? '')));
+        }
+        if ('' === $value || in_array(strtolower($value), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true)) {
+            $raw = SourceDom::attr($image, $property);
+            $attribute = HtmlDimensionAttribute::parse($raw);
+            // A signed value is not a valid dimension; it still fails closed.
+            return null === $attribute
+                ? 1 === preg_match('/^[\t\n\f\r ]*[+-]/', $raw)
+                : 0.0 >= $attribute['value'];
+        }
+        return 1 === preg_match('/^[+-]?(?:\d+|\d*\.\d+)(?:%|px|r?em|ex|ch|lh|rlh|vw|vh|vmin|vmax|vi|vb|cm|mm|q|in|pt|pc)?$/i', $value)
+            && 0.0 >= (float) $value;
     }
 
     public function imageDisplayDimension(DOMElement $image, string $property): string
@@ -98,6 +284,92 @@ final class ImageDimensionResolver
         }
 
         return $this->absolutePixelLength($this->imageDisplayDimension($image, $property), $image);
+    }
+
+    /**
+     * The smallest used size in CSS pixels the image can have on each axis at
+     * any viewport, or null for an axis with no guaranteed lower bound.
+     *
+     * A fixed axis ({@see fixedPixelSize()}) is its own bound. A fluid one is
+     * bounded below by what the author CSS guarantees at every viewport: the
+     * minimum of a `clamp()`, the largest absolute argument of a `max()`, an
+     * absolute `min()`, or an absolute `min-width`/`min-height`. An absolute
+     * `max-width`/`max-height` caps the dimension, but not the minimum.
+     *
+     * @return array{width: ?float, height: ?float}
+     */
+    public function minimumPixelSize(DOMElement $image): array
+    {
+        return array(
+            'width' => $this->minimumPixelDimension($image, 'width'),
+            'height' => $this->minimumPixelDimension($image, 'height'),
+        );
+    }
+
+    /** {@see minimumPixelSize()} for one axis. */
+    public function minimumPixelDimension(DOMElement $image, string $property): ?float
+    {
+        $dimension = $this->fixedPixelDimension($image, $property)
+            ?? $this->viewportInvariantLowerBound($image, $property);
+        $maximum = $this->viewportInvariantStylesheetValue($image, 'max-' . $property);
+        $maximum = '' === $maximum ? null : $this->absolutePixelLength($maximum, $image);
+        if ( null !== $dimension && null !== $maximum ) {
+            $dimension = min($dimension, $maximum);
+        }
+        $minimum = $this->viewportInvariantLowerBound($image, 'min-' . $property);
+        if ( null === $dimension || null === $minimum ) {
+            return $dimension ?? $minimum;
+        }
+
+        return max($dimension, $minimum);
+    }
+
+    private function viewportInvariantLowerBound(DOMElement $image, string $property): ?float
+    {
+        $value = $this->viewportInvariantStylesheetValue($image, $property);
+
+        return '' === $value ? null : $this->lowerBoundPixelLength($value, $image);
+    }
+
+    private function viewportInvariantStylesheetValue(DOMElement $image, string $property): string
+    {
+        return $this->styles->imageAxisVariesByViewport($image, $property) ? '' : $this->imageStylesheetDimension($image, $property);
+    }
+
+    /**
+     * The smallest pixel value a length or `clamp()`/`max()`/`min()` of
+     * lengths can resolve to, or null when it has no absolute lower bound.
+     */
+    private function lowerBoundPixelLength(string $value, DOMElement $context): ?float
+    {
+        $value = trim($value);
+        if ( 1 !== preg_match('/^(clamp|max|min)\(\s*(.*)\s*\)$/is', $value, $matches) ) {
+            return $this->absolutePixelLength($value, $context);
+        }
+        if ( ! CssValueSplitter::hasBalancedParens($matches[2]) ) {
+            return null;
+        }
+        $arguments = CssValueSplitter::splitTopLevel($matches[2], array( ',' ));
+        $function = strtolower($matches[1]);
+        if ( 'clamp' === $function ) {
+            // clamp(MIN, VAL, MAX) resolves to max(MIN, min(VAL, MAX)).
+            return 3 === count($arguments) ? $this->lowerBoundPixelLength($arguments[0], $context) : null;
+        }
+        $bounds = array();
+        foreach ( $arguments as $argument ) {
+            $bound = $this->lowerBoundPixelLength($argument, $context);
+            if ( null === $bound && 'min' === $function ) {
+                return null;
+            }
+            if ( null !== $bound ) {
+                $bounds[] = $bound;
+            }
+        }
+        if ( array() === $bounds ) {
+            return null;
+        }
+
+        return 'max' === $function ? max($bounds) : min($bounds);
     }
 
     /**

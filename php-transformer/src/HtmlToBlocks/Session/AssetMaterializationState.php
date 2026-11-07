@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer;
+
 /** Per-transform source metadata and generated asset state. */
 final class AssetMaterializationState
 {
@@ -54,6 +56,16 @@ final class AssetMaterializationState
      */
     public function registerInlineSvg(string $path, array $asset, array $occurrence, string $visualPayload): void
     {
+        // Both emitted file bodies (the asset and its visual payload) are standalone
+        // SVG documents and need the same namespace normalization.
+        $assetContent = SvgMaterializer::ensureSvgImageNamespace((string) ($asset['content'] ?? ''));
+        $visualPayload = SvgMaterializer::ensureSvgImageNamespace($visualPayload);
+        $asset['content'] = $assetContent;
+        $asset['visual_payload'] = $visualPayload . "\n";
+        $asset['bytes'] = strlen($assetContent);
+        $asset['hash'] = hash('sha256', rtrim($assetContent, "\n"));
+        $asset['source_hash'] = $asset['hash'];
+
         if (!isset($this->generated[$path])) {
             if (is_string($occurrence['fingerprint'] ?? null)) {
                 $asset['component_occurrence_counts'] = array($occurrence['fingerprint'] => 1);

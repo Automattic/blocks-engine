@@ -34,6 +34,10 @@ final class CoverPattern implements PatternRecognizerInterface
 {
     use PatternGateHelpersTrait;
 
+    public const CONSUMED_BACKGROUND_CLASS = 'blocks-engine-cover-consumed-background';
+    /** A column hero whose child grows to fill it: the inner container and wrapper group must fill the cover too. */
+    public const FILL_CLASS = 'blocks-engine-cover-fill';
+
     private CoverStyleResolver $styleResolver;
     private BackgroundImageExtractor $backgroundImageExtractor;
 
@@ -62,7 +66,9 @@ final class CoverPattern implements PatternRecognizerInterface
             $media->coverStyle(...),
             SourceDom::htmlAttributes(...),
             $media->resolveImageUrl(...),
-            $this->createBlock->createBlock(...)
+            $this->createBlock->createBlock(...),
+            $media->hasConditionalMinHeight(...),
+            $media->presentationDeclarations(...)
         );
 
         return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
@@ -76,6 +82,8 @@ final class CoverPattern implements PatternRecognizerInterface
      * @param callable(DOMElement): array<string, string> $htmlAttributes
      * @param callable(string): string $resolveAssetUrl
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
+     * @param (callable(DOMElement): bool)|null $hasConditionalMinHeight
+     * @param (callable(DOMElement): array<string, string>)|null $presentationDeclarations
      * @return array<string, mixed>|null
      */
     public function match(
@@ -86,7 +94,9 @@ final class CoverPattern implements PatternRecognizerInterface
         callable $mergedPresentationStyle,
         callable $htmlAttributes,
         callable $resolveAssetUrl,
-        callable $createBlock
+        callable $createBlock,
+        ?callable $hasConditionalMinHeight = null,
+        ?callable $presentationDeclarations = null
     ): ?array {
         try {
             $style = $mergedPresentationStyle($element);
@@ -148,6 +158,14 @@ final class CoverPattern implements PatternRecognizerInterface
             $attrs = array();
         }
         unset($attrs['layout']);
+        // The cover now owns every background layer (url, overlay, gradient).
+        // A stylesheet-painted background stays reachable through the source
+        // classes the wrapper keeps, so it must stop painting under the cover
+        // image; an inline background is dropped with the inline style.
+        $inlineDeclarations = $this->styleResolver->declarations(SourceDom::attr($element, 'style'));
+        if ( ! isset($inlineDeclarations['background']) && ! isset($inlineDeclarations['background-image']) ) {
+            $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::CONSUMED_BACKGROUND_CLASS);
+        }
         $this->removeConsumedDimensions($attrs);
         $declarations = $this->styleResolver->declarations($style);
         $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
@@ -157,7 +175,14 @@ final class CoverPattern implements PatternRecognizerInterface
             $justify = (string) ($declarations['justify-content'] ?? 'normal');
             $vertical = 'flex' === $display && $column ? $justify : $align;
             $horizontal = 'flex' === $display && $column ? $align : $justify;
-            $attrs['contentPosition'] = $this->positionToken($vertical, 'top', 'bottom') . ' ' . $this->positionToken($horizontal, 'left', 'right');
+            // A stacked hero whose inline axis stretches (column flex cross
+            // axis, grid track) gives its content the full hero width. Core
+            // shrinks the inner container to its content for any left/right
+            // position, so keep the inline token centered (full-width inner
+            // container) and stretch the stacked children instead.
+            $fillsInline = $column && in_array(CssValueInspector::comparable($horizontal), array( 'normal', 'stretch' ), true);
+            $horizontalToken = $fillsInline ? 'center' : $this->positionToken($horizontal, 'left', 'right');
+            $attrs['contentPosition'] = $this->positionToken($vertical, 'top', 'bottom') . ' ' . $horizontalToken;
             // Covers add padding by default; an unpadded source must remain so.
             foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
                 $attrs['style']['spacing']['padding'][$side] ??= '0';
@@ -166,10 +191,13 @@ final class CoverPattern implements PatternRecognizerInterface
                 'type' => 'flex',
                 'orientation' => $column ? 'vertical' : 'horizontal',
                 'flexWrap' => 'nowrap',
-                'justifyContent' => $this->positionToken($horizontal, 'left', 'right'),
+                'justifyContent' => $fillsInline ? 'stretch' : $horizontalToken,
                 'verticalAlignment' => $this->positionToken($vertical, 'top', 'bottom'),
             );
             $children = array($createBlock('core/group', array('layout' => $layout), $children, null));
+            if ( 'flex' === $display && $column && null !== $presentationDeclarations && $this->hasGrowingChild($element, $presentationDeclarations) ) {
+                $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::FILL_CLASS);
+            }
         }
 
         try {
@@ -225,7 +253,9 @@ final class CoverPattern implements PatternRecognizerInterface
             );
             $styleSupport['spacing'] = $spacing;
             $attrs['style'] = $styleSupport;
-        } elseif ( null !== $minHeight ) {
+        } elseif ( null !== $minHeight && ! (null !== $hasConditionalMinHeight && $hasConditionalMinHeight($element)) ) {
+            // A conditional rule varying min-height stays in the author
+            // stylesheet: an inline minHeight would freeze the base value.
             $attrs['minHeight'] = $minHeight['minHeight'];
             $attrs['minHeightUnit'] = $minHeight['minHeightUnit'];
         }
@@ -319,6 +349,31 @@ final class CoverPattern implements PatternRecognizerInterface
             return 'columns_layout';
         }
         return null;
+    }
+
+    /** @param callable(DOMElement): array<string, string> $childDeclarations */
+    private function hasGrowingChild(DOMElement $element, callable $childDeclarations): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            try {
+                $declarations = $childDeclarations($child);
+            } catch ( Throwable ) {
+                continue;
+            }
+            $grow = (string) ($declarations['flex-grow'] ?? '');
+            if ( '' === $grow && isset($declarations['flex']) ) {
+                $flex = strtolower(trim((string) $declarations['flex']));
+                $grow = 'auto' === $flex ? '1' : ('none' === $flex ? '0' : (string) strtok($flex, ' '));
+            }
+            if ( is_numeric($grow) && (float) $grow > 0 ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function positionToken(string $value, string $start, string $end): string

@@ -46,7 +46,7 @@ foreach ( array( 'block', 'flex', 'grid' ) as $display ) {
         if ( 'block' !== $display ) {
             $assertSame($position, $hero['attrs']['contentPosition'] ?? null, 'Source axes map to contentPosition.');
             if ( 'top left' === $position ) {
-                $assertTrue(str_contains($result['serialized_blocks'], 'class="wp-block-cover has-custom-content-position is-position-top-left hero"'), 'Top-left hero saves custom position classes before the source class.');
+                $assertTrue(str_contains($result['serialized_blocks'], 'class="wp-block-cover has-custom-content-position is-position-top-left hero blocks-engine-cover-consumed-background"'), 'Top-left hero saves custom position classes before the source class.');
             } else {
                 $assertTrue(! str_contains($result['serialized_blocks'], 'has-custom-content-position'), 'Centered hero omits custom position classes.');
             }
@@ -127,12 +127,12 @@ $pattern = new CoverPattern(new \Automattic\BlocksEngine\PhpTransformer\Tests\Su
 $matchMethod = new ReflectionMethod(CoverPattern::class, 'match');
 $matchParameters = $matchMethod->getParameters();
 $assertSame(
-    array( 'element', 'fallbacks', 'convertChildren', 'presentationAttributes', 'mergedPresentationStyle', 'htmlAttributes', 'resolveAssetUrl', 'createBlock' ),
+    array( 'element', 'fallbacks', 'convertChildren', 'presentationAttributes', 'mergedPresentationStyle', 'htmlAttributes', 'resolveAssetUrl', 'createBlock', 'hasConditionalMinHeight', 'presentationDeclarations' ),
     array_map(static fn (ReflectionParameter $parameter): string => $parameter->getName(), $matchParameters),
     'match callback parameter names remain frozen.'
 );
 $assertSame(
-    array( 'DOMElement', 'array', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable' ),
+    array( 'DOMElement', 'array', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable', '?callable', '?callable' ),
     array_map(static fn (ReflectionParameter $parameter): string => (string) $parameter->getType(), $matchParameters),
     'match callback parameter types remain frozen.'
 );
@@ -249,6 +249,19 @@ foreach ( array( 'utility hero' => array( '<h1>Strategy</h1>', 'core/cover' ), '
     $result = $transformHtml('<style>.x .c1-u{display:flex;flex-direction:column;min-height:360px}.x .c1-z{background-size:auto,cover}@media (min-width:768px){.x .c1-14{background-image:linear-gradient(rgba(0,0,0,.25),rgba(0,0,0,.25)),url(/media/1346-6.jpg)}}@media (max-width:767px){.x .c1-15{background-image:linear-gradient(rgba(0,0,0,.25),rgba(0,0,0,.25)),url(/media/1346-2.webp)}}</style><div class="x"><div class="c1-u c1-z c1-14 c1-15">' . $content . '</div><p>After</p></div>');
     $names = $blockNames($result['blocks'] ?? array());
     $assertSame('core/cover' === $expected, in_array('core/cover', $names, true), 'Painted ' . $name . ' cover recognition.');
+    // The cover owns the consumed background; the source rules (base and
+    // media-only alike) stop painting its wrapper under the cover image.
+    $css = implode("\n", array_column($result['assets'] ?? array(), 'content'));
+    $assertSame('core/cover' === $expected, str_contains($result['serialized_blocks'] ?? '', 'blocks-engine-cover-consumed-background') && str_contains($css, ':root .wp-block-cover.blocks-engine-cover-consumed-background{background-image:none!important}'), 'Painted ' . $name . ' cover suppresses its consumed source background.');
+}
+
+// A cover owns the background it consumed: rules whose every subject is such
+// a cover drop their image layers (so the theme stops shipping them), while
+// images other subjects still paint stay.
+$pruned = $transformHtml('<style>.x .c1-u{display:flex;flex-direction:column;min-height:360px}@media (min-width:768px){.x .c1-14{background-image:linear-gradient(rgba(0,0,0,.25),rgba(0,0,0,.25)),url(media/hero-large.jpg)}}@media (max-width:767px){.x .c1-15{background-image:url(media/hero-small.webp)}}.x .card{background-image:url(media/hero-small.webp)}.x .both{background-image:url(media/shared.png)}</style><div class="x"><div class="c1-u c1-14 c1-15 both"><h1>Strategy</h1></div><div class="card both"><p>Card</p></div></div>');
+$prunedCss = implode("\n", array_column($pruned['assets'] ?? array(), 'content'));
+foreach ( array( 'hero-large.jpg' => 0, 'hero-small.webp' => 1, 'shared.png' => 1 ) as $image => $count ) {
+    $assertSame($count, substr_count($prunedCss, $image), 'Consumed cover background pruning keeps ' . $count . ' reference(s) to ' . $image . '.');
 }
 
 $fallbacks = array( array( 'blockName' => 'existing/fallback' ) );
@@ -526,6 +539,18 @@ $assertSame(
     $autoHeightCover['attrs']['style']['spacing']['padding'] ?? null,
     'auto-height covers drop core/cover 1em padding the source section did not have'
 );
+
+// A column hero whose min-height a media query raises keeps that height in
+// the author stylesheet (an inline minHeight would freeze the base value),
+// and a growing child makes the inner container fill the taller hero.
+foreach ( array( 'responsive' => array( '@media (min-width:1024px){.hero{min-height:65vh}}', null ), 'static' => array( '', 360 ) ) as $name => [$media, $minHeight] ) {
+    $responsiveResult = $transformHtml('<style>.hero{display:flex;flex-direction:column;min-height:360px;background:url(https://example.com/hero.jpg) center/cover}' . $media . '.grow{flex-grow:1;display:flex;flex-direction:column;justify-content:center}</style><div class="hero"><p>Brand</p><div class="grow"><h1>Title</h1></div></div>');
+    $responsiveCover = $responsiveResult['blocks'][0] ?? array();
+    $assertSame('core/cover', $responsiveCover['blockName'] ?? null, $name . ' column hero becomes core/cover.');
+    $assertSame($minHeight, $responsiveCover['attrs']['minHeight'] ?? null, $name . ' hero minHeight attribute.');
+    $assertTrue(str_contains((string) ($responsiveCover['attrs']['className'] ?? ''), CoverPattern::FILL_CLASS), $name . ' hero with a growing child fills the cover.');
+    $assertTrue(str_contains($assetCss($responsiveResult), '.' . CoverPattern::FILL_CLASS . '>.wp-block-cover__inner-container{flex:1 1 auto'), $name . ' fill support rule ships.');
+}
 
 echo "cover pattern ok\n";
 

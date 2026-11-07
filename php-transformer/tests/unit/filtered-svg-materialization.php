@@ -18,6 +18,10 @@ $assert = static function (bool $condition, string $message) use (&$assertions):
 $filter = '<filter id="portrait-tone" filterUnits="objectBoundingBox"><feComponentTransfer result="srcRGB"></feComponentTransfer><feColorMatrix in="srcRGB" type="saturate" values="0"></feColorMatrix><feComponentTransfer><feFuncR type="linear" slope="1.1" intercept="-0.05"></feFuncR><feFuncG type="linear" slope="1.1" intercept="-0.05"></feFuncG><feFuncB type="linear" slope="1.1" intercept="-0.05"></feFuncB></feComponentTransfer></filter>';
 $artwork = static fn(string $label, bool $includeFilter = true): string => '<svg class="portrait-art" role="img" aria-label="' . $label . '" viewBox="0 0 100 80"><defs>' . ($includeFilter ? $filter : '') . '</defs><rect width="100" height="80" filter="url(#portrait-tone)"></rect></svg>';
 
+$unnamespaced = (new HtmlTransformer())->transform('<main><svg viewBox="0 0 10 10"><path d="M0 0h10v10z"></path></svg></main>')->toArray();
+$unnamespacedAssets = array_values(array_filter($unnamespaced['assets'] ?? array(), static fn(array $asset): bool => 'inline-svg' === ($asset['source'] ?? null)));
+$assert(1 === count($unnamespacedAssets) && str_starts_with((string) ($unnamespacedAssets[0]['content'] ?? ''), '<svg xmlns="http://www.w3.org/2000/svg"'), 'Materialized inline SVG payloads declare the SVG namespace.');
+
 $filtered = (new HtmlTransformer())->transform('<style>.portrait-grid{display:grid;grid-template-columns:repeat(2,1fr)}.portrait-art{width:100%;height:auto}@media(max-width:600px){.portrait-grid{grid-template-columns:1fr}}</style><main><div class="portrait-grid">' . $artwork('First portrait') . $artwork('Second portrait') . '</div></main>')->toArray();
 $filteredMarkup = (string) ($filtered['serialized_blocks'] ?? '');
 $filteredAssets = array_values(array_filter($filtered['assets'] ?? array(), static fn(array $asset): bool => 'inline-svg' === ($asset['source'] ?? null)));

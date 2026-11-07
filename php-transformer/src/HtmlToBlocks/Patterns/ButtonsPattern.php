@@ -128,6 +128,12 @@ final class ButtonsPattern
             $this->removeSourceControlClasses($attrs, $button);
         }
         $text = $this->buttonText($button, $buttons->richText($button), $buttons);
+        // core/button renders nothing for an empty element, so a text-less
+        // control (a CSS-painted swatch or icon) carries its accessible name.
+        $accessibleTitle = $this->buttonAccessibleTitle($button);
+        if ( '' === trim($text) && '' !== $accessibleTitle ) {
+            $text = SourceDom::visuallyHiddenLabel($accessibleTitle);
+        }
 
         return $createBlock('core/buttons', $this->buttonWrapperAttributes($button, $context, $buttons), array(
             $createBlock('core/button', array_filter(array_merge(
@@ -136,7 +142,7 @@ final class ButtonsPattern
                 array(
                     'tagName' => 'button',
                     'text'    => $text,
-                    'title'   => $this->buttonAccessibleTitle($button),
+                    'title'   => $accessibleTitle,
                 )
             ), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $button),
         ), $button);

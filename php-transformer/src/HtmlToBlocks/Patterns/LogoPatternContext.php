@@ -3,19 +3,17 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
-use DOMElement;
-
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Closure;
-
+use DOMElement;
 
 final class LogoPatternContext
 {
     /**
-     * @param Closure(DOMElement): array<string, string>|null $structuralDeclarations
      * @param Closure(DOMElement, array<int, array<string, mixed>>): void|null $captureSvgFallback
      */
     public function __construct(
-        private readonly ?Closure $structuralDeclarations = null,
+        private readonly StyleResolver $styleResolver,
         private readonly ?Closure $captureSvgFallback = null
     ) {
     }
@@ -36,6 +34,6 @@ final class LogoPatternContext
     /** @return array<string, string> */
     public function structuralPresentationDeclarations(DOMElement $element): array
     {
-        return null === $this->structuralDeclarations ? array() : ($this->structuralDeclarations)($element);
+        return $this->styleResolver->structuralPresentationDeclarations($element);
     }
 }

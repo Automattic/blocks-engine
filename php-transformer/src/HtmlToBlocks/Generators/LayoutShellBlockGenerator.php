@@ -22,6 +22,8 @@ final class LayoutShellBlockGenerator
     /** @return array<string, mixed> */
     public function definition(string $blockName): array
     {
+        static $definitions = array();
+        if (isset($definitions[$blockName])) return $definitions[$blockName];
         $script = <<<'JS'
 ( function( blocks, blockEditor, element ) {
     var createElement = element.createElement;
@@ -221,7 +223,7 @@ final class LayoutShellBlockGenerator
     } );
 } )( window.wp.blocks, window.wp.blockEditor, window.wp.element );
 JS;
-        return array(
+        return $definitions[$blockName] = array(
             'name' => 'layout-shell',
             'block_json' => array(
                 'apiVersion' => 3,

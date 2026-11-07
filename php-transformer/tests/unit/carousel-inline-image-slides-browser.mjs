@@ -30,6 +30,52 @@ try {
     assert.equal(candidate.tops.length, 3, 'every slide image is kept');
     assert.ok(candidate.tops.every(top => top === candidate.tops[0]), 'inactive slides stack on the active slide, not below it');
     assert.ok(Math.abs(candidate.height - source.height) <= 8, `the slideshow is one slide tall: ${JSON.stringify({ source, candidate })}`);
+    // Exercise the emitted runtime with its Interactivity API scope supplied by
+    // a small adapter, so this regression needs no running WordPress server.
+    const view = result.source_reports.generated_blocks[0].view_js.replace(/^import .*?;\s*/, '');
+    for (const vertical of [false, true]) {
+        for (const reduced of [false, true]) {
+            await page.emulateMedia({ reducedMotion: reduced ? 'reduce' : 'no-preference' });
+            await page.setContent(`<!doctype html><style>
+                body{margin:0}.spacer{height:1500px}
+                .strip{display:flex;width:${vertical ? 90 : 180}px;height:90px;overflow:auto;border:3px solid;${vertical ? 'flex-direction:column;' : ''}}
+                .strip button{flex:none;width:80px;height:80px;margin:0;padding:0}
+                </style><div class="spacer"></div>
+                <div class="blocks-engine-authored-carousel"><div class="blocks-engine-authored-carousel__track">${'<div>slide</div>'.repeat(8)}</div>
+                <div class="strip"><div style="display:contents">${Array.from({length:8}, (_, i) => `<button class="blocks-engine-authored-carousel__thumbnail" data-carousel-index="${i}">${i}</button>`).join('')}</div></div></div>`);
+            await page.evaluate(script => {
+                const root = document.querySelector('.blocks-engine-authored-carousel');
+                const context = { index: 7, presentation: 'slideshow', wrap: true };
+                window.carouselContext = context;
+                const adapter = `const store = (_, value) => { window.carouselRuntime = value; };
+                    const getContext = () => window.carouselContext;
+                    const getElement = () => ({ ref: document.querySelector('.blocks-engine-authored-carousel') });
+                    const withScope = callback => callback;`;
+                Function(adapter + script)();
+                window.carouselCleanup = window.carouselRuntime.callbacks.init();
+            }, view);
+            const readScroll = () => page.evaluate(() => ({ y: scrollY, x: scrollX, left: document.querySelector('.strip').scrollLeft, top: document.querySelector('.strip').scrollTop }));
+            assert.deepEqual(await readScroll(), { y: 0, x: 0, left: 0, top: 0 }, 'initial sync below the fold never scrolls');
+            await page.evaluate(() => window.carouselRuntime.actions.previous());
+            const navigated = await readScroll();
+            assert.equal(navigated.y, 0, 'navigation below the fold never scrolls the window');
+            assert.equal(navigated.x, 0);
+            assert.equal(navigated[vertical ? 'left' : 'top'], 0, 'the other axis stays put');
+            if (reduced) {
+                assert.equal(navigated[vertical ? 'top' : 'left'], 0, 'reduced motion still skips thumbnail scrolling');
+            } else {
+                assert.ok(navigated[vertical ? 'top' : 'left'] > 0, 'only the nearest overflow container scrolls');
+                assert.ok(await page.evaluate(() => {
+                    const strip = document.querySelector('.strip');
+                    const active = strip.querySelector('[aria-current="true"]').getBoundingClientRect();
+                    const bounds = strip.getBoundingClientRect();
+                    return active.left >= bounds.left + strip.clientLeft && active.right <= bounds.left + strip.clientLeft + strip.clientWidth
+                        && active.top >= bounds.top + strip.clientTop && active.bottom <= bounds.top + strip.clientTop + strip.clientHeight;
+                }), 'the active thumbnail is inside the container visible range');
+            }
+            await page.evaluate(() => window.carouselCleanup());
+        }
+    }
 } finally {
     await browser.close();
 }

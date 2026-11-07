@@ -325,13 +325,16 @@ final class RuntimeDeclarations
     {
         try { return array('declarations' => self::normalizeList($declarations), 'records' => array(), 'entity_records' => array(), 'diagnostics' => array()); }
         catch (InvalidArgumentException $error) { if (!str_contains($error->getMessage(), 'payload exceeds the byte limit') && !str_contains($error->getMessage(), 'aggregate canonical byte limit')) throw $error; }
-        $declarations = array_values($declarations);
+        // Use exactly the canonical shape normalizeList measures, including the
+        // derived reconciliation identity. Removing it undercounted each inline
+        // declaration and could skip factoring at the aggregate boundary.
+        $declarations = self::normalizeForComposition(array_values($declarations));
         $integrity = array_map(static fn (mixed $declaration): bool => is_array($declaration) && self::bearsIntegrity($declaration), $declarations);
         $records = array();
         $sizes = array();
-        foreach ($declarations as $index => $declaration) if (is_array($declaration) && self::shardable($declaration['payload'] ?? null)) { $unhashed = $declaration; unset($unhashed['reconciliation_identity'], $unhashed['payload_hash'], $unhashed['content_hash']); $sizes[$index] = self::measure($unhashed); }
+        foreach ($declarations as $index => $declaration) if (is_array($declaration) && self::shardable($declaration['payload'] ?? null)) { $unhashed = $declaration; unset($unhashed['payload_hash'], $unhashed['content_hash']); $sizes[$index] = self::measure($unhashed); }
         arsort($sizes, SORT_NUMERIC);
-        $total = static function () use (&$declarations): int { $bytes = 0; foreach ($declarations as $declaration) if (is_array($declaration) && self::measure($declaration['payload'] ?? null) <= self::MAX_PAYLOAD_BYTES) { unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']); $bytes += self::measure($declaration); } return $bytes; };
+        $total = static function () use (&$declarations): int { $bytes = 0; foreach ($declarations as $declaration) if (is_array($declaration) && self::measure($declaration['payload'] ?? null) <= self::MAX_PAYLOAD_BYTES) { unset($declaration['payload_hash'], $declaration['content_hash']); $bytes += self::measure($declaration); } return $bytes; };
         // Move the entity lists over the payload limit, then the largest others
         // until the set fits the aggregate limit; the rest stay inline.
         foreach ($sizes as $index => $bytes) {
@@ -343,7 +346,7 @@ final class RuntimeDeclarations
             catch (InvalidArgumentException $error) { if (!str_contains($error->getMessage(), 'exceed')) throw $error; continue; }
             foreach ($manifest['records'] as $record) $records[$record['content_hash']] = $record;
             $declarations[$index]['payload'] = $manifest['payload'];
-            unset($declarations[$index]['reconciliation_identity'], $declarations[$index]['payload_hash'], $declarations[$index]['content_hash']);
+            unset($declarations[$index]['payload_hash'], $declarations[$index]['content_hash']);
         }
         $bounded = self::withinByteLimits($declarations, $integrity);
         $referenced = array();

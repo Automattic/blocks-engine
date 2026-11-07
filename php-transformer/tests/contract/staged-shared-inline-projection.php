@@ -2,14 +2,14 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../vendor/autoload.php';
+require_once __DIR__ . '/../Support/BootstrapStyles.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
 // Read only generated literal data, without running the WordPress bootstrap.
 $registry = static function (string $bootstrap, string $name): array {
-    if (1 !== preg_match('/\\$' . $name . ' = (array \\(.*?\\n\\));/s', $bootstrap, $match)) throw new RuntimeException('Missing bootstrap registry: ' . $name);
-    return eval('return ' . $match[1] . ';');
+    return \Automattic\BlocksEngine\PhpTransformer\Tests\Support\BootstrapStyles::registry($bootstrap, $name);
 };
 
 // Each page envelope re-extracts the same inline sheet. Terminal reduction
@@ -44,7 +44,7 @@ foreach (array(3, 6) as $count) {
         $owner = $delta['inline_references'][0]['source_path'] ?? '';
         if ('' === $owner || 1 !== count($delta['inline_references']) || 1 !== count($delta['scopes']) || 1 !== count($delta['stylesheet_instances'])) throw new RuntimeException('A page delta must retain exactly its owner occurrence, scope and instance.');
         if ($owner !== $delta['scopes'][0]['source_path'] || $owner !== $delta['stylesheet_instances'][0]['source_path']) throw new RuntimeException('Page delta scope and instance must match its owner.');
-        if (1 !== substr_count($bootstrap, "get_theme_file_uri( '" . $delta['target_path'] . "' )") || 1 !== substr_count($bootstrap, "'target_path' => '" . $delta['target_path'] . "'")) throw new RuntimeException('A page delta must have one frontend enqueue and one presentation entry.');
+        if (1 !== count(array_filter($presentation, static fn(array $style): bool => $style['target_path'] === $delta['target_path']))) throw new RuntimeException('A page delta must have one presentation entry.');
     }
     $parents = array_values(array_filter($inline, static fn(array $asset): bool => !isset($asset['stylesheet_parent'])));
     if (1 !== count($parents) || $count !== count($parents[0]['inline_references']) || $count !== count($parents[0]['stylesheet_instances'])) throw new RuntimeException('The shared parent must retain all route occurrences.');
@@ -77,7 +77,7 @@ foreach (array(3, 6) as $count) {
 // occurrences per route. The shared parent has N occurrences, but each of
 // the N-1 deltas has only its owner's occurrence, never N occurrences.
 foreach (array(3, 6) as $count) {
-    $expected = array('enqueues' => 2 + 2 * $count, 'files' => 2 + 2 * $count, 'replay' => 1 + 3 * $count, 'scopes' => 1 + $count);
+    $expected = array('enqueues' => 4, 'files' => 2 + 2 * $count, 'replay' => 1 + 3 * $count, 'scopes' => 1 + $count);
     if ($expected !== array_diff_key($bootstrapCounts[$count], array('bytes' => true))) throw new RuntimeException('Bootstrap stylesheet delivery must scale linearly from three to six routes.');
 }
 if ($bootstrapCounts[6]['bytes'] > 2 * $bootstrapCounts[3]['bytes']) throw new RuntimeException('Bootstrap bytes must grow at most linearly with routes.');

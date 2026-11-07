@@ -57,6 +57,9 @@ final class AuthorSelectorProjectionState
     /** @var array<string, true> */
     private array $buttonPresentationPaths = array();
 
+    /** @var array<string, true> Source paths whose stylesheet background a core/cover consumed. */
+    private array $consumedCoverBackgroundPaths = array();
+
     /** @var array<string, true> */
     private array $buttonLabelPaths = array();
 
@@ -175,7 +178,7 @@ final class AuthorSelectorProjectionState
     private array $navigationListShownDisplays = array();
 
     /** Source list box properties that the native root renders after the list becomes display:contents. */
-    public const NAVIGATION_LIST_BOX_PROPERTIES = array('display', 'flex-direction', 'flex-wrap', 'flex-flow', 'justify-content', 'align-items', 'align-content', 'gap', 'row-gap', 'overflow', 'overflow-x', 'overflow-y', 'columns', 'column-count', 'column-width', 'column-gap', 'column-fill', 'column-rule', 'column-rule-color', 'column-rule-style', 'column-rule-width');
+    public const NAVIGATION_LIST_BOX_PROPERTIES = array('display', 'flex-direction', 'flex-wrap', 'flex-flow', 'justify-content', 'align-items', 'align-content', 'gap', 'row-gap', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'margin-block', 'margin-block-start', 'margin-block-end', 'margin-inline', 'margin-inline-start', 'margin-inline-end', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'padding-block', 'padding-block-start', 'padding-block-end', 'padding-inline', 'padding-inline-start', 'padding-inline-end', 'overflow', 'overflow-x', 'overflow-y', 'columns', 'column-count', 'column-width', 'column-gap', 'column-fill', 'column-rule', 'column-rule-color', 'column-rule-style', 'column-rule-width');
 
     /**
      * Target class for the native root that renders source list `$path`'s box.
@@ -260,6 +263,36 @@ final class AuthorSelectorProjectionState
         foreach ($classes as $class) $this->currentNavigationClasses[$class] = true;
     }
 
+    /** @var array<string,true> Source classes resting navigation items wear in place of the current item's state. */
+    private array $restingNavigationClasses = array();
+
+    /**
+     * Record the classes a served item swaps out: every resting peer wears
+     * them, the current item does not.
+     *
+     * @param list<string> $classes
+     */
+    public function markRestingNavigationClasses(array $classes): void
+    {
+        foreach ($classes as $class) $this->restingNavigationClasses[$class] = true;
+    }
+
+    /**
+     * Whether a selector addresses only resting navigation items: it names a
+     * class the served item swaps out. A shared menu renders every item with
+     * one resting subject, so this paint must skip the runtime current item
+     * as the source current item lacked it.
+     */
+    public function selectsRestingNavigationState(string $selector): bool
+    {
+        if (array() === $this->restingNavigationClasses || $this->selectsCurrentNavigationState($selector)) return false;
+        preg_match_all('/\.((?:\\.|[A-Za-z0-9_-])+)/', $selector, $classes);
+        foreach ($classes[1] as $class) {
+            if (isset($this->restingNavigationClasses[stripslashes($class)])) return true;
+        }
+        return false;
+    }
+
     public function isCurrentNavigationClass(string $class, ?DOMElement $element = null): bool
     {
         if ('page_item' === $class || 1 === preg_match('/^page-item-\d+$/', $class)) {
@@ -311,13 +344,40 @@ final class AuthorSelectorProjectionState
         if (str_contains($subject, '.wp-block-navigation-item__content')) {
             return (string) preg_replace('/\.wp-block-navigation-item(?![\w-]).*$/', '.wp-block-navigation-item :is(.wp-block-navigation-item__content[aria-current="page"],:where(.wp-block-navigation-submenu.current-menu-item>.wp-block-navigation-item__content,.wp-block-navigation-submenu.current-menu-item>:not(.wp-block-navigation__submenu-container) .wp-block-navigation-item__content))', $subject, 1);
         }
-        return (string) preg_replace('/\.wp-block-navigation-item(?![\w-])/', '.wp-block-navigation-item:has(.wp-block-navigation-item__content[aria-current="page"])', $subject, 1);
+        // Every route's served item reaches here with its own position; the
+        // runtime current link already names the item, so no position stays.
+        $subject = (string) preg_replace('/(\.wp-block-navigation-item)(?![\w-]):nth-child\(\d+\)/', '$1', $subject);
+        return (string) preg_replace('/\.wp-block-navigation-item(?![\w-])(?!.*\.wp-block-navigation-item(?![\w-]))/', '.wp-block-navigation-item:has(>.wp-block-navigation-item__content[aria-current="page"],>:not(.wp-block-navigation__submenu-container) .wp-block-navigation-item__content[aria-current="page"])', $subject, 1);
+    }
+
+    /**
+     * A navigation subject while its item is not the served route: the
+     * complement of currentNavigationSubject(), at zero added specificity.
+     */
+    public static function restingNavigationSubject(string $subject): string
+    {
+        if (str_contains($subject, '.wp-block-navigation-item__content')) {
+            return $subject . ':where(:not([aria-current="page"],.wp-block-navigation-submenu.current-menu-item>.wp-block-navigation-item__content,.wp-block-navigation-submenu.current-menu-item>:not(.wp-block-navigation__submenu-container) .wp-block-navigation-item__content))';
+        }
+        return (string) preg_replace('/\.wp-block-navigation-item(?![\w-])/', '.wp-block-navigation-item:where(:not(.current-menu-item))', $subject, 1);
     }
 
     /** @var array<string,string> Source anchor paths whose identity belongs to Core's rendered a, not li. */
     private array $socialAnchorMarkers = array();
     /** @var array{styles: AuthorStyleAnalysis, elements: list<DOMElement>}|null */
     private ?array $socialAnchorSources = null;
+
+    public function markConsumedCoverBackground(string $path): void
+    {
+        if ( '' !== $path ) {
+            $this->consumedCoverBackgroundPaths[$path] = true;
+        }
+    }
+
+    public function consumedCoverBackground(string $path): bool
+    {
+        return isset($this->consumedCoverBackgroundPaths[$path]);
+    }
 
     public function markSocialAnchor(DOMElement $anchor): string
     {

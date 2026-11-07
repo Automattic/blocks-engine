@@ -110,5 +110,7 @@ $assert(str_contains($fillMarkup, '/visual-iframe') && !str_contains($fillMarkup
 $assert(! str_contains($fillMarkup, 'be-inline-geometry-'), 'a frame that fills its box does not freeze the capture-time pixel height');
 $fixedFrame = (new HtmlTransformer())->transform($fillStyle . '<main><div class="box">' . $fillFrame('') . '</div></main>')->toArray();
 $assert(str_contains((string) ($fixedFrame['serialized_blocks'] ?? ''), 'be-inline-geometry-'), 'a frame with its own authored pixel size still carries that height');
+$positioned = (string) ((new HtmlTransformer())->transform('<style>.pinned{position:absolute}</style><main><div class="slot"><iframe class="pinned" src="https://forms.example.test/share" title="Signup" width="398" height="497"></iframe></div></main>')->toArray()['serialized_blocks'] ?? '');
+$assert(str_contains($positioned, 'width="398" height="497"'), 'a frame whose rules only position it keeps the source size attributes that size it');
 
 echo "Visual iframe companion tests passed ({$assertions} assertions)\n";

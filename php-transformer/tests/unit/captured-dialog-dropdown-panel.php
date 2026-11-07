@@ -124,6 +124,37 @@ $existingMarkup = (string) ($existingResult['serialized_blocks'] ?? '');
 $assert(!preg_match('/<[^>]+(?:class="[^"]*is-open|data-dropdown-shown="true"|style="[^"]*visibility:\\s*visible)/', $existingMarkup), 'an existing nav dropdown must not emit its opened attributes at rest', $existingMarkup);
 $assert(str_contains($existingMarkup, 'navigation-submenu') && str_contains($existingMarkup, 'Contact') && str_contains($existingMarkup, 'Team'), 'the closed panel retains its native hover/focus submenu and links', $existingMarkup);
 
+// Real capture shape: the candidate opener was rejected at the ancestor limit,
+// so there is no verified trigger binding to drive restoration or interaction.
+$unverifiedHtml = <<<'HTML'
+<html><body><header><nav>
+<div data-testid="linkElement" class="qMvpu5" tabindex="0" aria-haspopup="menu" role="button" data-blocks-engine-capture-dialog-ancestor-unverified="ancestor-limit" data-blocks-engine-capture-dialog-panel-state='{"style":"display:block;visibility:visible!important","class":"dva_z0 mmODQd data-blocks-engine-capture-dropdown"}' data-blocks-engine-capture-disclosure-label="More">More</div>
+<div class="dva_z0 mmODQd data-blocks-engine-capture-dropdown" id="data-blocks-engine-capture-dialog-0" data-dropdown-shown="true" style="inset: 49px 0px auto auto; display: block ; visibility: visible !important;" data-blocks-engine-capture-existing-panel='{"resting":{"style":null,"class":"dva_z0 data-blocks-engine-capture-dropdown","hidden":false},"opened":{"style":"inset: 49px 0px auto auto; display: block ; visibility: visible !important;","class":"dva_z0 mmODQd data-blocks-engine-capture-dropdown"}}' data-blocks-engine-capture-dialog-panel="data-blocks-engine-capture-dialog-0"><a href="/contact">Contact Us</a><a href="/toa">TOA</a></div>
+</nav></header></body></html>
+HTML;
+$unverifiedProjection = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CapturedDialogProjector())->project(array(array('path' => 'index.html', 'content' => $unverifiedHtml)));
+$unverifiedDom = new DOMDocument();
+@$unverifiedDom->loadHTML($unverifiedProjection['files'][0]['content']);
+$unverifiedPanel = $unverifiedDom->getElementById('data-blocks-engine-capture-dialog-0');
+$assert($unverifiedPanel instanceof DOMElement && !$unverifiedPanel->hasAttribute('style') && 'dva_z0 data-blocks-engine-capture-dropdown' === $unverifiedPanel->getAttribute('class') && !$unverifiedPanel->hasAttribute('data-dropdown-shown'), 'an unverified-trigger panel restores its declared resting presentation');
+$assert($unverifiedPanel instanceof DOMElement && $unverifiedPanel->hasAttribute('hidden'), 'a panel without a verified interaction owner stays closed even when resting.hidden is false');
+$unverifiedResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(array('path' => 'index.html', 'content' => $unverifiedHtml))))->toArray();
+$unverifiedMarkup = (string) ($unverifiedResult['serialized_blocks'] ?? '');
+$assert(!preg_match('/<[^>]+(?:class="[^"]*mmODQd|data-dropdown-shown="true"|style="[^"]*visibility:\\s*visible)/', $unverifiedMarkup), 'the unowned panel never emits the opened envelope as static markup', $unverifiedMarkup);
+$assert(1 === preg_match('/<div[^>]*\\shidden(?:="[^"]*")?[^>]*id="data-blocks-engine-capture-dialog-0"/', $unverifiedMarkup), 'the compiled unowned panel remains hidden at rest', $unverifiedMarkup);
+$assert(!str_contains($unverifiedMarkup, 'data-blocks-engine-triggers=') && !str_contains($unverifiedMarkup, 'navigation-submenu'), 'unverified evidence does not invent an interaction owner', $unverifiedMarkup);
+
+// Without the shown marker, the recorded opened attributes still prove that
+// capture left this dropdown open. Already-resting and non-dropdown panels do not.
+$withoutShown = str_replace(' data-dropdown-shown="true"', '', $unverifiedHtml);
+$openedProjection = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CapturedDialogProjector())->project(array(array('path' => 'index.html', 'content' => $withoutShown)));
+$assert(str_contains($openedProjection['files'][0]['content'], 'hidden=""'), 'opened snapshot attributes alone identify the unowned dropdown envelope');
+$restingHtml = str_replace(array('class="dva_z0 mmODQd data-blocks-engine-capture-dropdown"', ' style="inset: 49px 0px auto auto; display: block ; visibility: visible !important;"'), array('class="dva_z0 data-blocks-engine-capture-dropdown"', ''), $withoutShown);
+foreach (array('already resting' => $restingHtml, 'non-dropdown' => str_replace(' data-blocks-engine-capture-dropdown', '', $unverifiedHtml), 'unmarked' => str_replace(' data-blocks-engine-capture-dialog-panel="data-blocks-engine-capture-dialog-0"', '', $unverifiedHtml)) as $case => $untouchedHtml) {
+    $untouched = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CapturedDialogProjector())->project(array(array('path' => 'index.html', 'content' => $untouchedHtml)));
+    $assert($untouchedHtml === $untouched['files'][0]['content'], $case . ' stays byte-identical');
+}
+
 $definition = (new CapturedDialogBlockGenerator())->definition('site/captured-dialog');
 $css = (string) ($definition['assets']['style.css'] ?? '');
 $assert('file:./style.css' === ($definition['block_json']['style'] ?? null), 'the dialog block ships a stylesheet');
