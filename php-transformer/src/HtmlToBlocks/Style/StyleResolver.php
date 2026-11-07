@@ -7293,6 +7293,29 @@ final class StyleResolver implements ElementPresentationResolver
             : $this->expandCssVariableReferences($declared, $this->cascadedCustomProperties($element));
     }
 
+    /** Resolve inherited SVG paint using the source cascade and presentation attributes. */
+    public function resolvedInheritedSvgPaintValue(DOMElement $element, string $property): string
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $value = trim($this->resolvedSvgCascadeValue($node, $property) ?? SourceDom::attr($node, $property));
+            if ( in_array(strtolower($value), array( '', 'inherit', 'unset' ), true) ) {
+                continue;
+            }
+
+            if ( 'currentcolor' === strtolower($value) ) {
+                if ( 'color' === $property ) {
+                    continue;
+                }
+
+                return $this->resolvedInheritedSvgPaintValue($element, 'color') ?: '#000000';
+            }
+
+            return $value;
+        }
+
+        return '';
+    }
+
     /** SVG text layout and presentation properties a standalone image must carry. */
     public const SVG_TEXT_CASCADE_PROPERTIES = array(
         'alignment-baseline', 'baseline-shift', 'dominant-baseline',
