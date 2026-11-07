@@ -4,6 +4,13 @@ The collection filter companion consumes a capture producer's bounded
 `typed-search` evidence. It is a local collection predicate, with independently
 observed category membership, rather than a site-wide WordPress search.
 
+Captured interaction HTML is normalized before projection: absolute `href`,
+`action`, and `src` URLs matching the page's `sourceUrl` origin (scheme, host,
+and port) become root-relative capture paths. Collections, choice groups,
+selectable sets, and other captured-state consumers share this normalization;
+cross-origin URLs and query/fragment suffixes are unchanged. The sidecar itself
+is not rewritten.
+
 ## Projection and authoring
 
 - The captured interaction report and route receipt must use their canonical v1

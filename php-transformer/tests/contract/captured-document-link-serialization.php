@@ -6,28 +6,40 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
+$member = '<p>After the huge success of the <a href="https://robertjacobi.com/wordcamp-us-cheatsheet.html" target="_blank" rel="noopener">WordCamp US 2023 Cheat Sheet</a> and <a href="https://other.test/wordcamp-us-cheatsheet.html?view=all#posts">Other site</a>…</p>';
+$component = array('kind' => 'collection', 'selector' => '#records', 'status' => 'captured', 'states' => array(), 'collection' => array(
+    'coverage' => 'complete', 'controls' => array(), 'states' => array(array('id' => 'initial', 'members' => array('cheat-sheet'))),
+    'members' => array(array('key' => 'cheat-sheet', 'html' => $member)),
+));
 $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => array(
-    'website/index.html' => '<main><p>Home</p></main>',
+    'website/index.html' => '<main><section><div id="records"><p>Initial content</p></div></section></main>',
     'website/wordcamp-us-cheatsheet.html' => '<meta property="article:published_time" content="2023-08-12T12:00:00Z"><main><article><h1>Cheat Sheet</h1><p>Body</p></article></main>',
+    'capture-receipt.json' => json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://robertjacobi.com/', 'path' => 'website/index.html')))),
+    'interaction-states.json' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v2', 'pages' => array(array('sourceUrl' => 'https://robertjacobi.com/', 'components' => array($component))))),
 )))->toArray();
 $pages = array_column($result['source_reports']['wordpress_site_plan']['pages'], null, 'source_path');
 if ('post' !== $pages['website/wordcamp-us-cheatsheet.html']['post_type']) {
     throw new RuntimeException('The link regression target must be an imported post.');
 }
-$plan = new WordPressSitePlan();
-$plan->fromResult($result);
-$paragraph = '<p>After the huge success of the <a href="/wordcamp-us-cheatsheet.html" target="_blank" rel="noopener">WordCamp US 2023 Cheat Sheet</a>…</p>';
-// Companion attributes can carry editable HTML in JSON with escaped solidi.
-$serialized = json_encode(array('html' => $paragraph), JSON_THROW_ON_ERROR);
-$routes = $result['source_reports']['wordpress_site_plan']['routes'];
-$resolved = $plan->routeLinks($serialized, 'website/index.html', $routes);
-if (!str_contains($resolved, '/wordcamp-us-cheatsheet\\"') || str_contains($resolved, '.html')) {
-    throw new RuntimeException('JSON-serialized captured links must resolve just like ordinary HTML links.');
+$plan = (new WordPressSitePlan())->fromResult($result);
+$emitted = json_encode($plan, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+if (!str_contains($emitted, 'href=\\"/wordcamp-us-cheatsheet\\"') || str_contains($emitted, 'https://robertjacobi.com/wordcamp-us-cheatsheet.html')) {
+    throw new RuntimeException('Captured collection member links must resolve to the imported post route.');
 }
-$uncaptured = '<a href="https://example.test/not-captured.html">Other</a>';
-if ($uncaptured !== $plan->routeLinks($uncaptured, 'website/index.html', $routes)) {
-    throw new RuntimeException('Uncaptured absolute source links must remain unchanged.');
+if (!str_contains($emitted, 'https://other.test/wordcamp-us-cheatsheet.html?view=all#posts')) {
+    throw new RuntimeException('Cross-origin captured member links must remain unchanged.');
 }
+// The shared reader normalizes sibling state HTML without changing evidence identities.
+$state = array('html' => '<form action="https://example.test:8443/search?q=a&amp;b=c#results"><a href="https://example.test:8443/post.html?x=%2F#part">Post</a><img src="https://example.test:8443/image.png"><a href="http://example.test:8443/post.html">HTTP</a><a href="https://example.test/post.html">Other port</a><a href="#part">Fragment</a><a href="?q=1">Query</a><span title=\'href="https://example.test:8443/not-a-link"\'>Text</span></form>');
+$state['htmlBytes'] = strlen($state['html']);
+$normalized = Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CapturedStateUrls::rebase($state, 'https://example.test:8443/page.html');
+foreach (array('action="/search?q=a&amp;b=c#results"', 'href="/post.html?x=%2F#part"', 'src="/image.png"', 'href="http://example.test:8443/post.html"', 'href="https://example.test/post.html"', 'href="#part"', 'href="?q=1"', 'href="https://example.test:8443/not-a-link"') as $attribute) {
+    if (!str_contains($normalized['html'], $attribute)) throw new RuntimeException('Captured state URL normalization lost ' . $attribute);
+}
+if ($normalized['htmlBytes'] !== strlen($normalized['html'])) throw new RuntimeException('Corroborated HTML byte counts must remain valid after rebasing.');
+$state['htmlBytes'] = 1;
+if (1 !== Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CapturedStateUrls::rebase($state, 'https://example.test:8443/')['htmlBytes']) throw new RuntimeException('Rebasing must not repair invalid capture byte counts.');
+
 // Exercise the generated archive filter with a non-default WordPress URL policy.
 function add_filter(string $hook, callable $callback): void { $GLOBALS['archive_link_filter'] = $callback; }
 function get_day_link(int $year, int $month, int $day): string { return "https://local.test/date/$year/$month/$day/"; }

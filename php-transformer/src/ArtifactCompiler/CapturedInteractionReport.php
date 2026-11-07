@@ -22,7 +22,15 @@ final class CapturedInteractionReport
                 if (4 <= count(self::$cache)) array_shift(self::$cache);
                 self::$cache[$key] = self::decode($content);
             }
-            return CapturedComponentStates::shareEvidence(self::$cache[$key], $files);
+            $report = CapturedComponentStates::shareEvidence(self::$cache[$key], $files);
+            if (self::valid($report)) {
+                foreach ($report['pages'] as &$page) {
+                    if (!is_array($page) || !is_string($page['sourceUrl'] ?? null) || !is_array($page['components'] ?? null)) continue;
+                    $page['components'] = CapturedStateUrls::rebase($page['components'], $page['sourceUrl']);
+                }
+                unset($page);
+            }
+            return $report;
         }
         return null;
     }

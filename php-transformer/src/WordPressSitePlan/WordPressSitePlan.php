@@ -7428,7 +7428,7 @@ PHP;
         $content = preg_replace_callback('/(\b(?:href|action|data-[a-z0-9_-]*url)\s*=\s*["\'])([^"\']+)(["\'])/i', $replace, $content) ?? $content;
         // Companion block attributes carry editable HTML as a JSON string, so
         // route-bearing attributes use escaped quotes rather than HTML quotes.
-        $content = preg_replace_callback('/(\b(?:href|action|data-[a-z0-9_-]*url)\s*=\s*\\\\")((?:\\\\\/|[^"\\\\])*)(\\\\")/i', $replace, $content) ?? $content;
+        $content = preg_replace_callback('/(\b(?:href|action|data-[a-z0-9_-]*url)\s*=\s*\\\\")([^"\\\\]*)(\\\\")/i', $replace, $content) ?? $content;
         $content = preg_replace_callback('/(\b(?:href|action|data-[a-z0-9_-]*url)\s*=\s*\\\\u0022)(.*?)(\\\\u0022)/i', $replace, $content) ?? $content;
         $jsonPattern = '/(["\'](?:url|href|action)["\']\s*:\s*["\'])([^"\']+)(["\'])/i';
         $offset = 0;
@@ -7624,9 +7624,6 @@ PHP;
     /** @param array<int,array<string,mixed>> $routes */
     private function resolveRouteReference(string $value, string $origin, array $routes): ?string
     {
-        // JSON permits escaped solidi in both URL fields and embedded HTML.
-        // They are serialization, not path separators authored as backslashes.
-        $value = str_replace('\\/', '/', $value);
         if (preg_match('~^#(.+)$~s', $value, $fragment) && isset($this->routeLinkedFragments[$origin][$fragment[1]], $this->routeSources[$origin])) return $this->routeSources[$origin] . $value;
         if ('' === $value || preg_match('~^(?://|#|\?)~', $value)) return null;
         $suffix = ''; if (preg_match('/^([^?#]*)(.*)$/', $value, $match)) { $value = $match[1]; $suffix = $match[2]; }

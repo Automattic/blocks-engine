@@ -103,8 +103,7 @@ permalink. Captured native archive documents also participate in link resolution
 without becoming page routes: capture-file references become the retained archive
 path, and the generated block-render filter resolves that identity with WordPress's
 date, term, or author link functions. Neither resolution nor archive identity uses
-`REQUEST_URI`. Uncaptured absolute source destinations remain unchanged. JSON
-serialization of a URL's solidi (`\/`) does not change its route identity.
+`REQUEST_URI`. Uncaptured absolute source destinations remain unchanged.
 
 ## Author Archives
 
