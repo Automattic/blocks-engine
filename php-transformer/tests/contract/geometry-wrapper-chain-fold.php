@@ -17,18 +17,15 @@ $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 
 $plan = (new WordPressSitePlan())->fromCompilerResult($result);
 $markup = $plan['pages'][0]['canonical_block_markup'];
 $css = implode("\n", array_column($plan['assets'], 'content'));
-$assert(substr_count($markup, '<!-- wp:group ') === 1, 'Only the card remains a group.');
-$assert(substr_count($markup, '<!-- wp:custom/layout-shell ') === 1, 'The image chain becomes one shell.');
-$assert((bool) preg_match('/<!-- wp:group ([^\n]*?) -->/', $markup, $group), 'Card group exists.');
-$assert(str_contains(json_decode($group[1], true, 512, JSON_THROW_ON_ERROR)['className'] ?? '', 'card'), 'Card owns the shell and caption.');
-$assert((bool) preg_match('/<!-- wp:custom\/layout-shell (.*?) -->/s', $markup, $shell), 'Shell attributes exist.');
-$attrs = json_decode($shell[1], true, 512, JSON_THROW_ON_ERROR);
-$assert(count($attrs['wrappers']) === 5, 'All five wrappers fold together.');
-foreach (array('node-image', 'non-clickable', 'frame', 'crop', 'inner') as $index => $class) {
-    $wrapper = $attrs['wrappers'][$index];
-    $assert($wrapper['tagName'] === 'div' && in_array($class, explode(' ', $wrapper['attributes']['class'] ?? ''), true), 'Wrapper order and identity: ' . $class);
+// Short render-safe geometry chains stay native: every wrapper is its own
+// core/group, in source order, keeping its classes and geometry carrier.
+$assert(! str_contains($markup, 'layout-shell'), 'The image chain stays native core blocks.');
+$assert(preg_match_all('/<!-- wp:group (\{.*?\}) -->/', $markup, $groups) === 6, 'The card and its five wrappers are each a group.');
+$classes = array_map(static fn (string $json): string => (string) (json_decode($json, true, 512, JSON_THROW_ON_ERROR)['className'] ?? ''), $groups[1]);
+foreach (array('card', 'node-image', 'non-clickable', 'frame', 'crop', 'inner') as $index => $class) {
+    $assert(in_array($class, explode(' ', $classes[$index]), true), 'Wrapper order and identity: ' . $class);
 }
-$assert((bool) preg_match('/\bbe-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?\b/', $attrs['wrappers'][1]['attributes']['class'], $geometry), 'Geometry class remains on non-clickable.');
+$assert((bool) preg_match('/\bbe-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?\b/', $classes[2], $geometry), 'Geometry class remains on non-clickable.');
 $assert((bool) preg_match('/\.' . preg_quote($geometry[0], '/') . '\{([^}]+)\}/', $css, $rule), 'Matching geometry CSS is emitted.');
 $assert((bool) preg_match('/\bwidth:240px\b/', $rule[1]) && (bool) preg_match('/\bheight:160px\b/', $rule[1]), 'Geometry retains exact dimensions.');
 $rendered = preg_replace('/<!--.*?-->/s', '', $markup);
