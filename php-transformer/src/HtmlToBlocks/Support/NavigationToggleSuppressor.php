@@ -1619,6 +1619,10 @@ final class NavigationToggleSuppressor
         }
 
         foreach ( $document->getElementsByTagName('*') as $toggle ) {
+            // Prefer the authored collapse target to an unrelated captured dialog.
+            if ( $toggle instanceof DOMElement && $this->authoredCollapseControlsNavigation($toggle, $navigation) ) {
+                return $this->concreteToggleControl($toggle);
+            }
             if ( ! $toggle instanceof DOMElement
                 || $this->isCapturedDialogControl($toggle)
                 || ( ! $this->isHamburgerMenuToggleControl($toggle) && ! $this->isProjectableHashAnchorMenuToggle($toggle) )
@@ -1670,6 +1674,27 @@ final class NavigationToggleSuppressor
         }
 
         return null;
+    }
+
+    private function authoredCollapseControlsNavigation(DOMElement $toggle, DOMElement $navigation): bool
+    {
+        $behavior = trim(SourceDom::attr($toggle, 'data-bs-toggle') ?: SourceDom::attr($toggle, 'data-toggle'));
+        if ( 'collapse' !== $behavior || SourceDom::documentVariantRoot($toggle) !== SourceDom::documentVariantRoot($navigation) ) {
+            return false;
+        }
+        $selector = trim(SourceDom::attr($toggle, 'data-bs-target') ?: SourceDom::attr($toggle, 'data-target'));
+        if ( ! preg_match('/^([.#])([a-zA-Z_][a-zA-Z0-9_-]*)$/', $selector, $match) ) {
+            return false;
+        }
+        for ( $node = $navigation; $node instanceof DOMElement && 'body' !== strtolower($node->tagName); $node = $node->parentNode ) {
+            if ( SourceDom::documentVariantRoot($node) === $node ) {
+                break;
+            }
+            if ( '#' === $match[1] ? $match[2] === SourceDom::attr($node, 'id') : in_array($match[2], preg_split('/\s+/', SourceDom::attr($node, 'class')) ?: array(), true) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function isUniqueNavigationInScope(DOMElement $scope, DOMElement $navigation): bool
@@ -1765,6 +1790,7 @@ final class NavigationToggleSuppressor
             if ( $signature === $this->sourceNavigationSignature($candidate)
                 && ($this->hasMobileNavigationSignal($navigationRoot)
                     || ($this->hasMobileNavigationSignal($candidate) && ! $this->isContentNavigationBesideChromeVariant($navigationRoot, $candidate)))
+                && (null === SourceDom::documentVariantRoot($navigationRoot) || $this->hasMenuVisibilityEvidence($navigationRoot) || $this->hasMenuVisibilityEvidence($candidate))
             ) {
                 return true;
             }
@@ -1854,13 +1880,40 @@ final class NavigationToggleSuppressor
 
     private function hasMobileNavigationSignal(DOMElement $element): bool
     {
+        // Device-document names describe the whole capture, not a collapsed
+        // menu. A document variant needs its own hidden menu as evidence.
+        if ( null !== SourceDom::documentVariantRoot($element) && $this->hasMenuVisibilityEvidence($element) ) {
+            return true;
+        }
         for ( $node = $element; $node instanceof DOMElement && 'body' !== strtolower($node->tagName); $node = $node->parentNode ) {
+            if ( SourceDom::documentVariantRoot($node) === $node ) {
+                break;
+            }
             $identity = strtolower(trim(SourceDom::attr($node, 'id') . ' ' . SourceDom::attr($node, 'class') . ' ' . SourceDom::attr($node, 'aria-label')));
+            $identity = preg_replace('/' . preg_quote(CaptureEvidence::VARIANT_ID_SUFFIX_PREFIX, '/') . '[a-z0-9_-]+/', '', $identity) ?? $identity;
             if ( preg_match('/(?:^|[\s_-])(?:mobile|drawer|offcanvas|overlay|menu-panel|nav-panel)(?:$|[\s_-])/', $identity) ) {
                 return true;
             }
         }
 
+        return false;
+    }
+
+    private function hasMenuVisibilityEvidence(DOMElement $element): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement && 'body' !== strtolower($node->tagName); $node = $node->parentNode ) {
+            if ( SourceDom::documentVariantRoot($node) === $node ) {
+                break;
+            }
+            if ( $this->sourceElementIsHidden($node) ) {
+                return true;
+            }
+            foreach ( $this->styleResolver->declaredPresentation($node, 'display')->conditional() as $value ) {
+                if ( 'none' === CssValueInspector::comparable($value) ) {
+                    return true;
+                }
+            }
+        }
         return false;
     }
 
