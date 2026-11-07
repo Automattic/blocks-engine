@@ -430,7 +430,7 @@ final class SourceBlockAttributeProjector
         $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->mergedPresentationStyle($element));
         $classes = array();
         $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
-        if ( in_array($display, array( 'inline-block', 'block', 'flex', 'inline-flex' ), true) ) {
+        if ( in_array($display, array( 'inline-block', 'block', 'flex', 'inline-flex', 'inline-grid', 'inline-table' ), true) ) {
             $classes[] = self::LAYOUT_NEUTRAL_BUTTON_CLASS . '-display-' . $display;
         }
         foreach ( array( 'width', 'height' ) as $property ) {
