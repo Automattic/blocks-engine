@@ -19,7 +19,7 @@ final class BlockFactory
      *
      * @var array<int, string>
      */
-    private const GROUP_TAG_NAMES = array( 'div', 'header', 'nav', 'section', 'article', 'aside', 'footer', 'main', 'search', 'ul', 'ol', 'menu', 'li', 'form' );
+    private const GROUP_TAG_NAMES = array( 'div', 'header', 'nav', 'section', 'article', 'aside', 'footer', 'main', 'search', 'ul', 'ol', 'menu', 'li', 'form', 'picture' );
 
     /** Wrapper elements core/cover's HTML element control offers. */
     public const COVER_TAG_NAMES = array( 'div', 'header', 'main', 'section', 'article', 'aside', 'footer' );
@@ -714,7 +714,7 @@ final class BlockFactory
     /**
      * Resolve the wrapper tag for a `core/group`. Core's group `save()` renders
      * `<TagName>` from the `tagName` attribute, defaulting to `div`. Only the
-     * semantic container and list tags used by the transformer are honored;
+     * container, picture, and list tags used by the transformer are honored;
      * any other value falls back to `div` so output never diverges from save().
      */
     private function groupTagName(mixed $tagName): string
