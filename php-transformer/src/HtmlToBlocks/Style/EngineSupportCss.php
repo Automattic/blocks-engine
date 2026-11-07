@@ -753,6 +753,11 @@ final class EngineSupportCss
         if ( str_contains($serializedBlocks, CoverPattern::CONSUMED_BACKGROUND_CLASS) ) {
             $parts[] = ':root .wp-block-cover.' . CoverPattern::CONSUMED_BACKGROUND_CLASS . '{background-image:none!important}';
         }
+        if ( str_contains($serializedBlocks, CoverPattern::FILL_CLASS) ) {
+            $fill = ':root .wp-block-cover.' . CoverPattern::FILL_CLASS . '>.wp-block-cover__inner-container';
+            $parts[] = $fill . '{flex:1 1 auto;align-self:stretch;display:flex;flex-direction:column}';
+            $parts[] = $fill . '>.wp-block-group{flex-grow:1}';
+        }
         if ( str_contains($serializedBlocks, 'blocks-engine-source-social-item-spacing') ) {
             $parts[] = '.wp-block-social-links.blocks-engine-source-social-item-spacing{gap:0}';
         }
