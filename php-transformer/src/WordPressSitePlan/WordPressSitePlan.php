@@ -6096,7 +6096,11 @@ PHP;
             $datedTime = null !== $timestamp && 'time' === ($node['name'] ?? '') && is_string($attributes['datetime'] ?? null);
             // A machine-readable datetime proves the slot even when the visible
             // text only carries the day of a timestamp that has a time of day.
-            if ($datedTime && self::normalizePublicationTimestamp((string) $attributes['datetime']) === $timestamp) {
+            // The text must still be a date: post-date renders a date, so a
+            // time of day stamped with the post's day (an event's start time)
+            // stays authored content.
+            if ($datedTime && self::normalizePublicationTimestamp((string) $attributes['datetime']) === $timestamp
+                && null !== self::parseVisiblePublicationTimestamp(self::elementInnerText($slice, 'time', $node['inner_offset']))) {
                 return 'date';
             }
             if (!self::isVisibleDateElement((string) ($node['name'] ?? ''), $attributes) && !$datedTime) {
