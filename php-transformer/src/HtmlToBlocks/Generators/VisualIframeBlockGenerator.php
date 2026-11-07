@@ -287,7 +287,9 @@ JS;
                 array(),
                 $surface
             );
-            $block['innerHTML'] = $this->markup($visualIframeAttributes);
+            // Save from the created block's attributes: they carry the source
+            // projection markers that author rules address.
+            $block['innerHTML'] = $this->markup($block['attrs'] ?? $visualIframeAttributes);
             $block['innerContent'] = array( $block['innerHTML'] );
             return $customHost instanceof DOMElement ? $this->customVisualIframeHostBlock($customHost, $surface, $block, $styleResolver, $createBlock) : $block;
         }
