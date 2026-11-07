@@ -23,7 +23,7 @@ $navigationIn = static function (string $markup, string $wrapperClass): int {
     if ( false === $open ) {
         return -1;
     }
-    $next = strpos($markup, '<!-- wp:custom/layout-shell', $open);
+    $next = strpos($markup, 'class="wp-block-group ' . ('desktop-only' === $wrapperClass ? 'mobile-only' : 'desktop-only') . '"', $open);
     $end = false === $next ? strlen($markup) : $next;
 
     return substr_count(substr($markup, $open, $end - $open), '<!-- wp:navigation ');

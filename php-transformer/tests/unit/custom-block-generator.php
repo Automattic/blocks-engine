@@ -224,11 +224,12 @@ $nativeColumnsResult = ( new HtmlTransformer() )->transform($nativeColumns)->toA
 $assert(array() === ($nativeColumnsResult['source_reports']['generated_blocks'] ?? array()) && str_contains((string) ($nativeColumnsResult['serialized_blocks'] ?? ''), '<!-- wp:columns'), '6: native recognizers take precedence over generated component capture');
 
 $projectedChain = '<p>Editable terminal content</p>';
-for ($depth = 0; $depth < 8; ++$depth) $projectedChain = '<div id="shell-' . $depth . '" class="shell-' . $depth . ' blocks-engine-source-div-fixture-3">' . $projectedChain . '</div>';
+// Deeper than the editability nesting budget, so native Groups cannot hold it.
+for ($depth = 0; $depth < 21; ++$depth) $projectedChain = '<div id="shell-' . $depth . '" class="shell-' . $depth . ' blocks-engine-source-div-fixture-3">' . $projectedChain . '</div>';
 $shellResult = ( new HtmlTransformer() )->transform($projectedChain)->toArray();
 $shellBlock = $shellResult['blocks'][0] ?? array();
 $shellDefinitions = array_values(array_filter($shellResult['source_reports']['generated_blocks'] ?? array(), static fn (array $definition): bool => 'Layout Shell' === ($definition['block_json']['title'] ?? null)));
-$assert(str_ends_with((string) ($shellBlock['blockName'] ?? ''), '/layout-shell') && 8 === count($shellBlock['attrs']['wrappers'] ?? array()) && 'core/paragraph' === ($shellBlock['innerBlocks'][0]['blockName'] ?? null), '6: a projected wrapper chain becomes one layout-shell block around native editable content');
+$assert(str_ends_with((string) ($shellBlock['blockName'] ?? ''), '/layout-shell') && 21 === count($shellBlock['attrs']['wrappers'] ?? array()) && 'core/paragraph' === ($shellBlock['innerBlocks'][0]['blockName'] ?? null), '6: a projected wrapper chain becomes one layout-shell block around native editable content');
 $shellScript = (string) ($shellDefinitions[0]['assets']['index.js'] ?? '');
 $shellCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $shellResult['assets'] ?? array()));
 $assert(1 === count($shellDefinitions) && str_contains($shellScript, 'InnerBlocks.Content'), '6: layout-shell emits one companion definition whose save path retains native inner blocks');
@@ -241,7 +242,7 @@ $assert(str_contains($shellScript, 'useInnerBlocksProps( last > 0 ? wrapperProps
 $assert(! str_contains($shellScript . $shellCss, 'blocks-engine-layout-shell-editor-inner-blocks'), '6: no additional editor layer or layer repair is emitted');
 $assert(str_contains($shellScript, '__experimentalLabel: function( attributes, options )') && str_contains($shellScript, "context === 'list-view' || context === 'breadcrumb'") && str_contains($shellScript, "replace( /^_+/, '' ).replace( /_[a-z0-9]{5,}_\\d+$/i, '' )") && str_contains($shellScript, "return semantic + ': ' + detail") && str_contains($shellScript, "return 'Layout shell ('"), '6: layout-shell exposes concise semantic labels in List View and breadcrumbs');
 $assert(false === ($shellDefinitions[0]['block_json']['supports']['renaming'] ?? true), '6: generated semantic labels are read-only rather than persisted as user metadata');
-$assert(2 === ($shellResult['source_reports']['editability_report']['metrics']['max_nesting_depth'] ?? PHP_INT_MAX) && 8 === substr_count((string) ($shellResult['serialized_blocks'] ?? ''), 'id="shell-'), '6: layout-shell collapses List View depth while preserving every rendered source wrapper');
+$assert(2 === ($shellResult['source_reports']['editability_report']['metrics']['max_nesting_depth'] ?? PHP_INT_MAX) && 21 === substr_count((string) ($shellResult['serialized_blocks'] ?? ''), 'id="shell-'), '6: layout-shell collapses List View depth while preserving every rendered source wrapper');
 
 $emptyShellResult = ( new HtmlTransformer() )->transform('<div id="empty-outer" class="blocks-engine-source-div-outer-3"><div id="empty-inner" class="blocks-engine-source-div-inner-3"></div></div>')->toArray();
 $emptyShellBlock = $emptyShellResult['blocks'][0] ?? array();
