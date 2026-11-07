@@ -42,6 +42,8 @@ final class AuthorStyleAnalysis
     private array $styleRules = array();
     /** @var array<string, mixed>|null */
     private ?array $styleRuleCandidateIndex = null;
+    /** @var array<string, true>|null */
+    private ?array $captureOnlySelectors = null;
     private readonly string $markerSeed;
     private int $markerCounter = 0;
     /** @var array{string, string} */
@@ -150,6 +152,7 @@ final class AuthorStyleAnalysis
     {
         $this->styleRules = $rules;
         $this->styleRuleCandidateIndex = null;
+        $this->captureOnlySelectors = null;
         $this->positionalParents = null;
         $this->contextHashes = null;
     }
@@ -158,6 +161,29 @@ final class AuthorStyleAnalysis
     public function styleRules(): array
     {
         return $this->styleRules;
+    }
+
+    /**
+     * Selectors only a capture's own replay stylesheet declares. They describe
+     * the producer's replay state (an opened panel, a revealed first child),
+     * not the author's presentation.
+     *
+     * @return array<string, true>
+     */
+    public function captureOnlySelectors(): array
+    {
+        if ( null !== $this->captureOnlySelectors ) return $this->captureOnlySelectors;
+        $capture = array();
+        $authored = array();
+        foreach ( $this->styleRules as $rule ) {
+            foreach ( (array) ( $rule['selectors'] ?? array() ) as $selector ) {
+                $selector = is_array($selector) ? ( $selector['selector'] ?? null ) : $selector;
+                if ( ! is_string($selector) ) continue;
+                if ( empty($rule['capture_only']) ) $authored[trim($selector)] = true;
+                else $capture[trim($selector)] = true;
+            }
+        }
+        return $this->captureOnlySelectors = array_diff_key($capture, $authored);
     }
 
     public function allocateMarker(string $kind): string
