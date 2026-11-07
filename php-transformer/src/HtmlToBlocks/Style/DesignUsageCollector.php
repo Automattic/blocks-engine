@@ -203,7 +203,44 @@ final class DesignUsageCollector
         if (in_array($tag, self::SKIPPED_TAGS, true) || $element->hasAttribute('hidden')) return 0;
         $declarations = $this->declarations($element);
         $display = strtolower(trim($declarations['display'] ?? ''));
-        if ('none' === $display) return 0;
+        if ('none' === $display) {
+            if ($this->shownAtReference($element)) $this->walkReferenceHeadings($element, $parent, $declarations);
+            return 0;
+        }
+        return $this->walkVisible($element, $parent, $declarations, $tag);
+    }
+
+    /**
+     * A subtree hidden at rest that a media rule shows at the desktop
+     * reference viewport (a desktop-only hero beside its phone copy) renders
+     * its headings there, at the size usage reads for every heading. Record
+     * those heading observations so their rendered sizes get a preset, while
+     * the resting document alone keeps weighting the usage scale.
+     *
+     * @param array<string,mixed> $parent
+     * @param array<string,string> $declarations
+     */
+    private function walkReferenceHeadings(DOMElement $element, array $parent, array $declarations): void
+    {
+        $usage = array($this->text, $this->backgrounds, $this->spacing, $this->widths, $this->classStyles, $this->buttonLooks, $this->elements);
+        $this->walkVisible($element, $parent, $declarations, strtolower($element->tagName));
+        [$this->text, $this->backgrounds, $this->spacing, $this->widths, $this->classStyles, $this->buttonLooks, $this->elements] = $usage;
+    }
+
+    /** Whether a media rule that applies at the desktop reference viewport overrides a resting `display: none`. */
+    private function shownAtReference(DOMElement $element): bool
+    {
+        if (1 === preg_match('/(?:^|;)\s*display\s*:/i', $element->getAttribute('style')) || !$this->resolver->hasConditionalStyleFamily($element, 'layout')) return false;
+        $display = $this->resolver->referenceViewportAuthorDeclarations($element, array('display'))['display'] ?? null;
+        return null !== $display && 'none' !== strtolower(self::clean($display));
+    }
+
+    /**
+     * @param array<string,mixed> $parent
+     * @param array<string,string> $declarations
+     */
+    private function walkVisible(DOMElement $element, array $parent, array $declarations, string $tag): int
+    {
         ++$this->elements;
         $context = $this->inherit($parent, $element, $declarations);
         $background = $this->backgroundColor($declarations);
