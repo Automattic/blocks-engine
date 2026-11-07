@@ -1461,12 +1461,11 @@ final class SourceDom
             $styled = preg_match('/(?:^|;)\s*' . $axis . '\s*:\s*([^;!]+)/i', $inline, $match) ? $match[1] : null;
             $hasZeroBox = $hasZeroBox || (null !== $styled ? $zero($styled) : $zero(self::attr($element, $axis)));
         }
-        $isDisplayNone = 1 === preg_match('/(?:^|;)\s*display\s*:\s*none\b/i', $inline);
-        if (! $hasZeroBox && ! $isDisplayNone) {
+        if (! $hasZeroBox) {
             return false;
         }
         foreach ($element->childNodes as $child) {
-            if ($child instanceof DOMElement && !in_array(strtolower($child->tagName), array('defs', 'symbol', 'style', 'title', 'desc'), true)) {
+            if ($child instanceof DOMElement && !in_array(strtolower($child->tagName), array('defs', 'style', 'title', 'desc'), true)) {
                 return false;
             }
             if (XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '')) {
