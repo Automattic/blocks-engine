@@ -127,12 +127,12 @@ $pattern = new CoverPattern(new \Automattic\BlocksEngine\PhpTransformer\Tests\Su
 $matchMethod = new ReflectionMethod(CoverPattern::class, 'match');
 $matchParameters = $matchMethod->getParameters();
 $assertSame(
-    array( 'element', 'fallbacks', 'convertChildren', 'presentationAttributes', 'mergedPresentationStyle', 'htmlAttributes', 'resolveAssetUrl', 'createBlock' ),
+    array( 'element', 'fallbacks', 'convertChildren', 'presentationAttributes', 'mergedPresentationStyle', 'htmlAttributes', 'resolveAssetUrl', 'createBlock', 'hasConditionalMinHeight', 'presentationDeclarations' ),
     array_map(static fn (ReflectionParameter $parameter): string => $parameter->getName(), $matchParameters),
     'match callback parameter names remain frozen.'
 );
 $assertSame(
-    array( 'DOMElement', 'array', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable' ),
+    array( 'DOMElement', 'array', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable', '?callable', '?callable' ),
     array_map(static fn (ReflectionParameter $parameter): string => (string) $parameter->getType(), $matchParameters),
     'match callback parameter types remain frozen.'
 );
@@ -539,6 +539,18 @@ $assertSame(
     $autoHeightCover['attrs']['style']['spacing']['padding'] ?? null,
     'auto-height covers drop core/cover 1em padding the source section did not have'
 );
+
+// A column hero whose min-height a media query raises keeps that height in
+// the author stylesheet (an inline minHeight would freeze the base value),
+// and a growing child makes the inner container fill the taller hero.
+foreach ( array( 'responsive' => array( '@media (min-width:1024px){.hero{min-height:65vh}}', null ), 'static' => array( '', 360 ) ) as $name => [$media, $minHeight] ) {
+    $responsiveResult = $transformHtml('<style>.hero{display:flex;flex-direction:column;min-height:360px;background:url(https://example.com/hero.jpg) center/cover}' . $media . '.grow{flex-grow:1;display:flex;flex-direction:column;justify-content:center}</style><div class="hero"><p>Brand</p><div class="grow"><h1>Title</h1></div></div>');
+    $responsiveCover = $responsiveResult['blocks'][0] ?? array();
+    $assertSame('core/cover', $responsiveCover['blockName'] ?? null, $name . ' column hero becomes core/cover.');
+    $assertSame($minHeight, $responsiveCover['attrs']['minHeight'] ?? null, $name . ' hero minHeight attribute.');
+    $assertTrue(str_contains((string) ($responsiveCover['attrs']['className'] ?? ''), CoverPattern::FILL_CLASS), $name . ' hero with a growing child fills the cover.');
+    $assertTrue(str_contains($assetCss($responsiveResult), '.' . CoverPattern::FILL_CLASS . '>.wp-block-cover__inner-container{flex:1 1 auto'), $name . ' fill support rule ships.');
+}
 
 echo "cover pattern ok\n";
 
