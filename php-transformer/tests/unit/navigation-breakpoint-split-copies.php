@@ -23,8 +23,8 @@ $navigationIn = static function (string $markup, string $wrapperClass): int {
     if ( false === $open ) {
         return -1;
     }
-    $next = strpos($markup, '<!-- wp:custom/layout-shell', $open);
-    $end = false === $next ? strlen($markup) : $next;
+    $end = strpos($markup, '<!-- /wp:navigation -->', $open);
+    $end = false === $end ? strlen($markup) : $end;
 
     return substr_count(substr($markup, $open, $end - $open), '<!-- wp:navigation ');
 };

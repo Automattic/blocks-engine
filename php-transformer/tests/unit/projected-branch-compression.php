@@ -16,8 +16,8 @@ $assert = static function (bool $condition, string $message): void {
  * Each unit contributes an exact two-wrapper projected branch chain: a
  * single-child outer group holding a branch group with two children (a
  * paragraph and the next unit). Each pair has the same safe representation
- * regardless of unrelated document depth, so every unit compresses to one
- * layout shell. No layout-geometry proof accompanies the artifact.
+ * regardless of unrelated document depth, so every unit retains native
+ * Groups. No layout-geometry proof accompanies the artifact.
  */
 $units = 12;
 $deepMarkup = '<h3>Depth leaf heading</h3><p>Depth leaf paragraph</p>';
@@ -52,8 +52,8 @@ $assert(!in_array('editability_policy_failed', $deepCodes, true), 'A proof-free 
 $assert('failed' !== ($deepResult['status'] ?? null), 'A proof-free page over the depth cap does not fail the whole compile.');
 $assert(true === ($deepQuality['pass'] ?? null) && 'failed' !== ($deepQuality['status'] ?? null), 'The canonical plan quality gate passes without layout-geometry proofs.');
 $assert('passed' === ($deepQuality['editability_policy']['status'] ?? null), 'The plan editability policy verdict is passed, not failed.');
-$assert(is_int($deepMetrics['max_nesting_depth'] ?? null) && 20 >= $deepMetrics['max_nesting_depth'], 'Deterministic branch compression brings the measured nesting depth within the editability maximum.');
-$assert($units === substr_count($deepBlocks, '<!-- wp:custom/layout-shell'), 'Every two-wrapper projected branch becomes a layout shell.');
+$assert(is_int($deepMetrics['max_nesting_depth'] ?? null) && 2 * $units + 1 === $deepMetrics['max_nesting_depth'], 'Native branch depth reflects all editable source wrappers.');
+$assert(!str_contains($deepBlocks, 'layout-shell') && 2 * $units === substr_count($deepBlocks, '<!-- wp:group'), 'Every projected branch retains native Groups.');
 $assert(str_contains($deepBlocks, '>Depth leaf heading<') && str_contains($deepBlocks, '>Depth leaf paragraph<') && str_contains($deepBlocks, '>Depth unit 2 content<'), 'Compressed output preserves the deep editable content.');
 $assert(str_contains($deepBlocks, 'id="dp-outer-1"') && str_contains($deepBlocks, 'id="dp-branch-' . $units . '"'), 'Compressed layout shells retain the source wrapper identities.');
 
@@ -78,8 +78,8 @@ $shallowCodes = array_column($shallowResult['diagnostics'] ?? array(), 'code');
 $shallowBlocks = (string) ($shallowResult['serialized_blocks'] ?? '');
 
 $assert(!in_array('editability_policy_failed', $shallowCodes, true) && 'failed' !== ($shallowResult['status'] ?? null), 'A shallow page keeps compiling cleanly.');
-$assert(1 === substr_count($shallowBlocks, '<!-- wp:custom/layout-shell'), 'A shallow two-wrapper branch uses the same layout-shell representation.');
-$assert(!str_contains($shallowBlocks, '<!-- wp:group') && str_contains($shallowBlocks, 'id="dp-outer-1"') && str_contains($shallowBlocks, 'id="dp-branch-1"'), 'The shallow shell preserves both source wrappers.');
+$assert(!str_contains($shallowBlocks, 'layout-shell') && 2 === substr_count($shallowBlocks, '<!-- wp:group'), 'A shallow two-wrapper branch uses the same native representation.');
+$assert(str_contains($shallowBlocks, '<!-- wp:group') && str_contains($shallowBlocks, 'id="dp-outer-1"') && str_contains($shallowBlocks, 'id="dp-branch-1"'), 'The shallow shell preserves both source wrappers.');
 
 // Endpoint-free responsive copies have no authored submission semantics. Keep
 // them provider-materializable rather than inferring a GET workflow.
@@ -130,7 +130,7 @@ $variantPolicy = $variantResult['source_reports']['editability_policy'] ?? array
 $variantBlocks = (string) ($variantResult['serialized_blocks'] ?? '');
 
 $assert('passed' === ($variantPolicy['status'] ?? null) && !in_array('editability_policy_failed', array_column($variantResult['diagnostics'] ?? array(), 'code'), true) && 20 >= ($variantMetrics['max_nesting_depth'] ?? PHP_INT_MAX), 'Deep provider-neutral responsive counterparts pass the unchanged required editability policy.');
-$assert(2 === substr_count($variantBlocks, '<!-- wp:custom/layout-shell'), 'Each responsive counterpart branch compresses into one bounded layout shell.');
+$assert(2 === substr_count($variantBlocks, '<!-- wp:custom/layout-shell'), 'Over-depth responsive chains retain bounded carriers.');
 foreach (array('desktop', 'mobile') as $variant) {
     $assert(str_contains($variantBlocks, '<div class="wp-block-group ' . $variant . '-shell layer-1">') && str_contains($variantBlocks, '<div class="wp-block-group ' . $variant . '-shell layer-20">'), 'Layout-shell serialization retains the exact saved outer and inner wrapper markup for the ' . $variant . ' counterpart.');
 }
@@ -157,8 +157,8 @@ $mediaPolicy = $mediaResult['source_reports']['editability_policy'] ?? array();
 $mediaBlocks = (string) ($mediaResult['serialized_blocks'] ?? '');
 
 $assert('passed' === ($mediaPolicy['status'] ?? null) && 20 >= ($mediaMetrics['max_nesting_depth'] ?? PHP_INT_MAX), 'A generic media branch passes the unchanged editability depth policy.');
-$assert(1 === substr_count($mediaBlocks, '<!-- wp:custom/layout-shell'), 'A generic media branch uses one bounded layout shell without producer markers.');
-$assert(2 === ($mediaMetrics['max_nesting_depth'] ?? null), 'Merging the generic outer wrapper into its projected shell removes the extra List View level.');
+$assert(!str_contains($mediaBlocks, 'layout-shell') && 3 === substr_count($mediaBlocks, '<!-- wp:group'), 'A generic media branch retains native Groups without producer markers.');
+$assert(4 === ($mediaMetrics['max_nesting_depth'] ?? null), 'The generic outer wrapper retains its native List View level.');
 $assert(str_contains($mediaBlocks, 'generic-shell') && str_contains($mediaBlocks, 'id="projected-media-shell-2"') && str_contains($mediaBlocks, 'id="media-caption"') && str_contains($mediaBlocks, 'id="media-leaf"'), 'The generic layout shell preserves wrapper identities and sibling media topology.');
 
 // Neutral wrapper structure is sufficient for folding: no producer classes or
@@ -169,7 +169,7 @@ $neutralResult = (new ArtifactCompiler())->compile(array(
     'files' => array(array('path' => 'website/index.html', 'content' => '<!doctype html><html><body><div id="neutral-outer"><div id="neutral-inner"><p>Neutral editable copy</p></div></div></body></html>')),
 ))->toArray();
 $neutralBlocks = (string) ($neutralResult['serialized_blocks'] ?? '');
-$assert(1 === substr_count($neutralBlocks, '<!-- wp:custom/layout-shell') && str_contains($neutralBlocks, 'id="neutral-outer"') && str_contains($neutralBlocks, 'id="neutral-inner"') && str_contains($neutralBlocks, '>Neutral editable copy<'), 'Two neutral wrappers fold into one shell while retaining exact wrapper order and editable children.');
+$assert(!str_contains($neutralBlocks, 'layout-shell') && 2 === substr_count($neutralBlocks, '<!-- wp:group') && str_contains($neutralBlocks, 'id="neutral-outer"') && str_contains($neutralBlocks, 'id="neutral-inner"') && str_contains($neutralBlocks, '>Neutral editable copy<'), 'Two neutral wrappers retain native Groups, exact wrapper order and editable children.');
 
 // The report explains a retained wrapper on the deepest path using bounded,
 // generic reason codes rather than producer-specific implementation details.

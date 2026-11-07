@@ -19,7 +19,7 @@ $check = static function (bool $ok, string $message): void {
 $check(2 === count($plan['pages']), 'the regression compiles both pages');
 foreach ($plan['pages'] as $page) {
     $markup = $page['canonical_block_markup'];
-    $check(str_contains($markup, '/layout-shell'), 'the fixture must emit a layout shell');
+    $check(!str_contains($markup, '/layout-shell') && str_contains($markup, '<!-- wp:group'), 'the fixture retains native Groups');
     $check(str_contains($markup, '<div class="wp-block-group a"><!-- wp:paragraph'), 'a is the innermost shell wrapper and b is its child block');
 }
 $cssBytes = 0;

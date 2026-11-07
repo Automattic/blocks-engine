@@ -6689,12 +6689,33 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $chain = $candidate['chain'];
         $terminal = $candidate['terminal'];
         $terminalIsShell = $this->sourceElementClassifier->isLayoutShellBlock($terminal);
-        if (2 <= count($chain) || (array() !== $chain && $terminalIsShell)) {
+        // Keep bounded carriers for chains that alone exhaust the nesting
+        // budget; ordinary short chains should expose native Group controls.
+        if ((array() !== $chain && $terminalIsShell)
+            || 20 <= count($chain)
+            || (2 <= count($chain) && in_array($terminal['blockName'] ?? null, array('core/image', 'core/search', 'core/buttons'), true))) {
             return $this->foldWrapperChain($chain, $terminal);
         }
 
+        // Image, search, and button lowering still use a bounded carrier for
+        // their presentation-only unary chains. Other native Group chains do not
+        // need a generated block merely to shorten List View.
+        // These wrappers already have native Group save contracts. Folding
+        // them merely to shorten List View replaces core editing controls with
+        // a companion block, without improving the rendered DOM. Keep their
+        // exact markup and provenance, using the descendants normalized by
+        // collectWrapperChain() rather than walking the same subtree again.
         if (array() !== $chain) {
-            $block['_wrapper_normalization_boundary'] = 'single_wrapper';
+            $children = 'core/freeform' === ($terminal['blockName'] ?? null)
+                ? $terminal['innerBlocks']
+                : array($terminal);
+            foreach (array_reverse($chain) as $entry) {
+                $wrapper = $entry['block'];
+                $wrapper['innerBlocks'] = $children;
+                $wrapper['_wrapper_normalization_boundary'] = 'single_wrapper';
+                $children = array($wrapper);
+            }
+            return $children[0];
         } elseif (null !== $candidate['boundary']) {
             $block['_wrapper_normalization_boundary'] = $candidate['boundary'];
         }
