@@ -1197,6 +1197,13 @@ final class ArtifactCompiler
             if ('page' !== ($file['metadata']['post_type'] ?? 'page')) unset($detailPages[$path]);
         }
         $products = array();
+        $cardPageProducts = array();
+        $compiledPages = array();
+        foreach ($files as $file) {
+            if ($this->isMaterializedHtmlDocument($file) && 'page' === ($file['metadata']['post_type'] ?? 'page')) {
+                $compiledPages[ArtifactPath::resolveRelativePath((string) $file['path'])][] = $file['path'];
+            }
+        }
         $forms = array();
         $orderLookups = array();
         $carts = array();
@@ -1225,6 +1232,19 @@ final class ArtifactCompiler
                     $productSlug = $slug(is_scalar($product['slug'] ?? null) ? (string) $product['slug'] : $name);
                     $regularPrice = $price($product['price'] ?? null);
                     if ( '' === $name || '' === $productSlug || '' === $regularPrice ) continue;
+                    // Count card claims before product identity merging: two cards
+                    // pointing at one page are not unique page ownership evidence.
+                    if (is_string($product['url'] ?? null)) {
+                        $urlPath = parse_url(html_entity_decode($product['url'], ENT_QUOTES | ENT_HTML5, 'UTF-8'), PHP_URL_PATH);
+                        if (is_string($urlPath) && '' !== $urlPath) {
+                            $target = str_starts_with($urlPath, '/')
+                                ? ArtifactPath::resolveRelativePath(ltrim($urlPath, '/'))
+                                : ArtifactPath::resolveRelativePath($urlPath, $sourcePath);
+                            if (1 === count($compiledPages[$target] ?? array())) {
+                                $cardPageProducts[$compiledPages[$target][0]][] = $productSlug;
+                            }
+                        }
+                    }
                     $row = array('name' => $name, 'slug' => $productSlug, 'regular_price' => $regularPrice);
                     if (is_string($product['url'] ?? null)) $row['url'] = $product['url'];
                     $salePrice = $price($product['sale_price'] ?? null); if ( '' !== $salePrice ) $row['sale_price'] = $salePrice;
@@ -1431,10 +1451,14 @@ final class ArtifactCompiler
                 $forms[$sourcePath . "\n" . $selector] = $form;
             }
         }
-        // Only a page with one schema product can own an otherwise unclaimed
-        // purchase form. Card descendants retain their existing card bindings.
+        // Schema claims are authoritative, including ambiguous claims. Only
+        // otherwise unclaimed compiled pages may inherit a unique card product.
         // Ownership includes every contributing schema page, not only the
         // chosen canonical row's source path after identity/language merging.
+        foreach ($cardPageProducts as $path => $claims) {
+            if (empty($pageProducts[$path]) && 1 === count($claims)) $pageProducts[$path] = $claims;
+        }
+        // Card descendants retain their existing card bindings.
         $cardSelectors = array();
         foreach ( $fallbacks as $fallback ) {
             if ( 'html_product_grid_fallback' !== ($fallback['diagnostic_code'] ?? '') ) continue;
@@ -1455,27 +1479,30 @@ final class ArtifactCompiler
             $binding = $fallback['binding'] ?? null;
             if ( ! is_array($binding) || 'generic/block-binding/v1' !== ($binding['schema'] ?? '') || '' === trim($binding['search_block_markup'] ?? '') ) continue;
             $productSlug = $pageProducts[$sourcePath][0];
-            $schemaProducts[$productSlug]['bindings'][] = array_merge($binding, array('role' => 'commerce_add_to_cart_form', 'source_path' => $sourcePath));
+            if (isset($schemaProducts[$productSlug])) $purchaseProduct =& $schemaProducts[$productSlug];
+            else $purchaseProduct =& $products[$productSlug];
+            $purchaseProduct['bindings'][] = array_merge($binding, array('role' => 'commerce_add_to_cart_form', 'source_path' => $sourcePath));
             // Preserve the same flat control indexes and validated presentation
             // facts as a form entity when shop takes ownership of the controls.
             if ( is_array($fallback['controls'] ?? null) ) {
                 $controls = array_values(array_filter($fallback['controls'], 'is_array'));
                 foreach ( $controls as &$control ) unset($control['_unresolved_description_candidates']);
                 unset($control);
-                $schemaProducts[$productSlug]['controls'] = $controls;
-                unset($schemaProducts[$productSlug]['presentation_graph']);
+                $purchaseProduct['controls'] = $controls;
+                unset($purchaseProduct['presentation_graph']);
                 if ( is_array($fallback['presentation_graph'] ?? null) && true !== ($fallback['presentation_graph']['truncated'] ?? false) ) {
                     try {
                         FormPresentationGraphBuilder::assertValid($fallback['presentation_graph']);
-                        $schemaProducts[$productSlug]['presentation_graph'] = $fallback['presentation_graph'];
+                        $purchaseProduct['presentation_graph'] = $fallback['presentation_graph'];
                     } catch ( \InvalidArgumentException $error ) {
                         $diagnostics[] = $this->rejectedFormGraphDiagnostic($fallback, $sourcePath, $selector, 'presentation_graph', $error->getMessage());
                     }
                 }
             }
             if (isset($detailPages[$sourcePath]) && $detailPages[$sourcePath] === ($pageRoutes[$sourcePath] ?? null)) {
-                ProductDetailPageEvidence::fill($schemaProducts[$productSlug], $pageEvidence[$sourcePath] ?? array(), $fallback, $files, $pageRoutes, '.' === $entryRoot ? '' : $entryRoot, $diagnostics);
+                ProductDetailPageEvidence::fill($purchaseProduct, $pageEvidence[$sourcePath] ?? array(), $fallback, $files, $pageRoutes, '.' === $entryRoot ? '' : $entryRoot, $diagnostics);
             }
+            unset($purchaseProduct);
             // A purchase form belongs to shop, not a competing form provider.
             unset($forms[$sourcePath . "\n" . $selector]);
         }
