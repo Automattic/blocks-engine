@@ -7146,6 +7146,16 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Custom properties the stylesheets declare on `:root` or `html`.
+     *
+     * @return array<string, string>
+     */
+    public function rootCustomProperties(): array
+    {
+        return $this->session->sourceStyleResolutionState()->customProperties();
+    }
+
+    /**
      * Custom properties visible to `$element` through the unfiltered cascade,
      * scoped by ancestry rather than limited to `:root`/`html`. An id- or
      * class-scoped `--token` an ancestor declares is a legitimate source.

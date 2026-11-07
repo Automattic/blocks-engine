@@ -60,6 +60,12 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
  *   whose primary is a generic family (`ui-monospace, monospace`) renders
  *   the browser's font, not a token, and is dropped.
  *
+ * Painted root custom properties named `--background`, `--foreground`,
+ * `--primary` and `--secondary` take precedence over usage-ranked roles,
+ * using their exact colour, not a cluster representative. Conflicting root
+ * declarations vote by document count, then colour value; duplicate colours
+ * take the first role in that order. Without them, ranking is unchanged.
+ *
  * Role names make slugs stable across runs:
  *
  * - `base`: the background that covers the most of the pages. The canvas
@@ -166,13 +172,17 @@ final class DesignSystem
         $textByColor = $backgroundByColor = $ctaByColor = $prominence = $sizeWeights = $bodySizeWeights = $spacingRows = $widthRows = array();
         $familyWeights = $familyStacks = $headingFamilyWeights = $headingFamilyProminence = $bodyFamilyWeights = array();
         $textOnBackground = $headingSizes = array();
-        $rootPx = array();
+        $rootPx = $sourceRoles = array();
         foreach ($usageBySource as $usage) {
             $px = (float) ($usage['root_font_size_px'] ?? 16);
             // Older usage payloads lack the evidence flag; retain their explicit
             // root values, but never let a collector's initial-value fallback vote.
             if (($usage['root_font_size_authored'] ?? true) && isset($usage['root_font_size_px']) && $px > 0) {
                 $rootPx[CssLength::format($px)] = ($rootPx[CssLength::format($px)] ?? 0) + 1;
+            }
+            foreach ($usage['root_color_tokens'] ?? array() as $name => $value) {
+                $color = self::opaqueHex($value);
+                if (null !== $color) $sourceRoles[$name][$color] = ($sourceRoles[$name][$color] ?? 0) + 1;
             }
             $documentMass = self::documentMass($usage);
             $documentRuns = self::documentRuns($usage);
@@ -241,7 +251,7 @@ final class DesignSystem
                 break;
             }
         }
-        $colors = self::palette($prominence, $textByColor, $backgroundByColor, $ctaByColor, $textOnBackground, $root);
+        $colors = self::palette($prominence, $textByColor, $backgroundByColor, $ctaByColor, $textOnBackground, $root, $sourceRoles);
         $literalColors = array_keys(array_diff_key($prominence, array_flip(array_column($colors, 'color'))));
         usort($literalColors, static fn(string $a, string $b): int => ($prominence[$b] <=> $prominence[$a]) ?: strcmp($a, $b));
         foreach ($usageBySource as $usage) foreach ($usage['heading_typography'] ?? array() as $heading) {
@@ -621,9 +631,10 @@ final class DesignSystem
      * @param array<string,int> $cta
      * @param array<string,array<string,int>> $textOnBackground
      * @param array<string,string> $root Root values every document agrees on.
+     * @param array<string,array<string,int>> $sourceRoles Root token => colour => document count.
      * @return list<array{slug:string,name:string,color:string,role:string,weight:int}>
      */
-    private static function palette(array $prominence, array $text, array $backgrounds, array $cta, array $textOnBackground, array $root = array()): array
+    private static function palette(array $prominence, array $text, array $backgrounds, array $cta, array $textOnBackground, array $root = array(), array $sourceRoles = array()): array
     {
         if (array() === $prominence) return array();
         $clusters = self::consolidateColors(self::clusterColors($prominence));
@@ -640,6 +651,14 @@ final class DesignSystem
             return $indexes;
         };
 
+        $semantic = array();
+        foreach (array('--background' => 'base', '--foreground' => 'contrast', '--primary' => 'primary', '--secondary' => 'secondary') as $name => $role) {
+            $votes = array_intersect_key($sourceRoles[$name] ?? array(), $prominence);
+            $candidates = array_keys($votes);
+            usort($candidates, static fn(string $a, string $b): int => ($votes[$b] <=> $votes[$a]) ?: strcmp($a, $b));
+            $color = $candidates[0] ?? null;
+            if (null !== $color && !in_array($color, $semantic, true)) $semantic[$role] = $color;
+        }
         $roles = array();
         // `base` is the root background every document renders, else the
         // heaviest background; among backgrounds about as heavy as that one
@@ -667,12 +686,13 @@ final class DesignSystem
         foreach ($rank($sum($cta)) as $index) if (!isset($roles[$index])) $accents[] = $index;
         $chromatic = array_values(array_filter($rank(array_map(static fn(array $cluster): int => $cluster['weight'], $clusters)), static fn(int $index): bool => (CssColor::chroma($clusters[$index]['color']) ?? 0.0) >= self::CHROMATIC));
         foreach ($chromatic as $index) if (!isset($roles[$index]) && !in_array($index, $accents, true)) $accents[] = $index;
-        foreach (array('primary', 'secondary') as $offset => $role) if (isset($accents[$offset])) $roles[$accents[$offset]] = $role;
-
-        $ordered = array();
-        foreach (array('base', 'contrast', 'primary', 'secondary') as $role) {
-            $index = array_search($role, $roles, true);
-            if (false !== $index) $ordered[] = $index;
+        foreach (array('primary', 'secondary') as $role) {
+            if (isset($semantic[$role])) continue;
+            foreach ($accents as $index) {
+                if (isset($roles[$index]) || in_array($clusters[$index]['color'], $semantic, true)) continue;
+                $roles[$index] = $role;
+                break;
+            }
         }
         $token = static fn(string $slug, string $color, int $weight): array => array(
             'slug' => self::presetSlug($slug),
@@ -681,7 +701,15 @@ final class DesignSystem
             'role' => preg_replace('/-\d+$/', '', $slug) ?? $slug,
             'weight' => $weight,
         );
-        $palette = array_map(static fn(int $index): array => $token($roles[$index], $clusters[$index]['color'], $clusters[$index]['weight']), $ordered);
+        $palette = array();
+        $taken = array_flip($semantic);
+        foreach (array('base', 'contrast', 'primary', 'secondary') as $role) {
+            $index = array_search($role, $roles, true);
+            $color = $semantic[$role] ?? (false !== $index ? $clusters[$index]['color'] : null);
+            if (null === $color || (!isset($semantic[$role]) && isset($taken[$color]))) continue;
+            $palette[] = $token($role, $color, $prominence[$color]);
+            $taken[$color] = $role;
+        }
         // Every other painted colour competes for the remaining slots on its
         // own painted weight, heaviest first, whatever family it ranks in:
         // a heavy near shade outranks a barely used distinct colour, and the
