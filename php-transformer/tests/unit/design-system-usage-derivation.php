@@ -26,6 +26,20 @@ $compile = static function (array $artifact): array {
     foreach ($plan['writes'] ?? array() as $write) if ('theme.json' === $write['target_path']) $theme = json_decode($write['payload']['data'], true, 512, JSON_THROW_ON_ERROR);
     return array($plan, $theme, $result['source_reports']['editability_report'] ?? array());
 };
+// Source roles win over larger white CTAs; non-semantic names retain ranking.
+foreach (array('semantic' => array('primary', 'secondary', 'background', 'foreground', '#e8457b', 'primary'), 'ranked' => array('brand', 'support', 'canvas', 'ink', '#ffffff', 'secondary')) as $case => [$primary, $secondary, $background, $foreground, $expected, $slug]) {
+    $css = ":root{--$primary:340 78% 59%;--$secondary:155 40% 64%;--$background:32 100% 97%;--$foreground:23 49% 15%}body{background:hsl(var(--$background));color:hsl(var(--$foreground))}.white{background:#fff}.brand{background:hsl(var(--$primary))}.support{background:hsl(var(--$secondary))}";
+    $html = '<!doctype html><html><head><link rel="stylesheet" href="style.css"></head><body><p>Body copy</p><button class="white">A much larger white call to action with plenty of text</button><button class="brand">Go</button><div class="support">Support</div></body></html>';
+    [$plan, $theme] = $compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html, 'other.html' => str_replace('Body copy', 'Other copy', $html), 'style.css' => $css)));
+    $palette = array_column($theme['settings']['color']['palette'] ?? array(), 'color', 'slug');
+    $assert($expected === ($palette['primary'] ?? null), "$case: primary follows source semantics, otherwise CTA ranking " . json_encode($palette));
+    $projected = implode('', array_map(static fn(array $asset): string => 'css' === ($asset['kind'] ?? null) ? ($asset['content'] ?? '') : '', $plan['assets']));
+    $assert(str_contains($projected, 'var(--wp--preset--color--' . $slug . ',hsl(var(--' . $primary . ')))'), "$case: projected channel colour binds its exact palette role");
+    if ('semantic' === $case) {
+        $assert('#7ec8a9' === ($palette['secondary'] ?? null) && '#fff8f0' === ($palette['base'] ?? null) && '#392214' === ($palette['contrast'] ?? null), 'semantic: other painted root roles retain their values');
+    }
+}
+
 // Public artifact regression: a builder's rem base is not readable body text.
 [, $readableTheme] = $compile(require dirname(__DIR__) . '/fixtures/global-styles-readability.php');
 $readableSizes = array_column($readableTheme['settings']['typography']['fontSizes'], 'size', 'slug');
