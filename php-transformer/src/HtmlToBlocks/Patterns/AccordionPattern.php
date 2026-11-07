@@ -37,7 +37,7 @@ final class AccordionPattern implements PatternRecognizerInterface
         $fallbacks = array();
         $items = array();
         foreach ( $itemElements as $child ) {
-            $item = $this->accordionItem($child, $fallbacks, $innerHtml, $converter, $createBlock, $presentationAttributes, $context->accordionToggle(...), $context->accordionItemBox(...), $context->sourceElementStartsHidden(...));
+            $item = $this->accordionItem($child, $fallbacks, $innerHtml, $converter, $createBlock, $presentationAttributes, $context->accordionToggle(...), $context->accordionItemBox(...), $context->sourceElementStartsHidden(...), $context->accordionHeadingTypography(...));
             if ( null === $item ) {
                 return null;
             }
@@ -77,7 +77,7 @@ final class AccordionPattern implements PatternRecognizerInterface
     }
 
     /** @param list<array<string, mixed>> $fallbacks */
-    private function accordionItem(DOMElement $item, array &$fallbacks, callable $innerHtml, PatternTreeConverter $converter, callable $createBlock, callable $presentationAttributes, callable $accordionToggle, callable $accordionItemBox, callable $startsHidden): ?array
+    private function accordionItem(DOMElement $item, array &$fallbacks, callable $innerHtml, PatternTreeConverter $converter, callable $createBlock, callable $presentationAttributes, callable $accordionToggle, callable $accordionItemBox, callable $startsHidden, callable $headingTypography): ?array
     {
         if ( ! $this->isAccordionItemElement($item) || $this->hasRuntimeHeavyDescendant($item) ) {
             return null;
@@ -146,9 +146,10 @@ final class AccordionPattern implements PatternRecognizerInterface
         $headingAttrs = array_filter(array(
             'title' => $titleHtml,
             'level' => $this->headingLevel($title),
+            'style' => $headingTypography($control),
             'className' => $toggle['className'],
             'metadata' => '' !== $toggle['iconSvg'] ? array('blocksEngineIcon' => $toggle['iconSvg']) : '',
-        ), static fn ($value): bool => '' !== $value);
+        ), static fn ($value): bool => '' !== $value && array() !== $value);
 
         return $createBlock('core/accordion-item', array_filter(array_merge($this->withItemBox($presentationAttributes($item), $accordionItemBox($item)), array(
             'openByDefault' => $this->isOpen($item, $stateControl, $panel) ? true : '',

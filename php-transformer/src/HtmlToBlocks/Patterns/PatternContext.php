@@ -84,6 +84,28 @@ final class PatternContext
     }
 
     /**
+     * Preserve source control typography when core renders it as a heading.
+     *
+     * @return array<string, mixed>
+     */
+    public function accordionHeadingTypography(DOMElement $control): array
+    {
+        if ( null === $this->styles ) {
+            return array();
+        }
+        $declarations = array();
+        foreach ( array('font-family', 'font-size', 'font-weight', 'line-height', 'font-style', 'letter-spacing', 'text-transform') as $property ) {
+            $value = $this->styles->authoredInheritedPropertyWinner($control, $property);
+            if ( '' !== $value ) {
+                $declarations[$property] = $value;
+            }
+        }
+        $mapped = $this->styles->styleAttributeMapper()->map($declarations);
+
+        return $mapped['style'] ?? array();
+    }
+
+    /**
      * Marker for a disclosure toggle whose presentation core cannot save.
      *
      * core/details renders its own bare `<summary>`, so a source toggle's box —
