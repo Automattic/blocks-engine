@@ -342,6 +342,16 @@ PHP;
             if ('' !== $sourcePath && '' !== $targetPath) $this->routeSources[$sourcePath] = $targetPath;
             if ('' !== $targetPath) $this->routeTargets['/' === $targetPath ? '/' : '/' . trim($targetPath, '/')] = $targetPath;
         }
+        // Native date archives are document roots, not materialized pages, but
+        // their captured file paths still participate in link resolution.
+        $entryRoot = self::entryRootFromDocuments($compiled['pages']);
+        foreach ($compiled['pages'] as $document) {
+            if (!self::isDateArchiveDocument($document)) continue;
+            $path = $document['metadata']['route_path'] ?? self::pageRoutePath($document['source_path'], $entryRoot);
+            $target = '/' . trim($path, '/') . '/';
+            $this->routeSources[$document['source_path']] = $target;
+            $this->routeTargets['/' . trim($path, '/')] = $target;
+        }
         $this->routeLinkedFragments = $this->routeLinkedFragments($documents, $routeMap);
         $this->missingMedia = new MissingMediaRecovery($this->strictMissingMedia, array_column($assets, 'target_path'));
         $missingFonts = new MissingFontSourceRecovery($this->strictMissingMedia);
@@ -782,12 +792,18 @@ PHP;
             $plan['reference_semantics']['synced_patterns'] = SyncedPatternProjection::REFERENCE_CONTRACT;
         }
         $consumers = AssetConsumers::inventory($plan);
+        $unreferenced = array_merge(AssetConsumers::unreferencedImages($plan) ?? array(), self::unreferencedInlineScripts($plan));
+        $unwritten = array();
         foreach ($plan['assets'] as &$asset) {
             $asset['consumers'] = $consumers[$asset['token']] ?? array();
-            $asset['destination'] = AssetConsumers::destination($asset['consumers']);
+            $asset['destination'] = AssetConsumers::destination($asset['consumers'], $asset, $unreferenced);
             $asset['theme_write_reasons'] = self::themeWriteReasons($asset['consumers'], $asset['destination']);
+            if ('none' === $asset['destination']) $unwritten[$asset['target_path']] = true;
         }
         unset($asset);
+        // An image nothing references is not materialized; its row and token
+        // remain so the plan still reports what the source carried.
+        if (array() !== $unwritten) $plan['writes'] = array_values(array_filter($plan['writes'], static fn(array $write): bool => !isset($unwritten[$write['target_path']])));
         $plan = self::withContentConservation($plan, $compiled['pages']);
         $plan['plan_identity'] = self::planIdentity($plan);
         self::assertValid($plan);
@@ -826,6 +842,28 @@ PHP;
             foreach ($queries[1] as $json) {
                 $type = json_decode($json, true)['query']['postType'] ?? null;
                 if (is_string($type)) $pages[$page['source_path']] .= "\n" . implode("\n", $byType[$type] ?? array());
+            }
+        }
+        // Queries in shared templates render the same post-scoped data as
+        // queries in page bodies (including related-post titles).
+        foreach ($plan['templates'] ?? array() as $template) {
+            if (!preg_match_all('/<!-- wp:query (\{.*?\}) \/?-->/s', (string) ($template['canonical_block_markup'] ?? ''), $queries)) continue;
+            foreach ($queries[1] as $json) {
+                $type = json_decode($json, true)['query']['postType'] ?? null;
+                if (is_string($type)) $shared .= "\n" . implode("\n", $byType[$type] ?? array());
+            }
+        }
+        // A post-date block in a shared template renders each post's own
+        // publication date in the authored format.
+        foreach ($plan['templates'] ?? array() as $template) {
+            if (!preg_match_all('/<!-- wp:post-date (\{.*?\}) \/?-->/s', (string) ($template['canonical_block_markup'] ?? ''), $dates)) continue;
+            foreach ($dates[1] as $json) {
+                $format = json_decode($json, true)['format'] ?? null;
+                if (!is_string($format)) continue;
+                foreach ($plan['pages'] as $page) {
+                    $published = $page['publication_local_time'] ?? $page['publication_timestamp'] ?? null;
+                    if (is_string($published) && false !== ($date = date_create_immutable($published))) $pages[$page['source_path']] .= "\n" . $date->format($format);
+                }
             }
         }
         $findings = array();
@@ -1148,10 +1186,17 @@ PHP;
                 if (!in_array($template['slug'], $boundTemplates, true) && 0 !== $references) throw new InvalidArgumentException('WordPress site plan has an unproven template part binding.');
             }
         }
+        // Resolution rewrites tokens to URLs, so a resolved plan keeps the
+        // unresolved plan's proof for unwritten assets.
+        $unreferenced = isset($plan['resolution']) ? array_fill_keys(array_column(array_filter($plan['assets'], static fn(array $asset): bool => 'none' === ($asset['destination'] ?? null)), 'token'), true) : array_merge(AssetConsumers::unreferencedImages($plan) ?? array(), self::unreferencedInlineScripts($plan));
         foreach ( $plan['assets'] as $asset ) {
             $expectedConsumers = $asset['consumers'] ?? array();
-            if (($asset['consumers'] ?? null) !== $expectedConsumers || ($asset['destination'] ?? null) !== AssetConsumers::destination($expectedConsumers) || ($asset['theme_write_reasons'] ?? null) !== self::themeWriteReasons($expectedConsumers, $asset['destination'])) throw new InvalidArgumentException('Asset consumers or destination are stale.');
+            if (($asset['consumers'] ?? null) !== $expectedConsumers || ($asset['destination'] ?? null) !== AssetConsumers::destination($expectedConsumers, $asset, $unreferenced) || ($asset['theme_write_reasons'] ?? null) !== self::themeWriteReasons($expectedConsumers, $asset['destination'])) throw new InvalidArgumentException('Asset consumers or destination are stale.');
             $target = $asset['target_path'];
+            if ('none' === $asset['destination']) {
+                if (isset($writesByTarget[$target])) throw new InvalidArgumentException('WordPress site plan writes an unreferenced asset.');
+                continue;
+            }
             if ('media_library' === $asset['destination'] && !isset($writesByTarget[$target])) continue;
             if ( ! isset($writesByTarget[$target]) || 'theme_asset' !== ($writesByTarget[$target]['kind'] ?? null) || $writesByTarget[$target]['source_path'] !== $asset['source_path'] ) {
                 throw new InvalidArgumentException('WordPress site plan asset lacks a write.');
@@ -1175,6 +1220,18 @@ PHP;
         // Bound retention for long-lived processes without an eviction index.
         if (count($validated) >= 4096) $validated = array();
         $validated[$contentHash] = true;
+    }
+
+    /** Inline scripts are published only when the script-loading plan enqueues them. */
+    private static function unreferencedInlineScripts(array $plan): array
+    {
+        $loading = (new self())->scriptLoading($plan['pages'], $plan['template_parts'], $plan['assets'], $plan['reference_tokens'], $plan['operations'], $plan['runtime_declarations']);
+        $targets = array_fill_keys(array_filter(array_column($loading['scripts'], 'local_target'), 'is_string'), true);
+        $unreferenced = array();
+        foreach ($plan['assets'] as $asset) {
+            if ('inline-script' === ($asset['source'] ?? null) && !isset($targets[$asset['target_path']])) $unreferenced[$asset['token']] = true;
+        }
+        return $unreferenced;
     }
 
     /** Explicit counted fallback: uploads have no portable relative CSS URL. */
@@ -1421,6 +1478,7 @@ PHP;
             $rowByTarget[strtolower($target)] = array_key_last($rows);
             if (isset($asset['inline_references'])) $rows[array_key_last($rows)]['inline_references'] = $asset['inline_references'];
             if (isset($asset['source_media']) && is_string($asset['source_media'])) $rows[array_key_last($rows)]['source_media'] = $asset['source_media'];
+            if (isset($asset[CaptureEvidence::DEVICE_STYLE])) $rows[array_key_last($rows)][CaptureEvidence::DEVICE_STYLE] = $asset[CaptureEvidence::DEVICE_STYLE];
             if (isset($asset['stylesheet_activation'])) {
                 $rows[array_key_last($rows)]['stylesheet_activation'] = $asset['stylesheet_activation'];
                 $rows[array_key_last($rows)]['stylesheet_source_path'] = $asset['stylesheet_source_path'] ?? $asset['path'];
@@ -1599,10 +1657,10 @@ PHP;
             }
             foreach ($assets as $index => $asset) foreach ($asset['inline_references'] ?? array() as $reference) {
                 if ('css' !== ($asset['kind'] ?? null) || $page['source_path'] !== ($reference['source_path'] ?? null)) continue;
-                $sequence[] = array(2 * (int) ($reference['stylesheet_link_position'] ?? 0), $index, (string) ($reference['source_media'] ?? $reference['media'] ?? ''), (string) ($asset['type'] ?? ''), (int) ($reference['stylesheet_index'] ?? 0));
+                $sequence[] = array(2 * (int) ($reference['stylesheet_link_position'] ?? 0), $index, (string) (isset($reference[CaptureEvidence::DEVICE_STYLE]) ? ($reference['media'] ?? '') : ($reference['source_media'] ?? $reference['media'] ?? '')), (string) ($asset['type'] ?? ''), (int) ($reference['stylesheet_index'] ?? 0), self::inlineStylesheetDeviceAttributes($reference));
             }
             foreach ($inlineIndexesByPage[(string) ($page['source_path'] ?? '')] ?? array() as $index) {
-                $sequence[] = array(2 * (int) $assets[$index]['stylesheet_link_position'], $index, (string) ($assets[$index]['media'] ?? ''), '', (int) ($assets[$index]['stylesheet_inline_order'] ?? $index));
+                $sequence[] = array(2 * (int) $assets[$index]['stylesheet_link_position'], $index, (string) ($assets[$index]['media'] ?? ''), '', (int) ($assets[$index]['stylesheet_inline_order'] ?? $index), self::inlineStylesheetDeviceAttributes($assets[$index]));
             }
             usort($sequence, static fn(array $left, array $right): int => $left[0] <=> $right[0] ?: $left[4] <=> $right[4] ?: $left[1] <=> $right[1]);
             foreach ($sequence as $order => $entry) {
@@ -2769,10 +2827,11 @@ PHP;
                     return array() === $kept ? '' : implode(',', $kept) . '{' . $body . '}';
                 }
             );
+            $contract = self::sharedChromeContract($asset);
             $sharedAsset = $asset;
             // Address the target by what is enqueued, not only the text: the same
-            // rules under another media condition or target are another asset.
-            $sharedAsset['path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', self::sharedChromeContract($asset) . "\0" . $shared), 0, 16) . '.css';
+            // rules under another media condition, target or capture device are another asset.
+            $sharedAsset['path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', $contract . "\0" . $shared), 0, 16) . '.css';
             $sharedAsset['target_path'] = $sharedAsset['path'];
             $sharedAsset['source_path'] = (string) ($asset['source_path'] ?? $asset['path'] ?? '') . '.shared-chrome';
             // Relative url() references still resolve against the stylesheet the
@@ -2794,7 +2853,7 @@ PHP;
                     $arms = CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude);
                     return implode(',', array_map(static fn(string $arm): string => preg_match('/\\[\\s*(?:' . preg_quote(EngineMarker::DEVICE_SCOPE_ATTRIBUTE, '/') . '|' . preg_quote(CaptureEvidence::DEVICE_DOCUMENT, '/') . ')\\b/i', $arm) ? $gate . ' ' . $arm : $arm, $arms)) . '{' . $body . '}';
                 });
-                $sharedAsset['path'] = $sharedAsset['target_path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', self::sharedChromeContract($asset) . "\0" . $shared), 0, 16) . '.css';
+                $sharedAsset['path'] = $sharedAsset['target_path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', $contract . "\0" . $shared), 0, 16) . '.css';
             }
             $sharedAsset = self::withRewrittenTextContent($sharedAsset, $shared);
             $sharedAsset['scopes'] = array(array('kind' => 'global'));
@@ -2817,11 +2876,11 @@ PHP;
                 foreach ($emissions as $emitted) {
                     $index = $emitted['index'];
                     $existing = $projected[$index];
-                    if ($emitted['contract'] !== self::sharedChromeContract($sharedAsset)
+                    if ($emitted['contract'] !== $contract
                         || !self::sharedChromeOriginsAgree($shared, $emitted['origin'], (string) $sharedAsset['reference_origin'], $references)) continue;
                     $combined = (new CssStylesheetTransformer())->concatenateWithoutRedundantRules(array($existing['content'], $shared));
                     $existing = self::withRewrittenTextContent($existing, $combined);
-                    $existing['path'] = $existing['target_path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', self::sharedChromeContract($existing) . "\0" . $combined), 0, 16) . '.css';
+                    $existing['path'] = $existing['target_path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', $contract . "\0" . $combined), 0, 16) . '.css';
                     $existing['token'] = 'asset-' . substr(hash('sha256', $existing['target_path']), 0, 16);
                     $existing['reconciliation_identity'] = self::identity('asset', $existing['source_path'], $existing['target_path']);
                     $existing['_stylesheet_projection_origins'][] = self::stylesheetProjectionOrigin($asset);
@@ -2837,7 +2896,7 @@ PHP;
                 $sharedAsset['reconciliation_identity'] = self::identity('asset', $sharedAsset['source_path'], $sharedAsset['target_path']);
                 $collisions[] = array('source_path' => (string) $sharedAsset['source_path'], 'colliding_source_path' => (string) $projected[$emittedShared[$sharedKey][0]['index']]['source_path'], 'target_path' => $collidingTarget, 'resolved_target_path' => (string) $sharedAsset['target_path']);
             }
-            $emittedShared[$sharedKey][] = array('origin' => (string) $sharedAsset['reference_origin'], 'contract' => self::sharedChromeContract($sharedAsset), 'index' => count($projected));
+            $emittedShared[$sharedKey][] = array('origin' => (string) $sharedAsset['reference_origin'], 'contract' => $contract, 'index' => count($projected));
             $projected[] = $sharedAsset;
         }
         return $projected;
@@ -2930,6 +2989,21 @@ PHP;
             else unset($assets[$index]['_stylesheet_projection_origins']);
         }
         if (array() === $projections) return $assets;
+        // A route without the source stylesheet still loads the slice for its
+        // shared chrome; a device-selected source keeps that selection there.
+        $deviceConditions = array();
+        foreach ($projections as $projection) {
+            $sources = array_column($assets[$projection]['_stylesheet_projection_origins'], 'source_path', 'source_path');
+            foreach ($assets as $asset) {
+                if (!isset($sources[(string) ($asset['source_path'] ?? '')])) continue;
+                foreach ($asset['stylesheet_instances'] ?? array() as $instance) {
+                    $device = self::stylesheetDeviceAttributes($instance);
+                    if (!isset($device[CaptureEvidence::DEVICE_STYLE])) continue;
+                    $conditions = array('media' => $instance['media'], 'type' => '') + $device;
+                    $deviceConditions[$projection][serialize($conditions)] = $conditions;
+                }
+            }
+        }
         $applies = static fn(array $scopes, string $document): bool => array() !== array_filter($scopes, static fn(array $scope): bool => 'global' === ($scope['kind'] ?? null) || ($scope['source_path'] ?? null) === $document);
         foreach ($pages as $page) {
             $document = (string) $page['source_path'];
@@ -2952,7 +3026,9 @@ PHP;
                         $origins[serialize($key)] = array('position' => $position) + $conditions;
                     }
                 }
-                if (array() === $origins) $origins[] = array('position' => $preceding ?? -1, 'media' => (string) ($assets[$projection]['media'] ?? ''), 'type' => '');
+                if (array() === $origins) {
+                    foreach ($deviceConditions[$projection] ?? array(array('media' => (string) ($assets[$projection]['media'] ?? ''), 'type' => '')) as $conditions) $origins[] = array('position' => $preceding ?? -1) + $conditions;
+                }
                 // Insert backwards so earlier positions do not shift.
                 usort($origins, static fn(array $left, array $right): int => $right['position'] <=> $left['position']);
                 foreach ($origins as $origin) {
@@ -3199,7 +3275,15 @@ PHP;
 
     private static function sharedChromeContract(array $asset): string
     {
-        return (string) ($asset['media'] ?? '') . "\0" . (string) ($asset['stylesheet_target'] ?? 'both') . "\0" . ('engine-support' === ($asset['source'] ?? '') ? 'engine' : 'author');
+        $devices = array();
+        foreach ($asset['stylesheet_instances'] ?? array() as $instance) {
+            foreach (self::stylesheetDeviceAttributes($instance) as $attribute => $value) {
+                if (is_string($value)) $devices[$attribute . "\0" . $value] = true;
+            }
+        }
+        $devices = array_keys($devices);
+        sort($devices, SORT_STRING);
+        return (string) ($asset['media'] ?? '') . "\0" . (string) ($asset['stylesheet_target'] ?? 'both') . "\0" . ('engine-support' === ($asset['source'] ?? '') ? 'engine' : 'author') . "\0" . implode("\0", $devices);
     }
 
     private static function sharedChromeOriginsAgree(string $css, string $origin, string $other, ?AssetReferenceCanonicalizer $references): bool
@@ -3625,6 +3709,7 @@ PHP;
         $localTimesByIndex = array();
         $structuredTypes = array();
         $pageEvidenceByIndex = array();
+        $dateSlotsByIndex = array();
         foreach ($documents as $index => $document) {
             if (!is_array($document) || !self::safePath($document['source_path'] ?? null)) throw new InvalidArgumentException('Compiled site document is invalid.');
             $metadata = is_array($document['metadata'] ?? null) ? $document['metadata'] : array();
@@ -3632,14 +3717,32 @@ PHP;
             $routes[$index] = '/' === $path ? '/' : '/' . trim($path, '/');
             $structuredTypes[$index] = self::structuredPageTypes($document);
             $localTimesByIndex[$index] = array();
+            $dateSlotsByIndex[$index] = array();
             // Repeated article metadata on pagination, and the listed entries'
             // dates on a category or tag archive, are not an independent
             // publication and must not vote in listing or dated-site inference.
-            $evidenceByIndex[$index] = null === self::paginationParentRoute($routes[$index]) && !TaxonomyProjection::isTermRoute($routes[$index]) ? $this->publicationEvidence($document, $localTimesByIndex[$index]) : array();
+            $evidenceByIndex[$index] = null === self::paginationParentRoute($routes[$index]) && !TaxonomyProjection::isTermRoute($routes[$index]) ? $this->publicationEvidence($document, $localTimesByIndex[$index], $dateSlotsByIndex[$index]) : array();
             $pageTypes = array_intersect(array('WebPage', 'AboutPage', 'ContactPage', 'CollectionPage'), $structuredTypes[$index]);
             if (!array_intersect(array('Article', 'BlogPosting', 'NewsArticle'), $structuredTypes[$index]) && $pageTypes) {
                 $evidenceByIndex[$index] = array();
                 $pageEvidenceByIndex[$index] = array_values(array_map(static fn(string $type): array => array('source' => 'json-ld:' . $type), $pageTypes));
+            }
+        }
+        // Unmarked builder dates become evidence only when the same source
+        // slot varies across sibling routes. Count routes, not captures, so
+        // a lone date or identical template chrome cannot establish a slot.
+        $dateSlotsByParent = array();
+        foreach ($dateSlotsByIndex as $index => $slots) {
+            if (!empty($documents[$index]['entrypoint']) || isset($pageEvidenceByIndex[$index])) continue;
+            foreach ($slots as $identity => $slot) $dateSlotsByParent[self::parentRoutePath($routes[$index])][$identity][$routes[$index]] = $slot['text'];
+        }
+        foreach ($dateSlotsByIndex as $index => $slots) {
+            if (!empty($documents[$index]['entrypoint']) || isset($pageEvidenceByIndex[$index])) continue;
+            foreach ($slots as $identity => $slot) {
+                $texts = $dateSlotsByParent[self::parentRoutePath($routes[$index])][$identity] ?? array();
+                if (count(array_unique($texts)) < 2 || count($evidenceByIndex[$index]) >= 16) continue;
+                $row = array('source' => 'html:visible-date', 'publication_timestamp' => $slot['publication_timestamp']);
+                if (!in_array($row, $evidenceByIndex[$index], true)) $evidenceByIndex[$index][] = $row;
             }
         }
         $indexByRoute = array_flip($routes);
@@ -3933,7 +4036,7 @@ PHP;
         return array_values(array_unique($types));
     }
     /** @param array<string,mixed> $document @param array<string,string> $localTimes Non-zero-offset representations keyed by UTC instant. @return array<int,array<string,string>> */
-    private function publicationEvidence(array $document, array &$localTimes): array
+    private function publicationEvidence(array $document, array &$localTimes, array &$dateSlots): array
     {
         $html = is_string($document['html'] ?? null) ? $document['html'] : '';
         if ('' === trim($html) && is_string($document['block_markup'] ?? null)) $html = $document['block_markup'];
@@ -3950,7 +4053,7 @@ PHP;
         foreach (HtmlMarkupParser::htmlMarkupNodes($html) as $node) if ('rawtext' === ($node['kind'] ?? null) && 'script' === ($node['name'] ?? null) && 'application/ld+json' === strtolower(trim((string) ($node['attributes']['type'] ?? '')))) foreach ($this->jsonLdPublicationEvidence(json_decode($node['content'], true), $timestamp) as $row) $add($evidence, $row['source'], $row['publication_timestamp'] ?? null);
         $route = is_string($document['metadata']['route_path'] ?? null) ? $document['metadata']['route_path'] : self::pageRoutePath((string) $document['source_path'], self::entryRootFromDocuments(array($document)));
         if (preg_match('~/(?:[0-9]{4})/(?:0[1-9]|1[0-2])(?:/|$)~', $route)) $add($evidence, 'route:dated');
-        foreach ($this->visiblePublicationEvidence($html, $timestamp) as $row) {
+        foreach ($this->visiblePublicationEvidence($html, $timestamp, $dateSlots) as $row) {
             $add($evidence, $row['source'], $row['publication_timestamp'] ?? null);
         }
         foreach (($document['document_metadata']['meta'] ?? array()) as $meta) {
@@ -3969,8 +4072,8 @@ PHP;
         }
         return array_values($unique);
     }
-    /** @return array<int,array<string,string>> */
-    private function visiblePublicationEvidence(string $html, callable $timestamp): array
+    /** @param array<string,array<string,string>> $dateSlots @return array<int,array<string,string>> */
+    private function visiblePublicationEvidence(string $html, callable $timestamp, array &$dateSlots): array
     {
         $rows = array();
         foreach ($this->publicationHtmlFragments($html) as $fragment) {
@@ -3979,14 +4082,20 @@ PHP;
                     continue;
                 }
                 $attributes = is_array($node['attributes'] ?? null) ? $node['attributes'] : array();
-                if (!self::isVisibleDateElement((string) ($node['name'] ?? ''), $attributes)) {
-                    continue;
+                $visibleDate = self::isVisibleDateElement((string) ($node['name'] ?? ''), $attributes);
+                $identities = array();
+                if (in_array($node['name'] ?? '', array('p', 'span', 'div', 'li', 'td', 'mark'), true)) {
+                    foreach (array('id', 'data-element-id') as $key) {
+                        if (is_string($attributes[$key] ?? null) && '' !== trim($attributes[$key])) $identities[] = $key . ':' . $attributes[$key];
+                    }
                 }
+                if (!$visibleDate && array() === $identities) continue;
                 $text = self::elementInnerText($fragment, (string) $node['name'], $node['inner_offset']);
                 $timestamp(trim(preg_replace('/\s+/', ' ', $text) ?? $text));
                 $parsed = self::parseVisiblePublicationTimestamp($text);
                 if (null !== $parsed) {
-                    $rows[] = array('source' => 'html:visible-date', 'publication_timestamp' => $parsed);
+                    if ($visibleDate) $rows[] = array('source' => 'html:visible-date', 'publication_timestamp' => $parsed);
+                    else foreach ($identities as $identity) $dateSlots[$identity] = array('text' => $text, 'publication_timestamp' => $parsed);
                 }
             }
         }
@@ -4442,7 +4551,13 @@ PHP;
         foreach (array_keys($overrides) as $slug) $templates[] = $make($slug, 'templates/' . $slug . '.html', $markup($slug));
         foreach ($templates as &$template) {
             if (!isset($documentChrome[$template['slug']])) continue;
-            $template['canonical_block_markup'] .= "\n" . $documentChrome[$template['slug']];
+            // Document chrome frames the post content (leading and trailing side
+            // regions around the slot), so it replaces the template's own slot and
+            // keeps that slot's attributes. A template without a slot keeps the
+            // chrome after its markup.
+            $chrome = $documentChrome[$template['slug']];
+            $framed = preg_replace_callback('/<!-- wp:post-content(?:\s+\{.*?\})?\s*\/-->/', static fn(array $slot): string => str_replace('<!-- wp:post-content /-->', $slot[0], $chrome), $template['canonical_block_markup'], 1, $count);
+            $template['canonical_block_markup'] = 1 === $count ? (string) $framed : $template['canonical_block_markup'] . "\n" . $chrome;
             $template['content_hash'] = self::contentHash($template['canonical_block_markup']);
         }
         unset($template);
@@ -4683,7 +4798,7 @@ PHP;
             $shared = $this->sharedPostChromeIdentities($posts);
             $groups = array();
             foreach ($posts as $index => $post) {
-                $transformed = $this->transformPostChromeDocument($post['canonical_block_markup'], $post, $post['route']['path'] ?? '', $shared);
+                $transformed = $this->transformPostChromeDocument($post['canonical_block_markup'], $post, $post['route']['path'] ?? '', $shared, null, $posts);
                 // Editor labels describe the source article, not its layout.
                 $identityMarkup = preg_replace_callback('/<!-- wp:([a-z0-9\/-]+) (\{.*?\})(\s*\/?)-->/s', static function (array $match): string {
                     $attrs = json_decode($match[2], true);
@@ -4767,7 +4882,7 @@ PHP;
         $leadImages = array();
         foreach ($posts as $postIndex => $post) {
             $route = (string) ($post['route']['path'] ?? '');
-            $documents[$postIndex] = $this->transformPostChromeDocument($post['canonical_block_markup'], $post, $route, $shared);
+            $documents[$postIndex] = $this->transformPostChromeDocument($post['canonical_block_markup'], $post, $route, $shared, null, $posts);
             $retained = $documents[$postIndex]['retained'];
             if (count($retained) < 2) continue;
             $lead = $retained[0];
@@ -4778,11 +4893,13 @@ PHP;
         $single = null;
         $singleMenus = array();
         $bodies = array();
+        $postMeta = array();
+        $featuredImages = array();
         foreach ($posts as $postIndex => $post) {
             $route = is_string($post['route']['path'] ?? null) ? $post['route']['path'] : '';
             $transformed = $documents[$postIndex];
             if ($promoteLead) {
-                $transformed = $this->transformPostChromeDocument($post['canonical_block_markup'], $post, $route, $shared, $transformed['retained'][0]['offset']);
+                $transformed = $this->transformPostChromeDocument($post['canonical_block_markup'], $post, $route, $shared, $transformed['retained'][0]['offset'], $posts);
             }
             if (!$transformed['title'] || (!$transformed['date'] && !$transformed['shared']) || '' === trim($transformed['body']) || 1 !== substr_count($transformed['template'], '<!-- wp:post-content')) {
                 return array('pages' => $pages, 'single' => null);
@@ -4796,7 +4913,12 @@ PHP;
                 return array('pages' => $pages, 'single' => null);
             }
             if (null === $single) {
-                $single = $this->replaceListingArchives($transformed['template'], $posts);
+                $single = preg_replace_callback('/<!-- wp:([a-z0-9\/-]+) (\{.*?\})(\s*\/?)-->/s', static function (array $match) use ($posts): string {
+                    $attrs = json_decode($match[2], true);
+                    if (!is_array($attrs)) return $match[0];
+                    foreach ($posts as $peer) if (($attrs['metadata']['name'] ?? null) === ($peer['title'] ?? null)) unset($attrs['metadata']['name']);
+                    return '<!-- wp:' . $match[1] . ' ' . BlockAttributes::encode($attrs) . ($match[3] ?? '') . '-->';
+                }, $this->replaceListingArchives($transformed['template'], $posts)) ?? $transformed['template'];
                 $singleMenus = NavigationEntityProjection::renderedMenus($single);
             }
             // After factoring, a post renders only the single template and its
@@ -4808,11 +4930,15 @@ PHP;
                 return array('pages' => $pages, 'single' => null);
             }
             $bodies[$indexes[$postIndex]] = $transformed['body'];
+            if (null !== ($transformed['featured'] ?? null)) $featuredImages[$indexes[$postIndex]] = $transformed['featured'];
+            foreach ($transformed['fields'] ?? array() as $source => $values) $postMeta[$source] = ($postMeta[$source] ?? array()) + $values;
         }
         foreach ($bodies as $index => $body) {
             $pages[$index]['canonical_block_markup'] = $body;
             $pages[$index]['content_hash'] = self::contentHash($body);
+            if (isset($postMeta[$pages[$index]['source_path']])) $pages[$index]['metadata']['post_meta'] = ($pages[$index]['metadata']['post_meta'] ?? array()) + $postMeta[$pages[$index]['source_path']];
             if ($promoteLead) $pages[$index]['metadata']['featured_image'] = $leadImages[array_search($index, $indexes, true)];
+            elseif (isset($featuredImages[$index])) $pages[$index]['metadata']['featured_image'] = $featuredImages[$index];
         }
         return array('pages' => $pages, 'single' => $single);
     }
@@ -4890,11 +5016,144 @@ PHP;
         return $shared ?? array();
     }
     /**
+     * Select the smallest post-title-following container owning the most varying
+     * text. Only move the slot when every outside variation has a native home;
+     * otherwise the original factoring retains all of the authored content.
+     *
+     * @return array{range:?array,slots:array<int,string>,fields:array}
+     */
+    private function postChromeBodySelection(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, array $post, string $route, array $shared, array $posts, ?int $featuredOffset = null): array
+    {
+        $fallback = array('range' => null, 'slots' => array(), 'fields' => array(), 'featured' => null);
+        $titleEnd = null;
+        $varying = array();
+        foreach ($index->ranges() as $range) {
+            if (array() !== $index->children($range)) continue;
+            $slice = substr($index->markup, $range['offset'], $range['length']);
+            $kind = $this->classifyPostChromeBlock($slice, $post, $route, $index);
+            if ('title' === $kind) $titleEnd = $range['offset'] + $range['length'];
+            if ($range['offset'] === $featuredOffset) continue;
+            if (isset($shared[ShellExtraction::identityMarkup($slice)]) || in_array($kind, array('title', 'date', 'comments', 'chrome', 'share', 'skip'), true)) continue;
+            $varying[] = $range;
+        }
+        if (null === $titleEnd) return $fallback;
+        $best = null;
+        $bestCount = 0;
+        foreach ($index->ranges() as $candidate) {
+            if ($candidate['offset'] < $titleEnd || array() === $index->children($candidate)) continue;
+            $count = 0;
+            foreach ($varying as $leaf) {
+                if ($leaf['offset'] < $candidate['offset'] || $leaf['offset'] + $leaf['length'] > $candidate['offset'] + $candidate['length']) continue;
+                if ('' !== ListingExcerptProjection::text(substr($index->markup, $leaf['offset'], $leaf['length']))) ++$count;
+            }
+            if ($count < 2 || $count < $bestCount) continue;
+            if ($count > $bestCount || null === $best || $candidate['length'] < $best['length']) {
+                $best = $candidate;
+                $bestCount = $count;
+            }
+        }
+        if (null === $best) return $fallback;
+        $slots = array();
+        $fields = array();
+        $featured = null;
+        // Project corresponding related sections together, just like index cards.
+        // This supplies the card classifier with variation across all posts.
+        // A section is a container led by a shared heading.
+        $sectionItems = static function (\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $sectionIndex, array $owner, array $shared): ?array {
+            $children = $sectionIndex->children($owner);
+            if (count($children) < 2) return null;
+            $heading = substr($sectionIndex->markup, $children[0]['offset'], $children[0]['length']);
+            if ('heading' !== self::listingBlockName($heading) || !isset($shared[ShellExtraction::identityMarkup($heading)])) return null;
+            return array('heading' => ShellExtraction::identityMarkup($heading), 'items' => array_slice($children, 1));
+        };
+        $sections = array();
+        foreach ($index->ranges() as $owner) {
+            if ($owner['offset'] < $best['offset'] + $best['length']) continue;
+            $section = $sectionItems($index, $owner, $shared);
+            if (null !== $section) $sections[] = $section + array('owner' => $owner);
+        }
+        foreach ($sections as $section) {
+            $cardMarkup = '';
+            foreach ($posts as $peer) {
+                $peerIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($peer['canonical_block_markup']);
+                foreach ($peerIndex->ranges() as $owner) {
+                    $peerSection = $sectionItems($peerIndex, $owner, $shared);
+                    if (null === $peerSection || $section['heading'] !== $peerSection['heading']) continue;
+                    foreach ($peerSection['items'] as $child) $cardMarkup .= substr($peerIndex->markup, $child['offset'], $child['length']);
+                    break;
+                }
+            }
+            $cardIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($cardMarkup);
+            $cards = $this->listingCardRanges($cardIndex, $posts, 1);
+            if (null === $cards) continue;
+            // Never replace a whole section if some authored child has no card
+            // projection. Let the normal fallback retain its source order.
+            foreach ($cardIndex->topLevel() as $child) {
+                foreach ($cards as $card) {
+                    if ($child['offset'] >= $card['offset'] && $child['offset'] + $child['length'] <= $card['offset'] + $card['length']) continue 2;
+                }
+                continue 2;
+            }
+            $cardFields = array();
+            $bound = array();
+            foreach ($cards as $card) {
+                $ordinal = 0;
+                foreach ($cardIndex->ranges() as $range) {
+                    if ($range['offset'] < $card['offset'] || $range['offset'] + $range['length'] > $card['offset'] + $card['length']) continue;
+                    $slice = substr($cardMarkup, $range['offset'], $range['length']);
+                    if ('paragraph' !== self::listingBlockName($slice)) continue;
+                    $key = 'blocks_engine_post_field_' . substr(hash('sha256', $section['heading'] . ':' . $ordinal++), 0, 12);
+                    $cardFields[$card['post']['source_path']][$key] = ListingFieldProjection::content(array($slice));
+                    $bound[$range['offset']] = ListingFieldProjection::paragraph($slice, self::listingBlockAttributes($slice), $key, '');
+                }
+            }
+            $template = $this->listingCardTemplate($cardIndex, $cards, $cardFields, $bound);
+            if (null === $template) continue;
+            $items = $section['items'];
+            $start = $items[0]['offset'];
+            $end = $items[count($items) - 1]['offset'] + $items[count($items) - 1]['length'];
+            $slots[$section['owner']['offset']] = substr($index->markup, $section['owner']['offset'], $start - $section['owner']['offset']) . self::listingQueryMarkup(count($items), $template) . substr($index->markup, $end, $section['owner']['offset'] + $section['owner']['length'] - $end);
+            foreach ($cardFields as $source => $values) $fields[$source] = ($fields[$source] ?? array()) + $values;
+        }
+        foreach ($varying as $leaf) {
+            if ($leaf['offset'] >= $best['offset'] && $leaf['offset'] < $best['offset'] + $best['length']) continue;
+            foreach ($slots as $offset => $unused) {
+                // An enclosing related section already owns this leaf.
+                foreach ($index->ranges() as $owner) if ($owner['offset'] === $offset && $leaf['offset'] >= $offset && $leaf['offset'] < $offset + $owner['length']) continue 3;
+            }
+            $slice = substr($index->markup, $leaf['offset'], $leaf['length']);
+            if ('paragraph' === self::listingBlockName($slice)) {
+                // Slot identity is structural, never a byte offset or source text.
+                $path = array();
+                $node = $leaf;
+                do {
+                    $parent = $index->parent($node);
+                    $siblings = null === $parent ? $index->topLevel() : $index->children($parent);
+                    $path[] = array_search($node, $siblings, true);
+                    $node = $parent;
+                } while (null !== $node);
+                $key = 'blocks_engine_post_field_' . substr(hash('sha256', json_encode($path)), 0, 12);
+                $fields[$post['source_path']][$key] = ListingFieldProjection::content(array($slice));
+                $slots[$leaf['offset']] = ListingFieldProjection::paragraph($slice, self::listingBlockAttributes($slice), $key, '');
+                continue;
+            }
+            // A varying lead image ahead of the body is the post's featured image.
+            if ($leaf['offset'] < $best['offset'] && null === $featured && 'image' === self::listingBlockName($slice) && null !== ($image = self::listingCardImage($slice))) {
+                $featured = $image;
+                $slots[$leaf['offset']] = self::postFeaturedImageMarkup($slice);
+                continue;
+            }
+            $this->recordUnitFinding(array('code' => 'wordpress_site_plan_post_chrome_order_retained', 'source_path' => $post['source_path'], 'message' => 'Outside body variation has no native slot; retained original post-content placement to avoid dropping content.'));
+            return $fallback;
+        }
+        return array('range' => $best, 'slots' => $slots, 'fields' => $fields, 'featured' => $featured);
+    }
+    /**
      * @param array<string,mixed> $post
      * @param array<string,true> $shared
      * @return array{template:string,body:string,title:bool,date:bool,shared:bool,content:bool,retained:array<int,array{offset:int,length:int}>}
      */
-    private function transformPostChromeDocument(string $markup, array $post, string $route, array $shared, ?int $featuredOffset = null): array
+    private function transformPostChromeDocument(string $markup, array $post, string $route, array $shared, ?int $featuredOffset = null, array $posts = array()): array
     {
         $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
         $postIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex((string) ($post['canonical_block_markup'] ?? ''));
@@ -4919,6 +5178,16 @@ PHP;
             if (null !== $contentRange) { $contentRange = null; break; }
             $contentRange = $candidate;
         }
+        $slots = array();
+        $fields = array();
+        $featured = null;
+        if (null === $contentRange) {
+            $selection = $this->postChromeBodySelection($index, $post, $route, $shared, $posts, $featuredOffset);
+            $contentRange = $selection['range'];
+            $slots = $selection['slots'];
+            $fields = $selection['fields'];
+            $featured = $selection['featured'];
+        }
         $template = '';
         $body = '';
         $title = false;
@@ -4931,7 +5200,7 @@ PHP;
             if ($range['offset'] > $cursor) {
                 $template .= substr($markup, $cursor, $range['offset'] - $cursor);
             }
-            $transformed = $this->transformPostChromeRange($index, $postIndex, $range, $post, $route, $shared, false, $featuredOffset, $contentRange);
+            $transformed = $this->transformPostChromeRange($index, $postIndex, $range, $post, $route, $shared, false, $featuredOffset, $contentRange, $slots);
             $template .= $transformed['template'];
             $body .= $transformed['body'];
             $title = $title || $transformed['title'];
@@ -4944,7 +5213,7 @@ PHP;
         if ($cursor < strlen($markup)) {
             $template .= substr($markup, $cursor);
         }
-        return array('template' => $template, 'body' => $body, 'title' => $title, 'date' => $date, 'shared' => $sharedChrome, 'content' => $content, 'retained' => $retained);
+        return array('template' => $template, 'body' => $body, 'title' => $title, 'date' => $date, 'shared' => $sharedChrome, 'content' => $content, 'retained' => $retained, 'fields' => $fields, 'featured' => $featured);
     }
     /**
      * @param array{offset:int,length:int} $range
@@ -4952,11 +5221,15 @@ PHP;
      * @param array<string,true> $shared
      * @return array{template:string,body:string,title:bool,date:bool,shared:bool,content:bool,retained:array<int,array{offset:int,length:int}>}
      */
-    private function transformPostChromeRange(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $postIndex, array $range, array $post, string $route, array $shared, bool $dateContext = false, ?int $featuredOffset = null, ?array $contentRange = null): array
+    private function transformPostChromeRange(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $postIndex, array $range, array $post, string $route, array $shared, bool $dateContext = false, ?int $featuredOffset = null, ?array $contentRange = null, array $slots = array()): array
     {
         $markup = $index->markup;
         $slice = substr($markup, $range['offset'], $range['length']);
         $empty = array('template' => $slice, 'body' => '', 'title' => false, 'date' => false, 'shared' => false, 'content' => false, 'retained' => array());
+        if (isset($slots[$range['offset']])) {
+            $empty['template'] = $slots[$range['offset']];
+            return $empty;
+        }
         if (null !== $contentRange && $range === $contentRange) {
             $children = $index->children($range);
             $start = $children[0]['offset'];
@@ -5022,7 +5295,7 @@ PHP;
             && ListingExcerptProjection::text($slice) === ListingExcerptProjection::text(substr($markup, $children[0]['offset'], $children[0]['length']))
             && ($dateContext || 'date' === $this->classifyPostChromeBlock($slice, $post, $route, $postIndex));
         foreach ($children as $child) {
-            $transformed = $this->transformPostChromeRange($index, $postIndex, $child, $post, $route, $shared, $childDateContext, $featuredOffset, $contentRange);
+            $transformed = $this->transformPostChromeRange($index, $postIndex, $child, $post, $route, $shared, $childDateContext, $featuredOffset, $contentRange, $slots);
             if ($transformed['content'] && $emittedContent) {
                 // The subtree leaves the template, and with it any title or
                 // date it placed: neither is found. Shared blocks inside it
@@ -5355,7 +5628,7 @@ PHP;
     /**
      * @param array<int,array{offset:int,length:int,route:string,post:array<string,mixed>}> $cards
      */
-    private function listingCardTemplate(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $documentIndex, array $cards, array &$fields): ?string
+    private function listingCardTemplate(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $documentIndex, array $cards, array &$fields, array $boundGroups = array()): ?string
     {
         $markup = $documentIndex->markup;
         // A hidden empty binding may have been dropped during lowering. Use
@@ -5376,7 +5649,6 @@ PHP;
             }
         }
         $groups = $this->listingLinkedMetadataGroups($documentIndex, $first);
-        $boundGroups = array();
         foreach ($groups as $index => $group) {
             $key = 'blocks_engine_listing_labels_' . substr(hash('sha256', $group['markup']), 0, 12);
             $content = ListingFieldProjection::content($group['paragraphs']);
@@ -6070,7 +6342,7 @@ PHP;
         if (preg_match('/^(\d{1,2})-(\d{1,2})-(\d{4})$/', $value, $match)) {
             return ((int) $match[1] > 12 && (int) $match[2] <= 12) ? 'j-n-Y' : 'n-j-Y';
         }
-        foreach (array('M j, Y' => '/^[A-Z][a-z]{2} \d{1,2}, \d{4}$/', 'F j, Y' => '/^[A-Z][a-z]+ \d{1,2}, \d{4}$/', 'j M Y' => '/^\d{1,2} [A-Z][a-z]{2} \d{4}$/', 'j F Y' => '/^\d{1,2} [A-Z][a-z]+ \d{4}$/') as $format => $pattern) {
+        foreach (array('l, F j, Y' => '/^[A-Z][a-z]+day, [A-Z][a-z]+ \d{1,2}, \d{4}$/', 'M j, Y' => '/^[A-Z][a-z]{2} \d{1,2}, \d{4}$/', 'F j, Y' => '/^[A-Z][a-z]+ \d{1,2}, \d{4}$/', 'j M Y' => '/^\d{1,2} [A-Z][a-z]{2} \d{4}$/', 'j F Y' => '/^\d{1,2} [A-Z][a-z]+ \d{4}$/') as $format => $pattern) {
             if (1 === preg_match($pattern, $value)) {
                 return $format;
             }
@@ -6166,6 +6438,9 @@ PHP;
             // Resolve copied author URLs before recovery judges them against the
             // generated stylesheet's directory (which is not their origin).
             if ('editor-static-state' === ($asset['source'] ?? null) && is_string($content)) $content = $references->cssFromOrigins($content, $authorStylesheetOrigins);
+            // An inline stylesheet's urls are relative to the documents that held
+            // the <style>, not to its generated inline/ path.
+            if ('inline-style' === ($asset['source'] ?? null) && is_string($content)) $content = $references->cssFromOrigins($content, array_column($asset['inline_references'] ?? array(), 'source_path'));
             if (is_string($content)) $content = $references->content($content, (string) ($asset['reference_origin'] ?? $asset['source_path']));
             if (is_array($asset['payload_reference'] ?? null)) { $writes[] = $this->referenceWrite('theme_asset', $asset['target_path'], $asset['source_path'], $asset['payload_reference']); continue; }
             $base64Transport = is_string($asset['content_base64'] ?? null);
@@ -6303,6 +6578,28 @@ PHP;
         return $writes;
     }
 
+    /** @param array<string,array<string,mixed>> $routes @return list<string> */
+    private static function routeStylesheetTable(array $routes): array
+    {
+        $sequences = $indices = $matches = array();
+        foreach ($routes as $route) {
+            $key = serialize($route['styles']);
+            if (!isset($indices[$key])) { $indices[$key] = count($sequences); $sequences[] = $route['styles']; }
+            // Handles belong to occurrences, not resources: never intern them
+            // into a sequence shared by different source documents.
+            $matches[] = '    if ( ' . $route['condition'] . ' ) $blocks_engine_style_routes[] = [' . $indices[$key] . ',' . BootstrapData::literal($route['handles']) . '];';
+        }
+        return array_merge(array(
+            '    $blocks_engine_style_sequences = ' . BootstrapData::literal($sequences) . ';',
+            '    $blocks_engine_style_routes = [];',
+        ), $matches, array(
+            '    foreach ( $blocks_engine_style_routes as [$sequence, $handles] ) {',
+            '        $blocks_engine_route_styles = true;',
+            '        foreach ( $blocks_engine_style_sequences[$sequence] as $position => $style ) wp_enqueue_style( $handles[$position], get_theme_file_uri( $style[0] ), array(), null, \'\' !== $style[1] ? $style[1] : \'all\' );',
+            '    }',
+        ));
+    }
+
     /** @param array<int,array<string,mixed>> $assets */
     private static function bootstrap(array $assets, array $scripts = array(), array $parts = array(), array $tokens = array(), array $templates = array(), array $pages = array(), array $menus = array(), bool $runtimeEmoji = false, array $rootDocuments = array()): string
     {
@@ -6341,7 +6638,8 @@ PHP;
         // Each source document's ordered stylesheet instances form one route
         // block; a repeated resource gets one handle per instance, same URI.
         if (array_filter($stylesheetEnqueues, static fn(array $enqueue): bool => isset($enqueue['route']))) $lines[] = '    $blocks_engine_route_styles = false;';
-        $route = null;
+        $routeRows = array();
+        $routePosition = null;
         foreach ($stylesheetEnqueues as $enqueue) {
             $asset = $enqueue['asset'];
             if ('editor' === ($asset['stylesheet_target'] ?? 'both') || isset($importLoaded[$asset['target_path']])) continue;
@@ -6356,16 +6654,17 @@ PHP;
             if (isset($deviceAttributes[CaptureEvidence::DEVICE_STYLE])) $stylesheetAttributes[$enqueue['handle']] = ($stylesheetAttributes[$enqueue['handle']] ?? array()) + $deviceAttributes;
             $media = '' !== $enqueue['media'] ? ', ' . var_export($enqueue['media'], true) : '';
             $call = "wp_enqueue_style( " . var_export($enqueue['handle'], true) . ", get_theme_file_uri( " . var_export(self::encodedAssetUrlPath($asset['target_path']), true) . " ), array(), null{$media} );";
-            if (null !== $route && ($enqueue['route'] ?? null) !== $route) { $lines[] = '    }'; $route = null; }
             if (isset($enqueue['route'])) {
-                if (null === $route) { $route = $enqueue['route']; $lines[] = "    if ( {$enqueue['condition']} ) {"; $lines[] = '        $blocks_engine_route_styles = true;'; }
-                $lines[] = "        {$call}";
+                if (null === $routePosition) $routePosition = count($lines);
+                $routeRows[$enqueue['route']]['condition'] = $enqueue['condition'];
+                $routeRows[$enqueue['route']]['styles'][] = array(self::encodedAssetUrlPath($asset['target_path']), $enqueue['media'], $stylesheetAttributes[$enqueue['handle']] ?? array());
+                $routeRows[$enqueue['route']]['handles'][] = $enqueue['handle'];
                 continue;
             }
             $condition = empty($enqueue['fallback']) ? $enqueue['condition'] : '! $blocks_engine_route_styles';
             $lines[] = "    if ( {$condition} ) {$call}";
         }
-        if (null !== $route) $lines[] = '    }';
+        if (null !== $routePosition) array_splice($lines, $routePosition, 0, self::routeStylesheetTable($routeRows));
         $attributes = array();
         foreach ($scripts as $script) {
             $handle = 'blocks-engine-script-' . substr(hash('sha256', $script['identity']), 0, 12);
@@ -6436,15 +6735,20 @@ PHP;
                 $scopeIndex = $scopeIndices[$key];
                 $files[$file]['scopes'][$scopeIndex] = $scopeIndex;
                 $files[$file]['template_part_slugs'] = array_values(array_unique(array_merge($files[$file]['template_part_slugs'], $style['template_part_slugs'])));
-                $replay[] = array($file, $scopeIndex, $style['handle'], $style['media'], !empty($style['fallback']), $style['template_part_slugs']);
+                $entry = array($file, $scopeIndex, $style['handle'], $style['media'], !empty($style['fallback']), $style['template_part_slugs']);
+                foreach (array(5 => array(), 4 => false, 3 => '') as $field => $default) {
+                    if ($entry[$field] !== $default) break;
+                    array_pop($entry);
+                }
+                $replay[] = $entry;
             }
             foreach ($files as &$file) $file['scopes'] = array_values($file['scopes']);
             unset($file);
-            $lines[] = '$blocks_engine_presentation_scopes = ' . var_export($scopes, true) . ';';
-            $lines[] = '$blocks_engine_presentation_styles = ' . var_export($files, true) . ';';
-            $lines[] = '$blocks_engine_presentation_replay = ' . var_export($replay, true) . ';';
+            $lines[] = BootstrapData::table('blocks_engine_presentation_scopes', $scopes);
+            $lines[] = BootstrapData::table('blocks_engine_presentation_styles', $files);
+            $lines[] = '$blocks_engine_presentation_replay = ' . BootstrapData::literal($replay) . ';';
             $lines[] = '$blocks_engine_presentation_sequence = array();';
-            $lines[] = 'foreach ( $blocks_engine_presentation_replay as $entry ) { $style = $blocks_engine_presentation_styles[ $entry[0] ]; $style[\'scopes\'] = array( $blocks_engine_presentation_scopes[ $entry[1] ] ); $style[\'handle\'] = $entry[2]; $style[\'media\'] = $entry[3]; $style[\'fallback\'] = $entry[4]; $style[\'template_part_slugs\'] = $entry[5]; $blocks_engine_presentation_sequence[] = $style; }';
+            $lines[] = 'foreach ( $blocks_engine_presentation_replay as $entry ) { $style = $blocks_engine_presentation_styles[ $entry[0] ]; $style[\'scopes\'] = array( $blocks_engine_presentation_scopes[ $entry[1] ] ); $style[\'handle\'] = $entry[2]; $style[\'media\'] = $entry[3] ?? \'\'; $style[\'fallback\'] = $entry[4] ?? false; $style[\'template_part_slugs\'] = $entry[5] ?? array(); $blocks_engine_presentation_sequence[] = $style; }';
             $lines[] = "\$blocks_engine_presentation_matches = static function ( array \$style, ?WP_Post \$post, bool \$site_editor ): bool {";
             $lines[] = "    \$matches = \$site_editor; if ( ! \$matches && \$post instanceof WP_Post ) foreach ( \$style['scopes'] as \$scope ) {";
             $lines[] = "        if ( 'wp_template_part' === \$post->post_type && in_array( basename( (string) \$post->post_name ), \$style['template_part_slugs'], true ) ) { \$matches = true; break; }";
@@ -6506,7 +6810,7 @@ PHP;
             // Resolve before Core renders site-title, retaining one editable part
             // and Core's live site name/home URL rather than rewriting saved HTML.
             $lines[] = "add_filter( 'render_block_data', static function ( array \$block ): array {";
-            $lines[] = "    if ( 'core/site-title' === ( \$block['blockName'] ?? null ) && ! empty( \$block['attrs']['metadata']['blocksEngineWordmark'] ) ) \$block['attrs']['level'] = is_front_page() ? 1 : 0;";
+            $lines[] = "    if ( 'core/site-title' === ( \$block['blockName'] ?? null ) && ! empty( \$block['attrs']['metadata']['blocksEngineWordmark'] ) ) \$block['attrs']['level'] = ! empty( \$block['attrs']['metadata']['blocksEngineWordmarkHeading'] ) && is_front_page() ? 1 : 0;";
             $lines[] = "    return \$block;";
             $lines[] = "}, 10, 1 );";
             break;
@@ -6555,6 +6859,7 @@ PHP;
             $lines[] = "    if ( ! \$current && ( is_array( \$sources ) || ( '' !== \$url && '/' === \$url[0] && ( 1 === strlen( \$url ) || '/' !== \$url[1] ) ) ) ) {";
             $lines[] = "        \$document = " . self::DOCUMENT_ID_EXPRESSION . ";";
             $lines[] = "        \$served = is_front_page() ? '/' : ( 0 !== \$document && 'page' === get_post_type( \$document ) ? '/' . trim( (string) get_page_uri( \$document ), '/' ) : null );";
+            $lines[] = "        \$served = apply_filters( 'blocks_engine_served_route', \$served, \$document );";
             $lines[] = "        \$routes = array( " . implode(', ', array_map(static fn(string $source, string $route): string => var_export($source, true) . ' => ' . var_export($route, true), array_keys($currentSourceRoutes), $currentSourceRoutes)) . " );";
             $lines[] = "        \$current = null !== \$served && ( is_array( \$sources ) ? in_array( \$served, array_map( static fn ( \$source ) => is_string( \$source ) ? ( \$routes[ \$source ] ?? null ) : null, \$sources ), true ) : '/' . trim( (string) parse_url( \$url, PHP_URL_PATH ), '/' ) === \$served );";
             $lines[] = "    }";
@@ -6575,6 +6880,29 @@ PHP;
             $lines[] = "    return preg_replace( '/(<a\\b[^>]*\\bclass=\"[^\"]*\\bwp-block-navigation-item__content\\b[^\"]*\")/', '\$1 aria-current=\"page\"', \$content, 1 ) ?? \$content;";
             $lines[] = "}, 10, 2 );";
             }
+            // Resolve ancestry only after every item has had its exact/source
+            // evidence pass. At the container boundary we can choose one longest
+            // segment prefix, independent of item render order or submenu depth.
+            $lines[] = "add_filter( 'render_block_core/navigation', static function ( string \$content ): string {";
+            $lines[] = "    if ( preg_match( '/\\baria-current=[\"\\\x27]page[\"\\\x27]|\\bcurrent-menu-item\\b|\\bblocks-engine-current-navigation-item\\b/', \$content ) ) return \$content;";
+            $lines[] = "    \$document = " . self::DOCUMENT_ID_EXPRESSION . ";";
+            $lines[] = "    \$served = is_front_page() ? '/' : ( 0 !== \$document && 'page' === get_post_type( \$document ) ? '/' . trim( (string) get_page_uri( \$document ), '/' ) : null );";
+            $lines[] = "    \$served = apply_filters( 'blocks_engine_served_route', \$served, \$document );";
+            $lines[] = "    if ( ! is_string( \$served ) || ! str_starts_with( \$served, '/' ) ) return \$content;";
+            $lines[] = "    \$best = null; \$length = 0;";
+            $lines[] = '    preg_match_all( \'/<li\\b[^>]*>(?:(?!<li\\b|<a\\b|<button\\b).)*<a\\b[^>]*>/s\', $content, $items, PREG_OFFSET_CAPTURE );';
+            $lines[] = '    foreach ( $items[0] as $item ) {';
+            $lines[] = '        if ( ! preg_match( \'/\\bhref="([^"]*)"/\', $item[0], $href ) || ! preg_match( \'/\\bclass="[^"]*\\bwp-block-navigation-item__content\\b/\', $item[0] ) ) continue;';
+            $lines[] = '        $url = html_entity_decode( $href[1], ENT_QUOTES, \'UTF-8\' );';
+            $lines[] = '        if ( ! str_starts_with( $url, \'/\' ) || str_starts_with( $url, \'//\' ) ) continue;';
+            $lines[] = '        $path = \'/\' . trim( (string) parse_url( $url, PHP_URL_PATH ), \'/\' );';
+            $lines[] = '        if ( \'/\' !== $path && strlen( $path ) > $length && str_starts_with( $served, $path . \'/\' ) ) { $best = $item; $length = strlen( $path ); }';
+            $lines[] = '    }';
+            $lines[] = '    if ( null === $best ) return $content;';
+            $lines[] = '    $item = preg_replace( \'/<a\\b/\', \'<a aria-current="page"\', $best[0], 1 );';
+            $lines[] = '    $item = preg_replace_callback( \'/^<li\\b[^>]*>/\', static function ( array $match ): string { return str_contains( $match[0], \'class="\' ) ? preg_replace( \'/class="/\', \'class="current-menu-ancestor \', $match[0], 1 ) : substr( $match[0], 0, -1 ) . \' class="current-menu-ancestor">\'; }, $item, 1 );';
+            $lines[] = '    return substr_replace( $content, $item, $best[1], strlen( $best[0] ) );';
+            $lines[] = "}, 10, 1 );";
         }
         foreach (array_merge($templates, $parts, $pages) as $document) {
             if (!str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), CaptureEvidence::VIEWPORT_ENTRANCE)) continue;
@@ -6664,6 +6992,13 @@ PHP;
     // back onto the materialized file. Encode every segment, preserving the
     // `/` separators.
     private static function encodedAssetUrlPath(string $path): string { return implode('/', array_map('rawurlencode', explode('/', $path))); }
+
+    /** Inline occurrences store the author's media separately from captured media. @return array<string,mixed> */
+    private static function inlineStylesheetDeviceAttributes(array $occurrence): array
+    {
+        if (!isset($occurrence[CaptureEvidence::DEVICE_STYLE])) return array();
+        return self::stylesheetDeviceAttributes($occurrence) + array(CaptureEvidence::SOURCE_MEDIA => (string) ($occurrence['source_media'] ?? $occurrence['media'] ?? ''));
+    }
 
     /** @return array<string,mixed> */
     private static function stylesheetDeviceAttributes(array $occurrence): array
@@ -6904,6 +7239,11 @@ PHP;
                 $action = $entity['form']['action'] ?? null;
                 if (is_string($source) && is_string($action) && $this->isSelfPostAction($action, $source, $routes)) $entity['form']['action'] = 'blocks-engine:self-post';
                 foreach ($entity['controls'] ?? array() as $ci => $control) unset($entity['controls'][$ci]['selector']);
+                // Row selectors locate equivalent controls positionally too; keep the layout facts, not capture-specific locations.
+                foreach ($entity['presentation_graph']['control_rows'] ?? array() as $ri => $row) {
+                    unset($entity['presentation_graph']['control_rows'][$ri]['source_selector']);
+                    foreach ($row['members'] ?? array() as $mi => $member) unset($entity['presentation_graph']['control_rows'][$ri]['members'][$mi]['source_selector']);
+                }
                 // Layout graph nodes locate the same controls positionally.
                 foreach ($entity['layout_graph']['nodes'] ?? array() as $ni => $node) if (is_array($node['source'] ?? null)) unset($entity['layout_graph']['nodes'][$ni]['source']['selector']);
             }
@@ -7304,6 +7644,7 @@ PHP;
      */
     private function unresolvedNavigationLinks(string $content, string $origin, array $routes): string
     {
+        $content = $this->unresolvedBlockAttributeLinks($content, $origin, $routes);
         if (!preg_match('~(?:<|\\\\u003c)(?:a|area|form)\b~i', $content)) return $content;
         return preg_replace_callback('~(?:<|\\\\u003c)(?:a|area|form)(?=[\s/>\\\\])(?:[^>\\\\]|\\\\(?!u003e))*~i', function (array $tag) use ($origin, $routes): string {
             $replace = function (array $match) use ($origin, $routes): string {
@@ -7315,6 +7656,37 @@ PHP;
             $attribute = 1 === preg_match('~^(?:<|\\\\u003c)form~i', $markup) ? 'action' : 'href';
             foreach (array('~((?<![\w:-])' . $attribute . '\s*=\s*")([^"]*)(")~i', "~((?<![\\w:-])" . $attribute . "\\s*=\\s*')([^']*)(')~i", '~((?<![\w:-])' . $attribute . '\s*=\s*\\\\")([^"\\\\]*)(\\\\")~i', '~((?<![\w:-])' . $attribute . '\s*=\s*\\\\u0022)(.*?)(\\\\u0022)~i') as $pattern) $markup = preg_replace_callback($pattern, $replace, $markup) ?? $markup;
             return $markup;
+        }, $content) ?? $content;
+    }
+    /**
+     * Link destinations stored in block comment attributes (a navigation item's
+     * `url`, a wrapper's `href`, a form's `action`) get the same treatment as
+     * markup links. assertNoLocalBrowserReferences() walks these attributes too,
+     * so leaving them unresolved rejects the whole plan.
+     *
+     * @param array<int,array<string,mixed>> $routes
+     */
+    private function unresolvedBlockAttributeLinks(string $content, string $origin, array $routes): string
+    {
+        if (!str_contains($content, '<!-- wp:')) return $content;
+        return preg_replace_callback('~<!--\s*wp:([^\s{]+)\s+(\{.*?\})\s*(/)?-->~s', function (array $match) use ($origin, $routes): string {
+            $attrs = json_decode($match[2], true);
+            if (!is_array($attrs)) return $match[0];
+            $linkKeys = in_array(strtolower($match[1]), self::ROUTE_URL_BLOCKS, true) ? array('url', 'href', 'action') : array('href', 'action');
+            $changed = false;
+            $walk = function (array $value) use (&$walk, &$changed, $linkKeys, $origin, $routes): array {
+                foreach ($value as $key => $item) {
+                    if (is_array($item)) { $value[$key] = $walk($item); continue; }
+                    if (!is_string($key) || !is_string($item) || !in_array(strtolower($key), $linkKeys, true)) continue;
+                    $resolved = $this->unresolvedNavigationReference($item, $origin, $routes);
+                    if (null === $resolved) continue;
+                    $value[$key] = html_entity_decode($resolved, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                    $changed = true;
+                }
+                return $value;
+            };
+            $attrs = $walk($attrs);
+            return $changed ? str_replace($match[2], BlockAttributes::encode($attrs, JSON_THROW_ON_ERROR), $match[0]) : $match[0];
         }, $content) ?? $content;
     }
     /** @param array<int,array<string,mixed>> $routes */
@@ -7764,6 +8136,8 @@ PHP;
     {
         $value = trim(preg_replace('/\s+/', ' ', $value) ?? $value);
         if ('' === $value) return null;
+        // Builder bylines commonly prefix a full date with its weekday.
+        $value = preg_replace('/^(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+/i', '', $value) ?? $value;
         $iso = self::normalizePublicationTimestamp($value);
         if (null !== $iso) return $iso;
         if (preg_match('/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/', $value, $match)) {

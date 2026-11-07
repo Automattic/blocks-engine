@@ -20,7 +20,7 @@
     }
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/cover", "attrs": { "className": "hero-media" } },
+    { "path": "blocks.0", "name": "core/cover", "attrs": { "className": "hero-media blocks-engine-cover-consumed-background" } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Retreats", "level": 1 } },
     { "path": "blocks.1", "name": "core/image", "attrs": { "url": "/assets/retreat.jpg", "alt": "Retreat house", "caption": "Explore the retreat", "href": "/retreats", "linkDestination": "custom", "className": "featured-card card-image be-inline-geometry-c6ca569a44c28266 blocks-engine-semantic-2aedf4049c93-0 blocks-engine-inline-image-leaf blocks-engine-baseline-image-leaf blocks-engine-inline-image-link" } },
     { "path": "blocks.2", "name": "custom/responsive-media" },
@@ -32,7 +32,7 @@
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:cover" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "blocks-engine-background-image" },
-    { "path": "assets.1.content", "assert": "contains", "value": ".hero-media{background-image:url('/assets/hero-bg.jpg');background-size:cover}" },
+    { "path": "assets.1.content", "assert": "contains", "value": ".hero-media{background-image:none;background-size:cover}" },
     { "path": "blocks.1.attrs.linkClass", "assert": "contains", "value": "media-link" },
     { "path": "serialized_blocks", "assert": "contains", "value": "href=\"/retreats\"" },
     { "path": "serialized_blocks", "assert": "contains", "value": "srcset=\\\"/assets/one-large.jpg 900w\\\"" },

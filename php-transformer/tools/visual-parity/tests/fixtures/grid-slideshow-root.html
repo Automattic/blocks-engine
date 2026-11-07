@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Grid slideshow</title>
+<style>
+body{margin:0}
+.slideshow{display:grid;position:relative;width:600px;max-width:100%;height:340px;margin:0 auto}
+.arrow{grid-area:1/1;align-self:center;z-index:1;width:24px;height:48px;padding:0;border:0;background:none;color:#fff}
+.prev{justify-self:start}
+.next{justify-self:end;transform:scaleX(-1)}
+.slides{position:absolute;inset:0;overflow:hidden}
+.slide{position:absolute;inset:0}
+.slide img{display:block;width:100%;height:100%;object-fit:cover}
+</style></head>
+<body><main>
+<div class="slideshow" role="region" aria-label="Slideshow">
+<button class="arrow prev" aria-label="Previous"><svg viewBox="0 0 21 41" fill="currentColor"><path d="M20 41 0 20.5 20 0l1 1L2 20.5 21 40z"/></svg></button>
+<button class="arrow next" aria-label="Next"><svg viewBox="0 0 21 41" fill="currentColor"><path d="M20 41 0 20.5 20 0l1 1L2 20.5 21 40z"/></svg></button>
+<div class="slides">
+<div class="slide"><img src="one.png" alt="First slide" width="800" height="450"></div>
+<div class="slide"><img src="two.png" alt="Second slide" width="800" height="450"></div>
+</div>
+</div>
+</main></body></html>

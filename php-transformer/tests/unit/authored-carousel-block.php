@@ -306,8 +306,21 @@ $assert(
     'a rail beside a ratio-sized stage scrolls inside that stage instead of running past it'
 );
 $assert(
-    str_contains($railView, "[ 'dot', 'thumbnail' ]") && str_contains($railView, 'scrollIntoView'),
-    'the active slide is reflected on both pager shapes and keeps the selected thumbnail in view'
+    str_contains($railView, "[ 'dot', 'thumbnail' ]")
+        && str_contains($railView, 'container.scrollLeft +=')
+        && str_contains($railView, 'container.scrollTop +='),
+    'the active slide is reflected on both pager shapes and only its overflow container scrolls'
+);
+$assert(
+    ! str_contains($railView, 'scrollIntoView')
+        && ! preg_match('/(?:window|document(?:\\.documentElement|\\.body)?)\\.scroll(?:To|By|Left|Top)?\\b/', $railView),
+    'the emitted runtime has no document-scrolling call'
+);
+$assert(
+    str_contains($railView, 'syncSlideshow = ( root, context, reveal = false )')
+        && str_contains($railView, 'syncSlideshow( ref, context );')
+        && str_contains($railView, "reveal && 'thumbnail' === kind && ! window.matchMedia( '(prefers-reduced-motion: reduce)' ).matches"),
+    'initial synchronization never scrolls and thumbnail navigation keeps the reduced-motion guard'
 );
 
 $shortPagerSource = '<div class="photo-slideshow"><div class="slides">'

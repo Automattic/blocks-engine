@@ -43,7 +43,7 @@ $chromeWrites = array_filter(array_keys($writes), static fn(string $path): bool 
 $assert(1 === count($chromeWrites), 'One chrome stylesheet serves both contexts; no variant or editor copy is materialized.');
 
 $bootstrap = $writes['functions.php']['payload']['data'];
-$frontend = (string) strstr($bootstrap, "add_action( 'wp_enqueue_scripts'");
+$frontend = (string) strstr(\Automattic\BlocksEngine\PhpTransformer\Tests\Support\BootstrapStyles::expand($bootstrap), "add_action( 'wp_enqueue_scripts'");
 $frontend = substr($frontend, 0, (int) strpos($frontend, '}, 1 );'));
 preg_match_all('/^    if \( (.+?) \) \{\n((?:        [^\n]+\n)+)    \}$/m', $frontend, $blocks, PREG_SET_ORDER);
 $assert(count($blocks) >= count($routes), 'Every captured page has an enqueue branch.');

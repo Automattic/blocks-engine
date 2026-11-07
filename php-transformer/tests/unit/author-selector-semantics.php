@@ -1080,10 +1080,10 @@ $neutralSingleGroupMarkup = (string) ($neutralSingleGroup['serialized_blocks'] ?
 $assert(1 === substr_count($neutralSingleGroupMarkup, '<!-- wp:group') && str_contains($neutralSingleGroupMarkup, 'outer content') && str_contains($css($neutralSingleGroup), '.outer .copy{color:red}'), 'neutral single-Group wrappers coalesce while retaining their descendant selector hook on the child Group');
 
 $selectorEdgeGroup = $transform('<style>.outer > .content{color:red}</style><div class="outer"><div class="content"><p>Copy</p></div></div>');
-$assert(1 === substr_count((string) ($selectorEdgeGroup['serialized_blocks'] ?? ''), '<!-- wp:custom/layout-shell') && 2 === count($selectorEdgeGroup['blocks'][0]['attrs']['wrappers'] ?? array()) && str_contains($css($selectorEdgeGroup), '.outer > .content{color:red}'), 'layout-shell folding retains the exact parent-child edge required by author selectors');
+$assert(str_contains((string) ($selectorEdgeGroup['serialized_blocks'] ?? ''), '<div class="wp-block-group outer"><!-- wp:group {"className":"content"} --><div class="wp-block-group content">') && ! str_contains((string) ($selectorEdgeGroup['serialized_blocks'] ?? ''), 'layout-shell') && str_contains($css($selectorEdgeGroup), '.outer > .content{color:red}'), 'native Group nesting retains the exact parent-child edge required by author selectors');
 
 $geometryEdgeGroup = $transform('<style>.content{margin:10px}</style><div class="outer"><div class="content"><p>Copy</p></div></div>');
-$assert(1 === substr_count((string) ($geometryEdgeGroup['serialized_blocks'] ?? ''), '<!-- wp:custom/layout-shell') && 2 === count($geometryEdgeGroup['blocks'][0]['attrs']['wrappers'] ?? array()) && str_contains($css($geometryEdgeGroup), 'margin:10px'), 'layout-shell folding retains the child containing block required by author geometry');
+$assert(2 === substr_count((string) ($geometryEdgeGroup['serialized_blocks'] ?? ''), '<!-- wp:group') && ! str_contains((string) ($geometryEdgeGroup['serialized_blocks'] ?? ''), 'layout-shell') && str_contains($css($geometryEdgeGroup), 'margin:10px'), 'native Group nesting retains the child containing block required by author geometry');
 
 $neutralSameSourceGroupChain = $transform('<div class="outer"><div class="middle"><div class="content"><p>Copy</p></div></div></div>');
 $neutralSameSourceGroupChainMarkup = (string) ($neutralSameSourceGroupChain['serialized_blocks'] ?? '');
@@ -1094,7 +1094,7 @@ $commentAnnotatedGroupChainMarkup = (string) ($commentAnnotatedGroupChain['seria
 $assert(1 === substr_count($commentAnnotatedGroupChainMarkup, '<!-- wp:group') && str_contains($commentAnnotatedGroupChainMarkup, 'outer content'), 'comment-annotated neutral Group wrappers coalesce because comments are semantically transparent');
 
 $sameSourceGroupChainSelectorEdge = $transform('<style>.outer > .middle{color:red}</style><div class="outer"><div class="middle"><div class="content"><p>Copy</p></div></div></div>');
-$assert(1 === substr_count((string) ($sameSourceGroupChainSelectorEdge['serialized_blocks'] ?? ''), '<!-- wp:custom/layout-shell') && 2 === count($sameSourceGroupChainSelectorEdge['blocks'][0]['attrs']['wrappers'] ?? array()) && str_contains($css($sameSourceGroupChainSelectorEdge), '.outer > .middle{color:red}'), 'same-source Group chains retain the selected outer boundary inside their layout shell');
+$assert(str_contains((string) ($sameSourceGroupChainSelectorEdge['serialized_blocks'] ?? ''), '<div class="wp-block-group outer"><!-- wp:group {"className":"middle content"} -->') && ! str_contains((string) ($sameSourceGroupChainSelectorEdge['serialized_blocks'] ?? ''), 'layout-shell') && str_contains($css($sameSourceGroupChainSelectorEdge), '.outer > .middle{color:red}'), 'same-source Group chains keep the selected outer boundary as a native Group');
 
 $semanticWrapperChain = $transform('<section class="feature"><div class="copy"><div class="rich"><h2>Editable heading</h2></div></div></section>');
 $semanticWrapperBlock = $semanticWrapperChain['blocks'][0] ?? array();

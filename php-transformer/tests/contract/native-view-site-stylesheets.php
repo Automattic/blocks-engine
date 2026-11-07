@@ -84,7 +84,7 @@ $assert(array() !== $extraScopes && array() === array_filter($extraScopes, stati
 // blocks list each document's instance enqueues; the guarded lines load on
 // WordPress-native views that no source document owns.
 $bootstrap = (string) (array_column($plan['writes'], null, 'target_path')['functions.php']['payload']['data'] ?? '');
-$frontend = (string) strstr($bootstrap, "add_action( 'wp_enqueue_scripts'");
+$frontend = (string) strstr(\Automattic\BlocksEngine\PhpTransformer\Tests\Support\BootstrapStyles::expand($bootstrap), "add_action( 'wp_enqueue_scripts'");
 $frontend = substr($frontend, 0, (int) strpos($frontend, '}, 1 );'));
 $assert(str_contains($frontend, '$blocks_engine_route_styles = false;'), 'The route flag guards the fallback run.');
 
@@ -116,8 +116,7 @@ $assert(! in_array($extraTarget, $nativeOrder, true), 'The one-document styleshe
 
 $registries = array();
 foreach (array('styles', 'scopes', 'replay') as $name) {
-    if (1 !== preg_match('/\$blocks_engine_presentation_' . $name . ' = (array \(.*?\n\));\n/s', $bootstrap, $match)) throw new RuntimeException('Missing presentation registry: ' . $name);
-    $registries[$name] = eval('return ' . $match[1] . ';');
+    $registries[$name] = \Automattic\BlocksEngine\PhpTransformer\Tests\Support\BootstrapStyles::registry($bootstrap, 'blocks_engine_presentation_' . $name);
 }
 $editorStyles = array();
 foreach ($registries['replay'] as $entry) {

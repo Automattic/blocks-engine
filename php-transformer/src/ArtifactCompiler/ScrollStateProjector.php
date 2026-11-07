@@ -67,7 +67,7 @@ final class ScrollStateProjector
         }
 
         $diagnostics = array();
-        $projected = 0;
+        $togglesByPath = array();
         foreach ($report['pages'] as $page) {
             if (! is_array($page) || ! is_string($page['sourceUrl'] ?? null) || ! is_array($page['toggles'] ?? null)) {
                 $diagnostics[] = $this->diagnostic('captured_scroll_state_page_invalid', 'warning', 'A captured scroll-state page was ignored because its source URL or toggles are invalid.');
@@ -83,8 +83,19 @@ final class ScrollStateProjector
                 $diagnostics[] = $this->diagnostic('captured_scroll_state_source_unmatched', 'warning', 'A captured scroll-state page did not match an artifact HTML document.', array('source_url' => $page['sourceUrl']));
                 continue;
             }
+            $togglesByPath[$path] = array_merge($togglesByPath[$path] ?? array(), $page['toggles']);
+        }
 
-            $projection = $this->projectPage((string) $files[$index]['content'], $page['toggles'], $path, $documentScopeClasses);
+        // A toggle is behavior of the element it targets. Capture can observe
+        // it on only some routes, so every route whose document renders the
+        // identical target element (shared chrome) receives it too; otherwise
+        // the same chrome compiles to different structures per route.
+        $togglesByPath = $this->withSharedTargetToggles($files, $fileIndexes, array_values(array_unique($routes)), $togglesByPath, $documentScopeClasses);
+
+        $projected = 0;
+        foreach ($togglesByPath as $path => $toggles) {
+            $index = $fileIndexes[$path];
+            $projection = $this->projectPage((string) $files[$index]['content'], $toggles, $path, $documentScopeClasses);
             $diagnostics = array_merge($diagnostics, $projection['diagnostics']);
             if (0 < $projection['projected_count']) {
                 $files[$index]['content'] = $projection['html'];
@@ -97,18 +108,83 @@ final class ScrollStateProjector
     }
 
     /**
-     * @param array<int, mixed> $toggles
+     * @param array<int, array<string, mixed>> $files
+     * @param array<string, int> $fileIndexes
+     * @param array<int, string> $routePaths
+     * @param array<string, array<int, mixed>> $togglesByPath
      * @param array<int, string> $documentScopeClasses
-     * @return array{html:string, diagnostics:array<int, array<string, mixed>>, projected_count:int}
+     * @return array<string, array<int, mixed>>
      */
-    private function projectPage(string $html, array $toggles, string $sourcePath, array $documentScopeClasses): array
+    private function withSharedTargetToggles(array $files, array $fileIndexes, array $routePaths, array $togglesByPath, array $documentScopeClasses): array
+    {
+        $documents = array();
+        $document = function (string $path) use (&$documents, $files, $fileIndexes): ?DOMDocument {
+            if (! array_key_exists($path, $documents)) {
+                $index = $fileIndexes[$path] ?? null;
+                $documents[$path] = is_int($index) && is_string($files[$index]['content'] ?? null) ? $this->loadDocument((string) $files[$index]['content']) : null;
+            }
+            return $documents[$path];
+        };
+        $targetIdentity = function (DOMDocument $source, array $target) use ($documentScopeClasses): ?string {
+            $found = $this->findTarget($source, $target, $documentScopeClasses);
+            if ('matched' !== $found['status'] || array() === $found['elements']) {
+                return null;
+            }
+            // One element per responsive document scope; identity covers all.
+            return implode("\n", array_map(static fn(DOMElement $element): string => (string) $element->C14N(), $found['elements']));
+        };
+
+        $shared = array();
+        foreach ($togglesByPath as $path => $toggles) {
+            $source = $document($path);
+            foreach ($toggles as $toggle) {
+                if (null === $source || ! is_array($toggle) || 'captured' !== ($toggle['status'] ?? null) || ! is_array($toggle['target'] ?? null)) {
+                    continue;
+                }
+                $identity = $targetIdentity($source, $toggle['target']);
+                if (null !== $identity) {
+                    $shared[json_encode($toggle, JSON_UNESCAPED_SLASHES) . "\n" . $identity] = $toggle;
+                }
+            }
+        }
+
+        foreach ($routePaths as $path) {
+            $own = array_map(static fn(mixed $toggle): string => (string) json_encode($toggle, JSON_UNESCAPED_SLASHES), $togglesByPath[$path] ?? array());
+            foreach ($shared as $key => $toggle) {
+                $encoded = substr($key, 0, (int) strpos($key, "\n"));
+                if (in_array($encoded, $own, true) || count($own) >= self::MAX_TOGGLES_PER_PAGE) {
+                    continue;
+                }
+                $source = $document($path);
+                if (null !== $source && $targetIdentity($source, $toggle['target']) === substr($key, strlen($encoded) + 1)) {
+                    $togglesByPath[$path][] = $toggle;
+                    $own[] = $encoded;
+                }
+            }
+        }
+
+        return $togglesByPath;
+    }
+
+    private function loadDocument(string $html): ?DOMDocument
     {
         $previous = libxml_use_internal_errors(true);
         $document = new DOMDocument('1.0', 'UTF-8');
         $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
         libxml_clear_errors();
         libxml_use_internal_errors($previous);
-        if (! $loaded) {
+        return $loaded ? $document : null;
+    }
+
+    /**
+     * @param array<int, mixed> $toggles
+     * @param array<int, string> $documentScopeClasses
+     * @return array{html:string, diagnostics:array<int, array<string, mixed>>, projected_count:int}
+     */
+    private function projectPage(string $html, array $toggles, string $sourcePath, array $documentScopeClasses): array
+    {
+        $document = $this->loadDocument($html);
+        if (null === $document) {
             return array('html' => $html, 'diagnostics' => array($this->diagnostic('captured_scroll_state_source_invalid', 'warning', 'A captured scroll state was not projected because the source HTML could not be parsed.', array('source_path' => $sourcePath))), 'projected_count' => 0);
         }
 

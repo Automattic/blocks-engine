@@ -284,10 +284,18 @@ final class SourceElementClassifier
         return (float) $matches[1] > 0;
     }
 
+    /**
+     * A functional color with an explicit zero alpha (`rgba(r,g,b,0)`, the
+     * four-component `rgb()` form, or slash syntax `rgb(r g b / 0)`). A
+     * three-component color whose last channel is 0, such as opaque black
+     * `rgb(0, 0, 0)`, is not transparent.
+     */
+    private const ZERO_ALPHA_COLOR = '/(?:^|[\s,])rgba?\((?:[^,()]+,){3}\s*0(?:\.0+)?%?\s*\)|(?:^|[\s,])rgba?\([^,()\/]+\/\s*0(?:\.0+)?%?\s*\)/';
+
     public function isVisibleEmptyVisualPaint(string $value): bool
     {
         $value = strtolower(trim($value));
-        if ( '' === $value || 'none' === $value || 'transparent' === $value || preg_match('/^0(?:px|%)?(?:\s+0(?:px|%)?)?$/', $value) || preg_match('/^rgba?\([^)]*,\s*0(?:\.0+)?\s*\)$/', $value) ) {
+        if ( '' === $value || 'none' === $value || 'transparent' === $value || preg_match('/^0(?:px|%)?(?:\s+0(?:px|%)?)?$/', $value) || preg_match(self::ZERO_ALPHA_COLOR, $value) ) {
             return false;
         }
 
@@ -297,7 +305,7 @@ final class SourceElementClassifier
     public function isVisibleEmptyVisualBorder(string $value): bool
     {
         return ! str_contains(strtolower($value), 'transparent')
-            && ! preg_match('/rgba?\([^)]*,\s*0(?:\.0+)?\s*\)/i', $value)
+            && ! preg_match(self::ZERO_ALPHA_COLOR, strtolower($value))
             && $this->isVisibleEmptyVisualPaint($value)
             && ! preg_match('/(?:^|\s)0(?:\.0+)?(?:px|em|rem|ex|ch|cm|mm|in|pt|pc|vw|vh|vmin|vmax)?(?:\s|$)/i', trim($value));
     }

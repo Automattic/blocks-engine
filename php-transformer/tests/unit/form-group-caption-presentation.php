@@ -60,7 +60,7 @@ $siblingCaption = $graph($compile('<!doctype html><html><head><style>.group-capt
     . '<div class="group-caption" style="font-family: Inter, &quot;Inter Placeholder&quot;, sans-serif; font-size: 14px; font-style: normal; font-weight: 400; line-height: 1.2em">Will you attend?</div>'
     . '<div role="radiogroup" aria-label="Will you attend?" style="display:flex;flex-flow:wrap;gap:12px">' . $choices('Attending') . '</div>'
     . '<button type="submit">Send</button></form></main></body></html>'));
-$assert('generic/computed-form-presentation/v2' === ($siblingCaption['schema'] ?? null), 'a form with a group caption graph publishes the v2 envelope', json_encode($siblingCaption['schema'] ?? null));
+$assert('generic/computed-form-presentation/v3' === ($siblingCaption['schema'] ?? null), 'a form with a group caption and shared control row publishes the v3 envelope', json_encode($siblingCaption['schema'] ?? null));
 $attendRow = $rowFor($siblingCaption, 2);
 $assert(null !== $attendRow, 'the caption row owns the group first radio input flat index', json_encode($siblingCaption['group_captions'] ?? null));
 $assert('rgb(20, 30, 40)' === ($attendRow['styles']['color'] ?? null) && '-0.01em' === ($attendRow['styles']['letter_spacing'] ?? null), 'the stylesheet rule reaches the caption row', json_encode($attendRow['styles'] ?? null));

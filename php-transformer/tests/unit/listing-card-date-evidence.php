@@ -51,4 +51,24 @@ $bare = $files;
 $bare['news/index.html'] = '<main><h1>News</h1><a href="/news/alpha/">Alpha</a><a href="/news/beta/">Beta</a></main>';
 foreach ($plan($bare) as $path => $page) $assert('page' === $page['post_type'], "no card evidence: {$path} is unchanged", $page['content_decision'] ?? null);
 
+// An unmarked builder date needs a varying source slot across sibling routes.
+foreach (array(
+    'id slot' => array('id="d1"', array('Friday, February 13, 2026', 'Saturday, February 14, 2026'), true),
+    'builder slot' => array('data-element-id="d1"', array('Friday, February 13, 2026', 'Saturday, February 14, 2026'), true),
+    'static chrome' => array('id="d1"', array('Friday, February 13, 2026', 'Friday, February 13, 2026'), false),
+    'single date' => array('id="d1"', array('Friday, February 13, 2026', ''), false),
+) as $name => [$identity, $dates, $inferred]) {
+    $source = array('index.html' => '<main><a href="/blog/">Blog</a></main>', 'blog/index.html' => '<main><h1>Blog</h1><a href="/blog/alpha/">Alpha</a><a href="/blog/beta/">Beta</a></main>');
+    foreach (array('alpha', 'beta') as $index => $slug) $source["blog/{$slug}/index.html"] = '<main><h1>' . $slug . '</h1><div ' . $identity . '>' . $dates[$index] . '</div><p>Article body.</p></main>';
+    $pages = $plan($source);
+    $assert('page' === $pages['blog/index.html']['post_type'], "{$name}: listing stays a page");
+    foreach (array('alpha' => '2026-02-13T00:00:00Z', 'beta' => '2026-02-14T00:00:00Z') as $slug => $timestamp) {
+        $page = $pages["blog/{$slug}/index.html"];
+        $decision = $page['content_decision'];
+        $assert(($inferred ? 'post' : 'page') === $page['post_type'] && ($inferred ? 'inferred' : 'defaulted') === $decision['state'], "{$name}: {$slug} decision", $decision);
+        $assert(($inferred ? $timestamp : null) === ($page['publication_timestamp'] ?? null), "{$name}: {$slug} date");
+        $assert(($inferred ? array('html:visible-date', 'listing:parent') : array()) === array_column($decision['evidence'], 'source'), "{$name}: {$slug} evidence", $decision);
+    }
+}
+
 fwrite(STDOUT, "listing card date evidence tests: passed\n");

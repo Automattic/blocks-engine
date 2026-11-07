@@ -15,7 +15,8 @@ final class ButtonElementContext
         private readonly Closure $convertButton,
         private readonly ?Closure $isRuntimeDomTarget = null,
         private readonly ?Closure $runtimeButton = null,
-        private readonly ?Closure $convertButtonWrapperGroup = null
+        private readonly ?Closure $convertButtonWrapperGroup = null,
+        private readonly ?Closure $imageMinimumPixelSize = null
     ) {
     }
 
@@ -51,5 +52,16 @@ final class ButtonElementContext
     public function runtimeButton(DOMElement $element): ?array
     {
         return $this->runtimeButton instanceof Closure ? ($this->runtimeButton)($element) : null;
+    }
+
+    /**
+     * The image's guaranteed minimum used size in CSS pixels per bounded axis,
+     * or null when the transformer supplies no style resolution.
+     *
+     * @return array{width: ?float, height: ?float}|null
+     */
+    public function imageMinimumPixelSize(DOMElement $image): ?array
+    {
+        return $this->imageMinimumPixelSize instanceof Closure ? ($this->imageMinimumPixelSize)($image) : null;
     }
 }

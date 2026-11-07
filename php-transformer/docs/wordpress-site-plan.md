@@ -99,7 +99,11 @@ form page hierarchy and may receive synthetic parents. Post routes never create
 or inherit page parents: `parent_source_path` is empty, and a WordPress
 materializer applies its configured post permalink policy. This preserves the
 source route for deterministic references without claiming it is a post
-permalink.
+permalink. Captured native archive documents also participate in link resolution,
+without becoming page routes: capture-file references become the retained archive
+path, and the generated block-render filter resolves that identity with WordPress's
+date, term, or author link functions. Neither resolution nor archive identity uses
+`REQUEST_URI`. Uncaptured absolute source destinations remain unchanged.
 
 ## Author Archives
 

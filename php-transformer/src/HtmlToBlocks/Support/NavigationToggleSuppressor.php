@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
@@ -1023,9 +1024,9 @@ final class NavigationToggleSuppressor
             }
         }
 
-        // A control wired to the source `<nav>` itself is that navigation's
-        // toggle, whatever its visible text ("Menu", "Browse").
-        if ( SourceDom::controlsSourceNavigation($element) ) {
+        // A control wired to a source navigation (or a collapse panel holding
+        // one) is its toggle, whatever its visible text ("Menu", "Browse").
+        if ( SourceDom::controlsSourceNavigation($element) || $this->controlsCollapsibleNavigation($element) ) {
             return true;
         }
 
@@ -1068,6 +1069,34 @@ final class NavigationToggleSuppressor
         // aria-label/title, or the text it hides visually (an off-screen
         // "Menu" behind a CSS-drawn glyph) — names a menu.
         return $this->accessibleNameNamesMenu($element);
+    }
+
+    /** An explicit collapse binding is menu evidence even when its label is visible. */
+    private function controlsCollapsibleNavigation(DOMElement $control): bool
+    {
+        if ( 'collapse' !== strtolower(trim(SourceDom::attr($control, 'data-toggle'))) ) {
+            return false;
+        }
+        $selector = trim(SourceDom::attr($control, 'data-target'));
+        if ( '' === $selector ) {
+            return false;
+        }
+        $parsed = CssSelectorMatcher::parse($selector);
+        if ( ! $parsed['supported'] ) {
+            return false;
+        }
+        $found = false;
+        foreach ( $this->menuToggleScope($control)->getElementsByTagName('*') as $target ) {
+            if ( ! (CssSelectorMatcher::matches($target, $parsed)['matches'] ?? false) ) {
+                continue;
+            }
+            // Do not borrow a nearby menu for a search or other collapse panel.
+            if ( $target->isSameNode($control) || ! $this->panelHoldsNavigation($target) ) {
+                return false;
+            }
+            $found = true;
+        }
+        return $found;
     }
 
     private function hasAncestorTag(DOMElement $element, string $tagName): bool

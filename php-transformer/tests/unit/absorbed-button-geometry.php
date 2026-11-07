@@ -32,8 +32,26 @@ $plainCss = implode("\n", array_column($plain['assets'], 'content'));
 if (str_contains($plainCss, 'box-sizing:content-box;') || str_contains($plainCss, 'padding:0;flex-direction:')) {
     throw new RuntimeException('A button without an absorbed sized surface must not receive surface geometry.');
 }
+// The inner flex surface has left:0/top:0, but the absorbed wrapper owns
+// placement. Two pills must remain out of flow inside their containing bar.
+$positionedSource = str_replace('.rmwidget{position:relative}', '.bar{position:relative;height:60px}.rmwidget{position:absolute}', $source);
+$positionedSource = str_replace('<main>', '<main><div class="bar">', $positionedSource);
+$positionedSource = str_replace('border-radius:100px;width:155px', 'border-radius:100px;left:700px;top:10px;width:155px', $positionedSource);
+$secondButton = '<a class="maglink" href="/about/"><div class="rmwidget widget-button" data-id="b1" style="border-radius:100px;left:1000px;top:10px;width:118px;height:21px"><div class="common-button" data-id="b1" style="flex-direction:row"><div class="text" style="display:inline-block;line-height:21px;height:21px">About us</div></div></div></a>';
+$positionedSource = str_replace('</main>', $secondButton . '</div><p>Body text after the bar.</p></main>', $positionedSource);
+$positioned = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $positionedSource)))->toArray();
+$positionedMarkup = $positioned['serialized_blocks'];
+$positionedCss = implode("\n", array_column(array_filter($positioned['assets'], static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '') && 'editor' !== ($asset['stylesheet_target'] ?? '')), 'content'));
+if (2 !== substr_count($positionedMarkup, '<!-- wp:button ') || str_contains($positionedMarkup, '<!-- wp:html')) {
+    throw new RuntimeException('Positioned pills must remain two native buttons: ' . $positionedMarkup);
+}
+foreach (array('700px', '1000px') as $left) {
+    if (!str_contains($positionedCss, '>.wp-block-button__link{position:absolute;top:10px;left:' . $left . '}')) {
+        throw new RuntimeException('The painted link must own the wrapper position, not the inner surface offsets: ' . $positionedCss);
+    }
+}
 if (in_array('--fixture', $argv, true)) {
-    echo json_encode(array('source' => $source, 'markup' => $markup, 'css' => $css));
+    echo json_encode(array('source' => $source, 'markup' => $markup, 'css' => $css, 'positioned' => array('source' => $positionedSource, 'markup' => $positionedMarkup, 'css' => $positionedCss)));
 } else {
     echo "Absorbed button geometry passed\n";
 }

@@ -43,6 +43,7 @@ foreach ($plan['writes'] as $write) {
         break;
     }
 }
+$bootstrap = \Automattic\BlocksEngine\PhpTransformer\Tests\Support\BootstrapStyles::expand($bootstrap);
 $contents = array();
 foreach ($plan['assets'] as $asset) {
     if ('css' === ($asset['kind'] ?? null)) $contents[(string) $asset['target_path']] = (string) ($asset['content'] ?? '');

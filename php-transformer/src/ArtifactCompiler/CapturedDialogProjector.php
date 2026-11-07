@@ -47,6 +47,7 @@ final class CapturedDialogProjector
         $popovers = $this->adoptSourcePopovers($components['files']);
         $result = $this->projectCapturedStates($popovers['files']);
         $this->restoreNavigationPanels($result['files']);
+        $this->restoreRemainingPanels($result['files']);
         $result['diagnostics'] = array_merge($result['diagnostics'], $components['diagnostics'] ?? array());
         $result['projected_count'] += $popovers['projected_count'] + $components['projected_count'];
         $result['native_runtime_replacements'] = array_merge($result['native_runtime_replacements'] ?? array(), $components['native_runtime_replacements']);
@@ -1095,6 +1096,62 @@ final class CapturedDialogProjector
                     $panel->removeAttribute('data-dropdown-shown');
                     $changed = true;
                 }
+            }
+            if ($changed) $file = ArtifactNormalizer::withTextPayload($file, HtmlSerialization::documentHtml($document));
+        }
+        unset($file);
+    }
+
+    /** Close only unowned capture dropdowns still carrying their opened envelope. */
+    private function restoreRemainingPanels(array &$files): void
+    {
+        foreach ($files as &$file) {
+            $html = $file['content'] ?? null;
+            if (!is_string($html) || !preg_match('/\.html?$/i', (string) ($file['path'] ?? '')) || !str_contains($html, CaptureEvidence::EXISTING_PANEL)) continue;
+            $document = new DOMDocument('1.0', 'UTF-8');
+            $previous = libxml_use_internal_errors(true);
+            $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NONET);
+            libxml_clear_errors();
+            libxml_use_internal_errors($previous);
+            if (!$loaded || $this->hasUnrecognizedRuntime($document)) continue;
+            $xpath = new DOMXPath($document);
+            $changed = false;
+            foreach ($xpath->query('//*[@' . CaptureEvidence::DIALOG_PANEL . '][@' . CaptureEvidence::EXISTING_PANEL . ']') ?: array() as $panel) {
+                if (!$panel instanceof DOMElement || !SourceDom::hasClass($panel, CaptureEvidence::DROPDOWN_CLASS)) continue;
+                $state = $this->restingPresentation($panel);
+                if (array() === $state) continue;
+                $owned = false;
+                $key = trim($panel->getAttribute(CaptureEvidence::DIALOG_PANEL));
+                foreach ($this->documentScopes($document) as $scope) {
+                    if ('' === $key || !SourceDom::elementContains($scope, $panel)) continue;
+                    $panels = $xpath->query('.//*[@' . CaptureEvidence::DIALOG_PANEL . '=' . $this->xpathLiteral($key) . ']', $scope);
+                    if (!$panels || 1 !== $panels->length) continue;
+                    foreach ($xpath->query('.//*[@' . CaptureEvidence::DIALOG_TRIGGER . '=' . $this->xpathLiteral($key) . ']', $scope) ?: array() as $trigger) {
+                        if ($trigger instanceof DOMElement) $owned = true;
+                    }
+                }
+                if ($owned) continue;
+                $snapshot = json_decode($panel->getAttribute(CaptureEvidence::EXISTING_PANEL), true);
+                $opened = $snapshot['opened'] ?? null;
+                $hasOpenedEnvelope = $panel->hasAttribute('data-dropdown-shown');
+                foreach (array('class', 'style') as $name) {
+                    if (is_array($opened) && is_string($opened[$name] ?? null)
+                        && $opened[$name] !== ($snapshot['resting'][$name] ?? null)
+                        && $panel->hasAttribute($name) && $panel->getAttribute($name) === $opened[$name]) {
+                        $hasOpenedEnvelope = true;
+                    }
+                }
+                if (!$hasOpenedEnvelope) continue;
+                foreach (array('class', 'style') as $name) {
+                    if (!array_key_exists($name, $snapshot['resting'])) continue;
+                    $value = $snapshot['resting'][$name];
+                    if (null === $value) $panel->removeAttribute($name); else $panel->setAttribute($name, $value);
+                }
+                // hidden:false only describes the attribute, not visibility.
+                // Without a verified native owner there is no safe way to open it.
+                $panel->setAttribute('hidden', '');
+                $panel->removeAttribute('data-dropdown-shown');
+                $changed = true;
             }
             if ($changed) $file = ArtifactNormalizer::withTextPayload($file, HtmlSerialization::documentHtml($document));
         }

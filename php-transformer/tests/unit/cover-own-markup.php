@@ -85,7 +85,7 @@ foreach ( $cases as $name => $case ) {
 
 // A converted top-left flex hero saves core's own wrapper and overlay markup.
 $flexHero = $serialize('<style>.hero{display:flex;align-items:flex-start;justify-content:flex-start;min-height:500px;background-image:linear-gradient(rgba(0,0,0,.25),rgba(0,0,0,.25)),url(https://example.com/a.jpg);background-size:cover}</style><section class="hero"><h1>Title</h1></section>');
-$coreWrapper = 'class="wp-block-cover has-custom-content-position is-position-top-left hero"';
+$coreWrapper = 'class="wp-block-cover has-custom-content-position is-position-top-left hero blocks-engine-cover-consumed-background"';
 $coreOverlay = '<span aria-hidden="true" class="wp-block-cover__background has-background-dim-30 has-background-dim" style="background-color:#000000"></span>';
 foreach ( array( $flexHero, $serialize($flexHero) ) as $savedHero ) {
     $assert(str_contains($savedHero, $coreWrapper), 'top-left flex hero keeps core save class order', $savedHero);

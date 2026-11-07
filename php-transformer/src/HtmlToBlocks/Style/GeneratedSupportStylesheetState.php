@@ -74,6 +74,43 @@ final class GeneratedSupportStylesheetState
         $this->navigationEditorTypography[$marker . serialize($conditions)] = compact('marker', 'declarations', 'conditions');
     }
 
+    /** @var array<string, array{marker: string, declarations: string}> Editor-only resting state of navigation items. */
+    private array $navigationEditorItemStyles = array();
+
+    /**
+     * A source item's inline style reaches Core's LI only through a frontend
+     * render filter. The editor renders the item itself, so it needs the same
+     * resting declarations, at inline precedence, from its static-state sheet.
+     * Every item is recorded, styled or not: its editable label carries the
+     * editor's own inline wrapping, which the frontend label never has.
+     */
+    public function registerNavigationEditorItemStyle(string $marker, string $declarations): void
+    {
+        if ('' === $marker) return;
+        $this->navigationEditorItemStyles[$marker] = compact('marker', 'declarations');
+    }
+
+    /** @return list<string> */
+    public function navigationEditorItemStyleRules(): array
+    {
+        $rules = array();
+        foreach ($this->navigationEditorItemStyles as $entry) {
+            if ('' !== $entry['declarations']) {
+                $rules[] = ':root .wp-block-navigation .wp-block-navigation-item.' . $entry['marker'] . '{' . $entry['declarations'] . '}';
+            }
+        }
+        if (array() !== $this->navigationEditorItemStyles) {
+            // RichText writes white-space:pre-wrap inline on the editable label.
+            // Its whitespace preservation is what editing needs, but its line
+            // wrapping lets a nowrap item break, which shrinks the menu's
+            // min-content and lets its flex parent squeeze it. The frontend
+            // label inherits wrapping from the item, so the editor does too.
+            $markers = implode(',', array_map(static fn (array $entry): string => '.' . $entry['marker'], $this->navigationEditorItemStyles));
+            $rules[] = ':root .wp-block-navigation .wp-block-navigation-item:is(' . $markers . ') .wp-block-navigation-item__label[contenteditable]{text-wrap-mode:inherit!important}';
+        }
+        return $rules;
+    }
+
     /** @return list<string> */
     public function navigationEditorTypographyRules(): array
     {
