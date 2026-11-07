@@ -1636,11 +1636,20 @@ final class AuthorStylesheetProjector
     private function withButtonWrapperInnerFill(string $wrapperPrelude, string $layoutCss, string $rest, bool $clearInnerAutoHeight, AuthorStylesheetProjectionContext $context): string
     {
         $css = $wrapperPrelude . '{' . $layoutCss . '}';
-        $hasDefiniteWidth = CssValueInspector::hasDefiniteWidth($layoutCss);
+        // A minimum width only floors a shrink-to-fit button; it is not a width to fill.
+        $widths = array( 'width' => '', 'min-width' => '' );
+        foreach ( CssValueSplitter::splitTopLevel($layoutCss, array( ';' )) as $declaration ) {
+            $name = strtolower(trim((string) strtok($declaration, ':')));
+            if ( array_key_exists($name, $widths) ) {
+                $widths[ $name ] .= $name . ':' . substr($declaration, strpos($declaration, ':') + 1) . ';';
+            }
+        }
+        $hasDefiniteWidth = CssValueInspector::hasDefiniteWidth($widths['width']);
+        $hasMinimumWidth = ! $hasDefiniteWidth && CssValueInspector::hasDefiniteWidth($widths['min-width']);
         $hasDefiniteHeight = CssValueInspector::hasDefiniteHeight($layoutCss);
         $hasAutoHeight = CssValueInspector::hasAutoHeight($layoutCss);
         $hasMinimumHeight = CssValueInspector::hasAuthoredMinimumHeight($layoutCss);
-        if ( $hasDefiniteWidth || $hasDefiniteHeight || $hasAutoHeight || $hasMinimumHeight ) {
+        if ( $hasDefiniteWidth || $hasMinimumWidth || $hasDefiniteHeight || $hasAutoHeight || $hasMinimumHeight ) {
             $selectors = CssStylesheetTransformer::splitSelectorList($wrapperPrelude) ?? array( $wrapperPrelude );
             if ( str_contains($wrapperPrelude, '.wp-block-button__link)') ) {
                 return $css . $rest;
@@ -1657,6 +1666,10 @@ final class AuthorStylesheetProjector
             if ( $hasDefiniteWidth ) {
                 $css .= $button . '{width:100%}'
                     . $link . '{width:100%;max-width:100%}';
+            }
+            if ( $hasMinimumWidth ) {
+                $css .= ($targetsButtonBox ? '' : $button . '{min-width:inherit}')
+                    . $link . '{min-width:inherit}';
             }
             if ( $hasDefiniteHeight ) {
                 $css .= $button . '{height:100%}'
