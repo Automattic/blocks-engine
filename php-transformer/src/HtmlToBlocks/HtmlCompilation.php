@@ -11246,10 +11246,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         if ($picture instanceof DOMElement && $picture !== $host) {
             $wrappers[] = $picture;
         }
-        // Hosts without a picture retain their existing presentation carrier
-        // (including linked thumbnail boxes). Only split the static picture
-        // boundary into independently editable containers.
-        if (count($wrappers) === 1) {
+        // Picture-less hosts may use a native group only when the boundary is
+        // inert. Linked thumbnails and geometry-bearing media still need the
+        // presentation carrier (including its intrinsic-height folding).
+        if (count($wrappers) === 1 && ! $this->canGroupPicturelessImageHost($host, $image, $link)) {
             return $this->layoutShellBlockForElements($wrappers, array($block), $host);
         }
         // These boxes have no source-selection behavior. Expose each as a
@@ -11261,6 +11261,29 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $block['_native_custom_wrapper_hook'] = true;
         }
         return $block;
+    }
+
+    /** Keep links, geometry and out-of-flow topology on the existing carrier. */
+    private function canGroupPicturelessImageHost(DOMElement $host, DOMElement $image, ?DOMElement $link): bool
+    {
+        if ($link instanceof DOMElement
+            || ! $this->hasOnlyInertImageHostAttributes($host)
+            || array() !== $this->styleResolver->presentationDeclarations($host)
+            || array() !== $this->styleResolver->presentationDeclarations($image)
+            || $image->hasAttribute('width')
+            || $image->hasAttribute('height')) {
+            return false;
+        }
+        for ($ancestor = $host->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
+            if ('a' === strtolower($ancestor->tagName)) {
+                return false;
+            }
+            $position = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($ancestor)['position'] ?? ''));
+            if (in_array($position, array('absolute', 'fixed', 'sticky'), true)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** Only erase the host when its box and identity are inert. */
