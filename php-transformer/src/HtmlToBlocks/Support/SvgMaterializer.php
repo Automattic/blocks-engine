@@ -158,8 +158,8 @@ final class SvgMaterializer implements SvgElementMaterializer
     /**
      * A standalone SVG image cannot see the page stylesheet, and sanitization
      * drops the SVG's own `<style>` (which the page cascade already owns). Bake
-     * each descendant's author-cascaded paint (e.g. an exported `.cls-1{fill}`
-     * rule) onto that element's inline style so the image keeps its colors.
+     * each descendant's resolved paint, including inheritance from the root
+     * and page ancestors, onto its inline style so the image keeps its colors.
      * Only the standalone asset gets this; inline SVG still inherits page CSS,
      * including state rules an inline style would override.
      */
@@ -180,18 +180,13 @@ final class SvgMaterializer implements SvgElementMaterializer
                 continue;
             }
 
-            $matched = $this->styleResolver->matchedCascadedDeclarations($source);
             $declarations = array();
             foreach ( array( 'fill', 'fill-opacity', 'stroke', 'stroke-opacity', 'stroke-width' ) as $property ) {
-                $value = trim(preg_replace('/\s*!\s*important\s*$/i', '', (string) ($matched[$property] ?? '')) ?? '');
-                if ( str_contains($value, 'var(') ) {
-                    $value = trim($this->styleResolver->resolveCssVariablesInValue($value, $source));
-                }
-                // The cascade parser already drops url()/expression() values;
-                // also refuse var() (an isolated image has no custom properties)
-                // and markup or escape characters. An identical presentation
-                // attribute already carries the value.
-                if ( '' === $value || $value === trim(SourceDom::attr($source, $property)) || preg_match('/var\s*\(|[<>@\\\\]/i', $value) ) {
+                $value = $this->styleResolver->resolvedInheritedSvgPaintValue($source, $property);
+                // Keep standalone paint literal: no page-dependent variables,
+                // URL references, expressions, markup or escape characters.
+                // An identical presentation attribute already carries the value.
+                if ( '' === $value || $value === trim(SourceDom::attr($source, $property)) || preg_match('/(?:var|url|expression)\s*\(|[<>@\\\\]/i', $value) ) {
                     continue;
                 }
                 $declarations[$property] = $value;
@@ -202,30 +197,6 @@ final class SvgMaterializer implements SvgElementMaterializer
 
             $style = $this->styleResolver->cssDeclarationString(array_merge($this->styleResolver->cssDeclarations(SourceDom::attr($target, 'style')), $declarations));
             $target->setAttribute('style', $style);
-            $baked = true;
-        }
-        // Paint is inherited. An icon wrapper commonly sets `fill` for the
-        // <svg> it holds (Wix: `.StylableButton__icon{fill:...}`, often under a
-        // width query); the image no longer has that ancestor, so carry the
-        // paint the root inherits at the reference viewport.
-        $rootPaint = array();
-        foreach ( array( 'fill', 'stroke' ) as $property ) {
-            if ( '' !== trim(SourceDom::attr($element, $property)) ) {
-                continue;
-            }
-            for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
-                $value = trim(preg_replace('/\s*!\s*important\s*$/i', '', (string) ($this->styleResolver->referenceViewportAuthorDeclarations($node, array( $property ))[$property] ?? '')) ?? '');
-                if ( '' === $value ) {
-                    continue;
-                }
-                if ( ! preg_match('/var\s*\(|currentcolor|inherit|[<>@\\\\]/i', $value) ) {
-                    $rootPaint[$property] = $value;
-                }
-                break;
-            }
-        }
-        if ( array() !== $rootPaint ) {
-            $clone->setAttribute('style', $this->styleResolver->cssDeclarationString(array_merge($rootPaint, $this->styleResolver->cssDeclarations(SourceDom::attr($clone, 'style')))));
             $baked = true;
         }
         if ( ! $baked ) {
