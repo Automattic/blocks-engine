@@ -540,6 +540,7 @@ JS;
         $width = $this->boundedVisualIframeDimension($iframe, 'width', $styleResolver);
         $height = $this->boundedVisualIframeDimension($iframe, 'height', $styleResolver);
         $sourceSized = $this->sourceOwnsIframeGeometry($iframe, $styleResolver);
+        $sizeRuled = $this->sourceOwnsIframeGeometry($iframe, $styleResolver, array( 'width', 'height', 'aspect-ratio' ));
         if ( ! $sourceSized && ( null === $width || null === $height ) ) {
             return null;
         }
@@ -547,8 +548,9 @@ JS;
         return array_filter(array(
             'src' => $url,
             'title' => $attributes['title'] ?? '',
-            'width' => $sourceSized ? '' : (SourceDom::attr($iframe, 'width') ?: $width),
-            'height' => $sourceSized ? '' : (SourceDom::attr($iframe, 'height') ?: $height),
+            // Positioning alone leaves the source size attributes sizing the frame.
+            'width' => $sourceSized ? ($sizeRuled ? '' : SourceDom::attr($iframe, 'width')) : (SourceDom::attr($iframe, 'width') ?: $width),
+            'height' => $sourceSized ? ($sizeRuled ? '' : SourceDom::attr($iframe, 'height')) : (SourceDom::attr($iframe, 'height') ?: $height),
             'className' => $sourceSized ? ($styleResolver->presentationAttributes($iframe)['className'] ?? '') : ($attributes['class'] ?? ''),
             'allow' => $attributes['allow'] ?? '',
             'loading' => $attributes['loading'] ?? '',
@@ -559,10 +561,11 @@ JS;
     }
 
     /** Any source sizing rule owns geometry, even outside the reference viewport. */
-    private function sourceOwnsIframeGeometry(DOMElement $iframe, StyleResolver $styleResolver): bool
+    /** @param list<string> $properties */
+    private function sourceOwnsIframeGeometry(DOMElement $iframe, StyleResolver $styleResolver, array $properties = array( 'width', 'height', 'aspect-ratio', 'position' )): bool
     {
-        return array() !== $styleResolver->authorDeclaredPropertyValues($iframe, array( 'width', 'height', 'aspect-ratio', 'position' ))
-            || 1 === preg_match('/(?:^|;)\s*(?:width|height|aspect-ratio|position)\s*:/i', SourceDom::attr($iframe, 'style'));
+        return array() !== $styleResolver->authorDeclaredPropertyValues($iframe, $properties)
+            || 1 === preg_match('/(?:^|;)\s*(?:' . implode('|', $properties) . ')\s*:/i', SourceDom::attr($iframe, 'style'));
     }
 
 
