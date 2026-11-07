@@ -129,11 +129,15 @@ final class SearchBlockConverter
 
         // core/search cannot store source classes on its input or button, so
         // source rules addressing them are re-targeted onto the native parts.
-        if ( '' !== trim(SourceDom::attr($textInput, 'class')) || $paintedSibling instanceof DOMElement ) {
+        if ( '' !== trim(SourceDom::attr($textInput, 'class')) || '' !== trim(SourceDom::attr($textInput, 'id'))
+            || ($submitControl instanceof DOMElement && ('' !== trim(SourceDom::attr($submitControl, 'class')) || '' !== trim(SourceDom::attr($submitControl, 'id')))) ) {
             $marker = 'blocks-engine-search-subject-' . substr(hash('sha256', $textInput->getNodePath() ?? ''), 0, 12);
             $attrs['className'] = trim($attrs['className'] . ' ' . $marker);
             $target = ':where(.wp-block-search.' . $marker . ')';
             ($this->session->authorSelectorProjectionState()->installInnerSubject($textInput->getNodePath() ?? '', $target . ' :where(.wp-block-search__input)', ''));
+            if ( $submitControl instanceof DOMElement ) {
+                $this->session->authorSelectorProjectionState()->installInnerSubject($submitControl->getNodePath() ?? '', $target . ' :where(.wp-block-search__button)', '');
+            }
             if ( $paintedSibling instanceof DOMElement && $paintedIcon instanceof DOMElement ) {
                 $attrs['buttonUseIcon'] = true;
                 $button = $target . ' :where(.wp-block-search__button)';
@@ -209,6 +213,11 @@ final class SearchBlockConverter
         $this->session->generatedSupportStylesheetState()->registerNativeSearchTrigger($className,
             $selector . ' .wp-block-search__input{' . $inputCss . '}'
             . ('' !== $buttonCss ? $selector . ' .wp-block-search__button{' . $buttonCss . '}' : '')
+            // An icon-font glyph occupies one em, not core's 24px SVG box.
+            . ($button instanceof DOMElement && $this->isIconOnlySearchControl($button)
+                && 0 === $button->getElementsByTagName('svg')->length
+                ? $selector . ' .wp-block-search__button{margin-left:0}'
+                    . $selector . ' .wp-block-search__button>svg{min-width:0;min-height:0;width:1em;height:1em}' : '')
         );
         return $className;
     }
@@ -218,9 +227,10 @@ final class SearchBlockConverter
         $declarations = $this->context->presentationDeclarations($control);
         // A UA baseline is necessary even when only one author longhand is
         // present: core/theme defaults must not fill the remaining sides.
+        // An authored height must likewise survive core's intrinsic sizing.
         $padding = array( 'padding' => $uaPadding );
         foreach ( $declarations as $property => $value ) {
-            if ( 'padding' === $property || str_starts_with($property, 'padding-') ) {
+            if ( 'padding' === $property || str_starts_with($property, 'padding-') || 'height' === $property ) {
                 $padding[$property] = preg_replace('/\s*!important\s*$/i', '', trim($value));
             }
         }

@@ -45,11 +45,14 @@ final class SourceDom
     /**
      * A text label that is read but not painted. It gives a text-less control
      * its accessible name as content, which core blocks require to render.
-     * The clip is inline so it holds without theme CSS.
+     * The clip is inline so it holds without theme CSS. The label is pinned to
+     * its containing block's origin: left at its static position inside a
+     * scroller that is not positioned, it would escape that clip and widen
+     * the page.
      */
     public static function visuallyHiddenLabel(string $label): string
     {
-        return '<span class="screen-reader-text" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0">'
+        return '<span class="screen-reader-text" style="position:absolute;top:0;left:0;width:1px;height:1px;padding:0;margin:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0">'
             . htmlspecialchars($label, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</span>';
     }
 

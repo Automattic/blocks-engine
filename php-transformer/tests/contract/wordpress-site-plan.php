@@ -1355,7 +1355,7 @@ $assert('post' === ($blogRoute['blog/one/index.html'] ?? null) && 'post' === ($b
 $blogCards = $blogPostTypes(array('stories-a/index.html' => $cards, 'stories-a/one/index.html' => $undatedArticle('One'), 'stories-a/two/index.html' => $undatedArticle('Two')));
 $assert('post' === ($blogCards['stories-a/one/index.html'] ?? null) && 'post' === ($blogCards['stories-a/two/index.html'] ?? null), 'Undated Article JSON-LD under a parent listing of article cards with read-more links stays posts.');
 $dateArchiveFiles = array(
-    'index.html' => '<main>Home</main>',
+    'index.html' => '<main><p><a href="/2023/04/02/index.html">April archive</a></p></main>',
     '2023/04/01/first/index.html' => '<meta property="article:published_time" content="2023-04-01T12:00:00Z"><main><article><h1>First</h1><p>First body.</p></article></main>',
     '2023/04/02/second/index.html' => '<meta property="article:published_time" content="2023-04-02T12:00:00Z"><main><article><h1>Second</h1><p>Second body.</p></article></main>',
     '2023/04/02/index.html' => '<html><head><title>April 2, 2023 – Site</title></head><body class="archive date"><main><h1>April 2, 2023</h1></main></body></html>',
@@ -1363,6 +1363,7 @@ $dateArchiveFiles = array(
 $dateArchiveResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $dateArchiveFiles))->toArray();
 $dateArchivePlan = $dateArchiveResult['source_reports']['wordpress_site_plan'];
 $dateArchivePages = array_column($dateArchivePlan['pages'], null, 'source_path');
+$assert(str_contains($dateArchivePages['index.html']['canonical_block_markup'], 'href="/2023/04/02/"'), 'Captured date archive index links resolve through the retained document-root route identity.');
 $assert(2 === count(array_filter($dateArchivePages, static fn(array $page): bool => 'post' === $page['post_type'])) && !isset($dateArchivePages['2023/04/02/index.html']), 'A WordPress date archive is never materialized as a page or post beside its two dated posts.');
 $assert(array() === $dateArchivePlan['taxonomy_entities'], 'Date route segments must not invent taxonomy terms.');
 $assert(!in_array('2023/04/02/index.html', array_column($dateArchivePlan['routes'], 'source_path'), true), 'The native date archive route has no imported route override or redirect.');
@@ -2072,4 +2073,20 @@ $throws(static fn() => WordPressSitePlan::assertValid($invalidDeclarationSchema)
 
 foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($destination, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST) as $item) $item->isDir() ? rmdir($item->getPathname()) : unlink($item->getPathname());
 rmdir($destination);
+// An image nothing references is not written once script references are proven.
+$unreferencedPng = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==', true);
+$unreferencedFiles = static fn(string $head, string $body): array => array('entrypoint' => 'index.html', 'files' => array('index.html' => '<!doctype html><html><head><link rel="icon" href="icon.png"><link rel="stylesheet" href="site.css">' . $head . '</head><body><main><h1 class="lede">Assets</h1></main>' . $body . '</body></html>', 'site.css' => '.lede{background:url(painted.png)}', 'icon.png' => $unreferencedPng, 'painted.png' => $unreferencedPng . 'p', 'orphan.png' => $unreferencedPng . 'o'));
+foreach (array(
+    'proven script references' => array('', '', array('icon.png' => 'theme', 'painted.png' => 'theme', 'orphan.png' => 'none')),
+    'unproven script references' => array('<script src="https://cdn.example.test/conflict.js" type="module" nomodule></script>', '<script>window.inline = true;</script>', array('icon.png' => 'theme', 'painted.png' => 'theme', 'orphan.png' => 'theme')),
+) as $case => [$head, $body, $expected]) {
+    $unreferencedPlan = (new ArtifactCompiler())->compile($unreferencedFiles($head, $body))->toArray()['source_reports']['wordpress_site_plan'] ?? array();
+    $unreferencedWrites = $writeMap($unreferencedPlan['writes'] ?? array());
+    foreach ($expected as $source => $destination) {
+        $asset = current(array_filter($unreferencedPlan['assets'] ?? array(), static fn(array $asset): bool => $asset['source_path'] === $source));
+        $assert(is_array($asset) && $destination === ($asset['destination'] ?? null) && ('none' !== $destination) === isset($unreferencedWrites[$asset['target_path']]), "With $case, $source is planned to $destination and written only when referenced.");
+    }
+    WordPressSitePlan::assertValid($unreferencedPlan);
+}
+
 fwrite(STDOUT, "wordpress-site-plan contract passed\n");

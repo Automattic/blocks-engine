@@ -52,8 +52,8 @@ final class CapturedChoiceGroupProjector
      * Projects the producer's inline contract: a group marked with
      * CHOICE_GROUP, its choices marked with CHOICE_INDEX, and one recognized
      * CHOICE_RUNTIME script whose `configs[key].transitions[index]` holds the
-     * group's markup after selecting that choice. A page is rewritten only when
-     * every marked group projects; it then no longer needs the runtime.
+     * group's markup after selecting that choice. Capture plumbing is discarded
+     * whether projection succeeds or is declined.
      *
      * @param array<int, array<string, mixed>> $files
      * @return array{files:array<int, array<string, mixed>>, diagnostics:array<int, array<string, mixed>>, projected_count:int}
@@ -70,7 +70,10 @@ final class CapturedChoiceGroupProjector
             }
             $document = $this->loadDocument($content);
             $count = null === $document ? 0 : $this->projectInlinePage($document, $path, $diagnostics);
-            $output = 0 < $count ? HtmlSerialization::documentHtml($document) : null;
+            if (null !== $document) {
+                $this->removeInlineEvidence($document);
+            }
+            $output = null !== $document ? HtmlSerialization::documentHtml($document) : null;
             if (is_string($output)) {
                 $files[$index]['content'] = $output;
                 $files[$index]['bytes'] = strlen($output);
@@ -114,15 +117,22 @@ final class CapturedChoiceGroupProjector
             $projected += $count;
         }
 
-        $scripts[0]->parentNode?->removeChild($scripts[0]);
+        return $projected;
+    }
+
+    /** Capture evidence is never retained as fallback site behavior. */
+    private function removeInlineEvidence(DOMDocument $document): void
+    {
+        $xpath = new \DOMXPath($document);
+        foreach (iterator_to_array($xpath->query('//script[@' . CaptureEvidence::CHOICE_RUNTIME . ']') ?: array()) as $script) {
+            $script->parentNode?->removeChild($script);
+        }
         foreach (iterator_to_array($xpath->query('//*[@' . CaptureEvidence::CHOICE_GROUP . ' or @' . CaptureEvidence::CHOICE_INDEX . ']') ?: array()) as $element) {
             if ($element instanceof DOMElement) {
                 $element->removeAttribute(CaptureEvidence::CHOICE_GROUP);
                 $element->removeAttribute(CaptureEvidence::CHOICE_INDEX);
             }
         }
-
-        return $projected;
     }
 
     /**

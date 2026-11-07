@@ -1044,12 +1044,14 @@ final class PresetBinding
     /** Keep source preset definitions and unbound reads out of core's namespace. */
     private static function sourcePresets(string $css): string
     {
-        return (string) preg_replace_callback(
-            '~/\*.*?\*/|"(?:\\\\.|[^"\\\\])*"|\'(?:\\\\.|[^\'\\\\])*\'|--wp--preset--[a-zA-Z0-9_-]+~s',
+        // Possessive runs keep PCRE from recursing per character, so a large
+        // quoted value such as an SVG data URL is skipped instead of failing.
+        return preg_replace_callback(
+            '~/\*.*?\*/|"[^"\\\\]*+(?:\\\\.[^"\\\\]*+)*+"|\'[^\'\\\\]*+(?:\\\\.[^\'\\\\]*+)*+\'|--wp--preset--[a-zA-Z0-9_-]+~s',
             static fn(array $match): string => str_starts_with($match[0], '--wp--preset--')
                 ? '--be--source--preset--' . substr($match[0], strlen('--wp--preset--')) : $match[0],
             $css
-        );
+        ) ?? $css;
     }
 
     private function bindDeclaration(string $declaration, bool $rootSelector = false): string

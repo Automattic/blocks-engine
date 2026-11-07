@@ -1396,7 +1396,9 @@ final class SvgMaterializer implements SvgElementMaterializer
      */
     public static function ensureSvgImageNamespace(string $html): string
     {
-        if ( ! preg_match('/<svg\b[^>]*\sxmlns\s*=/i', $html) ) {
+        // Only the root element counts: a nested `<svg xmlns>` (as Wix emits
+        // inside its shape wrapper) leaves the document root unnamespaced.
+        if ( ! preg_match('/^\s*<svg\b[^>]*\sxmlns\s*=/i', $html) ) {
             $html = preg_replace('/<svg\b/i', '<svg xmlns="http://www.w3.org/2000/svg"', $html, 1) ?? $html;
         }
         if ( preg_match('/<[a-z][^>]*\sxlink:[a-z]+\s*=/i', $html) && ! preg_match('/^\s*<svg\b[^>]*\sxmlns:xlink\s*=/i', $html) ) {

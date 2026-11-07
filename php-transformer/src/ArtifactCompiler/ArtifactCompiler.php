@@ -447,7 +447,7 @@ final class ArtifactCompiler
                 'diagnostic_class' => 'content_loss',
             ));
         }
-        $allGeneratedBlocks = $entryBlocks['generated_blocks'];
+        $allGeneratedBlocks = array_merge($entryBlocks['generated_blocks'], $inlineShellCompilation['generated_blocks'] ?? array());
         $allGutenbergGaps = $entryBlocks['gutenberg_gaps'];
         $coreHtmlFallbackEvidence = array($entryBlocks['core_html_fallback_evidence']);
         // A projection belongs to the page that produced it. Template surfaces
@@ -1185,15 +1185,14 @@ final class ArtifactCompiler
         $pageProducts = array();
         $detailPages = array();
         $entryRoot = dirname($entryPath);
-        $schemaProducts = SchemaProductEvidence::rows($files, $slug, $price, $diagnostics, $productRoutes, $pageProducts, $detailPages, '.' === $entryRoot ? '' : $entryRoot);
+        $pageEvidence = array();
+        $schemaProducts = SchemaProductEvidence::rows($files, $slug, $price, $diagnostics, $productRoutes, $pageProducts, $detailPages, '.' === $entryRoot ? '' : $entryRoot, $pageEvidence);
         // Match the plan's page route, including explicit routes and entry roots.
         $pageRoutes = array();
         foreach ($files as $file) {
             $path = $file['path'] ?? '';
             $relative = '.' !== $entryRoot && str_starts_with($path, $entryRoot . '/') ? substr($path, strlen($entryRoot) + 1) : $path;
-            $route = SchemaProductEvidence::urlRoute('/' . $relative, $path);
-            $segments = array_map($slug, explode('/', $route));
-            $pageRoutes[$path] = $file['metadata']['route_path'] ?? '/' . implode('/', $segments);
+            $pageRoutes[$path] = $file['metadata']['route_path'] ?? SchemaProductEvidence::pageRoute('/' . $relative, $path, '.' === $entryRoot ? '' : $entryRoot);
             if ('page' !== ($file['metadata']['post_type'] ?? 'page')) unset($detailPages[$path]);
         }
         $products = array();
@@ -1473,6 +1472,9 @@ final class ArtifactCompiler
                     }
                 }
             }
+            if (isset($detailPages[$sourcePath]) && $detailPages[$sourcePath] === ($pageRoutes[$sourcePath] ?? null)) {
+                ProductDetailPageEvidence::fill($schemaProducts[$productSlug], $pageEvidence[$sourcePath] ?? array(), $fallback, $files, $pageRoutes, '.' === $entryRoot ? '' : $entryRoot, $diagnostics);
+            }
             // A purchase form belongs to shop, not a competing form provider.
             unset($forms[$sourcePath . "\n" . $selector]);
         }
@@ -1530,7 +1532,7 @@ final class ArtifactCompiler
             }
         }
         foreach ($products as $productSlug => &$product) {
-            $product['id'] = 'product:' . hash('sha256', $productSlug);
+            $product['id'] = 'product:' . hash('sha256', (string) $productSlug);
             // Only a claimed detail page names the product's route; others keep their URL.
             if (isset($product['whole_page_candidate'])) $product['source_route'] = $pageRoutes[$product['source_path']];
         }
@@ -3884,6 +3886,37 @@ final class ArtifactCompiler
     }
 
     /**
+     * Keep the members that load every landmark stylesheet most members load.
+     * A landmark stylesheet is a style source that names one of the landmark's
+     * ids; route-only stylesheets still drop out of the shell head.
+     *
+     * @param array<string,array{content:string,rows:array<string,mixed>}> $members
+     * @param array<int,array<string,mixed>> $files
+     * @return array<string,array{content:string,rows:array<string,mixed>}>
+     */
+    private function membersSharingLandmarkStyles(array $members, string $area, int|string $variant, array $files, string $entryPath): array
+    {
+        $counts = array();
+        $loaded = array();
+        foreach ($members as $path => $document) {
+            preg_match_all('/\bid="([^"]+)"/', (string) $document['rows'][$area][$variant]['markup'], $idMatches);
+            $head = preg_match('/<head\b[^>]*>(.*?)<\/head>/is', $document['content'], $headMatch) ? $headMatch[1] : '';
+            preg_match_all('/<(?:link\b[^>]*|style\b[^>]*>.*?<\/style)\s*>/is', $head, $styleMatches);
+            $loaded[$path] = array();
+            foreach (array_unique($styleMatches[0]) as $style) {
+                $href = preg_match('/^<link\b[^>]*\bhref="([^"]+)"/i', $style, $hrefMatch) ? (string) strtok(html_entity_decode($hrefMatch[1]), '?#') : null;
+                // Root-relative hrefs resolve from the site root, the entry's directory.
+                $css = null === $href ? $style : (string) ($this->findAssetByHtmlReference($href, str_starts_with($href, '/') ? $entryPath : (string) $path, $files)['content'] ?? '');
+                foreach (array_unique($idMatches[1]) as $id) {
+                    if (str_contains($css, $id)) { $loaded[$path][$style] = true; $counts[$style] = ($counts[$style] ?? 0) + 1; break; }
+                }
+            }
+        }
+        $shared = array_keys(array_filter($counts, static fn(int $count): bool => 2 * $count > count($members)));
+        return array_filter($members, static fn(string $path): bool => array() === array_diff_key(array_flip($shared), $loaded[$path]), ARRAY_FILTER_USE_KEY);
+    }
+
+    /**
      * Compile route-shared nested shell landmarks in isolation so generated
      * support classes and CSS are canonical rather than page-seeded.
      *
@@ -3931,6 +3964,7 @@ final class ArtifactCompiler
 
         $artifacts = array();
         $assets = array();
+        $generatedBlocks = array();
         $authorStylesheetProjections = array();
         $runtimeScriptProjections = array();
         foreach (array('header', 'footer') as $area) {
@@ -3941,6 +3975,10 @@ final class ArtifactCompiler
                 }
             }
             foreach ($groups as $variant => $variantGroups) foreach ($variantGroups as $sourceIdentity => $members) {
+                // A member whose landmark styles come from another stylesheet
+                // renders it under other rules. It keeps its own copy, so the
+                // stylesheets most members load still shape the shared shell.
+                $members = $this->membersSharingLandmarkStyles($members, $area, $variant, $files, $entryPath);
                 if (count($members) < 2) continue;
                 $sourcePath = isset($members[$entryPath]) ? $entryPath : (string) array_key_first($members);
                 // Identity excludes capture-only entrance state, but the emitted
@@ -3972,6 +4010,7 @@ final class ArtifactCompiler
                 foreach (array_slice($context, 2) as $ancestor) { $open .= '<' . $ancestor['tag'] . self::sourceShellAttributes($ancestor['attributes']) . '>'; $close = '</' . $ancestor['tag'] . '>' . $close; }
                 $synthetic = '<!doctype html><html' . self::sourceShellAttributes($context[0]['attributes'] ?? array()) . '><head>' . $head . '</head><body' . self::sourceShellAttributes($context[1]['attributes'] ?? array()) . '>' . $open . $canonicalMarkup . $close . '</body></html>';
                 $compiled = $this->compileHtmlDocumentBlocks($synthetic, $sourcePath, $files, 'artifact-shared-shell', $generatedBlockNamespace, true, array(), max(0, count($context) - 2));
+                $generatedBlocks = array_merge($generatedBlocks, $compiled['generated_blocks'] ?? array());
                 $shell = current(array_filter($compiled['shell_artifacts'], static fn(array $candidate): bool => $area === ($candidate['area'] ?? null)));
                 if (!is_array($shell)) continue;
                 $slug = 1 === count($groups) ? $area : $area . '-' . ($variant + 1);
@@ -4020,6 +4059,7 @@ final class ArtifactCompiler
         return array(
             'artifacts' => $artifacts,
             'assets' => $assets,
+            'generated_blocks' => $generatedBlocks,
             'author_stylesheet_projections' => $authorStylesheetProjections,
             'runtime_script_projections' => $runtimeScriptProjections,
         );

@@ -91,6 +91,49 @@ final class DocumentRootContext
         return $metadata;
     }
 
+    /** Resolve captured archive destinations with WordPress's native URL policy. */
+    public static function archiveLinks(array $documents): string
+    {
+        $paths = array();
+        foreach ($documents as $document) {
+            $path = trim((string) ($document['route']['path'] ?? ''), '/');
+            if (preg_match('~^(?:[0-9]{4}(?:/[0-9]{2}){0,2}|(?:category|tag|author)/.+)$~', $path)) $paths[] = $path;
+        }
+        if (!$paths) return '';
+        sort($paths);
+        $code = <<<'PHP'
+add_filter( 'render_block', static function ( string $content ) use ( $blocks_engine_archive_link_paths ): string {
+    $tag = new WP_HTML_Tag_Processor( $content );
+    while ( $tag->next_tag() ) {
+        foreach ( array( 'href', 'action' ) as $attribute ) {
+            $value = $tag->get_attribute( $attribute );
+            if ( ! is_string( $value ) || ! str_starts_with( $value, '/' ) || str_starts_with( $value, '//' ) ) continue;
+            preg_match( '~^([^?#]*)(.*)$~s', $value, $parts );
+            $path = trim( $parts[1], '/' );
+            if ( ! in_array( $path, $blocks_engine_archive_link_paths, true ) ) continue;
+            $url = null;
+            if ( preg_match( '~^([0-9]{4})(?:/([0-9]{2}))?(?:/([0-9]{2}))?$~', $path, $date ) ) {
+                $year = (int) $date[1];
+                $month = (int) ( $date[2] ?? 0 );
+                $day = (int) ( $date[3] ?? 0 );
+                $url = $day ? get_day_link( $year, $month, $day ) : ( $month ? get_month_link( $year, $month ) : get_year_link( $year ) );
+            } elseif ( str_starts_with( $path, 'author/' ) ) {
+                $author = get_user_by( 'slug', substr( $path, 7 ) );
+                if ( $author ) $url = get_author_posts_url( $author->ID );
+            } else {
+                $taxonomy = str_starts_with( $path, 'tag/' ) ? 'post_tag' : 'category';
+                $term = get_term_by( 'slug', basename( $path ), $taxonomy );
+                if ( $term ) $url = get_term_link( $term );
+            }
+            if ( is_string( $url ) ) $tag->set_attribute( $attribute, $url . $parts[2] );
+        }
+    }
+    return $tag->get_updated_html();
+} );
+PHP;
+        return '$blocks_engine_archive_link_paths = ' . var_export(array_values(array_unique($paths)), true) . ";\n" . $code;
+    }
+
     public static function assertValid(mixed $attributes): void
     {
         if (!is_array($attributes)) throw new InvalidArgumentException('Document root context must be an attribute map.');
@@ -118,6 +161,7 @@ final class DocumentRootContext
             $rows[] = array('identity' => $page['reconciliation_identity'], 'path' => trim((string) ($page['route']['path'] ?? ''), '/'), 'front_page' => !empty($page['entrypoint']), 'attributes' => SourceClassIdentity::projectRoot($attributes), 'body_attributes' => SourceClassIdentity::projectRoot($bodyAttributes));
         }
         if (array() === $rows) return '';
+        $links = self::archiveLinks(array_values(array_filter($pages, static fn(array $page): bool => !isset($page['post_type']))));
         $code = <<<'PHP'
 if ( ! function_exists( 'blocks_engine_archive_path' ) ) {
 function blocks_engine_archive_path(): ?string {
@@ -201,7 +245,7 @@ PHP;
             . 'foreach ( $blocks_engine_document_rows as &$row ) foreach ( array( \'attributes\', \'body_attributes\' ) as $field ) $row[ $field ] = $blocks_engine_document_attribute_bodies[ $row[ $field ] ]; unset( $row );' . "\n"
             . '$blocks_engine_document_fallback = ' . var_export($fallback, true) . ";\n"
             . '$blocks_engine_document_roots = array_replace( array_column( $blocks_engine_document_roots ?? array(), null, \'identity\' ), array_column( $blocks_engine_document_rows, null, \'identity\' ) );' . "\n"
-            . "if ( ! isset( \$blocks_engine_document_attributes ) ) {\n" . $code . "\n}\n";
+            . "if ( ! isset( \$blocks_engine_document_attributes ) ) {\n" . $code . "\n}\n" . $links;
     }
 
     /**
