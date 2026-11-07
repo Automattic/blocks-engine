@@ -4055,15 +4055,34 @@ final class NavigationPattern implements PatternRecognizerInterface
     /**
      * @return array<string, mixed>
      */
+    /**
+     * Whether the element sits inside a hidden panel that an opener outside it
+     * reveals, for a menu that stays collapsed at every width. A collapse
+     * panel shown inline on desktop (a Bootstrap `.navbar-collapse`) is the
+     * navigation's own box instead.
+     */
+    private function isHiddenPanelBehind(DOMElement $element, DOMElement $toggle, NavigationPatternContext $context): bool
+    {
+        if ( $this->containsNode($element, $toggle) || 'always' !== $context->projectedOverlayMenu($toggle) ) {
+            return false;
+        }
+        for ( $node = $element; $node instanceof DOMElement && ! $this->containsNode($node, $toggle); $node = $node->parentNode ) {
+            if ( $node->hasAttribute('hidden') || $context->isHiddenAtReferenceViewport($node) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function navigationContainerAttributes(DOMElement $element, callable $presentationAttributes, ?NavigationPatternContext $navigationContext = null): array
     {
         $attrs = $this->withoutCoreNavigationClasses($presentationAttributes($element));
         $toggle = $navigationContext?->navigationToggleControl($element);
-        if ( $toggle instanceof DOMElement && ! $this->containsNode($element, $toggle)
-            && 'always' === $navigationContext?->projectedOverlayMenu($toggle) ) {
-            // An always-collapsed menu whose opener sits outside the element:
-            // the element is the hidden panel, and the navigation root only ever
-            // renders the opener. The panel's box belongs to Core's panel.
+        if ( $toggle instanceof DOMElement && null !== $navigationContext && $this->isHiddenPanelBehind($element, $toggle, $navigationContext) ) {
+            // The element is the hidden panel an outside opener reveals: the
+            // navigation root renders that opener, so the panel's resting box
+            // belongs to Core's responsive container.
             $attrs['metadata']['blocksEngineNavigationContainer']['className'] = SourceDom::mergeClassNames(
                 (string) ($attrs['metadata']['blocksEngineNavigationContainer']['className'] ?? ''),
                 (string) ($attrs['className'] ?? '')
