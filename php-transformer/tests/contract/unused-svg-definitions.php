@@ -8,6 +8,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 $filter = '<svg width="0" height="0"><defs><filter id="f"><feFlood flood-color="#E04F00" result="flood"></feFlood><feComposite in="flood" in2="SourceAlpha" operator="in"></feComposite></filter></defs></svg>';
 $cases = array(
     'unused definitions' => array($filter, 0),
+    'hidden unused symbol sheet' => array('<svg style="display: none"><symbol id="alert-icon" viewBox="0 0 16 16"><path d="M0 0h16v16H0z"></path></symbol><symbol id="email-icon" viewBox="0 0 16 16"><rect x="1" y="1" width="14" height="14"></rect></symbol></svg>', 0),
+    'referenced hidden symbol sheet' => array('<svg style="display: none"><symbol id="alert-icon"><path d="M0 0h16v16H0z"></path></symbol></svg><svg><use href="#alert-icon"></use></svg>', 1),
     'referenced sprite' => array('<svg width="0" height="0"><defs><symbol id="i"><path d="M0 0h10v10z"/></symbol></defs></svg><svg width="10" height="10"><use href="#i"/></svg>', 2),
     'CSS filter' => array('<style>.x{filter:url(#f)}</style>' . $filter, 1),
     'visible artwork' => array('<svg width="10" height="10"><path d="M0 0h10v10z"/></svg>', 1),

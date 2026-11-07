@@ -93,6 +93,9 @@ final class AuthoredCarouselBlockGenerator
             'fullBleed' => array('type' => 'boolean', 'default' => false),
             'thumbnails' => array('type' => 'array', 'default' => array()),
             'thumbnailPosition' => array('type' => 'string', 'default' => 'right'),
+            'thumbnailWidth' => array('type' => 'string', 'default' => ''),
+            'thumbnailGap' => array('type' => 'string', 'default' => ''),
+            'stageGap' => array('type' => 'string', 'default' => ''),
             'stageAspectRatio' => array('type' => 'string', 'default' => ''),
             'stageMaxWidth' => array('type' => 'number', 'default' => 0),
             'transitionStyle' => array('type' => 'string', 'default' => 'fade'),
@@ -108,7 +111,7 @@ final class AuthoredCarouselBlockGenerator
     function normalizedItems( value ) { value = Math.round( Number( value ) || 4 ); return Math.min( 6, Math.max( 1, value ) ); }
     function normalizedCount( value ) { return Math.max( 0, Math.round( Number( value ) || 0 ) ); }
     function normalizedThumbnails( value ) { return Array.isArray( value ) ? value.filter( function( thumbnail ) { return thumbnail && thumbnail.url; } ) : []; }
-    function normalizedPosition( value ) { return 'bottom' === value ? 'bottom' : 'right'; }
+    function normalizedPosition( value ) { return -1 !== [ 'left', 'right', 'top', 'bottom' ].indexOf( value ) ? value : 'right'; }
     function normalizedPlacement( value ) { return -1 !== [ 'top-left', 'top-right', 'bottom-left', 'bottom-right' ].indexOf( value ) ? value : 'bottom-left'; }
     function normalizedTransition( value ) { return 'slide' === value ? 'slide' : 'fade'; }
     function normalizedAspect( value ) { return 'string' === typeof value && /^[0-9]+(?:\.[0-9]+)?\/[0-9]+(?:\.[0-9]+)?$/.test( value ) ? value : ''; }
@@ -145,6 +148,7 @@ final class AuthoredCarouselBlockGenerator
             var stageWidth = Math.max( 0, Math.round( Number( attributes.stageMaxWidth ) || 0 ) );
             if ( stageWidth > 0 ) { style[ '--blocks-engine-carousel-stage-width' ] = stageWidth + 'px'; }
         }
+        [ [ 'thumbnailWidth', 'thumbnail-size' ], [ 'thumbnailGap', 'thumbnail-gap' ], [ 'stageGap', 'gap' ] ].forEach( function( pair ) { var value = attributes[ pair[ 0 ] ]; if ( 'string' === typeof value && /^[0-9]+(?:\.[0-9]+)?(?:px|rem|em|%)$/.test( value ) ) style[ '--blocks-engine-carousel-' + pair[ 1 ] ] = value; } );
         if ( attributes.stageMinHeight ) { style = style || {}; style[ '--blocks-engine-carousel-stage-min-height' ] = attributes.stageMinHeight; }
         var carouselClasses = 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' + items + ' blocks-engine-authored-carousel--' + presentation + ( attributes.fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '' ) + thumbnailModifier + ( aspect ? ' blocks-engine-authored-carousel--stage-aspect' : '' ) + ' blocks-engine-authored-carousel--transition-' + normalizedTransition( attributes.transitionStyle );
         if ( 'src-swap' === presentation ) carouselClasses = 'blocks-engine-authored-carousel--src-swap';
@@ -599,7 +603,7 @@ JS;
         $style .= '.blocks-engine-authored-carousel--thumbnails{--blocks-engine-carousel-thumbnail-size:80px}'
             . '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--thumbnails-right{display:grid;position:relative;grid-template-columns:minmax(0,1fr) var(--blocks-engine-carousel-thumbnail-size);gap:var(--blocks-engine-carousel-gap);align-items:start}'
             . '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--thumbnails-bottom{display:grid;position:relative;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto;gap:var(--blocks-engine-carousel-gap)}'
-            . '.blocks-engine-authored-carousel--thumbnails .blocks-engine-authored-carousel__thumbnails{display:grid;gap:calc(var(--blocks-engine-carousel-gap)/2);min-width:0;margin:0;padding:0}'
+            . '.blocks-engine-authored-carousel--thumbnails .blocks-engine-authored-carousel__thumbnails{display:grid;gap:var(--blocks-engine-carousel-thumbnail-gap,calc(var(--blocks-engine-carousel-gap)/2));min-width:0;margin:0;padding:0}'
             . '.blocks-engine-authored-carousel--thumbnails-right .blocks-engine-authored-carousel__thumbnails{grid-auto-flow:row;grid-auto-rows:max-content;max-height:var(--blocks-engine-carousel-height,100%);overflow-y:auto;overscroll-behavior:contain}'
             . '.blocks-engine-authored-carousel--thumbnails-bottom .blocks-engine-authored-carousel__thumbnails{grid-auto-flow:column;grid-auto-columns:var(--blocks-engine-carousel-thumbnail-size);overflow-x:auto;overscroll-behavior:contain}'
             . '.blocks-engine-authored-carousel__thumbnail{display:block;box-sizing:border-box;padding:0;border:0;background:none;cursor:pointer;opacity:.55;transition:opacity 150ms ease}'
@@ -609,6 +613,16 @@ JS;
             . '.blocks-engine-authored-carousel--thumbnails-right .blocks-engine-authored-carousel__next{right:calc(var(--blocks-engine-carousel-thumbnail-size) + var(--blocks-engine-carousel-gap))}'
             . '@media(max-width:600px){.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--thumbnails-right{grid-template-columns:minmax(0,1fr)}.blocks-engine-authored-carousel--thumbnails-right .blocks-engine-authored-carousel__thumbnails{grid-auto-flow:column;grid-auto-columns:var(--blocks-engine-carousel-thumbnail-size);max-height:none;overflow-x:auto}.blocks-engine-authored-carousel--thumbnails-right .blocks-engine-authored-carousel__next{right:0}}'
             . '@media(prefers-reduced-motion:reduce){.blocks-engine-authored-carousel__thumbnail{transition:none}}';
+
+        $style .= '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--thumbnails-left{display:grid;position:relative;grid-template-columns:var(--blocks-engine-carousel-thumbnail-size) minmax(0,1fr);gap:var(--blocks-engine-carousel-gap);align-items:start}'
+            . '.blocks-engine-authored-carousel--thumbnails-left>.blocks-engine-authored-carousel__source-stage{grid-column:2;grid-row:1}'
+            . '.blocks-engine-authored-carousel--thumbnails-left>.blocks-engine-authored-carousel__thumbnails{grid-column:1;grid-row:1;grid-auto-flow:row;grid-auto-rows:max-content;max-height:var(--blocks-engine-carousel-height,100%);overflow-y:auto;overscroll-behavior:contain}'
+            . '.blocks-engine-authored-carousel--stage-aspect.blocks-engine-authored-carousel--thumbnails-left{align-items:stretch}'
+            . '.blocks-engine-authored-carousel--stage-aspect.blocks-engine-authored-carousel--thumbnails-left>.blocks-engine-authored-carousel__thumbnails{height:0;min-height:100%;max-height:none}'
+            . '.blocks-engine-authored-carousel--thumbnails-left .blocks-engine-authored-carousel__previous{left:calc(var(--blocks-engine-carousel-thumbnail-size) + var(--blocks-engine-carousel-gap))}'
+            . '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--thumbnails-top{display:grid;position:relative;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);gap:var(--blocks-engine-carousel-gap)}'
+            . '.blocks-engine-authored-carousel--thumbnails-top>.blocks-engine-authored-carousel__source-stage{grid-row:2}'
+            . '.blocks-engine-authored-carousel--thumbnails-top>.blocks-engine-authored-carousel__thumbnails{grid-row:1;grid-auto-flow:column;grid-auto-columns:var(--blocks-engine-carousel-thumbnail-size);overflow-x:auto;overscroll-behavior:contain}';
 
         return array(
             'name' => self::LOCAL_NAME,
@@ -652,7 +666,7 @@ JS;
         $fullBleed = true === ($attributes['fullBleed'] ?? false);
         $showDots = true === ($attributes['showDots'] ?? false) && 1 < $slideCount;
         $thumbnails = $this->normalizedThumbnails($attributes['thumbnails'] ?? array());
-        $thumbnailPosition = 'bottom' === ($attributes['thumbnailPosition'] ?? 'right') ? 'bottom' : 'right';
+        $thumbnailPosition = in_array($attributes['thumbnailPosition'] ?? '', array('left', 'right', 'top', 'bottom'), true) ? $attributes['thumbnailPosition'] : 'right';
         $transitionStyle = 'slide' === ($attributes['transitionStyle'] ?? 'fade') ? 'slide' : 'fade';
         $showPlayControl = true === ($attributes['showPlayControl'] ?? false);
         $classes = 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' . $items . ' blocks-engine-authored-carousel--' . $presentation . ' blocks-engine-authored-carousel--transition-' . $transitionStyle . ($fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '') . (!empty($attributes['sourceControlArtwork']) ? ' blocks-engine-authored-carousel--source-control-artwork' : '') . ('' !== trim((string) ($attributes['sourceControlTopology'] ?? '')) ? ' blocks-engine-authored-carousel--source-control-topology' : '')
@@ -667,6 +681,12 @@ JS;
             $classes .= ' blocks-engine-authored-carousel--stage-aspect';
         }
         $styleDeclarations = array('position:relative');
+        foreach (array('thumbnailWidth' => 'thumbnail-size', 'thumbnailGap' => 'thumbnail-gap', 'stageGap' => 'gap') as $attribute => $variable) {
+            $value = (string) ($attributes[$attribute] ?? '');
+            if (preg_match('/^[0-9]+(?:\.[0-9]+)?(?:px|rem|em|%)$/D', $value)) {
+                $styleDeclarations[] = '--blocks-engine-carousel-' . $variable . ':' . $value;
+            }
+        }
         if ( 0 < $viewportHeight ) {
             $styleDeclarations[] = '--blocks-engine-carousel-height:' . $viewportHeight . 'px';
             $styleDeclarations[] = '--blocks-engine-carousel-transition:' . $transitionDuration . 'ms';
@@ -1276,7 +1296,7 @@ JS;
         }
         $thumbnailPosition = array() === $thumbnails
             ? 'bottom'
-            : $this->thumbnailPagerPosition($this->commonAncestor($pagerItems), $element, $styleResolver);
+            : $this->thumbnailPagerPosition($this->commonAncestor($pagerItems), $element, $geometryList, $styleResolver);
 
         $playbackPlacement = $this->playbackControlPlacement($element, $styleResolver);
         $sourceControls = $this->navigationControls($element);
@@ -1294,9 +1314,26 @@ JS;
             ? $this->stageBoxForItems($items, $styleResolver)
             : array('ratio' => '', 'width' => 0);
 
+        $declaredRatio = $styleResolver->resolveStructuralCssVariablesInValue((string) ($geometryDeclarations['aspect-ratio'] ?? ''), $geometryList);
+        $declaredRatio = $this->normalizedAspectRatio(preg_replace('/\s+/', '', $declaredRatio));
+        if ('' !== $declaredRatio && 0 === $viewportHeight) {
+            $stageBox['ratio'] = $declaredRatio;
+        }
+        $thumbnailGeometry = array();
+        if (array() !== $thumbnails) {
+            $pagerRoot = $this->commonAncestor($pagerItems);
+            $layoutRoot = $pagerRoot instanceof DOMElement ? $this->commonAncestor(array($pagerRoot, $geometryList)) : null;
+            foreach (array('thumbnailWidth' => array($pagerItems[0], 'width'), 'thumbnailGap' => array($pagerRoot, in_array($thumbnailPosition, array('left', 'right'), true) ? 'row-gap' : 'column-gap'), 'stageGap' => array($layoutRoot, in_array($thumbnailPosition, array('left', 'right'), true) ? 'column-gap' : 'row-gap')) as $name => [$target, $property]) {
+                if (!$target instanceof DOMElement) continue;
+                $declarations = $styleResolver->structuralPresentationDeclarations($target);
+                $value = $styleResolver->resolveStructuralCssVariablesInValue((string) ($declarations[$property] ?? ($property !== 'width' ? ($declarations['gap'] ?? '') : '')), $target);
+                if (preg_match('/^[0-9]+(?:\.[0-9]+)?(?:px|rem|em|%)$/D', trim($value))) $thumbnailGeometry[$name] = trim($value);
+            }
+        }
+
         $status = $this->slideStatus($list);
         $registry->register(self::class, $this->definition($registry->namespace()));
-        $attributes = array(
+        $attributes = $thumbnailGeometry + array(
             'ariaLabel' => trim(SourceDom::attr($element, 'aria-label')) ?: 'Carousel',
             'sourceControlTopology' => $controlsTopology,
             'controlPresentation' => array(),
@@ -2223,8 +2260,27 @@ JS;
      * live on any wrapper between the controls and the carousel root, so the
      * search walks that bounded chain.
      */
-    private function thumbnailPagerPosition(?DOMElement $pagerRoot, DOMElement $carouselRoot, StyleResolver $styleResolver): string
+    private function thumbnailPagerPosition(?DOMElement $pagerRoot, DOMElement $carouselRoot, DOMElement $stageTrack, StyleResolver $styleResolver): string
     {
+        $layout = $pagerRoot instanceof DOMElement ? $this->commonAncestor(array($pagerRoot, $stageTrack)) : null;
+        if ($layout instanceof DOMElement && SourceDom::elementContains($carouselRoot, $layout)) {
+            $declarations = $styleResolver->structuralPresentationDeclarations($layout);
+            $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+            if (in_array($display, array('flex', 'inline-flex', 'grid', 'inline-grid'), true)) {
+                $flex = str_contains($display, 'flex');
+                $direction = trim((string) ($declarations[$flex ? 'flex-direction' : 'grid-auto-flow'] ?? 'row'));
+                // Grid row flow fills columns first; column flow fills rows first.
+                $horizontal = $flex ? str_starts_with($direction, 'row') : !str_starts_with($direction, 'column');
+                $first = false;
+                foreach ($layout->childNodes as $child) {
+                    if (!$child instanceof DOMElement) continue;
+                    if (SourceDom::elementContains($child, $pagerRoot)) { $first = true; break; }
+                    if (SourceDom::elementContains($child, $stageTrack)) break;
+                }
+                if (str_ends_with($direction, '-reverse')) $first = !$first;
+                return $horizontal ? ($first ? 'left' : 'right') : ($first ? 'top' : 'bottom');
+            }
+        }
         for ( $ancestor = $pagerRoot; $ancestor instanceof DOMElement && $ancestor !== $carouselRoot; $ancestor = $ancestor->parentNode ) {
             $width = trim((string) ($styleResolver->structuralPresentationDeclarations($ancestor)['width'] ?? ''));
             if ( 1 === preg_match('/^([0-9]+(?:\.[0-9]+)?)px$/', $width, $matches) ) {

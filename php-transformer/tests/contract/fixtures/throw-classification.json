@@ -1084,6 +1084,10 @@
         "class": "integrity",
         "count": 1
       },
+      "InvalidArgumentException('Form layout graph stylesheet diagnostics must be bounded samples with a valid count.')": {
+        "class": "integrity",
+        "count": 1
+      },
       "InvalidArgumentException('Form layout graph diagnostics must be unique nonempty strings.')": {
         "class": "integrity",
         "count": 1

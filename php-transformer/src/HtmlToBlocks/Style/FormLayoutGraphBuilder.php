@@ -344,7 +344,7 @@ final class FormLayoutGraphBuilder
             'limits' => array( 'nodes' => self::MAX_NODES, 'depth' => self::MAX_DEPTH, 'rules_per_node' => self::MAX_RULES_PER_NODE ),
             'nodes' => array_values(array_filter($entries, static fn (array $entry): bool => isset($nodes[$entry['id']]))),
             'variants' => $variants,
-            'diagnostics' => array_values(array_unique($this->diagnostics)),
+            'diagnostics' => self::boundedDiagnostics($this->diagnostics),
         );
         $graph['nodes'] = array_map(static fn (array $entry): array => $nodes[$entry['id']], $graph['nodes']);
         self::assertValid($graph);
@@ -380,6 +380,22 @@ final class FormLayoutGraphBuilder
         return array_filter(array( 'content' => 'spacer' === $entry['kind'] ? 'whitespace_only' : null, 'id' => $entry['id'], 'kind' => $entry['kind'], 'parent' => $entry['parent'], 'order' => $entry['order'], 'source' => $this->source($entry['element']), 'layout' => $layout, 'provenance' => $provenance, 'for_control' => $entry['for_control'] ?? null ), static fn (mixed $value): bool => null !== $value);
     }
 
+    /** @param array<int,string> $diagnostics @return array<int,string> */
+    private static function boundedDiagnostics(array $diagnostics): array
+    {
+        $selectors = array();
+        $other = array();
+        foreach (array_unique($diagnostics) as $diagnostic) {
+            if (str_starts_with($diagnostic, 'unsupported_selector:')) $selectors[] = $diagnostic;
+            else $other[] = $diagnostic;
+        }
+        if (array() !== $selectors) {
+            $other[] = 'unsupported_selectors:' . count($selectors);
+            $other = array_merge($other, array_slice($selectors, 0, 8));
+        }
+        return $other;
+    }
+
     /** @param array<string, mixed> $graph */
     public static function assertValid(array $graph): void
     {
@@ -405,6 +421,11 @@ final class FormLayoutGraphBuilder
         }
         if (!array_is_list($graph['diagnostics']) || array_filter($graph['diagnostics'], static fn (mixed $diagnostic): bool => !is_string($diagnostic) || '' === trim($diagnostic)) || count(array_unique($graph['diagnostics'], SORT_REGULAR)) !== count($graph['diagnostics'])) {
             throw new InvalidArgumentException('Form layout graph diagnostics must be unique nonempty strings.');
+        }
+        $samples = array_filter($graph['diagnostics'], static fn (string $diagnostic): bool => str_starts_with($diagnostic, 'unsupported_selector:'));
+        $counts = array_values(array_filter($graph['diagnostics'], static fn (string $diagnostic): bool => str_starts_with($diagnostic, 'unsupported_selectors:')));
+        if (count($samples) > 8 || count($counts) > 1 || (array() !== $counts && (!preg_match('/^unsupported_selectors:[1-9][0-9]*$/', $counts[0]) || (int) substr($counts[0], strlen('unsupported_selectors:')) < count($samples)))) {
+            throw new InvalidArgumentException('Form layout graph stylesheet diagnostics must be bounded samples with a valid count.');
         }
         $ids = array();
         foreach ( $graph['nodes'] as $node ) {

@@ -3886,6 +3886,37 @@ final class ArtifactCompiler
     }
 
     /**
+     * Keep the members that load every landmark stylesheet most members load.
+     * A landmark stylesheet is a style source that names one of the landmark's
+     * ids; route-only stylesheets still drop out of the shell head.
+     *
+     * @param array<string,array{content:string,rows:array<string,mixed>}> $members
+     * @param array<int,array<string,mixed>> $files
+     * @return array<string,array{content:string,rows:array<string,mixed>}>
+     */
+    private function membersSharingLandmarkStyles(array $members, string $area, int|string $variant, array $files, string $entryPath): array
+    {
+        $counts = array();
+        $loaded = array();
+        foreach ($members as $path => $document) {
+            preg_match_all('/\bid="([^"]+)"/', (string) $document['rows'][$area][$variant]['markup'], $idMatches);
+            $head = preg_match('/<head\b[^>]*>(.*?)<\/head>/is', $document['content'], $headMatch) ? $headMatch[1] : '';
+            preg_match_all('/<(?:link\b[^>]*|style\b[^>]*>.*?<\/style)\s*>/is', $head, $styleMatches);
+            $loaded[$path] = array();
+            foreach (array_unique($styleMatches[0]) as $style) {
+                $href = preg_match('/^<link\b[^>]*\bhref="([^"]+)"/i', $style, $hrefMatch) ? (string) strtok(html_entity_decode($hrefMatch[1]), '?#') : null;
+                // Root-relative hrefs resolve from the site root, the entry's directory.
+                $css = null === $href ? $style : (string) ($this->findAssetByHtmlReference($href, str_starts_with($href, '/') ? $entryPath : (string) $path, $files)['content'] ?? '');
+                foreach (array_unique($idMatches[1]) as $id) {
+                    if (str_contains($css, $id)) { $loaded[$path][$style] = true; $counts[$style] = ($counts[$style] ?? 0) + 1; break; }
+                }
+            }
+        }
+        $shared = array_keys(array_filter($counts, static fn(int $count): bool => 2 * $count > count($members)));
+        return array_filter($members, static fn(string $path): bool => array() === array_diff_key(array_flip($shared), $loaded[$path]), ARRAY_FILTER_USE_KEY);
+    }
+
+    /**
      * Compile route-shared nested shell landmarks in isolation so generated
      * support classes and CSS are canonical rather than page-seeded.
      *
@@ -3944,6 +3975,10 @@ final class ArtifactCompiler
                 }
             }
             foreach ($groups as $variant => $variantGroups) foreach ($variantGroups as $sourceIdentity => $members) {
+                // A member whose landmark styles come from another stylesheet
+                // renders it under other rules. It keeps its own copy, so the
+                // stylesheets most members load still shape the shared shell.
+                $members = $this->membersSharingLandmarkStyles($members, $area, $variant, $files, $entryPath);
                 if (count($members) < 2) continue;
                 $sourcePath = isset($members[$entryPath]) ? $entryPath : (string) array_key_first($members);
                 // Identity excludes capture-only entrance state, but the emitted

@@ -33,12 +33,16 @@ $attributes = json_decode($light[1], true, 512, JSON_THROW_ON_ERROR);
 $assert($white === ($attributes['textColor'] ?? null), 'An exact palette literal binds despite differing resting colours on the same authored classes.');
 $assert(!isset($attributes['style']['color']['text']) && !str_contains($light[2], 'color:') && str_contains($light[2], 'has-text-color') && str_contains($light[2], 'has-' . $white . '-color'), 'Core preset attributes and classes replace the inline text declaration.');
 
-foreach (array(':hover' => 'state_variant', '' => 'important') as $selector => $reason) {
-    $unsafe = $compile('.body' . $selector . '{color:#fff' . ('' === $selector ? '!important' : '') . '}');
-    $unsafeMarkup = $unsafe['pages'][0]['canonical_block_markup'];
-    $assert(str_contains($unsafeMarkup, 'style="color:rgb(255, 255, 255)"'), 'Reachable ' . $reason . ' rules keep the literal.');
-    $assert($unsafe['theme']['design_system']['metrics']['refusal_reasons'][$reason] > 0, 'The safety refusal remains reported.');
-}
+$unsafe = $compile('.body:hover{color:#fff}');
+$assert(str_contains($unsafe['pages'][0]['canonical_block_markup'], 'style="color:rgb(255, 255, 255)"'), 'Reachable state_variant rules keep the literal.');
+$assert($unsafe['theme']['design_system']['metrics']['refusal_reasons']['state_variant'] > 0, 'The safety refusal remains reported.');
+// An author !important rule overrides the inline colour, so the source never
+// renders it: the literal is neither kept nor bound, and the author rule paints.
+$important = $compile('.body{color:#fff!important}');
+$importantMarkup = $important['pages'][0]['canonical_block_markup'];
+preg_match_all('/<!-- wp:paragraph .*?<\/p>/', $importantMarkup, $paragraphs);
+$assert(2 === count($paragraphs[0]) && !preg_match('/color:rgb\(|textColor/', implode('', $paragraphs[0])), 'An overridden inline colour is not projected.');
+$assert($important['theme']['design_system']['metrics']['refusal_reasons']['important'] > 0, 'The important refusal remains reported.');
 $ordinaryMedia = $compile('@media(max-width:600px){.body{color:#000}}');
 $assert(!str_contains($ordinaryMedia['pages'][0]['canonical_block_markup'], 'style="color:rgb(255, 255, 255)"'), 'An ordinary breakpoint cannot override a direct inline colour.');
 $unsafe = $compile('@media(max-width:600px){.body{color:#000!important}}');

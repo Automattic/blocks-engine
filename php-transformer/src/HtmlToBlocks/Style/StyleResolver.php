@@ -2883,6 +2883,37 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Drop inline declarations an unconditional author `!important` rule
+     * overrides on this element. They never render, so reading them as the
+     * element's authored presentation (block attributes, geometry carriers)
+     * would project a value the source never showed.
+     */
+    public function dropAuthorOverriddenInlineDeclarations(DOMElement $element): void
+    {
+        $inline = $this->verbatimCssDeclarations(SourceDom::attr($element, 'style'));
+        if ( array() === $inline ) {
+            return;
+        }
+        $overridden = array();
+        foreach ( $this->matchingStyleRules($element, 'static') as $rule ) {
+            foreach ( $rule['declarations'] as $property => $value ) {
+                if ( CssValueInspector::isImportant((string) $value) ) {
+                    $overridden[ strtolower((string) $property) ] = true;
+                }
+            }
+        }
+        $kept = array();
+        foreach ( $inline as $property => $value ) {
+            if ( ! isset($overridden[ $property ]) || CssValueInspector::isImportant((string) $value) ) {
+                $kept[] = $property . ': ' . $value;
+            }
+        }
+        if ( count($kept) !== count($inline) ) {
+            $element->setAttribute('style', array() === $kept ? '' : implode(';', $kept) . ';');
+        }
+    }
+
+    /**
      * @param list<string> $properties
      * @return array{int, int, int}
      */
