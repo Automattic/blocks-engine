@@ -1478,6 +1478,7 @@ PHP;
             $rowByTarget[strtolower($target)] = array_key_last($rows);
             if (isset($asset['inline_references'])) $rows[array_key_last($rows)]['inline_references'] = $asset['inline_references'];
             if (isset($asset['source_media']) && is_string($asset['source_media'])) $rows[array_key_last($rows)]['source_media'] = $asset['source_media'];
+            if (isset($asset[CaptureEvidence::DEVICE_STYLE])) $rows[array_key_last($rows)][CaptureEvidence::DEVICE_STYLE] = $asset[CaptureEvidence::DEVICE_STYLE];
             if (isset($asset['stylesheet_activation'])) {
                 $rows[array_key_last($rows)]['stylesheet_activation'] = $asset['stylesheet_activation'];
                 $rows[array_key_last($rows)]['stylesheet_source_path'] = $asset['stylesheet_source_path'] ?? $asset['path'];
@@ -1656,10 +1657,10 @@ PHP;
             }
             foreach ($assets as $index => $asset) foreach ($asset['inline_references'] ?? array() as $reference) {
                 if ('css' !== ($asset['kind'] ?? null) || $page['source_path'] !== ($reference['source_path'] ?? null)) continue;
-                $sequence[] = array(2 * (int) ($reference['stylesheet_link_position'] ?? 0), $index, (string) ($reference['source_media'] ?? $reference['media'] ?? ''), (string) ($asset['type'] ?? ''), (int) ($reference['stylesheet_index'] ?? 0));
+                $sequence[] = array(2 * (int) ($reference['stylesheet_link_position'] ?? 0), $index, (string) (isset($reference[CaptureEvidence::DEVICE_STYLE]) ? ($reference['media'] ?? '') : ($reference['source_media'] ?? $reference['media'] ?? '')), (string) ($asset['type'] ?? ''), (int) ($reference['stylesheet_index'] ?? 0), self::inlineStylesheetDeviceAttributes($reference));
             }
             foreach ($inlineIndexesByPage[(string) ($page['source_path'] ?? '')] ?? array() as $index) {
-                $sequence[] = array(2 * (int) $assets[$index]['stylesheet_link_position'], $index, (string) ($assets[$index]['media'] ?? ''), '', (int) ($assets[$index]['stylesheet_inline_order'] ?? $index));
+                $sequence[] = array(2 * (int) $assets[$index]['stylesheet_link_position'], $index, (string) ($assets[$index]['media'] ?? ''), '', (int) ($assets[$index]['stylesheet_inline_order'] ?? $index), self::inlineStylesheetDeviceAttributes($assets[$index]));
             }
             usort($sequence, static fn(array $left, array $right): int => $left[0] <=> $right[0] ?: $left[4] <=> $right[4] ?: $left[1] <=> $right[1]);
             foreach ($sequence as $order => $entry) {
@@ -2988,6 +2989,21 @@ PHP;
             else unset($assets[$index]['_stylesheet_projection_origins']);
         }
         if (array() === $projections) return $assets;
+        // A route without the source stylesheet still loads the slice for its
+        // shared chrome; a device-selected source keeps that selection there.
+        $deviceConditions = array();
+        foreach ($projections as $projection) {
+            $sources = array_column($assets[$projection]['_stylesheet_projection_origins'], 'source_path', 'source_path');
+            foreach ($assets as $asset) {
+                if (!isset($sources[(string) ($asset['source_path'] ?? '')])) continue;
+                foreach ($asset['stylesheet_instances'] ?? array() as $instance) {
+                    $device = self::stylesheetDeviceAttributes($instance);
+                    if (!isset($device[CaptureEvidence::DEVICE_STYLE])) continue;
+                    $conditions = array('media' => $instance['media'], 'type' => '') + $device;
+                    $deviceConditions[$projection][serialize($conditions)] = $conditions;
+                }
+            }
+        }
         $applies = static fn(array $scopes, string $document): bool => array() !== array_filter($scopes, static fn(array $scope): bool => 'global' === ($scope['kind'] ?? null) || ($scope['source_path'] ?? null) === $document);
         foreach ($pages as $page) {
             $document = (string) $page['source_path'];
@@ -3010,7 +3026,9 @@ PHP;
                         $origins[serialize($key)] = array('position' => $position) + $conditions;
                     }
                 }
-                if (array() === $origins) $origins[] = array('position' => $preceding ?? -1, 'media' => (string) ($assets[$projection]['media'] ?? ''), 'type' => '');
+                if (array() === $origins) {
+                    foreach ($deviceConditions[$projection] ?? array(array('media' => (string) ($assets[$projection]['media'] ?? ''), 'type' => '')) as $conditions) $origins[] = array('position' => $preceding ?? -1) + $conditions;
+                }
                 // Insert backwards so earlier positions do not shift.
                 usort($origins, static fn(array $left, array $right): int => $right['position'] <=> $left['position']);
                 foreach ($origins as $origin) {
@@ -6974,6 +6992,13 @@ PHP;
     // back onto the materialized file. Encode every segment, preserving the
     // `/` separators.
     private static function encodedAssetUrlPath(string $path): string { return implode('/', array_map('rawurlencode', explode('/', $path))); }
+
+    /** Inline occurrences store the author's media separately from captured media. @return array<string,mixed> */
+    private static function inlineStylesheetDeviceAttributes(array $occurrence): array
+    {
+        if (!isset($occurrence[CaptureEvidence::DEVICE_STYLE])) return array();
+        return self::stylesheetDeviceAttributes($occurrence) + array(CaptureEvidence::SOURCE_MEDIA => (string) ($occurrence['source_media'] ?? $occurrence['media'] ?? ''));
+    }
 
     /** @return array<string,mixed> */
     private static function stylesheetDeviceAttributes(array $occurrence): array
