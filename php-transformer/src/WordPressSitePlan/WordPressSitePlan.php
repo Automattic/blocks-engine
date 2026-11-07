@@ -2816,10 +2816,11 @@ PHP;
                     return array() === $kept ? '' : implode(',', $kept) . '{' . $body . '}';
                 }
             );
+            $contract = self::sharedChromeContract($asset);
             $sharedAsset = $asset;
             // Address the target by what is enqueued, not only the text: the same
-            // rules under another media condition or target are another asset.
-            $sharedAsset['path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', self::sharedChromeContract($asset) . "\0" . $shared), 0, 16) . '.css';
+            // rules under another media condition, target or capture device are another asset.
+            $sharedAsset['path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', $contract . "\0" . $shared), 0, 16) . '.css';
             $sharedAsset['target_path'] = $sharedAsset['path'];
             $sharedAsset['source_path'] = (string) ($asset['source_path'] ?? $asset['path'] ?? '') . '.shared-chrome';
             // Relative url() references still resolve against the stylesheet the
@@ -2841,7 +2842,7 @@ PHP;
                     $arms = CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude);
                     return implode(',', array_map(static fn(string $arm): string => preg_match('/\\[\\s*(?:' . preg_quote(EngineMarker::DEVICE_SCOPE_ATTRIBUTE, '/') . '|' . preg_quote(CaptureEvidence::DEVICE_DOCUMENT, '/') . ')\\b/i', $arm) ? $gate . ' ' . $arm : $arm, $arms)) . '{' . $body . '}';
                 });
-                $sharedAsset['path'] = $sharedAsset['target_path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', self::sharedChromeContract($asset) . "\0" . $shared), 0, 16) . '.css';
+                $sharedAsset['path'] = $sharedAsset['target_path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', $contract . "\0" . $shared), 0, 16) . '.css';
             }
             $sharedAsset = self::withRewrittenTextContent($sharedAsset, $shared);
             $sharedAsset['scopes'] = array(array('kind' => 'global'));
@@ -2864,11 +2865,11 @@ PHP;
                 foreach ($emissions as $emitted) {
                     $index = $emitted['index'];
                     $existing = $projected[$index];
-                    if ($emitted['contract'] !== self::sharedChromeContract($sharedAsset)
+                    if ($emitted['contract'] !== $contract
                         || !self::sharedChromeOriginsAgree($shared, $emitted['origin'], (string) $sharedAsset['reference_origin'], $references)) continue;
                     $combined = (new CssStylesheetTransformer())->concatenateWithoutRedundantRules(array($existing['content'], $shared));
                     $existing = self::withRewrittenTextContent($existing, $combined);
-                    $existing['path'] = $existing['target_path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', self::sharedChromeContract($existing) . "\0" . $combined), 0, 16) . '.css';
+                    $existing['path'] = $existing['target_path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', $contract . "\0" . $combined), 0, 16) . '.css';
                     $existing['token'] = 'asset-' . substr(hash('sha256', $existing['target_path']), 0, 16);
                     $existing['reconciliation_identity'] = self::identity('asset', $existing['source_path'], $existing['target_path']);
                     $existing['_stylesheet_projection_origins'][] = self::stylesheetProjectionOrigin($asset);
@@ -2884,7 +2885,7 @@ PHP;
                 $sharedAsset['reconciliation_identity'] = self::identity('asset', $sharedAsset['source_path'], $sharedAsset['target_path']);
                 $collisions[] = array('source_path' => (string) $sharedAsset['source_path'], 'colliding_source_path' => (string) $projected[$emittedShared[$sharedKey][0]['index']]['source_path'], 'target_path' => $collidingTarget, 'resolved_target_path' => (string) $sharedAsset['target_path']);
             }
-            $emittedShared[$sharedKey][] = array('origin' => (string) $sharedAsset['reference_origin'], 'contract' => self::sharedChromeContract($sharedAsset), 'index' => count($projected));
+            $emittedShared[$sharedKey][] = array('origin' => (string) $sharedAsset['reference_origin'], 'contract' => $contract, 'index' => count($projected));
             $projected[] = $sharedAsset;
         }
         return $projected;
@@ -3246,7 +3247,15 @@ PHP;
 
     private static function sharedChromeContract(array $asset): string
     {
-        return (string) ($asset['media'] ?? '') . "\0" . (string) ($asset['stylesheet_target'] ?? 'both') . "\0" . ('engine-support' === ($asset['source'] ?? '') ? 'engine' : 'author');
+        $devices = array();
+        foreach ($asset['stylesheet_instances'] ?? array() as $instance) {
+            foreach (self::stylesheetDeviceAttributes($instance) as $attribute => $value) {
+                if (is_string($value)) $devices[$attribute . "\0" . $value] = true;
+            }
+        }
+        $devices = array_keys($devices);
+        sort($devices, SORT_STRING);
+        return (string) ($asset['media'] ?? '') . "\0" . (string) ($asset['stylesheet_target'] ?? 'both') . "\0" . ('engine-support' === ($asset['source'] ?? '') ? 'engine' : 'author') . "\0" . implode("\0", $devices);
     }
 
     private static function sharedChromeOriginsAgree(string $css, string $origin, string $other, ?AssetReferenceCanonicalizer $references): bool

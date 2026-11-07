@@ -349,6 +349,7 @@
       "php tests/contract/shared-chrome-authored-rules.php",
       "php tests/contract/shared-chrome-dead-richtext-markers.php",
       "php tests/contract/shared-part-single-chrome-stylesheet.php",
+      "php tests/contract/shared-chrome-device-style-slices.php",
       "php tests/contract/declaration-addressed-chrome.php",
       "php tests/contract/source-responsive-cascade.php",
       "php tests/unit/declaration-addressed-classes.php",
