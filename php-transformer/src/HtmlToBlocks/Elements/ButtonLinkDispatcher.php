@@ -85,7 +85,7 @@ final class ButtonLinkDispatcher
 
         // An icon-only link still carries an accessible name, so it must survive
         // even though it has no text content.
-        if ( '' === trim($element->textContent ?? '') && '' !== $this->context->safeLinkUrl(SourceDom::attr($element, 'href')) && ( '' !== trim(SourceDom::attr($element, 'aria-label')) || $this->hasAccessibleLabelReference($element) ) ) {
+        if ( '' === trim($element->textContent ?? '') && $this->hasDestination($element) && ( '' !== trim(SourceDom::attr($element, 'aria-label')) || $this->hasAccessibleLabelReference($element) ) ) {
             if ( '' === trim(SourceDom::attr($element, 'aria-label')) ) {
                 $element->setAttribute('class', SourceDom::mergeClassNames(SourceDom::attr($element, 'class'), self::ACCESSIBLE_EMPTY_LINK_CLASS));
             }
@@ -97,9 +97,7 @@ final class ButtonLinkDispatcher
         // native RichText host as other links; neither a duplicate sibling
         // destination nor absent text proves that it is safe to omit. Keep
         // media-bearing and flow-content anchors on their own lowering.
-        if ( $this->hasOnlyEmptyInlineDecoration($element)
-            && '' === trim($element->textContent ?? '')
-            && '' !== $this->context->safeLinkUrl(SourceDom::attr($element, 'href')) ) {
+        if ( $this->hasOnlyEmptyInlineDecoration($element) && $this->hasDestination($element) ) {
             return $this->paragraphHost($element);
         }
 
@@ -139,6 +137,11 @@ final class ButtonLinkDispatcher
         // Its id remains on the inner link, the node that source selectors and
         // fragment navigation actually address.
         return $this->paragraphHost($element);
+    }
+
+    private function hasDestination(DOMElement $element): bool
+    {
+        return SourceDom::hasBlankHref($element) || '' !== $this->context->safeLinkUrl(SourceDom::attr($element, 'href'));
     }
 
     /**

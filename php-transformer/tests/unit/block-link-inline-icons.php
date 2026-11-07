@@ -12,7 +12,7 @@ $result = (new ArtifactCompiler())->compile(array('files' => array(array(
 
 $markup = $result['source_reports']['compiled_site']['pages'][0]['block_markup'] ?? '';
 foreach (array('icon-mail', 'icon-chat') as $icon) {
-    if (!str_contains($markup, 'class="' . $icon . '"')) {
+    if (!str_contains($markup, 'class="' . $icon . ' has-inline-color"')) {
         throw new RuntimeException('Rendered link must retain pseudo-element icon: ' . $icon);
     }
 }
