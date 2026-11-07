@@ -4796,6 +4796,9 @@ PHP;
             $bound[$slug][$index] = $page;
         }
         foreach ($bound as $slug => $posts) {
+            // Factoring needs two posts with one layout; a template bound to a
+            // single post has nothing to factor and keeps its complete article.
+            if (count($posts) < 2) continue;
             $shared = $this->sharedPostChromeIdentities($posts);
             $groups = array();
             foreach ($posts as $index => $post) {
