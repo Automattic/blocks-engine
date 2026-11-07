@@ -46,7 +46,7 @@ foreach (array('matching' => 25, 'mismatch' => 24, 'nonuniform' => 25, 'without 
         continue;
     }
     $assert('Caps' === ($product['category'] ?? ''), "$case: breadcrumb listing category");
-    $assert(array('/front-large.jpg', '/back.jpg', '/badge.jpg') === array_column($product['images'] ?? array(), 'src'), "$case: schema image first, DOM order and responsive deduplication");
+    $assert(array('/front.jpg', '/back.jpg', '/badge.jpg') === array_column($product['images'] ?? array(), 'src'), "$case: schema image first, DOM order and responsive deduplication");
     $assert(array('Front', 'Back', 'Badge') === array_column($product['images'], 'alt'), "$case: gallery image row shape");
     if (in_array($case, array('matching', 'without count'), true)) {
         $assert(25 === count($product['variants'] ?? array()), 'Cartesian combinations');
@@ -63,6 +63,30 @@ foreach (array('matching' => 25, 'mismatch' => 24, 'nonuniform' => 25, 'without 
     $fields = array_column(array_filter($result['diagnostics'], static fn (array $d): bool => 'product_page_field_derived' === ($d['code'] ?? '')), 'field');
     $assert(in_array('images', $fields, true) && in_array('category', $fields, true), 'Derived field provenance');
 }
+// Captured Squarespace shape: metadata-only primary, lazy sibling gallery, native listing.
+$gallery = '<div class="product-gallery"><div class="product-gallery-thumbnails" role="group">';
+foreach (array('AAA', 'BBB', 'CCC', 'DDD', 'EEE') as $photo) {
+    $gallery .= '<button><img class="product-gallery-thumbnails-item-image" data-src="/media/shirt-front-' . $photo . '.webp" data-image="/media/shirt-front-' . $photo . '.webp" alt="" src="/media/shirt-front-' . $photo . '-t1.webp"></button>';
+}
+$gallery .= '</div><div class="product-gallery-slides">';
+foreach (array('AAA', 'BBB', 'CCC', 'DDD', 'EEE') as $index => $photo) {
+    $gallery .= '<img class="product-gallery-slides-item-image" data-src="/media/shirt-front-' . $photo . '.webp" data-image="/media/shirt-front-' . $photo . '.webp"' . (0 === $index ? ' src="/media/shirt-front-' . $photo . '-s1.webp"' : '') . '>';
+}
+$gallery .= '</div></div>';
+$schema = array('@context' => 'https://schema.org', '@type' => 'Product', 'name' => 'Shirt', 'image' => '/media/shirt-front-AAA-2.webp', 'offers' => array('@type' => 'Offer', 'price' => '27.99'));
+$detail = '<html><head><title>Shirt</title><meta property="og:image" content="/media/shirt-front-AAA-2.webp"><link rel="image_src" href="/media/shirt-front-AAA-2.webp"><meta itemprop="image" content="/media/shirt-front-AAA-2.webp"><script type="application/ld+json">' . json_encode($schema) . '</script></head><body><main><nav class="product-nav"><a href="/listing/index.html" class="product-nav-breadcrumb-link"> He Wants Me To Be Happy </a><span>›</span><a href="/listing/p/shirt/index.html" class="product-nav-breadcrumb-link"> Shirt </a></nav><section>' . $gallery . '<div class="purchase-column"><img src="/badge.webp"><h1>Shirt</h1><form action="/cart/add" method="post"><label>Size<select name="size"><option value="">Select Size</option><option value="S">Small</option></select></label><button type="submit">Add to cart</button></form></div></section></main></body></html>';
+$result = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => array(
+    'website/index.html' => '<html><body><a href="/listing/index.html">Shop</a></body></html>',
+    'website/listing/index.html' => '<html><body><main><h1>He Wants Me To Be Happy</h1><a href="/listing/p/shirt/index.html">Shirt</a></main></body></html>',
+    'website/listing/p/shirt/index.html' => $detail,
+)))->toArray();
+$product = array();
+foreach ($result['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array() as $declaration) {
+    if ('products' === ($declaration['type'] ?? '')) foreach ($declaration['payload']['entities'] as $entity) if ('shirt' === $entity['slug']) $product = $entity;
+}
+$assert('/media/shirt-front-AAA-2.webp' === ($product['image'] ?? ''), 'Metadata-only declared image retained');
+$assert(array_map(static fn (string $photo): string => '/media/shirt-front-' . $photo . '.webp', array('AAA', 'BBB', 'CCC', 'DDD', 'EEE')) === array_column($product['images'] ?? array(), 'src'), 'Five lazy gallery photos in DOM order, without badge or metadata-only rendition');
+$assert('He Wants Me To Be Happy' === ($product['category'] ?? ''), 'Entry-root-relative breadcrumb category without grid fallbacks');
 // Exercise the caption fallback without metadata-provided accessible names.
 foreach (array(
     'legend wins' => array('<fieldset><legend> Color: </legend><div>Wrong caption</div>%s</fieldset>', 'Color'),
@@ -78,7 +102,7 @@ foreach (array(
     $form = $document->getElementsByTagName('form')->item(0);
     $row = array('source_path' => 'product.html', 'slug' => 'cap', 'url' => '/product');
     $diagnostics = array();
-    ProductDetailPageEvidence::fill($row, array('offers' => array('price' => '27.99')), array('selector' => SourceDom::elementSelector($form), 'controls' => array(array('tag' => 'select', 'selector' => SourceDom::elementSelector($select), 'options' => array(array('value' => '', 'label' => 'Not a label'), array('value' => 'red', 'label' => 'Red'))))), array(array('path' => 'product.html', 'content' => $html)), array(), $diagnostics);
+    ProductDetailPageEvidence::fill($row, array('offers' => array('price' => '27.99')), array('selector' => SourceDom::elementSelector($form), 'controls' => array(array('tag' => 'select', 'selector' => SourceDom::elementSelector($select), 'options' => array(array('value' => '', 'label' => 'Not a label'), array('value' => 'red', 'label' => 'Red'))))), array(array('path' => 'product.html', 'content' => $html)), array(), '', $diagnostics);
     $assert($expectedLabel === ($row['variants'][0]['attributes'][0]['label'] ?? ''), "$case: bounded option-group caption");
 }
 echo "product-detail-page-evidence: ok\n";

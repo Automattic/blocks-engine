@@ -18,6 +18,42 @@ final class ProductDetailPageEvidence
         return $host . '/' . SchemaProductEvidence::urlRoute($url, $source) . (is_string($query) ? '?' . $query : '');
     }
 
+    /** Connected rendition identities, retaining the first image's preferred URL and DOM order. */
+    private static function imageGroups(DOMElement $container, string $source): array
+    {
+        $groups = array();
+        foreach ($container->getElementsByTagName('img') as $order => $image) {
+            $urls = array();
+            $src = '';
+            foreach (array('data-image', 'data-src', 'src') as $attribute) {
+                $url = trim($image->getAttribute($attribute));
+                if ('' === $url) continue;
+                if ('' === $src) $src = $url;
+                $urls[] = self::imageIdentity($url, $source);
+            }
+            foreach (array('srcset', 'data-srcset') as $attribute) {
+                foreach (explode(',', $image->getAttribute($attribute)) as $candidate) {
+                    $url = preg_split('/\s+/', trim($candidate))[0] ?? '';
+                    if ('' !== $url) $urls[] = self::imageIdentity($url, $source);
+                }
+            }
+            if ('' === $src) continue;
+            $group = array('urls' => $urls, 'order' => $order, 'row' => array('src' => $src, 'alt' => $image->getAttribute('alt')));
+            foreach ($groups as $index => $existing) {
+                if (!array_intersect($group['urls'], $existing['urls'])) continue;
+                $group['urls'] = array_unique(array_merge($group['urls'], $existing['urls']));
+                if ($existing['order'] < $group['order']) {
+                    $group['row'] = $existing['row'];
+                    $group['order'] = $existing['order'];
+                }
+                unset($groups[$index]);
+            }
+            $groups[] = $group;
+        }
+        usort($groups, static fn (array $a, array $b): int => $a['order'] <=> $b['order']);
+        return $groups;
+    }
+
     /** Resolve only the caption of this control's own option group. */
     private static function optionGroupLabel(DOMElement $select): string
     {
@@ -62,7 +98,7 @@ final class ProductDetailPageEvidence
         return rtrim(trim(preg_replace('/\s+/u', ' ', $caption) ?? ''), ': ');
     }
 
-    public static function fill(array &$row, array $schema, array $purchase, array $files, array $fallbacks, array &$diagnostics): void
+    public static function fill(array &$row, array $schema, array $purchase, array $files, array $pageRoutes, string $entryRoot, array &$diagnostics): void
     {
         $source = $purchase['source'] ?? $row['source_path'];
         $record = static function (string $field) use (&$diagnostics, $source, $row, $purchase): void {
@@ -122,38 +158,30 @@ final class ProductDetailPageEvidence
         $owner = $elements[$purchase['selector'] ?? ''] ?? null;
         if (!$owner instanceof DOMElement) return;
         if (!isset($row['images']) && isset($row['image'])) {
-            // The detail container must include the declared image, not just a purchase badge.
+            $declaredIdentity = self::imageIdentity($row['image'], $source);
+            $displayed = false;
+            foreach (self::imageGroups($document->documentElement, $source) as $group) {
+                if (in_array($declaredIdentity, $group['urls'], true)) $displayed = true;
+            }
+            // A metadata-only primary needs a multi-photo gallery, not a purchase badge.
             for ($container = $owner; $container instanceof DOMElement && !in_array(strtolower($container->tagName), array('body', 'html'), true); $container = $container->parentNode) {
-                $images = $container->getElementsByTagName('img');
-                if (0 === $images->length) continue;
-                $groups = array();
-                foreach ($images as $image) {
-                    $src = trim($image->getAttribute('src'));
-                    if ('' === $src) continue;
-                    $urls = array(self::imageIdentity($src, $source));
-                    foreach (explode(',', $image->getAttribute('srcset')) as $candidate) {
-                        $url = preg_split('/\s+/', trim($candidate))[0] ?? '';
-                        if ('' !== $url) $urls[] = self::imageIdentity($url, $source);
-                    }
-                    $group = array('urls' => $urls, 'row' => array('src' => $src, 'alt' => $image->getAttribute('alt')));
-                    // Merge connected responsive identities, including later bridging thumbnails.
-                    foreach ($groups as $index => $existing) {
-                        if (!array_intersect($group['urls'], $existing['urls'])) continue;
-                        $group['urls'] = array_unique(array_merge($group['urls'], $existing['urls']));
-                        if ($existing['order'] < ($group['order'] ?? PHP_INT_MAX)) {
-                            $group['row'] = $existing['row'];
-                            $group['order'] = $existing['order'];
-                        }
-                        unset($groups[$index]);
-                    }
-                    $group['order'] ??= count($groups) ? max(array_column($groups, 'order')) + 1 : 0;
-                    $groups[] = $group;
+                $groups = self::imageGroups($container, $source);
+                if (!$displayed) {
+                    // Purchase-column decorations are not photos in the sibling gallery.
+                    $purchaseGroups = self::imageGroups($owner, $source);
+                    $branch = $owner;
+                    while ($branch->parentNode instanceof DOMElement && $branch->parentNode !== $container) $branch = $branch->parentNode;
+                    if ($branch !== $container) $purchaseGroups = self::imageGroups($branch, $source);
+                    $purchaseUrls = array_merge(array(), ...array_column($purchaseGroups, 'urls'));
+                    $groups = array_values(array_filter($groups, static fn (array $group): bool => !array_intersect($group['urls'], $purchaseUrls)));
+                    if (count($groups) < 2) continue;
+                    $row['images'] = array_column($groups, 'row');
+                    $record('images');
+                    break;
                 }
-                usort($groups, static fn (array $a, array $b): int => $a['order'] <=> $b['order']);
                 foreach ($groups as $index => $group) {
                     if (!in_array(self::imageIdentity($row['image'], $source), $group['urls'], true)) continue;
                     $first = $group['row'];
-                    $first['src'] = $row['image'];
                     unset($groups[$index]);
                     $row['images'] = array_merge(array($first), array_column($groups, 'row'));
                     $record('images');
@@ -163,24 +191,30 @@ final class ProductDetailPageEvidence
             }
         }
         if (isset($row['category']) || array_key_exists('category', $schema)) return;
+        $route = static fn (string $url, string $path): string => SchemaProductEvidence::pageRoute($url, $path, $entryRoot);
+        $productRoute = $pageRoutes[$source] ?? $route($row['url'], $source);
         $listingRoutes = array();
-        foreach ($fallbacks as $fallback) {
-            if ('html_product_grid_fallback' !== ($fallback['diagnostic_code'] ?? '')) continue;
-            foreach ($fallback['products'] ?? array() as $card) {
-                if (SchemaProductEvidence::urlRoute($card['url'] ?? '', $fallback['source'] ?? '') !== SchemaProductEvidence::urlRoute($row['url'], $source)) continue;
-                $listingRoutes[] = SchemaProductEvidence::urlRoute('/' . ($fallback['source'] ?? ''), $source);
+        foreach ($files as $file) {
+            $path = $file['path'] ?? '';
+            if ($path === $source || !isset($pageRoutes[$path])) continue;
+            $listing = new DOMDocument();
+            if ('' === ($file['content'] ?? '')) continue;
+            $listing->loadHTML($file['content'], LIBXML_NOERROR | LIBXML_NOWARNING);
+            foreach ($listing->getElementsByTagName('a') as $card) {
+                if ($route($card->getAttribute('href'), $path) === $productRoute) $listingRoutes[] = $pageRoutes[$path];
             }
         }
         foreach ($document->getElementsByTagName('a') as $link) {
-            if (SchemaProductEvidence::urlRoute($link->getAttribute('href'), $source) !== SchemaProductEvidence::urlRoute($row['url'], $source)) continue;
+            if ($route($link->getAttribute('href'), $source) !== $productRoute) continue;
             $trail = $link->parentNode;
             // A list item wraps one breadcrumb, not the whole trail.
             if ($trail instanceof DOMElement && 'li' === strtolower($trail->tagName)) $trail = $trail->parentNode;
             if (!$trail instanceof DOMElement || in_array(strtolower($trail->tagName), array('body', 'main', 'html'), true)) continue;
             $links = iterator_to_array($trail->getElementsByTagName('a'));
             if (end($links) !== $link) continue;
-            foreach ($links as $candidate) {
-                if (!in_array(SchemaProductEvidence::urlRoute($candidate->getAttribute('href'), $source), $listingRoutes, true)) continue;
+            array_pop($links);
+            foreach (array_reverse($links) as $candidate) {
+                if (!in_array($route($candidate->getAttribute('href'), $source), $listingRoutes, true)) continue;
                 $category = trim($candidate->textContent);
                 if ('' !== $category) { $row['category'] = $category; $record('category'); return; }
             }

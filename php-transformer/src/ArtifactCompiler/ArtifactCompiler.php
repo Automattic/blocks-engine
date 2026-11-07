@@ -1192,9 +1192,7 @@ final class ArtifactCompiler
         foreach ($files as $file) {
             $path = $file['path'] ?? '';
             $relative = '.' !== $entryRoot && str_starts_with($path, $entryRoot . '/') ? substr($path, strlen($entryRoot) + 1) : $path;
-            $route = SchemaProductEvidence::urlRoute('/' . $relative, $path);
-            $segments = array_map($slug, explode('/', $route));
-            $pageRoutes[$path] = $file['metadata']['route_path'] ?? '/' . implode('/', $segments);
+            $pageRoutes[$path] = $file['metadata']['route_path'] ?? SchemaProductEvidence::pageRoute('/' . $relative, $path, '.' === $entryRoot ? '' : $entryRoot);
             if ('page' !== ($file['metadata']['post_type'] ?? 'page')) unset($detailPages[$path]);
         }
         $products = array();
@@ -1475,7 +1473,7 @@ final class ArtifactCompiler
                 }
             }
             if (isset($detailPages[$sourcePath]) && $detailPages[$sourcePath] === ($pageRoutes[$sourcePath] ?? null)) {
-                ProductDetailPageEvidence::fill($schemaProducts[$productSlug], $pageEvidence[$sourcePath] ?? array(), $fallback, $files, $fallbacks, $diagnostics);
+                ProductDetailPageEvidence::fill($schemaProducts[$productSlug], $pageEvidence[$sourcePath] ?? array(), $fallback, $files, $pageRoutes, '.' === $entryRoot ? '' : $entryRoot, $diagnostics);
             }
             // A purchase form belongs to shop, not a competing form provider.
             unset($forms[$sourcePath . "\n" . $selector]);

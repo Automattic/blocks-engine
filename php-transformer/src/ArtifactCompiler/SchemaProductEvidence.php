@@ -126,7 +126,8 @@ final class SchemaProductEvidence
                         if ('' !== $value) { $identity = $key . ':' . $value; break; }
                     }
                     if ('' !== $identity) $tokens = array('id:' . $identity);
-                    $route = self::urlRoute($fields['url'] ?? '/' . $path, $path);
+                    $routeUrl = !isset($product['url']) && !isset($product['offers']['url']) ? '/' . self::entryRelative($path, $entryRoot) : ($fields['url'] ?? '/' . self::entryRelative($path, $entryRoot));
+                    $route = ltrim(self::pageRoute($routeUrl, $path, $entryRoot), '/');
                     if (!$listing && 1 === count($pageClaims) && '' !== $pagePath && $route === $pagePath) $detailPages[$path] = '/' . $route;
                     $hasRoute = isset($product['url']) || isset($product['offers']['url']) || in_array('ProductGroup', (array) ($product['@type'] ?? array()), true);
                     if ($hasRoute) {
@@ -398,6 +399,14 @@ final class SchemaProductEvidence
             elseif ('' !== $part && '.' !== $part) $parts[] = $part;
         }
         return self::routePath(implode('/', $parts));
+    }
+
+    /** Normalize links and captured paths to the plan's entry-root-relative route. */
+    public static function pageRoute(string $url, string $source, string $entryRoot): string
+    {
+        $relativeSource = self::entryRelative($source, $entryRoot);
+        $route = self::urlRoute($url, $relativeSource);
+        return '/' . implode('/', array_map(self::productSlug(...), explode('/', $route)));
     }
 
     /** Source path relative to the entrypoint directory. */
