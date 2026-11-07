@@ -14,6 +14,11 @@ final class NavigationEntityProjection
 {
     public const REFERENCE_CONTRACT = 'explicit_refs/v1';
 
+    /** Reference metadata: each item's own presentation, in document order. */
+    public const ITEMS_KEY = 'blocksEngineNavigationItems';
+
+    private const ITEM_PATTERN = '/<!--\s*wp:navigation-(?:link|submenu)\s+(\{.*?\})\s*(\/)?-->/s';
+
     /** @return array{pages:array,parts:array,menus:array} */
     public static function project(array $pages, array $parts, array $menus, array $declarations = array(), array $records = array()): array
     {
@@ -63,16 +68,22 @@ final class NavigationEntityProjection
             $usedSlugs[$slug] = true;
             $identity = hash('sha256', 'navigation:' . $contentIdentity);
             $token = 'navigation-' . substr($identity, 0, 16);
+            $markup = self::sharedItemClasses($occurrences);
             $entities[] = array(
                 'kind' => 'menu', 'source_path' => $canonical['source_path'],
                 'target_slug' => $slug, 'title' => $title,
                 'source_relation' => 'navigation_entity', 'order' => count($entities),
-                'items' => $canonical['block']['items'], 'block_markup' => self::sharedItemClasses($occurrences),
+                'items' => $canonical['block']['items'], 'block_markup' => $markup,
                 'token' => $token, 'reconciliation_identity' => $identity,
             );
+            $shared = self::itemPresentation($markup);
             foreach ($occurrences as $occurrence) {
                 $attrs = $occurrence['block']['attrs'];
                 $attrs['ref'] = WordPressSitePlan::NAVIGATION_TOKEN_PREFIX . $token . '}}';
+                // The entity holds one copy of each item's presentation. A
+                // reference whose items present differently renders its own.
+                $own = self::itemPresentation($occurrence['inner']);
+                if ($own !== $shared) $attrs['metadata'][self::ITEMS_KEY] = $own;
                 $replacements[$occurrence['kind']][$occurrence['index']][] = array(
                     'offset' => $occurrence['block']['offset'], 'length' => $occurrence['block']['length'],
                     'markup' => '<!-- wp:navigation ' . BlockAttributes::encode($attrs, JSON_THROW_ON_ERROR) . ' /-->',
@@ -188,7 +199,7 @@ final class NavigationEntityProjection
      */
     private static function sharedItemClasses(array $occurrences): string
     {
-        $pattern = '/<!--\s*wp:navigation-(?:link|submenu)\s+(\{.*?\})\s*(\/)?-->/s';
+        $pattern = self::ITEM_PATTERN;
         $classes = static function (array $attrs): array {
             return array(
                 preg_split('/\s+/', trim((string) ($attrs['className'] ?? '')), -1, PREG_SPLIT_NO_EMPTY) ?: array(),
@@ -224,6 +235,24 @@ final class NavigationEntityProjection
             if (isset($attrs['metadata']['blocksEngineNavigationAnchor']['className'])) $attrs['metadata']['blocksEngineNavigationAnchor']['className'] = $anchor;
             return str_replace($match[1], BlockAttributes::encode($attrs, JSON_THROW_ON_ERROR), $match[0]);
         }, $occurrences[0]['inner']) ?? $occurrences[0]['inner'];
+    }
+
+    /**
+     * Item classes and anchor presentation, in document order: the order
+     * NavigationReferenceItemsRuntime visits the entity's rendered items.
+     *
+     * @return list<array{className?:string,blocksEngineNavigationAnchor?:array}>
+     */
+    private static function itemPresentation(string $markup): array
+    {
+        preg_match_all(self::ITEM_PATTERN, $markup, $matches);
+        return array_map(static function (string $json): array {
+            $attrs = json_decode($json, true) ?: array();
+            $class = trim((string) ($attrs['className'] ?? ''));
+            $anchor = $attrs['metadata']['blocksEngineNavigationAnchor'] ?? null;
+            return ('' === $class ? array() : array('className' => $class))
+                + (is_array($anchor) ? array('blocksEngineNavigationAnchor' => $anchor) : array());
+        }, $matches[1]);
     }
 
     private static function labelText(string $label): string
