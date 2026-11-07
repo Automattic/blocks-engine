@@ -23,7 +23,7 @@ $html = '<!doctype html><html><head><style data-blocks-engine-capture-device-sty
 $markup = (string) ((new ArtifactCompiler())->compile(array( 'entrypoint' => 'index.html', 'files' => array( 'index.html' => $html ) ))->toArray()['source_reports']['wordpress_site_plan']['pages'][0]['canonical_block_markup'] ?? '');
 
 foreach ( array(
-    'every crumb run keeps its separator as an inline paragraph' => 2 === preg_match_all('/<p class="sep blocks-engine-synthetic-paragraph[^"]*">\/<\/p>/', $markup),
+    'every crumb run keeps its spaced separator as an inline paragraph' => 2 === preg_match_all('/<p class="sep blocks-engine-synthetic-paragraph[^"]*"> \/ <\/p>/', $markup),
     'no separator becomes a block-level group' => 0 === preg_match('/<div class="wp-block-group sep\b/', $markup),
     'the desktop separator keeps its device rule marker' => 1 === preg_match('/<p class="sep blocks-engine-synthetic-paragraph blocks-engine-attribute-[a-f0-9]+-0">/', $markup),
 ) as $label => $ok ) {

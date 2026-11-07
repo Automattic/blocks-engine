@@ -8205,6 +8205,12 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             if ( '' === trim($this->runtime->stripAllTags($content)) ) {
                 return null;
             }
+            // Items share the wrapper's inline flow, so a span's boundary
+            // space separates it from its neighbours ("Home / Product").
+            if ( 'span' === strtolower($child->tagName) ) {
+                $text = $child->textContent;
+                $content = (1 === preg_match('/^\s/u', $text) ? ' ' : '') . $content . (1 === preg_match('/\s$/u', $text) ? ' ' : '');
+            }
 
             $blocks[] = $this->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($child), array( 'content' => $content )), array(), $child);
         }
