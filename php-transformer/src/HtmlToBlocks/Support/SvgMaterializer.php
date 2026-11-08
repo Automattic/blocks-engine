@@ -110,6 +110,16 @@ final class SvgMaterializer implements SvgElementMaterializer
             }
             foreach ( $host->getElementsByTagName('*') as $descendant ) {
                 if ( $descendant instanceof DOMElement && $descendant->hasAttribute('data-motion-part') ) {
+                    $image = $this->inlineSvgImageBlockFromMarkup($element, $this->materializeSanitizedSvgMarkup($html, $element));
+                    if (null !== $image) {
+                        // The attachment is Core's editable image. Keep its original
+                        // document-context rendering only until that image is replaced.
+                        $image['attrs']['metadata']['blocksEngineInlineSvg'] = array(
+                            'svg' => $this->restoreSvgCasing($html),
+                            'src' => $image['attrs']['url'],
+                        );
+                        return $image;
+                    }
                     return $this->context->svgArtworkBlock($element, $this->restoreSvgCasing($html));
                 }
             }
