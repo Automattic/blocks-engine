@@ -887,6 +887,7 @@
       "php tests/unit/full-bleed-geometry.php",
       "php tests/unit/cover-strip-fixed-height.php",
       "php tests/unit/inline-display-carrier.php",
+      "php tests/unit/inline-important-carrier-specificity.php",
       "php tests/unit/propagated-link-line-box.php",
       "php tests/unit/anchor-wrapper-authored-typography.php",
       "php tests/unit/exact-fit-inline-flow.php",

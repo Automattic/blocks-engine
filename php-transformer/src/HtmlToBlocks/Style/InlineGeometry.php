@@ -35,6 +35,7 @@ final class InlineGeometry
      * @param Closure(string): string $responsivePropertyFamily
      * @param Closure(DOMElement): bool $hasConditionalGridTemplateColumns
      * @param Closure(DOMElement, list<string>): array{int, int, int} $authorNormalDeclarationSpecificity
+     * @param Closure(DOMElement, list<string>): array{int, int, int} $authorImportantDeclarationSpecificity
      */
     public function __construct(
         private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession $session,
@@ -52,7 +53,8 @@ final class InlineGeometry
         private readonly Closure $hasConditionalStyleFamily,
         private readonly Closure $responsivePropertyFamily,
         private readonly Closure $hasConditionalGridTemplateColumns,
-        private readonly Closure $authorNormalDeclarationSpecificity
+        private readonly Closure $authorNormalDeclarationSpecificity,
+        private readonly Closure $authorImportantDeclarationSpecificity
     ) {
     }
 
@@ -548,6 +550,7 @@ final class InlineGeometry
         $normalPriorityOverrides = array();
         $importantDeclarations = array();
         $linkShadowDeclarations = array();
+        $sourceImportantProperties = array();
         $forcedPropertyLookup = array_fill_keys($forcedProperties, true);
         $inlineLayoutPropertyLookup = array_fill_keys($this->layoutCarrierProperties(), true);
         $inlineListMarkerPropertyLookup = array_fill_keys($this->listMarkerCarrierProperties(), true);
@@ -583,10 +586,33 @@ final class InlineGeometry
             // normal selectors, including ID selectors. Authored !important
             // rules retain their normal cascade priority through specificity.
             $importantDeclarations[] = $property . ':' . $value . ' !important';
+            if ( CssValueInspector::isImportant((string) ($declarations[$property] ?? '')) ) {
+                $sourceImportantProperties[] = $property;
+            }
         }
         $signature = implode(';', array_merge($normalPriorityDeclarations, $importantDeclarations, $linkShadowDeclarations));
         if ( array() !== $linkShadowDeclarations ) $signature .= "\nbutton-link-shadow";
         $className = $this->session->layoutGeometryState()->allocateCarrier(($this->geometryStructuralPath)($element) . "\n" . $signature . ($imageLeaf ? "\nimage-leaf" : ''));
+        $importantCompound = '.' . $className;
+        $boostedImportantDeclarations = array();
+        if ( array() !== $sourceImportantProperties ) {
+            // An inline `!important` declaration outranks every author rule,
+            // `!important` ones included. Its carrier is only a class rule, so
+            // it has to out-specify each author `!important` rule declaring the
+            // same property on this element (an ID-scoped device projection of
+            // a resting drawer offset, for one). Declarations promoted from
+            // normal inline priority stay at plain carrier specificity.
+            $importantCompound = $this->importantTierCarrierCompound($element, $className, $sourceImportantProperties);
+            if ( '.' . $className !== $importantCompound ) {
+                $boosted = array_fill_keys($sourceImportantProperties, true);
+                $plain = array();
+                foreach ( $importantDeclarations as $declaration ) {
+                    if ( isset($boosted[ substr($declaration, 0, (int) strpos($declaration, ':')) ]) ) $boostedImportantDeclarations[] = $declaration;
+                    else $plain[] = $declaration;
+                }
+                $importantDeclarations = $plain;
+            }
+        }
         $rules = array();
         if ( array() !== $normalPriorityDeclarations ) {
             $carrier = ':root ' . $this->normalTierCarrierCompound($element, $className, $normalPriorityOverrides);
@@ -596,6 +622,10 @@ final class InlineGeometry
         if ( array() !== $importantDeclarations ) {
             $selector = $imageLeaf ? NativeImageLeafPresentation::selectors('.wp-block-image.' . $className) : '.' . $className;
             $rules[] = $selector . '{' . implode(';', $importantDeclarations) . '}';
+        }
+        if ( array() !== $boostedImportantDeclarations ) {
+            $selector = $imageLeaf ? NativeImageLeafPresentation::selectors('.wp-block-image' . $importantCompound) : $importantCompound;
+            $rules[] = $selector . '{' . implode(';', $boostedImportantDeclarations) . '}';
         }
         if ( array() !== $linkShadowDeclarations ) {
             $rules[] = '.' . $className . '>.wp-block-button__link{' . implode(';', $linkShadowDeclarations) . '}';
@@ -612,7 +642,7 @@ final class InlineGeometry
         ) ) {
             // Preserve the source box on the frontend. In the editor, keep it
             // in the canvas flow so viewport chrome cannot cover editable blocks.
-            $rules[] = ':root .editor-styles-wrapper .' . $className . '{position:relative !important;inset:auto !important;z-index:auto !important}';
+            $rules[] = ':root .editor-styles-wrapper ' . $importantCompound . '{position:relative !important;inset:auto !important;z-index:auto !important}';
         }
         $float = strtolower(CssValueInspector::comparable((string) ($geometry['float'] ?? '')));
         if ( in_array($float, array( 'left', 'right' ), true) ) {
@@ -672,6 +702,23 @@ final class InlineGeometry
     private function styleAttributeMapper(): StyleAttributeMapper
     {
         return $this->styleAttributeMapper ??= new StyleAttributeMapper();
+    }
+
+    /**
+     * Carrier compound that out-specifies every matching author `!important`
+     * rule declaring one of the properties; the plain carrier class when none
+     * reaches its specificity.
+     *
+     * @param list<string> $properties
+     */
+    private function importantTierCarrierCompound(DOMElement $element, string $className, array $properties): string
+    {
+        [$ids, $classes] = ($this->authorImportantDeclarationSpecificity)($element, $properties);
+        if ( 0 < $ids ) {
+            return '.' . $className . ':is(.' . $className . ',' . str_repeat('#' . $className, $ids + 1) . ')';
+        }
+
+        return str_repeat('.' . $className, $classes + 1);
     }
 
     /**
