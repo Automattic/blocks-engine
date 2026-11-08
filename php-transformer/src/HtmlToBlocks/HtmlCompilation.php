@@ -10788,14 +10788,14 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // custom properties with them, yet the image's `var()` readers inherit
         // them (`<div style="--width:118px"><img>` under `.logo img{width:
         // var(--width)}`). Restate them on the figure, innermost box last.
-        if ( $figure instanceof DOMElement && $figure->contains($image) ) {
+        if ( $figure instanceof DOMElement ) {
             $flattened = array();
             for ( $node = $image->parentNode; $node instanceof DOMElement && ! $node->isSameNode($figure); $node = $node->parentNode ) {
                 if ( $node !== $picture && $node !== $link ) {
                     array_unshift($flattened, $node);
                 }
             }
-            foreach ( $flattened as $node ) {
+            foreach ( $node instanceof DOMElement ? $flattened : array() as $node ) {
                 $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->styleResolver->inlineCustomPropertyCarrierClassName($node));
             }
         }
