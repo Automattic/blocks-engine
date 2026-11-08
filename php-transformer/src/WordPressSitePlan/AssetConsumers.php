@@ -94,18 +94,49 @@ final class AssetConsumers
             . json_encode(array_values(array_filter($plan['writes'], static fn(array $write): bool => !isset($imageTargets[$write['target_path']]) && 'theme_bootstrap' !== ($write['kind'] ?? null))), $flags);
         $imagePayloads = array();
         foreach ($plan['writes'] as $write) if (isset($imageTargets[$write['target_path']]) && 'utf8' === ($write['payload']['encoding'] ?? null)) $imagePayloads[$write['target_path']] = (string) ($write['canonical_payload'] ?? $write['payload']['data'] ?? '');
+        // Scan each text once for the references it makes rather than
+        // rescanning the whole plan for every image. A reference the scan
+        // cannot represent, or a scan PCRE refuses, is searched literally.
+        $baseReferences = self::references($base);
+        $payloadReferences = array_map(self::references(...), $imagePayloads);
+        $scannable = null !== $baseReferences && !in_array(null, $payloadReferences, true);
         $unreferenced = array();
         do {
             $haystack = $base;
-            foreach ($imagePayloads as $target => $payload) if (!isset($unreferenced[$imageTargets[$target]])) $haystack .= "\n" . $payload;
+            $tokens = $baseReferences['tokens'] ?? array();
+            $quoted = $baseReferences['quoted'] ?? array();
+            foreach ($imagePayloads as $target => $payload) {
+                if (isset($unreferenced[$imageTargets[$target]])) continue;
+                $haystack .= "\n" . $payload;
+                if ($scannable) {
+                    $tokens += $payloadReferences[$target]['tokens'];
+                    $quoted += $payloadReferences[$target]['quoted'];
+                }
+            }
             $next = array();
             foreach ($images as $token => $target) {
-                $referenced = str_contains($haystack, WordPressSitePlan::TOKEN_PREFIX . $token . '}}') || str_contains($haystack, '"' . $target . '"');
+                $referenced = $scannable && !str_contains((string) $token, '}') && !str_contains($target, '"')
+                    ? isset($tokens[(string) $token]) || isset($quoted[$target])
+                    : str_contains($haystack, WordPressSitePlan::TOKEN_PREFIX . $token . '}}') || str_contains($haystack, '"' . $target . '"');
                 if (!$referenced) $next[$token] = true;
             }
             $stable = $next === $unreferenced;
             $unreferenced = $next;
         } while (!$stable);
         return $unreferenced;
+    }
+
+    /**
+     * Every asset token a text references, and every quote-free string it
+     * encloses in double quotes, overlapping enclosures included: exactly the
+     * values `str_contains()` finds for a `}`-free token or `"`-free target.
+     *
+     * @return array{tokens: array<string,true>, quoted: array<string,true>}|null
+     */
+    private static function references(string $text): ?array
+    {
+        if (false === preg_match_all('/' . preg_quote(WordPressSitePlan::TOKEN_PREFIX, '/') . '(?=([^}]*)\}\})/', $text, $tokens)) return null;
+        if (false === preg_match_all('/"(?=([^"]*)")/', $text, $quoted)) return null;
+        return array('tokens' => array_fill_keys($tokens[1], true), 'quoted' => array_fill_keys($quoted[1], true));
     }
 }

@@ -150,6 +150,14 @@ PHP;
     private array $routeTargets = array();
     /** @var array<string,string|false> */
     private array $routeReferenceCache = array();
+    /**
+     * Related-section card projections by shared heading, for the post group
+     * being factored. A projection reads every post in the group, so it is
+     * built once per group rather than once per post.
+     *
+     * @var array<string,array{template:string,fields:array<string,array<string,mixed>>}|null>
+     */
+    private array $relatedSectionProjections = array();
     /** @var array<string,array<string,true>> */
     private array $routeLinkedFragments = array();
     /** @var list<string> */
@@ -4828,6 +4836,7 @@ PHP;
             // single post has nothing to factor and keeps its complete article.
             if (count($posts) < 2) continue;
             $shared = $this->sharedPostChromeIdentities($posts);
+            $this->relatedSectionProjections = array();
             $groups = array();
             foreach ($posts as $index => $post) {
                 $transformed = $this->transformPostChromeDocument($post['canonical_block_markup'], $post, $post['route']['path'] ?? '', $shared, null, $posts);
@@ -4908,6 +4917,7 @@ PHP;
             }
         }
         $shared = $this->sharedPostChromeIdentities($posts);
+        $this->relatedSectionProjections = array();
         // Only promote a common lead-image slot when every post owns one
         // ahead of its body, and the asset actually varies between posts.
         $documents = array();
@@ -5147,47 +5157,16 @@ PHP;
             if (null !== $section) $sections[] = $section + array('owner' => $owner);
         }
         foreach ($sections as $section) {
-            $cardMarkup = '';
-            foreach ($posts as $peer) {
-                $peerIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($peer['canonical_block_markup']);
-                foreach ($peerIndex->ranges() as $owner) {
-                    $peerSection = $sectionItems($peerIndex, $owner, $shared);
-                    if (null === $peerSection || $section['heading'] !== $peerSection['heading']) continue;
-                    foreach ($peerSection['items'] as $child) $cardMarkup .= substr($peerIndex->markup, $child['offset'], $child['length']);
-                    break;
-                }
+            if (!array_key_exists($section['heading'], $this->relatedSectionProjections)) {
+                $this->relatedSectionProjections[$section['heading']] = $this->relatedSectionProjection($section['heading'], $sectionItems, $posts, $shared);
             }
-            $cardIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($cardMarkup);
-            $cards = $this->listingCardRanges($cardIndex, $posts, 1);
-            if (null === $cards) continue;
-            // Never replace a whole section if some authored child has no card
-            // projection. Let the normal fallback retain its source order.
-            foreach ($cardIndex->topLevel() as $child) {
-                foreach ($cards as $card) {
-                    if ($child['offset'] >= $card['offset'] && $child['offset'] + $child['length'] <= $card['offset'] + $card['length']) continue 2;
-                }
-                continue 2;
-            }
-            $cardFields = array();
-            $bound = array();
-            foreach ($cards as $card) {
-                $ordinal = 0;
-                foreach ($cardIndex->ranges() as $range) {
-                    if ($range['offset'] < $card['offset'] || $range['offset'] + $range['length'] > $card['offset'] + $card['length']) continue;
-                    $slice = substr($cardMarkup, $range['offset'], $range['length']);
-                    if ('paragraph' !== self::listingBlockName($slice)) continue;
-                    $key = 'blocks_engine_post_field_' . substr(hash('sha256', $section['heading'] . ':' . $ordinal++), 0, 12);
-                    $cardFields[$card['post']['source_path']][$key] = ListingFieldProjection::content(array($slice));
-                    $bound[$range['offset']] = ListingFieldProjection::paragraph($slice, self::listingBlockAttributes($slice), $key, '');
-                }
-            }
-            $template = $this->listingCardTemplate($cardIndex, $cards, $cardFields, $bound);
-            if (null === $template) continue;
+            $projection = $this->relatedSectionProjections[$section['heading']];
+            if (null === $projection) continue;
             $items = $section['items'];
             $start = $items[0]['offset'];
             $end = $items[count($items) - 1]['offset'] + $items[count($items) - 1]['length'];
-            $slots[$section['owner']['offset']] = substr($index->markup, $section['owner']['offset'], $start - $section['owner']['offset']) . self::listingQueryMarkup(count($items), $template) . substr($index->markup, $end, $section['owner']['offset'] + $section['owner']['length'] - $end);
-            foreach ($cardFields as $source => $values) $fields[$source] = ($fields[$source] ?? array()) + $values;
+            $slots[$section['owner']['offset']] = substr($index->markup, $section['owner']['offset'], $start - $section['owner']['offset']) . self::listingQueryMarkup(count($items), $projection['template']) . substr($index->markup, $end, $section['owner']['offset'] + $section['owner']['length'] - $end);
+            foreach ($projection['fields'] as $source => $values) $fields[$source] = ($fields[$source] ?? array()) + $values;
         }
         foreach ($varying as $leaf) {
             if ($leaf['offset'] >= $best['offset'] && $leaf['offset'] < $best['offset'] + $best['length']) continue;
@@ -5221,6 +5200,54 @@ PHP;
             return $fallback;
         }
         return array('range' => $best, 'slots' => $slots, 'fields' => $fields, 'featured' => $featured);
+    }
+    /**
+     * Project a related section across every post in the group: the items
+     * each post lists under the shared heading become one listing whose
+     * cards yield the section's query template and per-post fields.
+     *
+     * @param array<int,array<string,mixed>> $posts
+     * @param array<string,true> $shared
+     * @return array{template:string,fields:array<string,array<string,mixed>>}|null
+     */
+    private function relatedSectionProjection(string $heading, callable $sectionItems, array $posts, array $shared): ?array
+    {
+        $cardMarkup = '';
+        foreach ($posts as $peer) {
+            $peerIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($peer['canonical_block_markup']);
+            foreach ($peerIndex->ranges() as $owner) {
+                $peerSection = $sectionItems($peerIndex, $owner, $shared);
+                if (null === $peerSection || $heading !== $peerSection['heading']) continue;
+                foreach ($peerSection['items'] as $child) $cardMarkup .= substr($peerIndex->markup, $child['offset'], $child['length']);
+                break;
+            }
+        }
+        $cardIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($cardMarkup);
+        $cards = $this->listingCardRanges($cardIndex, $posts, 1);
+        if (null === $cards) return null;
+        // Never replace a whole section if some authored child has no card
+        // projection. Let the normal fallback retain its source order.
+        foreach ($cardIndex->topLevel() as $child) {
+            foreach ($cards as $card) {
+                if ($child['offset'] >= $card['offset'] && $child['offset'] + $child['length'] <= $card['offset'] + $card['length']) continue 2;
+            }
+            return null;
+        }
+        $cardFields = array();
+        $bound = array();
+        foreach ($cards as $card) {
+            $ordinal = 0;
+            foreach ($cardIndex->ranges() as $range) {
+                if ($range['offset'] < $card['offset'] || $range['offset'] + $range['length'] > $card['offset'] + $card['length']) continue;
+                $slice = substr($cardMarkup, $range['offset'], $range['length']);
+                if ('paragraph' !== self::listingBlockName($slice)) continue;
+                $key = 'blocks_engine_post_field_' . substr(hash('sha256', $heading . ':' . $ordinal++), 0, 12);
+                $cardFields[$card['post']['source_path']][$key] = ListingFieldProjection::content(array($slice));
+                $bound[$range['offset']] = ListingFieldProjection::paragraph($slice, self::listingBlockAttributes($slice), $key, '');
+            }
+        }
+        $template = $this->listingCardTemplate($cardIndex, $cards, $cardFields, $bound);
+        return null === $template ? null : array('template' => $template, 'fields' => $cardFields);
     }
     /**
      * @param array<string,mixed> $post
@@ -5663,32 +5690,26 @@ PHP;
             if (1 === count($routes) && preg_match('/<h1\b/i', $slice)) continue;
             $rangeAnchors[$index] = $this->listingAnchors($slice);
         }
-        $cards = array();
-        foreach ($routes as $route => $post) {
-            $exclusive = null;
-            foreach ($ranges as $index => $range) {
-                if (!isset($rangeAnchors[$index])) continue;
-                $anchors = $rangeAnchors[$index];
-                $hits = false;
-                $others = false;
-                foreach ($anchors as $anchor) {
-                    if (self::hrefMatchesListingRoute($anchor['href'], $route)) {
-                        $hits = true;
-                    } elseif ($this->hrefMatchesAnyListingRoute($anchor['href'], array_keys($routes))) {
-                        $others = true;
-                    }
-                }
-                if (!$hits || $others) {
-                    continue;
-                }
-                if (null === $exclusive || $range['length'] > $exclusive['length']) {
-                    $exclusive = array('offset' => $range['offset'], 'length' => $range['length'], 'route' => $route, 'post' => $post);
-                }
+        // A range is a card for a route when every anchor that addresses any
+        // listed route addresses that route. Resolve each anchor to the routes
+        // it addresses once, so a listing of N posts costs one pass over its
+        // ranges instead of N passes that each rescan every route.
+        $exclusive = array();
+        foreach ($rangeAnchors as $index => $anchors) {
+            $shared = null;
+            foreach ($anchors as $anchor) {
+                $addressed = array_intersect_key(array_flip(self::listingRouteKeys($anchor['href'])), $routes);
+                if (array() === $addressed) continue;
+                $shared = null === $shared ? $addressed : array_intersect_key($shared, $addressed);
             }
-            if (null !== $exclusive) {
-                $cards[] = $exclusive;
+            foreach (null === $shared ? array() : array_keys($shared) as $route) {
+                $range = $ranges[$index];
+                if (!isset($exclusive[$route]) || $range['length'] > $exclusive[$route]['length']) {
+                    $exclusive[$route] = array('offset' => $range['offset'], 'length' => $range['length'], 'route' => $route, 'post' => $routes[$route]);
+                }
             }
         }
+        $cards = array_values(array_intersect_key(array_replace($routes, $exclusive), $exclusive));
         if (count($cards) < $minimumCards) {
             return null;
         }
@@ -6402,29 +6423,20 @@ PHP;
         return $anchors;
     }
     /** @param array<int,string> $routes */
-    private function hrefMatchesAnyListingRoute(string $href, array $routes): bool
-    {
-        foreach ($routes as $route) {
-            if (self::hrefMatchesListingRoute($href, $route)) {
-                return true;
-            }
-        }
-        return false;
-    }
     private static function hrefMatchesListingRoute(string $href, string $route): bool
+    {
+        return in_array($route, self::listingRouteKeys($href), true);
+    }
+
+    /** @return list<string> The listing route paths an href addresses. */
+    private static function listingRouteKeys(string $href): array
     {
         $path = parse_url($href, PHP_URL_PATH);
         if (!is_string($path) || '' === $path) {
             $path = $href;
         }
         $path = '/' . trim($path, '/');
-        if ($path === $route) {
-            return true;
-        }
-        if (str_ends_with($path, '/index.html') && substr($path, 0, -11) === $route) {
-            return true;
-        }
-        return false;
+        return str_ends_with($path, '/index.html') ? array($path, substr($path, 0, -11)) : array($path);
     }
     private static function visibleDateFormat(string $value): ?string
     {
