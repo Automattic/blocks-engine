@@ -8228,7 +8228,8 @@ PHP;
         $localTime = null;
         $format = null; $input = $value;
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) $format = '!Y-m-d';
-        elseif (preg_match('/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/', $value, $match)) { $input = $match[1] . ('Z' === $match[2] ? '+00:00' : $match[2]); $format = '!Y-m-d\\TH:i:sP'; }
+        // ISO 8601 allows the basic offset form (-0500); normalize it to -05:00.
+        elseif (preg_match('/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.\d+)?(?:(Z)|([+-]\d{2}):?(\d{2}))$/', $value, $match)) { $input = $match[1] . ('Z' === $match[2] ? '+00:00' : $match[3] . ':' . $match[4]); $format = '!Y-m-d\\TH:i:sP'; }
         if (null === $format) return null;
         $timestamp = self::utcFromFormat($format, $input);
         // The same validated, seconds-precision input used for UTC conversion

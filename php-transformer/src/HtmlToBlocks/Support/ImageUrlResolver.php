@@ -1,11 +1,20 @@
 <?php
 declare(strict_types=1);
+
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
+
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\AssetMaterializationState;
 use DOMElement;
-final class ImageUrlResolver { public function __construct(private readonly AssetMaterializationState $assets) {}
-    public function sourceUrl(DOMElement $image): string {
+
+final class ImageUrlResolver
+{
+    public function __construct(private readonly AssetMaterializationState $assets)
+    {
+    }
+
+    public function sourceUrl(DOMElement $image): string
+    {
         $src = $this->safeUrl(SourceDom::attr($image, 'src'));
         if ( '' !== $src && ! str_starts_with(strtolower($src), 'data:') ) {
             return $src;
@@ -43,7 +52,9 @@ final class ImageUrlResolver { public function __construct(private readonly Asse
 
         return $src;
     }
-    public function safeUrl(string $url): string {
+
+    public function safeUrl(string $url): string
+    {
         if ( ! preg_match('#^data:image/svg\+xml(?:[;,][^,]*)?,#i', $url) ) {
             return $url;
         }
@@ -61,7 +72,9 @@ final class ImageUrlResolver { public function __construct(private readonly Asse
 
         return $url;
     }
-    public function resolvedAssetUrl(string $url): string {
+
+    public function resolvedAssetUrl(string $url): string
+    {
         if ( '' === $url ) {
             return '';
         }
@@ -80,10 +93,13 @@ final class ImageUrlResolver { public function __construct(private readonly Asse
         $resolvedUrl = $this->safeResolvedAssetImageUrl($resolvedUrl . ($parts[1] ?? ''));
         return '' !== $resolvedUrl ? $resolvedUrl : $url;
     }
+
     /** @return array<string, mixed>|null */ public function assetMetadata(string $url): ?array {
         return $this->assets->metadataForUrl($url);
     }
-    private function safeResolvedAssetImageUrl(string $url): string {
+
+    private function safeResolvedAssetImageUrl(string $url): string
+    {
         if ( '' === $url || preg_match('/[\x00-\x1f\x7f]|javascript\s*:/i', $url) ) {
             return '';
         }

@@ -268,13 +268,19 @@ final class GeneratedBlockStyleProjector
             $definiteAncestorWidth = $hasAuthoredWidth ? '' : $this->definiteAncestorWidth($sourceControl, $sourceDeclarations);
             $stretchingFlex = $this->sourceControlStretchesFlex($sourceDeclarations);
             $height = CssValueInspector::comparable((string) ($sourceDeclarations['height'] ?? ''));
+            $resolvedBox = $this->styleResolver->resolvedSourceStateDeclarations($sourceControl);
+            // Width-fill rules size the source control, not a synthetic carrier.
+            // Keep its box model, including the content-box default for links.
+            $sourceBoxSizing = $resolvedBox['box-sizing'] ?? ('a' === strtolower($sourceControl->tagName) ? 'content-box' : 'border-box');
             if ( '' !== $definiteAncestorWidth ) {
                 $outerWrapperDeclarations[] = 'width:' . $definiteAncestorWidth;
                 $outerWrapperDeclarations[] = 'max-width:100%';
-                $declarations[] = 'box-sizing:border-box';
+                $declarations[] = 'box-sizing:' . $sourceBoxSizing;
                 $declarations[] = 'width:100%';
             } elseif ( $stretchingFlex ) {
-                $declarations[] = 'box-sizing:border-box';
+                // With no source width, a flex share is an outer box size.
+                // Only an authored width sizes the source content box.
+                $declarations[] = 'box-sizing:' . ($hasAuthoredWidth ? $sourceBoxSizing : 'border-box');
                 $declarations[] = 'width:100%';
                 $declarations[] = 'max-width:100%';
                 $absoluteFill = 'absolute' === CssValueInspector::comparable((string) ($sourceDeclarations['position'] ?? ''))
@@ -305,7 +311,7 @@ final class GeneratedBlockStyleProjector
                 $outerWrapperDeclarations[] = 'width:100%';
                 $outerWrapperDeclarations[] = 'max-width:100%';
                 $wrapperDeclarations[] = 'width:100%';
-                $declarations[] = 'box-sizing:border-box';
+                $declarations[] = 'box-sizing:' . $sourceBoxSizing;
                 $declarations[] = 'width:100%';
             } elseif ( ! $hasAuthoredWidth && $this->sourceControlFillsGridCell($sourceControl, $sourceDeclarations) ) {
                 // A block-level control in a grid cell stretches to the cell by
@@ -327,7 +333,7 @@ final class GeneratedBlockStyleProjector
                 }
                 $intrinsicWrapperDeclarations[] = 'width:max-content';
                 $intrinsicWrapperDeclarations[] = 'max-width:100%';
-                $declarations[] = 'box-sizing:border-box';
+                $declarations[] = 'box-sizing:' . $sourceBoxSizing;
                 $declarations[] = 'width:max-content';
                 $declarations[] = 'max-width:100%';
             }
@@ -339,12 +345,11 @@ final class GeneratedBlockStyleProjector
                     $guardedDeclarations[':not([style*="border-width"]):not([style*="border-top-width"])'][] = 'border-width:0!important';
                 }
             }
-            $resolvedBox = $this->styleResolver->resolvedSourceStateDeclarations($sourceControl);
             $rootFontSize = $this->styleResolver->documentRootFontSize($sourceControl) ?? 16.0;
             $controlOwnsHeight = (new ButtonStyleResolver())->heightNeedsControlBox($resolvedBox, CssLength::toPx($height, $rootFontSize) ?? INF, $rootFontSize);
             if ( $controlOwnsHeight ) {
                 // The positioned or padded control owns this size, not its carriers.
-                $declarations[] = 'box-sizing:' . ($resolvedBox['box-sizing'] ?? 'border-box');
+                $declarations[] = 'box-sizing:' . $sourceBoxSizing;
             } elseif ( LayoutParticipation::resolve($sourceControl, $this->styleResolver)->neutralizeButtonWrapper() ) {
                 // Both save wrappers are flattened, so no carrier box exists to
                 // hold the size: the link is the box and keeps the authored height.
@@ -420,8 +425,7 @@ final class GeneratedBlockStyleProjector
                 // A source anchor is content-box unless authored otherwise.
                 // The width-fill primitive supplies border-box for synthetic
                 // carriers; it must not change the padded source control's box.
-                $box = $this->styleResolver->resolvedSourceStateDeclarations($sourceControl);
-                $declarations[] = 'box-sizing:' . ($box['box-sizing'] ?? ('a' === strtolower($sourceControl->tagName) ? 'content-box' : 'border-box')) . '!important';
+                $declarations[] = 'box-sizing:' . $sourceBoxSizing . '!important';
             }
         }
         if ( '' !== $inheritedTextAlignment ) {

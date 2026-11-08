@@ -2935,7 +2935,12 @@ final class StyleResolver implements ElementPresentationResolver
         $rules = array_merge($this->matchingStyleRules($element, 'static-conditional'), $this->matchingStyleRules($element, 'cascaded-values'));
         foreach ( $rules as $rule ) {
             foreach ( ( $rule['declarations'] ?? array() ) + ( $rule['cascadedDeclarations'] ?? array() ) as $property => $value ) {
-                if ( ! isset($wanted[ strtolower((string) $property) ]) || $important !== CssValueInspector::isImportant((string) $value) ) {
+                $property = strtolower((string) $property);
+                // A shorthand competes with every longhand it sets or resets,
+                // even when the author never spells out that longhand.
+                $longhands = self::WHITE_SPACE_SHORTHAND_LONGHANDS[$property] ?? self::BOX_SHORTHAND_LONGHANDS[$property] ?? array();
+                if ( (! isset($wanted[$property]) && ! array_intersect_key($wanted, array_fill_keys($longhands, true)))
+                    || $important !== CssValueInspector::isImportant((string) $value) ) {
                     continue;
                 }
                 $specificity = $this->mediaTextSelectorSpecificity((string) ( $rule['selector'] ?? '' ));
