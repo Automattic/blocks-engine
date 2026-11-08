@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
@@ -99,6 +100,116 @@ final class WrapperCoalescer
         private readonly Closure $soleElementChild,
         private readonly Closure $isImageOnlyAnchor
     ) {
+    }
+
+    private const LANDMARK_GROUP_TAGS = array('header', 'footer');
+
+    /** @param array<int, array<string, mixed>> $blocks @return array<int, array<string, mixed>> */
+    public function compressProjectedGroupChains(array $blocks, int $depth = 1): array
+    {
+        return array_values(array_map(fn (array $block): array => $this->normalizeWrapperChain($block, $depth), $blocks));
+    }
+
+    /** @param array<string, mixed> $block @return array<string, mixed> */
+    private function normalizeWrapperChain(array $block, int $depth = 1): array
+    {
+        $candidate = $this->collectWrapperChain($block, $depth);
+        $chain = $candidate['chain'];
+        $terminal = $candidate['terminal'];
+        // A div chain around a core block already has a native representation:
+        // nested core/group wrappers keep every id and class, editable with
+        // core tools. Fold it into a generated companion only when native
+        // nesting would breach the editability depth budget, or around
+        // non-core terminals that need shell transport.
+        $terminalName = (string) ($terminal['blockName'] ?? '');
+        $nativeGroupTree = (('core/freeform' === $terminalName
+                && array() !== array_filter($terminal['innerBlocks'] ?? array(), static fn (array $child): bool => 'core/group' === ($child['blockName'] ?? null)))
+            || (str_starts_with($terminalName, 'core/') && ! in_array($terminalName, array( 'core/freeform', 'core/html' ), true)))
+            && array() === array_filter($chain, static fn (array $entry): bool => 'div' !== ($entry['descriptor']['tagName'] ?? null))
+            && $depth + count($chain) - 1 + $this->nativeBlockHeight($terminal) <= EditabilityPolicy::THRESHOLDS['max_nesting_depth'];
+        $terminalIsShell = $this->sourceElementClassifier->isLayoutShellBlock($terminal);
+        if (!$nativeGroupTree && (2 <= count($chain) || (array() !== $chain && $terminalIsShell))) {
+            return $this->foldWrapperChain($chain, $terminal);
+        }
+
+        if (array() !== $chain) {
+            $block['_wrapper_normalization_boundary'] = 'single_wrapper';
+        } elseif (null !== $candidate['boundary']) {
+            $block['_wrapper_normalization_boundary'] = $candidate['boundary'];
+        }
+        if (is_array($block['innerBlocks'] ?? null)) $block['innerBlocks'] = $this->compressProjectedGroupChains($block['innerBlocks'], $depth + 1);
+        return $block;
+    }
+
+    /**
+     * Levels a block occupies in the saved tree. A freeform chain terminal is
+     * not saved itself: its children take its place.
+     *
+     * @param array<string,mixed> $block
+     */
+    private function nativeBlockHeight(array $block): int
+    {
+        $height = 0;
+        foreach (is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array() as $child) {
+            if (is_array($child)) $height = max($height, $this->nativeBlockHeight($child));
+        }
+
+        return 'core/freeform' === ($block['blockName'] ?? null) ? $height : $height + 1;
+    }
+
+    /** @param array<string,mixed> $block @return array{chain:array<int,array{block:array<string,mixed>,descriptor:array<string,mixed>}>,terminal:array<string,mixed>,boundary:?string} */
+    private function collectWrapperChain(array $block, int $depth = 1): array
+    {
+        $chain = array();
+        $cursor = $block;
+        while (1 === count(is_array($cursor['innerBlocks'] ?? null) ? $cursor['innerBlocks'] : array()) && null !== ($descriptor = $this->foldableWrapperDescriptor($cursor))) {
+            $chain[] = array('block' => $cursor, 'descriptor' => $descriptor);
+            $cursor = $cursor['innerBlocks'][0];
+        }
+        if (null !== ($descriptor = $this->foldableWrapperDescriptor($cursor))) {
+            $chain[] = array('block' => $cursor, 'descriptor' => $descriptor);
+            $terminal = array(
+                'blockName' => 'core/freeform',
+                'innerBlocks' => $this->compressProjectedGroupChains(is_array($cursor['innerBlocks'] ?? null) ? $cursor['innerBlocks'] : array(), $depth + count($chain)),
+            );
+            return array('chain' => $chain, 'terminal' => $terminal, 'boundary' => null);
+        }
+        if (array() === $chain) return array('chain' => array(), 'terminal' => $cursor, 'boundary' => $this->wrapperBoundaryReason($cursor));
+        return array('chain' => $chain, 'terminal' => $this->normalizeWrapperChain($cursor, $depth + count($chain)), 'boundary' => $this->wrapperBoundaryReason($cursor));
+    }
+
+    /** @param array<string,mixed> $block */
+    private function wrapperBoundaryReason(array $block): string
+    {
+        if (!in_array($block['blockName'] ?? null, array('core/group', 'core/columns', 'core/column'), true)) return 'non_wrapper_terminal';
+        if (isset($block['_binding_token']) || $this->session->transformationProvenanceState()->isBindingAnchor($block['_source_provenance_id'] ?? null)) return 'binding_boundary';
+        if ($this->hasIndependentWrapperOwnership($block)) return 'owned_wrapper';
+        if (in_array(strtolower((string) ($block['attrs']['tagName'] ?? 'div')), array('ul', 'ol', 'li'), true)) return 'list_semantics';
+        if (in_array(strtolower((string) ($block['attrs']['tagName'] ?? 'div')), self::LANDMARK_GROUP_TAGS, true)) return 'landmark_semantics';
+        return 'serialization_unsafe';
+    }
+
+    /** @param array<string,mixed> $block @return array{tagName: string, attributes: array<string, string>, opening: string, closing: string}|null */
+    private function foldableWrapperDescriptor(array $block): ?array
+    {
+        // A landmark stays its own group block: folded into a layout shell's
+        // wrapper list, a header or footer loses its block identity
+        // for the editor and for shell extraction. A native grid or flex
+        // layout is likewise an editor control the wrapper list cannot carry.
+        if (!in_array($block['blockName'] ?? null, array('core/group'), true) || in_array($block['attrs']['layout']['type'] ?? null, array('grid', 'flex'), true) || isset($block['_binding_token']) || $this->session->transformationProvenanceState()->isBindingAnchor($block['_source_provenance_id'] ?? null) || $this->hasIndependentWrapperOwnership($block) || in_array(strtolower((string) ($block['attrs']['tagName'] ?? 'div')), array_merge(array('ul', 'ol', 'li'), self::LANDMARK_GROUP_TAGS), true)) return null;
+        return $this->groupWrapperDescriptor($block);
+    }
+
+    /** @param array<string,mixed> $block */
+    private function hasIndependentWrapperOwnership(array $block): bool
+    {
+        $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
+        return !empty($block['_editability_runtime_owned'])
+            || !empty($block['_editability_visual_owned'])
+            || !empty($attrs['backgroundColor'])
+            || !empty($attrs['gradient'])
+            || !empty($attrs['style'])
+            || in_array($block['blockName'] ?? null, array('core/columns', 'core/column'), true);
     }
 
     /**
