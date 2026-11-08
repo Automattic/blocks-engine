@@ -7132,6 +7132,8 @@ assertSame('failed', $unsupportedTargetResult['status'], 'Unsupported target for
 assertSame('unsupported_target_format', $unsupportedTargetResult['diagnostics'][0]['code'], 'Unsupported target diagnostics should identify the target format.');
 assertThrows(static fn () => $bridge->normalize('<!-- wp:paragraph /-->', 'markdown'), 'Declared markdown content contains serialized block comments.');
 assertThrows(static fn () => $bridge->normalize("# Title\n<p>Hello</p>", 'html'), 'Declared HTML content contains markdown markers.');
+$codeHtml = "<style>\n* { margin: 0; }\n</style><script>\n/* Clock\n * Docs: https://example.com\n */\n</script><!--\n- note\n--><pre>\n# shell\n</pre><p>Hello</p>";
+assertSame($codeHtml, $bridge->normalize($codeHtml, 'html'), 'Code inside comments, script, style and pre should not read as HTML markdown markers.');
 assertThrows(static fn () => $bridge->normalize('<p>Hello</p>', 'blocks'), 'Declared blocks content does not contain serialized block comments.');
 assertThrows(static fn () => $bridge->normalize('<!-- wp:paragraph --><p>Hello</p>', 'blocks'), 'Serialized block markup contains an unclosed block comment.');
 assertThrows(static fn () => $bridge->normalize('<!-- wp:paragraph --><p>Hello</p><!-- /wp:heading -->', 'blocks'), 'Mismatched serialized block closing comment.');

@@ -142,8 +142,15 @@ final class Normalizer
         return (bool) preg_match('/<!--\s*\/?wp:/', $content);
     }
 
+    /**
+     * Markdown markers only count in document text: comments and raw-text or
+     * preformatted elements carry code, whose lines legitimately begin with
+     * `*`, `-`, `#` or `>`.
+     */
     private function htmlContainsMarkdownMarkers(string $content): bool
     {
-        return (bool) preg_match('/(^|\n)\s*(```|#{1,6}\s+|[-*+]\s+\S|>\s+\S)/', $content);
+        $text = preg_replace('/<!--.*?-->|<(script|style|pre|textarea)\b[^>]*>.*?<\/\1\s*>/is', '', $content) ?? $content;
+
+        return (bool) preg_match('/(^|\n)\s*(```|#{1,6}\s+|[-*+]\s+\S|>\s+\S)/', $text);
     }
 }
