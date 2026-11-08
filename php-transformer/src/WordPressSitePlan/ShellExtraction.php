@@ -592,7 +592,6 @@ final class ShellExtraction
                 'source_path' => $sourcePath,
                 'source_hash' => $row['source_hash'],
                 'nested_shell' => true,
-                'shared_only' => true,
                 'offset' => $row['offset'],
                 'length' => $row['length'],
                 'additional_ranges' => $additional,
