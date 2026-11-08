@@ -149,6 +149,20 @@ foreach ( array( 'inline-block', 'inline-flex', 'inline-grid', 'inline-table' ) 
     );
 }
 
+// In-flow positioning must not blockify authored inline-level controls (#5007).
+foreach ( array( 'relative', 'sticky' ) as $position ) {
+    $result = ( new HtmlTransformer() )->transform(
+        '<style>.btn{display:inline-flex;position:' . $position . ';padding:8px;background:#ddd}</style>'
+        . '<main><a class="btn" href="/one">One</a><a class="btn" href="/two">Two</a></main>'
+    )->toArray();
+    $markup = (string) $result['serialized_blocks'];
+    $assert(
+        2 === preg_match_all('/class="wp-block-button [^"]*\\b' . preg_quote($neutralButton . '-display-inline-flex', '/') . '\\b/', $markup),
+        'position:' . $position . ' controls still share a line',
+        $markup
+    );
+}
+
 foreach ( array( 'float:left', 'float:right', 'position:absolute', 'position:fixed', 'width:100%', 'width:100.0%' ) as $exception ) {
     $result = ( new HtmlTransformer() )->transform(
         '<style>.btn{display:inline-flex;padding:8px;background:#ddd;' . $exception . '}</style>'

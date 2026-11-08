@@ -168,8 +168,13 @@ foreach ( array( '*', 'button' ) as $reset ) {
     )->toArray();
     $centredCss = $cssOf($centred);
     $assert(
-        (bool) preg_match('/:where\(\.blocks-engine-control-[^)]+\)(?::not\(be-t-\d+\))?:where\(\.wp-block-buttons\)[^{]*\{margin:0\}/', $centredCss),
+        (bool) preg_match('/:where\(\.blocks-engine-control-[^)]+\):where\(\.wp-block-buttons\):not\(\.be-c-\d+\)[^{]*\{margin:0\}/', $centredCss),
         'centred submit retains the ' . $reset . ' margin reset on its buttons carrier',
+        $centredCss
+    );
+    $assert(
+        (bool) preg_match('/wp-block-button__link[^{}]*\{margin:0\}/', $centredCss),
+        'centred submit retains the ' . $reset . ' margin reset on its link',
         $centredCss
     );
 }
