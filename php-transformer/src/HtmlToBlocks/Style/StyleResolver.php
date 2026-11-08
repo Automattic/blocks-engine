@@ -6918,6 +6918,13 @@ final class StyleResolver implements ElementPresentationResolver
         return $declarations;
     }
 
+    public function resolvedDeclaration(DOMElement $element, string $property): string
+    {
+        $declarations = $this->resolvedPresentationDeclarations($element);
+
+        return strtolower(trim(CssValueInspector::withoutImportant((string) ($declarations[ $property ] ?? ''))));
+    }
+
     /**
      * Buttons do not inherit line-height by default. Restate the UA line box
      * when a generated WordPress control would otherwise inherit page type.
