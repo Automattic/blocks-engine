@@ -127,6 +127,16 @@ $unread = $transformed((string) preg_replace(
 ));
 $assert('' === $carrierClass($anchorTag($unread['blocks'])), 'custom properties no rule reads are not carried', $unread['blocks'] . "\n" . $unread['css']);
 
+// A box flattened between the image figure and the image takes its inline
+// style with it; the image's readers still inherit its custom properties.
+$flattened = $transformed('<html><head><style>.f{width:100%}.mark img{width:var(--w)}@media (max-width:599px){.mark img{width:var(--mw)}}</style></head><body><header><a href="/"><span class="mark"><div style="--w:118px;--mw:55px"><img class="f" src="logo.png" alt="Logo"></div></span></a></header></body></html>');
+$figure = 1 === preg_match('/<figure class="[^"]*\bmark\b[^"]*"/', $flattened['blocks'], $match) ? $match[0] : '';
+$figureRule = '';
+foreach ( preg_match_all('/be-inline-geometry-[a-f0-9]{16}/', $figure, $classes) ? $classes[0] : array() as $class ) {
+    $figureRule .= $carrierRule($flattened['css'], $class);
+}
+$assert(str_contains($figureRule, '--w:118px') && str_contains($figureRule, '--mw:55px'), 'the image figure restates a flattened wrapper\'s custom properties', $flattened['blocks'] . "\n" . $flattened['css']);
+
 if ( 0 !== $failures ) {
     exit(1);
 }

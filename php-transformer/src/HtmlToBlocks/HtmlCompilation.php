@@ -10784,6 +10784,21 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         if ( null !== $picture && ! $figure instanceof DOMElement ) {
             $attrs = array_merge($this->styleResolver->presentationAttributes($picture), $attrs);
         }
+        // Boxes flattened between the figure and the image take their inline
+        // custom properties with them, yet the image's `var()` readers inherit
+        // them (`<div style="--width:118px"><img>` under `.logo img{width:
+        // var(--width)}`). Restate them on the figure, innermost box last.
+        if ( $figure instanceof DOMElement ) {
+            $flattened = array();
+            for ( $node = $image->parentNode; $node instanceof DOMElement && ! $node->isSameNode($figure); $node = $node->parentNode ) {
+                if ( $node !== $picture && $node !== $link ) {
+                    array_unshift($flattened, $node);
+                }
+            }
+            foreach ( $node instanceof DOMElement ? $flattened : array() as $node ) {
+                $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->styleResolver->inlineCustomPropertyCarrierClassName($node));
+            }
+        }
         $width = $this->imageDimensions()->imageDisplayDimension($image, 'width');
         $height = $this->imageDimensions()->imageDisplayDimension($image, 'height');
         if ( '' !== $this->imageDimensions()->parentSizedDimension($image, 'width')
