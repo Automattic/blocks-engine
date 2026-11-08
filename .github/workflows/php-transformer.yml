@@ -221,6 +221,12 @@ jobs:
           BLOCK_LIBRARY_CSS: ${{ runner.temp }}/wordpress/wp-includes/css/dist/block-library/style.min.css
         run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/button-partial-padding-browser.mjs
 
+      - name: Verify a social glyph keeps its own paint over Core's color reset
+        working-directory: php-transformer
+        env:
+          BLOCK_LIBRARY_CSS: ${{ runner.temp }}/wordpress/wp-includes/css/dist/block-library/style.min.css
+        run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/social-links-glyph-paint-browser.mjs
+
       - name: Verify a blockified rich-text layout item keeps its own line box
         working-directory: php-transformer
         env:

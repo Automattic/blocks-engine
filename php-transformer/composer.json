@@ -69,6 +69,7 @@
     "test:sibling-link-lists-browser": "node tests/contract/sibling-link-lists-browser.mjs",
     "test:navigation-icon-reset-browser": "node tests/unit/navigation-icon-reset-browser.mjs",
     "test:social-links-icon-font-browser": "node tests/unit/social-links-icon-font-browser.mjs",
+    "test:social-links-glyph-paint-browser": "node tests/unit/social-links-glyph-paint-browser.mjs",
     "test:image-caption-margins-browser": "node tests/unit/image-caption-margins-browser.mjs",
     "test:collection-component-browser": "BE_EDITOR_ACCEPTANCE_BUILDER=tests/build-collection-component-acceptance.php BE_EDITOR_ACCEPTANCE_BROWSER=tests/collection-component-acceptance.mjs bash tools/run-editor-image-acceptance.sh",
     "test:slideshow-browser": "BE_EDITOR_ACCEPTANCE_BUILDER=tests/build-slideshow-acceptance.php BE_EDITOR_ACCEPTANCE_BROWSER=tests/slideshow-acceptance.mjs bash tools/run-editor-image-acceptance.sh",
