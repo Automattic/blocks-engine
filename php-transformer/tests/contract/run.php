@@ -4802,7 +4802,7 @@ $staticSite = $compiler->compile(
     array(
         'entrypoint' => 'index.html',
         'files'      => array(
-            'index.html' => '<main><img src="assets/logo.png" alt="Logo"></main>',
+            'index.html' => '<link rel="stylesheet" href="visual-repair.css"><main><img src="assets/logo.png" alt="Logo"></main>',
             'parts/header.html' => '<header><nav><a href="/">Home</a><a href="/about.html">About</a></nav><img src="assets/logo.png" alt="Logo"></header>',
             'about.html' => '<main><h1>About</h1></main>',
             'assets/logo.png' => array(
@@ -6637,7 +6637,7 @@ $normalized = $compiler->compile(
         'files'   => array(
             array(
                 'name' => 'public/index.html',
-                'body' => '<main><h1>Aliases</h1></main>',
+                'body' => '<link rel="stylesheet" href="../style.css"><main><h1>Aliases</h1></main>',
             ),
             'public/index.html' => '<main><h1>Duplicate path</h1></main>',
             'data/settings.json' => '{"ok":true}',
