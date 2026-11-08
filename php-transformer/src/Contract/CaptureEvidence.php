@@ -50,6 +50,17 @@ final class CaptureEvidence
     /** Class on the root of the desktop (default) copy of a responsive capture. */
     public const DESKTOP_DOCUMENT_CLASS = 'data-blocks-engine-capture-desktop-document';
 
+    /** Class on a root island holding the whole desktop frame of a route; its sibling island holds the phone frame. */
+    public const DESKTOP_ONLY_CLASS = 'data-blocks-engine-capture-desktop-only';
+    /** Class on a root island holding the whole phone frame of a route, beside its desktop-only island. */
+    public const MOBILE_ONLY_CLASS = 'data-blocks-engine-capture-mobile-only';
+
+    /** Whether a class marks one island of a root desktop-only/mobile-only island pair. */
+    public static function isDeviceIslandClass(string $class): bool
+    {
+        return self::DESKTOP_ONLY_CLASS === $class || self::MOBILE_ONLY_CLASS === $class;
+    }
+
     /** Device profile named by a capture document class (`data-blocks-engine-capture-<profile>-document`), or null. */
     public static function deviceDocumentProfile(string $class): ?string
     {

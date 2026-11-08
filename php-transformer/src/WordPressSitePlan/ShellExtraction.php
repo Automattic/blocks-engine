@@ -2863,7 +2863,7 @@ final class ShellExtraction
 
     private function retainsResponsiveVariantLandmark(string $markup, string $area): bool
     {
-        if (1 !== preg_match('/(?:' . preg_quote(CaptureEvidence::ATTRIBUTE_PREFIX, '/') . '[a-z][a-z0-9_-]{0,63}-document|site-document-variant-[a-z][a-z0-9_-]{0,31})/', $markup)) {
+        if (1 !== preg_match('/(?:' . preg_quote(CaptureEvidence::ATTRIBUTE_PREFIX, '/') . '[a-z][a-z0-9_-]{0,63}-document|' . preg_quote(CaptureEvidence::DESKTOP_ONLY_CLASS, '/') . '|' . preg_quote(CaptureEvidence::MOBILE_ONLY_CLASS, '/') . '|site-document-variant-[a-z][a-z0-9_-]{0,31})/', $markup)) {
             return false;
         }
         return array() !== $this->nestedLandmarkCandidates(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup), '', $area);
@@ -3095,18 +3095,20 @@ final class ShellExtraction
     public static function isResponsiveVariantClass(string $class): bool
     {
         return CaptureEvidence::isDeviceDocumentClass($class)
+            || CaptureEvidence::isDeviceIslandClass($class)
             || 1 === preg_match('/^site-document-variant-[a-z][a-z0-9_-]{0,31}$/', $class);
     }
 
     private static function responsiveVariantRank(string $class): int
     {
-        if (in_array($class, array(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, 'site-document-variant-default'), true)) return 0;
-        if (CaptureEvidence::MOBILE_DOCUMENT_CLASS === $class) return 1;
+        if (in_array($class, array(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, CaptureEvidence::DESKTOP_ONLY_CLASS, 'site-document-variant-default'), true)) return 0;
+        if (in_array($class, array(CaptureEvidence::MOBILE_DOCUMENT_CLASS, CaptureEvidence::MOBILE_ONLY_CLASS), true)) return 1;
         return 2;
     }
 
     /**
-     * A hoisted variant's device-document wrapper. Its rules and visibility
+     * A hoisted variant's device wrapper: its device document, nested
+     * device-only gate or root device island. Its rules and visibility
      * CSS select the device attributes, so a class-only group would detach
      * every device-gated rule from the part.
      *
@@ -3131,7 +3133,8 @@ final class ShellExtraction
     }
 
     /**
-     * The layout-shell wrapper that carries a capture device document, as a
+     * The layout-shell wrapper that carries a capture device document or a
+     * root device island (desktop-only/mobile-only), as a
      * shared part may repeat it: its tag, classes and device attributes. The
      * document id and scope marker stay with the page's own document.
      *
@@ -3145,7 +3148,8 @@ final class ShellExtraction
             $attributes = is_array($wrapper) && is_array($wrapper['attributes'] ?? null) ? $wrapper['attributes'] : array();
             if (!in_array($scopeClass, preg_split('/\s+/', trim((string) ($attributes['class'] ?? ''))) ?: array(), true)) continue;
             $kept = array_intersect_key($attributes, array_flip(array('class', EngineMarker::DEVICE_SCOPE_ATTRIBUTE, CaptureEvidence::DEVICE_DOCUMENT)));
-            if (!isset($kept[EngineMarker::DEVICE_SCOPE_ATTRIBUTE]) && !isset($kept[CaptureEvidence::DEVICE_DOCUMENT])) return null;
+            // A device island's class is itself the gate its visibility CSS selects.
+            if (!isset($kept[EngineMarker::DEVICE_SCOPE_ATTRIBUTE]) && !isset($kept[CaptureEvidence::DEVICE_DOCUMENT]) && !CaptureEvidence::isDeviceIslandClass($scopeClass)) return null;
             return array('block' => $blockName, 'wrapper' => array('tagName' => is_string($wrapper['tagName'] ?? null) ? $wrapper['tagName'] : 'div', 'attributes' => $kept));
         }
         return null;

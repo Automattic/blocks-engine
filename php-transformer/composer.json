@@ -420,6 +420,7 @@
       "php tests/contract/captured-scope-runtime-bindings.php",
       "php tests/contract/document-flow-generated-component-boundary.php",
       "php tests/contract/nested-device-only-shared-chrome.php",
+      "php tests/contract/device-island-shared-chrome.php",
       "php tests/contract/shared-chrome-device-selection.php",
       "php tests/contract/shared-shell-generated-component.php",
       "php tests/contract/deep-repeated-card-grid.php",

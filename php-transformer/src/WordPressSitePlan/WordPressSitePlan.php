@@ -2604,7 +2604,10 @@ PHP;
      * two. A chrome element that carries any hook whose rules stay on the route
      * (one route content also uses, or one no lifted selector can name) keeps
      * all of its authored hooks on the route, so its rules stay in one
-     * stylesheet in source order on every route.
+     * stylesheet in source order on every route. The one exception is a rule
+     * reaching such a hook on a detached part through the ancestors it was
+     * hoisted out of: it stays on the route and a re-anchored copy is also
+     * lifted, since the route rule can no longer match the detached part.
      *
      * @param array<int,array<string,mixed>> $assets
      * @param array<int,array<string,mixed>> $parts
@@ -2627,6 +2630,7 @@ PHP;
         $inheritedContexts = array();
         $chromeElements = array();
         $hookRoutes = array('class' => array(), 'id' => array());
+        $detachedHooks = array('class' => array(), 'id' => array());
         $hasSharedNavigation = false;
         foreach ($parts as $part) {
             if (!in_array($part['placement']['kind'] ?? '', array('shared_shell', 'inline_shared_shell'), true)) continue;
@@ -2650,6 +2654,10 @@ PHP;
             // must stay where its stylesheet applies rather than become global.
             // Each page's own type rules already reach the chrome's elements.
             if (preg_match_all(self::GENERATED_CLASS_PATTERN, $markup, $matches)) foreach ($matches[0] as $class) if (!str_starts_with((string) EngineMarker::markerKind($class), 'source-')) $classes[$class] = true;
+            // A device island's class is the gate its visibility CSS selects.
+            // The part repeats the island around each variant, so that CSS
+            // follows the part to every template rendering it.
+            foreach (array(CaptureEvidence::DESKTOP_ONLY_CLASS, CaptureEvidence::MOBILE_ONLY_CLASS) as $class) if (1 === preg_match('/\bclass="(?:[^"]*\s)?' . preg_quote($class, '/') . '(?:\s[^"]*)?"/', $markup)) $classes[$class] = true;
             // Geometry carriers are content-addressed instance CSS, not document
             // markers. Structural shell dedupe can choose a different carrier
             // from the adopting page's capture; its rules must follow the part
@@ -2675,7 +2683,10 @@ PHP;
                     elseif ('' !== ($tokens[0] ?? '')) $roots[] = '.' . implode('.', array_map(array(CssIdent::class, 'escape'), $tokens));
                 }
                 foreach ($roots as $root) $detachedRoots[$root] = true;
-                if (array() !== $roots) $inheritedContexts[] = array($ancestors, $roots);
+                if (array() !== $roots) {
+                    $inheritedContexts[] = array($ancestors, $roots);
+                    $detachedHooks = array_merge_recursive($detachedHooks, self::authoredChromeHooks($markup));
+                }
             }
         }
         // Hooks that route content also uses belong to that content too; rules
@@ -2714,7 +2725,17 @@ PHP;
             }
         } while ($grown);
         foreach ($routeHooks as $kind => $names) $authored[$kind] = array_diff_key($authored[$kind], $names);
-        if (!$hasSharedNavigation && array() === $classes && array() === $authored['class'] && array() === $authored['id']) return $assets;
+        // A route-kept hook that a detached part also carries still styles that
+        // part wherever a rule reaches it through the ancestors it was hoisted
+        // out of (`#container .footer`): those ancestors are not around the
+        // template part, so such a rule never matches it from the route. The
+        // rule stays on the route for content still carrying the hook inline,
+        // and a re-anchored copy follows the part into shared chrome.
+        $detachedRouteHooks = array(
+            'class' => array_intersect_key($detachedHooks['class'], $routeHooks['class']),
+            'id' => array_intersect_key($detachedHooks['id'], $routeHooks['id']),
+        );
+        if (!$hasSharedNavigation && array() === $classes && array() === $authored['class'] && array() === $authored['id'] && array() === $detachedRouteHooks['class'] && array() === $detachedRouteHooks['id']) return $assets;
         $classMatcher = self::generatedClassMatcher($classes);
         // Current state is assigned by core on the served route, not saved in
         // the shared part. Projected selectors using only native navigation
@@ -2723,6 +2744,9 @@ PHP;
         $targetsChrome = static fn (string $selector): bool => self::selectorTargetsGeneratedClass($selector, $classMatcher)
             || self::selectorTargetsAuthoredChrome($selector, $authored, $context)
             || ($hasSharedNavigation && self::selectorTargetsRuntimeNavigationState($selector));
+        $reachesDetachedPart = static fn (string $selector): bool => self::selectorTargetsAuthoredChrome($selector, $detachedRouteHooks, $context)
+            && self::reanchoredDetachedContextSelector(trim($selector), $context, array_keys($detachedRoots)) !== trim($selector);
+        $liftsToChrome = static fn (string $selector): bool => $targetsChrome($selector) || $reachesDetachedPart($selector);
         $reanchor = static function (string $selector) use ($context, $detachedRoots, $controlRoutes): string {
             $routes = array();
             foreach ($controlRoutes as $control => $classes) {
@@ -2781,7 +2805,7 @@ PHP;
             $unparseable = false;
             $shared = (new CssStylesheetTransformer())->transformStyleRules(
                 $asset['content'],
-                static function (string $prelude, string $body) use ($targetsChrome, $reanchor, $inheritedContexts, $liveElementMarkers, &$matched, &$unparseable): string {
+                static function (string $prelude, string $body) use ($liftsToChrome, $reanchor, $inheritedContexts, $liveElementMarkers, &$matched, &$unparseable): string {
                     $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
                     if (null === $selectors) {
                         $unparseable = true;
@@ -2805,7 +2829,7 @@ PHP;
                             $matched = true;
                         }
                     }
-                    $kept = array_values(array_filter($selectors, $targetsChrome));
+                    $kept = array_values(array_filter($selectors, $liftsToChrome));
                     if (array() === $kept) return $inherited;
                     if (null !== $liveElementMarkers) {
                         $kept = array_values(array_filter(array_map(static fn (string $selector): ?string => self::withoutDeadElementMarkers($selector, $liveElementMarkers), $kept), 'is_string'));
