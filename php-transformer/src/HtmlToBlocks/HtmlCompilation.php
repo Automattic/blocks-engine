@@ -186,6 +186,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StylesheetAnalysis
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StylesheetAssetStage;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ContentBoxRestatements;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CapturedNavigationPanels;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DeclarativeCounterMaterializer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorLayoutOwnership;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
@@ -1592,8 +1594,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 }
             }
         }
-        $this->restoreNativeNavigationPanels($body);
-        $this->restoreCapturedExistingPanelRestingStates($body);
+        CapturedNavigationPanels::restoreNative($body);
+        CapturedNavigationPanels::restoreRestingStates($body);
         // Capture evidence, not content: read before anything serializes the source.
         $this->capturedGlyphColors = CapturedGlyphColor::detach($body);
         if ( QuirksModeSource::isQuirksMode($html) ) {
@@ -1642,7 +1644,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return false;
         });
         $this->navigationBlockNormalizer->hydrateDuplicateSubmenus($body);
-        $this->materializeDeclarativeCounters($body, (string) ($options['declarative_state_html'] ?? ''));
+        DeclarativeCounterMaterializer::materialize($body, (string) ($options['declarative_state_html'] ?? ''));
         // Remove wrapper-convention custom elements before author selectors are
         // prepared, so style projection and component promotion both observe the
         // content rather than the source's wrapping convention.
@@ -2206,106 +2208,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             if ( $link instanceof DOMElement && $this->isNonRenderedMetadataLink($link) ) {
                 $link->parentNode?->removeChild($link);
             }
-        }
-    }
-
-    /**
-     * Capture wraps Core's shared desktop/mobile menu in a hidden dialog.
-     * Restore the native tree before classification: core/navigation replaces
-     * both controls and supplies its own accessible overlay at render time.
-     * Other captured dialogs retain their existing runtime contract.
-     */
-    private function restoreNativeNavigationPanels(DOMElement $body): void
-    {
-        foreach ( iterator_to_array($body->getElementsByTagName('nav')) as $nav ) {
-            if ( ! SourceDom::hasClass($nav, 'wp-block-navigation') ) {
-                continue;
-            }
-            foreach ( iterator_to_array($nav->childNodes) as $panel ) {
-                if ( ! $panel instanceof DOMElement || ! $panel->hasAttribute(CaptureEvidence::EXISTING_PANEL) ) {
-                    continue;
-                }
-                $id = $panel->getAttribute(CaptureEvidence::DIALOG_PANEL);
-                // Include expansion and capture projection can leave either the
-                // wrapper around Core's container or the container itself. The
-                // latter already owns the native tree; do not unwrap its close
-                // element as though it were another captured dialog wrapper.
-                $snapshot = json_decode($panel->getAttribute(CaptureEvidence::EXISTING_PANEL), true);
-                $restingClass = is_array($snapshot) ? ($snapshot['resting']['class'] ?? '') : '';
-                $projectedWrapper = $panel->hasAttribute(CaptureEvidence::RESTING_PANEL)
-                    && SourceDom::hasClass($panel, 'wp-block-navigation__responsive-container')
-                    && is_string($restingClass)
-                    && in_array('wp-block-navigation__responsive-container', preg_split('/\s+/', trim($restingClass)) ?: array(), true);
-                $native = $projectedWrapper ? $panel : $panel->firstElementChild;
-                if ( '' === $id || ! $native instanceof DOMElement
-                    || ($native !== $panel && 1 !== $panel->childElementCount)
-                    || ! SourceDom::hasClass($native, 'wp-block-navigation__responsive-container') ) {
-                    continue;
-                }
-                $opener = null;
-                foreach ( $nav->childNodes as $control ) {
-                    if ( $control instanceof DOMElement
-                        && SourceDom::hasClass($control, 'wp-block-navigation__responsive-container-open')
-                        && $id === $control->getAttribute(CaptureEvidence::DIALOG_TRIGGER) ) {
-                        $opener = $control;
-                    }
-                }
-                if ( ! $opener instanceof DOMElement ) {
-                    continue;
-                }
-                foreach ( array(CaptureEvidence::DIALOG_TRIGGER, CaptureEvidence::DIALOG_PANEL_STATE, 'aria-controls', 'aria-expanded') as $attribute ) {
-                    $opener->removeAttribute($attribute);
-                }
-                if ( $native === $panel ) {
-                    foreach ( array(CaptureEvidence::EXISTING_PANEL, CaptureEvidence::DIALOG_PANEL, 'hidden') as $attribute ) {
-                        $native->removeAttribute($attribute);
-                    }
-                } else {
-                    $nav->replaceChild($native, $panel);
-                }
-                foreach ( iterator_to_array($nav->childNodes) as $control ) {
-                    if ( $control instanceof DOMElement && $id === $control->getAttribute(CaptureEvidence::DIALOG_CLOSE) ) {
-                        $nav->removeChild($control);
-                    }
-                }
-            }
-        }
-    }
-
-    private function restoreCapturedExistingPanelRestingStates(DOMElement $body): void
-    {
-        foreach ($body->getElementsByTagName('*') as $element) {
-            if (
-                !$element instanceof DOMElement
-                || 'nav' !== strtolower($element->tagName)
-                || !SourceDom::hasClass($element, CaptureEvidence::DROPDOWN_CLASS)
-                || !$element->hasAttribute(CaptureEvidence::EXISTING_PANEL)
-                || !$this->hasAncestorTag($element, array('nav'))
-            ) {
-                continue;
-            }
-
-            $snapshot = json_decode($element->getAttribute(CaptureEvidence::EXISTING_PANEL), true);
-            $resting = is_array($snapshot) ? ($snapshot['resting'] ?? null) : null;
-            if (!is_array($resting)) {
-                continue;
-            }
-
-            foreach (array('style', 'class', 'hidden') as $attribute) {
-                if (!array_key_exists($attribute, $resting)) {
-                    continue;
-                }
-                $value = $resting[$attribute];
-                if ('hidden' === $attribute) {
-                    if (true === $value) $element->setAttribute('hidden', '');
-                    elseif (false === $value) $element->removeAttribute('hidden');
-                    continue;
-                }
-                if (null === $value) $element->removeAttribute($attribute);
-                elseif (is_string($value)) $element->setAttribute($attribute, $value);
-            }
-
-            $element->removeAttribute(CaptureEvidence::EXISTING_PANEL);
         }
     }
 
@@ -7912,58 +7814,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return $block;
         };
         return array_map($strip, $blocks);
-    }
-
-    private function materializeDeclarativeCounters(DOMElement $body, string $declarativeStateHtml = ''): void
-    {
-        $document = $body->ownerDocument;
-        if ( ! $document instanceof DOMDocument ) {
-            return;
-        }
-
-        $scriptSources = array();
-        foreach ( $body->getElementsByTagName('script') as $script ) {
-            if ( $script instanceof DOMElement ) {
-                $scriptSources[] = (string) $script->textContent;
-            }
-        }
-        if ( '' !== $declarativeStateHtml && preg_match_all('@<script\b[^>]*>(.*?)</script>@is', $declarativeStateHtml, $scriptMatches) ) {
-            $scriptSources = array_merge($scriptSources, $scriptMatches[1]);
-        }
-
-        foreach ( array_unique($scriptSources) as $source ) {
-            if ( ! str_contains($source, 'PlatformElementSettings')
-                || ! preg_match('/\.prototype\.element_id\s*=\s*(["\'])([a-z0-9-]+)\1/i', $source, $elementMatch)
-            ) {
-                continue;
-            }
-
-            $settingsStart = strpos($source, 'new PlatformElementSettings(');
-            $settingsEnd = false !== $settingsStart ? strpos($source, ');', $settingsStart) : false;
-            if ( false === $settingsStart || false === $settingsEnd || $settingsEnd - $settingsStart > 262144 ) {
-                continue;
-            }
-            $settingsLiteral = substr($source, $settingsStart, $settingsEnd - $settingsStart);
-            if ( ! preg_match('/["\']end["\']\s*:\s*(-?(?:0|[1-9]\d*)(?:\.\d+)?)\s*[,}]/', $settingsLiteral, $endMatch) ) {
-                continue;
-            }
-            $end = str_contains($endMatch[1], '.') ? (float) $endMatch[1] : (int) $endMatch[1];
-
-            $container = $document->getElementById('element-' . $elementMatch[2]);
-            if ( ! $container instanceof DOMElement ) {
-                continue;
-            }
-            foreach ( $container->getElementsByTagName('*') as $target ) {
-                if ( ! $target instanceof DOMElement
-                    || ! in_array('content-number-bold', preg_split('/\s+/', trim($target->getAttribute('class'))) ?: array(), true)
-                    || '' !== trim((string) $target->textContent)
-                ) {
-                    continue;
-                }
-                $target->appendChild($document->createTextNode((string) $end));
-                break;
-            }
-        }
     }
 
     /**
