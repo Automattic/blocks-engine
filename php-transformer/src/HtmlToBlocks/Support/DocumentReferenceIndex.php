@@ -75,10 +75,10 @@ final class DocumentReferenceIndex
         return $this->ids[$id] ?? array();
     }
 
-    public function referencesFragment(DOMElement $element, string $id): bool
+    public function referencesFragment(DOMElement $element, string $id, bool $ignoreCopiedSymbolUses = false): bool
     {
         foreach ($this->fragments[$id] ?? array() as $candidate) {
-            if (!$candidate->isSameNode($element)) return true;
+            if (!$candidate->isSameNode($element) && !($ignoreCopiedSymbolUses && SourceDom::isCopiedSymbolUse($candidate, $element))) return true;
         }
         return false;
     }
