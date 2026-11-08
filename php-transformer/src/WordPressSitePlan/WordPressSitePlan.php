@@ -4160,7 +4160,8 @@ PHP;
         if ('time' === $name) {
             return 'datePublished' === ($attributes['itemprop'] ?? null);
         }
-        if (!in_array($name, array('p', 'span', 'div', 'li', 'td', 'mark'), true)) {
+        // Blogger heads each post's date as <h2 class="date-header">.
+        if (!in_array($name, array('p', 'span', 'div', 'li', 'td', 'mark', 'h2', 'h3', 'h4', 'h5', 'h6'), true)) {
             return false;
         }
         $tokens = strtolower(trim(html_entity_decode((string) ($attributes['class'] ?? '') . ' ' . (string) ($attributes['id'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8')));
@@ -8272,6 +8273,10 @@ PHP;
             if ($first > 31 || $second > 31 || $first < 1 || $second < 1) return null;
             $format = $first > 12 && $second <= 12 ? '!j/n/Y' : '!n/j/Y';
             return self::utcFromFormat($format, $first . '/' . $second . '/' . $match[3]);
+        }
+        // A dotted numeric date is day-first wherever it is written (de, ru, pl, cs, fi, tr).
+        if (preg_match('/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/', $value, $match)) {
+            return self::utcFromFormat('!j.n.Y', (int) $match[1] . '.' . (int) $match[2] . '.' . $match[3]);
         }
         // A closed vocabulary, not locale/strtotime guessing. All aliases in a
         // row denote the same month across fr, es, de, it, pt and nl.
