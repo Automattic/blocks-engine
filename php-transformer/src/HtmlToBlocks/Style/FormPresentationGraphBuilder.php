@@ -795,7 +795,7 @@ final class FormPresentationGraphBuilder
             }
             if ( isset($row['caption']) ) {
                 self::assertRole($row['caption'], null);
-                if ( array_diff(array_keys($row['caption']['styles']), array_map(self::key(...), self::CAPTION_LAYER_PROPERTIES)) ) throw new InvalidArgumentException('Form presentation caption layer is invalid.');
+                self::assertStyles($row['caption']['styles'], self::CAPTION_LAYER_PROPERTIES);
             }
         }
         $partIds = array();
