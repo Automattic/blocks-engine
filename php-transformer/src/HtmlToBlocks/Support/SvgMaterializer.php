@@ -1296,7 +1296,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         }
 
         // The first element with a referenced id is its definition, as in the
-        // browser. Copy its <defs>, or a bare sprite <symbol> on its own.
+        // browser. Copy its <defs>, or a bare sprite <symbol> or <svg> on its own.
         $definitions = array();
         foreach ( $element->ownerDocument->getElementsByTagName('*') as $definition ) {
             $id = $definition instanceof DOMElement ? trim(SourceDom::attr($definition, 'id')) : '';
@@ -1308,11 +1308,11 @@ final class SvgMaterializer implements SvgElementMaterializer
             while ( $defs instanceof DOMElement && 'defs' !== strtolower($defs->tagName) ) {
                 $defs = $defs->parentNode;
             }
-            if ( $defs instanceof DOMElement ) {
-                $definitions[] = $this->context->safeFallbackHtml($defs);
-            } elseif ( 'symbol' === strtolower($definition->tagName) ) {
-                $definitions[] = '<defs>' . $this->context->safeFallbackHtml($definition) . '</defs>';
-            }
+            $copy = $defs instanceof DOMElement ? $this->context->safeFallbackHtml($defs)
+                : ( in_array(strtolower($definition->tagName), array( 'symbol', 'svg' ), true) ? '<defs>' . $this->context->safeFallbackHtml($definition) . '</defs>' : '' );
+            // A <use> instance inherits custom properties from the <use>, so
+            // its copied paint resolves var() in that scope.
+            $definitions[] = str_contains($copy, 'var(') ? $this->resolveCssVariablesInSvgMarkup($copy, $this->svgReferrer($element, $id)) : $copy;
         }
         if ( array() === $definitions ) {
             return $html;
@@ -1326,6 +1326,18 @@ final class SvgMaterializer implements SvgElementMaterializer
         }
 
         return preg_replace('/<\/svg>\s*$/i', $copied . '</svg>', $html, 1) ?? $html;
+    }
+
+    /** The element inside $svg that references #$id, or $svg itself. */
+    private function svgReferrer(DOMElement $svg, string $id): DOMElement
+    {
+        foreach ( $svg->getElementsByTagName('*') as $candidate ) {
+            if ( '#' . $id === trim(SourceDom::attr($candidate, 'href')) || '#' . $id === trim(SourceDom::attr($candidate, 'xlink:href')) ) {
+                return $candidate;
+            }
+        }
+
+        return $svg;
     }
 
     private function svgDefinitionBelongsTo(DOMElement $definition, DOMElement $svg): bool
