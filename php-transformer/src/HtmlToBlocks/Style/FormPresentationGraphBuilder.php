@@ -63,7 +63,15 @@ final class FormPresentationGraphBuilder
     /** How far a text-carrier search may walk before the search, not the cascade, gives up. */
     private const MAX_CARRIER_CANDIDATES = 256;
     private const MAX_ROW_ANCESTORS = 32;
-    private const ROW_PROPERTIES = array('display', 'flex-direction', 'flex-wrap', 'column-gap', 'gap', 'grid-template-columns');
+    /** Row-owned layout and frame paint; never widen the shared element vocabulary here. */
+    private const ROW_PROPERTIES = array(
+        'display', 'flex-direction', 'flex-wrap', 'column-gap', 'gap', 'grid-template-columns',
+        'width', 'box-sizing', 'border', 'border-width', 'border-style', 'border-color',
+        'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width',
+        'border-top-style', 'border-right-style', 'border-bottom-style', 'border-left-style',
+        'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color',
+        'border-radius', 'background-color',
+    );
     private const ROW_ITEM_PROPERTIES = array('flex-grow', 'flex-shrink', 'flex-basis', 'width', 'min-width', 'max-width');
     private const CONTROL_CONTAINER_PROPERTIES = array(
         'background', 'background-color', 'border', 'border-color', 'border-style', 'border-width',
