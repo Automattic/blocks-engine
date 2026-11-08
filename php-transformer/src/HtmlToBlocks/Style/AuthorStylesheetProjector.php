@@ -2557,6 +2557,21 @@ final class AuthorStylesheetProjector
                     'end' => (int) $span['end'],
                     'value' => $this->projectControlSelector($prefix, $parsedPrefix, $marker, $context),
                 ));
+                // A materialized SVG inside a button link is a bare image,
+                // not the figure leaf used by block images. Retarget source
+                // types in the descendant suffix without changing ancestry or
+                // specificity, and without admitting ordinary author images.
+                if ( str_contains($context->emittedMarkup, 'assets/materialized-svg/inline-svg-') ) {
+                    $parsed = $context->sourceStyles->parsedSelector($selector);
+                    foreach ( array_merge($parsed['type_spans'], CssSelectorMatcher::functionalTypeSpans($selector)) as $typeSpan ) {
+                        if ( 'svg' === strtolower((string) $typeSpan['name']) && (int) $typeSpan['start'] >= (int) $span['end'] ) {
+                            $replacements[$typeSpan['start']] = array(
+                                'end' => $typeSpan['end'],
+                                'value' => ':is(svg,:where(.wp-block-button__link > img[src*="assets/materialized-svg/inline-svg-"]))',
+                            );
+                        }
+                    }
+                }
                 $projected[] = $this->projectSourceClassSelector($selector, $context, $replacements);
             }
             return array_values(array_unique($projected));
