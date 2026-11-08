@@ -75,6 +75,30 @@ $assert(
     (string) ($plain['serialized_blocks'] ?? '')
 );
 
+// Reduced full-document regression: bare type selectors must follow replaced inlines too.
+$fixture = '<!doctype html><html><head><meta charset="utf-8"><title>Font size media</title>'
+    . '<style>body{font-size:14px}h2{font-size:40px}@media (max-width:767px){h2{font-size:24px}font{font-size:inherit!important}}</style></head>'
+    . '<body><main><h2><strong><font color="#3f3f3f" size="4">Follow us</font></strong></h2><p><font size="2">Small print.</font></p></main></body></html>';
+$regression = ( new HtmlTransformer() )->transform($fixture)->toArray();
+$blocks = (string) ($regression['serialized_blocks'] ?? '');
+$author = '';
+$before = '';
+foreach ( $regression['assets'] ?? array() as $asset ) {
+    if ( 'css' !== ($asset['kind'] ?? '') ) continue;
+    if ( 'author-css' === ($asset['source'] ?? '') ) $author .= $asset['content'];
+    if ( str_contains((string) ($asset['path'] ?? ''), 'before-author') ) $before .= $asset['content'];
+}
+foreach ( array( 'Follow us' => '18px', 'Small print.' => '13px' ) as $text => $size ) {
+    preg_match('/<mark\\b[^>]*style="([^"]*)"[^>]*>' . preg_quote($text, '/') . '<\\/mark>/', $blocks, $mark);
+    preg_match('/--blocks-engine-richtext-marker:(blocks-engine-richtext-[a-z0-9-]+)/', $mark[1] ?? '', $hook);
+    $marker = $hook[1] ?? '';
+    $assert('' !== $marker && ! str_contains($mark[1] ?? '', 'font-size'), "$text: size is not frozen inline", $blocks);
+    $assert('' !== $marker && 1 === preg_match('/[^{}]*' . preg_quote($marker, '/') . '[^{}]*\\{font-size:' . $size . '\\}/', $before), "$text: desktop keeps the presentational size", $before);
+    $assert(str_contains($blocks, 'blocks-engine-subject-tag-font') && 1 === preg_match('/@media \\(max-width:767px\\)\\{(?:[^{}]*\\{[^{}]*\\})*[^{}]*blocks-engine-subject-tag-font[^{}]*\\{font-size:inherit!important/', $author), "$text: mobile inherits within the original media", $author);
+}
+$unconditional = ( new HtmlTransformer() )->transform(str_replace('@media (max-width:767px){h2{font-size:24px}font{font-size:inherit!important}}', 'font{font-size:inherit!important}', $fixture))->toArray();
+$assert(! str_contains(json_encode($unconditional['assets']), 'font-size:18px') && ! str_contains(json_encode($unconditional['assets']), 'font-size:13px') && ! preg_match('/font-size:(?:18|13)px/', (string) $unconditional['serialized_blocks']), 'unconditional author inheritance still suppresses the size hints');
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Legacy font size breakpoint hint: {$failures} failed, {$passes} passed\n");
     exit(1);
