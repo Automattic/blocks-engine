@@ -21,17 +21,9 @@ final class EditabilityPolicy
     );
 
     /**
-     * The only metric that still blocks a site import: a ratio breach on the
-     * entrypoint means the page the whole site hangs off is mostly non-editable
-     * wrapper structure. Every other breach is a per-page quality finding; the
-     * page is kept and the finding carries its metrics.
-     */
-    public const ENTRYPOINT_BLOCKING_METRICS = array('wrapper_to_content_ratio');
-
-    /**
      * @param array<string,mixed> $report
-     * @param string|null $entrypointPath Site compiles pass their entrypoint so breaches
-     *        outside the blocking set become per-page `findings`. Without it every
+     * @param string|null $entrypointPath Site compiles pass their entrypoint so every
+     *        breach becomes a per-page `finding`. Without it every
      *        breach is a blocking failure (the strict self-consistency gate).
      * @return array<string,mixed>
      */
@@ -57,9 +49,9 @@ final class EditabilityPolicy
         $failures = array();
         $findings = array();
         foreach ($breaches as $breach) {
-            $blocking = null === $entrypointPath
-                || (($breach['source_path'] ?? '') === $entrypointPath && in_array($breach['metric'], self::ENTRYPOINT_BLOCKING_METRICS, true));
-            if ($blocking) {
+            // Without a site entrypoint this is the strict self-consistency check.
+            // Site compiles keep every page and report each breach as a finding.
+            if (null === $entrypointPath) {
                 $failures[] = $breach;
             } else {
                 $findings[] = $breach;
