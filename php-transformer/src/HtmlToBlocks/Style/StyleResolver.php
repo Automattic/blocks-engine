@@ -190,7 +190,8 @@ final class StyleResolver implements ElementPresentationResolver
             $this->hasConditionalStyleFamily(...),
             $this->responsivePropertyFamily(...),
             $this->hasConditionalGridTemplateColumns(...),
-            $this->authorNormalDeclarationSpecificity(...)
+            $this->authorNormalDeclarationSpecificity(...),
+            $this->authorImportantDeclarationSpecificity(...)
         );
     }
 
@@ -2925,8 +2926,12 @@ final class StyleResolver implements ElementPresentationResolver
     {
         $wanted = array_fill_keys(array_map('strtolower', $properties), true);
         $highest = array( 0, 0, 0 );
-        foreach ( $this->matchingStyleRules($element, 'static-conditional') as $rule ) {
-            foreach ( $rule['declarations'] as $property => $value ) {
+        // Cascade-only properties (`transform`, `visibility`, ...) live beside
+        // the classified declarations: on a conditional rule itself, and in
+        // the cascaded-value stream for a resting rule.
+        $rules = array_merge($this->matchingStyleRules($element, 'static-conditional'), $this->matchingStyleRules($element, 'cascaded-values'));
+        foreach ( $rules as $rule ) {
+            foreach ( ( $rule['declarations'] ?? array() ) + ( $rule['cascadedDeclarations'] ?? array() ) as $property => $value ) {
                 if ( ! isset($wanted[ strtolower((string) $property) ]) || $important !== CssValueInspector::isImportant((string) $value) ) {
                     continue;
                 }

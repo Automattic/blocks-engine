@@ -43,7 +43,7 @@ final class NavigationEntityProjection
                     $identity = self::contentIdentity($inner);
                     $clusters[$identity][] = array(
                         'kind' => $kind, 'index' => $index, 'block' => $block,
-                        'inner' => $inner, 'source_path' => $source,
+                        'inner' => $inner, 'captured_inner' => $block['inner'], 'source_path' => $source,
                         'area' => (string) ($document['area'] ?? ''),
                         'title' => 'part' === $kind ? (string) ($document['title'] ?? 'Navigation') : 'Navigation',
                     );
@@ -83,7 +83,7 @@ final class NavigationEntityProjection
                 // The entity holds one copy of each item's presentation. A
                 // reference whose items present differently renders its own.
                 $own = self::itemPresentation($occurrence['inner']);
-                if ($own !== $shared) $attrs['metadata'][self::ITEMS_KEY] = $own;
+                if ($own !== $shared) $attrs['metadata'][self::ITEMS_KEY] = self::withCapturedCurrentState($own, $occurrence['captured_inner']);
                 $replacements[$occurrence['kind']][$occurrence['index']][] = array(
                     'offset' => $occurrence['block']['offset'], 'length' => $occurrence['block']['length'],
                     'markup' => '<!-- wp:navigation ' . BlockAttributes::encode($attrs, JSON_THROW_ON_ERROR) . ' /-->',
@@ -253,6 +253,29 @@ final class NavigationEntityProjection
             return ('' === $class ? array() : array('className' => $class))
                 + (is_array($anchor) ? array('blocksEngineNavigationAnchor' => $anchor) : array());
         }, $matches[1]);
+    }
+
+    /**
+     * Mark the items that were the served route where the reference was
+     * captured. An item's captured presentation holds the state it was
+     * captured in: a part's items all rest, a page's current item is
+     * current. Where the served route puts an item in the other state, the
+     * runtime keeps the entity's presentation for it, whose state the
+     * navigation's own current and resting rules restore.
+     *
+     * @param list<array<string,mixed>> $presentation
+     * @return list<array<string,mixed>>
+     */
+    private static function withCapturedCurrentState(array $presentation, string $captured): array
+    {
+        preg_match_all(self::ITEM_PATTERN, $captured, $matches);
+        if (count($matches[1]) !== count($presentation)) return $presentation;
+        foreach ($matches[1] as $position => $json) {
+            $attrs = json_decode($json, true);
+            $classes = preg_split('/\s+/', trim((string) (is_array($attrs) ? ($attrs['className'] ?? '') : ''))) ?: array();
+            if (in_array('blocks-engine-current-navigation-item', $classes, true)) $presentation[$position]['current'] = true;
+        }
+        return $presentation;
     }
 
     private static function labelText(string $label): string
