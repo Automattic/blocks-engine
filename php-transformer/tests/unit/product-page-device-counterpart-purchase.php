@@ -11,7 +11,9 @@ $assert = static function (bool $condition, string $message): void {
 // A captured page carries one copy of its purchase controls per device
 // document. When the capture pairs the cart controls as responsive
 // counterparts, the copy that alone lacks product evidence is still a purchase
-// placement and must get its own runtime binding, not a static button.
+// placement and must get its own runtime binding, not a static button. An
+// empty option form beside the controls does not stop the binding from
+// owning the copy's quantity input.
 $result = (new ArtifactCompiler())->compile(array(
     'entrypoint' => 'store/stand-model.html',
     'files' => array('store/stand-model.html' => file_get_contents(dirname(__DIR__) . '/fixtures/product-page-device-counterpart-purchase.html')),
