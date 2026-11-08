@@ -4,12 +4,12 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\AssetMaterializationState;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use DOMElement;
 
 final class ImageUrlResolver
 {
-    public function __construct(private readonly AssetMaterializationState $assets)
+    public function __construct(private readonly HtmlTransformerSession $session)
     {
     }
 
@@ -95,7 +95,7 @@ final class ImageUrlResolver
     }
 
     /** @return array<string, mixed>|null */ public function assetMetadata(string $url): ?array {
-        return $this->assets->metadataForUrl($url);
+        return $this->session->assetMaterializationState()->metadataForUrl($url);
     }
 
     private function safeResolvedAssetImageUrl(string $url): string
