@@ -236,9 +236,10 @@ JS;
         // cannot preserve its conditional geometry. CSS-sized frames use the
         // existing editable iframe block so source selectors still own the box,
         // except an inline fill at a core embed ratio, which core/embed draws as is.
+        // Hidden frames also keep their native element so source hiding selectors still apply.
         $fluidRatio = '' === $providerNameSlug ? null : $this->fluidAspectRatio($surface, $styleResolver);
         $sourceSized = null === $fluidRatio && $this->sourceOwnsIframeGeometry($surface, $styleResolver);
-        if ( '' !== $providerNameSlug && ! $sourceSized ) {
+        if ( '' !== $providerNameSlug && ! $sourceSized && ! $sourceElementStartsHidden($surface) ) {
             $embedAttrs = array_merge($styleResolver->presentationAttributes($surface), array(
                 'url'              => $this->canonicalEmbedUrl($url),
                 'type'             => $this->embedTypeForSlug($providerNameSlug),
@@ -274,7 +275,7 @@ JS;
             return $customHost instanceof DOMElement ? $this->customVisualIframeHostBlock($customHost, $surface, $block, $styleResolver, $createBlock) : $block;
         }
 
-        $visualIframeAttributes = $this->boundedVisualIframeAttributes($surface, $url, $styleResolver, $sourceElementStartsHidden);
+        $visualIframeAttributes = $this->boundedVisualIframeAttributes($surface, $url, $styleResolver);
         if ( null !== $visualIframeAttributes ) {
             $runtimeIslands->recordRuntimeIsland($iframe, 'iframe', 'iframe_requires_embed_runtime', 'third_party_embed_runtime', array(
                 'preservation_strategy' => 'typed_visual_iframe_companion',
@@ -529,12 +530,11 @@ JS;
     }
 
     /**
-     * @param Closure(DOMElement): bool $sourceElementStartsHidden
      * @return array<string, mixed>|null
      */
-    private function boundedVisualIframeAttributes(DOMElement $iframe, string $url, StyleResolver $styleResolver, Closure $sourceElementStartsHidden): ?array
+    private function boundedVisualIframeAttributes(DOMElement $iframe, string $url, StyleResolver $styleResolver): ?array
     {
-        if ( ! $this->sourceElementClassifier->isSafeVisualIframeUrl($url) || $sourceElementStartsHidden($iframe) ) {
+        if ( ! $this->sourceElementClassifier->isSafeVisualIframeUrl($url) ) {
             return null;
         }
 
