@@ -6972,6 +6972,12 @@ PHP;
                 break;
             }
         }
+        foreach (array_merge($templates, $parts, $pages) as $document) {
+            if (str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), NavigationEntityProjection::ITEMS_KEY)) {
+                $lines[] = NavigationReferenceItemsRuntime::source();
+                break;
+            }
+        }
         foreach (array_merge($templates, $parts, $pages, $menus) as $document) {
             if (str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), 'blocksEngineNavigationAnchor')) {
                 $lines[] = NavigationAnchorRuntime::source();
