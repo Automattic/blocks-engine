@@ -5017,7 +5017,11 @@ final class ArtifactCompiler
         // A stale title repeated by many routes is one vote, not a site-name
         // run of its own (which could otherwise swallow the actual brand).
         $titles = array_values(array_unique($titles));
-        $majority = intdiv(count($titles), 2) + 1;
+        // Only titles that carry a separator can vote: a blog whose posts use
+        // bare titles still names its pages "Page | Site", and those bare
+        // titles say nothing about the site-name run.
+        $separated = count(array_filter($titles, static fn (string $title): bool => 1 === preg_match(self::DOCUMENT_TITLE_SEPARATOR, $title)));
+        $majority = max(2, intdiv($separated, 2) + 1);
         $sharedRun = static function (array $titles, bool $leading) use ($majority): array {
             $counts = array();
             foreach ( $titles as $title ) {
