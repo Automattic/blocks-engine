@@ -156,6 +156,29 @@ $assert(
     $ordinaryCss
 );
 
+// #5007: authored inline-block must not split centred placement from
+// the carrier's spacing reset. Exercise universal and source-element resets.
+foreach ( array( '*', 'button' ) as $reset ) {
+    $centred = ( new HtmlTransformer() )->transform(
+        '<style>' . $reset . '{margin:0}'
+        . '.cta{display:inline-block;padding:8px 16px;background:#222;color:#fff}'
+        . '.center{position:relative;left:50%;transform:translate(-50%)}'
+        . '</style><form><input type="email" name="email">'
+        . '<button class="cta center" type="submit">Submit</button></form>'
+    )->toArray();
+    $centredCss = $cssOf($centred);
+    $assert(
+        (bool) preg_match('/:where\(\.blocks-engine-control-[^)]+\):where\(\.wp-block-buttons\):not\(\.be-c-\d+\)[^{]*\{margin:0\}/', $centredCss),
+        'centred submit retains the ' . $reset . ' margin reset on its buttons carrier',
+        $centredCss
+    );
+    $assert(
+        (bool) preg_match('/wp-block-button__link[^{}]*\{margin:0\}/', $centredCss),
+        'centred submit retains the ' . $reset . ' margin reset on its link',
+        $centredCss
+    );
+}
+
 if ( $failures ) {
     fwrite(STDERR, $failures . " positioned-button translate projection test(s) failed\n");
     exit(1);

@@ -474,6 +474,11 @@ final class AuthorStylesheetProjector
         $rules = '' === $this->styleResolver->cssDeclarationString($inner)
             ? ''
             : $this->rewriteStyleRule($prelude, $this->styleResolver->cssDeclarationString($inner), $context, $inConditional);
+        $carrierReset = $this->buttonCarrierMarginReset($this->styleResolver->cssDeclarationString($margins));
+        $carrierPrelude = '' === $carrierReset ? '' : $this->buttonCarrierResetPrelude($prelude, $context);
+        if ( '' !== $carrierPrelude ) {
+            $rules .= $carrierPrelude . '{' . $carrierReset . '}';
+        }
         $rules .= $this->tableVerticalMarginRules($prelude, $margins, $context);
         $css = $rules
             . $this->marginSelectorPrelude($prelude, $context) . '{' . $this->styleResolver->cssDeclarationString($margins) . '}'
@@ -1428,6 +1433,45 @@ final class AuthorStylesheetProjector
         return $css;
     }
 
+    /**
+     * A lowered control's link and carrier both replace its source margin box.
+     * Keep element/universal margin resets on the carrier too, even when the
+     * link is the inline participant. Do not copy paint or authored spacing.
+     */
+    private function buttonCarrierResetPrelude(string $prelude, AuthorStylesheetProjectionContext $context): string
+    {
+        $rewritten = array();
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+            if ( ! preg_match('/^\s*(?:\*|[a-zA-Z][a-zA-Z0-9-]*)\s*$/', $selector) ) {
+                continue;
+            }
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            if ( ! ($parsed['supported'] ?? false) ) {
+                continue;
+            }
+            foreach ( $this->matchingSourceElements($selector, $parsed, $context) as $element ) {
+                $marker = $context->selectorProjections->controlMarker($element->getNodePath() ?? '');
+                if ( '' !== $marker ) {
+                    $rewritten[] = ':where(.' . $marker . '):where(.wp-block-buttons):not(.'
+                        . $context->authorStyles->classSpecificityShim() . ')'
+                        . $this->selectorSpecificityShims($parsed, $context);
+                }
+            }
+        }
+        return implode(',', array_values(array_unique($rewritten)));
+    }
+
+    private function buttonCarrierMarginReset(string $body): string
+    {
+        $resets = array();
+        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
+            if ( preg_match('/^\s*margin(?:-(?:top|right|bottom|left|block(?:-start|-end)?|inline(?:-start|-end)?))?\s*:\s*(?:0(?:px|em|rem|%)?\s*){1,4}(?:!\s*important)?\s*$/i', $declaration) ) {
+                $resets[] = $declaration;
+            }
+        }
+        return implode(';', $resets);
+    }
+
     private function buttonPresentationWrapperPrelude(string $prelude, AuthorStylesheetProjectionContext $context): string
     {
         $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
@@ -1492,7 +1536,10 @@ final class AuthorStylesheetProjector
         return $this->directButtonWrapperPrelude(
             $prelude,
             $context,
-            fn (string $selector, array $parsed, string $marker): string => $this->projectButtonBoxSelector($selector, $parsed, $marker, $context)
+            fn (string $selector, array $parsed, string $marker, DOMElement $element): string =>
+                LayoutParticipation::BOX_LINK === LayoutParticipation::resolve($element, $this->styleResolver)->participatingBox()
+                    ? $this->projectControlSelector($selector, $parsed, $marker, $context)
+                    : $this->projectButtonBoxSelector($selector, $parsed, $marker, $context)
         );
     }
 
@@ -3825,6 +3872,8 @@ final class AuthorStylesheetProjector
 
     private function typeSpecificityShim(AuthorStylesheetProjectionContext $context): string
     {
+        // Deliberately a type selector: :not(.be-t-0) would add class, not
+        // type, specificity and change the cascade of projected source rules.
         return '' === $context->authorStyles->specificityShim() ? '' : ':not(' . $context->authorStyles->specificityShim() . ')';
     }
 

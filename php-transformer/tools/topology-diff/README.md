@@ -14,6 +14,9 @@ composer topology-diff -- --fixture <dir> --top 20       # one capture or fixtur
 composer topology-diff -- --output <report.json>         # machine-readable report
 ```
 
+The Composer script disables its process timeout because a full corpus run can
+exceed Composer's default 300 seconds.
+
 Each fixture directory is compiled the way an import compiles it (every HTML,
 CSS, JS and SVG file through `ArtifactCompiler`). The source tree is
 `index.html`'s `<body>`; the rendered tree is the compiled saved block markup.
@@ -36,7 +39,7 @@ fixture and fails when any count moves:
   record it in the same pull request so the baseline stays exact:
 
 ```sh
-COMPOSER_PROCESS_TIMEOUT=0 composer topology-diff -- --update-baseline tools/topology-diff/baseline.json
+composer topology-diff -- --update-baseline tools/topology-diff/baseline.json
 ```
 
 Regenerate the baseline from the merged tree using CI's topology runtime (PHP
