@@ -47,9 +47,22 @@ final class AssetConsumers
         return $consumers;
     }
 
-    /** @param list<array<string,mixed>> $consumers @param array<string,true>|null $unreferenced */
-    public static function destination(array $consumers, array $asset = array(), ?array $unreferenced = null): string
+    /**
+     * SVGs whose text needs an embedded web font. The font is embedded into
+     * the theme write, and an SVG served as an image cannot load fonts from
+     * elsewhere, so these stay theme assets even when a block references them.
+     *
+     * @param array<string,mixed> $plan @return array<string,true>
+     */
+    public static function fontEmbeddingSvgs(array $plan): array
     {
+        return array_fill_keys(array_column($plan['theme']['font_materialization']['webfont_contract']['svg_consumers'] ?? array(), 'source_path'), true);
+    }
+
+    /** @param list<array<string,mixed>> $consumers @param array<string,true>|null $unreferenced @param array<string,true> $fontEmbeddingSvgs */
+    public static function destination(array $consumers, array $asset = array(), ?array $unreferenced = null, array $fontEmbeddingSvgs = array()): string
+    {
+        if (isset($fontEmbeddingSvgs[$asset['source_path'] ?? ''])) return 'theme';
         foreach ($consumers as $consumer) if ('block' === $consumer['kind']) return 'media_library';
         if (null !== $unreferenced && isset($unreferenced[$asset['token'] ?? ''])) return 'none';
         return 'theme';
