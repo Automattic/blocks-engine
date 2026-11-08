@@ -930,7 +930,10 @@ final class AuthorSelectorSemanticPreparer
     private static function richTextSelectorNeedsHook(array $parsed): bool
     {
         foreach ( $parsed['compounds'] as $compound ) {
-            if ( array() !== $compound['classes'] || array() !== $compound['ids'] || array() !== $compound['attributes'] ) {
+            // Font presentational hints need a carrier hook even for bare type
+            // selectors, so author overrides do not erase the hint at all widths.
+            if ( 'font' === strtolower((string) ($compound['type'] ?? ''))
+                || array() !== $compound['classes'] || array() !== $compound['ids'] || array() !== $compound['attributes'] ) {
                 return true;
             }
         }
