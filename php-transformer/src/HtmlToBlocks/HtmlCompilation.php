@@ -199,6 +199,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CapturedGlyphCol
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\QuirksModeSource;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\HtmlDimensionAttribute;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ImageUrlResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializationContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
@@ -287,6 +288,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
     private readonly StyleResolver $styleResolver;
     private ?IntrinsicVisualMediaHeight $intrinsicVisualMediaHeight = null;
+    private ?ImageUrlResolver $imageUrls = null;
     private readonly EmptyElementFootprint $emptyElementFootprint;
 
     private readonly GeneratedBlockStyleProjector $generatedBlockStyleProjector;
@@ -1136,7 +1138,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             CssValueInspector::comparable(...),
             fn (string $selector): array => $this->parsedCssSelector($selector),
             fn (string $className): string => $this->promotedClassName($className),
-            fn (string $url): string => $this->resolvedAssetImageUrl($url)
+            fn (string $url): string => $this->imageUrls()->resolvedAssetUrl($url)
         );
     }
 
@@ -1547,7 +1549,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // repeatedly scan the document as the number of gallery images grows.
         $sourceImages = (new \DOMXPath($document))->query('.//img', $body);
         foreach ( $sourceImages as $image ) {
-            $source = $this->imageSourceUrl($image);
+            $source = $this->imageUrls()->sourceUrl($image);
             if ( '' !== $source && $source !== $this->attr($image, 'src') ) {
                 $image->setAttribute('src', $source);
             }
@@ -3942,7 +3944,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             ),
             new MediaPatternContext(
                 fn (DOMElement $sourceElement): string => $this->styleResolver->coverPresentationStyle($sourceElement),
-                fn (string $url): string => $this->resolvedAssetImageUrl($url),
+                fn (string $url): string => $this->imageUrls()->resolvedAssetUrl($url),
                 fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => array_merge(
                     $this->styleResolver->mediaTextPresentationAttributes($sourceElement, $excludedGeometryProperties),
                     array( 'mediaTextImageMarker' => '' === $this->session->authorStyleAnalysis()->combinedCss()
@@ -4201,7 +4203,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $customImage = SourceDom::imageOnlyCustomElement($element);
         if ( $customImage instanceof DOMElement ) {
             $this->imageDimensions()->fillParentImageViewportPair($customImage);
-            if ('' === $this->imageSourceUrl($customImage) && !$customImage->hasAttribute('srcset')) {
+            if ('' === $this->imageUrls()->sourceUrl($customImage) && !$customImage->hasAttribute('srcset')) {
                 return null;
             }
             if ( ! $this->canPromoteImageOnlyCustomElement($element, $customImage) ) {
@@ -9849,7 +9851,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         if ( (new CoverStyleResolver())->hasRepeatingBackground($this->styleResolver->mergedPresentationStyle($element)) ) {
             $attrs = $this->styleResolver->presentationAttributes($element);
             $attrs['style']['background'] = array_filter(array(
-                'backgroundImage'    => array( 'url' => $this->resolvedAssetImageUrl($url) ),
+                'backgroundImage'    => array( 'url' => $this->imageUrls()->resolvedAssetUrl($url) ),
                 'backgroundRepeat'   => $declarations['background-repeat'] ?? 'repeat',
                 // Core defaults a missing size to cover, not CSS's initial auto.
                 'backgroundSize'     => $declarations['background-size'] ?? 'auto',
@@ -9880,7 +9882,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         $image = $this->createBlock('core/image', array_filter(array(
-            'url'       => $this->resolvedAssetImageUrl($url),
+            'url'       => $this->imageUrls()->resolvedAssetUrl($url),
             'alt'       => $this->backgroundImageExtractor->altFromAttributes($this->htmlAttributes($element)),
             // A painted background never contributes intrinsic size, so the
             // materialized image resolves its box from the source element.
@@ -10030,7 +10032,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
         $attrs = array_filter(array_merge($this->styleResolver->presentationAttributes($element), array(
             'src'      => $src,
-            'poster'   => 'video' === $tagName ? $this->safeImageUrl($this->attr($element, 'poster')) : '',
+            'poster'   => 'video' === $tagName ? $this->imageUrls()->safeUrl($this->attr($element, 'poster')) : '',
             'preload'  => $this->attr($element, 'preload'),
             'width'    => 'video' === $tagName ? '' : $this->attr($element, 'width'),
             'height'   => 'video' === $tagName ? '' : $this->attr($element, 'height'),
@@ -10198,8 +10200,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     {
         $attrs = (new LinkedResponsiveContentProjector(
             $this->styleResolver,
-            $this->imageSourceUrl(...),
-            $this->resolvedAssetImageUrl(...),
+            $this->imageUrls()->sourceUrl(...),
+            $this->imageUrls()->resolvedAssetUrl(...),
             fn (string $url): int => (int) ($this->assetMetadataImageAttributes($url)['id'] ?? 0),
             $this->runtimeIslands->isRuntimeDomTarget(...),
             fn (DOMElement $element): bool => array() !== $this->eventMetadata($element),
@@ -10751,8 +10753,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return $this->responsiveMediaBlock($link ?? $figure ?? $picture ?? $image);
         }
 
-        $originalUrl = $this->imageSourceUrl($image);
-        $url = $this->resolvedAssetImageUrl($originalUrl);
+        $originalUrl = $this->imageUrls()->sourceUrl($image);
+        $url = $this->imageUrls()->resolvedAssetUrl($originalUrl);
         if ( '' === $url ) {
             return null;
         }
@@ -11004,45 +11006,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     }
 
 
-    private function imageSourceUrl(DOMElement $image): string
-    {
-        $src = $this->safeImageUrl($this->attr($image, 'src'));
-        if ( '' !== $src && ! str_starts_with(strtolower($src), 'data:') ) {
-            return $src;
-        }
-
-        if ( '' === $src ) {
-            $largest = '';
-            $largestWidth = -1;
-            foreach ( SrcsetParser::parse($this->attr($image, 'srcset')) as $candidate ) {
-                if ( 1 !== preg_match('/^(\d+)w$/', $candidate['descriptor'], $matches) || (int) $matches[1] <= $largestWidth ) {
-                    continue;
-                }
-                $url = $this->safeImageUrl($candidate['url']);
-                if ( '' !== $url ) {
-                    $largest = $url;
-                    $largestWidth = (int) $matches[1];
-                }
-            }
-            if ( '' !== $largest ) {
-                return $largest;
-            }
-        }
-
-        foreach ( array( 'data-src', 'data-lazy-src', 'data-original', 'data-image-src' ) as $attribute ) {
-            $candidate = $this->safeImageUrl($this->attr($image, $attribute));
-            if ( '' !== $candidate && SourceDom::safeFallbackUrl($candidate, 'src', 'img') ) {
-                return $candidate;
-            }
-        }
-
-        $fromHost = $this->safeImageUrl(SourceDom::imageUrlFromHostMetadata($image));
-        if ( '' !== $fromHost ) {
-            return $fromHost;
-        }
-
-        return $src;
-    }
+    private function imageUrls(): ImageUrlResolver { return $this->imageUrls ??= new ImageUrlResolver($this->session->assetMaterializationState()); }
 
     /** Retain a static host box around independently editable native media. */
     private function nativeImageInCustomHost(DOMElement $host, DOMElement $image, ?DOMElement $link = null): ?array
@@ -11309,7 +11273,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
     private function hasRedundantCustomVideoPosterMarkup(DOMElement $host, DOMElement $video): bool
     {
-        $poster = $this->safeImageUrl($this->attr($video, 'poster'));
+        $poster = $this->imageUrls()->safeUrl($this->attr($video, 'poster'));
         foreach ( $host->getElementsByTagName('*') as $descendant ) {
             if ( ! $descendant instanceof DOMElement || $descendant === $video ) {
                 continue;
@@ -11419,7 +11383,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
     private function isRedundantCustomVideoPosterImage(DOMElement $image, string $poster): bool
     {
-        if ( ! $image->hasAttribute('alt') || '' !== $this->attr($image, 'alt') || $poster !== $this->imageSourceUrl($image) ) {
+        if ( ! $image->hasAttribute('alt') || '' !== $this->attr($image, 'alt') || $poster !== $this->imageUrls()->sourceUrl($image) ) {
             return false;
         }
 
@@ -11917,7 +11881,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
         return array_filter(array(
             'src'     => $src,
-            'srcset'  => SrcsetParser::rewrite($this->attr($image, 'srcset'), fn (string $url): string => $this->resolvedAssetImageUrl($url)),
+            'srcset'  => SrcsetParser::rewrite($this->attr($image, 'srcset'), fn (string $url): string => $this->imageUrls()->resolvedAssetUrl($url)),
             'sizes'   => $sizes,
             'loading' => in_array($loading, array( 'lazy', 'eager' ), true) ? $loading : '',
         ), static fn (string $value): bool => '' !== $value);
@@ -11931,7 +11895,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             }
 
             foreach ( SrcsetParser::parse($this->attr($candidate, 'srcset')) as $source ) {
-                if ( '' === $this->safeImageUrl($source['url'])
+                if ( '' === $this->imageUrls()->safeUrl($source['url'])
                     || preg_match('/^(?:javascript|blob)\s*:/i', trim($source['url'])) ) {
                     return true;
                 }
@@ -12343,26 +12307,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return strtolower(trim(CssValueInspector::withoutImportant((string) ($declarations[ $property ] ?? ''))));
     }
 
-    private function safeImageUrl(string $url): string
-    {
-        if ( ! preg_match('#^data:image/svg\+xml(?:[;,][^,]*)?,#i', $url) ) {
-            return $url;
-        }
-
-        $parts = explode(',', $url, 2);
-        if ( 2 !== count($parts) ) {
-            return '';
-        }
-
-        $metadata = strtolower($parts[0]);
-        $svg = str_contains($metadata, ';base64') ? base64_decode($parts[1], true) : rawurldecode($parts[1]);
-        if ( false === $svg || ! $this->isSafeSvgContent($svg) ) {
-            return '';
-        }
-
-        return $url;
-    }
-
     /**
      * @param array<string, mixed> $options
      * @return array<string, array<string, mixed>>
@@ -12393,7 +12337,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
      */
     private function assetMetadataImageAttributes(string $url): array
     {
-        $asset = $this->assetMetadataForUrl($url);
+        $asset = $this->imageUrls()->assetMetadata($url);
         if ( null === $asset ) {
             return array();
         }
@@ -12404,51 +12348,13 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         if ( isset($asset['url']) && is_string($asset['url']) ) {
-            $resolvedUrl = $this->resolvedAssetImageUrl($url);
+            $resolvedUrl = $this->imageUrls()->resolvedAssetUrl($url);
             if ( '' !== $resolvedUrl ) {
                 $attrs['url'] = $resolvedUrl;
             }
         }
 
         return $attrs;
-    }
-
-    private function resolvedAssetImageUrl(string $url): string
-    {
-        if ( '' === $url ) {
-            return '';
-        }
-
-        $asset = $this->assetMetadataForUrl($url);
-        if ( ! is_array($asset) || ! isset($asset['url']) || ! is_string($asset['url']) ) {
-            return $url;
-        }
-
-        $resolvedUrl = $this->safeResolvedAssetImageUrl(trim($asset['url']));
-        if ( '' === $resolvedUrl ) {
-            return $url;
-        }
-
-        preg_match('/^[^?#]*(.*)$/s', $url, $parts);
-        $resolvedUrl = $this->safeResolvedAssetImageUrl($resolvedUrl . ($parts[1] ?? ''));
-        return '' !== $resolvedUrl ? $resolvedUrl : $url;
-    }
-
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function assetMetadataForUrl(string $url): ?array
-    {
-        return $this->session->assetMaterializationState()->metadataForUrl($url);
-    }
-
-    private function safeResolvedAssetImageUrl(string $url): string
-    {
-        if ( '' === $url || preg_match('/[\x00-\x1f\x7f]|javascript\s*:/i', $url) ) {
-            return '';
-        }
-
-        return $this->safeImageUrl($url);
     }
 
     /** Keep independently styled source boxes distinct without changing inert class transport. */
