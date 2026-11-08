@@ -350,7 +350,22 @@ final class ProjectedNavigationConverter implements ElementConverter
             // button so Core's overlay does not gain a transformed ancestor.
             $extraRules .= $open . '{min-width:0!important;min-height:0!important;' . ('button' === strtolower($toggle->tagName) ? '' : 'padding:0!important;') . 'border:0!important;width:auto!important;height:auto!important}';
             $extraRules .= $presentation->css($open, $source['button'], $toggle);
-            $extraRules .= $presentation->css($open . '>svg', $source['icon'], $presentation->icon($toggle));
+            $extraRules .= $presentation->css($open . '>svg', $source['icon'], $presentation->icon($toggle) ?? $toggle);
+        }
+        if (null !== $source && null === $presentation->icon($toggle) && $this->hasNavigationHeader($navigation)) {
+            $paint = $this->responsiveNavigationOverlayAttributes($navigation)['customOverlayBackgroundColor'] ?? '';
+            if ('' !== $paint) {
+                $openPanel = $host . ' .wp-block-navigation__responsive-container.is-menu-open:not(.disable-default-overlay)';
+                // The passive panel is below the retained header row. Keep Core's
+                // close icon in the replacement host, the source burger's slot.
+                $extraRules .= $host . '{position:relative!important;isolation:isolate}'
+                    . $openPanel . '{position:static!important;background:transparent!important;padding:0!important}'
+                    . $openPanel . ' .wp-block-navigation__responsive-dialog{position:static!important}'
+                    . $openPanel . ' .wp-block-navigation__responsive-container-content{position:fixed!important;inset:0!important;box-sizing:border-box!important;background:' . $paint . '!important;z-index:-1!important}'
+                    . $openPanel . ' .wp-block-navigation__responsive-container-close{position:absolute!important;inset:0!important;display:flex!important;align-items:center!important;justify-content:center!important;' . implode(';', $declarations) . '}'
+                    . $openPanel . ' .wp-block-navigation__responsive-container-close{box-sizing:content-box!important;width:' . $source['icon']['']['width'] . '!important;height:' . $source['icon']['']['height'] . '!important;padding:1px 6px!important;border:0!important;background:transparent!important}'
+                    . $openPanel . ' .wp-block-navigation__responsive-container-close svg{display:block!important;width:100%!important;height:100%!important}';
+            }
         }
         if ( str_contains($extra, 'SVG_HIDE') ) {
             $extraRules .= $host . '>.wp-block-navigation__responsive-container-open svg{display:none!important}';
@@ -413,9 +428,9 @@ final class ProjectedNavigationConverter implements ElementConverter
     public function responsiveNavigationOverlayAttributes(DOMElement $navigation): array
     {
         $attrs = array();
-        $panels = array_merge($this->navigationToggleSuppressor->controlledPanelBoxes($navigation), $this->collapsedPanelChain($navigation));
+        $panels = $this->overlayPanelBoxes($navigation);
         foreach ( $panels as $panel ) {
-            $values = $this->styleResolver->collapsedViewportDeclarations($panel, array('background', 'background-color', 'color', 'text-align', 'align-items', 'flex-direction'));
+            $values = $this->styleResolver->collapsedViewportAuthorDeclarations($panel, array('background', 'background-color', 'color', 'text-align', 'align-items', 'flex-direction'));
             $background = '';
             foreach ( $values as $property => $value ) {
                 if ( in_array($property, array('background', 'background-color'), true) ) {
@@ -440,6 +455,38 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
 
         return $attrs;
+    }
+
+    /** Include only full-bleed, passive backdrop children of the controlled panel chain. */
+    private function overlayPanelBoxes(DOMElement $navigation): array
+    {
+        $boxes = array_merge($this->navigationToggleSuppressor->controlledPanelBoxes($navigation), $this->collapsedPanelChain($navigation));
+        for ($node = $navigation; $node instanceof DOMElement && !in_array(strtolower($node->tagName), array('header', 'body'), true); $node = $node->parentNode) {
+            $values = $this->styleResolver->collapsedViewportAuthorDeclarations($node, array('position', 'visibility', 'opacity'));
+            if (in_array($values['position'] ?? '', array('fixed', 'absolute'), true) && ('hidden' === ($values['visibility'] ?? '') || '0' === ($values['opacity'] ?? ''))) {
+                for ($inner = $navigation; $inner instanceof DOMElement; $inner = $inner->parentNode) {
+                    array_unshift($boxes, $inner);
+                    if ($inner->isSameNode($node)) break;
+                }
+                break;
+            }
+        }
+        $result = array();
+        foreach ($boxes as $box) {
+            $result[] = $box;
+            foreach ($box->childNodes as $child) {
+                if (!$child instanceof DOMElement || $child->childElementCount > 0 || '' !== trim($child->textContent ?? '')) continue;
+                $values = $this->styleResolver->collapsedViewportDeclarations($child, array('position', 'inset', 'top', 'right', 'bottom', 'left'));
+                if ('absolute' !== ($values['position'] ?? '')) continue;
+                $full = in_array($values['inset'] ?? '', array('0', '0px'), true);
+                if (!$full) {
+                    $full = true;
+                    foreach (array('top', 'right', 'bottom', 'left') as $side) $full = $full && in_array($values[$side] ?? '', array('0', '0px'), true);
+                }
+                if ($full) $result[] = $child;
+            }
+        }
+        return $result;
     }
 
     /** Carry panel paint and content-box repairs onto Core's default open overlay. */
@@ -508,6 +555,14 @@ final class ProjectedNavigationConverter implements ElementConverter
             // wrapper. Let the overlay's cross-axis alignment flow through the
             // entire item chain, including childless top-level links.
             . $open . ' .wp-block-navigation-item,' . $open . ' .wp-block-navigation-item *{align-self:auto!important;align-items:inherit!important}';
+        foreach ($this->overlayPanelBoxes($navigation) as $box) {
+            $values = $this->styleResolver->collapsedViewportAuthorDeclarations($box, array('flex-direction', 'justify-content'));
+            if (str_starts_with($values['flex-direction'] ?? '', 'column') && 'center' === ($values['justify-content'] ?? '')) {
+                $rule .= $open . ' .wp-block-navigation__responsive-container-content{min-height:100dvh!important;justify-content:center!important;align-items:' . $align . '!important;padding-block:0!important}'
+                    . $open . ' .wp-block-navigation__container{flex-direction:column!important}';
+                break;
+            }
+        }
         $this->session->generatedSupportStylesheetState()->registerNativeNavigationOverlay($marker, $rule);
 
         return $marker;
