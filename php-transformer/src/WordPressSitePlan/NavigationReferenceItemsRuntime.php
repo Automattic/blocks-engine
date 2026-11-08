@@ -5,9 +5,11 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 /**
  * A shared navigation entity holds one copy of each item. A reference whose
- * items present differently records their classes and anchor presentation
- * ({@see NavigationEntityProjection::ITEMS_KEY}); while that reference
- * renders, its items take them, in the order the entity's items render.
+ * items present differently records their classes, anchor presentation and
+ * label markup ({@see NavigationEntityProjection::ITEMS_KEY}); while that
+ * reference renders, its items take them, in the order the entity's items
+ * render. A recorded label applies only while the entity label still reads
+ * the same text, so a label edited in the entity keeps its edit.
  */
 final class NavigationReferenceItemsRuntime
 {
@@ -34,6 +36,7 @@ add_filter( 'block_core_navigation_render_inner_blocks', static function ( $inne
         }
     };
     $collect( $inner_blocks );
+    $text = static fn ( string $label ): string => trim( (string) preg_replace( '/\s+/u', ' ', html_entity_decode( wp_strip_all_tags( $label ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ) );
     // An edited menu no longer has the recorded items; it keeps its own.
     if ( count( $items ) !== count( $presentation ) ) return $inner_blocks;
     $document = __DOCUMENT_ID__;
@@ -51,6 +54,7 @@ add_filter( 'block_core_navigation_render_inner_blocks', static function ( $inne
         unset( $attrs['className'], $attrs['metadata']['blocksEngineNavigationAnchor'] );
         if ( is_string( $own['className'] ?? null ) ) $attrs['className'] = $own['className'];
         if ( is_array( $own['blocksEngineNavigationAnchor'] ?? null ) ) $attrs['metadata']['blocksEngineNavigationAnchor'] = $own['blocksEngineNavigationAnchor'];
+        if ( is_string( $own['label'] ?? null ) && is_string( $attrs['label'] ?? null ) && $text( $own['label'] ) === $text( $attrs['label'] ) ) $attrs['label'] = $own['label'];
         $block->parsed_block['attrs'] = $attrs;
         unset( $block->attributes );
     }

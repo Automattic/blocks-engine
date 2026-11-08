@@ -250,8 +250,11 @@ final class NavigationEntityProjection
             $attrs = json_decode($json, true) ?: array();
             $class = trim((string) ($attrs['className'] ?? ''));
             $anchor = $attrs['metadata']['blocksEngineNavigationAnchor'] ?? null;
+            // Label markup carries the label's own style subjects; plain text is content only.
+            $label = is_string($attrs['label'] ?? null) && str_contains($attrs['label'], '<') ? $attrs['label'] : null;
             return ('' === $class ? array() : array('className' => $class))
-                + (is_array($anchor) ? array('blocksEngineNavigationAnchor' => $anchor) : array());
+                + (is_array($anchor) ? array('blocksEngineNavigationAnchor' => $anchor) : array())
+                + (null === $label ? array() : array('label' => $label));
         }, $matches[1]);
     }
 
