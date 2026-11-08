@@ -387,7 +387,7 @@ final class ArtifactCompiler
         $blockTypes = is_array($reduction['block_types'] ?? null) ? $reduction['block_types'] : $this->detectBlockTypes($normalized['files'], $diagnostics);
         $companionPluginPayloadBuilder = new CompanionPluginPayload();
         $normalized['files'] = $this->withStylesheetMediaForDocuments($normalized['files']);
-        $normalized['files'] = $this->separateUnlinkedThemePreferenceStylesheets($normalized['files'], $normalized['runtime_declarations']);
+        $normalized['files'] = $this->separateUnlinkedAuthorStylesheets($normalized['files'], $normalized['runtime_declarations']);
         $this->indexFiles($normalized['files']);
         $entryBlocks = is_array($reduction['entry_blocks'] ?? null) ? $reduction['entry_blocks'] : $this->compileEntryBlocks($html, $entryPath, $normalized['files'], $companionPluginPayloadBuilder->blockNamespace($artifact), $normalized['runtime_declarations']);
         // Staged receipts carry the pages their workers omitted; whole compilation
@@ -3389,8 +3389,8 @@ final class ArtifactCompiler
     }
 
     /**
-     * Keep an ownership-captured source stylesheet as provenance when an
-     * exported artifact carries its asset but no HTML document links it. A
+     * Keep source stylesheets as provenance when no HTML document links or
+     * imports them. Theme-preference evidence retains its ownership metadata. A
      * linked copy remains an ordinary active stylesheet with its normal order,
      * media, projection and cascade semantics.
      *
@@ -3398,10 +3398,11 @@ final class ArtifactCompiler
      * @param array<int,array<string,mixed>> $runtimeDeclarations
      * @return array<int,array<string,mixed>>
      */
-    private function separateUnlinkedThemePreferenceStylesheets(array $files, array $runtimeDeclarations): array
+    private function separateUnlinkedAuthorStylesheets(array $files, array $runtimeDeclarations): array
     {
         $unlinkedEvidencePaths = array();
         $linkedStylesheetPaths = array();
+        $importQueue = array();
         foreach ( $files as $document ) {
             if ( 'html' !== ($document['kind'] ?? null) || ! is_string($document['path'] ?? null) || ! is_string($document['content'] ?? null) ) continue;
             foreach ( StyleTagScanner::scanLinks($document['content']) as $link ) {
@@ -3410,6 +3411,30 @@ final class ArtifactCompiler
                     || ! StyleTagScanner::isCssType($this->htmlAttribute($tag, 'type')) ) continue;
                 $path = $this->stylesheetPathFromHref($this->htmlAttribute($tag, 'href'), $document['path'], $files);
                 if ( '' !== $path ) $linkedStylesheetPaths[$path] = true;
+            }
+            foreach (StyleTagScanner::scan($document['content']) as $style) {
+                if (StyleTagScanner::isCssType($this->htmlAttribute($style['attributes'], 'type'))) {
+                    $importQueue[] = array($document['path'], $style['content']);
+                }
+            }
+        }
+        $byPath = array_column($files, null, 'path');
+        foreach ($linkedStylesheetPaths as $path => $_) {
+            $importQueue[] = array($path, $byPath[$path]['content'] ?? '');
+        }
+        // Walk only imports reachable from a document; a visited path also
+        // bounds cycles. Imported author files must remain CSS resources.
+        for ($cursor = 0; $cursor < count($importQueue); ++$cursor) {
+            [$sourcePath, $content] = $importQueue[$cursor];
+            $preamble = (new CssStylesheetTransformer())->splitLeadingAtRulePreamble($content);
+            foreach ($preamble['statements'] as $statement) {
+                $clean = preg_replace('#^(?:\s|/\*.*?\*/)*#s', '', $statement) ?? $statement;
+                if (!preg_match('/^@import\s+(?:url\(\s*(?:"([^"]+)"|\'([^\']+)\'|([^\s)]+))\s*\)|"([^"]+)"|\'([^\']+)\')/is', $clean, $match)) continue;
+                $reference = $match[1] ?: ($match[2] ?: ($match[3] ?: ($match[4] ?: $match[5])));
+                $path = $this->stylesheetPathFromHref($reference, $sourcePath, $files);
+                if ('' === $path || isset($linkedStylesheetPaths[$path])) continue;
+                $linkedStylesheetPaths[$path] = true;
+                $importQueue[] = array($path, $byPath[$path]['content'] ?? '');
             }
         }
         foreach ( $runtimeDeclarations as $declaration ) {
@@ -3440,11 +3465,18 @@ final class ArtifactCompiler
             }
         }
 
-        foreach ( $unlinkedEvidencePaths as $index => $provenance ) {
+        foreach ( $files as $index => $file ) {
+            if ( 'inline-style' === ($file['source'] ?? null)
+                || ! preg_match('/\.css$/i', (string) ($file['path'] ?? ''))
+                || ! in_array($file['kind'] ?? null, array('css', 'asset'), true)
+                || ('stylesheet' !== ($file['role'] ?? null) && 'style' !== ($file['intent'] ?? null))
+                || isset($file['stylesheet_occurrence']) || isset($linkedStylesheetPaths[$file['path']]) ) continue;
             $files[$index]['kind'] = 'asset';
             $files[$index]['role'] = 'source-provenance';
             $files[$index]['intent'] = 'evidence';
-            $files[$index]['theme_preference_stylesheet_provenance'] = $provenance;
+            if (isset($unlinkedEvidencePaths[$index])) {
+                $files[$index]['theme_preference_stylesheet_provenance'] = $unlinkedEvidencePaths[$index];
+            }
         }
 
         return $files;

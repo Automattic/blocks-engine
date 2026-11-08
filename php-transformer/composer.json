@@ -717,6 +717,7 @@
       "php tests/unit/artifact-encoded-asset-reference.php",
       "php tests/unit/shared-chrome-projection-media-instances.php",
       "php tests/unit/wordpress-site-plan-inline-stylesheet-order.php",
+      "php tests/unit/unlinked-author-stylesheet-provenance.php",
       "php tests/unit/document-root-font-ownership.php",
       "php tests/unit/theme-json-root-font-size-authorship.php",
       "php tests/unit/percentage-root-font-size.php",

@@ -18,7 +18,7 @@
       "files": [
         {
           "path": "site/index.html",
-          "content": "<main><h1>Full Site Artifact</h1><p>A generic compiled site entry.</p><img src=\"assets/logo.png\" alt=\"Site logo\"></main>",
+          "content": "<link rel=\"stylesheet\" href=\"assets/site.css\"><link rel=\"stylesheet\" href=\"assets/visual-repair.css\"><main><h1>Full Site Artifact</h1><p>A generic compiled site entry.</p><img src=\"assets/logo.png\" alt=\"Site logo\"></main>",
           "mime_type": "text/html",
           "role": "entry"
         },
@@ -52,7 +52,7 @@
         },
         {
           "path": "site/assets/visual-repair.css",
-          "content": ".wp-site-blocks{min-height:100vh}.wp-block-image img{height:auto}",
+          "content": ".wp-site-blocks{min-height:100vh}main img{height:auto}",
           "mime_type": "text/css",
           "kind": "css",
           "intent": "visual-repair"
@@ -135,7 +135,7 @@
     { "path": "source_reports.materialization_plan.assets.4.media_type", "assert": "equals", "value": "image/png" },
     { "path": "source_reports.materialization_plan.assets.5.path", "assert": "equals", "value": "site/assets/inter.woff2" },
     { "path": "source_reports.materialization_plan.assets.5.content_base64", "assert": "equals", "value": "d09GRgABAAAAAA==" },
-    { "path": "source_reports.materialization_plan.visual_repair_css", "assert": "contains", "value": "wp-block-image" },
+    { "path": "source_reports.materialization_plan.visual_repair_css", "assert": "contains", "value": "height:auto" },
     { "path": "source_reports.materialization_plan.asset_rewrite_candidates", "assert": "count", "count": 1 },
     { "path": "source_reports.materialization_plan.asset_rewrite_candidates.0.asset_path", "assert": "equals", "value": "site/assets/logo.png" },
     { "path": "source_reports.materialization_plan.theme.visual_repair_css", "assert": "contains", "value": "min-height:100vh" },
@@ -153,7 +153,7 @@
     { "path": "source_reports.conversion_report.source_summary.route_count", "assert": "equals", "value": 3 },
     { "path": "source_reports.conversion_report.source_summary.navigation_link_count", "assert": "equals", "value": 3 },
     { "path": "source_reports.conversion_report.source_summary.menu_count", "assert": "equals", "value": 1 },
-    { "path": "source_reports.conversion_report.asset_refs", "assert": "count", "count": 2 },
+    { "path": "source_reports.conversion_report.asset_refs", "assert": "count", "count": 4 },
     { "path": "source_reports.conversion_report.selector_summary.source_paths", "assert": "count", "count": 2 },
     { "path": "source_reports.conversion_report.presentation_gaps.0.type", "assert": "equals", "value": "presentation_stylesheet" },
     { "path": "source_reports.conversion_report.presentation_gaps.0.path", "assert": "equals", "value": "site/assets/visual-repair.css" },
