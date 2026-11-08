@@ -17,12 +17,6 @@ final class HtmlTransformer
         private readonly HtmlTransformerAnalysisCache $analysisCache = new HtmlTransformerAnalysisCache()
     ) {}
 
-    /** @return array<string, string> */
-    public static function emittedCoreBlockContracts(): array
-    {
-        return HtmlCompilation::emittedCoreBlockContracts();
-    }
-
     /**
      * Convert HTML to blocks. Input that already carries block delimiters keeps
      * every parsed block as written; only HTML outside blocks, or loose inside a
