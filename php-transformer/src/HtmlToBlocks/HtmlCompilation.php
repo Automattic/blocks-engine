@@ -275,6 +275,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly StyleResolver $styleResolver;
     private ?IntrinsicVisualMediaHeight $intrinsicVisualMediaHeight = null;
     private readonly ImageUrlResolver $imageUrls;
+    private readonly Elements\MediaLowering $mediaLowering;
     private readonly ImageDimensionResolver $imageDimensions;
     private readonly Elements\ImageLowering $imageLowering;
     private readonly EmptyElementFootprint $emptyElementFootprint;
@@ -489,6 +490,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->reusableComponentRecognizer = new ReusableComponentRecognizer();
         $this->styleResolver = new StyleResolver($this->session, $this->createStyleResolutionContext(), $this->analysisCache);
         $this->imageUrls = new ImageUrlResolver($this->session);
+        $this->mediaLowering = new Elements\MediaLowering($this, $this->styleResolver, $this->imageUrls);
         $this->imageDimensions = new ImageDimensionResolver($this->styleResolver);
         $this->imageLowering = new Elements\ImageLowering(
             $this,
@@ -1034,7 +1036,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             fn (DOMElement $element): ?array => $this->imageLowering->convertImage($element),
             fn (DOMElement $element): ?array => $this->convertPictureElement($element),
             fn (DOMElement $element, array &$fallbacks): ?array => $this->visualIframeGenerator->convert($element, $fallbacks),
-            fn (DOMElement $element): ?array => $this->convertMediaElement($element),
+            fn (DOMElement $element): ?array => $this->mediaLowering->fromElement($element),
             fn (DOMElement $element): ?array => $this->imageBlockFromAnchor($element)
         ));
         $this->unsupportedRecorder = new UnsupportedElementRecorder($this->session, $this->createUnsupportedElementContext(), $this->formControlMetadataBuilder);
@@ -4237,7 +4239,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
         $customVideo = $this->customVideoElement($element);
         if ( $customVideo instanceof DOMElement ) {
-            $video = $this->convertMediaElement($customVideo);
+            $video = $this->mediaLowering->fromElement($customVideo);
             if ( $this->hasTransparentCustomVideoHostPresentation($element) ) {
                 return $video;
             }
@@ -8615,60 +8617,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return null;
     }
 
-    private function convertMediaElement(DOMElement $element): ?array
-    {
-        $tagName = strtolower($element->tagName);
-        $src = $this->safeMediaUrl($this->attr($element, 'src'));
-        if ( '' === $src ) {
-            $source = $this->firstChildElement($element, 'source');
-            $src = $source instanceof DOMElement ? $this->safeMediaUrl($this->attr($source, 'src')) : '';
-        }
-        if ( '' === $src ) {
-            return null;
-        }
-
-        $attrs = array_filter(array_merge($this->styleResolver->presentationAttributes($element), array(
-            'src'      => $src,
-            'poster'   => 'video' === $tagName ? $this->imageUrls->safeUrl($this->attr($element, 'poster')) : '',
-            'preload'  => $this->attr($element, 'preload'),
-            'width'    => 'video' === $tagName ? '' : $this->attr($element, 'width'),
-            'height'   => 'video' === $tagName ? '' : $this->attr($element, 'height'),
-            'controls' => $element->hasAttribute('controls'),
-        )), static fn (mixed $value): bool => is_bool($value) ? $value : '' !== $value);
-
-        if ( 'video' === $tagName ) {
-            // Jetpack re-registers core/video with comment-sourced playback
-            // attributes and defaults controls to true. Preserve the explicit
-            // absence of controls so that registration does not change the
-            // captured playback state when the block is parsed in the editor.
-            $attrs['controls'] = $element->hasAttribute('controls');
-            foreach ( array( 'autoplay', 'loop', 'muted' ) as $attribute ) {
-                if ( $element->hasAttribute($attribute) ) {
-                    $attrs[$attribute] = true;
-                }
-            }
-            if ( $element->hasAttribute('playsinline') ) {
-                $attrs['playsInline'] = true;
-            }
-            $tracks = $this->videoTracks($element);
-            if ( array() !== $tracks ) {
-                $attrs['tracks'] = $tracks;
-            }
-        }
-
-        return $this->createBlock('core/' . $tagName, $attrs, array(), $element);
-    }
-
-    private function safeMediaUrl(string $url): string
-    {
-        $url = trim($url);
-        if ( '' === $url || preg_match('/[\x00-\x1f\x7f]|javascript\s*:/i', $url) ) {
-            return '';
-        }
-
-        return $url;
-    }
-
     private function convertPictureElement(DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array
     {
         $image = $this->firstChildElement($picture, 'img');
@@ -9457,7 +9405,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         if (!$video instanceof DOMElement || !$poster instanceof DOMElement) return null;
         $image = $this->posterLayerImage($poster);
         if (!$image instanceof DOMElement || !$image->hasAttribute('alt') || '' !== $this->attr($image, 'alt')) return null;
-        $videoBlock = $this->convertMediaElement($video);
+        $videoBlock = $this->mediaLowering->fromElement($video);
         $imageBlock = $this->imageLowering->convertImage($image);
         if (null === $videoBlock || null === $imageBlock) return null;
         $this->session->authorSelectorProjectionState()->ensureTagMarker(strtolower($element->tagName));
@@ -9550,30 +9498,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         return true;
-    }
-
-    /** @return array<int, array<string, mixed>> */
-    private function videoTracks(DOMElement $video): array
-    {
-        $tracks = array();
-        foreach ( $video->getElementsByTagName('track') as $track ) {
-            if ( ! $track instanceof DOMElement || 32 === count($tracks) ) {
-                break;
-            }
-            $src = $this->safeMediaUrl($this->attr($track, 'src'));
-            if ( '' === $src ) {
-                continue;
-            }
-            $tracks[] = array_filter(array(
-                'kind'    => $this->attr($track, 'kind'),
-                'src'     => $src,
-                'srcLang' => $this->attr($track, 'srclang'),
-                'label'   => $this->attr($track, 'label'),
-                'default' => $track->hasAttribute('default'),
-            ), static fn (mixed $value): bool => is_bool($value) ? $value : '' !== $value);
-        }
-
-        return $tracks;
     }
 
     private function imageOnlyCarrierElement(DOMElement $element): ?DOMElement
