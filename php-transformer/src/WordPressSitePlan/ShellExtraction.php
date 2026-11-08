@@ -593,7 +593,6 @@ final class ShellExtraction
                 'source_path' => $sourcePath,
                 'source_hash' => $row['source_hash'],
                 'nested_shell' => true,
-                'shared_only' => true,
                 'device_document_bundle' => count($scoped) > 1 && !isset($scoped['']),
                 'offset' => $row['offset'],
                 'length' => $row['length'],
