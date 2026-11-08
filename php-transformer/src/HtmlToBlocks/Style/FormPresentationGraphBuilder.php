@@ -651,6 +651,15 @@ final class FormPresentationGraphBuilder
                     $row[$role] = array( 'styles' => $styles, 'provenance' => $provenance );
                 }
                 if ( $buttonCaption && null !== ($layer = $this->captionLayer($element, $analysis['rules'], $customPropertyAnalysis['rules'])) ) {
+                    foreach ( $layer['variants'] as $variant ) {
+                        if ( count($variants) >= self::MAX_VARIANTS ) {
+                            $this->truncated = true;
+                            $this->diagnostics[] = 'variant_limit';
+                            break;
+                        }
+                        $variants[] = array( 'index' => $index, 'role' => 'caption' ) + $variant;
+                    }
+                    unset($layer['variants']);
                     $row['caption'] = $layer;
                     $hasCaptionLayer = true;
                 }
@@ -792,6 +801,7 @@ final class FormPresentationGraphBuilder
             $containerIndexes[$container['index']] = array() !== $container['styles'];
         }
         $captionIndexes = array();
+        $captionLayers = array();
         foreach ( $v2 ? $graph['group_captions'] : array() as $caption ) {
             if ( ! is_array($caption) || array_diff(array_keys($caption), array( 'index', 'styles', 'provenance' )) || ! is_int($caption['index'] ?? null) || $caption['index'] < 0 || $caption['index'] >= self::MAX_CONTROLS || isset($captionIndexes[$caption['index']]) || ! is_array($caption['styles'] ?? null) || array() === $caption['styles'] || array_diff(array_keys($caption['styles']), array_map(self::key(...), self::GROUP_CAPTION_PROPERTIES)) || ! is_array($caption['provenance'] ?? null) ) throw new InvalidArgumentException('Form presentation group caption is invalid.');
             self::assertStyles($caption['styles']); self::assertProvenance($caption['provenance'], $caption['styles'], null);
@@ -807,6 +817,7 @@ final class FormPresentationGraphBuilder
                 if ( isset($row[$role]) ) self::assertRole($row[$role], null, 'required_marker' === $role);
             }
             if ( isset($row['caption']) ) {
+                $captionLayers[$row['index']] = true;
                 self::assertRole($row['caption'], null);
                 self::assertStyles($row['caption']['styles'], self::CAPTION_LAYER_PROPERTIES);
             }
@@ -836,10 +847,11 @@ final class FormPresentationGraphBuilder
             }
             $isVisualPart = 'visual_part' === ($variant['role'] ?? null); $isVisualGroup = 'visual_group' === ($variant['role'] ?? null);
             $keys = $isVisualPart ? array( 'index', 'role', 'part_id', 'condition', 'style_patch', 'precedence', 'provenance' ) : ($isVisualGroup ? array( 'role', 'group_id', 'condition', 'style_patch', 'precedence', 'provenance' ) : array( 'index', 'role', 'condition', 'style_patch', 'precedence', 'provenance' ));
-            if ( ! is_array($variant) || array_diff(array_keys($variant), $keys) || (! $isVisualGroup && (! is_int($variant['index'] ?? null) || $variant['index'] < 0 || $variant['index'] >= self::MAX_CONTROLS)) || ! in_array($variant['role'] ?? null, $v2 ? array( 'control', 'label', 'required_marker', 'control_container', 'visual_part', 'visual_group' ) : array( 'control', 'label' ), true) || ($isVisualPart ? (! is_string($variant['part_id'] ?? null) || ! isset($partIds[$variant['part_id']]) || $variant['index'] !== $partIds[$variant['part_id']]) : ($isVisualGroup ? (! is_string($variant['group_id'] ?? null) || ! isset($groupIds[$variant['group_id']])) : (isset($variant['part_id']) || isset($variant['group_id'])))) || ! is_array($variant['condition'] ?? null) || ! self::validCondition($variant['condition']) || ! is_array($variant['style_patch'] ?? null) || array() === $variant['style_patch'] || ! is_array($variant['precedence'] ?? null) || ! is_array($variant['provenance'] ?? null) ) {
+            if ( ! is_array($variant) || array_diff(array_keys($variant), $keys) || (! $isVisualGroup && (! is_int($variant['index'] ?? null) || $variant['index'] < 0 || $variant['index'] >= self::MAX_CONTROLS)) || ! in_array($variant['role'] ?? null, $v2 ? array( 'control', 'label', 'required_marker', 'caption', 'control_container', 'visual_part', 'visual_group' ) : array( 'control', 'label' ), true) || ($isVisualPart ? (! is_string($variant['part_id'] ?? null) || ! isset($partIds[$variant['part_id']]) || $variant['index'] !== $partIds[$variant['part_id']]) : ($isVisualGroup ? (! is_string($variant['group_id'] ?? null) || ! isset($groupIds[$variant['group_id']])) : (isset($variant['part_id']) || isset($variant['group_id'])))) || ! is_array($variant['condition'] ?? null) || ! self::validCondition($variant['condition']) || ! is_array($variant['style_patch'] ?? null) || array() === $variant['style_patch'] || ! is_array($variant['precedence'] ?? null) || ! is_array($variant['provenance'] ?? null) ) {
                 throw new InvalidArgumentException('Form presentation variant is invalid.');
             }
-            self::assertStyles($variant['style_patch']);
+            self::assertStyles($variant['style_patch'], 'caption' === $variant['role'] ? self::CAPTION_LAYER_PROPERTIES : self::PROPERTIES);
+            if ( 'caption' === $variant['role'] && ! isset($captionLayers[$variant['index']]) ) throw new InvalidArgumentException('Form presentation caption variant has no caption layer.');
             if ( 'control_container' === $variant['role'] ) $containerVariants[$variant['index']] = true;
             foreach ( $variant['precedence'] as $property => $precedence ) {
                 if ( ! in_array($property, self::PROPERTIES, true) || ! isset($variant['style_patch'][self::key($property)]) || ! is_array($precedence) || ! is_int($precedence['source_order'] ?? null) || ! is_int($precedence['specificity'] ?? null) || ! is_bool($precedence['important'] ?? null) ) throw new InvalidArgumentException('Form presentation precedence is invalid.');
@@ -875,11 +887,13 @@ final class FormPresentationGraphBuilder
     /**
      * The paint a button's sole caption carrier draws behind the caption, when
      * it paints one. The control keeps its own paint; this layer sits inside the
-     * control's padding box, as the carrier does in the source.
+     * control's padding box, as the carrier does in the source. Conditions that
+     * repaint the carrier, such as a breakpoint clearing its background, are
+     * caption variants of the same layer.
      *
      * @param list<array<string, mixed>> $rules
      * @param list<array<string, mixed>> $customPropertyRules
-     * @return array{styles: array<string, string>, provenance: list<array<string, mixed>>}|null
+     * @return array{styles: array<string, string>, provenance: list<array<string, mixed>>, variants: list<array<string, mixed>>}|null
      */
     private function captionLayer(DOMElement $control, array $rules, array $customPropertyRules): ?array
     {
@@ -887,12 +901,25 @@ final class FormPresentationGraphBuilder
         if ( null === $carrier || $carrier->isSameNode($control) ) {
             return null;
         }
-        $facts = array_intersect_key($this->matched($carrier, $rules)['base'], array_flip(self::CAPTION_LAYER_PROPERTIES));
+        $matched = $this->matched($carrier, $rules);
+        $facts = array_intersect_key($matched['base'], array_flip(self::CAPTION_LAYER_PROPERTIES));
         if ( array() === array_intersect_key($facts, array_flip(array( 'background', 'background-color', 'background-image' ))) ) {
             return null;
         }
         $styles = $this->styles($facts, $carrier, null, $customPropertyRules, true);
-        return array() === $styles ? null : array( 'styles' => $styles, 'provenance' => $this->provenance($facts, null) );
+        if ( array() === $styles ) {
+            return null;
+        }
+        $variants = array();
+        foreach ( $this->effectiveConditional($matched['conditional'], $matched['base']) as $encoded => $conditionalFacts ) {
+            $condition = json_decode($encoded, true);
+            $conditionalFacts = array_intersect_key($conditionalFacts, array_flip(self::CAPTION_LAYER_PROPERTIES));
+            $patch = $this->styles($conditionalFacts, $carrier, $condition, $customPropertyRules, true);
+            if ( array() !== $patch ) {
+                $variants[] = array( 'condition' => $condition, 'style_patch' => $patch, 'precedence' => $this->precedence($conditionalFacts), 'provenance' => $this->provenance($conditionalFacts, $condition) );
+            }
+        }
+        return array( 'styles' => $styles, 'provenance' => $this->provenance($facts, null), 'variants' => $variants );
     }
 
     private function carrierTypography(array $roles, DOMElement $label, array $rules, array $customPropertyRules, array $labelConditional = array(), bool $captionBox = false): array
