@@ -3,16 +3,8 @@
   "changelog_target": "CHANGELOG.md",
   "id": "php-transformer",
   "remote_path": "",
-  "scripts": {
-    "deps": [
-      "composer install --no-interaction"
-    ],
-    "lint": [
-      "composer lint"
-    ],
-    "test": [
-      "composer test"
-    ]
+  "extensions": {
+    "wordpress": {}
   },
   "release": {
     "publish": true,
