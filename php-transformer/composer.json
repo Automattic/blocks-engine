@@ -409,6 +409,7 @@
       "php tests/contract/capture-device-document-shell.php",
       "php tests/contract/dialog-snapshot-shell-route-state.php",
       "php tests/contract/capture-root-shared-shell.php",
+      "php tests/contract/device-document-shared-shell.php",
       "php tests/contract/page-wide-main-footer-section.php",
       "php tests/contract/structural-selector-inset-wrapper.php",
       "php tests/contract/navigation-entity-label-identity.php",
