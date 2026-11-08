@@ -269,7 +269,21 @@ final class NavigationPattern implements PatternRecognizerInterface
             return null;
         }
 
-        if ( 'nav' !== strtolower($element->tagName) && ! $this->hasNavigationSignal($element) && ! $this->hasDirectListNavigationSignal($element) ) {
+        // A list directly inside a navigation landmark remains a menu when
+        // the landmark cannot safely flatten its independently laid-out lists.
+        $isLandmarkList = false;
+        if ( in_array(strtolower($element->tagName), array( 'ul', 'ol' ), true)
+            && $element->parentNode instanceof DOMElement
+            && 'nav' === strtolower($element->parentNode->tagName) ) {
+            foreach ( $element->parentNode->childNodes as $sibling ) {
+                if ( $sibling instanceof DOMElement && ! $sibling->isSameNode($element)
+                    && in_array(strtolower($sibling->tagName), array( 'ul', 'ol' ), true) ) {
+                    $isLandmarkList = true;
+                    break;
+                }
+            }
+        }
+        if ( 'nav' !== strtolower($element->tagName) && ! $isLandmarkList && ! $this->hasNavigationSignal($element) && ! $this->hasDirectListNavigationSignal($element) ) {
             return null;
         }
 
@@ -2668,6 +2682,26 @@ final class NavigationPattern implements PatternRecognizerInterface
         $allowsDirectItems = $itemsAreVouched || $allowsDescriptiveChrome || 'nav' === strtolower($element->tagName) || $this->hasNavigationSignal($element) || $this->hasSubmenuSignal($element) || in_array(strtolower($element->tagName), array( 'ul', 'ol' ), true);
         if ( in_array(strtolower($element->tagName), array( 'ul', 'ol' ), true) ) {
             return $this->navigationBlocksFromList($element, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, $collected);
+        }
+
+        // Each sibling list owns a separate layout box and selector scope.
+        // Flattening them cannot preserve those boxes, even when their item
+        // rules happen to agree. Let recursion convert each list as a menu.
+        $listCount = 0;
+        $onlyLists = true;
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                if ( in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
+                    ++$listCount;
+                } else {
+                    $onlyLists = false;
+                }
+            } elseif ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') ) {
+                $onlyLists = false;
+            }
+        }
+        if ( $onlyLists && $listCount > 1 ) {
+            return array();
         }
 
         foreach ( $element->childNodes as $child ) {
