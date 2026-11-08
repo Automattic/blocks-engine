@@ -65,6 +65,9 @@ final class ButtonDeclarationRouting
             $places = '' !== $name && false !== $colon && $this->declarationPlacesTheButton($name, $placementVars);
             $owned = '' !== $name && false !== $colon && in_array($name, $wrapperOwned, true)
                 && ! $this->isButtonControlBoxSize($name, $value, $controls);
+            if ( $this->releasesButtonWrapperWidth($name, $value, $controls) ) {
+                $geometry[] = $declaration;
+            }
             if ( $places ) {
                 $placement[] = $declaration;
             } elseif ( $owned ) {
@@ -102,6 +105,9 @@ final class ButtonDeclarationRouting
             ) {
                 $layout[] = $declaration;
             } else {
+                if ( $this->releasesButtonWrapperWidth($name, $value, $controls) ) {
+                    $layout[] = $declaration;
+                }
                 $control[] = $declaration;
             }
         }
@@ -156,6 +162,26 @@ final class ButtonDeclarationRouting
         }
         $value = strtolower(CssValueInspector::withoutImportant($value));
         return in_array($value, array( 'min-content', 'max-content', 'fit-content', 'content' ), true);
+    }
+
+    /**
+     * A `width:auto` release competes on the link, but when the wrapper chain
+     * participates in the source layout it can also carry the base width. The
+     * source box is auto-sized at that point, so every carrier is released.
+     *
+     * @param list<DOMElement> $controls
+     */
+    private function releasesButtonWrapperWidth(string $property, string $value, array $controls): bool
+    {
+        if ( 'width' !== $property || ! $this->isButtonLinkCompetingBoxSize($property, $value, $controls) || 'auto' !== CssValueInspector::comparable($value) ) {
+            return false;
+        }
+        foreach ( $controls as $control ) {
+            if ( LayoutParticipation::BOX_LINK !== LayoutParticipation::resolve($control, $this->styleResolver)->participatingBox() ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
