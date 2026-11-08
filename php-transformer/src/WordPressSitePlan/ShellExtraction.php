@@ -3828,10 +3828,22 @@ final class ShellExtraction
                 sort($classes, SORT_STRING);
                 if (array() === $classes) unset($attrs['className']); else $attrs['className'] = implode(' ', $classes);
             }
+            self::canonicalizeIdentityStyles($attrs);
             self::ksortRecursive($attrs);
             $encoded = BlockAttributes::encode($attrs);
             return '' !== $encoded ? '<!-- wp:' . $parts[1] . ' ' . $encoded . ' ' . $parts[3] . '-->' : $match[0];
         }, $markup) ?? $markup;
+    }
+
+    /** Canonicalize declaration strings, leaving Core's structured style objects intact.
+     * @param array<string,mixed> $attrs
+     */
+    private static function canonicalizeIdentityStyles(array &$attrs): void
+    {
+        foreach ($attrs as $name => &$value) {
+            if (is_array($value)) self::canonicalizeIdentityStyles($value);
+            elseif (is_string($value) && str_contains($value, ':') && ('style' === $name || str_ends_with((string) $name, 'Style'))) $value = RenderEquivalentMarkup::canonicalStyle($value);
+        }
     }
 
     /** @param array<string,mixed> $value */

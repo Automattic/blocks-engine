@@ -2,8 +2,9 @@
 declare(strict_types=1);
 
 // Neutral three-route reduction of #3967. The mobile bar stays page-owned,
-// while the repeated header is extracted from both document scopes.
-$header = '<header class="top"><div class="brand"><a href="/">Studio Name</a></div><nav><ul><li><a href="/">Home</a></li><li><a href="/about/">About</a></li><li><a href="/visit/">Visit</a></li></ul></nav></header>';
+// while the repeated header is extracted from both document scopes. A real
+// source toggle supplies collapse evidence independently of the device copies.
+$header = '<header class="top"><button aria-label="Open menu" aria-controls="primary-menu" aria-expanded="false">☰</button><div class="brand"><a href="/">Studio Name</a></div><nav id="primary-menu"><ul><li><a href="/">Home</a></li><li><a href="/about/">About</a></li><li><a href="/visit/">Visit</a></li></ul></nav></header>';
 $css = '.is-mobile .brand{display:none}.is-mobile nav{display:none}'
     . '.data-blocks-engine-capture-mobile-document{display:none!important}'
     . '@media(max-width:767px){.data-blocks-engine-capture-desktop-document{display:none!important}.data-blocks-engine-capture-mobile-document{display:contents!important}}';
