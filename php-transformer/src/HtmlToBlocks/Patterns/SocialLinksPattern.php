@@ -103,12 +103,22 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             return null;
         }
 
-        // Core's filled service glyph cannot reproduce different geometry.
-        // Keep those links as live inline
-        // SVG, not an isolated image (which would freeze currentColor).
+        // Core's filled service glyph cannot reproduce arbitrary source artwork.
+        // Keep SVG live (rather than freezing currentColor) and images intact
+        // unless monochrome glyph evidence and a known service permit replacement.
         $sourceArtwork = false;
         $capturedPaint = array();
         foreach ($anchors as $anchor) {
+            $service = self::serviceForUrl($anchor->getAttribute('href')) ?? $this->serviceFromLabel($anchor->getAttribute('aria-label') ?: $anchor->getAttribute('title'));
+            foreach ($anchor->getElementsByTagName('img') as $image) {
+                if (!$this->isUsableSocialUrl(LinkUrlSanitizer::sanitize($anchor->getAttribute('href')))
+                    && !($explicit && null !== $service && $this->isLocalPlaceholderUrl($anchor->getAttribute('href')))) {
+                    return null;
+                }
+                if (null === $service || '' === ($this->glyphColor($image, $context) ?: $this->sameDestinationGlyphColor($anchor, $context))) {
+                    $sourceArtwork = true;
+                }
+            }
             foreach ($anchor->getElementsByTagName('svg') as $svg) {
                 $hasArtwork = false;
                 foreach ($svg->childNodes as $child) {
@@ -116,7 +126,6 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                 }
                 if (!$hasArtwork) continue;
                 $color = $context->capturedGlyphColor($svg);
-                $service = self::serviceForUrl($anchor->getAttribute('href')) ?? $this->serviceFromLabel($anchor->getAttribute('aria-label'));
                 if (!$this->matchesCoreArtwork($svg, $service)) {
                     $sourceArtwork = true;
                 }

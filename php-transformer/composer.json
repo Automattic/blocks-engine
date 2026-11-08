@@ -1124,6 +1124,7 @@
       "php tests/unit/pattern-recognizer-registry.php",
       "php tests/unit/social-links-boundary.php",
       "php tests/unit/social-links-captured-svg.php",
+      "php tests/unit/social-links-raster-artwork.php",
       "php tests/unit/social-links-source-context.php",
       "php tests/unit/social-anchor-ancestor-selector.php",
       "php tests/unit/social-links-icon-color.php",
