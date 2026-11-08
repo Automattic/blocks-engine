@@ -56,7 +56,8 @@ $xpath = new DOMXPath($document);
 $assert($xpath->query('//*[contains(concat(" ", normalize-space(@class), " "), " collection-item ")]')->length === 1 && $xpath->query('//*[contains(concat(" ", normalize-space(@class), " "), " article-card ")]')->length === 1, 'Saved HTML retains exactly one item and one card box.');
 $assert(str_contains($template, 'padding:12px'), 'Non-per-post card styles survive.');
 preg_match_all('~<!-- wp:(?:[^ ]+/)?layout-shell (.*?) -->\\s*<([^ >]+)([^>]*)>~s', $template, $shells, PREG_SET_ORDER);
-$assert(count($shells) >= 2, 'Item and card boxes have declared layout shells.');
+$assert(str_contains($template, '<!-- wp:group {"className":"collection-item"} -->'), 'The item box remains an editable native Group around the card.');
+$assert(count($shells) === 1 && str_contains($shells[0][1], 'article-card'), 'Only the converted whole-card anchor needs a declared layout shell.');
 foreach ($shells as $shell) {
     $attrs = json_decode($shell[1], true);
     $wrapper = $attrs['wrappers'][0];

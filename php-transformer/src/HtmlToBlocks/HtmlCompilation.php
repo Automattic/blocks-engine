@@ -136,7 +136,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ColumnsPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CoverStyleResolver;
-use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\GalleryPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\GalleryPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\LogoPatternContext;
@@ -6692,17 +6691,12 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $candidate = $this->collectWrapperChain($block, $depth);
         $chain = $candidate['chain'];
         $terminal = $candidate['terminal'];
-        // A div chain around a core block already has a native representation:
-        // nested core/group wrappers keep every id and class, editable with
-        // core tools. Fold it into a generated companion only when native
-        // nesting would breach the editability depth budget, or around
-        // non-core terminals that need shell transport.
-        $terminalName = (string) ($terminal['blockName'] ?? '');
-        $nativeGroupTree = (('core/freeform' === $terminalName
-                && array() !== array_filter($terminal['innerBlocks'] ?? array(), static fn (array $child): bool => 'core/group' === ($child['blockName'] ?? null)))
-            || (str_starts_with($terminalName, 'core/') && ! in_array($terminalName, array( 'core/freeform', 'core/html' ), true)))
-            && array() === array_filter($chain, static fn (array $entry): bool => 'div' !== ($entry['descriptor']['tagName'] ?? null))
-            && $depth + count($chain) - 1 + $this->nativeBlockHeight($terminal) <= EditabilityPolicy::THRESHOLDS['max_nesting_depth'];
+        // The wrappers already have a native representation, independently
+        // of their terminal's block type. A companion child (or an empty
+        // freeform terminal) does not require its editable Group ancestors to
+        // become a companion too. Depth is diagnostic-only in EditabilityPolicy;
+        // enforcing its historical threshold here adds non-core editing debt.
+        $nativeGroupTree = array() === array_filter($chain, static fn (array $entry): bool => 'div' !== ($entry['descriptor']['tagName'] ?? null));
         $terminalIsShell = $this->sourceElementClassifier->isLayoutShellBlock($terminal);
         if (!$nativeGroupTree && (2 <= count($chain) || (array() !== $chain && $terminalIsShell))) {
             return $this->foldWrapperChain($chain, $terminal);
@@ -6715,22 +6709,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
         if (is_array($block['innerBlocks'] ?? null)) $block['innerBlocks'] = $this->compressProjectedGroupChains($block['innerBlocks'], $depth + 1);
         return $block;
-    }
-
-    /**
-     * Levels a block occupies in the saved tree. A freeform chain terminal is
-     * not saved itself: its children take its place.
-     *
-     * @param array<string,mixed> $block
-     */
-    private function nativeBlockHeight(array $block): int
-    {
-        $height = 0;
-        foreach (is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array() as $child) {
-            if (is_array($child)) $height = max($height, $this->nativeBlockHeight($child));
-        }
-
-        return 'core/freeform' === ($block['blockName'] ?? null) ? $height : $height + 1;
     }
 
     /** @param array<string,mixed> $block @return array{chain:array<int,array{block:array<string,mixed>,descriptor:array<string,mixed>}>,terminal:array<string,mixed>,boundary:?string} */

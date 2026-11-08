@@ -956,8 +956,10 @@ $inlineSvgOnlyLogoAssets = array_filter($inlineSvgOnlyLogo['assets'] ?? array(),
 $assert(str_contains($inlineSvgOnlyLogoMarkup, 'brand-logo') && str_contains($inlineSvgOnlyLogoMarkup, 'assets/materialized-svg/') && 1 === preg_match('/>a\{(?=[^}]*display:block)(?=[^}]*width:100%)[^}]*\}/', $css($inlineSvgOnlyLogo)) && 1 === count($inlineSvgOnlyLogoAssets) && ! str_contains($inlineSvgOnlyLogoMarkup, '<svg'), 'an SVG-only logo materializes as a full-width linked image instead of being omitted for lacking text content');
 
 $structuredAnchor = $transform('<style>.row{display:flex}</style><div class="row"><a class="card" href="/"><span>Copy</span><div>Structured</div></a></div>');
-$structuredAnchorBlock = $structuredAnchor['blocks'][0] ?? array();
-$assert(! str_contains((string) ($structuredAnchor['serialized_blocks'] ?? ''), 'wp-block-blocks-engine-author-layout') && str_ends_with((string) ($structuredAnchorBlock['blockName'] ?? ''), '/layout-shell') && 2 === count($structuredAnchorBlock['innerBlocks'] ?? array()), 'block-structured anchor descendants retain native blocks without a companion block');
+$structuredAnchorGroup = $structuredAnchor['blocks'][0] ?? array();
+$assert('core/group' === ($structuredAnchorGroup['blockName'] ?? null), 'The outer row remains a native editable Group.');
+$structuredAnchorBlock = $structuredAnchorGroup['innerBlocks'][0] ?? array();
+$assert(! str_contains((string) ($structuredAnchor['serialized_blocks'] ?? ''), 'wp-block-blocks-engine-author-layout') && 'core/group' === ($structuredAnchorBlock['blockName'] ?? '') && 2 === count($structuredAnchorBlock['innerBlocks'] ?? array()), 'block-structured anchor descendants retain native blocks without a companion block');
 
 $instance = new HtmlTransformer();
 $first = $instance->transform('<style>p{color:red}</style><p>First</p>')->toArray();
