@@ -22,7 +22,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CommentTextRunBo
 use Automattic\BlocksEngine\PhpTransformer\WordPress\CoreBlockCapabilityMatrix;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CoreHtmlFallbackEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformationOptions;
-use Automattic\BlocksEngine\PhpTransformer\Contract\EmittedCoreBlockContracts;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\ContentRoundTripReporter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\DeadProjectedSelectorReporter;
@@ -239,19 +238,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
     /** Author CSS visible to the document, captured once per transform for element-dispatch checks. */
     private string $documentAuthorCss = '';
-
-    /**
-     * Core blocks this transformer can produce, keyed by the contract that
-     * verifies that producer. Runtime registration is intentionally not part of
-     * this declaration: a runtime may expose blocks the HTML producer does not
-     * recognize (for example, the dynamic core/icon block).
-     *
-     * @return array<string,string>
-     */
-    public static function emittedCoreBlockContracts(): array
-    {
-        return EmittedCoreBlockContracts::map();
-    }
 
     /**
      * Reference viewport width (px) for resolving responsive image constraints
