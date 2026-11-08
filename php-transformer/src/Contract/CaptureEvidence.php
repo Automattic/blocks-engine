@@ -84,6 +84,8 @@ final class CaptureEvidence
     public const VIEWPORT_CLASS_PREFIX = 'data-blocks-engine-capture-width-class-';
     /** Class prefix pairing responsive counterparts; followed by 12 lowercase hex digits. */
     public const RESPONSIVE_COUNTERPART_CLASS_PREFIX = 'data-blocks-engine-capture-responsive-counterpart-';
+    /** Authored fragment shared by responsive target copies; ids remain variant-specific. */
+    public const RESPONSIVE_FRAGMENT = 'data-blocks-engine-capture-responsive-fragment';
     /** Source identity of a responsive counterpart element. */
     public const RESPONSIVE_SOURCE = 'data-blocks-engine-capture-responsive-source';
     /** Id suffix prefix for a non-default variant's copy of a shared id: `<id>--blocks-engine-capture-<variant>`. */

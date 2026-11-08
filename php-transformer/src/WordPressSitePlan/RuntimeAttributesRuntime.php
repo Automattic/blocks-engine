@@ -15,14 +15,14 @@ final class RuntimeAttributesRuntime
 {
     public static function source(): string
     {
-        return str_replace(array('__DEVICE_INLINE__', '__VIEWPORT_ENTRANCE__'), array(CaptureEvidence::DEVICE_INLINE, CaptureEvidence::VIEWPORT_ENTRANCE), <<<'PHP'
+        return str_replace(array('__DEVICE_INLINE__', '__VIEWPORT_ENTRANCE__', '__RESPONSIVE_FRAGMENT__'), array(CaptureEvidence::DEVICE_INLINE, CaptureEvidence::VIEWPORT_ENTRANCE, CaptureEvidence::RESPONSIVE_FRAGMENT), <<<'PHP'
 add_filter( 'render_block', static function ( string $content, array $block ): string {
     $attributes = $block['attrs']['metadata']['blocksEngineRuntimeAttributes'] ?? null;
     if ( ! is_array( $attributes ) || array() === $attributes || '' === $content ) return $content;
     $processor = new WP_HTML_Tag_Processor( $content );
     if ( ! $processor->next_tag() ) return $content;
     foreach ( $attributes as $name => $value ) {
-        if ( ! is_string( $name ) || ! is_string( $value ) || ! preg_match( '/^(?:data-[a-z0-9_.:-]+|aria-[a-z]+|role)$/D', $name ) || ( str_starts_with( $name, 'data-blocks-engine-' ) && ! in_array( $name, array( '__DEVICE_INLINE__', '__VIEWPORT_ENTRANCE__' ), true ) ) ) continue;
+        if ( ! is_string( $name ) || ! is_string( $value ) || ! preg_match( '/^(?:data-[a-z0-9_.:-]+|aria-[a-z]+|role)$/D', $name ) || ( str_starts_with( $name, 'data-blocks-engine-' ) && ! in_array( $name, array( '__DEVICE_INLINE__', '__VIEWPORT_ENTRANCE__', '__RESPONSIVE_FRAGMENT__' ), true ) ) ) continue;
         if ( null === $processor->get_attribute( $name ) ) $processor->set_attribute( $name, '' === $value ? true : $value );
     }
     return $processor->get_updated_html();
