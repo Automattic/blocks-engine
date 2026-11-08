@@ -884,6 +884,22 @@ final class CommerceFallbackReporter
         }
     }
 
+    /** A form owns its purchase controls; a control-less form (an empty option group) does not. */
+    private function containsFormWithControls(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('form') as $form ) {
+            foreach ( array('input', 'select', 'textarea', 'button') as $tag ) {
+                foreach ( $form->getElementsByTagName($tag) as $control ) {
+                    if ( 'hidden' !== strtolower($control->getAttribute('type')) ) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
     /** The capture's responsive counterpart class on a cart control, when declared. */
     private function responsiveCounterpartToken(?DOMElement $control): ?string
     {
@@ -920,7 +936,7 @@ final class CommerceFallbackReporter
             if ( in_array(strtolower($element->tagName), array('main', 'header', 'footer', 'nav', 'form'), true) || $this->insideChromeOrForm($element) ) {
                 continue;
             }
-            if ( $element->getElementsByTagName('form')->length > 0 ) {
+            if ( $this->containsFormWithControls($element) ) {
                 continue;
             }
             $control = $this->recognizer->cartControlElement($element);
