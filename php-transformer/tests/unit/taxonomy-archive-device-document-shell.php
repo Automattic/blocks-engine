@@ -7,7 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
 // A category archive captured as desktop and mobile documents keeps both
-// copies, so its template binds the shared inline footer once per copy.
+// copies; its template references one shared footer carrying both scopes.
 $document = static function (string $bodyClass, string $main): string {
     $copy = static fn(string $device, string $nav): string => '<div class="data-blocks-engine-capture-' . $device . '-document ' . $bodyClass . '" data-blocks-engine-capture-document-scope=""><div class="wp-site-blocks"><header class="site-header"><a href="/">Benedetto</a><nav class="' . $nav . '"><a href="/category/blog/">Blog</a></nav></header><main class="wp-block-group">' . $main . '</main><!--#include virtual="/parts/footer.html" --></div></div>';
     return '<!doctype html><html><head><link rel="stylesheet" href="/site.css"></head><body class="' . $bodyClass . '">' . $copy('desktop', 'nav-d') . $copy('mobile', 'nav-m') . '</body></html>';
@@ -26,6 +26,10 @@ $files = array(
 );
 $plan = (new WordPressSitePlan())->fromCompilerResult((new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray());
 $templates = array_column($plan['templates'], 'canonical_block_markup', 'slug');
-if (2 !== substr_count($templates['category-blog'] ?? '', '"slug":"footer"')) throw new RuntimeException('Each captured archive document binds the shared footer at its own position.');
+if (1 !== substr_count($templates['category-blog'] ?? '', '"slug":"footer"')) throw new RuntimeException('The archive template references the bundled device footer once.');
+$footer = array_column($plan['template_parts'], 'canonical_block_markup', 'area')['footer'] ?? '';
+foreach (array('desktop', 'mobile') as $device) {
+    if (!str_contains($footer, 'data-blocks-engine-capture-' . $device . '-document')) throw new RuntimeException('The footer retains its ' . $device . ' scope.');
+}
 
 echo "taxonomy-archive-device-document-shell: passed\n";
