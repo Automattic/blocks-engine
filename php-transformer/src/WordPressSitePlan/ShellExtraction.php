@@ -192,6 +192,10 @@ final class ShellExtraction
                 $artifact = self::sourceSharedShellArtifact($artifacts, $page, $candidate['area'], $variant);
                 if (null === $artifact) continue;
                 $markup = (string) $artifact['canonical_block_markup'];
+                // Area and position match an artifact to a candidate, not its
+                // extent: chrome detected around the landmark (an off-canvas
+                // drawer) is absent from a landmark-only artifact.
+                if (array() !== array_diff(self::textRuns($candidate['markup']), self::textRuns($markup))) continue;
                 $candidate['identity_markup'] = self::normalizeNestedChromeMarkup($markup);
                 $candidate['template_part_markup'] = self::landmarkPartMarkup(self::withoutCurrentNavigationState($markup), $candidate['area']);
             }
@@ -202,6 +206,18 @@ final class ShellExtraction
     }
 
     /** @return array<string,mixed>|null */
+    /** @return array<int,string> Visible text runs of block markup. */
+    private static function textRuns(string $markup): array
+    {
+        $source = preg_replace(array('/<!--.*?-->/s', '#<(script|style|template)\b[^>]*>.*?</\1\s*>#is'), '', $markup) ?? '';
+        $runs = array();
+        foreach (preg_split('/<[^>]*>/', $source) ?: array() as $run) {
+            $run = trim(preg_replace('/\s+/u', ' ', html_entity_decode($run, ENT_QUOTES | ENT_HTML5)) ?? '');
+            if (preg_match('/[\p{L}\p{N}]/u', $run)) $runs[$run] = $run;
+        }
+        return array_values($runs);
+    }
+
     private static function sourceSharedShellArtifact(array $artifacts, array $page, string $area, int $variant): ?array
     {
         $matches = array_values(array_filter($artifacts, static fn(array $artifact): bool =>
