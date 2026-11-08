@@ -508,7 +508,7 @@ final class ArtifactCompiler
             foreach ($this->stylesheetAssetsForSource($document['content'], $document['path'], $documentFiles) as $stylesheet) {
                 // The canonical import walk also records which resource rules
                 // must share their importing layer rather than a replay layer.
-                $this->compatibilityStylesheetContent($stylesheet['content'], $stylesheet['path'], $documentFiles);
+                $this->stylesheetOccurrenceContent($stylesheet, $documentFiles);
             }
         }
         foreach ($normalized['files'] as &$file) {
@@ -1874,7 +1874,7 @@ final class ArtifactCompiler
         $themePreferenceOwnership = $this->themePreferenceOwnershipForSource($runtimeDeclarations, $sourcePath);
         $stylesheetAssets = $this->stylesheetAssetsForSource($html, $sourcePath, $files, true);
         $stylesheetPayloads = $this->linkedStylesheetPayloads($stylesheetAssets, $sourcePath, $files);
-        $layerOrderCss = implode("\n", array_map(fn(array $stylesheet): string => $this->compatibilityStylesheetContent($stylesheet['content'], $stylesheet['path'], $files), $stylesheetAssets));
+        $layerOrderCss = implode("\n", array_map(fn(array $stylesheet): string => $this->stylesheetOccurrenceContent($stylesheet, $files), $stylesheetAssets));
         $analysisCache = $this->cacheHtmlAnalysis
             ? $this->htmlTransformerAnalysisCache ??= new HtmlTransformerAnalysisCache()
             : new HtmlTransformerAnalysisCache();
@@ -1911,7 +1911,9 @@ final class ArtifactCompiler
             'declarative_state_html'    => $html,
             'static_css'                => trim(implode("\n", array_column($stylesheetPayloads, 'content'))),
             'stylesheet_payloads'       => $stylesheetPayloads,
-            'author_stylesheet_assets'  => $stylesheetAssets,
+            // Rule analysis reads each occurrence with its imports expanded in
+            // place, conditions attached; projections keep the authored bytes.
+            'author_stylesheet_assets'  => array_map(fn (array $stylesheet): array => $stylesheet + array('cascade_content' => $this->stylesheetOccurrenceContent($stylesheet, $files)), $stylesheetAssets),
             'author_layer_order'        => (new AuthorCascadeLayerOrder())->statement($layerOrderCss),
             'shared_stylesheet_paths'   => $this->sharedStylesheetPathsFromFiles($files),
             'skip_author_stylesheet_materialization' => true,
@@ -2345,11 +2347,7 @@ final class ArtifactCompiler
             if (!StylesheetActivation::active($stylesheet)) continue;
             // Analysis must see imported rules at their authored occurrence,
             // with import media/supports/layer qualifiers still attached.
-            $content = $this->compatibilityStylesheetContent(
-                (string) ($stylesheet['content'] ?? ''),
-                (string) ($stylesheet['path'] ?? $sourcePath),
-                $files
-            );
+            $content = $this->stylesheetOccurrenceContent(array('content' => (string) ($stylesheet['content'] ?? ''), 'path' => (string) ($stylesheet['path'] ?? $sourcePath)) + $stylesheet, $files);
             if ( '' !== trim($content) ) {
                 $payloads[] = array(
                     'content' => $this->artifactRelativeStylesheetContent($content, (string) ($stylesheet['source_path'] ?? $sourcePath), $files),
@@ -2515,7 +2513,7 @@ final class ArtifactCompiler
             $parts = array();
             $stylesheets = $this->stylesheetAssetsForSource($document['content'], $sourcePath, $documentFiles);
             foreach ($stylesheets as $stylesheet) {
-                $unit = array($this->compatibilityStylesheetContent($stylesheet['content'], $stylesheet['path'], $documentFiles));
+                $unit = array($this->stylesheetOccurrenceContent($stylesheet, $documentFiles));
                 $deltas = array_filter($files, fn(array $file): bool =>
                     ($file['metadata']['page_stylesheet_of'] ?? null) === $stylesheet['path'] && $this->fileOwnership($file) === $ownership
                 );
@@ -2553,6 +2551,19 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $files
      * @param array<string, true> $ancestors
      */
+    /**
+     * An inline <style> sheet is stored at a content-addressed path, but its
+     * @import references resolve against the owning document, like the
+     * browser's base URL. Linked sheets carry their own path as source_path.
+     *
+     * @param array<string, mixed> $stylesheet
+     * @param array<int, array<string, mixed>> $files
+     */
+    private function stylesheetOccurrenceContent(array $stylesheet, array $files): string
+    {
+        return $this->compatibilityStylesheetContent((string) $stylesheet['content'], (string) ($stylesheet['source_path'] ?? $stylesheet['path']), $files);
+    }
+
     private function compatibilityStylesheetContent(string $css, string $path, array $files, array $ancestors = array(), bool $importedLayer = false): string
     {
         if (isset($ancestors[$path])) return '';
@@ -2568,7 +2579,8 @@ final class ArtifactCompiler
                 continue;
             }
             $reference = $match[1] ?: ($match[2] ?: ($match[3] ?: ($match[4] ?: $match[5])));
-            $importPath = isset($byPath[$reference]) ? $reference : ArtifactPath::resolveRelativePath($reference, $path);
+            // Root-relative imports name the captured site root, like root-relative <link> hrefs.
+            $importPath = isset($byPath[$reference]) ? $reference : $this->stylesheetPathFromHref($reference, $path, $files);
             $file = $byPath[$importPath] ?? null;
             if (!is_array($file) || 'css' !== ($file['kind'] ?? '') || !is_string($file['content'] ?? null)) continue;
             $conditions = CssValueSplitter::splitTopLevelWhitespace(trim($match[6]));
