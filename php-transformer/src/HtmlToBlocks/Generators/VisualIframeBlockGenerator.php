@@ -542,7 +542,8 @@ JS;
         $width = $this->boundedVisualIframeDimension($iframe, 'width', $styleResolver);
         $height = $this->boundedVisualIframeDimension($iframe, 'height', $styleResolver);
         $sourceSized = $this->sourceOwnsIframeGeometry($iframe, $styleResolver);
-        $sizeRuled = $this->sourceOwnsIframeGeometry($iframe, $styleResolver, array( 'width', 'height', 'aspect-ratio' ));
+        $widthRuled = $this->sourceOwnsIframeGeometry($iframe, $styleResolver, array( 'width' ));
+        $heightRuled = $this->sourceOwnsIframeGeometry($iframe, $styleResolver, array( 'height' ));
         if ( ! $sourceSized && ( null === $width || null === $height ) ) {
             return null;
         }
@@ -550,9 +551,10 @@ JS;
         return array_filter(array(
             'src' => $url,
             'title' => $attributes['title'] ?? '',
-            // Positioning alone leaves the source size attributes sizing the frame.
-            'width' => $sourceSized ? ($sizeRuled ? '' : SourceDom::attr($iframe, 'width')) : (SourceDom::attr($iframe, 'width') ?: $width),
-            'height' => $sourceSized ? ($sizeRuled ? '' : SourceDom::attr($iframe, 'height')) : (SourceDom::attr($iframe, 'height') ?: $height),
+            // Only CSS for the same axis replaces a size attribute. Position and
+            // aspect-ratio do not override an explicit width or height.
+            'width' => $sourceSized ? ($widthRuled ? '' : SourceDom::attr($iframe, 'width')) : (SourceDom::attr($iframe, 'width') ?: $width),
+            'height' => $sourceSized ? ($heightRuled ? '' : SourceDom::attr($iframe, 'height')) : (SourceDom::attr($iframe, 'height') ?: $height),
             'className' => $sourceSized ? ($styleResolver->presentationAttributes($iframe)['className'] ?? '') : ($attributes['class'] ?? ''),
             'allow' => $attributes['allow'] ?? '',
             'loading' => $attributes['loading'] ?? '',
