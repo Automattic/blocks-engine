@@ -4397,7 +4397,7 @@ PHP;
             if ('single' === $key || !empty($page['entrypoint']) || !is_array($template) || isset($template['source_path'])) continue;
             $groups[$page['post_type'] . "\0" . $template['canonical_block_markup']][] = $index;
         }
-        $renames = array(); $titles = array(); $shared = array();
+        $renames = array(); $titles = array(); $shared = array(); $layouts = array();
         foreach ($groups as $indexes) {
             if (count($indexes) < 2) continue;
             $page = $pages[$indexes[0]];
@@ -4405,14 +4405,14 @@ PHP;
             $prefix = 'page' === $page['post_type'] ? 'page-' : 'single-' . $page['post_type'] . '-';
             $slug = $prefix . 'shared-' . substr(hash('sha256', $page['post_type'] . "\0" . $bySlug[$key]['canonical_block_markup']), 0, 12);
             while (isset($bySlug[$slug]) || isset($titles[$slug])) $slug .= '-shared';
-            $labels = array();
             foreach ($indexes as $index) {
                 $renames[self::routeTemplateKey($pages[$index])] = $slug;
-                $labels[] = $pages[$index]['title'];
                 $pages[$index]['route_template'] = $slug;
                 $pages[$index]['metadata']['post_meta']['_wp_page_template'] = $slug;
             }
-            $titles[$slug] = implode(' / ', array_unique($labels));
+            // Name the group, not its members: the Site Editor lists this title.
+            $ordinal = $layouts[$page['post_type']] = ($layouts[$page['post_type']] ?? 0) + 1;
+            $titles[$slug] = ucfirst(str_replace('_', ' ', $page['post_type'])) . ' (shared layout' . (1 < $ordinal ? ' ' . $ordinal : '') . ')';
         }
         foreach ($templates as &$template) {
             $slug = $renames[$template['slug']] ?? null;
