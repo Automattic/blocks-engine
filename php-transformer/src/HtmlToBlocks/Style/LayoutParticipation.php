@@ -316,7 +316,10 @@ final class LayoutParticipation
     /**
      * An authored inline-level box still cannot share a line when it is a
      * float or out of flow, which makes it block-level (CSS 2.1 section 9.7),
-     * or when it is authored to fill the whole line (`width: 100%`).
+     * or when it is authored to fill the whole line (`width: 100%`). Positioned
+     * in-flow controls also retain their carrier: placement/transform is
+     * projected onto that box, so spacing and offsets must not move to a
+     * different participating link.
      */
     private static function cannotShareLine(DOMElement $element, StyleResolver $styleResolver): bool
     {
@@ -325,7 +328,7 @@ final class LayoutParticipation
         $position = CssValueInspector::comparable((string) ($declarations['position'] ?? ''));
         $width = CssValueInspector::comparable((string) ($styleResolver->cssDeclarations($styleResolver->controlSurfaceResolvedStyle($element))['width'] ?? ''));
 
-        return ( '' !== $float && 'none' !== $float ) || in_array($position, array( 'absolute', 'fixed' ), true) || 100 === self::widthPreset('width:' . $width);
+        return ( '' !== $float && 'none' !== $float ) || in_array($position, array( 'relative', 'absolute', 'fixed', 'sticky' ), true) || 100 === self::widthPreset('width:' . $width);
     }
 
     private static function resolvedDisplay(DOMElement $element, StyleResolver $styleResolver): string
