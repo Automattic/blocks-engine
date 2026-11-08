@@ -1617,6 +1617,12 @@ final class NavigationPatternContext
         return $this->navigationToggleSuppressor?->navigationToggleControl($element);
     }
 
+    /** The overlay mode a projected opener gives its navigation (never|mobile|always). */
+    public function projectedOverlayMenu(DOMElement $toggle): string
+    {
+        return $this->navigationToggleSuppressor?->projectedOverlayMenu($toggle) ?? 'never';
+    }
+
     public function responsiveToggleMarker(DOMElement $element): string
     {
         return $this->projectedNavigation?->responsiveNavigationToggleMarker($element) ?? '';

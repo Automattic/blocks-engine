@@ -4055,9 +4055,44 @@ final class NavigationPattern implements PatternRecognizerInterface
     /**
      * @return array<string, mixed>
      */
+    /**
+     * Whether the element sits inside a hidden panel that an opener outside it
+     * reveals, for a menu that stays collapsed at every width. A collapse
+     * panel shown inline on desktop (a Bootstrap `.navbar-collapse`) is the
+     * navigation's own box instead.
+     */
+    private function isHiddenPanelBehind(DOMElement $element, DOMElement $toggle, NavigationPatternContext $context): bool
+    {
+        // A menu kept open inside its own source panel (overlay "never") still
+        // renders that panel as a shell around the navigation.
+        if ( $this->containsNode($element, $toggle) || 'never' === $this->overlayMenu($element, $context)
+            || 'always' !== $context->projectedOverlayMenu($toggle) ) {
+            return false;
+        }
+        for ( $node = $element; $node instanceof DOMElement && ! $this->containsNode($node, $toggle); $node = $node->parentNode ) {
+            if ( $node->hasAttribute('hidden') || $context->isHiddenAtReferenceViewport($node) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function navigationContainerAttributes(DOMElement $element, callable $presentationAttributes, ?NavigationPatternContext $navigationContext = null): array
     {
         $attrs = $this->withoutCoreNavigationClasses($presentationAttributes($element));
+        $toggle = $navigationContext?->navigationToggleControl($element);
+        if ( $toggle instanceof DOMElement && null !== $navigationContext && $this->isHiddenPanelBehind($element, $toggle, $navigationContext) ) {
+            // The element is the hidden panel an outside opener reveals: the
+            // navigation root renders that opener, so the panel's resting box
+            // belongs to Core's responsive container.
+            $attrs['metadata']['blocksEngineNavigationContainer']['className'] = SourceDom::mergeClassNames(
+                (string) ($attrs['metadata']['blocksEngineNavigationContainer']['className'] ?? ''),
+                (string) ($attrs['className'] ?? '')
+            );
+            $attrs['metadata']['blocksEngineNavigationContainer']['ownsSource'] = true;
+            unset($attrs['className']);
+        }
         $list = $this->navigationListSource($element);
         if ( $list instanceof DOMElement ) {
             $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::LIST_NAVIGATION_CLASS);
@@ -4070,7 +4105,16 @@ final class NavigationPattern implements PatternRecognizerInterface
             $listAttrs = $this->withoutCoreNavigationClasses($presentationAttributes($list));
             $listClasses = trim((string) ($listAttrs['className'] ?? ''));
             if ( '' !== $listClasses ) {
-                $attrs['className'] = implode(' ', array_values(array_unique(array_filter(preg_split('/\s+/', trim((string) ($attrs['className'] ?? '') . ' ' . $listClasses)) ?: array()))));
+                if ( true === ($attrs['metadata']['blocksEngineNavigationContainer']['ownsSource'] ?? false) ) {
+                    // The list renders inside that panel, so its classes follow it.
+                    $attrs['metadata']['blocksEngineNavigationContainer']['className'] = SourceDom::mergeClassNames(
+                        (string) ($attrs['metadata']['blocksEngineNavigationContainer']['className'] ?? ''),
+                        $listClasses,
+                        implode(' ', $navigationContext?->sourcePresentationMarkers($list) ?? array())
+                    );
+                } else {
+                    $attrs['className'] = implode(' ', array_values(array_unique(array_filter(preg_split('/\s+/', trim((string) ($attrs['className'] ?? '') . ' ' . $listClasses)) ?: array()))));
+                }
             }
 
             $listGap = (string) ($listAttrs['style']['spacing']['blockGap'] ?? '');
