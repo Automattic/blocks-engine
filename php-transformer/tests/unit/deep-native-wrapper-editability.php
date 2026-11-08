@@ -25,4 +25,18 @@ for ($index = 0; $index < 23; $index++) {
         throw new RuntimeException('Lost wrapper parent-child edge at ' . $index);
     }
 }
+// Empty terminals occur after site-wide extraction (for example, when a
+// duplicated navigation subtree is removed). They must not turn otherwise
+// editable div ancestors back into generated layout shells.
+$empty = (new HtmlTransformer())->transform('<div id="outer"><div id="middle"><div id="empty" style="height:20px;background:red"></div></div></div>')->toArray();
+$emptyMarkup = (string) ($empty['serialized_blocks'] ?? '');
+if (str_contains($emptyMarkup, '/layout-shell') || substr_count($emptyMarkup, '<!-- wp:group') !== 3) {
+    throw new RuntimeException('Empty wrapper terminals must remain native Groups: ' . $emptyMarkup);
+}
+$emptyDocument = new DOMDocument();
+@$emptyDocument->loadHTML($emptyMarkup);
+$emptyXpath = new DOMXPath($emptyDocument);
+if (1 !== $emptyXpath->query('//*[@id="outer"]/div[@id="middle"]/div[@id="empty"]')->length) {
+    throw new RuntimeException('Empty terminal lost its source parent-child edges');
+}
 echo "Deep native wrapper editability passed\n";
