@@ -8,7 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\HtmlMarkupParser;
 /** Recognizes captured category and tag collections from reciprocal links or WordPress body identity. */
 final class TaxonomyProjection
 {
-    private const TERM_ROUTE = '~(?:^|/)(category|tag)/([^/]+(?:/[^/]+)*)$~';
+    private const TERM_ROUTE = '~(?:^|/)(category|categories|tag|tags)/([^/]+(?:/[^/]+)*)$~';
 
     /**
      * Is this route a category or tag archive? Its listed entries' dates are
@@ -18,7 +18,7 @@ final class TaxonomyProjection
     {
         if (!preg_match(self::TERM_ROUTE, $route, $match) || preg_match('~/page/[1-9][0-9]{0,5}$~', $route)) return false;
 
-        return 'category' === $match[1] || !str_contains($match[2], '/');
+        return in_array($match[1], array('category', 'categories'), true) || !str_contains($match[2], '/');
     }
 
     /** @param array<int,array<string,mixed>> $documents @param array<int,array<string,mixed>> $routes @return array{entities:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>,pagination_source_paths_by_archive:array<string,array<int,string>>} */
@@ -47,7 +47,7 @@ final class TaxonomyProjection
             $route = is_string($source) ? ($routeBySource[$source] ?? null) : null;
             if (!is_string($source) || !is_string($route) || !self::isTermRoute($route)) continue;
             preg_match(self::TERM_ROUTE, $route, $termMatch);
-            $taxonomy = 'tag' === $termMatch[1] ? 'post_tag' : 'category';
+            $taxonomy = in_array($termMatch[1], array('tag', 'tags'), true) ? 'post_tag' : 'category';
             $slug = basename($route);
             if (!self::supportedTermSpelling($route, $slug)) {
                 $diagnostics[] = array('code' => 'wordpress_site_plan_taxonomy_archive_unsupported_spelling', 'severity' => 'info', 'message' => 'A captured taxonomy route or slug spelling is outside the canonical term vocabulary, so the collection stays explicitly unproven.', 'source_path' => $source, 'source_route' => $route);
