@@ -19,14 +19,18 @@ foreach (array(
     'uncompiled target' => array('index.html', 'p/other.html', 'p/chair.html', '', 0, 'lamp'),
     'schema authority' => array('index.html', 'p/lamp.html', 'p/chair.html', '<script type="application/ld+json">{"@type":"Product","name":"Schema Lamp","offers":{"price":"45.00"}}</script>', 1, 'schema-lamp'),
     'ambiguous schema' => array('index.html', 'p/lamp.html', 'p/chair.html', '<script type="application/ld+json">[{"@type":"Product","name":"First","offers":{"price":"45.00"}},{"@type":"Product","name":"Second","offers":{"price":"50.00"}}]</script>', 0, 'lamp'),
-) as $case => [$gridPath, $lampUrl, $chairUrl, $schema, $expected, $owner]) {
+    'entry root' => array('website/index.html', '/p/lamp.html', '/p/chair.html', '', 1, 'lamp', 'website/p/lamp.html'),
+    'encoded filename' => array('website/index.html', '/p/lamp%3A.html', '/p/chair.html', '', 1, 'lamp', 'website/p/lamp%3A.html'),
+) as $case => $row) {
+    [$gridPath, $lampUrl, $chairUrl, $schema, $expected, $owner] = $row;
+    $detailPath = $row[6] ?? 'p/lamp.html';
     $grid = '<main><h1>Home furnishings</h1><div style="display:grid;grid-template-columns:repeat(2,1fr)">' . $card('Lamp', $lampUrl) . $card('Chair', $chairUrl) . '</div></main>';
     $detail = '<head>' . $schema . '</head><main><h1>Lamp</h1><p>A reading light.</p>' . $purchase . '</main>';
-    $result = (new ArtifactCompiler())->compile(array('entrypoint' => $gridPath, 'files' => array($gridPath => $grid, 'p/lamp.html' => $detail)))->toArray();
+    $result = (new ArtifactCompiler())->compile(array('entrypoint' => $gridPath, 'files' => array($gridPath => $grid, $detailPath => $detail)))->toArray();
     $assert('failed' !== $result['status'], $case . ': compiles');
     $grids = array_values(array_filter($result['fallbacks'] ?? array(), static fn (array $f): bool => 'html_product_grid_fallback' === ($f['diagnostic_code'] ?? null)));
     $assert(1 === count($grids), $case . ': trunk recognizes the product grid');
-    $purchases = array_values(array_filter($result['fallbacks'] ?? array(), static fn (array $f): bool => 'html_commerce_controls_fallback' === ($f['diagnostic_code'] ?? null) && 'commerce_add_to_cart_form' === ($f['binding']['role'] ?? null) && 'p/lamp.html' === ($f['source'] ?? null)));
+    $purchases = array_values(array_filter($result['fallbacks'] ?? array(), static fn (array $f): bool => 'html_commerce_controls_fallback' === ($f['diagnostic_code'] ?? null) && 'commerce_add_to_cart_form' === ($f['binding']['role'] ?? null) && $detailPath === ($f['source'] ?? null)));
     $assert(1 === count($purchases), $case . ': trunk recognizes the formless purchase control');
     $rows = array();
     $plan = $result['source_reports']['wordpress_site_plan'] ?? array();
@@ -41,10 +45,10 @@ foreach (array(
         $assert(!in_array('commerce_add_to_cart_form', array_column($row['bindings'] ?? array(), 'role'), true), $case . ': no other product owns purchase');
     }
     foreach ($bindings as $binding) {
-        $assert('p/lamp.html' === $binding['source_path'], $case . ': purchase belongs to detail page');
+        $assert($detailPath === $binding['source_path'], $case . ': purchase belongs to detail page');
         $assert(isset($binding['projected_anchor']), $case . ': canonical projection retained');
         foreach ($plan['pages'] as $page) {
-            if ('p/lamp.html' === $page['source_path']) $assert(str_contains($page['canonical_block_markup'], $binding['search_block_markup']), $case . ': anchor exists in detail markup');
+            if ($detailPath === $page['source_path']) $assert(str_contains($page['canonical_block_markup'], $binding['search_block_markup']), $case . ': anchor exists in detail markup');
         }
         $assert($purchases[0]['controls'] == $rows[$owner]['controls'], $case . ': purchase controls retained');
         if (isset($purchases[0]['presentation_graph'])) $assert($purchases[0]['presentation_graph'] == ($rows[$owner]['presentation_graph'] ?? null), $case . ': presentation graph retained');

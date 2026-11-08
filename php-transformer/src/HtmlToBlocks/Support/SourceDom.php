@@ -535,7 +535,7 @@ final class SourceDom
      * identifier: a hash href, a label `for`, or an ARIA idref. An unused
      * `id` is not an address — it is a name with no reader.
      */
-    public static function documentReferencesFragmentId(DOMElement $element, string $id): bool
+    public static function documentReferencesFragmentId(DOMElement $element, string $id, bool $ignoreCopiedSymbolUses = false): bool
     {
         if ( '' === $id ) {
             return false;
@@ -547,10 +547,10 @@ final class SourceDom
         }
 
         $index = DocumentReferenceIndex::forDocument($element->ownerDocument);
-        if (null !== $index) return $index->referencesFragment($element, $id);
+        if (null !== $index) return $index->referencesFragment($element, $id, $ignoreCopiedSymbolUses);
 
         foreach ( $root->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement || $candidate->isSameNode($element) ) {
+            if ( ! $candidate instanceof DOMElement || $candidate->isSameNode($element) || ($ignoreCopiedSymbolUses && self::isCopiedSymbolUse($candidate, $element)) ) {
                 continue;
             }
 
@@ -574,6 +574,24 @@ final class SourceDom
         }
 
         return false;
+    }
+
+    /** Local symbol uses carry a copy of the definition in their emitted SVG. */
+    public static function isCopiedSymbolUse(DOMElement $candidate, DOMElement $definition): bool
+    {
+        if ('symbol' !== strtolower($definition->tagName) || 'use' !== strtolower($candidate->tagName)
+            || !self::hasAncestorTag($candidate, array('svg'))) {
+            return false;
+        }
+        $id = self::attr($definition, 'id');
+        $href = self::attr($candidate, 'href');
+        if ('' === $href) $href = self::attr($candidate, 'xlink:href');
+        if ('#' . $id !== $href) return false;
+        // Other references on the same use still require the page-local id.
+        foreach (array('aria-labelledby', 'aria-describedby', 'aria-controls', 'for') as $attribute) {
+            if (in_array($id, preg_split('/\s+/', trim(self::attr($candidate, $attribute))) ?: array(), true)) return false;
+        }
+        return true;
     }
 
     public static function hasClass(DOMElement $element, string $className): bool
@@ -1463,7 +1481,8 @@ final class SourceDom
     }
 
     /**
-     * A zero-box resource carrier with no fragment consumers in the source.
+     * A zero-box resource carrier with no remaining page-local consumers.
+     * Local symbol uses are copied into their consumer SVGs by SvgMaterializer.
      *
      * Only a zero width or height proves the carrier occupies no box: a shown
      * SVG without one still lays out at its default 300x150 even when it holds
@@ -1485,7 +1504,7 @@ final class SourceDom
             return false;
         }
         foreach ($element->childNodes as $child) {
-            if ($child instanceof DOMElement && !in_array(strtolower($child->tagName), array('defs', 'style', 'title', 'desc'), true)) {
+            if ($child instanceof DOMElement && !in_array(strtolower($child->tagName), array('defs', 'symbol', 'style', 'title', 'desc', 'metadata'), true)) {
                 return false;
             }
             if (XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '')) {
@@ -1497,18 +1516,19 @@ final class SourceDom
         foreach (array_merge(array($element), iterator_to_array($element->getElementsByTagName('*'), false)) as $descendant) {
             $id = self::attr($descendant, 'id');
             if ('' !== $id) {
-                if (self::documentReferencesFragmentId($descendant, $id)
+                if (self::documentReferencesFragmentId($descendant, $id, true)
                     || (DocumentReferenceIndex::forDocument($element->ownerDocument)?->referencesCssFragment($id) ?? false)) {
                     return false;
                 }
-                $ids[$id] = true;
+                $ids[$id] = $descendant;
             }
         }
         foreach ($element->ownerDocument?->getElementsByTagName('*') ?? array() as $candidate) {
             // The shared fragment helper covers HTML href/idrefs; SVG also uses
             // xlink:href and CSS URLs in stylesheets and presentation attributes.
             $href = trim(self::attr($candidate, 'xlink:href'));
-            if (str_starts_with($href, '#') && isset($ids[rawurldecode(substr($href, 1))])) {
+            if (str_starts_with($href, '#') && isset($ids[rawurldecode(substr($href, 1))])
+                && !self::isCopiedSymbolUse($candidate, $ids[rawurldecode(substr($href, 1))])) {
                 return false;
             }
             $values = 'style' === strtolower($candidate->tagName) ? array($candidate->textContent) : array();
@@ -1540,8 +1560,8 @@ final class SourceDom
         foreach ($element->childNodes as $child) {
             if ($child instanceof DOMElement) {
                 $tag = strtolower($child->tagName);
-                if ('defs' === $tag) {
-                    $hasDefinitions = $hasDefinitions || 0 < $child->getElementsByTagName('*')->length;
+                if (in_array($tag, array('defs', 'symbol'), true)) {
+                    $hasDefinitions = $hasDefinitions || 'symbol' === $tag || 0 < $child->getElementsByTagName('*')->length;
                 } elseif (!in_array($tag, array('style', 'title', 'desc', 'metadata'), true)) {
                     return false;
                 }

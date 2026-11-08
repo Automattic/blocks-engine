@@ -1198,10 +1198,14 @@ final class ArtifactCompiler
         }
         $products = array();
         $cardPageProducts = array();
+        // Card URLs identify pages by the same entry-root-relative route as the plan.
         $compiledPages = array();
         foreach ($files as $file) {
             if ($this->isMaterializedHtmlDocument($file) && 'page' === ($file['metadata']['post_type'] ?? 'page')) {
-                $compiledPages[ArtifactPath::resolveRelativePath((string) $file['path'])][] = $file['path'];
+                $path = (string) $file['path'];
+                $relative = '.' !== $entryRoot && str_starts_with($path, $entryRoot . '/') ? substr($path, strlen($entryRoot) + 1) : $path;
+                $routes = array($pageRoutes[$path] ?? '', SchemaProductEvidence::pageRoute('/' . rawurldecode($relative), $path, '.' === $entryRoot ? '' : $entryRoot));
+                foreach (array_unique(array_filter($routes)) as $route) $compiledPages[$route][] = $path;
             }
         }
         $forms = array();
@@ -1237,9 +1241,7 @@ final class ArtifactCompiler
                     if (is_string($product['url'] ?? null)) {
                         $urlPath = parse_url(html_entity_decode($product['url'], ENT_QUOTES | ENT_HTML5, 'UTF-8'), PHP_URL_PATH);
                         if (is_string($urlPath) && '' !== $urlPath) {
-                            $target = str_starts_with($urlPath, '/')
-                                ? ArtifactPath::resolveRelativePath(ltrim($urlPath, '/'))
-                                : ArtifactPath::resolveRelativePath($urlPath, $sourcePath);
+                            $target = SchemaProductEvidence::pageRoute(rawurldecode($urlPath), $sourcePath, '.' === $entryRoot ? '' : $entryRoot);
                             if (1 === count($compiledPages[$target] ?? array())) {
                                 $cardPageProducts[$compiledPages[$target][0]][] = $productSlug;
                             }

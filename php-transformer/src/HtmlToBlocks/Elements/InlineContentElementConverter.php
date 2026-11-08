@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutParticipation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SocialLinksPattern;
@@ -16,6 +17,15 @@ use DOMElement;
 /** Converts phrasing-content elements to editable text or structural carriers. */
 final class InlineContentElementConverter implements ElementConverter
 {
+    /** CSS Display 3 blockification of an inline-level layout item. */
+    private const BLOCKIFIED_DISPLAY = array(
+        'inline' => 'block',
+        'inline-block' => 'block',
+        'inline-flex' => 'flex',
+        'inline-grid' => 'grid',
+        'inline-table' => 'table',
+    );
+
     public function __construct(
         private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier $sourceElementClassifier,
         private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock,
@@ -135,6 +145,13 @@ final class InlineContentElementConverter implements ElementConverter
                 $declarations = $this->styleResolver->stripResponsiveClassOwnedDeclarations($element, $this->richTextMaterializer->inlineVisualDeclarations($element));
                 if ( 'transparent' === strtolower((string) ($declarations['-webkit-text-fill-color'] ?? '')) ) {
                     $declarations['color'] = 'transparent';
+                }
+                // A flex or grid parent blockified the source element, so its
+                // own font set the item's line box. The mark keeps that box;
+                // the carrier paragraph's inherited strut would not.
+                $participation = LayoutParticipation::resolve($element, $this->styleResolver);
+                if ( $participation->isLayoutItem() && isset(self::BLOCKIFIED_DISPLAY[$participation->sourceDisplay]) ) {
+                    $declarations['display'] = self::BLOCKIFIED_DISPLAY[$participation->sourceDisplay];
                 }
                 $declarations['--blocks-engine-richtext-marker'] = $richTextMarker;
                 $attrs = array(
