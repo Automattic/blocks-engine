@@ -1284,6 +1284,10 @@
         "finding": "style_value_unrepresentable",
         "test": "tests/unit/form-presentation-unrepresentable-style-value.php"
       },
+      "InvalidArgumentException('Form presentation caption variant has no caption layer.')": {
+        "class": "integrity",
+        "count": 1
+      },
       "InvalidArgumentException('Form presentation variant is invalid.')": {
         "class": "integrity",
         "count": 1
