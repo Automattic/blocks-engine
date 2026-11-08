@@ -128,6 +128,10 @@ final class ButtonsPattern
             $this->removeSourceControlClasses($attrs, $button);
         }
         $text = $this->buttonText($button, $buttons->richText($button), $buttons);
+        $decorations = '' === trim($text) ? '' : $buttons->installEdgeDecorations($button, $text);
+        if ( '' !== $decorations ) {
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $decorations);
+        }
         // core/button renders nothing for an empty element, so a text-less
         // control (a CSS-painted swatch or icon) carries its accessible name.
         $accessibleTitle = $this->buttonAccessibleTitle($button);
