@@ -75,6 +75,37 @@ $assert(
     (string) ($plain['serialized_blocks'] ?? '')
 );
 
+// #5055: a bare type selector needs the same carrier hook as a class selector.
+$fixture = (string) file_get_contents(dirname(__DIR__) . '/fixtures/font-size-media.html');
+foreach ( array( 'important' => '!important', 'normal' => '' ) as $label => $important ) {
+    $result = ( new HtmlTransformer() )->transform(str_replace('!important', $important, $fixture))->toArray();
+    $blocks = (string) ($result['serialized_blocks'] ?? '');
+    $before = '';
+    $author = '';
+    foreach ( $result['assets'] ?? array() as $asset ) {
+        if ( 'css' !== ($asset['kind'] ?? '') ) continue;
+        if ( 'before-author' === ($asset['stylesheet_placement'] ?? '') ) $before .= $asset['content'];
+        if ( 'author-css' === ($asset['source'] ?? '') ) $author .= $asset['content'];
+    }
+    foreach ( array( 'Follow us' => '18px', 'Small print.' => '13px' ) as $text => $size ) {
+        preg_match('/<mark\b[^>]*style="([^"]*)"[^>]*>' . preg_quote($text, '/') . '<\/mark>/', $blocks, $mark);
+        preg_match('/--blocks-engine-richtext-marker:(blocks-engine-richtext-[a-z0-9-]+)/', $mark[1] ?? '', $marker);
+        $marker = $marker[1] ?? '';
+        $assert('' !== $marker && ! str_contains($mark[1] ?? '', 'font-size'), "{$label}: {$text} retains a responsive carrier, not an inline size", $blocks);
+        $assert('' !== $marker && 1 === preg_match('/:where\([^{}]*' . preg_quote($marker, '/') . '[^{}]*\)\{font-size:' . $size . '\}/', $before), "{$label}: {$text} has its desktop {$size} base hint", $before);
+    }
+    $assert(1 === preg_match('/@media \(max-width:767px\)\{h2\{font-size:24px\}[^{}]*blocks-engine-subject-tag-font[^{}]*\{font-size:inherit' . preg_quote($important, '/') . '\}\}/', $author), "{$label}: mobile carriers inherit the heading 24px / body 14px instead of their desktop hints", $author);
+    $assert('pass' === ($result['source_reports']['wp_block_validity']['status'] ?? ''), "{$label}: reduced fixture stays Gutenberg-valid", $blocks);
+}
+
+$control = ( new HtmlTransformer() )->transform(str_replace('@media (max-width:767px){h2{font-size:24px}font{font-size:inherit!important}}', '', $fixture))->toArray();
+$controlBlocks = (string) ($control['serialized_blocks'] ?? '');
+$assert(str_contains($controlBlocks, 'font-size:18px') && str_contains($controlBlocks, 'font-size:13px'), 'without the media rule both presentational sizes remain inline', $controlBlocks);
+
+$unconditional = ( new HtmlTransformer() )->transform(str_replace('@media (max-width:767px){h2{font-size:24px}font{font-size:inherit!important}}', 'font{font-size:inherit!important}', $fixture))->toArray();
+$unconditionalOutput = (string) ($unconditional['serialized_blocks'] ?? '') . json_encode($unconditional['assets'] ?? array());
+$assert(! str_contains($unconditionalOutput, 'font-size:18px') && ! str_contains($unconditionalOutput, 'font-size:13px'), 'unconditional author inherit still suppresses both size hints', $unconditionalOutput);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Legacy font size breakpoint hint: {$failures} failed, {$passes} passed\n");
     exit(1);

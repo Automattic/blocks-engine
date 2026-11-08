@@ -930,7 +930,10 @@ final class AuthorSelectorSemanticPreparer
     private static function richTextSelectorNeedsHook(array $parsed): bool
     {
         foreach ( $parsed['compounds'] as $compound ) {
-            if ( array() !== $compound['classes'] || array() !== $compound['ids'] || array() !== $compound['attributes'] ) {
+            // A font becomes a mark, so even a bare type selector needs a
+            // hook to keep reaching its presentational-hint carrier.
+            if ( 'font' === strtolower((string) ($compound['type'] ?? ''))
+                || array() !== $compound['classes'] || array() !== $compound['ids'] || array() !== $compound['attributes'] ) {
                 return true;
             }
         }
