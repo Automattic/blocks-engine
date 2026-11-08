@@ -39,6 +39,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\VisualIframeB
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\IntrinsicVisualMediaHeight;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StaticClassPromotions;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EmptyElementFootprint;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\DesignUsageCollector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\HostBlockGapEncoder;
@@ -191,7 +192,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DeclarativeCount
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorLayoutOwnership;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\Utf8Text;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\HeadMetadataReport;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceProvenance;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressor;
@@ -1525,7 +1526,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $styleAnalysis = $this->stylesheetAnalysisComposer->composedStyleAnalysis(
             $this->stylesheetAnalysisComposer->stylesheetPayloads($html, $staticCss, $options)
         );
-        $this->session->sourceStyleResolutionState()->installStylesheetAnalysis($this->detectStaticClassPromotions($html), $styleAnalysis);
+        $this->session->sourceStyleResolutionState()->installStylesheetAnalysis(StaticClassPromotions::detect($html), $styleAnalysis);
         $runtimeDomSelectors = $this->runtimeIslands->runtimeSelectorsFromOptions($options, 'runtime_dom_selectors');
         $this->session->installRuntimeSelectorState(new RuntimeSelectorState(
             $runtimeDomSelectors,
@@ -1853,7 +1854,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         foreach ( $this->glyphColorUndecodable as $finding ) {
             $diagnostics[] = ConversionFindingContract::withClassification($finding);
         }
-        $headMetadata = $this->headMetadataReport($html);
+        $headMetadata = HeadMetadataReport::fromHtml($html);
         $authorLayoutTopologyFindings = $classIdentity->rewrite($authorLayoutTopologyFindings, $classReplacements);
         $this->styleResolver->recordSourceSelectorMatchWork();
         $nativeTargetBlocks = $this->runtime->availableCoreBlockNames();
@@ -2564,52 +2565,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->runtimeIslands->recordNativeRuntimeDomPreservation($target, $generated['blockName']);
         }
         return $block;
-    }
-
-    /**
-     * Named head metadata (meta description, social property tags) has no
-     * block-markup representation. Surface the entries so consumers can carry
-     * them to the destination document deliberately instead of reading the
-     * strip as a malformed design. Mechanical entries (charset, viewport)
-     * belong to the destination document and are not reported.
-     *
-     * @return array<int, array<string, string>>
-     */
-    private function headMetadataReport(string $html): array
-    {
-        if ( ! preg_match('/<meta[\s>]/i', $html) ) {
-            return array();
-        }
-
-        $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?>' . $html);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
-        $head = $loaded ? $document->getElementsByTagName('head')->item(0) : null;
-        if ( ! $head instanceof DOMElement ) {
-            return array();
-        }
-
-        $entries = array();
-        foreach ( $head->getElementsByTagName('meta') as $meta ) {
-            if ( ! $meta instanceof DOMElement ) {
-                continue;
-            }
-            $content = trim($meta->getAttribute('content'));
-            $name = strtolower(trim($meta->getAttribute('name')));
-            $property = strtolower(trim($meta->getAttribute('property')));
-            if ( '' === $content || ( '' === $name && '' === $property ) || 'viewport' === $name ) {
-                continue;
-            }
-            $entries[] = array_filter(array(
-                'name'     => $name,
-                'property' => $property,
-                'content'  => Utf8Text::prefix($content, 500),
-            ), static fn (string $value): bool => '' !== $value);
-        }
-
-        return array_slice($entries, 0, 20);
     }
 
     /**
@@ -6062,44 +6017,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $only instanceof DOMElement && $this->richTextStylingHooks()->isStylingHookSpan($only) ? $only : null;
     }
 
-
-    /**
-     * @return array<string, array<int, string>>
-     */
-    private function detectStaticClassPromotions(string $html): array
-    {
-        if ( ! str_contains($html, 'classList.add') || ! str_contains($html, 'querySelectorAll') ) {
-            return array();
-        }
-
-        if ( ! str_contains($html, 'IntersectionObserver') && ! str_contains($html, 'isIntersecting') ) {
-            return array();
-        }
-
-        preg_match_all('/querySelectorAll\s*\(\s*([\'"`])\.([A-Za-z0-9_-]+)\1\s*\)/', $html, $selectorMatches);
-        preg_match_all('/classList\.add\s*\(([^)]*)\)/', $html, $addMatches);
-
-        $triggerClasses = array_values(array_unique($selectorMatches[2] ?? array()));
-        $terminalClasses = array();
-        foreach ( $addMatches[1] ?? array() as $args ) {
-            preg_match_all('/[\'"`]([A-Za-z0-9_-]+)[\'"`]/', (string) $args, $classMatches);
-            foreach ( $classMatches[1] ?? array() as $className ) {
-                $terminalClasses[] = $className;
-            }
-        }
-
-        $terminalClasses = array_values(array_unique($terminalClasses));
-        if ( array() === $triggerClasses || array() === $terminalClasses ) {
-            return array();
-        }
-
-        $promotions = array();
-        foreach ( array_slice($triggerClasses, 0, 20) as $triggerClass ) {
-            $promotions[$triggerClass] = array_values(array_diff(array_slice($terminalClasses, 0, 20), array( $triggerClass )));
-        }
-
-        return array_filter($promotions, static fn (array $classes): bool => array() !== $classes);
-    }
 
     private function promotedClassName(string $className): string
     {
