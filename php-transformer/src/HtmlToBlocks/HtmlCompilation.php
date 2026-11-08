@@ -81,6 +81,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FlowContainerEl
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FlowContainerElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListStructure;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\MediaDispatchElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\MediaDispatchElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\OrderedElementConverterRegistry;
@@ -377,6 +378,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly ProjectedNavigationConverter $projectedNavigation;
 
     private readonly SourceElementClassifier $sourceElementClassifier;
+    private readonly ListStructure $listStructure;
     private readonly CommerceStructureRecognizer $commercePattern;
 
     private readonly SourceElementDescription $sourceElementDescription;
@@ -468,6 +470,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     )
     {
         $this->sourceElementClassifier = new SourceElementClassifier();
+        $this->listStructure = new ListStructure($this->sourceElementClassifier);
         $this->commercePattern = $this->createCommercePattern();
         $this->sourceElementDescription = new SourceElementDescription($this->sourceElementClassifier, $this->commercePattern);
         $this->session = new HtmlTransformerSession($this->runtime, $this->sourceElementDescription);
@@ -584,7 +587,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->authorSelectorSemanticPreparer = new AuthorSelectorSemanticPreparer($this->sourceElementClassifier,
             new AuthorSelectorSemanticContext(
                 $this->authorLayoutOwnership,
-                fn (DOMElement $element): bool => $this->isStructuralListItem($element),
+                fn (DOMElement $element): bool => $this->listStructure->isStructuralListItem($element),
                 fn (DOMElement $element): bool => $this->requiresIndependentSemanticWrapper($element),
                 fn (DOMElement $table): bool => $this->isRepresentableTable($table),
                 fn (DOMElement $element): bool => 'p' === strtolower($element->tagName) && $this->paragraphImageChild($element) instanceof DOMElement
@@ -639,7 +642,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             fn (DOMElement $element): string => $this->richTextMarkerForElement($element),
             fn (DOMElement $element): ?string => $this->dynamicTextContent($element),
             fn (DOMElement $element, string $tagName): ?DOMElement => $this->ancestorElement($element, $tagName),
-            fn (DOMElement $element): bool => $this->isStructuralListItem($element),
+            fn (DOMElement $element): bool => $this->listStructure->isStructuralListItem($element),
             fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element),
             fn (DOMElement $element): array => $this->emptyVisualSpacerBlock($element),
             function (DOMElement $element): void { $this->rememberNativeDisclosure($element); },
@@ -877,7 +880,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             function (DOMElement $element, array &$fallbacks): ?array {
                 return $this->decomposeStructuredCardList($element, $fallbacks);
             },
-            fn (DOMElement $element): bool => $this->listContainsStructuralItemContent($element),
+            fn (DOMElement $element): bool => $this->listStructure->listContainsStructuralItemContent($element),
             function (DOMElement $element, array &$fallbacks): ?array {
                 return $this->decomposeStructuralList($element, $fallbacks);
             },
@@ -5973,19 +5976,19 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private function isStructuralListContext(DOMElement $element): bool
     {
         $tagName = strtolower($element->tagName);
-        if ( in_array($tagName, array( 'ul', 'ol' ), true) && $this->listContainsStructuralItemContent($element) ) {
+        if ( in_array($tagName, array( 'ul', 'ol' ), true) && $this->listStructure->listContainsStructuralItemContent($element) ) {
             return true;
         }
-        if ( 'li' === $tagName && $this->isStructuralListItem($element) ) {
+        if ( 'li' === $tagName && $this->listStructure->isStructuralListItem($element) ) {
             return true;
         }
 
         for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
             $ancestorTag = strtolower($ancestor->tagName);
-            if ( 'li' === $ancestorTag && $this->isStructuralListItem($ancestor) ) {
+            if ( 'li' === $ancestorTag && $this->listStructure->isStructuralListItem($ancestor) ) {
                 return true;
             }
-            if ( in_array($ancestorTag, array( 'ul', 'ol' ), true) && $this->listContainsStructuralItemContent($ancestor) ) {
+            if ( in_array($ancestorTag, array( 'ul', 'ol' ), true) && $this->listStructure->listContainsStructuralItemContent($ancestor) ) {
                 return true;
             }
         }
@@ -8307,13 +8310,13 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private function listItems(DOMElement $list, array &$fallbacks): array
     {
         $items = array();
-        foreach ( $this->listMemberElements($list) as $child ) {
+        foreach ( $this->listStructure->listMemberElements($list) as $child ) {
             if ( 'li' !== strtolower($child->tagName) ) {
                 continue;
             }
 
             $nested = array();
-            foreach ( $this->nestedListRoots($child) as $nestedList ) {
+            foreach ( $this->listStructure->nestedListRoots($child) as $nestedList ) {
                 $nestedBlock = $this->convertElement($nestedList, $fallbacks, true);
                 if ( null !== $nestedBlock ) {
                     $nested[] = $nestedBlock;
@@ -8331,152 +8334,13 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $items;
     }
 
-    /**
-     * The element members of a list, with presentational item wrappers
-     * flattened. Component libraries emit `ul > div > li` (one div per
-     * carousel or ticker slot); browsers render those items as list items,
-     * so each wrapped `li` is a member of the list like a direct child.
-     *
-     * @return list<DOMElement>
-     */
-    private function listMemberElements(DOMElement $list): array
-    {
-        $members = array();
-        foreach ( $list->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-            if ( ! $this->isListItemWrapper($child) ) {
-                $members[] = $child;
-                continue;
-            }
-            foreach ( $child->childNodes as $wrapped ) {
-                if ( $wrapped instanceof DOMElement ) {
-                    $members[] = $wrapped;
-                }
-            }
-        }
-
-        return $members;
-    }
-
-    /** Whether a list child is a `div` holding only list items and whitespace. */
-    private function isListItemWrapper(DOMElement $element): bool
-    {
-        $parent = $element->parentNode;
-        if ( 'div' !== strtolower($element->tagName)
-            || ! $parent instanceof DOMElement
-            || ! in_array(strtolower($parent->tagName), array( 'ul', 'ol', 'menu' ), true)
-        ) {
-            return false;
-        }
-        $hasItem = false;
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && 'li' === strtolower($child->tagName) ) {
-                $hasItem = true;
-                continue;
-            }
-            if ( XML_COMMENT_NODE === $child->nodeType || ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) ) {
-                continue;
-            }
-            return false;
-        }
-
-        return $hasItem;
-    }
-
-    /** @return list<DOMElement> */
-    private function nestedListRoots(DOMElement $item): array
-    {
-        $lists = array();
-        foreach ( $item->childNodes as $child ) {
-            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'ul', 'ol', 'menu' ), true) ) {
-                $lists[] = $child;
-            }
-        }
-
-        return $lists;
-    }
-
-    /**
-     * Whether a non-item child of a list carries content a reader would see.
-     * Scripts, templates and empty wrappers are not content.
-     */
-    private function listNonItemChildCarriesContent(DOMElement $child): bool
-    {
-        $tagName = strtolower($child->tagName);
-        if ( in_array($tagName, array( 'script', 'style', 'template', 'link', 'meta' ), true) ) {
-            return false;
-        }
-
-        if ( '' !== trim($child->textContent ?? '') ) {
-            return true;
-        }
-
-        foreach ( array( 'img', 'svg', 'video', 'audio', 'iframe', 'canvas', 'picture', 'input', 'select', 'textarea', 'button' ) as $embedded ) {
-            if ( 0 < $child->getElementsByTagName($embedded)->length ) {
-                return true;
-            }
-        }
-
-        return in_array($tagName, array( 'img', 'svg', 'video', 'audio', 'iframe', 'canvas', 'picture', 'input', 'select', 'textarea', 'button' ), true);
-    }
-
-    private function listContainsStructuralItemContent(DOMElement $list): bool
-    {
-        foreach ( $this->listMemberElements($list) as $child ) {
-            if ( ! $child instanceof DOMElement || 'li' !== strtolower($child->tagName) ) {
-                // A source that puts content directly in a list still renders
-                // it. core/list only carries list items, so such a list has to
-                // decompose or that content is dropped on the floor.
-                if ( $child instanceof DOMElement && $this->listNonItemChildCarriesContent($child) ) {
-                    return true;
-                }
-                continue;
-            }
-
-            $content = $child->cloneNode(true);
-            if ( ! $content instanceof DOMElement ) {
-                continue;
-            }
-
-            foreach ( $this->nestedListRoots($content) as $nestedList ) {
-                $content->removeChild($nestedList);
-            }
-
-            foreach ( $content->getElementsByTagName('*') as $descendant ) {
-                if ( ! $descendant instanceof DOMElement ) {
-                    continue;
-                }
-
-                $tagName = strtolower($descendant->tagName);
-                if ( 'a' !== $tagName && 'br' !== $tagName && ! $this->sourceElementClassifier->isInlineContentElement($tagName) ) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    private function isStructuralListItem(DOMElement $item): bool
-    {
-        $list = $item->parentNode;
-        if ( $list instanceof DOMElement && $this->isListItemWrapper($list) ) {
-            $list = $list->parentNode;
-        }
-        return $list instanceof DOMElement
-            && in_array(strtolower($list->tagName), array( 'ul', 'ol', 'menu' ), true)
-            && $this->listContainsStructuralItemContent($list);
-    }
-
     /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed> */
     private function decomposeStructuralList(DOMElement $list, array &$fallbacks): array
     {
         $items = array();
-        foreach ( $this->listMemberElements($list) as $child ) {
+        foreach ( $this->listStructure->listMemberElements($list) as $child ) {
             if ( 'li' !== strtolower($child->tagName) ) {
-                if ( ! $this->listNonItemChildCarriesContent($child) ) {
+                if ( ! $this->listStructure->listNonItemChildCarriesContent($child) ) {
                     continue;
                 }
 
