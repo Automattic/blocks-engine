@@ -86,6 +86,8 @@ final class SourceDom
 
     /** HTML void elements: never an empty inline box with CSS geometry. */
     private const VOID_TAGS = array( 'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr' );
+    /** SVG definition elements that never render where they appear (SVG 2, 5.6 and 14). */
+    private const NEVER_RENDERED_SVG_DEFINITIONS = array( 'clippath', 'filter', 'lineargradient', 'marker', 'mask', 'pattern', 'radialgradient', 'symbol' );
 
     public static function innerHtml(DOMElement $element, ?callable $inlineStyleFor = null): string
     {
@@ -1560,8 +1562,11 @@ final class SourceDom
         foreach ($element->childNodes as $child) {
             if ($child instanceof DOMElement) {
                 $tag = strtolower($child->tagName);
-                if (in_array($tag, array('defs', 'symbol'), true)) {
-                    $hasDefinitions = $hasDefinitions || 'symbol' === $tag || 0 < $child->getElementsByTagName('*')->length;
+                if ('defs' === $tag) {
+                    $hasDefinitions = $hasDefinitions || 0 < $child->getElementsByTagName('*')->length;
+                } elseif (in_array($tag, self::NEVER_RENDERED_SVG_DEFINITIONS, true)) {
+                    // SVG never renders these directly, inside <defs> or not.
+                    $hasDefinitions = true;
                 } elseif (!in_array($tag, array('style', 'title', 'desc', 'metadata'), true)) {
                     return false;
                 }

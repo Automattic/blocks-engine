@@ -460,6 +460,7 @@
       "php tests/contract/author-important-overrides-inline.php",
       "php tests/contract/capture-replay-important-keeps-inline.php",
       "php tests/contract/svg-sprite-icon-links.php",
+      "php tests/contract/section-divider-clip-native.php",
       "php tests/contract/social-list-keeps-source-tag.php",
       "php tests/contract/linked-flex-images.php",
       "php tests/contract/layout-geometry-proof.php",

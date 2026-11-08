@@ -6311,7 +6311,10 @@ final class StyleResolver implements ElementPresentationResolver
             // A consumed custom property can supply the URL to an authored
             // background rule. Keep it for the same sanitized carrier path.
             $allowsImageUrl = (str_starts_with($name, '--') || in_array($name, array( 'background', 'background-image', 'list-style', 'list-style-image' ), true)) && ! preg_match('/(?:expression\s*\(|javascript\s*:)/i', $value);
-            if ( '' !== $name && '' !== $value && ( $allowsImageUrl || ! preg_match('/(?:expression\s*\(|javascript\s*:|url\s*\()/i', $value) ) ) {
+            // A same-document fragment (`clip-path: url(#wave)`) requests nothing:
+            // it names a definition the converted document keeps.
+            $withoutFragments = preg_replace('/\burl\(\s*(["\']?)#[A-Za-z_][\w.:-]*\1\s*\)/i', '', $value) ?? 'url(';
+            if ( '' !== $name && '' !== $value && ( $allowsImageUrl || ! preg_match('/(?:expression\s*\(|javascript\s*:|url\s*\()/i', $withoutFragments) ) ) {
                 // Expand before reducing to a map: even repeated shorthands must
                 // compete with intervening longhands in authored source order.
                 $entries = $expandFont && 'font' === $name ? CssFontShorthand::expand($value) : array();
