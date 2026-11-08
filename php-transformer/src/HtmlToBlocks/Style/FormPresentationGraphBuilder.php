@@ -42,7 +42,20 @@ final class FormPresentationGraphBuilder
     );
     /** The paint properties one control renders itself: its text colour and background fill. */
     private const PAINT_PROPERTIES = array(
-        'color', 'background', 'background-color',
+        'color', 'background', 'background-color', 'background-image', 'background-position', 'background-repeat', 'background-size',
+    );
+    /** The longhands a winning `background` shorthand resets on the same element. */
+    private const BACKGROUND_LONGHANDS = array(
+        'background-color', 'background-image', 'background-position', 'background-repeat', 'background-size',
+    );
+    /**
+     * The box a button's caption carrier paints behind the caption: a sliding-door
+     * `<a><span>Caption</span></a>` draws its body on the span and its cap on the link.
+     */
+    private const CAPTION_LAYER_PROPERTIES = array(
+        'background', 'background-color', 'background-image', 'background-position', 'background-repeat', 'background-size',
+        'border-radius', 'height',
+        'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
     );
     /** A block-level caption carrier fills its button, so its padding sizes the button box. */
     private const CAPTION_BOX_PROPERTIES = array(
@@ -81,7 +94,8 @@ final class FormPresentationGraphBuilder
         'border-radius', 'border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius',
     );
     private const PROPERTIES = array(
-        'appearance', 'background', 'background-color', 'border', 'border-color', 'border-style', 'border-width',
+        'appearance', 'background', 'background-color', 'background-image', 'background-position', 'background-repeat', 'background-size',
+        'border', 'border-color', 'border-style', 'border-width',
         'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color',
         'border-top-style', 'border-right-style', 'border-bottom-style', 'border-left-style',
         'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width',
@@ -568,6 +582,7 @@ final class FormPresentationGraphBuilder
         $visualParts = array();
         $visualGroups = array();
         $hasRequiredMarker = false;
+        $hasCaptionLayer = false;
         $controlContainers = array();
         $exclusiveAncestors = (new FormControlTopologyBuilder())->exclusiveWrapperAncestors($form);
 
@@ -629,6 +644,10 @@ final class FormPresentationGraphBuilder
                 }
                 if ( array() !== $styles || 'required_marker' === $role ) {
                     $row[$role] = array( 'styles' => $styles, 'provenance' => $provenance );
+                }
+                if ( $buttonCaption && null !== ($layer = $this->captionLayer($element, $analysis['rules'], $customPropertyAnalysis['rules'])) ) {
+                    $row['caption'] = $layer;
+                    $hasCaptionLayer = true;
                 }
                 foreach ( $conditional as $encoded => $facts ) {
                     if ( count($variants) >= self::MAX_VARIANTS ) {
@@ -725,7 +744,7 @@ final class FormPresentationGraphBuilder
         // visible so a dropped provider presentation graph is actionable.
         $bounds = array_values(array_filter($diagnostics, static fn (string $diagnostic): bool => str_ends_with($diagnostic, '_limit') || str_contains($diagnostic, '_truncated:')));
         $graph = array(
-            'schema' => array() === $visualParts && ! $hasRequiredMarker && array() === $controlContainers && array() === $captures ? 'generic/computed-form-presentation/v1' : 'generic/computed-form-presentation/v2',
+            'schema' => array() === $visualParts && ! $hasRequiredMarker && ! $hasCaptionLayer && array() === $controlContainers && array() === $captures ? 'generic/computed-form-presentation/v1' : 'generic/computed-form-presentation/v2',
             'basis' => 'source_css_cascade',
             'truncated' => $this->truncated,
             'limits' => array( 'controls' => self::MAX_CONTROLS, 'rules_per_role' => self::MAX_RULES_PER_ROLE ),
@@ -775,12 +794,16 @@ final class FormPresentationGraphBuilder
         }
         $seen = array();
         foreach ( $graph['controls'] as $row ) {
-            if ( ! is_array($row) || array_diff(array_keys($row), $v2 ? array( 'index', 'control', 'label', 'required_marker' ) : array( 'index', 'control', 'label' )) || ! is_int($row['index'] ?? null) || $row['index'] < 0 || $row['index'] >= self::MAX_CONTROLS || isset($seen[$row['index']]) || (! isset($row['control']) && ! isset($row['label']) && ! isset($row['required_marker'])) ) {
+            if ( ! is_array($row) || array_diff(array_keys($row), $v2 ? array( 'index', 'control', 'label', 'required_marker', 'caption' ) : array( 'index', 'control', 'label' )) || ! is_int($row['index'] ?? null) || $row['index'] < 0 || $row['index'] >= self::MAX_CONTROLS || isset($seen[$row['index']]) || (! isset($row['control']) && ! isset($row['label']) && ! isset($row['required_marker']) && ! isset($row['caption'])) ) {
                 throw new InvalidArgumentException('Form presentation control is invalid.');
             }
             $seen[$row['index']] = true;
             foreach ( $v2 ? array( 'control', 'label', 'required_marker' ) : array( 'control', 'label' ) as $role ) {
                 if ( isset($row[$role]) ) self::assertRole($row[$role], null, 'required_marker' === $role);
+            }
+            if ( isset($row['caption']) ) {
+                self::assertRole($row['caption'], null);
+                self::assertStyles($row['caption']['styles'], self::CAPTION_LAYER_PROPERTIES);
             }
         }
         $partIds = array();
@@ -844,6 +867,29 @@ final class FormPresentationGraphBuilder
      * @param list<array<string, mixed>> $customPropertyRules
      * @return array<string, mixed>
      */
+    /**
+     * The paint a button's sole caption carrier draws behind the caption, when
+     * it paints one. The control keeps its own paint; this layer sits inside the
+     * control's padding box, as the carrier does in the source.
+     *
+     * @param list<array<string, mixed>> $rules
+     * @param list<array<string, mixed>> $customPropertyRules
+     * @return array{styles: array<string, string>, provenance: list<array<string, mixed>>}|null
+     */
+    private function captionLayer(DOMElement $control, array $rules, array $customPropertyRules): ?array
+    {
+        $carrier = self::soleTextCarrier($control);
+        if ( null === $carrier || $carrier->isSameNode($control) ) {
+            return null;
+        }
+        $facts = array_intersect_key($this->matched($carrier, $rules)['base'], array_flip(self::CAPTION_LAYER_PROPERTIES));
+        if ( array() === array_intersect_key($facts, array_flip(array( 'background', 'background-color', 'background-image' ))) ) {
+            return null;
+        }
+        $styles = $this->styles($facts, $carrier, null, $customPropertyRules, true);
+        return array() === $styles ? null : array( 'styles' => $styles, 'provenance' => $this->provenance($facts, null) );
+    }
+
     private function carrierTypography(array $roles, DOMElement $label, array $rules, array $customPropertyRules, array $labelConditional = array(), bool $captionBox = false): array
     {
         $properties = array_flip(self::TYPOGRAPHY_PROPERTIES);
@@ -1469,10 +1515,25 @@ final class FormPresentationGraphBuilder
                 }
             }
         }
-        $base = $this->fontCascade($base);
-        foreach ($conditional as &$facts) $facts = $this->fontCascade($facts, $base);
+        $base = $this->backgroundCascade($this->fontCascade($base));
+        foreach ($conditional as &$facts) $facts = $this->backgroundCascade($this->fontCascade($facts, $base), $base);
         unset($facts);
         return array( 'base' => $base, 'conditional' => $conditional );
+    }
+
+    /** A winning background shorthand resets weaker longhands on the same source element. */
+    private function backgroundCascade(array $facts, array $base = array()): array
+    {
+        $background = $facts['background'] ?? $base['background'] ?? null;
+        if (!is_array($background)) return $facts;
+        if (isset($base['background']) && !CssCascade::wins($background, $base['background'])) $background = $base['background'];
+        foreach (self::BACKGROUND_LONGHANDS as $property) {
+            if (!isset($facts[$property]) || !CssCascade::wins($background, $facts[$property])) continue;
+            // A same-rule longhand authored after the shorthand overrides it.
+            if (CssCascade::wins($facts[$property], $background) && ($background['declaration_order'] ?? 0) < ($facts[$property]['declaration_order'] ?? 0)) continue;
+            unset($facts[$property]);
+        }
+        return $facts;
     }
 
     /** A winning font shorthand resets weaker longhands on the same source element. */
