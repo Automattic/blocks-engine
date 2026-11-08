@@ -295,6 +295,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
     private readonly SvgMaterializer $svgMaterializer;
     private readonly Elements\AuthoredStateButtonLowering $authoredStateButtons;
+    private readonly Elements\InlineSvgTextGroupLowering $inlineSvgTextGroups;
 
     private readonly RichTextMaterializer $richTextMaterializer;
     private readonly AuthoredMarqueeRecognizer $authoredMarqueeRecognizer;
@@ -525,6 +526,15 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->richTextMaterializer,
             $this->runtime
         );
+        $this->inlineSvgTextGroups = new Elements\InlineSvgTextGroupLowering(
+            $this,
+            $this->session,
+            $this->sourceElementClassifier,
+            $this->styleResolver,
+            $this->svgMaterializer,
+            $this->richTextMaterializer,
+            $this->runtime
+        );
         $this->patternRecognizers = PatternRecognizerRegistry::createDefault($this, $this->runtime, $this->sourceElementClassifier, $this->richTextMaterializer);
         $this->authoredMarqueeRecognizer = new AuthoredMarqueeRecognizer($this->sourceElementClassifier, $this->styleResolver, $this->richTextMaterializer, $this->runtime, $this->session);
         $this->patternProbeContext = $this->createProbePatternContext();
@@ -633,7 +643,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $inlineContentConverter = new InlineContentElementConverter($this->sourceElementClassifier, $this, $this->richTextMaterializer, new InlineContentElementContext(
             fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => $this->recognizePatterns($element, $fallbacks, $patterns),
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
-            fn (DOMElement $element): ?array => $this->inlineSvgTextGroupBlockFromElement($element),
+            fn (DOMElement $element): ?array => $this->inlineSvgTextGroups->fromElement($element),
             fn (DOMElement $element): bool => $this->ownsPositioningGeometry($element),
             fn (DOMElement $element, array &$fallbacks): ?array => $this->positionedInlineCarrierBlock($element, $fallbacks),
             fn (DOMElement $element): bool => $this->hasAuthorSemanticMarker($element),
@@ -6885,97 +6895,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($svg), array($this->blockFactory->rebuild($block, $attrs)), $svg);
     }
 
-    /**
-     * Convert an inline text token with a passive SVG into native sibling blocks.
-     * RichText cannot retain SVG markup, but a materialized core/image can retain
-     * the artwork while the wrapper class remains available to the stylesheet.
-     *
-     * @return array<string, mixed>|null
-     */
-    private function inlineSvgTextGroupBlockFromElement(DOMElement $element): ?array
-    {
-        $tagName = strtolower($element->tagName);
-        if ( ! in_array($tagName, array( 'b', 'span', 'strong' ), true) || ( 'span' === $tagName && '' === trim($this->attr($element, 'class')) ) || 0 === $element->getElementsByTagName('svg')->length ) {
-            return null;
-        }
-
-        foreach ( $element->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType ) {
-                continue;
-            }
-
-            if ( ! $child instanceof DOMElement ) {
-                return null;
-            }
-
-            $tagName = strtolower($child->tagName);
-            if ( 'svg' === $tagName ) {
-                continue;
-            }
-
-            if ( 'a' !== $tagName && 'br' !== $tagName && ! $this->sourceElementClassifier->isInlineContentElement($tagName) ) {
-                return null;
-            }
-
-            foreach ( $child->getElementsByTagName('*') as $descendant ) {
-                if ( ! $descendant instanceof DOMElement ) {
-                    continue;
-                }
-
-                $descendantTagName = strtolower($descendant->tagName);
-                if ( 'a' !== $descendantTagName && 'br' !== $descendantTagName && ! $this->sourceElementClassifier->isInlineContentElement($descendantTagName) ) {
-                    return null;
-                }
-            }
-        }
-
-        $textRun = '';
-        $generatedAssets = $this->session->assetMaterializationState()->checkpoint();
-        foreach ( $element->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType ) {
-                $textRun .= htmlspecialchars($child->textContent ?? '', ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8');
-                continue;
-            }
-
-            if ( ! $child instanceof DOMElement ) {
-                $this->session->assetMaterializationState()->restore($generatedAssets);
-                return null;
-            }
-
-            if ( 'svg' !== strtolower($child->tagName) ) {
-                $textRun .= $this->outerHtml($child);
-                continue;
-            }
-
-            $image = $this->svgMaterializer->inlineSvgRichTextImageMarkup($child);
-            if ( null === $image ) {
-                $this->session->assetMaterializationState()->restore($generatedAssets);
-                return null;
-            }
-
-            $textRun .= $image;
-        }
-
-        $content = trim($textRun);
-        if ( in_array($tagName, array( 'b', 'strong' ), true) ) {
-            $content = '<' . $tagName . '>' . $content . '</' . $tagName . '>';
-        }
-        if ( '' === trim($this->runtime->stripAllTags($content)) || $this->richTextMaterializer->requiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
-            $this->session->assetMaterializationState()->restore($generatedAssets);
-            return null;
-        }
-
-        $attrs = $this->styleResolver->presentationAttributes($element);
-        $display = CssValueInspector::comparable((string) ($this->styleResolver->resolvedPresentationDeclarations($element)['display'] ?? ''));
-        if ( in_array($display, array('flex', 'inline-flex', 'grid', 'inline-grid'), true) ) {
-            // This paragraph replaces the source layout box, not just an inline
-            // text run. Do not let synthetic RichText carrier resets neutralize
-            // its display (including when the text contains a link).
-            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS);
-        }
-        return $this->createBlock('core/paragraph', array_merge($attrs, array( 'content' => $content )), array(), $element);
-    }
-
     private function inlineTokenGroupBlockFromElement(DOMElement $element, array &$fallbacks): ?array
     {
         if ( ! ShellLandmarkPolicy::isInlineTokenContainerTag($element->tagName) ) {
@@ -7391,7 +7310,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 return null;
             }
 
-            $inlineSvgTextGroup = $this->inlineSvgTextGroupBlockFromElement($child);
+            $inlineSvgTextGroup = $this->inlineSvgTextGroups->fromElement($child);
             if ( null !== $inlineSvgTextGroup ) {
                 $blocks[] = $inlineSvgTextGroup;
                 continue;
