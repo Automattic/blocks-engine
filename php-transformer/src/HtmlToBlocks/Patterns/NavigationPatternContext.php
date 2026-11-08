@@ -1808,6 +1808,35 @@ final class NavigationPatternContext
         }
     }
 
+    /**
+     * Translate inherited inline-item packing without freezing media variants.
+     *
+     * @param array<string,mixed> $attrs
+     */
+    public function inheritedListPackingAlignment(DOMElement $list, array &$attrs): string
+    {
+        if ( ! $this->styleResolver instanceof StyleResolver ) return '';
+
+        $alignment = strtolower($this->styleResolver->authoredInheritedPropertyWinner($list, 'text-align'));
+        $conditions = $this->styleResolver->inheritedBoxMediaConditions($list);
+        if ( array() === $conditions ) return $alignment;
+
+        $marker = 'blocks-engine-navigation-packing-' . substr(hash('sha256', SourceDom::elementSelector($list)), 0, 12);
+        $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . $marker);
+        $target = '.wp-block-navigation.' . $marker . '>.wp-block-navigation__container';
+        foreach ( $conditions as $stack ) {
+            $value = strtolower($this->styleResolver->authoredInheritedPropertyWinner($list, 'text-align', true, $stack));
+            $justify = match ( $value ) {
+                'right', 'end' => 'flex-end',
+                'center' => 'center',
+                default => 'flex-start',
+            };
+            $this->sourceTargetProjection?->record(SourceDom::elementSelector($list), $target, 'justify-content:' . $justify . '!important', $stack);
+        }
+
+        return $alignment;
+    }
+
     /** Record unsupported source residue on the native element replacing it. */
     public function projectSourceToNativeTarget(DOMElement $element, string $targetSelector, string $declarations): void
     {

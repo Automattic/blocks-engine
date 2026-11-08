@@ -2122,6 +2122,16 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         $style = $navigationContext->resolvedStyle($list);
+        if ( ! in_array($navigationContext->resolvedDisplay($list), array( 'flex', 'inline-flex' ), true)
+            && $this->isResolvedNavigationRow($list, $navigationContext) ) {
+            $alignment = $navigationContext->inheritedListPackingAlignment($list, $attrs);
+            $justification = $this->listPackingJustification('text-align:' . $alignment);
+            if ( '' !== $justification ) {
+                $attrs['layout'] = array_merge($attrs['layout'] ?? array( 'type' => 'flex' ), array( 'justifyContent' => $justification ));
+            }
+
+            return $attrs;
+        }
         $justification = $this->listPackingJustification($style);
         if ( '' === $justification ) {
             return $attrs;
