@@ -452,9 +452,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
      */
     public const EMPTY_RUNTIME_TARGET_CLASS = 'blocks-engine-empty-runtime-target';
 
-    private const CSS_OWNED_LAYOUT_CLASS = 'blocks-engine-css-owned-layout';
 
-    private const CSS_OWNED_FLOW_CLASS = 'blocks-engine-css-owned-flow';
     private const ENGINE_RESET_LAYER = 'blocks-engine-reset';
 
     private const CSS_OWNED_GRID_CLASS = 'blocks-engine-css-owned-grid';
@@ -582,7 +580,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->runtimeIslands,
             $this->wrapperCoalescer,
             $this->session,
-            $this->runtime
+            $this->runtime,
+            $this->listStructure
         );
         $this->authorSelectorSemanticPreparer = new AuthorSelectorSemanticPreparer($this->sourceElementClassifier,
             new AuthorSelectorSemanticContext(
@@ -726,7 +725,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->formRuntimeIslandRecorder,
             fn (DOMElement $element): array => $this->eventMetadata($element),
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
-            fn (DOMElement $element): array => $this->cssOwnedGroupAttributes($element),
+            fn (DOMElement $element): array => $this->authorLayoutOwnership->cssOwnedGroupAttributes($element),
             $this->authorLayoutOwnership,
             $this->styleResolver,
             $this,
@@ -5842,7 +5841,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 return $coalesced;
             }
         }
-        $attrs = $this->cssOwnedGroupAttributes($element, false, $topologyChanged);
+        $attrs = $this->authorLayoutOwnership->cssOwnedGroupAttributes($element, false, $topologyChanged);
         if ( 0 === count($children) && '' === $this->renderedTextContent($element) ) {
             // Empty source layout containers are visual boundaries, not new
             // authoring targets. Mark them so the editor suppresses Core's
@@ -5879,121 +5878,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             );
         }
         return $block;
-    }
-
-    /** @return array<string, mixed> */
-    private function cssOwnedGroupAttributes(DOMElement $element, bool $carryOwnTextAlignment = false, bool $topologyChanged = false): array
-    {
-        // A fixed inline height can become a clipping constraint when conversion
-        // replaces a CSS-owned container's direct children with block wrappers.
-        $excludedGeometryProperties = $topologyChanged ? array( 'height' ) : array();
-        $attrs = $this->styleResolver->presentationAttributes(
-            $element,
-            $excludedGeometryProperties,
-            $carryOwnTextAlignment ? array( 'text-align' ) : array()
-        );
-        $layout = $attrs['layout'] ?? null;
-        if ( is_array($layout) && 'grid' === (string) ($layout['type'] ?? '')
-            && ( '' !== (string) ($layout['minimumColumnWidth'] ?? '') || isset($layout['columnCount']) )
-        ) {
-            // The source track list is exactly expressible as native grid
-            // layout (repeat(auto-fill, minmax(<width>,1fr)) as
-            // minimumColumnWidth, or N equal 1fr tracks as columnCount), so
-            // WordPress owns the track geometry. Group save markup does not
-            // serialize blockGap, so source gap remains stylesheet owned by
-            // the normalization in createBlock().
-            $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-            $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
-            unset($style['spacing']['blockGap']);
-            if ( empty($style['spacing']) ) {
-                unset($style['spacing']);
-            }
-            $background = trim((string) ($declarations['background-color'] ?? $declarations['background'] ?? ''));
-            if ( 1 === preg_match('/^(#[0-9a-f]{3,8}|[a-z][a-z-]*|(?:rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch|var)\([^()]*\))$/i', $background)
-                && ! in_array(strtolower($background), array( 'none', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true)
-                && ! isset($style['color']['background'])
-                && ! $this->styleResolver->hasConditionalStyleFamily($element, 'background')
-            ) {
-                $style['color'] = array_merge(is_array($style['color'] ?? null) ? $style['color'] : array(), array( 'background' => $background ));
-            }
-            if ( array() !== $style ) {
-                $attrs['style'] = $style;
-            }
-
-            return $this->markUnsafeFixedHeightTopologyChange($attrs, $topologyChanged);
-        }
-
-        if ( $this->authorLayoutOwnership->isCssOwnedGridElement($element) ) {
-            return $this->markUnsafeFixedHeightTopologyChange(
-                $this->authorLayoutOwnership->cssOwnedGridAttributes($element, $excludedGeometryProperties),
-                $topologyChanged
-            );
-        }
-
-        if ( $this->authorLayoutOwnership->isCssOwnedFlexElement($element) ) {
-            $attrs = $this->authorLayoutOwnership->cssOwnedFlexAttributes($element, $excludedGeometryProperties);
-        }
-
-        unset($attrs['layout']);
-        $attrs['className'] = $this->mergeClassNames(
-            (string) ($attrs['className'] ?? ''),
-            self::CSS_OWNED_LAYOUT_CLASS
-        );
-        if ( ! $this->authorLayoutOwnership->authorOwnsChildFlowSpacing($element) && ! $this->isStructuralListContext($element) ) {
-            return $this->markUnsafeFixedHeightTopologyChange($attrs, $topologyChanged);
-        }
-        $attrs['className'] = $this->mergeClassNames(
-            (string) $attrs['className'],
-            self::CSS_OWNED_FLOW_CLASS
-        );
-        $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
-        $spacing = is_array($style['spacing'] ?? null) ? $style['spacing'] : array();
-        if ( ! isset($spacing['blockGap']) ) {
-            $spacing['blockGap'] = '0';
-            $style['spacing'] = $spacing;
-            $attrs['style'] = $style;
-        }
-
-        return $this->markUnsafeFixedHeightTopologyChange($attrs, $topologyChanged);
-    }
-
-    /**
-     * Pass unsafe CSS-owned height exclusions to IntrinsicVisualMediaHeight::apply().
-     * createBlock() strips this flag before serializing block markup.
-     *
-     * @param array<string, mixed> $attrs
-     * @return array<string, mixed>
-     */
-    private function markUnsafeFixedHeightTopologyChange(array $attrs, bool $topologyChanged): array
-    {
-        if ( $topologyChanged ) {
-            $attrs['unsafeFixedHeightTopologyChange'] = true;
-        }
-
-        return $attrs;
-    }
-
-    private function isStructuralListContext(DOMElement $element): bool
-    {
-        $tagName = strtolower($element->tagName);
-        if ( in_array($tagName, array( 'ul', 'ol' ), true) && $this->listStructure->listContainsStructuralItemContent($element) ) {
-            return true;
-        }
-        if ( 'li' === $tagName && $this->listStructure->isStructuralListItem($element) ) {
-            return true;
-        }
-
-        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
-            $ancestorTag = strtolower($ancestor->tagName);
-            if ( 'li' === $ancestorTag && $this->listStructure->isStructuralListItem($ancestor) ) {
-                return true;
-            }
-            if ( in_array($ancestorTag, array( 'ul', 'ol' ), true) && $this->listStructure->listContainsStructuralItemContent($ancestor) ) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /** @param array<int, array<string, mixed>> $blocks */
@@ -8235,7 +8119,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             }
             $items[] = $this->createBlock(
                 'core/group',
-                array_merge($this->cssOwnedGroupAttributes($child), array( 'tagName' => 'li' )),
+                array_merge($this->authorLayoutOwnership->cssOwnedGroupAttributes($child), array( 'tagName' => 'li' )),
                 $children,
                 $child
             );
@@ -8246,7 +8130,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             // This list is already materializing as a Group, so carrying its own
             // alignment cannot introduce the extra topology avoided by the
             // generic presentation resolver's text-align gate.
-            array_merge($this->cssOwnedGroupAttributes($list, true), array( 'tagName' => strtolower($list->tagName) )),
+            array_merge($this->authorLayoutOwnership->cssOwnedGroupAttributes($list, true), array( 'tagName' => strtolower($list->tagName) )),
             $items,
             $list
         );
@@ -8418,7 +8302,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $this->createBlock(
             'core/group',
             array_merge(
-                $this->withStructuredCardFlowNeutralization($this->cssOwnedGroupAttributes($list, true)),
+                $this->withStructuredCardFlowNeutralization($this->authorLayoutOwnership->cssOwnedGroupAttributes($list, true)),
                 array( 'tagName' => strtolower($list->tagName) )
             ),
             $itemGroups,
@@ -8437,11 +8321,11 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private function withStructuredCardFlowNeutralization(array $attrs): array
     {
         $className = (string) ($attrs['className'] ?? '');
-        if ( str_contains($className, self::CSS_OWNED_GRID_CLASS) || str_contains($className, self::CSS_OWNED_FLOW_CLASS) ) {
+        if ( str_contains($className, self::CSS_OWNED_GRID_CLASS) || str_contains($className, AuthorLayoutOwnership::CSS_OWNED_FLOW_CLASS) ) {
             return $attrs;
         }
 
-        $attrs['className'] = $this->mergeClassNames($className, self::CSS_OWNED_FLOW_CLASS);
+        $attrs['className'] = $this->mergeClassNames($className, AuthorLayoutOwnership::CSS_OWNED_FLOW_CLASS);
         $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
         $spacing = is_array($style['spacing'] ?? null) ? $style['spacing'] : array();
         if ( ! isset($spacing['blockGap']) ) {
@@ -8501,7 +8385,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $this->createBlock(
             'core/group',
             array_merge(
-                $this->withStructuredCardFlowNeutralization($this->cssOwnedGroupAttributes($item)),
+                $this->withStructuredCardFlowNeutralization($this->authorLayoutOwnership->cssOwnedGroupAttributes($item)),
                 array( 'tagName' => 'li' )
             ),
             $fragmentBlocks,
@@ -9383,7 +9267,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // These boxes have no source-selection behavior. Expose each as a
         // native container rather than coalescing the chain into a companion.
         foreach (array_reverse($wrappers) as $wrapper) {
-            $attrs = $this->cssOwnedGroupAttributes($wrapper);
+            $attrs = $this->authorLayoutOwnership->cssOwnedGroupAttributes($wrapper);
             $attrs['tagName'] = $wrapper === $host ? 'div' : 'picture';
             $block = $this->createBlock('core/group', $attrs, array($block), $wrapper);
             $block['_native_custom_wrapper_hook'] = true;
