@@ -257,6 +257,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly BlockFactory $blockFactory;
     private readonly TableAttributesBuilder $tableAttributesBuilder;
     private readonly LinkWrapperPropagator $linkWrapperPropagator;
+    private readonly Elements\LinkedIconTextRowLowering $linkedIconTextRows;
 
     private readonly BlockMaterializer $blockMaterializer;
 
@@ -511,6 +512,15 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->runtime
         );
         $this->richTextMaterializer = new RichTextMaterializer($this->styleResolver, $this->svgMaterializer, $this->session, $this);
+        $this->linkedIconTextRows = new Elements\LinkedIconTextRowLowering(
+            $this,
+            $this->styleResolver,
+            $this->imageLowering,
+            $this->linkWrapperPropagator,
+            $this->svgMaterializer,
+            $this->richTextMaterializer,
+            $this->runtime
+        );
         $this->patternRecognizers = PatternRecognizerRegistry::createDefault($this, $this->runtime, $this->sourceElementClassifier, $this->richTextMaterializer);
         $this->authoredMarqueeRecognizer = new AuthoredMarqueeRecognizer($this->sourceElementClassifier, $this->styleResolver, $this->richTextMaterializer, $this->runtime, $this->session);
         $this->patternProbeContext = $this->createProbePatternContext();
@@ -1278,7 +1288,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 return $this->mixedMediaLinkGroupFromParagraph($element, $fallbacks);
             },
             function (DOMElement $element): ?array {
-                return $this->compactLinkedIconTextRowFromParagraph($element);
+                return $this->linkedIconTextRows->fromParagraph($element);
             },
             fn (string $text): array => $this->convertText($text),
             function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
@@ -9664,125 +9674,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $group['attrs'] = array_merge($attrs, $paragraphAttrs);
 
         return $group;
-    }
-
-    /**
-     * Split a linked, compact SVG/text lockup into native image and RichText
-     * blocks before RichTextMaterializer turns its SVG into an inline object.
-     * The source span remains the layout host, while link ownership is carried
-     * by the native image href and the text's editable RichText link.
-     *
-     * @return array<string, mixed>|null
-     */
-    private function compactLinkedIconTextRowFromParagraph(DOMElement $paragraph): ?array
-    {
-        $anchor = null;
-        foreach ( $paragraph->childNodes as $node ) {
-            if ( $node instanceof DOMElement ) {
-                if ( $anchor instanceof DOMElement || 'a' !== strtolower($node->tagName) ) {
-                    return null;
-                }
-                $anchor = $node;
-            } elseif ( '' !== trim($node->textContent ?? '') ) {
-                return null;
-            }
-        }
-        if ( ! $anchor instanceof DOMElement ) {
-            return null;
-        }
-
-        $span = null;
-        foreach ( $anchor->childNodes as $node ) {
-            if ( $node instanceof DOMElement ) {
-                if ( $span instanceof DOMElement || 'span' !== strtolower($node->tagName) ) {
-                    return null;
-                }
-                $span = $node;
-            } elseif ( '' !== trim($node->textContent ?? '') ) {
-                return null;
-            }
-        }
-        if ( ! $span instanceof DOMElement ) {
-            return null;
-        }
-
-        $icon = null;
-        foreach ( $span->childNodes as $node ) {
-            if ( $node instanceof DOMElement ) {
-                if ( $icon instanceof DOMElement || ! in_array(strtolower($node->tagName), array( 'svg', 'img' ), true) ) {
-                    return null;
-                }
-                $icon = $node;
-            }
-        }
-        if ( ! $icon instanceof DOMElement
-            || ( 'svg' === strtolower($icon->tagName)
-                && 'true' !== strtolower(trim($icon->getAttribute('aria-hidden')))
-                && '' === trim($this->attr($icon, 'aria-label'))
-                && '' === trim($this->attr($icon, 'title')) )
-            || '' === trim($span->textContent ?? '')
-            || '' === LinkUrlSanitizer::sanitize($this->attr($anchor, 'href'))
-        ) {
-            return null;
-        }
-
-        $textSpan = $span->cloneNode(true);
-        if ( ! $textSpan instanceof DOMElement ) {
-            return null;
-        }
-        foreach ( iterator_to_array($textSpan->childNodes) as $child ) {
-            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'svg', 'img' ), true) ) {
-                $textSpan->removeChild($child);
-            }
-        }
-        $text = $this->richTextMaterializer->content($textSpan);
-        if ( '' === trim($this->runtime->stripAllTags($text)) ) {
-            return null;
-        }
-
-        $image = 'svg' === strtolower($icon->tagName)
-            ? $this->svgMaterializer->inlineSvgBlockFromElement($icon)
-            : $this->imageLowering->convertImage($icon);
-        if ( ! is_array($image) || 'core/image' !== ($image['blockName'] ?? null) ) {
-            return null;
-        }
-
-        $href = LinkUrlSanitizer::sanitize($this->attr($anchor, 'href'));
-        $link = '<a href="' . htmlspecialchars($href, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
-        foreach ( array( 'target' => 'target', 'rel' => 'rel' ) as $sourceName => $outputName ) {
-            $value = $this->attr($anchor, $sourceName);
-            if ( '' !== $value ) {
-                $link .= ' ' . $outputName . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
-            }
-        }
-        $link .= '>' . $text . '</a>';
-        $textBlock = $this->createBlock('core/paragraph', array(
-            'content' => $link,
-            'style' => array( 'spacing' => array( 'margin' => array( 'top' => '0', 'bottom' => '0' ) ) ),
-        ));
-
-        $children = array( $image, $textBlock );
-        $linkAttrs = $this->linkWrapperPropagator->linkPropagationAttributes($anchor);
-        $this->linkWrapperPropagator->propagateLinkWrapper($children, $linkAttrs);
-
-        $attrs = array_replace_recursive(
-            $this->styleResolver->presentationAttributes($paragraph),
-            $this->styleResolver->presentationAttributes($anchor),
-            $this->styleResolver->presentationAttributes($span)
-        );
-        $classes = array();
-        foreach ( array( $paragraph, $anchor, $span ) as $sourceElement ) {
-            foreach ( preg_split('/\s+/', trim($this->attr($sourceElement, 'class'))) ?: array() as $class ) {
-                if ( '' !== $class && ! in_array($class, $classes, true) ) {
-                    $classes[] = $class;
-                }
-            }
-        }
-        if ( array() !== $classes ) {
-            $attrs['className'] = implode(' ', $classes);
-        }
-
-        return $this->createBlock('core/group', $attrs, $children, $anchor);
     }
 
     /**
