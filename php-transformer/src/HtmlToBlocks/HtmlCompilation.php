@@ -201,6 +201,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CapturedGlyphCol
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\QuirksModeSource;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\HtmlDimensionAttribute;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceInterItemSpaces;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ImageUrlResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializationContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer;
@@ -276,6 +277,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly RichTextElementConverter $richTextConverter;
 
     private readonly StyleResolver $styleResolver;
+    private readonly SourceInterItemSpaces $sourceInterItemSpaces;
     private ?IntrinsicVisualMediaHeight $intrinsicVisualMediaHeight = null;
     private readonly ImageUrlResolver $imageUrls;
     private readonly Elements\MediaLowering $mediaLowering;
@@ -492,6 +494,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->deadProjectedSelectorReporter = new DeadProjectedSelectorReporter();
         $this->reusableComponentRecognizer = new ReusableComponentRecognizer();
         $this->styleResolver = new StyleResolver($this->session, $this->createStyleResolutionContext(), $this->analysisCache);
+        $this->sourceInterItemSpaces = new SourceInterItemSpaces($this->styleResolver, $this->sourceElementClassifier);
         $this->imageUrls = new ImageUrlResolver($this->session);
         $this->mediaLowering = new Elements\MediaLowering($this, $this->styleResolver, $this->imageUrls);
         $this->imageDimensions = new ImageDimensionResolver($this->styleResolver);
@@ -2998,13 +3001,13 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             if ('' !== $padding && is_numeric($padding)) {
                 $declarations[] = 'padding:' . $padding . 'px';
             }
-            $align = $this->resolvedDeclaration($element, 'text-align');
+            $align = $this->styleResolver->resolvedDeclaration($element, 'text-align');
             if (in_array($align, array('left', 'center', 'right', 'justify'), true)) {
                 $declarations[] = 'text-align:' . $align;
             }
-            $valign = $this->resolvedDeclaration($element, 'vertical-align');
+            $valign = $this->styleResolver->resolvedDeclaration($element, 'vertical-align');
             if ('' === $valign && $element->parentNode instanceof DOMElement) {
-                $valign = $this->resolvedDeclaration($element->parentNode, 'vertical-align');
+                $valign = $this->styleResolver->resolvedDeclaration($element->parentNode, 'vertical-align');
             }
             if (in_array($valign, array('top', 'middle', 'bottom', 'baseline'), true)) {
                 $declarations[] = 'vertical-align:' . $valign;
@@ -3400,9 +3403,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     /** Where a cell places its content vertically: `top`, `center` (the default) or `bottom`. */
     private function layoutTableCellAlignment(DOMElement $cell): string
     {
-        $valign = $this->resolvedDeclaration($cell, 'vertical-align');
+        $valign = $this->styleResolver->resolvedDeclaration($cell, 'vertical-align');
         if ( '' === $valign && $cell->parentNode instanceof DOMElement ) {
-            $valign = $this->resolvedDeclaration($cell->parentNode, 'vertical-align');
+            $valign = $this->styleResolver->resolvedDeclaration($cell->parentNode, 'vertical-align');
         }
         return match ( $valign ) {
             'top', 'baseline', 'text-top' => 'top',
@@ -5229,91 +5232,13 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // is built from these attributes and so carries them too.
         $attrs = $this->withRichTextCarrierClasses($attrs);
 
-        return $this->withSourceInterItemSpaces($this->blockMaterializer->materialize(
+        return $this->sourceInterItemSpaces->apply($this->blockMaterializer->materialize(
             $name,
             $attrs,
             $innerBlocks,
             $sourceMaterializationFacts,
             $this->session->transformationProvenanceState()
         ), $sourceElement);
-    }
-
-    /**
-     * Inline-level items that the source separated by collapsible whitespace
-     * share their line with one space of the parent's font between each pair.
-     * A container block's inner blocks serialize back to back, so the items
-     * lost that space. Keep one between their placeholders, where WordPress
-     * renders it as the source did.
-     *
-     * @param array<string, mixed> $block
-     * @return array<string, mixed>
-     */
-    private function withSourceInterItemSpaces(array $block, ?DOMElement $sourceElement): array
-    {
-        $innerContent = $block['innerContent'] ?? null;
-        if ( ! $sourceElement instanceof DOMElement || ! is_array($innerContent) || ! $this->sourceChildrenAreSpaceSeparatedInline($sourceElement, count($block['innerBlocks'] ?? array())) ) {
-            return $block;
-        }
-        $spaced = array();
-        $previousWasBlock = false;
-        foreach ( $innerContent as $part ) {
-            if ( null === $part && $previousWasBlock ) {
-                $spaced[] = ' ';
-            }
-            $spaced[] = $part;
-            $previousWasBlock = null === $part;
-        }
-        $block['innerContent'] = $spaced;
-        $block['innerHTML'] = implode('', array_filter($spaced, 'is_string'));
-
-        return $block;
-    }
-
-    private function sourceChildrenAreSpaceSeparatedInline(DOMElement $parent, int $innerBlockCount): bool
-    {
-        if ( $innerBlockCount < 2 ) {
-            return false;
-        }
-        // The source markup first: one element per inner block, with only
-        // collapsible whitespace (and comments) around them and some between
-        // every pair. `</li><li>` has no space to give back.
-        $items = array();
-        $whitespace = null;
-        foreach ( $parent->childNodes as $node ) {
-            if ( $node instanceof DOMElement ) {
-                if ( array() !== $items && '' === $whitespace ) {
-                    return false;
-                }
-                $items[] = $node;
-                $whitespace = '';
-            } elseif ( XML_TEXT_NODE === $node->nodeType ) {
-                if ( 1 !== preg_match('/^[ \t\n\r\f]*$/', (string) $node->nodeValue) ) {
-                    return false;
-                }
-                $whitespace .= (string) $node->nodeValue;
-            } elseif ( XML_COMMENT_NODE !== $node->nodeType ) {
-                return false;
-            }
-        }
-        if ( count($items) !== $innerBlockCount
-            || 1 === preg_match('/flex|grid|box|contents|none|table/', $this->resolvedDeclaration($parent, 'display'))
-            || ! in_array($this->resolvedDeclaration($parent, 'white-space'), array( '', 'normal', 'nowrap' ), true) ) {
-            return false;
-        }
-        // Then each item shares the parent's line box: inline-level and in flow.
-        foreach ( $items as $item ) {
-            $display = $this->resolvedDeclaration($item, 'display');
-            $inline = '' === $display
-                ? $this->sourceElementClassifier->isInlineSourceElement(strtolower($item->tagName)) || in_array(strtolower($item->tagName), array( 'button', 'img', 'input', 'select', 'textarea' ), true)
-                : 1 === preg_match('/^inline(?:-[a-z-]+)?$/', $display);
-            if ( ! $inline
-                || ! in_array($this->resolvedDeclaration($item, 'float'), array( '', 'none' ), true)
-                || in_array($this->resolvedDeclaration($item, 'position'), array( 'absolute', 'fixed' ), true) ) {
-                return false;
-            }
-        }
-
-        return true;
     }
 
     /**
@@ -8587,9 +8512,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $child = $this->paragraphImageChild($paragraph, $ignoreLineBreaks);
         $image = $child instanceof DOMElement && 'img' === strtolower($child->tagName) ? $child : $child?->getElementsByTagName('img')->item(0);
         if ( ! $image instanceof DOMElement
-            || ! in_array($this->resolvedDeclaration($image, 'display'), array( '', 'inline', 'inline-block' ), true)
-            || ! in_array($this->resolvedDeclaration($image, 'float'), array( '', 'none' ), true)
-            || ! in_array($this->resolvedDeclaration($image, 'position'), array( '', 'static', 'relative' ), true) ) {
+            || ! in_array($this->styleResolver->resolvedDeclaration($image, 'display'), array( '', 'inline', 'inline-block' ), true)
+            || ! in_array($this->styleResolver->resolvedDeclaration($image, 'float'), array( '', 'none' ), true)
+            || ! in_array($this->styleResolver->resolvedDeclaration($image, 'position'), array( '', 'static', 'relative' ), true) ) {
             return false;
         }
         foreach ( $this->resolvedVerticalMargins($image) as $value ) {
@@ -9800,7 +9725,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
      */
     private function syntheticImageFigureFollowsInlineFlow(DOMElement $element): bool
     {
-        $display = $this->resolvedDeclaration($element, 'display');
+        $display = $this->styleResolver->resolvedDeclaration($element, 'display');
         if ( '' !== $display && ! in_array($display, array( 'inline', 'inline-block' ), true) ) {
             return false;
         }
@@ -9810,7 +9735,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $parent = $element->parentNode;
         if ($parent instanceof DOMElement
             && $this->sourceElementClassifier->isInlineSourceElement(strtolower($parent->tagName))
-            && in_array($this->resolvedDeclaration($parent, 'display'), array('', 'inline'), true)) {
+            && in_array($this->styleResolver->resolvedDeclaration($parent, 'display'), array('', 'inline'), true)) {
             return true;
         }
 
@@ -9819,15 +9744,15 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // no line box, so its baseline moves to the margin edge and the strut
         // adds descent below.
         if ($parent instanceof DOMElement
-            && 'inline-block' === $this->resolvedDeclaration($parent, 'display')) {
+            && 'inline-block' === $this->styleResolver->resolvedDeclaration($parent, 'display')) {
             return true;
         }
 
         // A link that is a flex or grid item is the item itself. Its in-flow
         // image still sits on the link's own line, so the strut sizes the link.
         if ($parent instanceof DOMElement && 'a' === strtolower($parent->tagName) && $this->styleResolver->imageIsFlexOrGridItem($parent)
-            && ! in_array($this->resolvedDeclaration($element, 'position'), array( 'absolute', 'fixed' ), true)
-            && in_array($this->resolvedDeclaration($element, 'float'), array( '', 'none' ), true)) {
+            && ! in_array($this->styleResolver->resolvedDeclaration($element, 'position'), array( 'absolute', 'fixed' ), true)
+            && in_array($this->styleResolver->resolvedDeclaration($element, 'float'), array( '', 'none' ), true)) {
             return true;
         }
 
@@ -9840,7 +9765,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // declared on any ancestor above the inline wrappers it sits in.
         $node = $element->parentNode;
         for ( $depth = 0; $depth < 8 && $node instanceof DOMElement; ++$depth ) {
-            $align = $this->resolvedDeclaration($node, 'text-align');
+            $align = $this->styleResolver->resolvedDeclaration($node, 'text-align');
             if ( '' !== $align ) {
                 return in_array($align, array( 'right', 'center', 'end' ), true);
             }
@@ -9848,13 +9773,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         return false;
-    }
-
-    private function resolvedDeclaration(DOMElement $element, string $property): string
-    {
-        $declarations = $this->styleResolver->resolvedPresentationDeclarations($element);
-
-        return strtolower(trim(CssValueInspector::withoutImportant((string) ($declarations[ $property ] ?? ''))));
     }
 
     /**
