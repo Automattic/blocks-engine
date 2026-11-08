@@ -266,6 +266,7 @@
       "php tests/contract/svg-px-length-attributes.php",
       "php tests/contract/background-image-position.php",
       "php tests/contract/empty-at-rest-paint.php",
+      "php tests/contract/hidden-empty-box-in-flow-space.php",
       "php tests/contract/background-image-sized.php",
       "php tests/contract/definitions-only-svg.php",
       "php tests/contract/symbol-sprite.php",

@@ -6543,6 +6543,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         if ( 0 !== $this->childElementCount($element)
             || '' !== trim($element->textContent ?? '')
             || ! $this->sourceElementStartsHidden($element)
+            || $this->emptyElementFootprint->occupiesInFlowSpace($element)
             || $this->runtimeIslands->isRuntimeDomTarget($element)
             || $this->styleResolver->hasConditionalStyleFamily($element, 'layout')
             || $this->styleResolver->hasConditionalStyleFamily($element, 'visibility')
