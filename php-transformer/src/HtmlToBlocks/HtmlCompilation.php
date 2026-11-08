@@ -8423,6 +8423,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                                 return $this->layoutShellBlockForElements($wrappers, array($media), $anchor);
                             }
                         }
+                        if ( '' !== $href && $this->linkIdentityScopesImageBox($anchor, $carrier) ) {
+                            return $this->linkedSizedImageBoxBlock($anchor, $image, $carrier, $href);
+                        }
                         return $this->imageLowering->convertImage($image, $carrier, null, $anchor);
                     }
                 }
@@ -9190,6 +9193,48 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         return true;
+    }
+
+    /**
+     * Whether a link with its own identity (class or id) wraps an image-only
+     * box that sets its own size. Authored rules can then size that box
+     * through the link (`.card .art{height}`), so it must keep sitting inside
+     * the link rather than becoming the figure around it.
+     */
+    private function linkIdentityScopesImageBox(DOMElement $anchor, DOMElement $box): bool
+    {
+        if ( '' === trim($this->attr($anchor, 'class') . $this->attr($anchor, 'id')) ) {
+            return false;
+        }
+        $declarations = $this->styleResolver->presentationDeclarations($box);
+        foreach ( array( 'width', 'height', 'max-width', 'max-height', 'min-width', 'min-height', 'aspect-ratio' ) as $property ) {
+            $value = CssValueInspector::comparable((string) ($declarations[$property] ?? ''));
+            if ( '' !== $value && ! in_array($value, array( 'auto', 'none', 'initial', 'unset', 'inherit' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Lower `a > sized box > img` in source order: the anchor stays the outer
+     * link (a layout-shell wrapper, as for flow-content anchors) around the
+     * core/image whose figure is the sized box. Folding the link into the
+     * image instead yields `figure.box > a > img`, inverting the ancestry
+     * that descendant selectors written against the source rely on.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function linkedSizedImageBoxBlock(DOMElement $anchor, DOMElement $image, DOMElement $box, string $href): ?array
+    {
+        $imageBlock = $this->imageLowering->convertImage($image, $box);
+        if ( null === $imageBlock ) {
+            return null;
+        }
+        $anchor->setAttribute('href', $href);
+
+        return $this->layoutShellBlockForElements(array( $anchor ), array( $imageBlock ), $anchor);
     }
 
     private function imageOnlyCarrierElement(DOMElement $element): ?DOMElement
