@@ -184,6 +184,10 @@ final class PresetBinding
     private array $classColors = array();
     /** @var array<string,list<array<string,mixed>>> Subjects of plain colour rules per family, with their value; null when a condition or layer applies. */
     private array $restingColors = array();
+    /** @var array<string,array<string,array<string,list<int>>>> Rule indexes by kind, family and required subject token. */
+    private array $subjectBuckets = array();
+    /** @var array<string,bool> restsOn() results by property, literal and token sets. */
+    private array $restsOnResults = array();
     private int $bound = 0;
     /** Projected font defaults, keyed by the HTML target that inherits them. @var array<string,string> */
     private array $fontDefaults = array();
@@ -1533,7 +1537,7 @@ final class PresetBinding
      */
     private function stateMatches(string $family, array $tokens): bool
     {
-        foreach ($this->stateTokens[$family] ?? array() as $subject) {
+        foreach ($this->subjectCandidates('state', $family, $this->stateTokens[$family] ?? array(), $tokens) as $subject) {
             if (self::stateSubjectApplies($subject, $tokens)) return true;
         }
         return false;
@@ -1555,6 +1559,62 @@ final class PresetBinding
             }
         }
         return true;
+    }
+
+    /**
+     * Rules that can apply to an element with these tokens, in source order.
+     * A rule's subject compound requires its classes, ids and type, and one
+     * alternative of each `:is()` / `:where()` (see stateSubjectMatches()).
+     * Each rule is filed under tokens of which the element must carry at
+     * least one, and only the buckets for the element's own tokens are
+     * visited. Rules without such a requirement are always candidates.
+     *
+     * @param list<array<string,mixed>> $rules
+     * @param array<string,true> $tokens
+     * @return list<array<string,mixed>>
+     */
+    private function subjectCandidates(string $kind, string $family, array $rules, array $tokens): array
+    {
+        if (!isset($this->subjectBuckets[$kind][$family])) {
+            $buckets = array();
+            foreach ($rules as $index => $rule) {
+                foreach (self::requiredSubjectTokens($rule['compound'] ?? null) ?? array('') as $token) $buckets[$token][] = $index;
+            }
+            $this->subjectBuckets[$kind][$family] = $buckets;
+        }
+        $buckets = $this->subjectBuckets[$kind][$family];
+        $indexes = array_flip($buckets[''] ?? array());
+        foreach ($tokens as $token => $_) {
+            if (isset($buckets[$token])) $indexes += array_flip($buckets[$token]);
+        }
+        ksort($indexes);
+        return array_map(static fn(int $index): array => $rules[$index], array_keys($indexes));
+    }
+
+    /**
+     * Tokens of which an element must carry at least one for the compound
+     * to match it, or null when the compound requires none.
+     *
+     * @param array<string,mixed>|null $compound
+     * @return list<string>|null
+     */
+    private static function requiredSubjectTokens(?array $compound): ?array
+    {
+        if (null === $compound) return null;
+        if (array() !== ($compound['classes'] ?? array())) return array('class:' . reset($compound['classes']));
+        if (array() !== ($compound['ids'] ?? array())) return array('id:' . reset($compound['ids']));
+        if (is_string($compound['type'] ?? null)) return array('tag:' . strtolower($compound['type']));
+        foreach ($compound['any'] ?? array() as $group) {
+            $tokens = array();
+            foreach ($group['alternatives'] as $alternative) {
+                $subjects = $alternative['compounds'];
+                $required = array() === $subjects ? null : self::requiredSubjectTokens($subjects[array_key_last($subjects)]);
+                if (null === $required) continue 2;
+                array_push($tokens, ...$required);
+            }
+            if (array() !== $tokens) return array_values(array_unique($tokens));
+        }
+        return null;
     }
 
     private function indexState(string $prelude, string $family): void
@@ -1631,13 +1691,24 @@ final class PresetBinding
      */
     private function restsOn(string $property, string $literal, array $tokens, ?array $button): bool
     {
+        // Pure over the indexed stylesheets, and asked again for every
+        // repeat of the same block across documents.
+        return $this->restsOnResults[serialize(array($property, $literal, $tokens, $button))] ??= $this->resolvesRestingColor($property, $literal, $tokens, $button);
+    }
+
+    /**
+     * @param array<string,true> $tokens
+     * @param array{0:array<string,true>,1:array<string,true>}|null $button
+     */
+    private function resolvesRestingColor(string $property, string $literal, array $tokens, ?array $button): bool
+    {
         $color = CssColor::parse($this->resolve($literal));
         if (null === $color) return false;
         [$own, $parentTokens] = $button ?? array($tokens, null);
         foreach (self::families($property) as $family) {
             $reaching = array();
             $winner = null;
-            foreach ($this->restingColors[$family] ?? array() as $rule) {
+            foreach ($this->subjectCandidates('resting', $family, $this->restingColors[$family] ?? array(), $tokens) as $rule) {
                 if (!self::stateSubjectApplies($rule, $tokens)) continue;
                 if (null !== $parentTokens && isset($rule['parent']) && self::requiresAbsentEngineClass($rule['parent'], $parentTokens)) continue;
                 $reaching[] = $rule;
