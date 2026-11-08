@@ -31,6 +31,9 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
  */
 final class StyleResolver implements ElementPresentationResolver
 {
+    /** @var array<string,true>|null */
+    private ?array $scopedAnchorIdentities = null;
+
     /** @var list<array<string, mixed>> */
     private array $viewportAuthorRuleSource = array();
     /** @var array<string, array{rules: list<array<string, mixed>>, parsed: array<string, array<string, mixed>>, declaring: array<string, list<array<string, mixed>>>}> */
@@ -4931,11 +4934,20 @@ final class StyleResolver implements ElementPresentationResolver
      */
     private function editorAnchorClassName(DOMElement $element, bool $renamedForVariant = false): string
     {
-        if ( ! $renamedForVariant && ! in_array(strtolower($element->tagName), array('article', 'aside', 'div', 'footer', 'header', 'main', 'section'), true) ) {
+        $anchor = SourceDom::safeAnchor(SourceDom::attr($element, 'id'));
+        if ( '' === $anchor ) {
             return '';
         }
-        $anchor = SourceDom::safeAnchor(SourceDom::attr($element, 'id'));
-        return '' === $anchor ? '' : EngineMarker::editorAnchorClass($anchor);
+        // Author #id rules for an id shared across document variants are
+        // projected as :is(#id,.anchor-class), so every copy needs the class:
+        // the editor wrapper's id is block-<clientId>, not the source id.
+        if ( ! $renamedForVariant && ! in_array(strtolower($element->tagName), array('article', 'aside', 'div', 'footer', 'header', 'main', 'section'), true) ) {
+            $this->scopedAnchorIdentities ??= ScopedAnchorSelectorProjection::identities($this->session->authorStyleAnalysis());
+            if ( ! isset($this->scopedAnchorIdentities[ $anchor ]) ) {
+                return '';
+            }
+        }
+        return EngineMarker::editorAnchorClass($anchor);
     }
 
     /**
