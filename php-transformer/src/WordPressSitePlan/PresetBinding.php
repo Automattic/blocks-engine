@@ -415,16 +415,45 @@ final class PresetBinding
      * bound, to the token it renders. When that colour is not a token,
      * both stay as they are and the element counts as one refusal.
      *
-     * An element is left alone when it has attributes other than `class`,
+     * The format is skipped when an element has attributes other than `class`,
      * `style` and `role="none"`, when its colour is not an opaque token,
      * when an `!important`, state or style-text rule could reach it, or,
-     * for a `<span>`, when an author rule selects `mark` elements.
+     * for a `<span>`, when an author rule selects `mark` elements. Matching
+     * literals on retained elements can still bind in place (bindInlineLiterals()).
      */
     private function bindInlineColors(string $markup): string
     {
         if (!str_contains($markup, ' style="') || !preg_match('/<!-- wp:(?:' . implode('|', self::RICH_TEXT_BLOCKS) . ')\b/', $markup)) return $markup;
         $pattern = '/(<!-- wp:(' . implode('|', self::RICH_TEXT_BLOCKS) . ')(?: \{(?:(?!-->).)*\})? -->)(.*?)(<!-- \/wp:\2 -->)/s';
-        return (string) preg_replace_callback($pattern, fn(array $match): string => $match[1] . $this->bindInlineContent($match[3]) . $match[4], $markup);
+        return (string) preg_replace_callback($pattern, fn(array $match): string => $match[1] . $this->bindInlineLiterals($this->bindInlineContent($match[3])) . $match[4], $markup);
+    }
+
+    /**
+     * Inline elements that cannot use core's colour format keep their tag and
+     * attributes. Changing only a declaration's value to its preset variable
+     * preserves specificity, importance and state overrides. Font families
+     * have no rich-text preset format and always bind this way.
+     */
+    private function bindInlineLiterals(string $html): string
+    {
+        return (string) preg_replace_callback(self::INLINE_COLOR_TAG, function (array $tag): string {
+            $values = self::tagAttributes($tag[2]);
+            if (null === $values || !isset($values['style'])) return $tag[0];
+            $declarations = self::declarations($values['style']);
+            $tokens = $this->tagTokens('<' . strtolower($tag[1]) . '>', $values['class'] ?? '');
+            $changed = false;
+            foreach ($declarations as &$declaration) {
+                [$property, $value] = $declaration;
+                if (!in_array($property, array('color', 'font-family'), true) || str_contains($value, 'var(')) continue;
+                $slug = $this->presetSlug($property, $value, null);
+                if (null === $slug || !$this->safe($property, $tokens, array(), true, false, $reason, true)) continue;
+                $declaration[1] = 'var(--wp--preset--' . $property . '--' . $slug . ')';
+                $changed = true;
+                ++$this->bound;
+            }
+            unset($declaration);
+            return $changed ? self::withAttribute($tag[0], 'style', self::declarationText($declarations)) : $tag[0];
+        }, $html);
     }
 
     private function bindInlineContent(string $html): string
@@ -463,7 +492,9 @@ final class PresetBinding
             $bound = null === $attributes ? null : $this->inlineFormat($name, $values, $html, $tag[0][1] + strlen($tag[0][0]), $reason);
             if (null !== $background) $this->refuse('inline_format_unsupported');
             if (null === $bound) {
-                $this->refuse($reason ?? 'inline_format_unsupported');
+                $replacement = $this->bindInlineLiterals($tag[0][0]);
+                if (!str_contains($replacement, 'color:var(--wp--preset--color--')) $this->refuse($reason ?? 'inline_format_unsupported');
+                if ($tag[0][0] !== $replacement) $edits[$tag[0][1]] = array(strlen($tag[0][0]), $replacement);
                 continue;
             }
             $edits[$tag[0][1]] = array(strlen($tag[0][0]), $bound[0]);
