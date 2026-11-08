@@ -367,6 +367,8 @@ final class FontMaterializationPlanBuilder
             if ( ! preg_match_all('/@import\s+(?:url\(\s*)?(?:"([^"]+)"|\'([^\']+)\'|([^\s\)"\';]+))/i', $content, $matches, PREG_SET_ORDER) ) continue;
             foreach ( $matches as $index => $match ) {
                 $href = html_entity_decode((string) (($match[1] ?? '') ?: ($match[2] ?? '') ?: ($match[3] ?? '')), ENT_QUOTES | ENT_HTML5);
+                $parts = parse_url($href);
+                if ( ! is_array($parts) || empty($parts['scheme']) || empty($parts['host']) ) continue;
                 $dedupeKey = $source['source_hash'] . "\n" . $href;
                 if ( isset($seen[$dedupeKey]) ) continue;
                 $seen[$dedupeKey] = true;
