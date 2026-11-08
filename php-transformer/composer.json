@@ -1248,6 +1248,7 @@
       "php tests/unit/product-page-formless-add-to-cart-binding.php",
       "php tests/unit/product-page-formless-single-variant.php",
       "php tests/unit/product-page-header-cart-link.php",
+      "php tests/unit/dropped-sibling-inner-content.php",
       "php tests/unit/product-page-section-header-purchase.php",
       "php tests/unit/formless-subscription-dialog.php",
       "php tests/unit/product-grid-nested-container.php",

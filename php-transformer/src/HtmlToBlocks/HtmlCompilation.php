@@ -8521,11 +8521,11 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
         unset($fallback);
         $index = 0;
-        $walk = function (array &$siblings) use (&$walk, &$index, $runs): void {
+        $walk = function (array &$siblings, ?array &$innerContent = null) use (&$walk, &$index, $runs): void {
             $positions = array();
             foreach ( $siblings as &$block ) {
                 $positions[] = $index++;
-                if ( is_array($block['innerBlocks'] ?? null) ) $walk($block['innerBlocks']);
+                if ( is_array($block['innerBlocks'] ?? null) ) $walk($block['innerBlocks'], $block['innerContent']);
             }
             unset($block);
             for ( $start = count($siblings) - 1; $start >= 0; --$start ) {
@@ -8537,6 +8537,17 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 $group = $this->createBlock('core/group', array('layout' => array('type' => 'default')), array_slice($siblings, $start, $end - $start + 1));
                 $group['_source_anchor_selector'] = $run['selector'];
                 array_splice($siblings, $start, $end - $start + 1, array($group));
+                // The run now occupies its first child's slot. Remove the
+                // other slots at this same mutation boundary, preserving all
+                // literal wrapper markup and inter-child whitespace.
+                if ( null !== $innerContent ) {
+                    $childIndex = 0;
+                    $innerContent = array_values(array_filter($innerContent, static function ($part) use (&$childIndex, $start, $end): bool {
+                        if ( null !== $part ) return true;
+                        $slot = $childIndex++;
+                        return $slot <= $start || $slot > $end;
+                    }));
+                }
             }
         };
         $walk($blocks);
