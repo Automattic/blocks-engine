@@ -2599,6 +2599,10 @@ PHP;
             // must stay where its stylesheet applies rather than become global.
             // Each page's own type rules already reach the chrome's elements.
             if (preg_match_all(self::GENERATED_CLASS_PATTERN, $markup, $matches)) foreach ($matches[0] as $class) if (!str_starts_with((string) EngineMarker::markerKind($class), 'source-')) $classes[$class] = true;
+            // A device island's class is the gate its visibility CSS selects.
+            // The part repeats the island around each variant, so that CSS
+            // follows the part to every template rendering it.
+            foreach (array(CaptureEvidence::DESKTOP_ONLY_CLASS, CaptureEvidence::MOBILE_ONLY_CLASS) as $class) if (1 === preg_match('/\bclass="(?:[^"]*\s)?' . preg_quote($class, '/') . '(?:\s[^"]*)?"/', $markup)) $classes[$class] = true;
             // Geometry carriers are content-addressed instance CSS, not document
             // markers. Structural shell dedupe can choose a different carrier
             // from the adopting page's capture; its rules must follow the part

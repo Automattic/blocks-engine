@@ -75,6 +75,8 @@ Two audiences read this vocabulary:
 | `data-blocks-engine-capture-device-visibility` | attribute (flag) on `<style>` | ignored | Capture runtime device-selection gates. Excluded whole from author presentation analysis so selected-device chrome cannot acquire a frozen hide gate. |
 | `data-blocks-engine-capture-mobile-document` | class | — | Root of the mobile copy of a responsive capture. |
 | `data-blocks-engine-capture-desktop-document` | class | — | Root of the desktop (default) copy of a responsive capture. |
+| `data-blocks-engine-capture-desktop-only` | class | — | Island holding a route's whole desktop frame, beside its `mobile-only` island. Author visibility CSS hides it below the breakpoint. Shell extraction treats the pair like two device documents: shared chrome hoists with one variant per island, each kept inside its island's gate. |
+| `data-blocks-engine-capture-mobile-only` | class | — | Island holding a route's whole phone frame, beside its `desktop-only` island; hidden above the breakpoint. |
 | `data-blocks-engine-capture-responsive-` | class prefix | 12 lowercase hex digits | Hooks an id-less element's width-scoped style rules. On route chrome, a hook whose every rule restates the element's own inline declarations is removed from that chrome. |
 | `data-blocks-engine-capture-responsive-counterpart-` | class prefix | 12 lowercase hex digits | Pairs an element in the default document with its counterpart in another variant. |
 | `data-blocks-engine-capture-responsive-source` | attribute | source id | Source identity of a responsive counterpart; ignored when comparing shared chrome. |
