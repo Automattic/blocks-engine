@@ -15,6 +15,8 @@ foreach ( array(
     'block' => array('display:block', array('display' => 'block', 'width' => 'fit-content', 'height' => 'auto')),
     'width only' => array('width:100%', array('display' => 'inline', 'width' => '100%', 'height' => 'auto')),
     'height only' => array('height:30px', array('display' => 'inline', 'width' => 'fit-content', 'height' => '30px')),
+    // Both horizontal insets size a positioned box; fit-content would collapse an icon-only link.
+    'inset fill' => array('position:absolute;inset:0;display:block', array('display' => 'block', 'height' => 'auto')),
 ) as $label => [ $style, $expected ] ) {
     $html = '<html><head><style>#bar{width:150px;height:30px;overflow:hidden}#user a{' . $style . '}#user a img{vertical-align:middle;max-width:25px;max-height:25px;margin:0 3px}#bar span.label{width:calc(100% - 31px)}</style></head><body>'
         . '<header><div id="bar"><div id="user"><a id="user_link"><img id="avatar" src="a.svg" alt="avatar"><span class="label">Sign in</span></a></div></div></header>'
