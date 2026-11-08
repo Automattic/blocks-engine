@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ImageLowering;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ElementConversionPrelude;
@@ -35,10 +36,6 @@ final class EngineSupportCss
         }
         return ':root .' . $marker . ':has(.wp-block-navigation__responsive-container.is-menu-open){' . implode(';', $declarations) . '}';
     }
-
-    private const BACKGROUND_IMAGE_CLASS = 'blocks-engine-background-image';
-
-    private const BACKGROUND_IMAGE_SCALE_CLASS_PREFIX = 'blocks-engine-background-image-';
 
     private const EMPTY_FLEX_ITEM_CLASS = 'blocks-engine-empty-flex-item';
 
@@ -206,15 +203,15 @@ final class EngineSupportCss
             $parts[] = ':root .wp-block-image.' . SourceBlockAttributeProjector::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS . ' img{display:inline}'
                 . 'figure.wp-block-image:where(.' . SourceBlockAttributeProjector::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS . ') img{vertical-align:baseline}';
         }
-        if ( str_contains($serializedBlocks, self::BACKGROUND_IMAGE_CLASS) ) {
+        if ( str_contains($serializedBlocks, ImageLowering::BACKGROUND_IMAGE_CLASS) ) {
             // The source painted this image as a background, where the element's
             // own box decides the size and the image never overflows it. core's
             // scale attribute only reaches the image when width and height are
             // saved, so the sized cases carry that contract here instead.
-            $parts[] = ':root :where(.' . self::BACKGROUND_IMAGE_CLASS . ') img{max-width:100%}'
-                . "\n" . ':root :where(.' . self::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'cover,.' . self::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'contain){width:100%;height:100%}'
-                . "\n" . ':root :where(.' . self::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'cover) img{width:100%;height:100%;object-fit:cover}'
-                . "\n" . ':root :where(.' . self::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'contain) img{width:100%;height:100%;object-fit:contain}';
+            $parts[] = ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_CLASS . ') img{max-width:100%}'
+                . "\n" . ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'cover,.' . ImageLowering::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'contain){width:100%;height:100%}'
+                . "\n" . ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'cover) img{width:100%;height:100%;object-fit:cover}'
+                . "\n" . ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'contain) img{width:100%;height:100%;object-fit:contain}';
         }
         if ( str_contains($serializedBlocks, AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS) ) {
             $parts[] = ':where(p.' . AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS . '){display:contents;margin:0!important;padding:0!important;border:0!important}';

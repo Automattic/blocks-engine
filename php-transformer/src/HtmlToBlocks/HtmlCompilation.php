@@ -36,7 +36,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CustomBlockGe
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\DescriptionListBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LinkedResponsiveContentBlockGenerator;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveMediaBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\SvgArtworkBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\VisualIframeBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionContext;
@@ -135,7 +134,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CodeWindowPatte
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ColumnsPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CoverStyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\GalleryPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\GalleryPatternContext;
@@ -289,6 +287,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly StyleResolver $styleResolver;
     private ?IntrinsicVisualMediaHeight $intrinsicVisualMediaHeight = null;
     private ?ImageUrlResolver $imageUrls = null;
+    private ?Elements\ImageLowering $imageLowering = null;
     private readonly EmptyElementFootprint $emptyElementFootprint;
 
     private readonly GeneratedBlockStyleProjector $generatedBlockStyleProjector;
@@ -429,10 +428,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private const SYNTHETIC_ANCHOR_UNDECORATED_CLASS = SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS;
 
     private const SYNTHETIC_IMAGE_FIGURE_CLASS = SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS;
-
-    private const BACKGROUND_IMAGE_CLASS = 'blocks-engine-background-image';
-
-    private const BACKGROUND_IMAGE_SCALE_CLASS_PREFIX = 'blocks-engine-background-image-';
 
     private const INLINE_LAYOUT_CARRIER_CLASS = AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS;
 
@@ -952,7 +947,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             flankedSeparatorBlock: fn (DOMElement $element): ?array => $this->flankedSeparatorBlockFromElement($element),
             canCaptureExternalSvgFragmentDependency: fn (DOMElement $element): bool => ! $this->runtimeIslands->isRuntimeDomTarget($element) && ! $this->hasRuntimeTargetInSubtree($element),
             sourceElementClassifier: $this->sourceElementClassifier,
-            responsiveMediaBlock: fn (DOMElement $element): array => $this->responsiveMediaBlock($element),
+            responsiveMediaBlock: fn (DOMElement $element): array => $this->imageLowering()->responsiveMediaBlock($element),
             authorLayoutOwnership: $this->authorLayoutOwnership,
             authorLayoutBlock: fn (DOMElement $element, array &$fallbacks): array => $this->authorLayoutBlockFromElement($element, $fallbacks),
             hasMultipleRuntimeInlineTextTargets: fn (DOMElement $element): bool => $this->hasMultipleRuntimeInlineTextTargets($element),
@@ -991,7 +986,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             generatedComponentBlock: fn (DOMElement $element, array &$fallbacks): ?array => $this->nativeOrGeneratedComponentBlock($element, $fallbacks),
             textFlowBlock: fn (DOMElement $element): ?array => $this->textFlowBlockFromElement($element),
             convertChildren: fn (DOMElement $element, array &$fallbacks): array => $this->convertChildren($element, $fallbacks, true),
-            backgroundImageBlock: fn (DOMElement $element): ?array => $this->backgroundImageBlockFromElement($element),
+            backgroundImageBlock: fn (DOMElement $element): ?array => $this->imageLowering()->backgroundImageBlock($element),
             coalescedSingleGroupWrapper: fn (DOMElement $element, array $child): ?array => $this->coalescedSingleGroupWrapper($element, $child),
             shouldPreserveWrapper: fn (DOMElement $element, ?string $asTag = null): bool => $this->shouldPreserveWrapper($element, $asTag),
             emptyVisualSpacerBlock: fn (DOMElement $element): array => $this->emptyVisualSpacerBlock($element)
@@ -4207,7 +4202,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 return null;
             }
             if ( ! $this->canPromoteImageOnlyCustomElement($element, $customImage) ) {
-                return $this->nativeImageInCustomHost($element, $customImage) ?? $this->responsiveMediaBlock($element);
+                return $this->nativeImageInCustomHost($element, $customImage) ?? $this->imageLowering()->responsiveMediaBlock($element);
             }
             $picture = $customImage->parentNode;
             return $this->convertImageElement(
@@ -4993,7 +4988,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             // recognizer, but let each image lower natively in its own group.
             return $this->sourceElementClassifier->hasResponsiveMediaAlternatives($element)
                 && $this->sourceElementClassifier->hasGalleryMediaItems($element)
-                ? $this->responsiveMediaBlock($element) : null;
+                ? $this->imageLowering()->responsiveMediaBlock($element) : null;
         }
 
         return $this->recognizePatterns($element, $fallbacks, array(GalleryPattern::class));
@@ -9840,96 +9835,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return false;
     }
 
-    private function backgroundImageBlockFromElement(DOMElement $element): ?array
-    {
-        $declarations = $this->styleResolver->presentationDeclarations($element);
-        $url = $this->backgroundImageExtractor->urlFromStyle($this->styleResolver->mergedPresentationStyle($element));
-        if ( '' === $url ) {
-            return null;
-        }
-
-        if ( (new CoverStyleResolver())->hasRepeatingBackground($this->styleResolver->mergedPresentationStyle($element)) ) {
-            $attrs = $this->styleResolver->presentationAttributes($element);
-            $attrs['style']['background'] = array_filter(array(
-                'backgroundImage'    => array( 'url' => $this->imageUrls()->resolvedAssetUrl($url) ),
-                'backgroundRepeat'   => $declarations['background-repeat'] ?? 'repeat',
-                // Core defaults a missing size to cover, not CSS's initial auto.
-                'backgroundSize'     => $declarations['background-size'] ?? 'auto',
-                'backgroundPosition' => $declarations['background-position'] ?? '',
-            ), static fn ($value): bool => '' !== $value);
-
-            return $this->createBlock('core/group', $attrs, array(), $element);
-        }
-
-        $width = trim((string) ($declarations['width'] ?? ''));
-        $height = trim((string) ($declarations['height'] ?? ''));
-        $scale = strtolower(trim((string) ($declarations['background-size'] ?? '')));
-
-        $sized = in_array($scale, array( 'cover', 'contain' ), true);
-        $className = self::BACKGROUND_IMAGE_CLASS;
-        if ( $sized ) {
-            $className .= ' ' . self::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . $scale;
-            $position = CssValueInspector::carriableDeclarationValue((string) ($declarations['background-position'] ?? ''));
-            if ( '' !== $position ) {
-                // core/image cannot save object-position itself. The figure
-                // carries the focal point and its img inherits it, agreeing with
-                // the image projection bridge's own `object-position:inherit`
-                // (same specificity) whichever stylesheet loads last.
-                $carrier = $this->session->layoutGeometryState()->allocateCarrier('background-image-position' . "\n" . $position);
-                $this->session->layoutGeometryState()->registerRule($carrier, '.' . $carrier . '{object-position:' . $position . '}.' . $carrier . '>img{object-position:inherit}');
-                $className .= ' ' . $carrier;
-            }
-        }
-
-        $image = $this->createBlock('core/image', array_filter(array(
-            'url'       => $this->imageUrls()->resolvedAssetUrl($url),
-            'alt'       => $this->backgroundImageExtractor->altFromAttributes($this->htmlAttributes($element)),
-            // A painted background never contributes intrinsic size, so the
-            // materialized image resolves its box from the source element.
-            'className' => $className,
-            'width'     => ! in_array(strtolower($width), array( '', 'auto' ), true) ? $width : '',
-            'height'    => ! in_array(strtolower($height), array( '', 'auto' ), true) ? $height : '',
-            'scale'     => $sized ? $scale : '',
-        ), static fn (string $value): bool => '' !== $value), array(), $element);
-
-        if ( ! $sized ) {
-            return $image;
-        }
-
-        // The image is now a child of the original painted box. Keep its
-        // colour and other layers, but replace only the handed-off URL layer
-        // with none (rather than shifting the remaining layers' geometry).
-        $background = (string) ($declarations['background-image'] ?? $declarations['background'] ?? 'url(' . $url . ')');
-        $background = preg_replace('/\s*!\s*important\s*$/i', '', $background) ?? $background;
-        $layers = CssValueSplitter::splitTopLevel($background, array( ',' ));
-        // Shorthand layers also contain position, repeat and colour tokens;
-        // only their image token belongs in the background-image override.
-        foreach ( $layers as &$layer ) {
-            $tokens = CssValueSplitter::splitTopLevelWhitespace($layer);
-            $layer = 'none';
-            foreach ( $tokens as $token ) {
-                if ( preg_match('/^(?:url|[a-z-]*gradient|image|image-set|cross-fade|var)\(/i', $token) ) {
-                    $layer = $token;
-                    break;
-                }
-            }
-        }
-        unset($layer);
-        foreach ( $layers as &$layer ) {
-            if ( $url === $this->backgroundImageExtractor->urlFromStyle('background-image:' . $layer) ) {
-                $layer = 'none';
-                break;
-            }
-        }
-        unset($layer);
-        $rule = '{background-image:' . implode(',', $layers) . ' !important}';
-        $carrier = $this->session->layoutGeometryState()->allocateCarrier('materialized-background' . "\n" . $rule);
-        $this->session->layoutGeometryState()->registerRule($carrier, ':root .' . $carrier . $rule);
-        $attrs = $this->styleResolver->presentationAttributes($element);
-        $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $carrier);
-        return $this->createBlock('core/group', $attrs, array( $image ), $element);
-    }
-
     /**
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
@@ -10081,7 +9986,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->imageDimensions()->fillParentImageViewportPair($image);
 
         if ( $this->sourceElementClassifier->hasPictureSourceSelection($picture) ) {
-            return $this->responsiveMediaBlock($link ?? $figure ?? $picture);
+            return $this->imageLowering()->responsiveMediaBlock($link ?? $figure ?? $picture);
         }
 
         return $this->convertImageElement($image, $figure ?? $picture, $picture, $link);
@@ -10107,14 +10012,14 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             || ( array() !== $this->sourceElementDescription->interactiveAttributes($anchor) && ! $this->isUnfocusableImageLink($anchor) )
             || $this->hasRouteBearingDataAttributes($anchor)
         ) {
-            return $this->responsiveMediaBlock($anchor);
+            return $this->imageLowering()->responsiveMediaBlock($anchor);
         }
         $picture = $this->firstChildElement($anchor, 'picture');
         $image = $picture instanceof DOMElement
             ? $this->firstChildElement($picture, 'img')
             : $this->firstChildElement($anchor, 'img');
         if ( $image instanceof DOMElement && $this->hasRouteBearingDataAttributes($image) ) {
-            return $this->responsiveMediaBlock($anchor);
+            return $this->imageLowering()->responsiveMediaBlock($anchor);
         }
         if ( $picture instanceof DOMElement ) {
             return $image instanceof DOMElement ? $this->convertImageElement($image, null, $picture, $anchor) : null;
@@ -10190,7 +10095,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                     }
                 }
             }
-            return $this->responsiveMediaBlock($anchor);
+            return $this->imageLowering()->responsiveMediaBlock($anchor);
         }
         return $image instanceof DOMElement ? $this->convertImageElement($image, null, null, $anchor) : null;
     }
@@ -10735,7 +10640,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     {
         $this->imageDimensions()->fillParentImageViewportPair($image);
         if ( $picture instanceof DOMElement && $this->sourceElementClassifier->hasPictureSourceSelection($picture) ) {
-            return $this->responsiveMediaBlock($link ?? $figure ?? $picture ?? $image);
+            return $this->imageLowering()->responsiveMediaBlock($link ?? $figure ?? $picture ?? $image);
         }
         // Outside <picture>, HTML defines a w-descriptor srcset as one image at
         // several resolutions, so core/image may regenerate candidates from its
@@ -10750,7 +10655,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             && $this->sourceElementClassifier->hasGalleryMediaItems($mediaParent)
             && ! $this->sourceElementClassifier->hasResponsiveMediaAlternatives($mediaParent);
         if ( ! $nativeImage && ! $independentGalleryImage && $this->sourceElementClassifier->requiresResponsiveImageCarrier($image, $hasDisplayWidth) ) {
-            return $this->responsiveMediaBlock($link ?? $figure ?? $picture ?? $image);
+            return $this->imageLowering()->responsiveMediaBlock($link ?? $figure ?? $picture ?? $image);
         }
 
         $originalUrl = $this->imageUrls()->sourceUrl($image);
@@ -10948,7 +10853,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                     $hasHiddenLabel = true;
                 }
             }
-            if ( ! $hasHiddenLabel && $this->imageLinkOpensNativeLightbox($link) ) {
+            if ( ! $hasHiddenLabel && $this->imageLowering()->imageLinkOpensNativeLightbox($link) ) {
                 $attrs['lightbox'] = array( 'enabled' => true );
             } elseif ( '' !== LinkUrlSanitizer::sanitize($this->attr($link, 'href')) ) {
                 if ('' !== $this->session->authorStyleAnalysis()->combinedCss()) {
@@ -11482,28 +11387,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $image;
     }
 
-    /** @return array<string, mixed> */
-    private function responsiveMediaBlock(DOMElement $element): array
+    private function imageLowering(): Elements\ImageLowering
     {
-        if ( $this->hasUnsafeResponsiveImageSources($element) ) {
-            return $this->responsiveImageFallbackBlock($element);
-        }
-
-        $this->session->requireGeneratedBlockRegistry()->register(ResponsiveMediaBlockGenerator::class, ( new ResponsiveMediaBlockGenerator() )->definition($this->session->requireGeneratedBlockRegistry()->namespace()));
-
-        $overflowClass = $this->styleResolver->responsiveImageOverflowClassName($element);
-        $contentElement = $element;
-        if ( '' !== $overflowClass ) {
-            $contentElement = clone $element;
-            $contentElement->setAttribute('class', SourceDom::mergeClassNames($contentElement->getAttribute('class'), $overflowClass));
-        }
-
-        return $this->createBlock(
-            $this->session->requireGeneratedBlockRegistry()->blockName(ResponsiveMediaBlockGenerator::LOCAL_NAME),
-            array( 'content' => SourceDom::safeFallbackHtml($contentElement, $this->session->authorSelectorProjectionState()->tagMarkers()), 'kind' => 'media' ),
-            array(),
-            $element
-        );
+        return $this->imageLowering ??= new Elements\ImageLowering($this, $this->blockFactory, $this->styleResolver, $this->backgroundImageExtractor, $this->sourceElementDescription, $this->session, $this->imageUrls());
     }
 
     /** @return array<string, mixed> */
@@ -11824,49 +11710,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
         return false;
     }
-
-    /**
-     * Preserve responsive sources as valid raw HTML rather than placing
-     * unsupported attributes in a core/image save shape.
-     *
-     * @return array<string, mixed>
-     */
-    private function responsiveImageFallbackBlock(DOMElement $element): array
-    {
-        if ( ! $this->hasUnsafeResponsiveImageSources($element) ) {
-            $generated = $this->session->fallbackEmitter()->maybeGenerateCustomBlock(
-                $element,
-                $this->session->requireGeneratedBlockRegistry(),
-                true
-            );
-            if ( null !== $generated ) {
-                return $this->createBlock($generated['blockName'], $generated['attrs'], array(), $element);
-            }
-        }
-
-        $boundedHtml = $this->boundedFallbackHtml(SourceDom::safeFallbackHtml($element, $this->session->authorSelectorProjectionState()->tagMarkers()));
-        $selector = $this->elementSelector($element);
-        if ( ! $this->session->transformationEvidenceState()->hasResponsiveImageFallback($selector) ) {
-            $this->session->transformationEvidenceState()->recordResponsiveImageFallback($selector, FallbackDiagnostic::build(array(
-                'type'            => 'html',
-                'reason'          => 'responsive_image_fallback',
-                'diagnostic_code' => 'html_responsive_image_fallback',
-                'message'         => 'Responsive image sources were preserved as sanitized core/html because core/image cannot serialize srcset, sizes, or picture source selection.',
-                'source_format'   => 'html',
-                'tag'             => strtolower($element->tagName),
-                'selector'        => $selector,
-                'attributes'      => $this->htmlAttributes($element),
-                'context'         => $this->sourceElementDescription->sourceContext($element),
-                'classification'  => $this->session->fallbackEmitter()->classifyFallbackSubtree($element),
-                'html'            => $boundedHtml['html'],
-                'html_bytes'      => $boundedHtml['bytes'],
-                'html_truncated'  => $boundedHtml['truncated'],
-            ), $this->session->transformationProvenanceState()->fallback()));
-        }
-
-        return $this->createBlock('core/html', array( 'content' => SourceDom::safeFallbackHtml($element, $this->session->authorSelectorProjectionState()->tagMarkers()) ), array(), $element);
-    }
-
     /**
      * The authored candidates, slot sizes and loading of a lowered family.
      *
@@ -11881,7 +11724,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
      */
     private function authoredImageSelection(DOMElement $image, string $src): array
     {
-        if ( array() === SrcsetParser::parse($this->attr($image, 'srcset')) || $this->hasUnsafeResponsiveImageSources($image) ) {
+        if ( array() === SrcsetParser::parse($this->attr($image, 'srcset')) || $this->imageLowering()->hasUnsafeResponsiveImageSources($image) ) {
             return array();
         }
         $loading = strtolower(trim($this->attr($image, 'loading')));
@@ -11900,24 +11743,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             'sizes'   => $sizes,
             'loading' => in_array($loading, array( 'lazy', 'eager' ), true) ? $loading : '',
         ), static fn (string $value): bool => '' !== $value);
-    }
-
-    private function hasUnsafeResponsiveImageSources(DOMElement $element): bool
-    {
-        foreach ( array_merge(array($element), SourceDom::descendantElements($element)) as $candidate ) {
-            if ( ! $candidate instanceof DOMElement || ! in_array(strtolower($candidate->tagName), array( 'img', 'source' ), true) ) {
-                continue;
-            }
-
-            foreach ( SrcsetParser::parse($this->attr($candidate, 'srcset')) as $source ) {
-                if ( '' === $this->imageUrls()->safeUrl($source['url'])
-                    || preg_match('/^(?:javascript|blob)\s*:/i', trim($source['url'])) ) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
     }
 
     private function isInertHiddenSvgStorage(DOMElement $element): bool
@@ -11982,29 +11807,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
      * destination: it has to point at an image resource and be marked as a
      * lightbox/gallery viewer by the source script that handled the click.
      */
-    private function imageLinkOpensNativeLightbox(DOMElement $link): bool
-    {
-        $href = LinkUrlSanitizer::sanitize($this->attr($link, 'href'));
-        if ( '' === $href ) {
-            return false;
-        }
-
-        $path = (string) parse_url($href, PHP_URL_PATH);
-        if ( 1 !== preg_match('/\.(?:jpe?g|png|gif|webp|avif|bmp)$/i', $path) ) {
-            return false;
-        }
-
-        foreach ( array( 'data-lightbox', 'data-fancybox', 'data-featherlight', 'data-glightbox' ) as $attribute ) {
-            if ( '' !== trim($this->attr($link, $attribute)) ) {
-                return true;
-            }
-        }
-
-        $identity = strtolower($this->attr($link, 'rel') . ' ' . $this->attr($link, 'class'));
-
-        return 1 === preg_match('/(?:^|[^a-z0-9])(?:lightbox|fancybox|colorbox|magnific|photoswipe|prettyphoto)(?:[^a-z0-9]|$)/', $identity);
-    }
-
     /**
      * @return array<string, string>
      */
@@ -12094,7 +11896,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // a lightbox trigger. That link is the viewer, not a destination, so
         // core's native lightbox replaces it rather than propagating an href
         // that would navigate away from the page.
-        if ( $this->imageLinkOpensNativeLightbox($anchor) && $this->enableNativeLightboxOnImages($children) ) {
+        if ( $this->imageLowering()->imageLinkOpensNativeLightbox($anchor) && $this->imageLowering()->enableNativeLightboxOnImages($children) ) {
             return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($anchor), $children, $anchor);
         }
         // Keep a flow-content anchor as one clickable container. The existing
@@ -12214,39 +12016,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
      * @param array<string, mixed> $block
      * @param array<string, string> $linkAttrs
      */
-    /**
-     * Opt every unlinked image inside a lightbox trigger into core's native
-     * lightbox. An image that already carries its own link keeps it, because
-     * core suppresses its lightbox when a link is present.
-     *
-     * @param array<int, array<string, mixed>> $blocks
-     */
-    private function enableNativeLightboxOnImages(array &$blocks): bool
-    {
-        $enabled = false;
-        foreach ( $blocks as $index => $block ) {
-            if ( ! is_array($block) ) {
-                continue;
-            }
-
-            if ( 'core/image' === (string) ($block['blockName'] ?? '') ) {
-                $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
-                if ( '' === (string) ($attrs['href'] ?? '') ) {
-                    $attrs['lightbox'] = array( 'enabled' => true );
-                    $blocks[ $index ] = $this->blockFactory->rebuild($block, $attrs);
-                    $enabled = true;
-                }
-                continue;
-            }
-
-            if ( is_array($block['innerBlocks'] ?? null) && $this->enableNativeLightboxOnImages($blocks[ $index ]['innerBlocks']) ) {
-                $enabled = true;
-            }
-        }
-
-        return $enabled;
-    }
-
     /**
      * Rebuild a converted block with updated attributes so its innerHTML and
      * innerContent stay consistent with the stored attrs after an in-place edit
