@@ -4312,7 +4312,15 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         if ( 'label' === $tagName ) {
-            return $this->readableFormControlBlockConverter->convert($element);
+            $label = $this->readableFormControlBlockConverter->convert($element);
+            // A label wrapping a control the page cannot represent (a hidden
+            // file picker, say) is still the visible box around its content.
+            // Lower it as that container: its content stays native blocks and
+            // the control reports through standalone control handling.
+            if ( (null !== $label && 'core/html' !== ($label['blockName'] ?? null)) || ! $this->wrapsControlElement($element) ) {
+                return $label;
+            }
+            return $this->flowContainerConverter->convertGenericContainer($element, $fallbacks)->block;
         }
 
         // These delegates own disjoint tags; their declaration order is the
@@ -4696,6 +4704,17 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     {
         foreach ( $tokens as $token ) {
             if ( 1 === preg_match($this->cssTokenPattern($token), $selector) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function wrapsControlElement(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( FormControlClassifier::isControlElement($descendant) ) {
                 return true;
             }
         }
