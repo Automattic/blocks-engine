@@ -22,7 +22,7 @@ final class ReciprocalArchiveProof
             $target = $route['target_path'] ?? null;
             if (!is_string($source) || !is_string($target) || '' === $target) continue;
             $target = rtrim($target, '/') ?: '/';
-            $targetsByLink[$target][$target] = true;
+            $targetsByLink[self::pathKey($target)][$target] = true;
             if (null === $sourceRoot) continue;
             $source = str_replace('\\', '/', $source);
             if ('.' === $sourceRoot) {
@@ -32,7 +32,10 @@ final class ReciprocalArchiveProof
                 if (!str_starts_with($source, $prefix)) continue;
                 $relativeSource = substr($source, strlen($prefix));
             }
-            if ('' !== $relativeSource) $targetsByLink['/' . ltrim($relativeSource, '/')][$target] = true;
+            if ('' === $relativeSource) continue;
+            $targetsByLink[self::pathKey('/' . ltrim($relativeSource, '/'))][$target] = true;
+            // The captured directory spells the URL that served it.
+            if (str_ends_with($relativeSource, '/index.html')) $targetsByLink[self::pathKey('/' . dirname(ltrim($relativeSource, '/')))][$target] = true;
         }
         $aliases = array();
         foreach ($targetsByLink as $link => $targets) if (1 === count($targets)) $aliases[$link] = (string) array_key_first($targets);
@@ -49,9 +52,12 @@ final class ReciprocalArchiveProof
             if (!$document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING)) return array();
             $links = array();
             foreach ($document->getElementsByTagName('a') as $anchor) {
-                $path = self::localLinkPath(trim($anchor->getAttribute('href')), $sourceOrigin);
+                $href = trim($anchor->getAttribute('href'));
+                // A query names a filtered or paged view, not the archive itself.
+                if (null !== parse_url($href, PHP_URL_QUERY)) continue;
+                $path = self::localLinkPath($href, $sourceOrigin);
                 $label = trim(preg_replace('/\s+/u', ' ', $anchor->textContent) ?? '');
-                if (null !== $path && '' !== $label) $links[] = array('href' => rtrim($path, '/') ?: '/', 'label' => $label);
+                if (null !== $path && '' !== $label) $links[] = array('href' => self::pathKey(rtrim($path, '/') ?: '/'), 'label' => $label);
             }
             return $links;
         } finally {
@@ -67,6 +73,15 @@ final class ReciprocalArchiveProof
         if (preg_match('~^(?:[a-z][a-z0-9+.-]*:|//)~i', $href) === 1) return '' !== $sourceOrigin && preg_match('~^https?://~i', $href) === 1 && self::origin($href) === $sourceOrigin ? (string) (parse_url($href, PHP_URL_PATH) ?? '') : null;
         if (str_starts_with($href, '/')) return (string) (parse_url($href, PHP_URL_PATH) ?? '');
         return null;
+    }
+
+    /**
+     * Compare paths by the resource they name: `/tag/a%20b` and `/tag/a+b`
+     * (the form encoding builders use in their own tag links) are one URL.
+     */
+    private static function pathKey(string $path): string
+    {
+        return rawurldecode(str_replace('+', '%20', $path));
     }
 
     private static function origin(string $url): string

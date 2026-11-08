@@ -70,9 +70,12 @@ final class TaxonomyProjection
             foreach ($listed as $article) foreach ($linksBySource[$article['source_path']] ?? array() as $link) {
                 if ($route === ($routeByLinkPath[$link['href']] ?? $link['href'])) $labels[$link['label']] = true;
             }
+            // An archive without a heading of its own (its headings title the
+            // listed entries) is named by the label when its document title
+            // leads with it, as CMS term archives title themselves.
             if (1 === count($labels)) {
                 $label = (string) array_key_first($labels);
-                if (in_array($label, self::collectionNames((string) ($archive['html'] ?? '')), true)) $name = $label;
+                if (in_array($label, self::collectionNames((string) ($archive['html'] ?? '')), true) || ('' === $heading && self::titleLeadsWith(self::documentTitle($archive), $label))) $name = $label;
             }
             $members = array();
             $paginationSources = array();
@@ -214,6 +217,11 @@ final class TaxonomyProjection
             $title = html_entity_decode(strip_tags($match[1] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8');
         }
         return trim(preg_replace('/\\s+/u', ' ', $title) ?? '');
+    }
+
+    private static function titleLeadsWith(string $title, string $label): bool
+    {
+        return '' !== trim($label) && 1 === preg_match('~^' . preg_quote($label, '~') . '(?:$|\s+[—–|:·•-]\s)~u', $title);
     }
 
     /** Strip only a site-name suffix corroborated by titles on other documents. */
