@@ -118,6 +118,13 @@ final class NavigationToggleSuppressor
                 continue;
             }
 
+            // An inferred panel belongs to the opener that can actually show
+            // in the collapsed layout, not a hidden desktop-header copy.
+            if ( ! $control->hasAttribute(CaptureEvidence::DIALOG_TRIGGER)
+                && ! $this->isProjectableHashAnchorMenuToggle($control)
+                && $this->hiddenAtCollapsedViewport($control, true) ) {
+                continue;
+            }
             $relationship = $this->implicitHiddenNavigationRelationship($control);
             if ( null !== $relationship ) {
                 $isDialogProjection = $this->hasDialogPopupSemantics($control) || $this->isSemanticDialog($relationship['target']);
@@ -309,6 +316,15 @@ final class NavigationToggleSuppressor
                 }
                 $navigation = $this->hiddenNavigationInControlledTarget($candidate);
                 if ( $navigation instanceof DOMElement && ! $this->session->navigationProjectionState()->isSuppressed($navigation) ) {
+                    // A hidden layout copy is not the closed overlay. Keep
+                    // searching outward for the panel the burger can replace.
+                    if ( ! $this->isOutOfFlowNavigationPanel($candidate)
+                        && ! $control->hasAttribute(CaptureEvidence::DIALOG_TRIGGER)
+                        && ! $this->hasDialogPopupSemantics($control)
+                        && ! $this->isProjectableHashAnchorMenuToggle($control)
+                        && $this->hasEquivalentSourceNavigationVariant($navigation) ) {
+                        continue;
+                    }
                     $navigationCandidates[] = array('target' => $candidate, 'navigation' => $navigation);
                 }
             }
@@ -403,9 +419,49 @@ final class NavigationToggleSuppressor
         return $this->hiddenNavigationTargets[$target] = $this->recognizeHiddenNavigationInControlledTarget($target);
     }
 
+    /** Dialogs and navigation-owned submenus retain their resting-state ownership. */
+    private function insideOwnedNavigationPanel(DOMElement $element): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( $this->isSemanticDialog($node) || $node->hasAttribute(CaptureEvidence::DIALOG_PANEL)
+                || ( ! $node->isSameNode($element) && $this->isNavigationLandmark($node) ) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Resolve resting panel/control hiding through the same author cascade as the collapse boundary. */
+    private function hiddenAtCollapsedViewport(DOMElement $element, bool $includeAncestors = false): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $values = $this->styleResolver->collapsedViewportAuthorDeclarations($node, array('display', 'visibility', 'opacity'));
+            $display = CssValueInspector::comparable($this->styleResolver->resolveCssVariablesAtViewport($values['display'] ?? '', $node, StyleResolver::MOBILE_REFERENCE_WIDTH));
+            $visibility = CssValueInspector::comparable($values['visibility'] ?? '');
+            $opacity = CssValueInspector::comparable($values['opacity'] ?? '');
+            if ( $this->sourceElementIsHiddenByMarkup($node, $display)
+                || 'none' === $display || in_array($visibility, array('hidden', 'collapse'), true)
+                || (is_numeric($opacity) && 0.0 === (float) $opacity) ) {
+                return true;
+            }
+            if ( ! $includeAncestors || in_array(strtolower($node->tagName), array('header', 'body', 'html'), true) ) {
+                break;
+            }
+        }
+        return false;
+    }
+
     private function recognizeHiddenNavigationInControlledTarget(DOMElement $target): ?DOMElement
     {
-        if ( ! $this->sourceElementIsHidden($target) && ! $this->isCollapsedOutOfFlowPanel($target) ) {
+        // Large linked stylesheets can carry visibility/opacity outside the
+        // structural presentation collection. Read that state through the
+        // author cascade, without claiming a native/captured dialog's panel.
+        $authorPanel = ! $this->insideOwnedNavigationPanel($target)
+            && ! $this->isInsideAdoptedRestingPanel($target)
+            && $this->isOutOfFlowNavigationPanel($target)
+            && 'hidden' === CssValueInspector::comparable($this->styleResolver->collapsedViewportAuthorDeclarations($target, array('visibility'))['visibility'] ?? '');
+        if ( ! $this->sourceElementIsHidden($target) && ! $this->isCollapsedOutOfFlowPanel($target)
+            && ! ( $authorPanel && $this->hiddenAtCollapsedViewport($target) ) ) {
             return null;
         }
 
@@ -419,7 +475,10 @@ final class NavigationToggleSuppressor
         // viewports. Only the former is a control's hidden counterpart; the
         // latter must keep its own document position and let the toggle
         // become core/navigation's native responsive affordance instead.
-        if ( ! $this->targetHiddenAtReferenceViewport($target) || $this->isCapturedInlineNavigationPanel($target) ) {
+        if ( ( ! $this->targetHiddenAtReferenceViewport($target)
+                && ! ( $authorPanel && ! $this->sourceElementIsHidden($target)
+                    && $this->isHiddenAtDefaultViewport($target) ) )
+            || $this->isCapturedInlineNavigationPanel($target) ) {
             return null;
         }
 
