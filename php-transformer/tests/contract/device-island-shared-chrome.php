@@ -73,6 +73,27 @@ foreach ($rows as $shape => [$fixture, $areas, $gateClasses]) {
         }
     }
 }
+// Home keeps its footer inline (its copy differs) with the same footer
+// classes, while the other routes share the hoisted footer. The rule
+// `#container .colophon` reaches that footer through an ancestor the shared
+// part is rendered outside of: it stays on the inline route, and a copy
+// re-anchored on the part's wrapper must reach the hoisted footer too.
+$withInlineFooter = static fn(string $html): string => preg_replace('#(<footer id="colophon(?:-m)?" class="colophon"><p>© Example Co\.</p>)#u', '$1<p>Say hello.</p>', $html) ?? $html;
+$files = array('index.html' => $withInlineFooter(str_replace('TITLE', 'Home', $island)));
+foreach (array('about/index.html' => 'About', 'contact/index.html' => 'Contact', 'work/index.html' => 'Work') as $path => $title) $files[$path] = str_replace('TITLE', $title, $island);
+$plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray()['source_reports']['wordpress_site_plan'];
+$footers = array_values(array_filter($plan['template_parts'], static fn(array $part): bool => 'footer' === ($part['area'] ?? null) && 'shared_shell' === ($part['placement']['kind'] ?? null)));
+$pages = array_column($plan['pages'], 'canonical_block_markup', 'source_path');
+if (1 !== count($footers) || !in_array('container', (array) ($footers[0]['ancestor_context']['ids'] ?? array()), true)) $failures[] = 'mixed footers: expected one hoisted footer detached from #container.';
+if (!str_contains($pages['index.html'] ?? '', 'class="wp-block-group colophon')) $failures[] = 'mixed footers: index.html no longer keeps its footer inline.';
+foreach (array('about/index.html', 'contact/index.html', 'work/index.html') as $path) if (preg_match('/<footer\b/', $pages[$path] ?? '')) $failures[] = "mixed footers: {$path} still inlines its footer.";
+$css = array_filter($plan['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null) && is_string($asset['content'] ?? null));
+$shared = implode("\n", array_column(array_filter($css, static fn(array $asset): bool => str_starts_with((string) ($asset['path'] ?? ''), 'assets/css/shared-chrome-')), 'content'));
+$route = implode("\n", array_column(array_filter($css, static fn(array $asset): bool => in_array('index.html', array_column($asset['scopes'] ?? array(), 'source_path'), true)), 'content'));
+// The hoisted footer sits in a wrapper whose child is #colophon, not in #container.
+if (1 !== preg_match('/:where\([^{}]*:has\(> #colophon\)[^{}]*\)\)\s*\.colophon\s*\{\s*padding-top\s*:\s*200px/', $shared)) $failures[] = 'mixed footers: shared chrome does not apply `#container .colophon{padding-top:200px}` to the hoisted footer.';
+if (1 !== preg_match('/(?:^|[}\s])#container \.colophon\s*\{\s*padding-top\s*:\s*200px/', $route)) $failures[] = 'mixed footers: the inline route lost its `#container .colophon` rule.';
+
 if (array() !== $failures) {
     fwrite(STDERR, "device island shared chrome contract failed:\n- " . implode("\n- ", $failures) . "\n");
     exit(1);
