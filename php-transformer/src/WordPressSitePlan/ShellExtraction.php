@@ -832,8 +832,12 @@ final class ShellExtraction
     private static function isCapturedModalDialogBlock(string $markup): bool
     {
         // Only a modal: a dropdown flows in its document like a source panel.
-        return 1 === preg_match('#^<!--\s*wp:[a-z0-9-]+/captured-dialog(?:\s+(\{.*?\}))?\s*/?-->#s', ltrim($markup), $match)
-            && 'dropdown' !== ((json_decode($match[1] ?? '', true) ?: array())['presentation'] ?? null);
+        if (1 === preg_match('#^<!--\s*wp:[a-z0-9-]+/captured-dialog(?:\s+(\{.*?\}))?\s*/?-->#s', ltrim($markup), $match)) {
+            return 'dropdown' !== ((json_decode($match[1] ?? '', true) ?: array())['presentation'] ?? null);
+        }
+        if (1 !== preg_match('#^<!--\s*wp:group\s+(\{.*?\})\s*-->#s', ltrim($markup), $match)) return false;
+        $shell = json_decode($match[1], true)['metadata']['blocksEngineDialog'] ?? null;
+        return is_array($shell) && 'dropdown' !== ($shell['attributes']['data-blocks-engine-presentation'] ?? null);
     }
 
     private static function isHeadingBlock(string $markup): bool

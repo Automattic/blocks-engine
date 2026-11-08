@@ -6791,7 +6791,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private function hasIndependentWrapperOwnership(array $block): bool
     {
         $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
-        return !empty($block['_editability_runtime_owned'])
+        // Runtime metadata owns this Group's identity, not just its static div.
+        // Coalescing it into a wrapper list would discard the dialog binding.
+        return isset($attrs['metadata']['blocksEngineDialog'])
+            || !empty($block['_editability_runtime_owned'])
             || !empty($block['_editability_visual_owned'])
             || !empty($attrs['backgroundColor'])
             || !empty($attrs['gradient'])

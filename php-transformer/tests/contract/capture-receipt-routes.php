@@ -28,9 +28,9 @@ foreach (array('capture-root' => 'website/index.html', 'website-root' => 'index.
     $result = (new ArtifactCompiler())->compile(array('entrypoint' => $path, 'files' => $files))->toArray();
     $markup = $result['serialized_blocks'] ?? '';
     $codes = array_column($result['diagnostics'] ?? array(), 'code');
-    echo $layout . ': source_unmatched=' . (in_array('captured_interaction_source_unmatched', $codes, true) ? 'yes' : 'no') . ', native_dialog=' . (str_contains($markup, '<!-- wp:custom/captured-dialog') ? 'yes' : 'no') . "\n";
+    echo $layout . ': source_unmatched=' . (in_array('captured_interaction_source_unmatched', $codes, true) ? 'yes' : 'no') . ', native_dialog=' . (str_contains($markup, '"blocksEngineDialog"') ? 'yes' : 'no') . "\n";
     $assert(!in_array('captured_interaction_source_unmatched', $codes, true), $layout . ' resolves its receipt route');
-    $assert(str_contains($markup, '<!-- wp:custom/captured-dialog') && str_contains($markup, 'Captured notes.'), $layout . ' projects the observed native dialog');
+    $assert(str_contains($markup, '"blocksEngineDialog"') && str_contains($markup, 'Captured notes.'), $layout . ' projects the observed native dialog');
     // Generated dialog IDs include the artifact path; compare everything else.
     $normalized = preg_replace('/blocks-engine-dialog-[a-f0-9]{16}/', 'dialog-id', $markup);
     $expected ??= $normalized;

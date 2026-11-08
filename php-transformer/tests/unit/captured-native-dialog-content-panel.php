@@ -14,8 +14,8 @@ if (str_contains($json, 'html_unsupported_element') || str_contains($result['ser
     throw new RuntimeException('Captured native dialog content must not fall back to unsupported HTML: ' . $json);
 }
 $markup = (string) ($result['serialized_blocks'] ?? '');
-if (!str_contains($markup, 'Share your reflection') || !str_contains($markup, 'Write in your own voice.') || !str_contains($markup, '/captured-dialog')) {
-    throw new RuntimeException('Captured native dialog content must project into editable captured-dialog blocks: ' . $markup);
+if (!str_contains($markup, 'Share your reflection') || !str_contains($markup, 'Write in your own voice.') || !str_contains($markup, '"blocksEngineDialog"')) {
+    throw new RuntimeException('Captured native dialog content must project into editable core Group dialog blocks: ' . $markup);
 }
 // Both document and fragment inputs must adopt without an interaction report.
 // In particular, fragment parsing must not nest a sibling dialog in its button.
@@ -29,7 +29,7 @@ foreach (array($html, '<html><body><main><section>' . $html . '</section></main>
 $formHtml = str_replace('<p>Write in your own voice.</p>', '<form action="/share" method="post"><label>Your reflection<input name="reflection"></label><button type="submit">Send</button></form>', $html);
 $formResult = (new ArtifactCompiler())->compile(array('files' => array('index.html' => $formHtml)))->toArray();
 $formMarkup = (string) ($formResult['serialized_blocks'] ?? '');
-if (!str_contains($formMarkup, '/captured-dialog') || !str_contains($formMarkup, 'Your reflection')
+if (!str_contains($formMarkup, '"blocksEngineDialog"') || !str_contains($formMarkup, 'Your reflection')
     || str_contains(json_encode($formResult) ?: '', 'html_unsupported_element')) {
     throw new RuntimeException('A captured native dialog containing a form must remain editable.');
 }

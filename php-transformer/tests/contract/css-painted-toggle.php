@@ -9,7 +9,7 @@ $source = (string) file_get_contents(dirname(__DIR__) . '/fixtures/css-painted-t
 $result = (new HtmlTransformer())->transform($source)->toArray();
 $markup = (string) $result['serialized_blocks'];
 $document = new DOMDocument();
-@$document->loadHTML('<?xml encoding="utf-8" ?><body>' . $markup . '</body>');
+@$document->loadHTML('<?xml encoding="utf-8" ?><body>' . Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($markup) . '</body>');
 $xpath = new DOMXPath($document);
 $button = $xpath->query('//button[@id="menu-toggle"]')->item(0);
 $assert = static function (bool $condition, string $message): void {

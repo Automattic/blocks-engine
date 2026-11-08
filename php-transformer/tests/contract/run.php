@@ -1155,7 +1155,7 @@ $assert(str_contains($separateResponsiveMenuCss, '@media(max-width:768px)') && s
 
 $linkedCapturedDisclosure = ( new HtmlTransformer() )->transform('<details><summary>&nbsp;</summary><div role="dialog" data-blocks-engine-triggers="menu-trigger"><nav><a href="/about">About</a></nav></div></details>')->toArray();
 $linkedCapturedDisclosureBlock = $linkedCapturedDisclosure['blocks'][0] ?? array();
-$assert(str_ends_with((string) ($linkedCapturedDisclosureBlock['blockName'] ?? ''), '/captured-dialog') && array('menu-trigger') === ($linkedCapturedDisclosureBlock['attrs']['triggerIds'] ?? null), 'explicitly linked captured disclosures lower to the typed dialog block');
+$assert('core/group' === ($linkedCapturedDisclosureBlock['blockName'] ?? '') && 'menu-trigger' === ($linkedCapturedDisclosureBlock['attrs']['metadata']['blocksEngineDialog']['attributes']['data-blocks-engine-triggers'] ?? null), 'explicitly linked captured disclosures lower to the typed dialog block');
 
 $unsafeCapturedDisclosureResult = ( new HtmlTransformer() )->transform('<div class="rich-text"><p>Copyright text</p><details><summary>&nbsp;</summary><div role="dialog"><script>window.open()</script><nav><a href="/about">About</a></nav></div></details></div>')->toArray();
 $unsafeCapturedDisclosureMarkup = (string) ($unsafeCapturedDisclosureResult['serialized_blocks'] ?? '');
@@ -6010,16 +6010,15 @@ $capturedDialog = $compiler->compile(array(
     ),
 ))->toArray();
 $assert(1 === ($capturedDialog['source_reports']['captured_interactions']['projected_dialog_count'] ?? null), 'captured interaction reports project one matched dialog');
-$assert(str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), '<!-- wp:ssi-captured-dialog-site/captured-dialog'), 'captured dialogs serialize as a site companion block', (string) ($capturedDialog['serialized_blocks'] ?? ''));
-$assert(str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), '<dialog') && str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), 'data-blocks-engine-triggers='), 'captured dialog block preserves native dialog and trigger linkage');
+$assert(str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), '"blocksEngineDialog"'), 'captured dialogs serialize as editable core Groups');
+$assert(str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), '"tagName":"dialog"') && str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), '"data-blocks-engine-triggers":'), 'captured dialog block preserves native dialog and trigger linkage');
 $assert(1 === preg_match('/<!-- wp:navigation-link [^>]*"anchor":"blocks-engine-dialog-trigger-[a-f0-9]{16}-1"/', (string) ($capturedDialog['serialized_blocks'] ?? '')), 'captured dialog trigger identity survives navigation-link conversion', (string) ($capturedDialog['serialized_blocks'] ?? ''));
 $assert(! str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), 'provider.example') && ! str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), 'window.provider'), 'captured dialogs remove provider endpoints and executable source code');
 $assert(str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), '<!-- wp:ssi-captured-dialog-site/authored-native-form') && str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), 'action="/directory"'), 'ordinary static GET siblings retain the native form owner');
 $capturedDialogBlocks = $capturedDialog['source_reports']['companion_plugin_payload']['blocks'] ?? array();
 $capturedDialogBlock = current(array_filter($capturedDialogBlocks, static fn(array $block): bool => 'captured-dialog' === ($block['name'] ?? ''))) ?: array();
-$assert('ssi-captured-dialog-site/captured-dialog' === ($capturedDialogBlock['block_json']['name'] ?? null), 'captured dialog companion metadata matches the serialized block namespace');
-$assert(str_contains((string) ($capturedDialogBlock['view_js'] ?? ''), 'showModal'), 'captured dialog companion block carries scoped native dialog behavior');
-$assert(isset($capturedDialogBlock['assets']['index.js']), 'captured dialog companion block carries an editable InnerBlocks editor');
+$assert(array() === $capturedDialogBlock, 'Core dialog Groups require no companion block');
+$assert(str_contains(Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\CapturedDialogRuntime::bootstrap(), 'showModal'), 'Core dialog runtime carries scoped native dialog behavior');
 $capturedDialogForms = array_values(array_filter($capturedDialog['source_reports']['artifact']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'entity_collection' === ($declaration['kind'] ?? '') && 'forms' === ($declaration['type'] ?? '')));
 $assert(1 === count($capturedDialogForms), 'captured dialog forms continue through the generic form materialization declaration');
 

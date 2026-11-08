@@ -618,6 +618,7 @@
       "php tests/unit/navigation-current-item-box-state.php",
       "php tests/unit/navigation-probe-subject-publication.php",
       "php tests/unit/captured-dialog-projector.php",
+      "php tests/unit/captured-dialog-core-group.php",
       "php tests/unit/captured-dialog-source-panel-box.php",
       "php tests/unit/captured-dialog-native-dialog-panel.php",
       "php tests/unit/captured-native-dialog-content-panel.php",
