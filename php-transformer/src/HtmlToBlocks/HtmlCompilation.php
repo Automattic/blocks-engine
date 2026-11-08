@@ -294,6 +294,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly NavigationStyleProjector $navigationStyleProjector;
 
     private readonly SvgMaterializer $svgMaterializer;
+    private readonly Elements\AuthoredStateButtonLowering $authoredStateButtons;
 
     private readonly RichTextMaterializer $richTextMaterializer;
     private readonly AuthoredMarqueeRecognizer $authoredMarqueeRecognizer;
@@ -516,6 +517,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->runtime
         );
         $this->richTextMaterializer = new RichTextMaterializer($this->styleResolver, $this->svgMaterializer, $this->session, $this);
+        $this->authoredStateButtons = new Elements\AuthoredStateButtonLowering($this->session, $this->svgMaterializer);
         $this->linkedIconTextRows = new Elements\LinkedIconTextRowLowering(
             $this,
             $this->styleResolver,
@@ -9822,87 +9824,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     /** @return array<string, mixed> */
     private function preservedSourceControlBlock(DOMElement $element): array
     {
-        return $this->authoredStateButtonBlock($element) ?? $this->htmlPreservationBlock($element);
-    }
-
-    /** @return array<string, mixed>|null */
-    private function authoredStateButtonBlock(DOMElement $element): ?array
-    {
-        if ( 'button' !== strtolower($element->tagName) ) {
-            return null;
-        }
-        if ( array() !== SourceDom::eventMetadata($element) ) {
-            return null;
-        }
-        foreach ( array( 'aria-controls', 'aria-expanded', 'command', 'commandfor', 'form', 'formaction', 'popovertarget', 'popovertargetaction', 'data-action', 'jsaction' ) as $name ) {
-            if ( $element->hasAttribute($name) ) {
-                return null;
-            }
-        }
-        $svg = null;
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof \DOMText && '' !== trim($child->textContent) ) {
-                return null;
-            }
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-            if ( 'svg' !== strtolower($child->tagName) || $svg instanceof DOMElement ) {
-                return null;
-            }
-            $svg = $child;
-        }
-        if ( ! $svg instanceof DOMElement ) {
-            return null;
-        }
-        $icon = $this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($svg));
-        if ( '' === $icon || ! SourceDom::isSafeSvgContent($icon) || ! SourceDom::isSafeInlineSvgMarkup($icon) ) {
-            return null;
-        }
-        $pressed = strtolower(trim($this->attr($element, 'aria-pressed')));
-        if ( '' !== $pressed && ! in_array($pressed, array( 'true', 'false', 'mixed' ), true) ) {
-            return null;
-        }
-        $role = strtolower(trim($this->attr($element, 'role')));
-        $checked = strtolower(trim($this->attr($element, 'aria-checked')));
-        if ('' !== $role && 'checkbox' !== $role) return null;
-        if ('checkbox' === $role && (!in_array($checked, array('true', 'false'), true) || '' !== $pressed || FormControlClassifier::hasFormAncestor($element))) return null;
-        $sourceAttributes = array();
-        foreach ( $element->attributes ?? array() as $attribute ) {
-            $name = strtolower($attribute->nodeName);
-            if ( 1 === preg_match('/^data-(?!wp-)[a-z0-9_.:-]+$/', $name) ) {
-                $sourceAttributes[] = array( 'name' => $name, 'value' => $attribute->nodeValue ?? '' );
-            }
-        }
-        $generator = new AuthoredButtonBlockGenerator();
-        $registry = $this->session->requireGeneratedBlockRegistry();
-        $registry->register(AuthoredButtonBlockGenerator::class, $generator->definition($registry->namespace()));
-        $type = FormControlClassifier::controlType($element);
-        $attrs = array_filter(array(
-            'type' => 'checkbox' === $role ? 'button' : (in_array($type, array( 'button', 'reset', 'submit' ), true) ? $type : 'submit'),
-            'id' => $this->attr($element, 'id'),
-            'name' => $this->attr($element, 'name'),
-            'ariaLabel' => $this->attr($element, 'aria-label'),
-            'ariaPressed' => $pressed,
-            'role' => $role,
-            'ariaChecked' => 'checkbox' === $role ? $checked : '',
-            'title' => $this->attr($element, 'title'),
-            'tabIndex' => $this->attr($element, 'tabindex'),
-            'className' => $this->attr($element, 'class'),
-            'style' => $this->attr($element, 'style'),
-            'iconSvg' => $icon,
-            'sourceAttributes' => $sourceAttributes,
-            'disabled' => $element->hasAttribute('disabled'),
-        ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : (is_bool($value) ? $value : '' !== $value));
-        $markup = $generator->markup($attrs);
-
-        return array(
-            'blockName' => $registry->blockName(AuthoredButtonBlockGenerator::LOCAL_NAME),
-            'attrs' => $attrs,
-            'innerBlocks' => array(),
-            'innerHTML' => $markup,
-            'innerContent' => array( $markup ),
-        );
+        return $this->authoredStateButtons->fromElement($element) ?? $this->htmlPreservationBlock($element);
     }
 
     /** A bounded phrasing tree with named binary SVG controls is layout plus
@@ -9936,7 +9858,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $controls = array();
         foreach ($buttons as $button) {
             if ('checkbox' !== strtolower(trim($this->attr($button, 'role'))) || '' === trim($this->attr($button, 'aria-label') . $this->attr($button, 'title')) || $this->runtimeIslands->isRuntimeDomTarget($button)) return null;
-            $block = $this->authoredStateButtonBlock($button);
+            $block = $this->authoredStateButtons->fromElement($button);
             if (null === $block) return null;
             $controls[$button->getNodePath()] = $block;
         }
