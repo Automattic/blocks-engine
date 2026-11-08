@@ -92,6 +92,7 @@
     "test:canonical": [
       "php tests/contract/responsive-navigation-list-ownership.php",
       "php tests/contract/custom-image-host-core-group.php",
+      "php tests/contract/button-list-descendant-selectors.php",
       "php tests/contract/captured-document-link-serialization.php",
       "php tests/contract/standalone-font-glyph.php",
       "php tests/contract/responsive-inherited-text-alignment.php",
