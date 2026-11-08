@@ -97,8 +97,11 @@ final class AssetConsumers
         // Scan each text once for the references it makes rather than
         // rescanning the whole plan for every image. A reference the scan
         // cannot represent, or a scan PCRE refuses, is searched literally.
-        $baseReferences = self::references($base);
-        $payloadReferences = array_map(self::references(...), $imagePayloads);
+        // Only image tokens and targets are looked up, so each scan keeps just
+        // those hits rather than every token and quoted string it encloses.
+        $wanted = array('tokens' => array_fill_keys(array_map('strval', array_keys($images)), true), 'quoted' => $imageTargets);
+        $baseReferences = self::references($base, $wanted);
+        $payloadReferences = array_map(static fn (string $payload): ?array => self::references($payload, $wanted), $imagePayloads);
         $scannable = null !== $baseReferences && !in_array(null, $payloadReferences, true);
         $unreferenced = array();
         do {
@@ -127,16 +130,19 @@ final class AssetConsumers
     }
 
     /**
-     * Every asset token a text references, and every quote-free string it
-     * encloses in double quotes, overlapping enclosures included: exactly the
-     * values `str_contains()` finds for a `}`-free token or `"`-free target.
+     * The wanted asset tokens a text references, and the wanted quote-free
+     * strings it encloses in double quotes, overlapping enclosures included:
+     * exactly the values `str_contains()` finds for a `}`-free token or
+     * `"`-free target.
      *
+     * @param array{tokens: array<string,mixed>, quoted: array<string,mixed>} $wanted
      * @return array{tokens: array<string,true>, quoted: array<string,true>}|null
      */
-    private static function references(string $text): ?array
+    private static function references(string $text, array $wanted): ?array
     {
         if (false === preg_match_all('/' . preg_quote(WordPressSitePlan::TOKEN_PREFIX, '/') . '(?=([^}]*)\}\})/', $text, $tokens)) return null;
+        $tokens = array_intersect_key(array_fill_keys($tokens[1], true), $wanted['tokens']);
         if (false === preg_match_all('/"(?=([^"]*)")/', $text, $quoted)) return null;
-        return array('tokens' => array_fill_keys($tokens[1], true), 'quoted' => array_fill_keys($quoted[1], true));
+        return array('tokens' => $tokens, 'quoted' => array_intersect_key(array_fill_keys($quoted[1], true), $wanted['quoted']));
     }
 }
