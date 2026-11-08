@@ -91,6 +91,7 @@
       "@test:packaging"
     ],
     "test:canonical": [
+      "php tests/contract/shell-header-incidental-evidence.php",
       "php tests/contract/responsive-navigation-list-ownership.php",
       "php tests/contract/custom-image-host-core-group.php",
       "php tests/contract/button-list-descendant-selectors.php",

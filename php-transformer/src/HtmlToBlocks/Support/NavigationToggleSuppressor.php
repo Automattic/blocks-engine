@@ -1624,6 +1624,7 @@ final class NavigationToggleSuppressor
                 return $this->concreteToggleControl($toggle);
             }
             if ( ! $toggle instanceof DOMElement
+                || SourceDom::documentVariantRoot($toggle) !== SourceDom::documentVariantRoot($navigation)
                 || $this->isCapturedDialogControl($toggle)
                 || ( ! $this->isHamburgerMenuToggleControl($toggle) && ! $this->isProjectableHashAnchorMenuToggle($toggle) )
             ) {
@@ -1779,6 +1780,7 @@ final class NavigationToggleSuppressor
         foreach ( $document->getElementsByTagName('*') as $candidate ) {
             if ( ! $candidate instanceof DOMElement
                 || $candidate->isSameNode($navigationRoot)
+                || SourceDom::documentVariantRoot($candidate) !== SourceDom::documentVariantRoot($navigationRoot)
                 || $this->isInsideProjectedNavigationSuppressed($candidate)
                 || $this->isInsideNativeDisclosure($candidate)
                 || SourceDom::elementContains($navigationRoot, $candidate)
