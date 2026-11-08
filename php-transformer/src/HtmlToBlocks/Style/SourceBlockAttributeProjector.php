@@ -449,12 +449,32 @@ final class SourceBlockAttributeProjector
                 $classes[] = self::LAYOUT_NEUTRAL_BUTTON_CLASS . '-author-' . $property;
             }
         }
-        if ( '' === trim((string) ($declarations['width'] ?? '')) && $this->stretchesAcrossGridTrack($element, $declarations) ) {
-            // A stretched grid item's width is its track: source-owned, like an
-            // authored width, so the shrink-to-fit reset must not replace it.
+        if ( '' === trim((string) ($declarations['width'] ?? '')) && (
+            $this->stretchesAcrossGridTrack($element, $declarations)
+            || $this->hasAbsoluteHorizontalInsets($declarations)
+        ) ) {
+            // A stretched grid item's track, or an absolutely positioned box
+            // pinned to both horizontal edges, has a source-owned width that
+            // must survive the shrink-to-fit reset.
             $classes[] = self::LAYOUT_NEUTRAL_BUTTON_CLASS . '-author-width';
         }
         return implode(' ', $classes);
+    }
+
+    /** @param array<string, string> $declarations */
+    private function hasAbsoluteHorizontalInsets(array $declarations): bool
+    {
+        if ( ! in_array(CssValueInspector::comparable((string) ($declarations['position'] ?? '')), array( 'absolute', 'fixed' ), true) ) {
+            return false;
+        }
+        $left = CssValueInspector::comparable((string) ($declarations['left'] ?? $declarations['inset-inline-start'] ?? ''));
+        $right = CssValueInspector::comparable((string) ($declarations['right'] ?? $declarations['inset-inline-end'] ?? ''));
+        if ( '' === $left && '' === $right && isset($declarations['inset']) ) {
+            $inset = preg_split('/\\s+/', CssValueInspector::comparable((string) $declarations['inset'])) ?: array();
+            $left = $inset[3] ?? $inset[1] ?? $inset[0] ?? '';
+            $right = $inset[1] ?? $inset[0] ?? '';
+        }
+        return '' !== $left && 'auto' !== $left && '' !== $right && 'auto' !== $right;
     }
 
     /** @param array<string, string> $declarations */
