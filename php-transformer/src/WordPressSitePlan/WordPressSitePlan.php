@@ -278,6 +278,7 @@ PHP;
         $this->sourceUrl = $this->sourceUrlFromProvenance($data['provenance'] ?? array());
         $this->listingQueryContainers = array();
         $this->chromeIdentityKeys = array();
+        $this->listingAnchorsByMarkup = array();
         $this->sourceOrigin = $this->urlOrigin($this->sourceUrl);
         $this->unresolvedNavigationDiagnostics = array();
         $this->omittedUnresolvedNavigationDiagnostics = 0;
@@ -5014,6 +5015,9 @@ PHP;
      */
     private array $chromeIdentityKeys = array();
 
+    /** @var array<string,list<array{href:string,text:string}>> Listing anchors by markup hash. */
+    private array $listingAnchorsByMarkup = array();
+
     private function chromeIdentityKey(string $markup): string
     {
         return $this->chromeIdentityKeys[hash('xxh128', $markup)] ??= ('' === ($identity = ShellExtraction::identityMarkup($markup)) ? '' : hash('xxh128', $identity));
@@ -5624,14 +5628,20 @@ PHP;
             }
         }
         $ranges = $documentIndex->ranges();
+        // A range's anchors do not depend on the route being matched.
+        $rangeAnchors = array();
+        foreach (array() === $routes ? array() : $ranges as $index => $range) {
+            $slice = substr($markup, $range['offset'], $range['length']);
+            // A single reciprocal card must not swallow the archive heading.
+            if (1 === count($routes) && preg_match('/<h1\b/i', $slice)) continue;
+            $rangeAnchors[$index] = $this->listingAnchors($slice);
+        }
         $cards = array();
         foreach ($routes as $route => $post) {
             $exclusive = null;
-            foreach ($ranges as $range) {
-                $slice = substr($markup, $range['offset'], $range['length']);
-                // A single reciprocal card must not swallow the archive heading.
-                if (1 === count($routes) && preg_match('/<h1\b/i', $slice)) continue;
-                $anchors = $this->listingAnchors($slice);
+            foreach ($ranges as $index => $range) {
+                if (!isset($rangeAnchors[$index])) continue;
+                $anchors = $rangeAnchors[$index];
                 $hits = false;
                 $others = false;
                 foreach ($anchors as $anchor) {
@@ -6344,6 +6354,14 @@ PHP;
     }
     /** @return array<int,array{href:string,text:string}> */
     private function listingAnchors(string $html): array
+    {
+        // Card matching asks for every block range's anchors once per post
+        // route, and listing passes revisit the same slices.
+        return $this->listingAnchorsByMarkup[hash('xxh128', $html)] ??= self::parseListingAnchors($html);
+    }
+
+    /** @return list<array{href:string,text:string}> */
+    private static function parseListingAnchors(string $html): array
     {
         $anchors = array();
         foreach (HtmlMarkupParser::htmlMarkupNodes($html) as $node) {
