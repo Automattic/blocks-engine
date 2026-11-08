@@ -4317,7 +4317,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             // file picker, say) is still the visible box around its content.
             // Lower it as that container: its content stays native blocks and
             // the control reports through standalone control handling.
-            if ( (null !== $label && 'core/html' !== ($label['blockName'] ?? null)) || ! $this->wrapsControlElement($element) ) {
+            if ( (null !== $label && 'core/html' !== ($label['blockName'] ?? null)) || ! $this->wrapsUnrepresentableControl($element) ) {
                 return $label;
             }
             return $this->flowContainerConverter->convertGenericContainer($element, $fallbacks)->block;
@@ -4711,10 +4711,12 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return false;
     }
 
-    private function wrapsControlElement(DOMElement $element): bool
+    /** Whether the label wraps a control with no page representation: unrendered or without a readable summary. */
+    private function wrapsUnrepresentableControl(DOMElement $element): bool
     {
         foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( FormControlClassifier::isControlElement($descendant) ) {
+            if ( FormControlClassifier::isControlElement($descendant)
+                && (FormControlClassifier::isNonAuthoredControl($descendant) || ! FormControlClassifier::isReadableControl($descendant)) ) {
                 return true;
             }
         }
