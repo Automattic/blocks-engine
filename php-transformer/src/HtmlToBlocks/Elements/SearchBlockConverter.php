@@ -108,6 +108,14 @@ final class SearchBlockConverter
             $attrs['buttonText'] = $this->formControlMetadataBuilder->submitText($submitControl, 'Search');
             if ( $this->isIconOnlySearchControl($submitControl) ) {
                 $attrs['buttonUseIcon'] = true;
+                // Core uses buttonText as the icon button's aria-label.
+                foreach ( array( 'aria-label', 'title' ) as $nameAttribute ) {
+                    $name = trim(SourceDom::attr($submitControl, $nameAttribute));
+                    if ( '' !== $name ) {
+                        $attrs['buttonText'] = $name;
+                        break;
+                    }
+                }
             }
         } elseif ( null !== ($searchTrigger = $this->adjacentSearchTrigger($form)) ) {
             $attrs['buttonPosition'] = 'button-only';

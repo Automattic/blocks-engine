@@ -89,7 +89,8 @@ $searchControls = array(
     'data icon' => array( '<button><span data-icon="magnifying-glass"></span></button>', true ),
     'control class' => array( '<button class="icon-search"></button>', true ),
     'control aria label' => array( '<button aria-label="Search"></button>', true ),
-    'control title' => array( '<button title="Magnifier"></button>', true ),
+    'control title' => array( '<button title="Magnifier"></button>', true, 'Magnifier' ),
+    'SVG aria label' => array( '<button type="submit" aria-label="Search posts"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19 19 5M5 5h14v14"/></svg></button>', true, 'Search posts' ),
     'input submit' => array( '<input type="submit" class="icon-search" value="">', true ),
     'plain Go' => array( '<button type="submit">Go</button>', false ),
     'close glyph' => array( '<button><i class="search-close"></i></button>', false ),
@@ -100,12 +101,15 @@ $searchControls = array(
     'non-submit glyph' => array( '<button type="button"><i class="fa-search"></i></button>', false ),
     'unrelated descendant' => array( '<button><em class="search"></em></button>', false ),
 );
-foreach ( $searchControls as $case => [ $control, $expectedSearch ] ) {
+foreach ( $searchControls as $case => $expectation ) {
+    [ $control, $expectedSearch ] = $expectation;
+    $expectedName = $expectation[2] ?? 'Search';
     $result = $transform('<form action="/recherche" id="rechercheheader"><input name="termes">' . $control . '</form>');
     $searchBlocks = $blocksNamed($result, 'core/search');
     $assert(($expectedSearch ? 1 : 0) === count($searchBlocks), "{$case}: only search-signaled GET forms become core/search");
     if ( $expectedSearch ) {
         $assert(true === ($searchBlocks[0]['attrs']['buttonUseIcon'] ?? false), "{$case}: the search submit retains buttonUseIcon");
+        $assert($expectedName === ($searchBlocks[0]['attrs']['buttonText'] ?? ''), "{$case}: icon buttonText preserves the source accessible name or falls back to Search");
     }
 }
 
