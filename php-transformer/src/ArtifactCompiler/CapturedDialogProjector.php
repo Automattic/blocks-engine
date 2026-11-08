@@ -109,9 +109,9 @@ final class CapturedDialogProjector
                                 $item = $document->createElement('div');
                                 $paths = array();
                                 foreach ($frame['media'] ?? array() as $media) {
-                                    $path = $assets[$media['asset'] ?? ''] ?? null;
-                                    if (null === $path) continue;
-                                    $paths[] = str_repeat('../', max(0, substr_count($file['path'], '/'))) . $path;
+                                    $assetPath = $assets[$media['asset'] ?? ''] ?? null;
+                                    if (null === $assetPath) continue;
+                                    $paths[] = str_repeat('../', max(0, substr_count($file['path'], '/'))) . $assetPath;
                                 }
                                 if (count($paths) < count($frame['media'] ?? array()) || !$paths) $missing[] = $show['slots'][$index] ?? $frame['id'] ?? (string) $index;
                                 if (!$paths) continue;
@@ -136,9 +136,9 @@ final class CapturedDialogProjector
                                 }
                                 $body = $snapshot->getElementsByTagName('body')->item(0);
                                 foreach ($body?->childNodes ?? array() as $child) $item->appendChild($document->importNode($child, true));
-                                foreach (array_slice($paths, $used) as $path) {
+                                foreach (array_slice($paths, $used) as $extraPath) {
                                     $image = $document->createElement('img');
-                                    $image->setAttribute('src', $path);
+                                    $image->setAttribute('src', $extraPath);
                                     $image->setAttribute('alt', '');
                                     $item->appendChild($image);
                                 }
