@@ -8,17 +8,18 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 $assert = static function (bool $condition, string $message): void { if (! $condition) throw new RuntimeException($message); };
 
 // #4983: a header menu sizes its items inline, and a page menu repeats the same
-// links inside boxed labels. Both reference one navigation entity, which holds
-// one copy of each item, so each reference renders the items it was captured with.
+// links inside boxed, formatted labels. Both reference one navigation entity,
+// which holds one copy of each item, so each reference renders the items it was
+// captured with.
 $menu = static fn (string $class, string $item, string $label): string => '<nav class="' . $class . '"><ul class="menu">'
     . implode('', array_map(static fn (string $href, string $text): string => '<li' . $item . '><a class="link" href="' . $href . '">' . sprintf($label, $text) . '</a></li>', array('/', '/about/', '/contact/'), array('Home', 'About', 'Contact')))
     . '</ul></nav>';
 $page = static fn (string $title, string $main): string => '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' . $title . '</title><style>'
-    . '.menu{display:flex;margin:0;padding:0;list-style:none}#page-menu .box{width:100px;height:50px}</style></head><body><header>'
+    . '.menu{display:flex;margin:0;padding:0;list-style:none}#page-menu .box{width:100px;height:50px}#page-menu .txt{margin:0;line-height:50px;color:#858585}</style></head><body><header>'
     . $menu('site', ' style="width:75px;height:67px"', '%s') . '</header><main>' . $main . '</main></body></html>';
 $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
     'index.html' => $page('Home', '<p>Home body.</p>'),
-    'about/index.html' => $page('About', '<div id="page-menu">' . $menu('page', '', '<div class="box"><span>%s</span></div>') . '</div><p>About body.</p>'),
+    'about/index.html' => $page('About', '<div id="page-menu">' . $menu('page', '', '<div class="box"><p class="txt">%s</p></div>') . '</div><p>About body.</p>'),
 )))->toArray()['source_reports']['wordpress_site_plan'];
 
 $menus = array_values(array_filter($plan['menus'], static fn (array $menu): bool => is_string($menu['token'] ?? null)));
@@ -35,6 +36,7 @@ foreach (array_merge($plan['template_parts'], $plan['pages']) as $document) {
         $own = $attrs['metadata']['blocksEngineNavigationItems'] ?? null;
         $rendered[str_contains($attrs['className'] ?? '', 'site') ? 'header' : 'page'] = array_map(static fn (array $item, ?array $presentation): array => array(
             'class' => (string) (null === $presentation ? ($item['className'] ?? '') : ($presentation['className'] ?? '')),
+            'label' => (string) (null === $presentation ? ($item['label'] ?? '') : ($presentation['label'] ?? $item['label'] ?? '')),
             'itemStyle' => (string) (null === $presentation ? ($item['metadata']['blocksEngineNavigationAnchor']['itemStyle'] ?? '') : ($presentation['blocksEngineNavigationAnchor']['itemStyle'] ?? '')),
         ), $entityItems, is_array($own) ? $own : array_fill(0, count($entityItems), null));
     }
@@ -44,6 +46,7 @@ foreach ($rendered['header'] as $item) $assert(str_contains($item['itemStyle'], 
 foreach ($rendered['page'] as $item) {
     $assert('' === $item['itemStyle'], "Page menu items do not take the header's inline item size.");
     $assert(in_array('box', explode(' ', $item['class']), true), 'Page menu items keep their boxed label presentation.');
+    $assert(1 === preg_match('/<span\b[^>]*\bclass="[^"]*\btxt\b/', $item['label']), 'Page menu items keep their formatted label markup.');
 }
 
 $bootstrap = (string) (array_column($plan['writes'], null, 'target_path')['functions.php']['payload']['data'] ?? '');

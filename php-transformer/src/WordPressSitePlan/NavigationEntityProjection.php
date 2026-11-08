@@ -238,10 +238,11 @@ final class NavigationEntityProjection
     }
 
     /**
-     * Item classes and anchor presentation, in document order: the order
-     * NavigationReferenceItemsRuntime visits the entity's rendered items.
+     * Item classes, anchor presentation and formatted label markup, in
+     * document order: the order NavigationReferenceItemsRuntime visits the
+     * entity's rendered items.
      *
-     * @return list<array{className?:string,blocksEngineNavigationAnchor?:array}>
+     * @return list<array{className?:string,blocksEngineNavigationAnchor?:array,label?:string}>
      */
     private static function itemPresentation(string $markup): array
     {
@@ -250,8 +251,10 @@ final class NavigationEntityProjection
             $attrs = json_decode($json, true) ?: array();
             $class = trim((string) ($attrs['className'] ?? ''));
             $anchor = $attrs['metadata']['blocksEngineNavigationAnchor'] ?? null;
+            $label = $attrs['label'] ?? null;
             return ('' === $class ? array() : array('className' => $class))
-                + (is_array($anchor) ? array('blocksEngineNavigationAnchor' => $anchor) : array());
+                + (is_array($anchor) ? array('blocksEngineNavigationAnchor' => $anchor) : array())
+                + (is_string($label) && str_contains($label, '<') ? array('label' => $label) : array());
         }, $matches[1]);
     }
 

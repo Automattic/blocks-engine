@@ -5,9 +5,11 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 /**
  * A shared navigation entity holds one copy of each item. A reference whose
- * items present differently records their classes and anchor presentation
- * ({@see NavigationEntityProjection::ITEMS_KEY}); while that reference
- * renders, its items take them, in the order the entity's items render.
+ * items present differently records their classes, anchor presentation and
+ * formatted label markup ({@see NavigationEntityProjection::ITEMS_KEY});
+ * while that reference renders, its items take them, in the order the
+ * entity's items render. Label markup applies only while the item's label
+ * text is unchanged, so an edited label keeps its edit.
  */
 final class NavigationReferenceItemsRuntime
 {
@@ -38,6 +40,7 @@ add_filter( 'block_core_navigation_render_inner_blocks', static function ( $inne
     if ( count( $items ) !== count( $presentation ) ) return $inner_blocks;
     $document = __DOCUMENT_ID__;
     $served = apply_filters( 'blocks_engine_served_route', is_front_page() ? '/' : ( 0 !== $document && 'page' === get_post_type( $document ) ? '/' . trim( (string) get_page_uri( $document ), '/' ) : null ), $document );
+    $text = static fn ( $label ): string => trim( (string) preg_replace( '/\s+/u', ' ', html_entity_decode( wp_strip_all_tags( (string) $label ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ) );
     foreach ( $items as $position => $block ) {
         $own = is_array( $presentation[ $position ] ) ? $presentation[ $position ] : array();
         $attrs = $block->parsed_block['attrs'] ?? array();
@@ -51,6 +54,7 @@ add_filter( 'block_core_navigation_render_inner_blocks', static function ( $inne
         unset( $attrs['className'], $attrs['metadata']['blocksEngineNavigationAnchor'] );
         if ( is_string( $own['className'] ?? null ) ) $attrs['className'] = $own['className'];
         if ( is_array( $own['blocksEngineNavigationAnchor'] ?? null ) ) $attrs['metadata']['blocksEngineNavigationAnchor'] = $own['blocksEngineNavigationAnchor'];
+        if ( is_string( $own['label'] ?? null ) && $text( $own['label'] ) === $text( $attrs['label'] ?? '' ) ) $attrs['label'] = $own['label'];
         $block->parsed_block['attrs'] = $attrs;
         unset( $block->attributes );
     }
