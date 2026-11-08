@@ -65,6 +65,7 @@
     "test:custom-property-state-paint-browser": "node tests/contract/custom-property-state-paint-browser.mjs",
     "test:detached-auto-inset-backdrop-browser": "node tests/unit/detached-auto-inset-backdrop-browser.mjs",
     "test:social-profile-flex-cluster-browser": "node tests/unit/social-profile-flex-cluster-browser.mjs",
+    "test:stretched-button-box-sizing-browser": "node tests/unit/stretched-button-box-sizing-browser.mjs",
     "test:search-input-group-browser": "node tests/unit/search-input-group-browser.mjs",
     "test:sibling-link-lists-browser": "node tests/contract/sibling-link-lists-browser.mjs",
     "test:navigation-icon-reset-browser": "node tests/unit/navigation-icon-reset-browser.mjs",
