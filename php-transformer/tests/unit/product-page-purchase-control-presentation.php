@@ -18,6 +18,7 @@ foreach ($cases as $case => [$opening, $closing, $buttonTag, $buttonAttributes, 
     $html = '<!doctype html><html><head><title>Desk Lamp</title>'
         . '<link rel="stylesheet" href="/purchase.css">'
         . '<style>input[type=number]{padding:7px}</style>'
+        . '<style>@import url("/purchase-mobile.css") (max-width:750px);</style>'
         . '<script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"Desk Lamp","url":"https://example.test/products/desk-lamp","offers":{"@type":"Offer","price":"40.00","priceCurrency":"USD"}}</script>'
         . '</head><body><main><h1>Desk Lamp</h1><p>$40.00</p>'
         . '<' . $opening . '>'
@@ -29,6 +30,7 @@ foreach ($cases as $case => [$opening, $closing, $buttonTag, $buttonAttributes, 
         'entrypoint' => 'products/desk-lamp.html',
         'files' => array(
             'products/desk-lamp.html' => $html,
+            'products/purchase-mobile.css' => '.cart{background:#45a2e4}',
             'purchase.css' => ':root{--purchase-radius:13px;--purchase-border-color:black}select{border-radius:var(--purchase-radius)}.cart{border:2px solid var(--purchase-border-color)}',
         ),
     ))->toArray();
@@ -59,5 +61,7 @@ foreach ($cases as $case => [$opening, $closing, $buttonTag, $buttonAttributes, 
     $assert('13px' === ($styles[0]['border_radius'] ?? null), "$case: Select border radius survives the product handoff.");
     $assert('7px' === ($styles[1]['padding'] ?? null), "$case: Quantity padding survives the product handoff.");
     $assert('2px solid black' === ($styles[2]['border'] ?? null), "$case: Cart button border survives the product handoff.");
+    $mobile = array_values(array_filter($graph['variants'] ?? array(), static fn (array $variant): bool => 2 === ($variant['index'] ?? null) && 'control' === ($variant['role'] ?? null)));
+    $assert(array('kind' => 'media', 'query' => '(max-width:750px)') === ($mobile[0]['condition'] ?? null) && '#45a2e4' === ($mobile[0]['style_patch']['background'] ?? null), "$case: A root-relative @import in an inline style carries its media-gated cart button rule.");
 }
 echo "product-page-purchase-control-presentation: ok\n";

@@ -191,7 +191,7 @@ final class StylesheetAnalysisComposer
         return $composed;
     }
 
-    /** @param array<string, mixed> $options @return list<array{path: string, source_path: string, content: string, source_hash: string, media: string}> */
+    /** @param array<string, mixed> $options @return list<array{path: string, source_path: string, content: string, source_hash: string, media: string, cascade_content?: string}> */
     public function authorStylesheetAssetsFromOptions(array $options): array
     {
         if ( ! is_array($options['author_stylesheet_assets'] ?? null) ) {
@@ -205,6 +205,7 @@ final class StylesheetAnalysisComposer
             $assets[] = array( 'path' => $asset['path'], 'source_path' => is_string($asset['source_path'] ?? null) ? $asset['source_path'] : $asset['path'], 'content' => $asset['content'], 'source_hash' => is_string($asset['source_hash'] ?? null) ? $asset['source_hash'] : hash('sha256', $asset['content']), 'media' => is_string($asset['media'] ?? null) ? $asset['media'] : '' );
             if (isset($asset['stylesheet_activation'])) $assets[array_key_last($assets)]['stylesheet_activation'] = $asset['stylesheet_activation'];
             if ( ! empty($asset['capture_only']) ) $assets[array_key_last($assets)]['capture_only'] = true;
+            if ( is_string($asset['cascade_content'] ?? null) ) $assets[array_key_last($assets)]['cascade_content'] = $asset['cascade_content'];
         }
         return $assets;
     }
