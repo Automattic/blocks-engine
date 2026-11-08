@@ -1523,7 +1523,9 @@ final class SourceElementClassifier
             if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
                 continue;
             }
-            if ( ! $child instanceof DOMElement || ! in_array(strtolower($child->tagName), array( 'defs', 'symbol' ), true) ) {
+            // An id-addressed nested SVG is a <use> target like a symbol.
+            if ( ! $child instanceof DOMElement || ! ( in_array(strtolower($child->tagName), array( 'defs', 'symbol' ), true)
+                || ( 'svg' === strtolower($child->tagName) && '' !== trim($child->getAttribute('id')) ) ) ) {
                 return false;
             }
             $hasDefinition = true;

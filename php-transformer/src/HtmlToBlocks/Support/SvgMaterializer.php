@@ -1296,7 +1296,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         }
 
         // The first element with a referenced id is its definition, as in the
-        // browser. Copy its <defs>, or a bare sprite <symbol> on its own.
+        // browser. Copy its <defs>, or a bare sprite <symbol> or <svg> on its own.
         $definitions = array();
         foreach ( $element->ownerDocument->getElementsByTagName('*') as $definition ) {
             $id = $definition instanceof DOMElement ? trim(SourceDom::attr($definition, 'id')) : '';
@@ -1310,7 +1310,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             }
             if ( $defs instanceof DOMElement ) {
                 $definitions[] = $this->context->safeFallbackHtml($defs);
-            } elseif ( 'symbol' === strtolower($definition->tagName) ) {
+            } elseif ( in_array(strtolower($definition->tagName), array( 'symbol', 'svg' ), true) ) {
                 $definitions[] = '<defs>' . $this->context->safeFallbackHtml($definition) . '</defs>';
             }
         }
