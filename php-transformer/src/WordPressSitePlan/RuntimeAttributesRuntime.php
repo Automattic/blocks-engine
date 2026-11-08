@@ -17,6 +17,20 @@ final class RuntimeAttributesRuntime
     {
         return str_replace(array('__DEVICE_INLINE__', '__VIEWPORT_ENTRANCE__', '__RESPONSIVE_FRAGMENT__'), array(CaptureEvidence::DEVICE_INLINE, CaptureEvidence::VIEWPORT_ENTRANCE, CaptureEvidence::RESPONSIVE_FRAGMENT), <<<'PHP'
 add_filter( 'render_block', static function ( string $content, array $block ): string {
+    // Core containers own CSS-drawn control boxes in the editor. On the
+    // front end keep their authored box attributes, not group layout chrome.
+    $box = $block['attrs']['metadata']['blocksEngineControlBox'] ?? null;
+    if ( 'core/group' === ( $block['blockName'] ?? '' ) && is_array( $box ) ) {
+        $processor = new WP_HTML_Tag_Processor( $content );
+        if ( $processor->next_tag() ) {
+            $processor->remove_attribute( 'class' );
+            $processor->remove_attribute( 'style' );
+            foreach ( $box as $name => $value ) {
+                if ( is_string( $name ) && is_string( $value ) && preg_match( '/^(?:class|style|id|type|name|title|tabindex|disabled|hidden|role|data-(?!wp-)[a-z0-9_.:-]+|aria-[a-z-]+)$/D', $name ) ) $processor->set_attribute( $name, $value );
+            }
+            return $processor->get_updated_html();
+        }
+    }
     $attributes = $block['attrs']['metadata']['blocksEngineRuntimeAttributes'] ?? null;
     if ( ! is_array( $attributes ) || array() === $attributes || '' === $content ) return $content;
     $processor = new WP_HTML_Tag_Processor( $content );
