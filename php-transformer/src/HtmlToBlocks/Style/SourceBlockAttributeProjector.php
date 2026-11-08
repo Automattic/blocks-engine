@@ -215,7 +215,18 @@ final class SourceBlockAttributeProjector
                 (string) ($attrs['metadata']['blocksEngineNavigationAnchor']['className'] ?? '')
             );
         }
-        $projectionClassName = $contentOwnsProjection || $navigationAnchorOwnsProjection
+        // A navigation built from its collapsed panel renders that panel as
+        // Core's responsive container; the panel's projection belongs there.
+        $navigationPanelOwnsProjection = 'core/navigation' === $name
+            && true === ($attrs['metadata']['blocksEngineNavigationContainer']['ownsSource'] ?? false);
+        if ($navigationPanelOwnsProjection) {
+            $attrs['metadata']['blocksEngineNavigationContainer']['className'] = $this->sourceProjectionClassName(
+                $sourceElement,
+                $context,
+                (string) ($attrs['metadata']['blocksEngineNavigationContainer']['className'] ?? '')
+            );
+        }
+        $projectionClassName = $contentOwnsProjection || $navigationAnchorOwnsProjection || $navigationPanelOwnsProjection
             ? $baseClassName
             : $this->sourceProjectionClassName($sourceElement, $context, $baseClassName);
         if ( '' !== $projectionClassName ) {
@@ -430,7 +441,7 @@ final class SourceBlockAttributeProjector
         $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->mergedPresentationStyle($element));
         $classes = array();
         $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
-        if ( in_array($display, array( 'inline-block', 'block', 'flex', 'inline-flex' ), true) ) {
+        if ( in_array($display, array( 'inline-block', 'block', 'flex', 'inline-flex', 'inline-grid', 'inline-table' ), true) ) {
             $classes[] = self::LAYOUT_NEUTRAL_BUTTON_CLASS . '-display-' . $display;
         }
         foreach ( array( 'width', 'height' ) as $property ) {
@@ -438,7 +449,47 @@ final class SourceBlockAttributeProjector
                 $classes[] = self::LAYOUT_NEUTRAL_BUTTON_CLASS . '-author-' . $property;
             }
         }
+        if ( '' === trim((string) ($declarations['width'] ?? '')) && (
+            $this->stretchesAcrossGridTrack($element, $declarations)
+            || $this->hasAbsoluteHorizontalInsets($declarations)
+        ) ) {
+            // A stretched grid item's track, or an absolutely positioned box
+            // pinned to both horizontal edges, has a source-owned width that
+            // must survive the shrink-to-fit reset.
+            $classes[] = self::LAYOUT_NEUTRAL_BUTTON_CLASS . '-author-width';
+        }
         return implode(' ', $classes);
+    }
+
+    /** @param array<string, string> $declarations */
+    private function hasAbsoluteHorizontalInsets(array $declarations): bool
+    {
+        if ( ! in_array(CssValueInspector::comparable((string) ($declarations['position'] ?? '')), array( 'absolute', 'fixed' ), true) ) {
+            return false;
+        }
+        $left = CssValueInspector::comparable((string) ($declarations['left'] ?? $declarations['inset-inline-start'] ?? ''));
+        $right = CssValueInspector::comparable((string) ($declarations['right'] ?? $declarations['inset-inline-end'] ?? ''));
+        if ( '' === $left && '' === $right && isset($declarations['inset']) ) {
+            $inset = preg_split('/\\s+/', CssValueInspector::comparable((string) $declarations['inset'])) ?: array();
+            $left = $inset[3] ?? $inset[1] ?? $inset[0] ?? '';
+            $right = $inset[1] ?? $inset[0] ?? '';
+        }
+        return '' !== $left && 'auto' !== $left && '' !== $right && 'auto' !== $right;
+    }
+
+    /** @param array<string, string> $declarations */
+    private function stretchesAcrossGridTrack(DOMElement $element, array $declarations): bool
+    {
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement || LayoutParticipation::GRID_ITEM !== LayoutParticipation::resolve($element, $this->styleResolver)->context ) {
+            return false;
+        }
+        $justifySelf = CssValueInspector::comparable((string) ($declarations['justify-self'] ?? ''));
+        if ( in_array($justifySelf, array( '', 'auto', 'normal' ), true) ) {
+            $parentDeclarations = $this->styleResolver->cssDeclarations($this->styleResolver->mergedPresentationStyle($parent));
+            $justifySelf = CssValueInspector::comparable((string) ($parentDeclarations['justify-items'] ?? ''));
+        }
+        return in_array($justifySelf, array( '', 'normal', 'stretch', 'legacy' ), true);
     }
 
     /** @param array<string, mixed> $attrs @return array<string, mixed> */

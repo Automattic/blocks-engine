@@ -79,7 +79,10 @@ final class NavigationStyleProjector
 
     public function materializeEditorStaticStateStylesheet(string $projectedAuthorCss = ''): void
     {
-        $rules = $this->session->generatedSupportStylesheetState()->navigationEditorTypographyRules();
+        $rules = array_merge(
+            $this->session->generatedSupportStylesheetState()->navigationEditorTypographyRules(),
+            $this->session->generatedSupportStylesheetState()->navigationEditorItemStyleRules()
+        );
         $anchorProjectionCss = $this->editorAnchorProjectionCss($projectedAuthorCss);
         if ( '' !== $anchorProjectionCss ) {
             $rules[] = $anchorProjectionCss;

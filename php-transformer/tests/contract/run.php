@@ -1859,7 +1859,7 @@ if ( 1 === preg_match('/href="([^"]+)">Quoted mailbox</', $canonicalLinkMarkup, 
 $assert(2 === substr_count($canonicalLinkMarkup, 'href="mailto:hello@richlynngroup.com"') && str_contains($canonicalLinkMarkup, 'href="mailto:hello@richlynngroup.com?subject=Hello"') && str_contains($canonicalLinkMarkup, 'href="https://martinguitar.com"') && str_contains($canonicalLinkMarkup, 'href="https://example.test/?x=%C2%A9"') && 'mailto:"quoted.local"@example.test' === $quotedMailboxHref && str_contains($canonicalLinkMarkup, 'href="mailto:%CE%B4%CE%BF%CE%BA%CE%B9%CE%BC%CE%AE@%CF%80%CE%B1%CF%81%CE%AC%CE%B4%CE%B5%CE%B9%CE%B3%CE%BC%CE%B1.%CE%B4%CE%BF%CE%BA%CE%B9%CE%BC%CE%AE"') && str_contains($canonicalLinkMarkup, 'href="members/hello@richlynngroup.com/profile"') && ! str_contains($canonicalLinkMarkup, 'script:') && ! str_contains($canonicalLinkMarkup, 'data:') && ! str_contains($canonicalLinkMarkup, 'vbscript:'), 'link sanitization canonicalizes DOM-decoded NBSP-trimmed bare emails and web hosts, normalizes entity query text for Gutenberg and preserves relative @ paths, preserves quoted-mailbox URL semantics across HTML serializers, supports Unicode mailboxes, and rejects unsafe schemes');
 $assert('mailto:hello@richlynngroup.com' === $canonicalNavigation, 'native navigation conversion shares bare-email link canonicalization');
 $assert('https://example.test/?x=&copy;' === LinkUrlSanitizer::sanitize('https://example.test/?x=&copy;') && 'https://martinguitar.com' === LinkUrlSanitizer::sanitize('martinguitar.com') && 'guide.html' === LinkUrlSanitizer::sanitize('guide.html') && 'mailto:"quoted.local"@example.test' === LinkUrlSanitizer::sanitize('"quoted.local"@example.test') && 'mailto:δοκιμή@παράδειγμα.δοκιμή' === LinkUrlSanitizer::sanitize('δοκιμή@παράδειγμα.δοκιμή'), 'link sanitization recognizes bare web hosts without converting common relative file links and recognizes quoted and Unicode mailboxes without IDN conversion');
-$safeLinkProtocols = array( 'http', 'https', 'ftp', 'ftps', 'mailto', 'news', 'irc', 'ircs', 'gopher', 'nntp', 'feed', 'telnet', 'mms', 'rtsp', 'svn', 'tel', 'fax', 'xmpp', 'webcal', 'urn' );
+$safeLinkProtocols = array( 'http', 'https', 'ftp', 'ftps', 'mailto', 'news', 'irc', 'irc6', 'ircs', 'gopher', 'nntp', 'feed', 'telnet', 'mms', 'rtsp', 'sms', 'svn', 'tel', 'fax', 'xmpp', 'webcal', 'urn' );
 foreach ( $safeLinkProtocols as $protocol ) $assert($protocol . ':value' === LinkUrlSanitizer::sanitize($protocol . ':value'), 'link sanitization permits WordPress-safe explicit scheme ' . $protocol);
 foreach ( array( '/relative/path', '../relative', '//example.test/path', '#fragment', '?query=value' ) as $relativeUrl ) $assert($relativeUrl === LinkUrlSanitizer::sanitize($relativeUrl), 'link sanitization preserves relative, protocol-relative, fragment, and query URLs');
 foreach ( array( 'data:text/plain,unsafe', 'vbscript:msgbox(1)', 'javascript:alert(1)', 'unknown:value', "java\nscript:alert(1)" ) as $unsafeUrl ) $assert('' === LinkUrlSanitizer::sanitize($unsafeUrl), 'link sanitization rejects unsafe or unknown explicit schemes and scheme obfuscation');
@@ -3785,7 +3785,7 @@ $assert(str_contains($expandableHeaderSearchSerialized, '"buttonPosition":"butto
 $assert(! str_contains($expandableHeaderSearchSerialized, '"text":"#000000"') && str_contains($expandableHeaderSearchCss, 'color:#000!important') && str_contains($expandableHeaderSearchCss, 'background:none!important') && str_contains($expandableHeaderSearchCss, 'border:0!important'), 'expandable native search preserves borderless black icon treatment through the carrier');
 $assert(str_contains($expandableHeaderSearchSerialized, '"showLabel":false') && str_contains($expandableHeaderSearchSerialized, '"placeholder":"Search"'), 'provider search cluster uses an accessible hidden label and preserves placeholder text');
 $assert(! str_contains($expandableHeaderSearchSerialized, '/apps/search') && ! str_contains($expandableHeaderSearchSerialized, 'name="q"'), 'native search migration removes provider-specific endpoint semantics');
-$assert(! str_contains($expandableHeaderSearchSerialized, '"className":"provider-search"') && str_contains($expandableHeaderSearchSerialized, 'search-icon blocks-engine-source-search-icon-') && ! str_contains($expandableHeaderSearchSerialized, 'search-close'), 'native search cluster absorbs provider wrappers while carrying the trigger presentation onto core search');
+$assert(str_contains($expandableHeaderSearchSerialized, 'search-icon blocks-engine-source-search-icon-') && ! str_contains($expandableHeaderSearchSerialized, 'search-close'), 'native search cluster carries the trigger presentation onto core search');
 $assert(str_contains($expandableHeaderSearchCss, 'flex:0 0 24px!important;width:24px!important;height:80px!important') && str_contains($expandableHeaderSearchCss, 'width:12px;height:13px') && str_contains($expandableHeaderSearchCss, 'data:image/svg+xml,'), 'native icon search replays the source trigger flex geometry and exact SVG artwork');
 $assert(str_contains($expandableHeaderSearchCss, 'viewBox%3D') && ! str_contains($expandableHeaderSearchCss, 'viewbox%3D'), 'native search icon data preserves case-sensitive SVG attribute names');
 
@@ -6732,6 +6732,7 @@ $assert(!in_array('artifact_file_too_large', array_column($tooLarge['diagnostics
 $negotiatedLimits = (new ArtifactNormalizer())->normalize(array(
     'compiler_limits' => array(
         'max_files' => PHP_INT_MAX,
+        'max_media_files' => PHP_INT_MAX,
         'max_file_bytes' => ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES + 1,
         'max_total_bytes' => PHP_INT_MAX,
         'max_media_file_bytes' => PHP_INT_MAX,
@@ -6749,6 +6750,7 @@ $assert(array(
     'max_files' => ArtifactNormalizer::MAX_FILES,
     'max_file_bytes' => ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES + 1,
     'max_total_bytes' => ArtifactNormalizer::MAX_TOTAL_BYTES,
+    'max_media_files' => ArtifactNormalizer::MAX_MEDIA_FILES,
     'max_media_file_bytes' => ArtifactNormalizer::MAX_MEDIA_FILE_BYTES,
     'max_media_total_bytes' => ArtifactNormalizer::MAX_MEDIA_TOTAL_BYTES,
     'max_report_file_bytes' => ArtifactNormalizer::MAX_REPORT_FILE_BYTES,

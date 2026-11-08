@@ -75,6 +75,15 @@ $paths = array_column($normalized['files'], 'path');
 $assert(in_array('media/tour.mp4', $paths, true) && in_array('media/hero-0.jpg', $paths, true), 'Reference-backed media larger than the source-read budget is admitted.');
 $assert(0 === $normalized['rejected_count'], 'Reference-backed media is not rejected by the budgets that bound parsed source bytes.');
 
+// Media is never parsed, so it does not spend the parse-file budget: a
+// one-page artifact whose file budget admits only its page still keeps all 41
+// media files. Media has its own file budget, which refuses the excess.
+$fileBudget = static fn(array $limits): array => (new ArtifactNormalizer())->normalize(array('compiler_limits' => $limits + $mediaArtifact['compiler_limits']) + $mediaArtifact);
+$withinBudget = $fileBudget(array('max_files' => 1));
+$assert(42 === count($withinBudget['files']) && 0 === $withinBudget['rejected_count'], 'Reference-backed media does not count against the parse-file budget.');
+$overBudget = $fileBudget(array('max_files' => 1, 'max_media_files' => 10));
+$assert(11 === count($overBudget['files']) && 31 === $overBudget['rejected_count'] && in_array('media_file_limit_exceeded', array_column($overBudget['diagnostics'], 'code'), true), 'Reference-backed media is bounded by its own file budget.');
+
 $shared = (new ArtifactCompiler())->prepareShared($mediaArtifact, $reader);
 $assert(array('index') === $reader->reads, 'Staged preparation reads only the text payload it parses.');
 $page = (new ArtifactCompiler())->preparePage($mediaArtifact, $shared, 'index.html', $reader);

@@ -72,11 +72,13 @@ final class ShellExtraction
                 // shell extractor's responsibility, not a trailing scaffold.
                 $root = $nodes[$children[$roots[0]]];
                 if (preg_match('/"tagName"\s*:\s*"main"/', $root['attributes'])) continue;
+                $leading = array_slice($children, 0, $roots[0]);
                 $trailing = array_slice($children, $roots[0] + 1);
-                if (array() === $trailing) continue;
+                if (array() === $leading && array() === $trailing) continue;
                 $closing = substr($markup, $nodes[$children[count($children) - 1]]['end'], $wrapper['end'] - $nodes[$children[count($children) - 1]]['end']);
                 $device = CaptureEvidence::deviceDocumentProfile((string) current(array_filter($classes, CaptureEvidence::isDeviceDocumentClass(...)))) ?? 'desktop';
-                foreach ($trailing as $child) {
+                $sides = array_fill_keys($leading, 'leading') + array_fill_keys($trailing, 'trailing');
+                foreach ($sides as $child => $side) {
                     $range = array('offset' => $nodes[$child]['offset'], 'length' => $nodes[$child]['end'] - $nodes[$child]['offset']);
                     $bindings = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, array($range));
                     if ($bindings['blocked'] || array() !== $bindings['refs']) continue;
@@ -87,6 +89,7 @@ final class ShellExtraction
                     $variants[$device]['opening'] ??= $opening;
                     $variants[$device]['closing'] ??= $closing;
                     $variants[$device]['siblings'][$identity]['markup'] ??= $sibling;
+                    $variants[$device]['siblings'][$identity]['position'] = $side;
                     $variants[$device]['siblings'][$identity]['sources'][(string) $page['source_path']] = true;
                     $removals[] = $range;
                 }
@@ -99,10 +102,10 @@ final class ShellExtraction
         }
         $shared = '';
         foreach ($variants as $variant) {
-            $siblings = '';
+            $leading = ''; $trailing = '';
             foreach ($variant['siblings'] as $sibling) {
                 if (count($sibling['sources']) === $postCount) {
-                    $siblings .= $sibling['markup'];
+                    if ('leading' === $sibling['position']) $leading .= $sibling['markup']; else $trailing .= $sibling['markup'];
                     continue;
                 }
                 preg_match('/"anchor"\s*:\s*"([^"]+)"|\bid="([^"]+)"|\bclass="([^"]+)"/', $sibling['markup'], $label);
@@ -113,15 +116,16 @@ final class ShellExtraction
                     $diagnostics[] = array('code' => 'wordpress_site_plan_document_chrome_varying_omitted', 'severity' => 'info', 'source_path' => $source, 'anchor_or_class' => $anchor, 'message' => 'Omitted per-post document chrome (' . $anchor . '); per-request output is not shared template design.');
                 }
             }
-            if ('' !== $siblings) $shared .= $variant['opening'] . $siblings . $variant['closing'];
+            if ('' !== $leading || '' !== $trailing) $shared .= $variant['opening'] . $leading . '<!-- wp:post-content /-->' . $trailing . $variant['closing'];
         }
         if ('' !== $shared) $chrome['single'] = $shared;
         return array('pages' => $pages, 'chrome' => $chrome, 'diagnostics' => $diagnostics);
     }
 
     /**
-     * Isolated artifacts prove equal source landmarks across routes. Compare and
-     * emit that shell, not page-cascade projections; retain page ranges for removal.
+     * Isolated artifacts prove equal source landmarks across routes. Responsive
+     * variants retain page-compiled presentation inside their device shells;
+     * isolated identity must not replace selector-derived classes on those boxes.
      * @param array<int,array<string,mixed>> $pages
      * @param array<int,array<string,mixed>> $artifacts
      * @return array<int,array<string,mixed>>
@@ -157,7 +161,11 @@ final class ShellExtraction
                     if ($bindings['blocked'] || array() !== $bindings['refs']) continue;
                     $page['_source_shared_variant_identities'][$area][$class][$row['identity_markup']] = array(
                         'identity_markup' => self::normalizeNestedChromeMarkup($artifact['canonical_block_markup']),
-                        'template_part_markup' => self::landmarkPartMarkup(self::withoutCurrentNavigationState($artifact['canonical_block_markup']), $area),
+                        // The isolated artifact proves identity, not presentation:
+                        // its stylesheet context can differ from the page's and
+                        // omit selector-derived attribute classes. Emit the
+                        // compiled page landmark under its original device shell.
+                        'template_part_markup' => self::landmarkPartMarkup(self::withoutCurrentNavigationState($row['markup']), $area),
                     );
                 }
             }
@@ -184,6 +192,10 @@ final class ShellExtraction
                 $artifact = self::sourceSharedShellArtifact($artifacts, $page, $candidate['area'], $variant);
                 if (null === $artifact) continue;
                 $markup = (string) $artifact['canonical_block_markup'];
+                // Area and position match an artifact to a candidate, not its
+                // extent: chrome detected around the landmark (an off-canvas
+                // drawer) is absent from a landmark-only artifact.
+                if (array() !== array_diff(self::textRuns($candidate['markup']), self::textRuns($markup))) continue;
                 $candidate['identity_markup'] = self::normalizeNestedChromeMarkup($markup);
                 $candidate['template_part_markup'] = self::landmarkPartMarkup(self::withoutCurrentNavigationState($markup), $candidate['area']);
             }
@@ -194,6 +206,18 @@ final class ShellExtraction
     }
 
     /** @return array<string,mixed>|null */
+    /** @return array<int,string> Visible text runs of block markup. */
+    private static function textRuns(string $markup): array
+    {
+        $source = preg_replace(array('/<!--.*?-->/s', '#<(script|style|template)\b[^>]*>.*?</\1\s*>#is'), '', $markup) ?? '';
+        $runs = array();
+        foreach (preg_split('/<[^>]*>/', $source) ?: array() as $run) {
+            $run = trim(preg_replace('/\s+/u', ' ', html_entity_decode($run, ENT_QUOTES | ENT_HTML5)) ?? '');
+            if (preg_match('/[\p{L}\p{N}]/u', $run)) $runs[$run] = $run;
+        }
+        return array_values($runs);
+    }
+
     private static function sourceSharedShellArtifact(array $artifacts, array $page, string $area, int $variant): ?array
     {
         $matches = array_values(array_filter($artifacts, static fn(array $artifact): bool =>
@@ -3824,10 +3848,22 @@ final class ShellExtraction
                 sort($classes, SORT_STRING);
                 if (array() === $classes) unset($attrs['className']); else $attrs['className'] = implode(' ', $classes);
             }
+            self::canonicalizeIdentityStyles($attrs);
             self::ksortRecursive($attrs);
             $encoded = BlockAttributes::encode($attrs);
             return '' !== $encoded ? '<!-- wp:' . $parts[1] . ' ' . $encoded . ' ' . $parts[3] . '-->' : $match[0];
         }, $markup) ?? $markup;
+    }
+
+    /** Canonicalize declaration strings, leaving Core's structured style objects intact.
+     * @param array<string,mixed> $attrs
+     */
+    private static function canonicalizeIdentityStyles(array &$attrs): void
+    {
+        foreach ($attrs as $name => &$value) {
+            if (is_array($value)) self::canonicalizeIdentityStyles($value);
+            elseif (is_string($value) && str_contains($value, ':') && ('style' === $name || str_ends_with((string) $name, 'Style'))) $value = RenderEquivalentMarkup::canonicalStyle($value);
+        }
     }
 
     /** @param array<string,mixed> $value */

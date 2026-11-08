@@ -168,6 +168,14 @@ jobs:
         working-directory: php-transformer
         run: PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/php-transformer/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/native-button-default-background-browser.mjs
 
+      - name: Verify native grid buttons fill their track
+        working-directory: php-transformer
+        run: PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/php-transformer/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/native-grid-button-stretch-browser.mjs
+
+      - name: Verify sibling link lists preserve stacking and link styles
+        working-directory: php-transformer
+        run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" composer test:sibling-link-lists-browser
+
       - name: Verify orphan list-item marker and pixel preservation
         working-directory: php-transformer
         run: PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/php-transformer/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/orphan-list-item-browser.mjs
@@ -189,6 +197,41 @@ jobs:
         env:
           BLOCK_LIBRARY_CSS: ${{ runner.temp }}/wordpress/wp-includes/css/dist/block-library/style.min.css
         run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/linked-grid-item-image-strut-browser.mjs
+
+      - name: Verify hidden control labels stay inside a scrolling rail
+        working-directory: php-transformer
+        env:
+          BLOCK_LIBRARY_CSS: ${{ runner.temp }}/wordpress/wp-includes/css/dist/block-library/style.min.css
+        run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/hidden-label-scroll-overflow-browser.mjs
+      - name: Verify a flattened fixed-size button keeps its authored box
+        working-directory: php-transformer
+        env:
+          BLOCK_LIBRARY_CSS: ${{ runner.temp }}/wordpress/wp-includes/css/dist/block-library/style.min.css
+        run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/neutral-button-fixed-height-browser.mjs
+
+      - name: Verify a propagated card link keeps its author layout
+        working-directory: php-transformer
+        env:
+          BLOCK_LIBRARY_CSS: ${{ runner.temp }}/wordpress/wp-includes/css/dist/block-library/style.min.css
+        run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/link-wrapper-card-layout-browser.mjs
+
+      - name: Verify a partially padded button keeps zero on its other sides
+        working-directory: php-transformer
+        env:
+          BLOCK_LIBRARY_CSS: ${{ runner.temp }}/wordpress/wp-includes/css/dist/block-library/style.min.css
+        run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/button-partial-padding-browser.mjs
+
+      - name: Verify a social glyph keeps its own paint over Core's color reset
+        working-directory: php-transformer
+        env:
+          BLOCK_LIBRARY_CSS: ${{ runner.temp }}/wordpress/wp-includes/css/dist/block-library/style.min.css
+        run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/social-links-glyph-paint-browser.mjs
+
+      - name: Verify a blockified rich-text layout item keeps its own line box
+        working-directory: php-transformer
+        env:
+          BLOCK_LIBRARY_CSS: ${{ runner.temp }}/wordpress/wp-includes/css/dist/block-library/style.min.css
+        run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/blockified-richtext-item-browser.mjs
 
       - name: Verify native disclosure paint and label wrapping
         working-directory: php-transformer

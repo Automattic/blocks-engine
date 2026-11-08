@@ -75,7 +75,8 @@ try {
             await page.setContent(html);
             return page.evaluate((selector) => ({
                 link: document.querySelector(selector).getBoundingClientRect().height,
-                wrapper: document.querySelector('.wp-block-buttons')?.getBoundingClientRect().height,
+                // A layout-neutral wrapper is display:contents and generates no box.
+                wrapper: ((wrapper) => wrapper && 'contents' !== getComputedStyle(wrapper).display ? wrapper.getBoundingClientRect().height : null)(document.querySelector('.wp-block-buttons')),
                 after: [...document.querySelectorAll('p')].find(p => p.textContent === 'after').getBoundingClientRect().top,
             }), selector);
         };
@@ -83,6 +84,7 @@ try {
         const actual = await geometry(`<!doctype html><style>${wordpressButtonCss}${output.css}</style>${output.html}`, '.wp-block-button__link');
         console.log(`${name}: source=${JSON.stringify(expected)} transformed=${JSON.stringify(actual)}`);
         for (const key of ['link', 'wrapper', 'after']) {
+            if (key === 'wrapper' && actual.wrapper === null) continue;
             assert.ok(Math.abs(actual[key] - expected[key === 'wrapper' ? 'link' : key]) <= 1, `${name} ${key} must match source`);
         }
     }

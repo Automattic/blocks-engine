@@ -245,6 +245,22 @@ trait DomHelpersTrait
      */
     private function sanitizeInlineSvgMarkup(DOMElement $element): string
     {
+        // Work on a clone so admission and sanitization share the namespace
+        // policy without changing source DOM evidence. Collect first: removing
+        // a declaration must not affect resolution of descendant attributes.
+        $element = $element->cloneNode(true);
+        $removals = array();
+        foreach ( array_merge(array($element), iterator_to_array($element->getElementsByTagName('*'), false)) as $node ) {
+            foreach ( SourceDom::htmlAttributes($node) as $name => $value ) {
+                if ( SvgMaterializer::isForeignSvgAttribute($node, $name, $value) ) {
+                    $removals[] = array($node, $name);
+                }
+            }
+        }
+        foreach ( $removals as [$node, $name] ) {
+            $node->removeAttribute($name);
+        }
+
         // safeFallbackHtml() already removes <script>/<style> elements, on*
         // handlers, javascript: in href/src/xlink:href, and srcdoc.
         $html = $this->safeFallbackHtml($element);

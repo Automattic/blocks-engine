@@ -32,6 +32,10 @@ final class LayoutParticipation
         'strong', 'sub', 'sup', 'time', 'u', 'var',
     );
 
+    private const AUTHORED_INLINE_LEVEL = array(
+        'inline-block', 'inline-flex', 'inline-grid', 'inline-table',
+    );
+
     private const UA_INLINE_BLOCK = array(
         'button', 'input', 'select', 'textarea', 'img',
     );
@@ -61,6 +65,7 @@ final class LayoutParticipation
             }
         }
         $sourceDisplay = self::resolvedDisplay($element, $styleResolver);
+        $authoredDisplay = $sourceDisplay;
         if ( '' === $sourceDisplay ) {
             $tag = strtolower($element->tagName);
             $sourceDisplay = in_array($tag, self::PHRASING_UA_INLINE, true)
@@ -81,7 +86,17 @@ final class LayoutParticipation
             $context = self::FLEX_ITEM;
         } elseif ( array_intersect($parentDisplays, array( 'grid', 'inline-grid' )) ) {
             $context = self::GRID_ITEM;
-        } elseif ( 'inline' === $sourceDisplay ) {
+        } elseif ( 'inline' === $sourceDisplay || (
+            $authoredDisplay === $sourceDisplay
+            && in_array(strtolower($element->tagName), array( 'a', 'button', 'input' ), true)
+            && in_array($sourceDisplay, self::AUTHORED_INLINE_LEVEL, true)
+            && ! self::cannotShareLine($element, $styleResolver)
+        ) ) {
+            // An authored inline-level box shares line boxes with its
+            // siblings in block flow; a block-level wrapper would put each
+            // control on its own line. Source presentation wrappers (for
+            // example a div[role=button] around a link) retain their canonical
+            // carrier and spacing rather than transferring their box to the link.
             $context = self::INLINE;
         } else {
             $context = self::BLOCK;
@@ -296,6 +311,21 @@ final class LayoutParticipation
         }
 
         return 1 === preg_match('/^100(?:\.0+)?%$/', $width) ? 100 : null;
+    }
+
+    /**
+     * An authored inline-level box still cannot share a line when it is a
+     * float or out of flow, which makes it block-level (CSS 2.1 section 9.7),
+     * or when it is authored to fill the whole line (`width: 100%`).
+     */
+    private static function cannotShareLine(DOMElement $element, StyleResolver $styleResolver): bool
+    {
+        $declarations = $styleResolver->referenceViewportAuthorDeclarations($element, array( 'float', 'position' ));
+        $float = CssValueInspector::comparable((string) ($declarations['float'] ?? ''));
+        $position = CssValueInspector::comparable((string) ($declarations['position'] ?? ''));
+        $width = CssValueInspector::comparable((string) ($styleResolver->cssDeclarations($styleResolver->controlSurfaceResolvedStyle($element))['width'] ?? ''));
+
+        return ( '' !== $float && 'none' !== $float ) || in_array($position, array( 'absolute', 'fixed' ), true) || 100 === self::widthPreset('width:' . $width);
     }
 
     private static function resolvedDisplay(DOMElement $element, StyleResolver $styleResolver): string

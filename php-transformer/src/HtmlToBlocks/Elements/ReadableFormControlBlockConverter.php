@@ -33,6 +33,17 @@ final class ReadableFormControlBlockConverter
     ) {
     }
 
+    /**
+     * Paint a recognized submit proxy as a native button, never as an anchor
+     * or as the offscreen input whose identity the readable tree retains.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function convertSubmitPresenter(DOMElement $presenter): ?array
+    {
+        return $this->authoredBlockConverter->button($presenter, true);
+    }
+
     /** A label or legend as inline rich text, links and emphasis kept. */
     public function labelMarkup(DOMElement $label): string
     {

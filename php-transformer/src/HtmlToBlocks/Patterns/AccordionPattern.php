@@ -37,7 +37,7 @@ final class AccordionPattern implements PatternRecognizerInterface
         $fallbacks = array();
         $items = array();
         foreach ( $itemElements as $child ) {
-            $item = $this->accordionItem($child, $fallbacks, $innerHtml, $converter, $createBlock, $presentationAttributes, $context->accordionToggle(...), $context->accordionItemBox(...), $context->sourceElementStartsHidden(...));
+            $item = $this->accordionItem($child, $fallbacks, $innerHtml, $converter, $createBlock, $presentationAttributes, $context->accordionToggle(...), $context->accordionItemBox(...), $context->sourceElementStartsHidden(...), $context->accordionHeadingTypography(...));
             if ( null === $item ) {
                 return null;
             }
@@ -77,7 +77,7 @@ final class AccordionPattern implements PatternRecognizerInterface
     }
 
     /** @param list<array<string, mixed>> $fallbacks */
-    private function accordionItem(DOMElement $item, array &$fallbacks, callable $innerHtml, PatternTreeConverter $converter, callable $createBlock, callable $presentationAttributes, callable $accordionToggle, callable $accordionItemBox, callable $startsHidden): ?array
+    private function accordionItem(DOMElement $item, array &$fallbacks, callable $innerHtml, PatternTreeConverter $converter, callable $createBlock, callable $presentationAttributes, callable $accordionToggle, callable $accordionItemBox, callable $startsHidden, callable $headingTypography): ?array
     {
         if ( ! $this->isAccordionItemElement($item) || $this->hasRuntimeHeavyDescendant($item) ) {
             return null;
@@ -111,11 +111,13 @@ final class AccordionPattern implements PatternRecognizerInterface
             }
 
             // An unlinked read-more control beside an already visible body
-            // does not establish a disclosure relationship.
+            // does not establish a disclosure relationship; an inert panel
+            // is closed content, not an already visible body.
             if ( 'details' !== strtolower($item->tagName)
                 && ! $this->hasClass($item, 'wp-block-accordion-item')
                 && '' === $this->trimmedAttribute($stateControl, 'aria-controls')
                 && ! $startsHidden($panel)
+                && ! $panel->hasAttribute('inert')
             ) {
                 return null;
             }
@@ -144,9 +146,10 @@ final class AccordionPattern implements PatternRecognizerInterface
         $headingAttrs = array_filter(array(
             'title' => $titleHtml,
             'level' => $this->headingLevel($title),
+            'style' => $headingTypography($control),
             'className' => $toggle['className'],
             'metadata' => '' !== $toggle['iconSvg'] ? array('blocksEngineIcon' => $toggle['iconSvg']) : '',
-        ), static fn ($value): bool => '' !== $value);
+        ), static fn ($value): bool => '' !== $value && array() !== $value);
 
         return $createBlock('core/accordion-item', array_filter(array_merge($this->withItemBox($presentationAttributes($item), $accordionItemBox($item)), array(
             'openByDefault' => $this->isOpen($item, $stateControl, $panel) ? true : '',
@@ -416,6 +419,11 @@ final class AccordionPattern implements PatternRecognizerInterface
         if ( 'details' === strtolower($element->tagName) ) {
             return true;
         }
+        // A container of disclosure items (an FAQ group under its own
+        // heading) is an accordion of its own, not one item of an outer one.
+        if ( $this->containsDisclosureItemRun($element) ) {
+            return false;
+        }
 
         $class = strtolower($this->trimmedAttribute($element, 'class'));
         if ( str_contains($class, 'item')
@@ -429,6 +437,22 @@ final class AccordionPattern implements PatternRecognizerInterface
         $title = $this->titleElement($element);
 
         return $title instanceof DOMElement && ( $this->isDisclosureTitle($title) || $this->isItemLevelDisclosure($element, $title) );
+    }
+
+    private function containsDisclosureItemRun(DOMElement $element): bool
+    {
+        $disclosures = 0;
+        foreach ( $this->directChildElements($element) as $child ) {
+            if ( 'details' === strtolower($child->tagName) ) {
+                continue;
+            }
+            $title = $this->titleElement($child);
+            if ( $title instanceof DOMElement && ( $this->isDisclosureTitle($title) || $this->isItemLevelDisclosure($child, $title) ) && 2 <= ++$disclosures ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -576,6 +600,7 @@ final class AccordionPattern implements PatternRecognizerInterface
             }
         }
 
+        $siblings = array();
         foreach ( $this->directChildElements($item) as $child ) {
             if ( $child->isSameNode($title) ) {
                 continue;
@@ -586,6 +611,12 @@ final class AccordionPattern implements PatternRecognizerInterface
             if ( 'region' === $role || str_contains($class, 'panel') || str_contains($class, 'content') || str_contains($class, 'body') || str_contains($class, 'answer') ) {
                 return $child;
             }
+            $siblings[] = $child;
+        }
+
+        // A stateful toggle's only sibling is the panel it expands.
+        if ( 1 === count($siblings) && $title->parentNode === $item && $title->hasAttribute('aria-expanded') ) {
+            return $siblings[0];
         }
 
         return null;

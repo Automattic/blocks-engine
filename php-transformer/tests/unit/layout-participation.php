@@ -123,6 +123,44 @@ $assert(
     $blockMarkup
 );
 
+$inlineFlexPair = ( new HtmlTransformer() )->transform(
+    '<style>.btn{display:inline-flex;padding:14px 24px;background:#ddd}</style>'
+    . '<div><h2>Get started.</h2><a href="/signup" class="btn">Sign up</a><a href="/demo" class="btn">Book a demo</a></div>'
+)->toArray();
+$inlineFlexPairMarkup = (string) ( $inlineFlexPair['serialized_blocks'] ?? '' );
+$assert(
+    2 === preg_match_all('/class="wp-block-buttons[^"]*\b' . preg_quote($neutralButtons, '/') . '\b/', $inlineFlexPairMarkup)
+        && 2 === preg_match_all('/class="wp-block-button [^"]*\b' . preg_quote($neutralButton, '/') . '-display-inline-flex\b/', $inlineFlexPairMarkup),
+    '11: adjacent authored inline-flex anchors in block flow share a line instead of each getting a block-level buttons box',
+    $inlineFlexPairMarkup
+);
+
+foreach ( array( 'inline-block', 'inline-flex', 'inline-grid', 'inline-table' ) as $display ) {
+    $result = ( new HtmlTransformer() )->transform(
+        '<style>.btn{display:' . $display . ';padding:8px;background:#ddd}</style>'
+        . '<main><h2>Actions</h2><a class="btn" href="/one">One</a><a class="btn" href="/two">Two</a></main>'
+    )->toArray();
+    $markup = (string) $result['serialized_blocks'];
+    $assert(
+        2 === preg_match_all('/class="wp-block-button [^"]*\\b' . preg_quote($neutralButton . '-display-' . $display, '/') . '\\b/', $markup)
+            && str_contains($cssOf($result), '>.wp-block-button__link{display:' . $display . '!important}'),
+        'authored ' . $display . ' controls retain their display on the participating link',
+        $markup
+    );
+}
+
+foreach ( array( 'float:left', 'float:right', 'position:absolute', 'position:fixed', 'width:100%', 'width:100.0%' ) as $exception ) {
+    $result = ( new HtmlTransformer() )->transform(
+        '<style>.btn{display:inline-flex;padding:8px;background:#ddd;' . $exception . '}</style>'
+        . '<main><a class="btn" href="/go">Go</a></main>'
+    )->toArray();
+    $assert(
+        ! str_contains((string) $result['serialized_blocks'], $neutralButton . '-display-inline-flex'),
+        'blockified or full-line controls retain their carrier: ' . $exception,
+        (string) $result['serialized_blocks']
+    );
+}
+
 if ( $failures ) {
     fwrite(STDERR, $failures . " layout-participation test(s) failed\n");
     exit(1);

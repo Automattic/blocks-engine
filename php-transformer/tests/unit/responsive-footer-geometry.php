@@ -92,6 +92,15 @@ $assert(
     $css($columns)
 );
 
+$overlap = (new HtmlTransformer())->transform(
+    '<style>.card{display:grid;grid-template-areas:"media top" "media info" "media bottom";grid-template-rows:1fr 8fr 1fr}.media{grid-area:media}.info{grid-area:info}</style><div class="card"><div class="media"></div><div class="info"><p>Details</p></div></div>'
+)->toArray();
+$assert(
+    (bool) preg_match('/\.card\{[^}]*grid-template-rows:1fr 8fr 1fr/', $css($overlap)),
+    'auto-height grids keep proportional row tracks that size their empty rows',
+    $css($overlap)
+);
+
 $collapsible = (new HtmlTransformer())->transform(
     '<style>'
     . '.faq-a{display:grid;grid-template-rows:0fr;transition:grid-template-rows 0.25s}'

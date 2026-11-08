@@ -290,6 +290,63 @@ $splitWalk = static function (array $blocks) use (&$splitWalk, &$splitBoxes, $wr
 $splitWalk($split['innerBlocks'] ?? array());
 $assert(array( 'field' => array( 'field' ), 'control' => array( 'wrap' ) ) === ($splitBoxes[0] ?? null), 'an-associated-caption-bounds-the-field-box-at-the-frame-holding-both');
 
+// https://github.com/Automattic/blocks-engine/issues/4959
+$reducedPage = <<<'HTML'
+<!doctype html><html><head><title>Contact</title></head><body><main><h1>Contact</h1>
+<form action="/submit" method="POST">
+<label for="email">Email</label><input id="email" type="text" name="email">
+<label for="msg">Comment</label><textarea id="msg" name="msg"></textarea>
+<div><input type="submit" value="Submit" style="position:absolute;top:0;left:-9999px;width:1px;height:1px">
+<a class="button"><span>Submit</span></a></div>
+</form></main></body></html>
+HTML;
+$reducedForm = $formFrom($reducedPage);
+$indexed = array();
+$indexWalk = static function (array $blocks) use (&$indexWalk, &$indexed): void {
+    foreach ( $blocks as $block ) {
+        if ( isset($block['form_control_index']) ) {
+            $indexed[$block['form_control_index']][] = $block;
+        }
+        $indexWalk($block['innerBlocks'] ?? array());
+    }
+};
+$indexWalk(array($builder->build($reducedForm) ?? array()));
+$declared = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier::controlElements($reducedForm);
+$assert(count($declared) === count($indexed), 'reduced-page-covers-all-declared-controls');
+foreach ( $declared as $index => $control ) {
+    $assert(1 === count($indexed[$index] ?? array()), 'reduced-page-control-index-exactly-once-' . $index);
+}
+$presentedSubmit = $indexed[2][0] ?? array();
+$assert('button' === ($presentedSubmit['attrs']['className'] ?? ''), 'submit-uses-visible-presenter-class');
+$assert('Submit' === ($presentedSubmit['attrs']['text'] ?? '') && 'submit' === ($presentedSubmit['attrs']['type'] ?? ''), 'presented-submit-retains-label-and-native-type');
+$assert(! str_contains($presentedSubmit['innerHTML'] ?? '', '-9999px'), 'presented-submit-is-not-offscreen');
+
+// Exercise the production flow converter and published finding as well as
+// the builder fixture: the omitted native input must not reappear as copy.
+$compiled = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler())->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array('index.html' => $reducedPage),
+))->toArray();
+$finding = null;
+$findForm = static function (array $value) use (&$findForm, &$finding): void {
+    if ( 'html_form_fallback' === ($value['diagnostic_code'] ?? null) ) {
+        $finding = $value;
+    }
+    foreach ( $value as $child ) {
+        if ( is_array($child) ) {
+            $findForm($child);
+        }
+    }
+};
+$findForm($compiled);
+$indexed = array();
+$indexWalk($finding['readable_blocks'] ?? array());
+$assert(3 === count($finding['controls'] ?? array()), 'published-finding-declares-all-three-controls');
+$assert(array(0, 1, 2) === array_keys($indexed), 'published-readable-tree-covers-declared-indices');
+foreach ( $indexed as $index => $blocks ) {
+    $assert(1 === count($blocks), 'published-control-index-exactly-once-' . $index);
+}
+
 if ( $failures ) {
     fwrite(STDERR, implode("\n", $failures) . "\n");
     exit(1);

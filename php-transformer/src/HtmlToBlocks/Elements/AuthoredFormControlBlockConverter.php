@@ -390,6 +390,9 @@ final class AuthoredFormControlBlockConverter
         if ( ! in_array($type, array( 'button', 'reset', 'submit' ), true) ) {
             $type = 'submit';
         }
+        $projected = ($this->projectSourceTags)($button) ?? $button;
+        $contentParts = AuthoredButtonBlockGenerator::contentParts($projected);
+        $text = trim(preg_replace('/\\s+/', ' ', $button->textContent ?? '') ?? '');
         $attrs = array_filter(array(
             'type' => $type,
             'id' => SourceDom::attr($button, 'id'),
@@ -397,7 +400,8 @@ final class AuthoredFormControlBlockConverter
             'ariaLabel' => SourceDom::attr($button, 'aria-label'),
             'className' => SourceDom::attr($button, 'class'),
             'style' => SourceDom::attr($button, 'style'),
-            'text' => $this->metadataBuilder->submitText($button, 'Submit'),
+            'text' => '' === $text && array() !== $contentParts ? '' : $this->metadataBuilder->submitText($button, 'Submit'),
+            'contentParts' => $contentParts,
             'labelWrappers' => AuthoredButtonBlockGenerator::labelWrappers(($this->projectSourceTags)($button) ?? $button),
             'disabled' => $button->hasAttribute('disabled'),
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : (is_bool($value) ? $value : '' !== $value));

@@ -23,7 +23,7 @@ $assert(null !== $shared && $shared === ($pages['d']['metadata']['post_meta']['_
 $assert(!isset($templates['page-c']) && !isset($templates['page-d']), 'no per-route duplicates remain');
 $assert(8 === count($templates), 'exactly one override is emitted alongside the seven lifecycle templates');
 $registrations = array_values(array_filter($custom, static fn(array $row): bool => $row['name'] === $shared));
-$assert(1 === count($registrations) && '' !== trim($registrations[0]['title']) && array('page') === $registrations[0]['postTypes'], 'shared template is registered once with a readable title for pages');
+$assert(1 === count($registrations) && 'Page (shared layout)' === $registrations[0]['title'] && array('page') === $registrations[0]['postTypes'], 'shared template is registered once with a short group title for pages');
 $entry = current(array_filter($plan['pages'], static fn(array $page): bool => !empty($page['entrypoint'])));
 $assert(isset($templates['front-page']) && !isset($entry['metadata']['post_meta']['_wp_page_template']), 'front-page handling is unchanged');
 if (is_string($shared) && isset($templates[$shared])) {

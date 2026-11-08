@@ -144,11 +144,22 @@ final class SvgMaterializer implements SvgElementMaterializer
         return $this->restoreSvgCasing($this->inlineSvgMaterializationMarkup($html, $element));
     }
 
+    /** Sanitized SVG markup that renders as an isolated image, author paint included. */
+    public function standaloneSvgMarkup(DOMElement $element): string
+    {
+        $html = $this->context->sanitizeInlineSvgMarkup($element);
+        if ( '' === $html || ! SourceDom::isSafeSvgContent($html) ) {
+            return '';
+        }
+
+        return $this->withStandaloneDescendantPaint($element, $this->materializeSanitizedSvgMarkup($html, $element));
+    }
+
     /**
      * A standalone SVG image cannot see the page stylesheet, and sanitization
      * drops the SVG's own `<style>` (which the page cascade already owns). Bake
-     * each descendant's author-cascaded paint (e.g. an exported `.cls-1{fill}`
-     * rule) onto that element's inline style so the image keeps its colors.
+     * each descendant's resolved paint, including inheritance from the root
+     * and page ancestors, onto its inline style so the image keeps its colors.
      * Only the standalone asset gets this; inline SVG still inherits page CSS,
      * including state rules an inline style would override.
      */
@@ -169,15 +180,13 @@ final class SvgMaterializer implements SvgElementMaterializer
                 continue;
             }
 
-            $matched = $this->styleResolver->matchedCascadedDeclarations($source);
             $declarations = array();
             foreach ( array( 'fill', 'fill-opacity', 'stroke', 'stroke-opacity', 'stroke-width' ) as $property ) {
-                $value = trim(preg_replace('/\s*!\s*important\s*$/i', '', (string) ($matched[$property] ?? '')) ?? '');
-                // The cascade parser already drops url()/expression() values;
-                // also refuse var() (an isolated image has no custom properties)
-                // and markup or escape characters. An identical presentation
-                // attribute already carries the value.
-                if ( '' === $value || $value === trim(SourceDom::attr($source, $property)) || preg_match('/var\s*\(|[<>@\\\\]/i', $value) ) {
+                $value = $this->styleResolver->resolvedInheritedSvgPaintValue($source, $property);
+                // Keep standalone paint literal: no page-dependent variables,
+                // URL references, expressions, markup or escape characters.
+                // An identical presentation attribute already carries the value.
+                if ( '' === $value || $value === trim(SourceDom::attr($source, $property)) || preg_match('/(?:var|url|expression)\s*\(|[<>@\\\\]/i', $value) ) {
                     continue;
                 }
                 $declarations[$property] = $value;
@@ -188,30 +197,6 @@ final class SvgMaterializer implements SvgElementMaterializer
 
             $style = $this->styleResolver->cssDeclarationString(array_merge($this->styleResolver->cssDeclarations(SourceDom::attr($target, 'style')), $declarations));
             $target->setAttribute('style', $style);
-            $baked = true;
-        }
-        // Paint is inherited. An icon wrapper commonly sets `fill` for the
-        // <svg> it holds (Wix: `.StylableButton__icon{fill:...}`, often under a
-        // width query); the image no longer has that ancestor, so carry the
-        // paint the root inherits at the reference viewport.
-        $rootPaint = array();
-        foreach ( array( 'fill', 'stroke' ) as $property ) {
-            if ( '' !== trim(SourceDom::attr($element, $property)) ) {
-                continue;
-            }
-            for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
-                $value = trim(preg_replace('/\s*!\s*important\s*$/i', '', (string) ($this->styleResolver->referenceViewportAuthorDeclarations($node, array( $property ))[$property] ?? '')) ?? '');
-                if ( '' === $value ) {
-                    continue;
-                }
-                if ( ! preg_match('/var\s*\(|currentcolor|inherit|[<>@\\\\]/i', $value) ) {
-                    $rootPaint[$property] = $value;
-                }
-                break;
-            }
-        }
-        if ( array() !== $rootPaint ) {
-            $clone->setAttribute('style', $this->styleResolver->cssDeclarationString(array_merge($rootPaint, $this->styleResolver->cssDeclarations(SourceDom::attr($clone, 'style')))));
             $baked = true;
         }
         if ( ! $baked ) {
@@ -1310,23 +1295,49 @@ final class SvgMaterializer implements SvgElementMaterializer
             return $html;
         }
 
+        // The first element with a referenced id is its definition, as in the
+        // browser. Copy its <defs>, or a bare sprite <symbol> or <svg> on its own.
         $definitions = array();
-        foreach ( $element->ownerDocument->getElementsByTagName('defs') as $defs ) {
-            if ( ! $defs instanceof DOMElement || $this->svgDefinitionBelongsTo($defs, $element) ) {
+        foreach ( $element->ownerDocument->getElementsByTagName('*') as $definition ) {
+            $id = $definition instanceof DOMElement ? trim(SourceDom::attr($definition, 'id')) : '';
+            if ( '' === $id || ! isset($references[$id]) || $this->svgDefinitionBelongsTo($definition, $element) ) {
                 continue;
             }
-            foreach ( $defs->getElementsByTagName('*') as $definition ) {
-                if ( $definition instanceof DOMElement && isset($references[trim(SourceDom::attr($definition, 'id'))]) ) {
-                    $definitions[] = $this->context->safeFallbackHtml($defs);
-                    break;
-                }
+            unset($references[$id]);
+            $defs = $definition;
+            while ( $defs instanceof DOMElement && 'defs' !== strtolower($defs->tagName) ) {
+                $defs = $defs->parentNode;
             }
+            $copy = $defs instanceof DOMElement ? $this->context->safeFallbackHtml($defs)
+                : ( in_array(strtolower($definition->tagName), array( 'symbol', 'svg' ), true) ? '<defs>' . $this->context->safeFallbackHtml($definition) . '</defs>' : '' );
+            // A <use> instance inherits custom properties from the <use>, so
+            // its copied paint resolves var() in that scope.
+            $definitions[] = str_contains($copy, 'var(') ? $this->resolveCssVariablesInSvgMarkup($copy, $this->svgReferrer($element, $id)) : $copy;
         }
         if ( array() === $definitions ) {
             return $html;
         }
 
-        return preg_replace('/<\/svg>\s*$/i', implode('', array_unique($definitions)) . '</svg>', $html, 1) ?? $html;
+        // Copied definitions paint through the referencing <use>, which
+        // inherits the SVG's color.
+        $copied = implode('', array_unique($definitions));
+        if ( false !== stripos($copied, 'currentColor') ) {
+            $copied = preg_replace('/\bcurrentColor\b/i', $this->inheritedSvgColor($element), $copied) ?? $copied;
+        }
+
+        return preg_replace('/<\/svg>\s*$/i', $copied . '</svg>', $html, 1) ?? $html;
+    }
+
+    /** The element inside $svg that references #$id, or $svg itself. */
+    private function svgReferrer(DOMElement $svg, string $id): DOMElement
+    {
+        foreach ( $svg->getElementsByTagName('*') as $candidate ) {
+            if ( '#' . $id === trim(SourceDom::attr($candidate, 'href')) || '#' . $id === trim(SourceDom::attr($candidate, 'xlink:href')) ) {
+                return $candidate;
+            }
+        }
+
+        return $svg;
     }
 
     private function svgDefinitionBelongsTo(DOMElement $definition, DOMElement $svg): bool
@@ -1396,7 +1407,9 @@ final class SvgMaterializer implements SvgElementMaterializer
      */
     public static function ensureSvgImageNamespace(string $html): string
     {
-        if ( ! preg_match('/<svg\b[^>]*\sxmlns\s*=/i', $html) ) {
+        // Only the root element counts: a nested `<svg xmlns>` (as Wix emits
+        // inside its shape wrapper) leaves the document root unnamespaced.
+        if ( ! preg_match('/^\s*<svg\b[^>]*\sxmlns\s*=/i', $html) ) {
             $html = preg_replace('/<svg\b/i', '<svg xmlns="http://www.w3.org/2000/svg"', $html, 1) ?? $html;
         }
         if ( preg_match('/<[a-z][^>]*\sxlink:[a-z]+\s*=/i', $html) && ! preg_match('/^\s*<svg\b[^>]*\sxmlns:xlink\s*=/i', $html) ) {
@@ -2161,6 +2174,44 @@ final class SvgMaterializer implements SvgElementMaterializer
         return false;
     }
 
+    /**
+     * Foreign namespace metadata has no SVG rendering semantics. HTML parsers
+     * may leave prefixes unresolved, so also consult declarations in scope.
+     */
+    public static function isForeignSvgAttribute(DOMElement $element, string $name, string $value): bool
+    {
+        $namespaces = array(
+            'http://www.w3.org/2000/svg',
+            'http://www.w3.org/1999/xlink',
+            'http://www.w3.org/XML/1998/namespace',
+        );
+        if ( 'xmlns' === $name || str_starts_with($name, 'xmlns:') ) {
+            return ! in_array($value, $namespaces, true);
+        }
+        if ( ! str_contains($name, ':') ) {
+            return false;
+        }
+        $prefix = explode(':', $name, 2)[0];
+        $attribute = $element->getAttributeNode($name);
+        $namespace = false !== $attribute ? $attribute->namespaceURI : null;
+        if ( null === $namespace || '' === $namespace ) {
+            $namespace = $element->lookupNamespaceURI($prefix);
+        }
+        if ( null === $namespace || '' === $namespace ) {
+            for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode ) {
+                if ( $current->hasAttribute('xmlns:' . $prefix) ) {
+                    $namespace = $current->getAttribute('xmlns:' . $prefix);
+                    break;
+                }
+            }
+        }
+        // HTML SVG commonly omits the standard prefix declarations.
+        if ( null === $namespace || '' === $namespace ) {
+            $namespace = array('xlink' => $namespaces[1], 'xml' => $namespaces[2])[$prefix] ?? '';
+        }
+        return ! in_array($namespace, $namespaces, true);
+    }
+
     public static function isPassiveSvgMarkup(DOMElement $element): bool
     {
         // Full set of safe SVG structure/presentation/text/filter elements. These carry
@@ -2265,6 +2316,9 @@ final class SvgMaterializer implements SvgElementMaterializer
         }
 
         foreach ( SourceDom::htmlAttributes($element) as $name => $value ) {
+            if ( self::isForeignSvgAttribute($element, $name, $value) ) {
+                continue;
+            }
             $name = strtolower($name);
             $isInertDataAttribute = str_starts_with($name, 'data-') && 'data-dom-store' !== $name;
             // Icon exporters annotate groups with a variant name. It is not an

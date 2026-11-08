@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSpecificityProjection;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\SourceTargetProjectionState;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\HtmlDimensionAttribute;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 use DOMText;
@@ -57,8 +58,22 @@ final class SocialSourceStyleProjector
                 $targets->record(SourceDom::elementSelector($glyph), ':root :where(.' . $marker . '>a)::before', $this->styles->cssDeclarationString($declarations));
             }
             $nativeGlyph = $fontGlyph ? '>a::before' : '>a>svg';
-            $properties = array_fill_keys(array('font-size', 'font-family', 'font-style', 'font-weight', 'line-height', 'vertical-align', 'width', 'height', 'display', 'color', 'content'), true);
-            (new CssStylesheetTransformer())->visitStyleRules($author->combinedCss(), function (string $prelude, string $body, array $conditions) use ($glyph, $marker, $nativeGlyph, $fontGlyph, $properties, $author, $targets): void {
+            $properties = array_fill_keys(array('font-size', 'font-family', 'font-style', 'font-weight', 'line-height', 'vertical-align', 'width', 'height', 'display', 'color', 'content', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left'), true);
+            // Width and height attributes are presentational hints: they size
+            // the artwork above Core's 1em glyph but below every author rule,
+            // so record them first at Core's own weight.
+            $hinted = array();
+            foreach (array('width', 'height') as $dimension) {
+                $pixels = $fontGlyph ? null : HtmlDimensionAttribute::pixels($glyph->getAttribute($dimension));
+                if (null !== $pixels && 0 < $pixels) $hinted[$dimension] = $pixels . 'px';
+            }
+            // Core resets the anchor's svg to the anchor's color (four classes
+            // and a type). Every authored glyph rule receives the same scope
+            // above that reset; its own specificity, condition and order stay
+            // authoritative among them. Size hints stay below authored rules.
+            $scope = str_repeat(':not(.' . $author->classSpecificityShim() . ')', 4);
+            if (array() !== $hinted) $targets->record(SourceDom::elementSelector($glyph), ':root :where(.' . $marker . $nativeGlyph . '):not(.' . $author->classSpecificityShim() . '):not(' . $author->specificityShim() . ')', $this->styles->cssDeclarationString($hinted));
+            (new CssStylesheetTransformer())->visitStyleRules($author->combinedCss(), function (string $prelude, string $body, array $conditions) use ($glyph, $marker, $nativeGlyph, $fontGlyph, $properties, $author, $targets, $scope): void {
                 $declarations = array_intersect_key($this->styles->verbatimCssDeclarations($body), $properties);
                 if (array() === $declarations) return;
                 foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
@@ -74,12 +89,12 @@ final class SocialSourceStyleProjector
                     }
                     // Pseudo-elements cannot occur inside :where(). Their
                     // own type weight is already the source's before weight.
-                    $target = ':root :where(.' . $marker . ($ownPseudo ? '>a' : ($fontGlyph ? '>a' : $nativeGlyph)) . ')' . CssSpecificityProjection::shims($parsed, $author->specificityShim(), $author->classSpecificityShim(), $author->idSpecificityShim()) . ($ownPseudo ? '::before' : '');
+                    $target = ':root :where(.' . $marker . ($ownPseudo ? '>a' : ($fontGlyph ? '>a' : $nativeGlyph)) . ')' . $scope . CssSpecificityProjection::shims($parsed, $author->specificityShim(), $author->classSpecificityShim(), $author->idSpecificityShim()) . ($ownPseudo ? '::before' : '');
                     $targets->record(SourceDom::elementSelector($glyph), $target, $this->styles->cssDeclarationString($projected), $conditions);
                 }
             });
             $inline = array_intersect_key($this->styles->verbatimCssDeclarations($glyph->getAttribute('style')), $properties);
-            if (array() !== $inline) $targets->record(SourceDom::elementSelector($glyph), ':root .' . $marker . $nativeGlyph, $this->styles->cssDeclarationString($inline));
+            if (array() !== $inline) $targets->record(SourceDom::elementSelector($glyph), ':root .' . $marker . $nativeGlyph . $scope, $this->styles->cssDeclarationString($inline));
         }
         $separator = '';
         for ($node = $anchor->nextSibling; $node instanceof DOMText; $node = $node->nextSibling) $separator .= $node->textContent;

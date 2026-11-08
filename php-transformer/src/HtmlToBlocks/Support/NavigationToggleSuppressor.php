@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
@@ -117,6 +118,13 @@ final class NavigationToggleSuppressor
                 continue;
             }
 
+            // An inferred panel belongs to the opener that can actually show
+            // in the collapsed layout, not a hidden desktop-header copy.
+            if ( ! $control->hasAttribute(CaptureEvidence::DIALOG_TRIGGER)
+                && ! $this->isProjectableHashAnchorMenuToggle($control)
+                && $this->hiddenAtCollapsedViewport($control, true) ) {
+                continue;
+            }
             $relationship = $this->implicitHiddenNavigationRelationship($control);
             if ( null !== $relationship ) {
                 $isDialogProjection = $this->hasDialogPopupSemantics($control) || $this->isSemanticDialog($relationship['target']);
@@ -308,6 +316,15 @@ final class NavigationToggleSuppressor
                 }
                 $navigation = $this->hiddenNavigationInControlledTarget($candidate);
                 if ( $navigation instanceof DOMElement && ! $this->session->navigationProjectionState()->isSuppressed($navigation) ) {
+                    // A hidden layout copy is not the closed overlay. Keep
+                    // searching outward for the panel the burger can replace.
+                    if ( ! $this->isOutOfFlowNavigationPanel($candidate)
+                        && ! $control->hasAttribute(CaptureEvidence::DIALOG_TRIGGER)
+                        && ! $this->hasDialogPopupSemantics($control)
+                        && ! $this->isProjectableHashAnchorMenuToggle($control)
+                        && $this->hasEquivalentSourceNavigationVariant($navigation) ) {
+                        continue;
+                    }
                     $navigationCandidates[] = array('target' => $candidate, 'navigation' => $navigation);
                 }
             }
@@ -402,9 +419,49 @@ final class NavigationToggleSuppressor
         return $this->hiddenNavigationTargets[$target] = $this->recognizeHiddenNavigationInControlledTarget($target);
     }
 
+    /** Dialogs and navigation-owned submenus retain their resting-state ownership. */
+    private function insideOwnedNavigationPanel(DOMElement $element): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( $this->isSemanticDialog($node) || $node->hasAttribute(CaptureEvidence::DIALOG_PANEL)
+                || ( ! $node->isSameNode($element) && $this->isNavigationLandmark($node) ) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Resolve resting panel/control hiding through the same author cascade as the collapse boundary. */
+    private function hiddenAtCollapsedViewport(DOMElement $element, bool $includeAncestors = false): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $values = $this->styleResolver->collapsedViewportAuthorDeclarations($node, array('display', 'visibility', 'opacity'));
+            $display = CssValueInspector::comparable($this->styleResolver->resolveCssVariablesAtViewport($values['display'] ?? '', $node, StyleResolver::MOBILE_REFERENCE_WIDTH));
+            $visibility = CssValueInspector::comparable($values['visibility'] ?? '');
+            $opacity = CssValueInspector::comparable($values['opacity'] ?? '');
+            if ( $this->sourceElementIsHiddenByMarkup($node, $display)
+                || 'none' === $display || in_array($visibility, array('hidden', 'collapse'), true)
+                || (is_numeric($opacity) && 0.0 === (float) $opacity) ) {
+                return true;
+            }
+            if ( ! $includeAncestors || in_array(strtolower($node->tagName), array('header', 'body', 'html'), true) ) {
+                break;
+            }
+        }
+        return false;
+    }
+
     private function recognizeHiddenNavigationInControlledTarget(DOMElement $target): ?DOMElement
     {
-        if ( ! $this->sourceElementIsHidden($target) && ! $this->isCollapsedOutOfFlowPanel($target) ) {
+        // Large linked stylesheets can carry visibility/opacity outside the
+        // structural presentation collection. Read that state through the
+        // author cascade, without claiming a native/captured dialog's panel.
+        $authorPanel = ! $this->insideOwnedNavigationPanel($target)
+            && ! $this->isInsideAdoptedRestingPanel($target)
+            && $this->isOutOfFlowNavigationPanel($target)
+            && 'hidden' === CssValueInspector::comparable($this->styleResolver->collapsedViewportAuthorDeclarations($target, array('visibility'))['visibility'] ?? '');
+        if ( ! $this->sourceElementIsHidden($target) && ! $this->isCollapsedOutOfFlowPanel($target)
+            && ! ( $authorPanel && $this->hiddenAtCollapsedViewport($target) ) ) {
             return null;
         }
 
@@ -418,7 +475,10 @@ final class NavigationToggleSuppressor
         // viewports. Only the former is a control's hidden counterpart; the
         // latter must keep its own document position and let the toggle
         // become core/navigation's native responsive affordance instead.
-        if ( ! $this->targetHiddenAtReferenceViewport($target) || $this->isCapturedInlineNavigationPanel($target) ) {
+        if ( ( ! $this->targetHiddenAtReferenceViewport($target)
+                && ! ( $authorPanel && ! $this->sourceElementIsHidden($target)
+                    && $this->isHiddenAtDefaultViewport($target) ) )
+            || $this->isCapturedInlineNavigationPanel($target) ) {
             return null;
         }
 
@@ -1023,9 +1083,9 @@ final class NavigationToggleSuppressor
             }
         }
 
-        // A control wired to the source `<nav>` itself is that navigation's
-        // toggle, whatever its visible text ("Menu", "Browse").
-        if ( SourceDom::controlsSourceNavigation($element) ) {
+        // A control wired to a source navigation (or a collapse panel holding
+        // one) is its toggle, whatever its visible text ("Menu", "Browse").
+        if ( SourceDom::controlsSourceNavigation($element) || $this->controlsCollapsibleNavigation($element) ) {
             return true;
         }
 
@@ -1068,6 +1128,34 @@ final class NavigationToggleSuppressor
         // aria-label/title, or the text it hides visually (an off-screen
         // "Menu" behind a CSS-drawn glyph) — names a menu.
         return $this->accessibleNameNamesMenu($element);
+    }
+
+    /** An explicit collapse binding is menu evidence even when its label is visible. */
+    private function controlsCollapsibleNavigation(DOMElement $control): bool
+    {
+        if ( 'collapse' !== strtolower(trim(SourceDom::attr($control, 'data-toggle'))) ) {
+            return false;
+        }
+        $selector = trim(SourceDom::attr($control, 'data-target'));
+        if ( '' === $selector ) {
+            return false;
+        }
+        $parsed = CssSelectorMatcher::parse($selector);
+        if ( ! $parsed['supported'] ) {
+            return false;
+        }
+        $found = false;
+        foreach ( $this->menuToggleScope($control)->getElementsByTagName('*') as $target ) {
+            if ( ! (CssSelectorMatcher::matches($target, $parsed)['matches'] ?? false) ) {
+                continue;
+            }
+            // Do not borrow a nearby menu for a search or other collapse panel.
+            if ( $target->isSameNode($control) || ! $this->panelHoldsNavigation($target) ) {
+                return false;
+            }
+            $found = true;
+        }
+        return $found;
     }
 
     private function hasAncestorTag(DOMElement $element, string $tagName): bool
@@ -1590,7 +1678,12 @@ final class NavigationToggleSuppressor
         }
 
         foreach ( $document->getElementsByTagName('*') as $toggle ) {
+            // Prefer the authored collapse target to an unrelated captured dialog.
+            if ( $toggle instanceof DOMElement && $this->authoredCollapseControlsNavigation($toggle, $navigation) ) {
+                return $this->concreteToggleControl($toggle);
+            }
             if ( ! $toggle instanceof DOMElement
+                || SourceDom::documentVariantRoot($toggle) !== SourceDom::documentVariantRoot($navigation)
                 || $this->isCapturedDialogControl($toggle)
                 || ( ! $this->isHamburgerMenuToggleControl($toggle) && ! $this->isProjectableHashAnchorMenuToggle($toggle) )
             ) {
@@ -1641,6 +1734,27 @@ final class NavigationToggleSuppressor
         }
 
         return null;
+    }
+
+    private function authoredCollapseControlsNavigation(DOMElement $toggle, DOMElement $navigation): bool
+    {
+        $behavior = trim(SourceDom::attr($toggle, 'data-bs-toggle') ?: SourceDom::attr($toggle, 'data-toggle'));
+        if ( 'collapse' !== $behavior || SourceDom::documentVariantRoot($toggle) !== SourceDom::documentVariantRoot($navigation) ) {
+            return false;
+        }
+        $selector = trim(SourceDom::attr($toggle, 'data-bs-target') ?: SourceDom::attr($toggle, 'data-target'));
+        if ( ! preg_match('/^([.#])([a-zA-Z_][a-zA-Z0-9_-]*)$/', $selector, $match) ) {
+            return false;
+        }
+        for ( $node = $navigation; $node instanceof DOMElement && 'body' !== strtolower($node->tagName); $node = $node->parentNode ) {
+            if ( SourceDom::documentVariantRoot($node) === $node ) {
+                break;
+            }
+            if ( '#' === $match[1] ? $match[2] === SourceDom::attr($node, 'id') : in_array($match[2], preg_split('/\s+/', SourceDom::attr($node, 'class')) ?: array(), true) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function isUniqueNavigationInScope(DOMElement $scope, DOMElement $navigation): bool
@@ -1725,6 +1839,7 @@ final class NavigationToggleSuppressor
         foreach ( $document->getElementsByTagName('*') as $candidate ) {
             if ( ! $candidate instanceof DOMElement
                 || $candidate->isSameNode($navigationRoot)
+                || SourceDom::documentVariantRoot($candidate) !== SourceDom::documentVariantRoot($navigationRoot)
                 || $this->isInsideProjectedNavigationSuppressed($candidate)
                 || $this->isInsideNativeDisclosure($candidate)
                 || SourceDom::elementContains($navigationRoot, $candidate)
@@ -1736,6 +1851,7 @@ final class NavigationToggleSuppressor
             if ( $signature === $this->sourceNavigationSignature($candidate)
                 && ($this->hasMobileNavigationSignal($navigationRoot)
                     || ($this->hasMobileNavigationSignal($candidate) && ! $this->isContentNavigationBesideChromeVariant($navigationRoot, $candidate)))
+                && (null === SourceDom::documentVariantRoot($navigationRoot) || $this->hasMenuVisibilityEvidence($navigationRoot) || $this->hasMenuVisibilityEvidence($candidate))
             ) {
                 return true;
             }
@@ -1825,13 +1941,40 @@ final class NavigationToggleSuppressor
 
     private function hasMobileNavigationSignal(DOMElement $element): bool
     {
+        // Device-document names describe the whole capture, not a collapsed
+        // menu. A document variant needs its own hidden menu as evidence.
+        if ( null !== SourceDom::documentVariantRoot($element) && $this->hasMenuVisibilityEvidence($element) ) {
+            return true;
+        }
         for ( $node = $element; $node instanceof DOMElement && 'body' !== strtolower($node->tagName); $node = $node->parentNode ) {
+            if ( SourceDom::documentVariantRoot($node) === $node ) {
+                break;
+            }
             $identity = strtolower(trim(SourceDom::attr($node, 'id') . ' ' . SourceDom::attr($node, 'class') . ' ' . SourceDom::attr($node, 'aria-label')));
+            $identity = preg_replace('/' . preg_quote(CaptureEvidence::VARIANT_ID_SUFFIX_PREFIX, '/') . '[a-z0-9_-]+/', '', $identity) ?? $identity;
             if ( preg_match('/(?:^|[\s_-])(?:mobile|drawer|offcanvas|overlay|menu-panel|nav-panel)(?:$|[\s_-])/', $identity) ) {
                 return true;
             }
         }
 
+        return false;
+    }
+
+    private function hasMenuVisibilityEvidence(DOMElement $element): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement && 'body' !== strtolower($node->tagName); $node = $node->parentNode ) {
+            if ( SourceDom::documentVariantRoot($node) === $node ) {
+                break;
+            }
+            if ( $this->sourceElementIsHidden($node) ) {
+                return true;
+            }
+            foreach ( $this->styleResolver->declaredPresentation($node, 'display')->conditional() as $value ) {
+                if ( 'none' === CssValueInspector::comparable($value) ) {
+                    return true;
+                }
+            }
+        }
         return false;
     }
 

@@ -14,6 +14,11 @@ final class NavigationEntityProjection
 {
     public const REFERENCE_CONTRACT = 'explicit_refs/v1';
 
+    /** Reference metadata: each item's own presentation, in document order. */
+    public const ITEMS_KEY = 'blocksEngineNavigationItems';
+
+    private const ITEM_PATTERN = '/<!--\s*wp:navigation-(?:link|submenu)\s+(\{.*?\})\s*(\/)?-->/s';
+
     /** @return array{pages:array,parts:array,menus:array} */
     public static function project(array $pages, array $parts, array $menus, array $declarations = array(), array $records = array()): array
     {
@@ -38,7 +43,7 @@ final class NavigationEntityProjection
                     $identity = self::contentIdentity($inner);
                     $clusters[$identity][] = array(
                         'kind' => $kind, 'index' => $index, 'block' => $block,
-                        'inner' => $inner, 'source_path' => $source,
+                        'inner' => $inner, 'captured_inner' => $block['inner'], 'source_path' => $source,
                         'area' => (string) ($document['area'] ?? ''),
                         'title' => 'part' === $kind ? (string) ($document['title'] ?? 'Navigation') : 'Navigation',
                     );
@@ -63,16 +68,22 @@ final class NavigationEntityProjection
             $usedSlugs[$slug] = true;
             $identity = hash('sha256', 'navigation:' . $contentIdentity);
             $token = 'navigation-' . substr($identity, 0, 16);
+            $markup = self::sharedItemClasses($occurrences);
             $entities[] = array(
                 'kind' => 'menu', 'source_path' => $canonical['source_path'],
                 'target_slug' => $slug, 'title' => $title,
                 'source_relation' => 'navigation_entity', 'order' => count($entities),
-                'items' => $canonical['block']['items'], 'block_markup' => self::sharedItemClasses($occurrences),
+                'items' => $canonical['block']['items'], 'block_markup' => $markup,
                 'token' => $token, 'reconciliation_identity' => $identity,
             );
+            $shared = self::itemPresentation($markup);
             foreach ($occurrences as $occurrence) {
                 $attrs = $occurrence['block']['attrs'];
                 $attrs['ref'] = WordPressSitePlan::NAVIGATION_TOKEN_PREFIX . $token . '}}';
+                // The entity holds one copy of each item's presentation. A
+                // reference whose items present differently renders its own.
+                $own = self::itemPresentation($occurrence['inner']);
+                if ($own !== $shared) $attrs['metadata'][self::ITEMS_KEY] = self::withCapturedCurrentState($own, $occurrence['captured_inner']);
                 $replacements[$occurrence['kind']][$occurrence['index']][] = array(
                     'offset' => $occurrence['block']['offset'], 'length' => $occurrence['block']['length'],
                     'markup' => '<!-- wp:navigation ' . BlockAttributes::encode($attrs, JSON_THROW_ON_ERROR) . ' /-->',
@@ -182,41 +193,89 @@ final class NavigationEntityProjection
     /**
      * Source item classes mean what their own page's stylesheet says, so the
      * shared entity keeps only the classes every reference's item carries.
-     * Per-reference item presentation is addressed through its navigation
-     * instance scope; document-seeded engine markers stay canonical.
+     * Document-seeded engine markers stay canonical. Each reference also keeps
+     * its own navigation subject markers: its item rules are scoped by its
+     * navigation instance, so they bind only inside that reference.
      */
     private static function sharedItemClasses(array $occurrences): string
     {
-        $pattern = '/<!--\s*wp:navigation-(?:link|submenu)\s+(\{.*?\})\s*(\/)?-->/s';
+        $pattern = self::ITEM_PATTERN;
         $classes = static function (array $attrs): array {
             return array(
                 preg_split('/\s+/', trim((string) ($attrs['className'] ?? '')), -1, PREG_SPLIT_NO_EMPTY) ?: array(),
                 preg_split('/\s+/', trim((string) ($attrs['metadata']['blocksEngineNavigationAnchor']['className'] ?? '')), -1, PREG_SPLIT_NO_EMPTY) ?: array(),
             );
         };
+        $isSubject = static fn(string $token): bool => 1 === preg_match('/^blocks-engine-navigation-(?:item|anchor|box)-[a-f0-9]{12}-\d+$/D', $token);
         $shared = null;
+        $subjects = array();
         foreach ($occurrences as $occurrence) {
             preg_match_all($pattern, $occurrence['inner'], $matches);
             $items = array_map(static fn(string $json): array => $classes(json_decode($json, true) ?: array()), $matches[1]);
+            foreach ($items as $position => $item) {
+                foreach (array(0, 1) as $side) foreach (array_filter($item[$side], $isSubject) as $token) $subjects[$position][$side][$token] = true;
+            }
             $shared = null === $shared ? $items : array_map(static fn(array $left, array $right): array => array(
                 array_intersect($left[0], $right[0] ?? array()), array_intersect($left[1], $right[1] ?? array()),
             ), $shared, $items);
         }
-        $keep = static fn(array $tokens, array $common): string => implode(' ', array_filter($tokens, static fn(string $token): bool =>
-            in_array($token, $common, true) || EngineMarker::isSpecificityShim($token) || 1 === preg_match('/^blocks-engine-[a-z0-9-]+-[a-f0-9]{12}-\d+$/D', $token)));
+        $keep = static fn(array $tokens, array $common, array $own): string => implode(' ', array_unique(array_merge(array_filter($tokens, static fn(string $token): bool =>
+            in_array($token, $common, true) || EngineMarker::isSpecificityShim($token) || 1 === preg_match('/^blocks-engine-[a-z0-9-]+-[a-f0-9]{12}-\d+$/D', $token)), array_keys($own))));
         $position = 0;
-        return preg_replace_callback($pattern, static function (array $match) use ($classes, $keep, $shared, &$position): string {
+        return preg_replace_callback($pattern, static function (array $match) use ($classes, $keep, $shared, $subjects, &$position): string {
+            $own = $subjects[$position] ?? array();
             $common = $shared[$position++] ?? array(array(), array());
             $attrs = json_decode($match[1], true);
             if (!is_array($attrs)) return $match[0];
             $before = $classes($attrs);
-            $item = $keep($before[0], $common[0]);
-            $anchor = $keep($before[1], $common[1]);
+            $item = $keep($before[0], $common[0], $own[0] ?? array());
+            $anchor = $keep($before[1], $common[1], $own[1] ?? array());
             if ($item === implode(' ', $before[0]) && $anchor === implode(' ', $before[1])) return $match[0];
             if ('' === $item) unset($attrs['className']); else $attrs['className'] = $item;
             if (isset($attrs['metadata']['blocksEngineNavigationAnchor']['className'])) $attrs['metadata']['blocksEngineNavigationAnchor']['className'] = $anchor;
             return str_replace($match[1], BlockAttributes::encode($attrs, JSON_THROW_ON_ERROR), $match[0]);
         }, $occurrences[0]['inner']) ?? $occurrences[0]['inner'];
+    }
+
+    /**
+     * Item classes and anchor presentation, in document order: the order
+     * NavigationReferenceItemsRuntime visits the entity's rendered items.
+     *
+     * @return list<array{className?:string,blocksEngineNavigationAnchor?:array}>
+     */
+    private static function itemPresentation(string $markup): array
+    {
+        preg_match_all(self::ITEM_PATTERN, $markup, $matches);
+        return array_map(static function (string $json): array {
+            $attrs = json_decode($json, true) ?: array();
+            $class = trim((string) ($attrs['className'] ?? ''));
+            $anchor = $attrs['metadata']['blocksEngineNavigationAnchor'] ?? null;
+            return ('' === $class ? array() : array('className' => $class))
+                + (is_array($anchor) ? array('blocksEngineNavigationAnchor' => $anchor) : array());
+        }, $matches[1]);
+    }
+
+    /**
+     * Mark the items that were the served route where the reference was
+     * captured. An item's captured presentation holds the state it was
+     * captured in: a part's items all rest, a page's current item is
+     * current. Where the served route puts an item in the other state, the
+     * runtime keeps the entity's presentation for it, whose state the
+     * navigation's own current and resting rules restore.
+     *
+     * @param list<array<string,mixed>> $presentation
+     * @return list<array<string,mixed>>
+     */
+    private static function withCapturedCurrentState(array $presentation, string $captured): array
+    {
+        preg_match_all(self::ITEM_PATTERN, $captured, $matches);
+        if (count($matches[1]) !== count($presentation)) return $presentation;
+        foreach ($matches[1] as $position => $json) {
+            $attrs = json_decode($json, true);
+            $classes = preg_split('/\s+/', trim((string) (is_array($attrs) ? ($attrs['className'] ?? '') : ''))) ?: array();
+            if (in_array('blocks-engine-current-navigation-item', $classes, true)) $presentation[$position]['current'] = true;
+        }
+        return $presentation;
     }
 
     private static function labelText(string $label): string

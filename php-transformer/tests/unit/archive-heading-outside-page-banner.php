@@ -39,6 +39,14 @@ $assert(1 === count($classic['entities']) && 'Programming' === $classic['entitie
 $bannerOnly = $project($banner . '<h2>Programming</h2>' . $listing);
 $assert(array() === $bannerOnly['entities'], 'The site title never names an archive.');
 
+// A listing titles each entry with a linked h1; those name the posts, so the
+// section takes the label the site's links give it.
+$nav = '<nav><a href="/blog">Blog</a><a href="/news">News</a></nav>';
+$listingPage = static fn(string $route, string $entry): array => array('source_path' => ltrim($route, '/') . '/index.html', 'post_type' => 'page', 'route' => array('path' => $route), 'canonical_block_markup' => $nav . '<main><h1 class="blog-title"><a href="' . $route . '/' . $entry . '">' . ucfirst($entry) . ' post</a></h1></main>');
+$entryPost = static fn(string $route, string $entry): array => array('source_path' => ltrim($route, '/') . '/' . $entry . '/index.html', 'post_type' => 'post', 'route' => array('path' => $route . '/' . $entry), 'canonical_block_markup' => '<h1>' . ucfirst($entry) . ' post</h1>');
+$sections = TaxonomyProjection::sections(array($listingPage('/blog', 'first'), $entryPost('/blog', 'first'), $listingPage('/news', 'second'), $entryPost('/news', 'second')), array());
+$assert('Blog' === ($sections['/blog']['name'] ?? null) && 'News' === ($sections['/news']['name'] ?? null), 'A linked entry title never names its listing section: ' . json_encode(array_map(static fn(array $section): string => $section['name'], $sections)));
+
 // Authors share the archive pipeline but have no taxonomy hierarchy.
 $diagnostics = array();
 $author = array('kind' => 'author', 'slug' => 'writer', 'name' => 'Writer', 'archive' => array('source_path' => 'author/writer/index.html', 'source_route' => '/author/writer'));

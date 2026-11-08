@@ -345,6 +345,9 @@ final class GeneratedBlockStyleProjector
             if ( $controlOwnsHeight ) {
                 // The positioned or padded control owns this size, not its carriers.
                 $declarations[] = 'box-sizing:' . ($resolvedBox['box-sizing'] ?? 'border-box');
+            } elseif ( LayoutParticipation::resolve($sourceControl, $this->styleResolver)->neutralizeButtonWrapper() ) {
+                // Both save wrappers are flattened, so no carrier box exists to
+                // hold the size: the link is the box and keeps the authored height.
             } elseif ( preg_match('/^(?:\d+(?:\.\d+)?|\.\d+)(?:px|em|rem|vh|vw)$/', $height) ) {
                 $wrapperDeclarations[] = 'height:100%';
                 $declarations[] = 'height:100%!important';

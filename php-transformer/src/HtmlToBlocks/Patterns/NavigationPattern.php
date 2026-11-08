@@ -269,7 +269,21 @@ final class NavigationPattern implements PatternRecognizerInterface
             return null;
         }
 
-        if ( 'nav' !== strtolower($element->tagName) && ! $this->hasNavigationSignal($element) && ! $this->hasDirectListNavigationSignal($element) ) {
+        // A list directly inside a navigation landmark remains a menu when
+        // the landmark cannot safely flatten its independently laid-out lists.
+        $isLandmarkList = false;
+        if ( in_array(strtolower($element->tagName), array( 'ul', 'ol' ), true)
+            && $element->parentNode instanceof DOMElement
+            && 'nav' === strtolower($element->parentNode->tagName) ) {
+            foreach ( $element->parentNode->childNodes as $sibling ) {
+                if ( $sibling instanceof DOMElement && ! $sibling->isSameNode($element)
+                    && in_array(strtolower($sibling->tagName), array( 'ul', 'ol' ), true) ) {
+                    $isLandmarkList = true;
+                    break;
+                }
+            }
+        }
+        if ( 'nav' !== strtolower($element->tagName) && ! $isLandmarkList && ! $this->hasNavigationSignal($element) && ! $this->hasDirectListNavigationSignal($element) ) {
             return null;
         }
 
@@ -2670,6 +2684,26 @@ final class NavigationPattern implements PatternRecognizerInterface
             return $this->navigationBlocksFromList($element, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, $collected);
         }
 
+        // Each sibling list owns a separate layout box and selector scope.
+        // Flattening them cannot preserve those boxes, even when their item
+        // rules happen to agree. Let recursion convert each list as a menu.
+        $listCount = 0;
+        $onlyLists = true;
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                if ( in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
+                    ++$listCount;
+                } else {
+                    $onlyLists = false;
+                }
+            } elseif ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') ) {
+                $onlyLists = false;
+            }
+        }
+        if ( $onlyLists && $listCount > 1 ) {
+            return array();
+        }
+
         foreach ( $element->childNodes as $child ) {
             if ( XML_COMMENT_NODE === $child->nodeType ) {
                 continue;
@@ -3497,6 +3531,10 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function navigationItemAttributes(DOMElement $item, DOMElement $anchor, ?DOMElement $submenuContainer, array $baseAttrs, callable $presentationAttributes, ?NavigationPatternContext $navigationContext = null): array
     {
         $hasAuthoredCurrentState = $this->hasCurrentNavigationSignal($item) || $this->hasCurrentNavigationSignal($anchor);
+        // A source box between the item and its link can carry the state.
+        for ($box = $anchor->parentNode; !$hasAuthoredCurrentState && $box instanceof DOMElement && !$box->isSameNode($item); $box = $box->parentNode) {
+            $hasAuthoredCurrentState = $this->hasCurrentNavigationSignal($box);
+        }
         $isCurrentNavigationItem = $hasAuthoredCurrentState
             || (null !== $navigationContext && $navigationContext->targetsCurrentDocument($anchor->getAttribute('href')));
         $itemAttrs = $item->isSameNode($anchor) ? array() : $this->withoutCoreNavigationClasses($presentationAttributes($item));
@@ -4051,9 +4089,44 @@ final class NavigationPattern implements PatternRecognizerInterface
     /**
      * @return array<string, mixed>
      */
+    /**
+     * Whether the element sits inside a hidden panel that an opener outside it
+     * reveals, for a menu that stays collapsed at every width. A collapse
+     * panel shown inline on desktop (a Bootstrap `.navbar-collapse`) is the
+     * navigation's own box instead.
+     */
+    private function isHiddenPanelBehind(DOMElement $element, DOMElement $toggle, NavigationPatternContext $context): bool
+    {
+        // A menu kept open inside its own source panel (overlay "never") still
+        // renders that panel as a shell around the navigation.
+        if ( $this->containsNode($element, $toggle) || 'never' === $this->overlayMenu($element, $context)
+            || 'always' !== $context->projectedOverlayMenu($toggle) ) {
+            return false;
+        }
+        for ( $node = $element; $node instanceof DOMElement && ! $this->containsNode($node, $toggle); $node = $node->parentNode ) {
+            if ( $node->hasAttribute('hidden') || $context->isHiddenAtReferenceViewport($node) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function navigationContainerAttributes(DOMElement $element, callable $presentationAttributes, ?NavigationPatternContext $navigationContext = null): array
     {
         $attrs = $this->withoutCoreNavigationClasses($presentationAttributes($element));
+        $toggle = $navigationContext?->navigationToggleControl($element);
+        if ( $toggle instanceof DOMElement && null !== $navigationContext && $this->isHiddenPanelBehind($element, $toggle, $navigationContext) ) {
+            // The element is the hidden panel an outside opener reveals: the
+            // navigation root renders that opener, so the panel's resting box
+            // belongs to Core's responsive container.
+            $attrs['metadata']['blocksEngineNavigationContainer']['className'] = SourceDom::mergeClassNames(
+                (string) ($attrs['metadata']['blocksEngineNavigationContainer']['className'] ?? ''),
+                (string) ($attrs['className'] ?? '')
+            );
+            $attrs['metadata']['blocksEngineNavigationContainer']['ownsSource'] = true;
+            unset($attrs['className']);
+        }
         $list = $this->navigationListSource($element);
         if ( $list instanceof DOMElement ) {
             $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::LIST_NAVIGATION_CLASS);
@@ -4066,7 +4139,16 @@ final class NavigationPattern implements PatternRecognizerInterface
             $listAttrs = $this->withoutCoreNavigationClasses($presentationAttributes($list));
             $listClasses = trim((string) ($listAttrs['className'] ?? ''));
             if ( '' !== $listClasses ) {
-                $attrs['className'] = implode(' ', array_values(array_unique(array_filter(preg_split('/\s+/', trim((string) ($attrs['className'] ?? '') . ' ' . $listClasses)) ?: array()))));
+                if ( true === ($attrs['metadata']['blocksEngineNavigationContainer']['ownsSource'] ?? false) ) {
+                    // The list renders inside that panel, so its classes follow it.
+                    $attrs['metadata']['blocksEngineNavigationContainer']['className'] = SourceDom::mergeClassNames(
+                        (string) ($attrs['metadata']['blocksEngineNavigationContainer']['className'] ?? ''),
+                        $listClasses,
+                        implode(' ', $navigationContext?->sourcePresentationMarkers($list) ?? array())
+                    );
+                } else {
+                    $attrs['className'] = implode(' ', array_values(array_unique(array_filter(preg_split('/\s+/', trim((string) ($attrs['className'] ?? '') . ' ' . $listClasses)) ?: array()))));
+                }
             }
 
             $listGap = (string) ($listAttrs['style']['spacing']['blockGap'] ?? '');

@@ -1636,11 +1636,20 @@ final class AuthorStylesheetProjector
     private function withButtonWrapperInnerFill(string $wrapperPrelude, string $layoutCss, string $rest, bool $clearInnerAutoHeight, AuthorStylesheetProjectionContext $context): string
     {
         $css = $wrapperPrelude . '{' . $layoutCss . '}';
-        $hasDefiniteWidth = CssValueInspector::hasDefiniteWidth($layoutCss);
+        // A minimum width only floors a shrink-to-fit button; it is not a width to fill.
+        $widths = array( 'width' => '', 'min-width' => '' );
+        foreach ( CssValueSplitter::splitTopLevel($layoutCss, array( ';' )) as $declaration ) {
+            $name = strtolower(trim((string) strtok($declaration, ':')));
+            if ( array_key_exists($name, $widths) ) {
+                $widths[ $name ] .= $name . ':' . substr($declaration, strpos($declaration, ':') + 1) . ';';
+            }
+        }
+        $hasDefiniteWidth = CssValueInspector::hasDefiniteWidth($widths['width']);
+        $hasMinimumWidth = ! $hasDefiniteWidth && CssValueInspector::hasDefiniteWidth($widths['min-width']);
         $hasDefiniteHeight = CssValueInspector::hasDefiniteHeight($layoutCss);
         $hasAutoHeight = CssValueInspector::hasAutoHeight($layoutCss);
         $hasMinimumHeight = CssValueInspector::hasAuthoredMinimumHeight($layoutCss);
-        if ( $hasDefiniteWidth || $hasDefiniteHeight || $hasAutoHeight || $hasMinimumHeight ) {
+        if ( $hasDefiniteWidth || $hasMinimumWidth || $hasDefiniteHeight || $hasAutoHeight || $hasMinimumHeight ) {
             $selectors = CssStylesheetTransformer::splitSelectorList($wrapperPrelude) ?? array( $wrapperPrelude );
             if ( str_contains($wrapperPrelude, '.wp-block-button__link)') ) {
                 return $css . $rest;
@@ -1657,6 +1666,10 @@ final class AuthorStylesheetProjector
             if ( $hasDefiniteWidth ) {
                 $css .= $button . '{width:100%}'
                     . $link . '{width:100%;max-width:100%}';
+            }
+            if ( $hasMinimumWidth ) {
+                $css .= ($targetsButtonBox ? '' : $button . '{min-width:inherit}')
+                    . $link . '{min-width:inherit}';
             }
             if ( $hasDefiniteHeight ) {
                 $css .= $button . '{height:100%}'
@@ -2759,9 +2772,7 @@ final class AuthorStylesheetProjector
         // Each compound's resting form: state pseudo-classes are not
         // structure, so they are matched away and restored on the projection.
         $resting = array();
-        $states = array();
         foreach ( $tokens['compounds'] as $index => $compound ) {
-            $states[$index] = preg_match_all(self::STATE_PSEUDO_CLASS_PATTERN, $compound, $matches) > 0 ? implode('', $matches[0]) : '';
             $resting[$index] = trim((string) preg_replace(self::STATE_PSEUDO_CLASS_PATTERN, '', $compound));
             if ( '' === $resting[$index] ) {
                 $resting[$index] = '*';
@@ -2809,27 +2820,20 @@ final class AuthorStylesheetProjector
             }
 
             $span = $tokens['compound_spans'][$index];
-            $parsedRoot = $context->sourceStyles->parsedSelector($resting[$index]);
-            $shims = is_array($parsedRoot) && ($parsedRoot['supported'] ?? false) ? $this->selectorSpecificityShims($parsedRoot, $context) : '';
-            // Ancestors outside the control keep their projected tag markers;
-            // the retained descendants keep their authored tags.
-            $replacements = array();
-            for ( $outer = 0; $outer < $index; ++$outer ) {
-                $parsedOuter = $context->sourceStyles->parsedSelector($tokens['compounds'][$outer]);
-                foreach ( is_array($parsedOuter) && ($parsedOuter['supported'] ?? false) ? $parsedOuter['type_spans'] : array() as $typeSpan ) {
-                    $tagMarker = $context->selectorProjections->tagMarker((string) $typeSpan['name']);
-                    if ( '' !== $tagMarker ) {
-                        $start = (int) $tokens['compound_spans'][$outer]['start'] + (int) $typeSpan['start'];
-                        $replacements[$start] = array( 'end' => $start + (int) $typeSpan['end'] - (int) $typeSpan['start'], 'value' => ':where(.' . $tagMarker . ')' . $this->typeSpecificityShim($context) );
-                    }
-                }
+            $prefix = substr($selector, 0, (int) $span['end']);
+            $parsedPrefix = $context->sourceStyles->parsedSelector($prefix);
+            if ( ! ($parsedPrefix['supported'] ?? false) ) {
+                continue;
             }
+            // Rebind the whole source prefix exactly as a rule targeting the
+            // control itself. Its source ancestry need not survive Core's
+            // inserted wrappers; descendants keep their authored topology.
             $projected = array();
             foreach ( array_keys($markers) as $marker ) {
-                $replacements[(int) $span['start']] = array(
+                $replacements = array(0 => array(
                     'end' => (int) $span['end'],
-                    'value' => ':where(.' . $marker . ')' . $shims . $this->buttonLinkTarget($context) . $states[$index],
-                );
+                    'value' => $this->projectControlSelector($prefix, $parsedPrefix, $marker, $context),
+                ));
                 $projected[] = $this->projectSourceClassSelector($selector, $context, $replacements);
             }
             return array_values(array_unique($projected));
@@ -3094,6 +3098,13 @@ final class AuthorStylesheetProjector
                 $target = '.' . $marker;
             }
             $shims = $this->selectorSpecificityShims($parsed, $context);
+            if ( 'img' === strtolower($element->tagName)
+                && null !== $context->selectorProjections->imageFigure($element->getNodePath() ?? '') ) {
+                // Image identity hooks move onto the synthetic figure. The
+                // matched subject is still its image, not that carrier box.
+                $projected[] = NativeImageLeafPresentation::selectors($scope . ':where(' . $target . ')', $shims);
+                continue;
+            }
             if ( '' !== $context->selectorProjections->controlMarker($element->getNodePath() ?? '') ) {
                 if ( $controlWrapper && LayoutParticipation::BOX_LINK !== LayoutParticipation::resolve($element, $this->styleResolver)->participatingBox() ) {
                     // Outer box spacing belongs to the layout item, not its link.
@@ -3115,6 +3126,19 @@ final class AuthorStylesheetProjector
             $projected[] = $scope . ':where(' . $target . ')' . $shims;
         }
         return array_values(array_unique($projected));
+    }
+
+    /** @param array<string, mixed> $parsed */
+    private function sourceAttributeMarker(string $selector, array $parsed, DOMElement $element, AuthorStylesheetProjectionContext $context): string
+    {
+        $rightmost = CssSelectorCompoundInspector::rightmost($parsed['compounds'] ?? array());
+        if ( null !== $parsed['pseudo_state_suffix_span']
+            || ! CssSelectorCompoundInspector::containsDataAttribute($rightmost)
+            || CssSelectorCompoundInspector::hasLiveAttributePredicate($rightmost)
+        ) {
+            return '';
+        }
+        return $context->selectorProjections->attributeMarker($element->getNodePath() ?? '', $selector);
     }
 
     /** @param array<string, mixed> $parsed @param list<DOMElement> $matches @return list<string>|null */
@@ -3239,6 +3263,12 @@ final class AuthorStylesheetProjector
             $hasUnmarkedImage = false;
             foreach ( $ordinaryImages as $element ) {
                 $marker = $context->selectorProjections->imageWrapperMarker($element->getNodePath() ?? '');
+                if ( '' === $marker ) {
+                    // A static data predicate is not carried to the native image;
+                    // its attribute marker moves to the figure, so reach the leaf
+                    // through that marker, as the figure's own box rule does.
+                    $marker = $this->sourceAttributeMarker($selector, $parsed, $element, $context);
+                }
                 if ( '' === $marker ) {
                     $hasUnmarkedImage = true;
                     continue;

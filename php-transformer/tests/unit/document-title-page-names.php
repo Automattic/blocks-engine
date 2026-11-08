@@ -46,6 +46,13 @@ $assert('A' === ($branded['index.html'] ?? null), 'a multi-segment shared site-n
 $assert('B' === ($branded['about.html'] ?? null), 'a multi-segment shared site-name run is stripped whole', json_encode($branded));
 $assert('C' === ($branded['contact.html'] ?? null), 'each page keeps only its own segment', json_encode($branded));
 
+// A blog: bare post titles outnumber the "Page | Site" pages but do not vote.
+$blog = array('index.html' => $page('Home | Example Studio', 'Welcome'), 'about.html' => $page('About | Example Studio', 'Meet the team'), 'contact.html' => $page('Contact | Example Studio', 'Get in touch'));
+foreach (range(1, 4) as $post) $blog['post-' . $post . '.html'] = $page('Story number ' . $post, 'Story number ' . $post);
+$blog['post-5.html'] = $page('Lent - The Similarities', 'Lent');
+$blog = $titles($blog);
+$assert(array('About', 'Contact', 'Story number 1') === array($blog['about.html'] ?? null, $blog['contact.html'] ?? null, $blog['post-1.html'] ?? null), 'bare post titles do not outvote the pages\' shared site name', json_encode($blog));
+
 $spa = $titles(array(
     'index.html' => $page('Example Studio', 'Welcome'),
     'about.html' => $page('Example Studio', 'Meet the team'),

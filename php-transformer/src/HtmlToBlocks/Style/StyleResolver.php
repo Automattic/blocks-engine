@@ -31,6 +31,9 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
  */
 final class StyleResolver implements ElementPresentationResolver
 {
+    /** @var array<string,true>|null */
+    private ?array $scopedAnchorIdentities = null;
+
     /** @var list<array<string, mixed>> */
     private array $viewportAuthorRuleSource = array();
     /** @var array<string, array{rules: list<array<string, mixed>>, parsed: array<string, array<string, mixed>>, declaring: array<string, list<array<string, mixed>>>}> */
@@ -63,6 +66,9 @@ final class StyleResolver implements ElementPresentationResolver
     private ?ClosedStateNormalizer $closedStateNormalizer = null;
 
     private ?InlineGeometry $inlineGeometry = null;
+
+    /** @var array<string, array{property: string, value: string, important: bool}> */
+    private array $mediaTextDeclarationNormalizationCache = array();
 
     /**
      * Whether an element's block keeps a native core grid layout attribute,
@@ -187,7 +193,8 @@ final class StyleResolver implements ElementPresentationResolver
             $this->hasConditionalStyleFamily(...),
             $this->responsivePropertyFamily(...),
             $this->hasConditionalGridTemplateColumns(...),
-            $this->authorNormalDeclarationSpecificity(...)
+            $this->authorNormalDeclarationSpecificity(...),
+            $this->authorImportantDeclarationSpecificity(...)
         );
     }
 
@@ -2880,6 +2887,41 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Drop inline declarations an unconditional author `!important` rule
+     * overrides on this element. They never render, so reading them as the
+     * element's authored presentation (block attributes, geometry carriers)
+     * would project a value the source never showed.
+     */
+    public function dropAuthorOverriddenInlineDeclarations(DOMElement $element): void
+    {
+        $inline = $this->verbatimCssDeclarations(SourceDom::attr($element, 'style'));
+        if ( array() === $inline ) {
+            return;
+        }
+        $overridden = array();
+        $captureOnly = $this->session->authorStyleAnalysis()->captureOnlySelectors();
+        foreach ( $this->matchingStyleRules($element, 'static') as $rule ) {
+            // A capture's replay stylesheet forces its opened state; that is
+            // no author rule, so the element's own inline value still stands.
+            if ( isset($captureOnly[ trim((string) ( $rule['selector'] ?? '' )) ]) ) continue;
+            foreach ( $rule['declarations'] as $property => $value ) {
+                if ( CssValueInspector::isImportant((string) $value) ) {
+                    $overridden[ strtolower((string) $property) ] = true;
+                }
+            }
+        }
+        $kept = array();
+        foreach ( $inline as $property => $value ) {
+            if ( ! isset($overridden[ $property ]) || CssValueInspector::isImportant((string) $value) ) {
+                $kept[] = $property . ': ' . $value;
+            }
+        }
+        if ( count($kept) !== count($inline) ) {
+            $element->setAttribute('style', array() === $kept ? '' : implode(';', $kept) . ';');
+        }
+    }
+
+    /**
      * @param list<string> $properties
      * @return array{int, int, int}
      */
@@ -2887,8 +2929,12 @@ final class StyleResolver implements ElementPresentationResolver
     {
         $wanted = array_fill_keys(array_map('strtolower', $properties), true);
         $highest = array( 0, 0, 0 );
-        foreach ( $this->matchingStyleRules($element, 'static-conditional') as $rule ) {
-            foreach ( $rule['declarations'] as $property => $value ) {
+        // Cascade-only properties (`transform`, `visibility`, ...) live beside
+        // the classified declarations: on a conditional rule itself, and in
+        // the cascaded-value stream for a resting rule.
+        $rules = array_merge($this->matchingStyleRules($element, 'static-conditional'), $this->matchingStyleRules($element, 'cascaded-values'));
+        foreach ( $rules as $rule ) {
+            foreach ( ( $rule['declarations'] ?? array() ) + ( $rule['cascadedDeclarations'] ?? array() ) as $property => $value ) {
                 if ( ! isset($wanted[ strtolower((string) $property) ]) || $important !== CssValueInspector::isImportant((string) $value) ) {
                     continue;
                 }
@@ -3553,10 +3599,38 @@ final class StyleResolver implements ElementPresentationResolver
      */
     public function withoutRedundantInheritedTypography(DOMElement $element, array $declarations): array
     {
+        // These tag defaults override inheritance even when the authored value
+        // equals the parent's value, so removing it would change rendering.
+        $tagDefaults = array(
+            'a' => array( 'color' ),
+            'b' => array( 'font-weight' ),
+            'strong' => array( 'font-weight' ),
+            'th' => array( 'font-weight' ),
+            'em' => array( 'font-style' ),
+            'i' => array( 'font-style' ),
+            'cite' => array( 'font-style' ),
+            'var' => array( 'font-style' ),
+            'dfn' => array( 'font-style' ),
+            'address' => array( 'font-style' ),
+            'h1' => array( 'font-size', 'font-weight' ),
+            'h2' => array( 'font-size', 'font-weight' ),
+            'h3' => array( 'font-size', 'font-weight' ),
+            'h4' => array( 'font-size', 'font-weight' ),
+            'h5' => array( 'font-size', 'font-weight' ),
+            'h6' => array( 'font-size', 'font-weight' ),
+            'small' => array( 'font-size' ),
+            'sub' => array( 'font-size' ),
+            'sup' => array( 'font-size' ),
+            'code' => array( 'font-family' ),
+            'kbd' => array( 'font-family' ),
+            'pre' => array( 'font-family' ),
+            'samp' => array( 'font-family' ),
+        );
+        $ownDefaults = $tagDefaults[strtolower($element->tagName)] ?? array();
         $parent = $element->parentNode;
         if ( $parent instanceof DOMElement ) {
             foreach ( array( 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform', 'color' ) as $property ) {
-                if ( ! isset($declarations[$property]) ) {
+                if ( ! isset($declarations[$property]) || in_array($property, $ownDefaults, true) ) {
                     continue;
                 }
                 $inherited = $this->resolvedInheritedTypographyValue($parent, $property);
@@ -4158,34 +4232,46 @@ final class StyleResolver implements ElementPresentationResolver
         int $sequence,
         ?int $layer = null
     ): void {
-        $property = str_starts_with($property, '--') ? $property : strtolower($property);
-        $important = 1 === preg_match('/\s*!\s*important\s*$/i', $rawValue);
-        $value = trim(preg_replace('/\s*!\s*important\s*$/i', '', $rawValue) ?? $rawValue);
+        $cacheKey = serialize(array($property, $rawValue));
+        if (! isset($this->mediaTextDeclarationNormalizationCache[$cacheKey])) {
+            $normalizedProperty = str_starts_with($property, '--') ? $property : strtolower($property);
+            $important = 1 === preg_match('/\s*!\s*important\s*$/i', $rawValue);
+            $value = trim(preg_replace('/\s*!\s*important\s*$/i', '', $rawValue) ?? $rawValue);
+
+            if ('flex-flow' === $normalizedProperty) {
+                $normalizedProperty = 'flex-direction';
+                // A var() flow is statically unresolvable — keep it verbatim so the
+                // strict gate declines on it instead of defaulting to row.
+                if (1 !== preg_match('/var\s*\(/i', $value)) {
+                    $flowDirection = null;
+                    foreach (CssValueSplitter::splitTopLevelWhitespace(strtolower($value)) as $component) {
+                        if (in_array($component, array('row', 'row-reverse', 'column', 'column-reverse'), true)) {
+                            $flowDirection = $component;
+                            break;
+                        }
+                    }
+                    $value = $flowDirection ?? (in_array(strtolower($value), array('inherit', 'unset', 'revert', 'revert-layer'), true) ? strtolower($value) : 'row');
+                }
+            }
+
+            // The strict gates only read the grow factor of the `flex` shorthand;
+            // folding it into `flex-grow` lets source order decide between them.
+            if ('flex' === $normalizedProperty) {
+                $normalizedProperty = 'flex-grow';
+                $value = $this->flexShorthandGrowFactor($value);
+            }
+            $this->mediaTextDeclarationNormalizationCache[$cacheKey] = array(
+                'property' => $normalizedProperty,
+                'value' => $value,
+                'important' => $important,
+            );
+        }
+        $normalized = $this->mediaTextDeclarationNormalizationCache[$cacheKey];
+        $property = $normalized['property'];
+        $value = $normalized['value'];
+        $important = $normalized['important'];
         if ('' === $property || '' === $value) {
             return;
-        }
-
-        if ('flex-flow' === $property) {
-            $property = 'flex-direction';
-            // A var() flow is statically unresolvable — keep it verbatim so the
-            // strict gate declines on it instead of defaulting to row.
-            if (1 !== preg_match('/var\s*\(/i', $value)) {
-                $flowDirection = null;
-                foreach (CssValueSplitter::splitTopLevelWhitespace(strtolower($value)) as $component) {
-                    if (in_array($component, array('row', 'row-reverse', 'column', 'column-reverse'), true)) {
-                        $flowDirection = $component;
-                        break;
-                    }
-                }
-                $value = $flowDirection ?? (in_array(strtolower($value), array('inherit', 'unset', 'revert', 'revert-layer'), true) ? strtolower($value) : 'row');
-            }
-        }
-
-        // The strict gates only read the grow factor of the `flex` shorthand;
-        // folding it into `flex-grow` lets source order decide between them.
-        if ('flex' === $property) {
-            $property = 'flex-grow';
-            $value = $this->flexShorthandGrowFactor($value);
         }
 
         $incoming = array( 'important' => $important, 'inline' => $inline, 'specificity' => $specificity, 'sequence' => $sequence, 'layer' => $layer );
@@ -4848,11 +4934,20 @@ final class StyleResolver implements ElementPresentationResolver
      */
     private function editorAnchorClassName(DOMElement $element, bool $renamedForVariant = false): string
     {
-        if ( ! $renamedForVariant && ! in_array(strtolower($element->tagName), array('article', 'aside', 'div', 'footer', 'header', 'main', 'section'), true) ) {
+        $anchor = SourceDom::safeAnchor(SourceDom::attr($element, 'id'));
+        if ( '' === $anchor ) {
             return '';
         }
-        $anchor = SourceDom::safeAnchor(SourceDom::attr($element, 'id'));
-        return '' === $anchor ? '' : EngineMarker::editorAnchorClass($anchor);
+        // Author #id rules for an id shared across document variants are
+        // projected as :is(#id,.anchor-class), so every copy needs the class:
+        // the editor wrapper's id is block-<clientId>, not the source id.
+        if ( ! $renamedForVariant && ! in_array(strtolower($element->tagName), array('article', 'aside', 'div', 'footer', 'header', 'main', 'section'), true) ) {
+            $this->scopedAnchorIdentities ??= ScopedAnchorSelectorProjection::identities($this->session->authorStyleAnalysis());
+            if ( ! isset($this->scopedAnchorIdentities[ $anchor ]) ) {
+                return '';
+            }
+        }
+        return EngineMarker::editorAnchorClass($anchor);
     }
 
     /**
@@ -5149,6 +5244,7 @@ final class StyleResolver implements ElementPresentationResolver
             'font-weight',
             'letter-spacing',
             'line-height',
+            'text-align',
             'text-transform',
             'white-space',
         ), true) ) {
@@ -6215,7 +6311,10 @@ final class StyleResolver implements ElementPresentationResolver
             // A consumed custom property can supply the URL to an authored
             // background rule. Keep it for the same sanitized carrier path.
             $allowsImageUrl = (str_starts_with($name, '--') || in_array($name, array( 'background', 'background-image', 'list-style', 'list-style-image' ), true)) && ! preg_match('/(?:expression\s*\(|javascript\s*:)/i', $value);
-            if ( '' !== $name && '' !== $value && ( $allowsImageUrl || ! preg_match('/(?:expression\s*\(|javascript\s*:|url\s*\()/i', $value) ) ) {
+            // A same-document fragment (`clip-path: url(#wave)`) requests nothing:
+            // it names a definition the converted document keeps.
+            $withoutFragments = preg_replace('/\burl\(\s*(["\']?)#[A-Za-z_][\w.:-]*\1\s*\)/i', '', $value) ?? 'url(';
+            if ( '' !== $name && '' !== $value && ( $allowsImageUrl || ! preg_match('/(?:expression\s*\(|javascript\s*:|url\s*\()/i', $withoutFragments) ) ) {
                 // Expand before reducing to a map: even repeated shorthands must
                 // compete with intervening longhands in authored source order.
                 $entries = $expandFont && 'font' === $name ? CssFontShorthand::expand($value) : array();
@@ -7071,6 +7170,16 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Custom properties the stylesheets declare on `:root` or `html`.
+     *
+     * @return array<string, string>
+     */
+    public function rootCustomProperties(): array
+    {
+        return $this->session->sourceStyleResolutionState()->customProperties();
+    }
+
+    /**
      * Custom properties visible to `$element` through the unfiltered cascade,
      * scoped by ancestry rather than limited to `:root`/`html`. An id- or
      * class-scoped `--token` an ancestor declares is a legitimate source.
@@ -7216,6 +7325,29 @@ final class StyleResolver implements ElementPresentationResolver
         return false === strpos($declared, 'var(')
             ? $declared
             : $this->expandCssVariableReferences($declared, $this->cascadedCustomProperties($element));
+    }
+
+    /** Resolve inherited SVG paint using the source cascade and presentation attributes. */
+    public function resolvedInheritedSvgPaintValue(DOMElement $element, string $property): string
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $value = trim($this->resolvedSvgCascadeValue($node, $property) ?? SourceDom::attr($node, $property));
+            if ( in_array(strtolower($value), array( '', 'inherit', 'unset' ), true) ) {
+                continue;
+            }
+
+            if ( 'currentcolor' === strtolower($value) ) {
+                if ( 'color' === $property ) {
+                    continue;
+                }
+
+                return $this->resolvedInheritedSvgPaintValue($element, 'color') ?: '#000000';
+            }
+
+            return $value;
+        }
+
+        return '';
     }
 
     /** SVG text layout and presentation properties a standalone image must carry. */

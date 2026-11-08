@@ -43,4 +43,20 @@ foreach (array(false, true) as $explicit) {
     $assert(!str_contains($markup, '<svg') && !str_contains($markup, 'glyph-box'), 'No source icon markup is added to core navigation.');
 }
 
+// Google Sites places its chevron out of flow, in the item box's left
+// padding beside the label. Core's toggle is the item's child, so its source
+// insets are re-based from the label row onto the item: 36px of box padding
+// puts the authored -32px at 4px, and the box's 16px top margin, which Core's
+// flex item contains, keeps it centred on the label.
+$chevron = '<div class="toggle" title="Expand/Collapse"><svg class="glyph" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></div>';
+$result = (new HtmlTransformer())->transform('<style>ul{list-style:none;margin:0;padding:0}.item-box{padding:0 12px 0 36px;margin-top:16px}.item-row{position:relative}'
+    . '.toggle{position:absolute;left:-36px;bottom:50%;transform:translateY(50%);width:36px;height:24px;padding-left:12px;box-sizing:border-box}.item-box .toggle{left:-32px}.glyph{width:24px;height:24px}</style>'
+    . '<header><nav><ul><li><div class="item-box"><div class="item-row"><a href="/">Home</a></div></div></li>'
+    . '<li><div class="item-box"><div class="item-row">' . $chevron . '<a href="/kings" aria-haspopup="true" aria-expanded="false">Kings</a></div></div>'
+    . '<div class="panel" style="display:none" role="group"><ul><li><div class="item-box"><div class="item-row"><a href="/kings/retired">Retired</a></div></div></li></ul></div></li>'
+    . '</ul></nav></header><main><p>Body</p></main>')->toArray();
+$css = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $result['assets'] ?? array()));
+$assert(1 === preg_match('/blocks-engine-submenu-icon-[a-f0-9]+:not\(\.is-menu-open \*\)>\.wp-block-navigation__submenu-icon\{([^}]+)\}/', $css, $toggle), 'Scoped CSS reaches the out-of-flow chevron\'s toggle.');
+$assert(str_contains($toggle[1], 'position:absolute;left:4px;bottom:calc(50% + -8px);transform:translateY(50%);'), 'The chevron keeps its source place left of the label: ' . $toggle[1]);
+
 echo "navigation submenu icon geometry contract passed\n";

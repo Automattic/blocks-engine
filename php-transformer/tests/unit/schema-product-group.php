@@ -47,6 +47,27 @@ $assert(array('instock', 'outofstock', 'instock') === array_column($variants, 's
 $assert(array('key' => 'size', 'label' => 'Size', 'value' => 'small', 'value_label' => 'Small') === ($variants[0]['attributes'][0] ?? null), 'Attributes use the existing row shape.');
 $assert(array() === $diagnostics, 'Declared variants have no diagnostic.');
 
+foreach ($variants as $variantRow) {
+    $assert(array('size', 'color') === array_column($variantRow['attributes'], 'key'), 'Without variesBy, every variant keeps additionalProperty order.');
+}
+foreach (array(array('Color', 'Size'), array('https://schema.org/color', 'https://schema.org/size')) as $axes) {
+    $ordered = $group;
+    $ordered['variesBy'] = $axes;
+    $orderedVariants = $read($ordered)['field-shirt']['variants'] ?? array();
+    $assert(3 === count($orderedVariants), 'Ordering retains every variant.');
+    foreach ($orderedVariants as $variantRow) {
+        $assert(array('color', 'size') === array_column($variantRow['attributes'], 'key'), 'Every variant follows variesBy rather than additionalProperty order.');
+    }
+}
+$ordered['variesBy'] = array('Color', 'Missing', 'Color');
+foreach ($ordered['hasVariant'] as &$child) {
+    array_unshift($child['additionalProperty'], array('@type' => 'PropertyValue', 'name' => 'Material', 'value' => 'Cotton'));
+}
+unset($child);
+foreach ($read($ordered)['field-shirt']['variants'] ?? array() as $variantRow) {
+    $assert(array('color', 'material', 'size') === array_column($variantRow['attributes'], 'key'), 'Unlisted properties retain relative order after declared axes; missing and duplicate axes add nothing.');
+}
+
 $bare = $group;
 unset($bare['sku']);
 foreach ($bare['hasVariant'] as &$child) unset($child['additionalProperty']);

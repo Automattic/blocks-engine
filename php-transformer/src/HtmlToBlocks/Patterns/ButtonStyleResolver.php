@@ -123,7 +123,9 @@ final class ButtonStyleResolver
             foreach ( $padding as $side => $value ) {
                 $padding[ $side ] = $this->gutenbergSpacingLength((string) $value, $declarations);
             }
-            $style['spacing']['padding'] = $padding;
+            // An authored side leaves the others at the source default (zero),
+            // not Core's button padding, which would otherwise fill them in.
+            $style['spacing']['padding'] = array_replace(array( 'top' => '0', 'right' => '0', 'bottom' => '0', 'left' => '0' ), $padding);
         }
 
         $shadow = $this->buttonShadow($declarations);

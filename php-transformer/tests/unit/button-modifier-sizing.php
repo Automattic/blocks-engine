@@ -10,10 +10,10 @@ foreach (array($html, str_replace('min-height:var(--h)', 'min-height:40px', $htm
     $result = (new HtmlTransformer())->transform($source)->toArray();
     $css = implode("\n", array_column(array_filter($result['assets'] ?? array(), static fn(array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
     if (!str_contains($result['serialized_blocks'], 'wp-block-button__link')
-        || !preg_match('/[^{}]*wp-block-buttons[^{}]*\{min-height:40px\}/', $css)
-        || !preg_match('/[^{}]*wp-block-button__link[^{}]*\{min-height:inherit\}/', $css)
+        // The inline-flex anchor participates inline, so its link owns the size.
+        || !preg_match('/[^{}]*wp-block-button__link[^{}]*\{min-height:40px\}/', $css)
     ) {
-        fwrite(STDERR, "FAIL: modifier-sized and literal buttons must carry 40px through the wrapper to the lowered link\n" . $css . "\n");
+        fwrite(STDERR, "FAIL: modifier-sized and literal buttons must carry 40px to the lowered link\n" . $css . "\n");
         exit(1);
     }
 }

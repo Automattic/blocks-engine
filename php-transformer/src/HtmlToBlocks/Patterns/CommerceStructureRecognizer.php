@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
@@ -295,7 +296,8 @@ final class CommerceStructureRecognizer
             $tagName = strtolower($descendant->tagName);
             $role = strtolower(SourceDom::attr($descendant, 'role'));
             $isControl = in_array($tagName, array( 'button', 'a', 'input' ), true) || 'button' === $role;
-            if ( ! $isControl ) {
+            // Hidden inputs carry data, not an action a shopper can take.
+            if ( ! $isControl || ('input' === $tagName && 'hidden' === strtolower(SourceDom::attr($descendant, 'type'))) ) {
                 continue;
             }
 
@@ -309,7 +311,13 @@ final class CommerceStructureRecognizer
                 $this->collapsedText($descendant),
             )));
 
+            // A link that navigates to a cart or checkout page ("view cart") is
+            // navigation unless it also names a purchase action.
+            $navigates = 'a' === $tagName && 'button' !== $role && $this->navigatesAway(SourceDom::attr($descendant, 'href'));
             foreach ( $tokens as $token ) {
+                if ( $navigates && in_array($token, array( 'cart', 'checkout', 'order' ), true) && ! preg_match('/\b(?:add|buy|purchase)\b/', $haystack) ) {
+                    continue;
+                }
                 if ( $this->classifier->hasTokenBoundary($haystack, $token) ) {
                     return $descendant;
                 }
@@ -323,6 +331,13 @@ final class CommerceStructureRecognizer
         }
 
         return null;
+    }
+
+    /** Whether an href leaves the current document (not empty, a fragment or script). */
+    private function navigatesAway(string $href): bool
+    {
+        $href = strtolower(trim($href));
+        return '' !== $href && ! str_starts_with($href, '#') && ! str_starts_with($href, 'javascript:');
     }
 
     private function isGridLike(DOMElement $element): bool
@@ -652,7 +667,7 @@ final class CommerceStructureRecognizer
             }
             for ( $node = $element->parentNode; $node instanceof DOMElement && $node !== $root->parentNode; $node = $node->parentNode ) {
                 $tag = strtolower($node->tagName);
-                if ( in_array($tag, array( 'html', 'body' ), true) ) {
+                if ( in_array($tag, array( 'html', 'body' ), true) || $node->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) ) {
                     break;
                 }
                 $boundary = 'form' === $tag

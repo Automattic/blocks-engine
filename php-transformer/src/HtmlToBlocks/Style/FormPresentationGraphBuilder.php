@@ -42,7 +42,20 @@ final class FormPresentationGraphBuilder
     );
     /** The paint properties one control renders itself: its text colour and background fill. */
     private const PAINT_PROPERTIES = array(
-        'color', 'background', 'background-color',
+        'color', 'background', 'background-color', 'background-image', 'background-position', 'background-repeat', 'background-size',
+    );
+    /** The longhands a winning `background` shorthand resets on the same element. */
+    private const BACKGROUND_LONGHANDS = array(
+        'background-color', 'background-image', 'background-position', 'background-repeat', 'background-size',
+    );
+    /**
+     * The box a button's caption carrier paints behind the caption: a sliding-door
+     * `<a><span>Caption</span></a>` draws its body on the span and its cap on the link.
+     */
+    private const CAPTION_LAYER_PROPERTIES = array(
+        'background', 'background-color', 'background-image', 'background-position', 'background-repeat', 'background-size',
+        'border-radius', 'height',
+        'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
     );
     /** A block-level caption carrier fills its button, so its padding sizes the button box. */
     private const CAPTION_BOX_PROPERTIES = array(
@@ -62,6 +75,17 @@ final class FormPresentationGraphBuilder
     private const MAX_CAPTION_ANCESTORS = 3;
     /** How far a text-carrier search may walk before the search, not the cascade, gives up. */
     private const MAX_CARRIER_CANDIDATES = 256;
+    private const MAX_ROW_ANCESTORS = 32;
+    /** Row-owned layout and frame paint; never widen the shared element vocabulary here. */
+    private const ROW_PROPERTIES = array(
+        'display', 'flex-direction', 'flex-wrap', 'column-gap', 'gap', 'grid-template-columns',
+        'width', 'box-sizing', 'border', 'border-width', 'border-style', 'border-color',
+        'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width',
+        'border-top-style', 'border-right-style', 'border-bottom-style', 'border-left-style',
+        'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color',
+        'border-radius', 'background-color',
+    );
+    private const ROW_ITEM_PROPERTIES = array('flex-grow', 'flex-shrink', 'flex-basis', 'width', 'min-width', 'max-width');
     private const CONTROL_CONTAINER_PROPERTIES = array(
         'background', 'background-color', 'border', 'border-color', 'border-style', 'border-width',
         'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color',
@@ -70,7 +94,8 @@ final class FormPresentationGraphBuilder
         'border-radius', 'border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius',
     );
     private const PROPERTIES = array(
-        'appearance', 'background', 'background-color', 'border', 'border-color', 'border-style', 'border-width',
+        'appearance', 'background', 'background-color', 'background-image', 'background-position', 'background-repeat', 'background-size',
+        'border', 'border-color', 'border-style', 'border-width',
         'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color',
         'border-top-style', 'border-right-style', 'border-bottom-style', 'border-left-style',
         'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width',
@@ -91,6 +116,8 @@ final class FormPresentationGraphBuilder
         'left', 'margin-block', 'margin-inline', 'order', 'position', 'right', 'top', 'transform', 'z-index',
         'flex-direction', 'flex-wrap', 'flex-flow', 'align-items', 'justify-content', 'gap'
     );
+    /** Row distribution facts only; element presentation keeps the shared vocabulary. */
+    private const ROW_ONLY_PROPERTIES = array('column-gap', 'grid-template-columns');
 
     private array $diagnostics = array();
     /** @var array<string,true> Stylesheet facts, separate from the current element's limits. */
@@ -537,7 +564,7 @@ final class FormPresentationGraphBuilder
         $this->unrepresentable = array();
         $groupCaptions = $this->captionElements($form);
         $controlsForCustomProperties = array_merge($this->presentationElements($form), $groupCaptions['elements']);
-        $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, $this->cascadeFilter($controlsForCustomProperties), CssAnalysisLimits::MAX_SCANNED_SELECTORS);
+        $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, array_merge(self::PROPERTIES, self::ROW_ONLY_PROPERTIES), CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, $this->cascadeFilter($controlsForCustomProperties), CssAnalysisLimits::MAX_SCANNED_SELECTORS);
         $customPropertyAnalysis = (new CssRuleAnalyzer())->analyze(
             $stylesheets,
             $inlineCss,
@@ -555,6 +582,7 @@ final class FormPresentationGraphBuilder
         $visualParts = array();
         $visualGroups = array();
         $hasRequiredMarker = false;
+        $hasCaptionLayer = false;
         $controlContainers = array();
         $exclusiveAncestors = (new FormControlTopologyBuilder())->exclusiveWrapperAncestors($form);
 
@@ -616,6 +644,10 @@ final class FormPresentationGraphBuilder
                 }
                 if ( array() !== $styles || 'required_marker' === $role ) {
                     $row[$role] = array( 'styles' => $styles, 'provenance' => $provenance );
+                }
+                if ( $buttonCaption && null !== ($layer = $this->captionLayer($element, $analysis['rules'], $customPropertyAnalysis['rules'])) ) {
+                    $row['caption'] = $layer;
+                    $hasCaptionLayer = true;
                 }
                 foreach ( $conditional as $encoded => $facts ) {
                     if ( count($variants) >= self::MAX_VARIANTS ) {
@@ -705,13 +737,14 @@ final class FormPresentationGraphBuilder
             }
         }
 
+        $controlRows = $this->controlRows($form, $analysis['rules'], $customPropertyAnalysis['rules'], $variants);
         $diagnostics = array_values(array_unique(array_merge($this->diagnostics, $this->stylesheetDiagnostics())));
         // Unsupported selectors can fill the diagnostic budget before the
         // actual bound that made this graph unsafe to publish. Keep that cause
         // visible so a dropped provider presentation graph is actionable.
         $bounds = array_values(array_filter($diagnostics, static fn (string $diagnostic): bool => str_ends_with($diagnostic, '_limit') || str_contains($diagnostic, '_truncated:')));
         $graph = array(
-            'schema' => array() === $visualParts && ! $hasRequiredMarker && array() === $controlContainers && array() === $captures ? 'generic/computed-form-presentation/v1' : 'generic/computed-form-presentation/v2',
+            'schema' => array() === $visualParts && ! $hasRequiredMarker && ! $hasCaptionLayer && array() === $controlContainers && array() === $captures ? 'generic/computed-form-presentation/v1' : 'generic/computed-form-presentation/v2',
             'basis' => 'source_css_cascade',
             'truncated' => $this->truncated,
             'limits' => array( 'controls' => self::MAX_CONTROLS, 'rules_per_role' => self::MAX_RULES_PER_ROLE ),
@@ -725,6 +758,11 @@ final class FormPresentationGraphBuilder
             $graph['control_containers'] = $controlContainers;
             $graph['group_captions'] = $captures;
         }
+        if ($controlRows) {
+            $graph['schema'] = 'generic/computed-form-presentation/v3';
+            $graph += array('visual_parts' => $visualParts, 'visual_groups' => $visualGroups, 'control_containers' => $controlContainers, 'group_captions' => $captures);
+            $graph['control_rows'] = $controlRows;
+        }
         self::assertValid($graph);
         return $graph;
     }
@@ -734,11 +772,14 @@ final class FormPresentationGraphBuilder
     {
         $version = $graph['schema'] ?? null;
         $v1 = 'generic/computed-form-presentation/v1' === $version;
-        $v2 = 'generic/computed-form-presentation/v2' === $version;
+        $v3 = 'generic/computed-form-presentation/v3' === $version;
+        $v2 = $v3 || 'generic/computed-form-presentation/v2' === $version;
         $expectedKeys = $v2 ? array( 'schema', 'basis', 'truncated', 'limits', 'controls', 'visual_parts', 'visual_groups', 'control_containers', 'group_captions', 'variants', 'diagnostics' ) : array( 'schema', 'basis', 'truncated', 'limits', 'controls', 'variants', 'diagnostics' );
+        if ($v3) $expectedKeys[] = 'control_rows';
         if ( (! $v1 && ! $v2) || 'source_css_cascade' !== ($graph['basis'] ?? null) || ! is_bool($graph['truncated'] ?? null) || ! is_array($graph['limits'] ?? null) || array_diff(array_keys($graph['limits']), array( 'controls', 'rules_per_role' )) || self::MAX_CONTROLS !== ($graph['limits']['controls'] ?? null) || self::MAX_RULES_PER_ROLE !== ($graph['limits']['rules_per_role'] ?? null) || ! is_array($graph['controls'] ?? null) || ! array_is_list($graph['controls']) || count($graph['controls']) > self::MAX_CONTROLS || ($v2 && (! is_array($graph['visual_parts'] ?? null) || ! array_is_list($graph['visual_parts']) || count($graph['visual_parts']) > self::MAX_VISUAL_PARTS || ! is_array($graph['visual_groups'] ?? null) || ! array_is_list($graph['visual_groups']) || count($graph['visual_groups']) > self::MAX_VISUAL_PARTS || ! is_array($graph['control_containers'] ?? null) || ! array_is_list($graph['control_containers']) || count($graph['control_containers']) > self::MAX_CONTROLS || ! is_array($graph['group_captions'] ?? null) || ! array_is_list($graph['group_captions']) || count($graph['group_captions']) > self::MAX_CONTROLS)) || ! is_array($graph['variants'] ?? null) || ! array_is_list($graph['variants']) || count($graph['variants']) > self::MAX_VARIANTS || ! is_array($graph['diagnostics'] ?? null) || ! array_is_list($graph['diagnostics']) || count(array_unique($graph['diagnostics'], SORT_REGULAR)) !== count($graph['diagnostics']) || count($graph['diagnostics']) > self::MAX_DIAGNOSTICS || array_filter($graph['diagnostics'], static fn (mixed $diagnostic): bool => ! is_string($diagnostic) || '' === trim($diagnostic) || strlen($diagnostic) > 1100) || array_diff(array_keys($graph), $expectedKeys) ) {
             throw new InvalidArgumentException('Form presentation graph envelope is invalid.');
         }
+        $rowOwners = $v3 ? self::assertControlRows($graph['control_rows'] ?? null) : array();
         $containerIndexes = array();
         foreach ( $v2 ? $graph['control_containers'] : array() as $container ) {
             if ( ! is_array($container) || array_diff(array_keys($container), array( 'index', 'source_selector', 'styles', 'provenance' )) || ! is_int($container['index'] ?? null) || $container['index'] < 0 || $container['index'] >= self::MAX_CONTROLS || isset($containerIndexes[$container['index']]) || ! is_string($container['source_selector'] ?? null) || '' === trim($container['source_selector']) || strlen($container['source_selector']) > 2048 || ! is_array($container['styles'] ?? null) || array_diff(array_keys($container['styles']), array_map(self::key(...), self::CONTROL_CONTAINER_PROPERTIES)) || ! is_array($container['provenance'] ?? null) ) throw new InvalidArgumentException('Form presentation control container is invalid.');
@@ -753,12 +794,16 @@ final class FormPresentationGraphBuilder
         }
         $seen = array();
         foreach ( $graph['controls'] as $row ) {
-            if ( ! is_array($row) || array_diff(array_keys($row), $v2 ? array( 'index', 'control', 'label', 'required_marker' ) : array( 'index', 'control', 'label' )) || ! is_int($row['index'] ?? null) || $row['index'] < 0 || $row['index'] >= self::MAX_CONTROLS || isset($seen[$row['index']]) || (! isset($row['control']) && ! isset($row['label']) && ! isset($row['required_marker'])) ) {
+            if ( ! is_array($row) || array_diff(array_keys($row), $v2 ? array( 'index', 'control', 'label', 'required_marker', 'caption' ) : array( 'index', 'control', 'label' )) || ! is_int($row['index'] ?? null) || $row['index'] < 0 || $row['index'] >= self::MAX_CONTROLS || isset($seen[$row['index']]) || (! isset($row['control']) && ! isset($row['label']) && ! isset($row['required_marker']) && ! isset($row['caption'])) ) {
                 throw new InvalidArgumentException('Form presentation control is invalid.');
             }
             $seen[$row['index']] = true;
             foreach ( $v2 ? array( 'control', 'label', 'required_marker' ) : array( 'control', 'label' ) as $role ) {
                 if ( isset($row[$role]) ) self::assertRole($row[$role], null, 'required_marker' === $role);
+            }
+            if ( isset($row['caption']) ) {
+                self::assertRole($row['caption'], null);
+                self::assertStyles($row['caption']['styles'], self::CAPTION_LAYER_PROPERTIES);
             }
         }
         $partIds = array();
@@ -773,8 +818,17 @@ final class FormPresentationGraphBuilder
             if ( isset($groupIds[$group['id']]) ) throw new InvalidArgumentException('Form presentation visual group identity is duplicated.');
             $groupIds[$group['id']] = true;
         }
+        $rowLayouts = array();
+        foreach ($v3 ? $graph['control_rows'] : array() as $row) {
+            if (in_array($row['styles']['display'] ?? '', array('flex', 'inline-flex', 'grid', 'inline-grid'), true)) $rowLayouts[$row['index']] = true;
+        }
         $containerVariants = array();
         foreach ( $graph['variants'] as $variant ) {
+            if (is_array($variant) && in_array($variant['role'] ?? null, array('control_row', 'control_row_item'), true)) {
+                self::assertRowVariant($variant, $rowOwners);
+                if ('control_row' === $variant['role'] && in_array($variant['style_patch']['display'] ?? '', array('flex', 'inline-flex', 'grid', 'inline-grid'), true)) $rowLayouts[$variant['index']] = true;
+                continue;
+            }
             $isVisualPart = 'visual_part' === ($variant['role'] ?? null); $isVisualGroup = 'visual_group' === ($variant['role'] ?? null);
             $keys = $isVisualPart ? array( 'index', 'role', 'part_id', 'condition', 'style_patch', 'precedence', 'provenance' ) : ($isVisualGroup ? array( 'role', 'group_id', 'condition', 'style_patch', 'precedence', 'provenance' ) : array( 'index', 'role', 'condition', 'style_patch', 'precedence', 'provenance' ));
             if ( ! is_array($variant) || array_diff(array_keys($variant), $keys) || (! $isVisualGroup && (! is_int($variant['index'] ?? null) || $variant['index'] < 0 || $variant['index'] >= self::MAX_CONTROLS)) || ! in_array($variant['role'] ?? null, $v2 ? array( 'control', 'label', 'required_marker', 'control_container', 'visual_part', 'visual_group' ) : array( 'control', 'label' ), true) || ($isVisualPart ? (! is_string($variant['part_id'] ?? null) || ! isset($partIds[$variant['part_id']]) || $variant['index'] !== $partIds[$variant['part_id']]) : ($isVisualGroup ? (! is_string($variant['group_id'] ?? null) || ! isset($groupIds[$variant['group_id']])) : (isset($variant['part_id']) || isset($variant['group_id'])))) || ! is_array($variant['condition'] ?? null) || ! self::validCondition($variant['condition']) || ! is_array($variant['style_patch'] ?? null) || array() === $variant['style_patch'] || ! is_array($variant['precedence'] ?? null) || ! is_array($variant['provenance'] ?? null) ) {
@@ -787,6 +841,7 @@ final class FormPresentationGraphBuilder
             }
             self::assertProvenance($variant['provenance'], $variant['style_patch'], $variant['condition']);
         }
+        if (array_diff_key($rowOwners, $rowLayouts)) throw new InvalidArgumentException('Form control row has no layout evidence.');
         foreach ( $containerIndexes as $index => $hasBaseStyles ) if (! $hasBaseStyles && ! isset($containerVariants[$index])) throw new InvalidArgumentException('Form presentation conditional control container has no variants.');
     }
 
@@ -812,6 +867,29 @@ final class FormPresentationGraphBuilder
      * @param list<array<string, mixed>> $customPropertyRules
      * @return array<string, mixed>
      */
+    /**
+     * The paint a button's sole caption carrier draws behind the caption, when
+     * it paints one. The control keeps its own paint; this layer sits inside the
+     * control's padding box, as the carrier does in the source.
+     *
+     * @param list<array<string, mixed>> $rules
+     * @param list<array<string, mixed>> $customPropertyRules
+     * @return array{styles: array<string, string>, provenance: list<array<string, mixed>>}|null
+     */
+    private function captionLayer(DOMElement $control, array $rules, array $customPropertyRules): ?array
+    {
+        $carrier = self::soleTextCarrier($control);
+        if ( null === $carrier || $carrier->isSameNode($control) ) {
+            return null;
+        }
+        $facts = array_intersect_key($this->matched($carrier, $rules)['base'], array_flip(self::CAPTION_LAYER_PROPERTIES));
+        if ( array() === array_intersect_key($facts, array_flip(array( 'background', 'background-color', 'background-image' ))) ) {
+            return null;
+        }
+        $styles = $this->styles($facts, $carrier, null, $customPropertyRules, true);
+        return array() === $styles ? null : array( 'styles' => $styles, 'provenance' => $this->provenance($facts, null) );
+    }
+
     private function carrierTypography(array $roles, DOMElement $label, array $rules, array $customPropertyRules, array $labelConditional = array(), bool $captionBox = false): array
     {
         $properties = array_flip(self::TYPOGRAPHY_PROPERTIES);
@@ -957,6 +1035,119 @@ final class FormPresentationGraphBuilder
             $this->truncated = true;
             $this->diagnostics[] = 'provenance_limit';
         }
+    }
+
+    /** Nearest shared ancestor per control pair, never a site wrapper outside the form. */
+    private function controlRows(DOMElement $form, array $rules, array $customRules, array &$variants): array
+    {
+        $candidates = array();
+        foreach (array_slice($this->controls($form), 0, self::MAX_CONTROLS) as $index => $control) {
+            if (!str_starts_with($control->getNodePath(), $form->getNodePath() . '/')) continue;
+            $item = $control;
+            for ($depth = 0, $parent = $item->parentNode; $parent instanceof DOMElement && $depth < self::MAX_ROW_ANCESTORS; ++$depth, $item = $parent, $parent = $parent->parentNode) {
+                $path = $parent->getNodePath();
+                $candidates[$path]['element'] = $parent;
+                $candidates[$path]['members'][$index] = $item;
+                if ($parent->isSameNode($form)) break;
+            }
+            if ($parent instanceof DOMElement && !$parent->isSameNode($form) && $depth >= self::MAX_ROW_ANCESTORS) {
+                $this->truncated = true;
+                $this->diagnostics[] = 'control_row_ancestor_limit';
+            }
+        }
+        $rows = array();
+        foreach ($candidates as $candidate) {
+            $members = $candidate['members'];
+            if (count($members) < 2) continue;
+            // A shared ancestor is nearest only when controls occupy distinct children.
+            $paths = array_map(static fn (DOMElement $item): string => $item->getNodePath(), $members);
+            if (count(array_unique($paths)) < 2) continue;
+            $element = $candidate['element'];
+            foreach (array_merge(array($element), array_values($members)) as $source) {
+                if (strlen(SourceDom::elementSelector($source)) > 2048) { $this->truncated = true; $this->diagnostics[] = 'control_row_selector_limit'; continue 2; }
+            }
+            $matched = $this->matched($element, $rules, true);
+            $display = $this->styles(array_intersect_key($matched['base'], array('display' => true)), $element, null, $customRules);
+            $layout = in_array($display['display'] ?? '', array('flex', 'inline-flex', 'grid', 'inline-grid'), true);
+            foreach ($this->effectiveConditional($matched['conditional'], $matched['base']) as $encoded => $facts) {
+                $patch = $this->styles(array_intersect_key($facts, array('display' => true)), $element, json_decode($encoded, true), $customRules);
+                $layout = $layout || in_array($patch['display'] ?? '', array('flex', 'inline-flex', 'grid', 'inline-grid'), true);
+            }
+            if (!$layout) continue;
+            if (count($rows) >= self::MAX_CONTROLS) { $this->truncated = true; $this->diagnostics[] = 'control_row_limit'; break; }
+            $rowIndex = count($rows);
+            $row = array('index' => $rowIndex) + $this->rowRole($element, self::ROW_PROPERTIES, 'control_row', $rowIndex, null, $rules, $customRules, $variants);
+            $row['members'] = array();
+            foreach ($members as $index => $item) {
+                $row['members'][] = array('index' => $index) + $this->rowRole($item, self::ROW_ITEM_PROPERTIES, 'control_row_item', $rowIndex, $index, $rules, $customRules, $variants);
+            }
+            $rows[] = $row;
+        }
+        return $rows;
+    }
+
+    private function rowRole(DOMElement $element, array $properties, string $role, int $rowIndex, ?int $memberIndex, array $rules, array $customRules, array &$variants): array
+    {
+        $matched = $this->matched($element, $rules, true);
+        $base = array_intersect_key($matched['base'], array_flip($properties));
+        $conditional = $this->effectiveConditional($matched['conditional'], $matched['base']);
+        foreach ($base as $property => $fact) {
+            foreach ($this->customProperties->conditionsChanging($fact['value'], $element, $customRules, true) as $condition) $conditional[json_encode($condition)][$property] ??= $fact;
+        }
+        foreach ($conditional as $encoded => $facts) {
+            $condition = json_decode($encoded, true);
+            $facts = array_intersect_key($facts, array_flip($properties));
+            $patch = $this->styles($facts, $element, $condition, $customRules);
+            if (!$patch) continue;
+            if (count($variants) >= self::MAX_VARIANTS) { $this->truncated = true; $this->diagnostics[] = 'variant_limit'; break; }
+            $variant = array('index' => $rowIndex, 'role' => $role, 'condition' => $condition, 'style_patch' => $patch, 'precedence' => $this->precedence($facts), 'provenance' => $this->provenance($facts, $condition));
+            if (null !== $memberIndex) $variant['member_index'] = $memberIndex;
+            $variants[] = $variant;
+        }
+        return array('source_selector' => SourceDom::elementSelector($element), 'styles' => $this->styles($base, $element, null, $customRules), 'provenance' => $this->provenance($base, null));
+    }
+
+    private static function assertRowStyles(array $styles, array $properties): void
+    {
+        if (array_diff(array_keys($styles), array_map(self::key(...), $properties))) throw new InvalidArgumentException('Form control row property is invalid.');
+        self::assertStyles($styles, array_merge(self::PROPERTIES, self::ROW_ONLY_PROPERTIES));
+    }
+
+    private static function assertRowFact(mixed $fact, array $keys, array $properties): void
+    {
+        if (!is_array($fact) || array_diff(array_keys($fact), $keys) || array_diff($keys, array_keys($fact)) || !is_int($fact['index']) || $fact['index'] < 0 || $fact['index'] >= self::MAX_CONTROLS || !is_string($fact['source_selector']) || '' === trim($fact['source_selector']) || strlen($fact['source_selector']) > 2048 || !is_array($fact['styles']) || !is_array($fact['provenance'])) throw new InvalidArgumentException('Form control row fact is invalid.');
+        self::assertRowStyles($fact['styles'], $properties);
+        self::assertProvenance($fact['provenance'], $fact['styles'], null, array_merge(self::PROPERTIES, self::ROW_ONLY_PROPERTIES));
+    }
+
+    private static function assertControlRows(mixed $rows): array
+    {
+        if (!is_array($rows) || !array_is_list($rows) || !$rows || count($rows) > self::MAX_CONTROLS) throw new InvalidArgumentException('Form control rows are invalid.');
+        $owners = array();
+        foreach ($rows as $row) {
+            self::assertRowFact($row, array('index', 'source_selector', 'styles', 'provenance', 'members'), self::ROW_PROPERTIES);
+            if (isset($owners[$row['index']]) || !is_array($row['members']) || !array_is_list($row['members']) || count($row['members']) < 2 || count($row['members']) > self::MAX_CONTROLS) throw new InvalidArgumentException('Form control row members are invalid.');
+            $owners[$row['index']] = array();
+            foreach ($row['members'] as $member) {
+                self::assertRowFact($member, array('index', 'source_selector', 'styles', 'provenance'), self::ROW_ITEM_PROPERTIES);
+                if (isset($owners[$row['index']][$member['index']])) throw new InvalidArgumentException('Form control row member is duplicated.');
+                $owners[$row['index']][$member['index']] = true;
+            }
+        }
+        return $owners;
+    }
+
+    private static function assertRowVariant(array $variant, array $owners): void
+    {
+        $item = 'control_row_item' === $variant['role'];
+        $keys = array('index', 'role', 'condition', 'style_patch', 'precedence', 'provenance');
+        if ($item) $keys[] = 'member_index';
+        if (array_diff(array_keys($variant), $keys) || array_diff($keys, array_keys($variant)) || !is_int($variant['index']) || !isset($owners[$variant['index']]) || ($item && (!is_int($variant['member_index']) || !isset($owners[$variant['index']][$variant['member_index']]))) || !is_array($variant['condition']) || !self::validCondition($variant['condition']) || !is_array($variant['style_patch']) || !$variant['style_patch'] || !is_array($variant['precedence']) || !is_array($variant['provenance'])) throw new InvalidArgumentException('Form control row variant is invalid.');
+        self::assertRowStyles($variant['style_patch'], $item ? self::ROW_ITEM_PROPERTIES : self::ROW_PROPERTIES);
+        foreach ($variant['precedence'] as $property => $rank) {
+            if (!in_array($property, $item ? self::ROW_ITEM_PROPERTIES : self::ROW_PROPERTIES, true) || !isset($variant['style_patch'][self::key($property)]) || !is_array($rank) || array_diff(array_keys($rank), array('source_order', 'specificity', 'important')) || !is_int($rank['source_order'] ?? null) || !is_int($rank['specificity'] ?? null) || !is_bool($rank['important'] ?? null)) throw new InvalidArgumentException('Form control row precedence is invalid.');
+        }
+        self::assertProvenance($variant['provenance'], $variant['style_patch'], $variant['condition'], array_merge(self::PROPERTIES, self::ROW_ONLY_PROPERTIES));
     }
 
     /** @param list<DOMElement> $ancestors @return array{container:array<string,mixed>,variants:list<array<string,mixed>}|null */
@@ -1172,17 +1363,17 @@ final class FormPresentationGraphBuilder
         } elseif ( array_diff(array_keys($group['source_css']), array( 'state' )) ) throw new InvalidArgumentException('Form presentation visual group unknown CSS state is invalid.');
     }
 
-    private static function assertStyles(array $styles): void
+    private static function assertStyles(array $styles, array $properties = self::PROPERTIES): void
     {
-        foreach ( $styles as $key => $value ) if ( ! is_string($key) || ! in_array($key, array_map(self::key(...), self::PROPERTIES), true) || ! is_string($value) || '' === trim($value) || strlen($value) > self::MAX_STYLE_VALUE_BYTES ) throw new InvalidArgumentException('Form presentation style is invalid.');
+        foreach ( $styles as $key => $value ) if ( ! is_string($key) || ! in_array($key, array_map(self::key(...), $properties), true) || ! is_string($value) || '' === trim($value) || strlen($value) > self::MAX_STYLE_VALUE_BYTES ) throw new InvalidArgumentException('Form presentation style is invalid.');
     }
 
-    private static function assertProvenance(array $provenance, array $styles, ?array $condition): void
+    private static function assertProvenance(array $provenance, array $styles, ?array $condition, array $properties = self::PROPERTIES): void
     {
         if ( count($provenance) > self::MAX_PROVENANCE ) throw new InvalidArgumentException('Form presentation provenance exceeds its limit.');
         foreach ( $provenance as $fact ) {
             if ( is_array($fact) && array_diff(array_keys($fact), array( 'source_path', 'source_sha256', 'selector', 'condition', 'properties' )) ) throw new InvalidArgumentException('Form presentation provenance has unknown keys.');
-            if ( ! is_array($fact) || ! is_string($fact['source_path'] ?? null) || '' === ArtifactPath::safeRelativePath($fact['source_path']) || ArtifactPath::safeRelativePath($fact['source_path']) !== $fact['source_path'] || ! preg_match('/^[a-f0-9]{64}$/', $fact['source_sha256'] ?? '') || ! is_string($fact['selector'] ?? null) || '' === trim($fact['selector']) || strlen($fact['selector']) > 1024 || ! is_array($fact['properties'] ?? null) || array() === $fact['properties'] || array_filter($fact['properties'], static fn (mixed $property): bool => ! is_string($property) || ! in_array($property, self::PROPERTIES, true) || ! isset($styles[self::key($property)])) || ($condition !== null && ($fact['condition'] ?? null) !== $condition) || ($condition === null && ($fact['condition'] ?? null) !== null) ) throw new InvalidArgumentException('Form presentation provenance is invalid.');
+            if ( ! is_array($fact) || ! is_string($fact['source_path'] ?? null) || '' === ArtifactPath::safeRelativePath($fact['source_path']) || ArtifactPath::safeRelativePath($fact['source_path']) !== $fact['source_path'] || ! preg_match('/^[a-f0-9]{64}$/', $fact['source_sha256'] ?? '') || ! is_string($fact['selector'] ?? null) || '' === trim($fact['selector']) || strlen($fact['selector']) > 1024 || ! is_array($fact['properties'] ?? null) || array() === $fact['properties'] || array_filter($fact['properties'], static fn (mixed $property): bool => ! is_string($property) || ! in_array($property, $properties, true) || ! isset($styles[self::key($property)])) || ($condition !== null && ($fact['condition'] ?? null) !== $condition) || ($condition === null && ($fact['condition'] ?? null) !== null) ) throw new InvalidArgumentException('Form presentation provenance is invalid.');
         }
     }
 
@@ -1298,11 +1489,12 @@ final class FormPresentationGraphBuilder
     }
 
     /** @param list<array<string, mixed>> $rules */
-    private function matched(DOMElement $element, array $rules): array
+    private function matched(DOMElement $element, array $rules, bool $expandFlex = false): array
     {
+        $allowed = $expandFlex ? array_merge(self::PROPERTIES, self::ROW_ONLY_PROPERTIES) : self::PROPERTIES;
         if ( $element->hasAttribute('style') ) {
             $inline = $element->getAttribute('style');
-            $rules[] = array( 'inline' => true, 'selector' => '[style]', 'declarations' => CssRuleAnalyzer::declarations($inline, self::PROPERTIES), 'condition' => null, 'path' => 'inline-style', 'hash' => hash('sha256', $inline), 'order' => PHP_INT_MAX, 'specificity' => 10000 );
+            $rules[] = array( 'inline' => true, 'selector' => '[style]', 'declarations' => CssRuleAnalyzer::declarations($inline, $allowed), 'condition' => null, 'path' => 'inline-style', 'hash' => hash('sha256', $inline), 'order' => PHP_INT_MAX, 'specificity' => 10000 );
         }
         $base = array(); $conditional = array(); $matched = 0;
         foreach ( $rules as $rule ) {
@@ -1311,8 +1503,9 @@ final class FormPresentationGraphBuilder
             if ( ! $match['matches'] ) continue;
             if ( $matched++ >= self::MAX_RULES_PER_ROLE ) { $this->truncated = true; $this->diagnostics[] = 'rules_per_role_limit'; break; }
             foreach ( $rule['declarations'] as $declarationOrder => $declaration ) {
-                foreach ( $this->flexFlowLonghands($declaration) as $name => $value ) {
-                    if ( ! in_array($name, self::PROPERTIES, true) ) continue;
+                $declarations = $expandFlex && 'flex' === $declaration['name'] ? $this->flexLonghands($declaration['value']) : $this->flexFlowLonghands($declaration);
+                foreach ( $declarations as $name => $value ) {
+                    if ( ! in_array($name, $allowed, true) ) continue;
                     $important = 1 === preg_match('/\s*!important\s*$/i', $value);
                     $resolved = preg_replace('/\s*!important\s*$/i', '', $value) ?? $value;
                     $fact = array( 'value' => $resolved, 'path' => $rule['path'], 'hash' => $rule['hash'], 'selector' => $rule['selector'], 'order' => $rule['order'], 'declaration_order' => $declarationOrder, 'specificity' => $rule['specificity'], 'important' => $important, 'layer' => $rule['layer'] ?? null );
@@ -1322,10 +1515,25 @@ final class FormPresentationGraphBuilder
                 }
             }
         }
-        $base = $this->fontCascade($base);
-        foreach ($conditional as &$facts) $facts = $this->fontCascade($facts, $base);
+        $base = $this->backgroundCascade($this->fontCascade($base));
+        foreach ($conditional as &$facts) $facts = $this->backgroundCascade($this->fontCascade($facts, $base), $base);
         unset($facts);
         return array( 'base' => $base, 'conditional' => $conditional );
+    }
+
+    /** A winning background shorthand resets weaker longhands on the same source element. */
+    private function backgroundCascade(array $facts, array $base = array()): array
+    {
+        $background = $facts['background'] ?? $base['background'] ?? null;
+        if (!is_array($background)) return $facts;
+        if (isset($base['background']) && !CssCascade::wins($background, $base['background'])) $background = $base['background'];
+        foreach (self::BACKGROUND_LONGHANDS as $property) {
+            if (!isset($facts[$property]) || !CssCascade::wins($background, $facts[$property])) continue;
+            // A same-rule longhand authored after the shorthand overrides it.
+            if (CssCascade::wins($facts[$property], $background) && ($background['declaration_order'] ?? 0) < ($facts[$property]['declaration_order'] ?? 0)) continue;
+            unset($facts[$property]);
+        }
+        return $facts;
     }
 
     /** A winning font shorthand resets weaker longhands on the same source element. */
@@ -1363,6 +1571,29 @@ final class FormPresentationGraphBuilder
             return array();
         }
         return array( 'flex-direction' => $flow[0], 'flex-wrap' => $flow[1] );
+    }
+
+    /** Expand a flex shorthand before cascading, so later longhands and !important retain their rank. */
+    private function flexLonghands(string $value): array
+    {
+        $important = 1 === preg_match('/\s*!important\s*$/i', $value);
+        $value = trim(preg_replace('/\s*!important\s*$/i', '', $value) ?? $value);
+        $keywords = array('none' => array('0', '0', 'auto'), 'auto' => array('1', '1', 'auto'), 'initial' => array('0', '1', 'auto'));
+        $parts = $keywords[strtolower($value)] ?? null;
+        if (in_array(strtolower($value), array('inherit', 'unset', 'revert', 'revert-layer'), true)) $parts = array($value, $value, $value);
+        if (null === $parts) {
+            $tokens = CssValueSplitter::splitTopLevelWhitespace($value);
+            $numbers = array(); $basis = null;
+            foreach ($tokens as $token) {
+                if (preg_match('/^(?:\d*\.)?\d+$/D', $token) && count($numbers) < 2 && null === $basis) $numbers[] = $token;
+                elseif (null === $basis && (in_array(strtolower($token), array('auto', 'content', 'min-content', 'max-content', 'fit-content'), true) || preg_match('/^(?:0|(?:\d*\.)?\d+(?:%|[a-z]+)|(?:calc|min|max|clamp)\(.+\))$/iD', $token))) $basis = $token;
+                else { $this->diagnostics[] = 'unsupported_flex'; return array(); }
+            }
+            if (!$tokens) return array();
+            $parts = array($numbers[0] ?? '1', $numbers[1] ?? '1', $basis ?? '0%');
+        }
+        if ($important) $parts = array_map(static fn (string $part): string => $part . ' !important', $parts);
+        return array_combine(array('flex-grow', 'flex-shrink', 'flex-basis'), $parts);
     }
 
     private function effectiveConditional(array $conditional, array $base): array

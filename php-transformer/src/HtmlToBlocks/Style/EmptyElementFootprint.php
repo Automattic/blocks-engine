@@ -61,7 +61,7 @@ final class EmptyElementFootprint
                         || ($this->hasEmptyVisualBlockDisplay($element) && $this->hasVisibleEmptyVisualPaint($paintDeclarations ?? array(), $element))
                         || $this->occupiesDefiniteGridCell($element);
                 case 'block':
-                    if ( $value || $this->hasRenderableEmptyBlockBox($element) ) return true;
+                    if ( $value || $this->hasFlowClear($element) || $this->hasRenderableEmptyBlockBox($element) ) return true;
                     break;
                 case 'viewport':
                     if ( $this->hasRenderableEmptyBoxAtAnyViewport($element, $value) || $this->occupiesDefiniteGridCell($element) ) return true;
@@ -146,6 +146,17 @@ final class EmptyElementFootprint
         return 'auto' === $flex
             || (isset($parts[0]) && is_numeric($parts[0]) && 0 < (float) $parts[0])
             || $hasSize($basis);
+    }
+
+    /**
+     * An empty element that clears floats still sizes its block container.
+     * `clear` is outside the source-style allow-list, so it resolves from the
+     * author analysis, which keeps every declaration.
+     */
+    private function hasFlowClear(DOMElement $element): bool
+    {
+        $clear = $this->styleResolver->authorStructuralDeclarations($element)['clear'] ?? 'none';
+        return 'none' !== CssValueInspector::comparable((string) $clear);
     }
 
     private function hasRenderableEmptyBlockBox(DOMElement $element): bool

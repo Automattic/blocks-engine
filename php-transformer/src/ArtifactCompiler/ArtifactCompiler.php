@@ -46,6 +46,7 @@ use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ValidationException
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 use DOMDocument;
 use DOMElement;
+use DOMXPath;
 
 final class ArtifactCompiler
 {
@@ -447,7 +448,7 @@ final class ArtifactCompiler
                 'diagnostic_class' => 'content_loss',
             ));
         }
-        $allGeneratedBlocks = $entryBlocks['generated_blocks'];
+        $allGeneratedBlocks = array_merge($entryBlocks['generated_blocks'], $inlineShellCompilation['generated_blocks'] ?? array());
         $allGutenbergGaps = $entryBlocks['gutenberg_gaps'];
         $coreHtmlFallbackEvidence = array($entryBlocks['core_html_fallback_evidence']);
         // A projection belongs to the page that produced it. Template surfaces
@@ -586,6 +587,7 @@ final class ArtifactCompiler
                 'truncation_impact' => $normalized['truncation_impact'],
                 'limits'          => array(
                     'max_files'       => $normalized['limits']['max_files'],
+                    'max_media_files' => $normalized['limits']['max_media_files'],
                     'max_file_bytes'  => $normalized['limits']['max_file_bytes'],
                     'max_total_bytes' => $normalized['limits']['max_total_bytes'],
                 ),
@@ -1185,18 +1187,28 @@ final class ArtifactCompiler
         $pageProducts = array();
         $detailPages = array();
         $entryRoot = dirname($entryPath);
-        $schemaProducts = SchemaProductEvidence::rows($files, $slug, $price, $diagnostics, $productRoutes, $pageProducts, $detailPages, '.' === $entryRoot ? '' : $entryRoot);
+        $pageEvidence = array();
+        $schemaProducts = SchemaProductEvidence::rows($files, $slug, $price, $diagnostics, $productRoutes, $pageProducts, $detailPages, '.' === $entryRoot ? '' : $entryRoot, $pageEvidence);
         // Match the plan's page route, including explicit routes and entry roots.
         $pageRoutes = array();
         foreach ($files as $file) {
             $path = $file['path'] ?? '';
             $relative = '.' !== $entryRoot && str_starts_with($path, $entryRoot . '/') ? substr($path, strlen($entryRoot) + 1) : $path;
-            $route = SchemaProductEvidence::urlRoute('/' . $relative, $path);
-            $segments = array_map($slug, explode('/', $route));
-            $pageRoutes[$path] = $file['metadata']['route_path'] ?? '/' . implode('/', $segments);
+            $pageRoutes[$path] = $file['metadata']['route_path'] ?? SchemaProductEvidence::pageRoute('/' . $relative, $path, '.' === $entryRoot ? '' : $entryRoot);
             if ('page' !== ($file['metadata']['post_type'] ?? 'page')) unset($detailPages[$path]);
         }
         $products = array();
+        $cardPageProducts = array();
+        // Card URLs identify pages by the same entry-root-relative route as the plan.
+        $compiledPages = array();
+        foreach ($files as $file) {
+            if ($this->isMaterializedHtmlDocument($file) && 'page' === ($file['metadata']['post_type'] ?? 'page')) {
+                $path = (string) $file['path'];
+                $relative = '.' !== $entryRoot && str_starts_with($path, $entryRoot . '/') ? substr($path, strlen($entryRoot) + 1) : $path;
+                $routes = array($pageRoutes[$path] ?? '', SchemaProductEvidence::pageRoute('/' . rawurldecode($relative), $path, '.' === $entryRoot ? '' : $entryRoot));
+                foreach (array_unique(array_filter($routes)) as $route) $compiledPages[$route][] = $path;
+            }
+        }
         $forms = array();
         $orderLookups = array();
         $carts = array();
@@ -1225,6 +1237,17 @@ final class ArtifactCompiler
                     $productSlug = $slug(is_scalar($product['slug'] ?? null) ? (string) $product['slug'] : $name);
                     $regularPrice = $price($product['price'] ?? null);
                     if ( '' === $name || '' === $productSlug || '' === $regularPrice ) continue;
+                    // Count card claims before product identity merging: two cards
+                    // pointing at one page are not unique page ownership evidence.
+                    if (is_string($product['url'] ?? null)) {
+                        $urlPath = parse_url(html_entity_decode($product['url'], ENT_QUOTES | ENT_HTML5, 'UTF-8'), PHP_URL_PATH);
+                        if (is_string($urlPath) && '' !== $urlPath) {
+                            $target = SchemaProductEvidence::pageRoute(rawurldecode($urlPath), $sourcePath, '.' === $entryRoot ? '' : $entryRoot);
+                            if (1 === count($compiledPages[$target] ?? array())) {
+                                $cardPageProducts[$compiledPages[$target][0]][] = $productSlug;
+                            }
+                        }
+                    }
                     $row = array('name' => $name, 'slug' => $productSlug, 'regular_price' => $regularPrice);
                     if (is_string($product['url'] ?? null)) $row['url'] = $product['url'];
                     $salePrice = $price($product['sale_price'] ?? null); if ( '' !== $salePrice ) $row['sale_price'] = $salePrice;
@@ -1431,10 +1454,14 @@ final class ArtifactCompiler
                 $forms[$sourcePath . "\n" . $selector] = $form;
             }
         }
-        // Only a page with one schema product can own an otherwise unclaimed
-        // purchase form. Card descendants retain their existing card bindings.
+        // Schema claims are authoritative, including ambiguous claims. Only
+        // otherwise unclaimed compiled pages may inherit a unique card product.
         // Ownership includes every contributing schema page, not only the
         // chosen canonical row's source path after identity/language merging.
+        foreach ($cardPageProducts as $path => $claims) {
+            if (empty($pageProducts[$path]) && 1 === count($claims)) $pageProducts[$path] = $claims;
+        }
+        // Card descendants retain their existing card bindings.
         $cardSelectors = array();
         foreach ( $fallbacks as $fallback ) {
             if ( 'html_product_grid_fallback' !== ($fallback['diagnostic_code'] ?? '') ) continue;
@@ -1455,24 +1482,30 @@ final class ArtifactCompiler
             $binding = $fallback['binding'] ?? null;
             if ( ! is_array($binding) || 'generic/block-binding/v1' !== ($binding['schema'] ?? '') || '' === trim($binding['search_block_markup'] ?? '') ) continue;
             $productSlug = $pageProducts[$sourcePath][0];
-            $schemaProducts[$productSlug]['bindings'][] = array_merge($binding, array('role' => 'commerce_add_to_cart_form', 'source_path' => $sourcePath));
+            if (isset($schemaProducts[$productSlug])) $purchaseProduct =& $schemaProducts[$productSlug];
+            else $purchaseProduct =& $products[$productSlug];
+            $purchaseProduct['bindings'][] = array_merge($binding, array('role' => 'commerce_add_to_cart_form', 'source_path' => $sourcePath));
             // Preserve the same flat control indexes and validated presentation
             // facts as a form entity when shop takes ownership of the controls.
             if ( is_array($fallback['controls'] ?? null) ) {
                 $controls = array_values(array_filter($fallback['controls'], 'is_array'));
                 foreach ( $controls as &$control ) unset($control['_unresolved_description_candidates']);
                 unset($control);
-                $schemaProducts[$productSlug]['controls'] = $controls;
-                unset($schemaProducts[$productSlug]['presentation_graph']);
+                $purchaseProduct['controls'] = $controls;
+                unset($purchaseProduct['presentation_graph']);
                 if ( is_array($fallback['presentation_graph'] ?? null) && true !== ($fallback['presentation_graph']['truncated'] ?? false) ) {
                     try {
                         FormPresentationGraphBuilder::assertValid($fallback['presentation_graph']);
-                        $schemaProducts[$productSlug]['presentation_graph'] = $fallback['presentation_graph'];
+                        $purchaseProduct['presentation_graph'] = $fallback['presentation_graph'];
                     } catch ( \InvalidArgumentException $error ) {
                         $diagnostics[] = $this->rejectedFormGraphDiagnostic($fallback, $sourcePath, $selector, 'presentation_graph', $error->getMessage());
                     }
                 }
             }
+            if (isset($detailPages[$sourcePath]) && $detailPages[$sourcePath] === ($pageRoutes[$sourcePath] ?? null)) {
+                ProductDetailPageEvidence::fill($purchaseProduct, $pageEvidence[$sourcePath] ?? array(), $fallback, $files, $pageRoutes, '.' === $entryRoot ? '' : $entryRoot, $diagnostics);
+            }
+            unset($purchaseProduct);
             // A purchase form belongs to shop, not a competing form provider.
             unset($forms[$sourcePath . "\n" . $selector]);
         }
@@ -1530,7 +1563,7 @@ final class ArtifactCompiler
             }
         }
         foreach ($products as $productSlug => &$product) {
-            $product['id'] = 'product:' . hash('sha256', $productSlug);
+            $product['id'] = 'product:' . hash('sha256', (string) $productSlug);
             // Only a claimed detail page names the product's route; others keep their URL.
             if (isset($product['whole_page_candidate'])) $product['source_route'] = $pageRoutes[$product['source_path']];
         }
@@ -2094,6 +2127,7 @@ final class ArtifactCompiler
     {
         $html = $this->withoutMaterializedScriptTags($html, $entryPath, $files);
         $html = $this->withoutMaterializedStyleTags($html, $entryPath, $files);
+        $html = $this->withInlinedSvgSpriteSymbols($html, $entryPath, $files);
         $html = preg_replace_callback('/<img\s+[^>]*src\s*=\s*(["\'])([^"\']+)\1[^>]*>/i', function (array $matches) use ($entryPath, $files): string {
             $asset = $this->findAssetByHtmlReference((string) $matches[2], $entryPath, $files);
             if ( is_array($asset) && 'image/svg+xml' === ($asset['mime_type'] ?? '') && ! $this->isSafeImageAsset($asset) ) {
@@ -2104,6 +2138,71 @@ final class ArtifactCompiler
         }, $html) ?? $html;
 
         return $html;
+    }
+
+    /**
+     * An SVG `<use>` that names a symbol in a sprite file shipped with the
+     * artifact (`href="/icons.svg#mail"`) renders that symbol in the source.
+     * Copy each referenced symbol, and the definitions it references in turn,
+     * into a hidden sprite in the document and point the `<use>` at the local
+     * copy, so the icon survives as same-document artwork.
+     *
+     * @param array<int, array<string, mixed>> $files
+     */
+    private function withInlinedSvgSpriteSymbols(string $html, string $entryPath, array $files): string
+    {
+        if ( ! preg_match('/<use\b[^>]*\s(?:xlink:)?href\s*=\s*["\'][^"\'#]+#/i', $html) ) {
+            return $html;
+        }
+
+        $sprites = array();
+        $definitions = array();
+        $html = preg_replace_callback('/(<use\b[^>]*?\s(?:xlink:)?href\s*=\s*)(["\'])([^"\'#]+)#([^"\']+)\2/i', function (array $match) use ($entryPath, $files, &$sprites, &$definitions): string {
+            $path = html_entity_decode($match[3], ENT_QUOTES | ENT_HTML5);
+            if ( ! array_key_exists($path, $sprites) ) {
+                $asset = $this->findAssetByHtmlReference($path, $entryPath, $files);
+                $content = is_array($asset) && 'image/svg+xml' === ($asset['mime_type'] ?? '') ? (string) ($asset['content'] ?? '') : '';
+                $sprite = new DOMDocument();
+                $sprites[$path] = '' !== $content && $this->isSafeSvgContent($content) && $sprite->loadXML($content, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING) ? new DOMXPath($sprite) : null;
+            }
+            $xpath = $sprites[$path];
+            $id = html_entity_decode($match[4], ENT_QUOTES | ENT_HTML5);
+            if ( ! $xpath instanceof DOMXPath || ! $this->collectSvgSpriteDefinition($xpath, $id, $definitions) ) {
+                return $match[0];
+            }
+
+            return $match[1] . $match[2] . '#' . htmlspecialchars($id, ENT_QUOTES) . $match[2];
+        }, $html) ?? $html;
+        if ( array() === $definitions ) {
+            return $html;
+        }
+
+        // One <defs> per definition, so an icon copies only what it uses.
+        $sprite = '<svg aria-hidden="true" style="display:none"><defs>' . implode('</defs><defs>', $definitions) . '</defs></svg>';
+        $count = 0;
+        $html = preg_replace_callback('/<body\b[^>]*>/i', static fn (array $body): string => $body[0] . $sprite, $html, 1, $count) ?? $html;
+
+        return $count > 0 ? $html : $sprite . $html;
+    }
+
+    /** @param array<string, string> $definitions */
+    private function collectSvgSpriteDefinition(DOMXPath $xpath, string $id, array &$definitions): bool
+    {
+        if ( isset($definitions[$id]) ) {
+            return true;
+        }
+        $nodes = '' === $id || str_contains($id, '"') ? false : $xpath->query('//*[@id="' . $id . '"]');
+        $node = false !== $nodes ? $nodes->item(0) : null;
+        if ( ! $node instanceof DOMElement ) {
+            return false;
+        }
+        $definitions[$id] = (string) $node->ownerDocument?->saveXML($node);
+        preg_match_all('/\burl\(\s*["\']?#([^\s"\')]+)|\bhref\s*=\s*["\']#([^"\']+)/i', $definitions[$id], $references, PREG_SET_ORDER);
+        foreach ( $references as $reference ) {
+            $this->collectSvgSpriteDefinition($xpath, '' !== $reference[1] ? $reference[1] : $reference[2], $definitions);
+        }
+
+        return true;
     }
 
     /**
@@ -3884,6 +3983,37 @@ final class ArtifactCompiler
     }
 
     /**
+     * Keep the members that load every landmark stylesheet most members load.
+     * A landmark stylesheet is a style source that names one of the landmark's
+     * ids; route-only stylesheets still drop out of the shell head.
+     *
+     * @param array<string,array{content:string,rows:array<string,mixed>}> $members
+     * @param array<int,array<string,mixed>> $files
+     * @return array<string,array{content:string,rows:array<string,mixed>}>
+     */
+    private function membersSharingLandmarkStyles(array $members, string $area, int|string $variant, array $files, string $entryPath): array
+    {
+        $counts = array();
+        $loaded = array();
+        foreach ($members as $path => $document) {
+            preg_match_all('/\bid="([^"]+)"/', (string) $document['rows'][$area][$variant]['markup'], $idMatches);
+            $head = preg_match('/<head\b[^>]*>(.*?)<\/head>/is', $document['content'], $headMatch) ? $headMatch[1] : '';
+            preg_match_all('/<(?:link\b[^>]*|style\b[^>]*>.*?<\/style)\s*>/is', $head, $styleMatches);
+            $loaded[$path] = array();
+            foreach (array_unique($styleMatches[0]) as $style) {
+                $href = preg_match('/^<link\b[^>]*\bhref="([^"]+)"/i', $style, $hrefMatch) ? (string) strtok(html_entity_decode($hrefMatch[1]), '?#') : null;
+                // Root-relative hrefs resolve from the site root, the entry's directory.
+                $css = null === $href ? $style : (string) ($this->findAssetByHtmlReference($href, str_starts_with($href, '/') ? $entryPath : (string) $path, $files)['content'] ?? '');
+                foreach (array_unique($idMatches[1]) as $id) {
+                    if (str_contains($css, $id)) { $loaded[$path][$style] = true; $counts[$style] = ($counts[$style] ?? 0) + 1; break; }
+                }
+            }
+        }
+        $shared = array_keys(array_filter($counts, static fn(int $count): bool => 2 * $count > count($members)));
+        return array_filter($members, static fn(string $path): bool => array() === array_diff_key(array_flip($shared), $loaded[$path]), ARRAY_FILTER_USE_KEY);
+    }
+
+    /**
      * Compile route-shared nested shell landmarks in isolation so generated
      * support classes and CSS are canonical rather than page-seeded.
      *
@@ -3931,6 +4061,7 @@ final class ArtifactCompiler
 
         $artifacts = array();
         $assets = array();
+        $generatedBlocks = array();
         $authorStylesheetProjections = array();
         $runtimeScriptProjections = array();
         foreach (array('header', 'footer') as $area) {
@@ -3941,6 +4072,10 @@ final class ArtifactCompiler
                 }
             }
             foreach ($groups as $variant => $variantGroups) foreach ($variantGroups as $sourceIdentity => $members) {
+                // A member whose landmark styles come from another stylesheet
+                // renders it under other rules. It keeps its own copy, so the
+                // stylesheets most members load still shape the shared shell.
+                $members = $this->membersSharingLandmarkStyles($members, $area, $variant, $files, $entryPath);
                 if (count($members) < 2) continue;
                 $sourcePath = isset($members[$entryPath]) ? $entryPath : (string) array_key_first($members);
                 // Identity excludes capture-only entrance state, but the emitted
@@ -3972,6 +4107,7 @@ final class ArtifactCompiler
                 foreach (array_slice($context, 2) as $ancestor) { $open .= '<' . $ancestor['tag'] . self::sourceShellAttributes($ancestor['attributes']) . '>'; $close = '</' . $ancestor['tag'] . '>' . $close; }
                 $synthetic = '<!doctype html><html' . self::sourceShellAttributes($context[0]['attributes'] ?? array()) . '><head>' . $head . '</head><body' . self::sourceShellAttributes($context[1]['attributes'] ?? array()) . '>' . $open . $canonicalMarkup . $close . '</body></html>';
                 $compiled = $this->compileHtmlDocumentBlocks($synthetic, $sourcePath, $files, 'artifact-shared-shell', $generatedBlockNamespace, true, array(), max(0, count($context) - 2));
+                $generatedBlocks = array_merge($generatedBlocks, $compiled['generated_blocks'] ?? array());
                 $shell = current(array_filter($compiled['shell_artifacts'], static fn(array $candidate): bool => $area === ($candidate['area'] ?? null)));
                 if (!is_array($shell)) continue;
                 $slug = 1 === count($groups) ? $area : $area . '-' . ($variant + 1);
@@ -4020,6 +4156,7 @@ final class ArtifactCompiler
         return array(
             'artifacts' => $artifacts,
             'assets' => $assets,
+            'generated_blocks' => $generatedBlocks,
             'author_stylesheet_projections' => $authorStylesheetProjections,
             'runtime_script_projections' => $runtimeScriptProjections,
         );
@@ -4881,7 +5018,11 @@ final class ArtifactCompiler
         // A stale title repeated by many routes is one vote, not a site-name
         // run of its own (which could otherwise swallow the actual brand).
         $titles = array_values(array_unique($titles));
-        $majority = intdiv(count($titles), 2) + 1;
+        // Only titles that carry a separator can vote: a blog whose posts use
+        // bare titles still names its pages "Page | Site", and those bare
+        // titles say nothing about the site-name run.
+        $separated = count(array_filter($titles, static fn (string $title): bool => 1 === preg_match(self::DOCUMENT_TITLE_SEPARATOR, $title)));
+        $majority = max(2, intdiv($separated, 2) + 1);
         $sharedRun = static function (array $titles, bool $leading) use ($majority): array {
             $counts = array();
             foreach ( $titles as $title ) {

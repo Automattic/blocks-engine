@@ -48,6 +48,9 @@ final class ReadableFormBlockBuilder
     /** @var array<string, int> */
     private array $controlIndices = array();
 
+    /** @var array<string, DOMElement> Native controls keyed by their presentation node paths. */
+    private array $presentedControls = array();
+
     private ?DOMElement $form = null;
 
     /** @var array<string, true> Node paths of the labels that name a control. */
@@ -113,6 +116,7 @@ final class ReadableFormBlockBuilder
         }
 
         $this->controlIndices = array();
+        $this->presentedControls = array();
         $this->controlLabels = array();
         $this->honeypotCopy = array();
         foreach ( FormControlClassifier::honeypotCopyElements($form) as $element ) {
@@ -123,6 +127,8 @@ final class ReadableFormBlockBuilder
         $this->form = $form;
         foreach ( FormControlClassifier::controlElements($form) as $index => $control ) {
             $this->controlIndices[(string) $control->getNodePath()] = $index;
+            $presenter = FormControlClassifier::presentingElement($control);
+            $this->presentedControls[(string) $presenter->getNodePath()] = $control;
             $label = $this->metadataBuilder->labelElement($control);
             if ( null !== $label ) {
                 $this->controlLabels[(string) $label->getNodePath()] = true;
@@ -225,7 +231,11 @@ final class ReadableFormBlockBuilder
                 continue;
             }
             if ( 'control' === $entry['kind'] ) {
-                $block = $this->convertDataEntryControl($entry['element']);
+                // The graph follows painted boxes, not necessarily native
+                // controls (an offscreen submit can have a visible proxy).
+                $presenter = $entry['element'];
+                $control = $this->presentedControls[(string) $presenter->getNodePath()] ?? $presenter;
+                $block = $this->convertDataEntryControl($control, $presenter);
                 if ( null !== $block ) {
                     $blocks[] = $block;
                 }
@@ -424,7 +434,7 @@ final class ReadableFormBlockBuilder
     }
 
     /** @return array<string, mixed>|null */
-    private function convertDataEntryControl(DOMElement $control): ?array
+    private function convertDataEntryControl(DOMElement $control, DOMElement $presenter): ?array
     {
         // A submit control must stay a native submit control: Gutenberg's
         // core/button saves as an anchor, which cannot submit this form.
@@ -443,7 +453,9 @@ final class ReadableFormBlockBuilder
         // The control's own label is a source fact the degraded form must
         // keep, so it rides on the control block as a real `<label>` rather
         // than being dropped with the rest of the replaced subtree.
-        $readableControlBlock = $this->controlBlockConverter->convert($control, $this->metadataBuilder->labelElement($control), $forceNative);
+        $readableControlBlock = $control->isSameNode($presenter)
+            ? $this->controlBlockConverter->convert($control, $this->metadataBuilder->labelElement($control), $forceNative)
+            : $this->controlBlockConverter->convertSubmitPresenter($presenter);
         if ( null === $readableControlBlock ) {
             return null;
         }
