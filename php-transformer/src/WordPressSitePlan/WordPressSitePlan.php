@@ -6690,6 +6690,9 @@ PHP;
         if (array_filter(array_merge($pages, $parts, $templates), static fn(array $document): bool => str_contains($document['canonical_block_markup'], 'blocksEngineIcon'))) {
             $lines[] = self::ACCORDION_ICON_RENDERER;
         }
+        if (array_filter(array_merge($pages, $parts, $templates), static fn(array $document): bool => str_contains($document['canonical_block_markup'], 'blocksEngineInlineSvg'))) {
+            $lines[] = InlineSvgImageRuntime::source();
+        }
         if (array_filter(array_merge($pages, $parts, $templates), static fn(array $document): bool => str_contains($document['canonical_block_markup'], 'blocksEngineImageSelection'))) {
             $lines[] = self::IMAGE_SELECTION_RENDERER;
         }
