@@ -181,6 +181,7 @@
       "php tests/contract/custom-width-native-button.php",
       "php tests/contract/native-button-link-geometry.php",
       "php tests/contract/button-edge-decoration.php",
+      "php tests/contract/label-wrapped-hidden-file-input.php",
       "php tests/contract/native-button-responsive-width-override.php",
       "php tests/contract/buttons-wrapper-responsive-width-release.php",
       "php tests/contract/grid-item-button-link-box.php",
