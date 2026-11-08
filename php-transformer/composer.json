@@ -350,6 +350,7 @@
       "php tests/contract/shared-navigation-entity-reference-item-markers.php",
       "php tests/contract/shared-navigation-entity-reference-item-presentation.php",
       "php tests/contract/navigation-reference-captured-current-state.php",
+      "php tests/contract/shared-navigation-entity-reference-label-presentation.php",
       "php tests/contract/breadcrumb-trail-navigation.php",
       "php tests/contract/breadcrumb-trail-directory-index.php",
       "php tests/contract/breadcrumb-list-rules.php",
