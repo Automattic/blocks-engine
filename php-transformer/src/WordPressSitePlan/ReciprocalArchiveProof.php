@@ -86,9 +86,11 @@ final class ReciprocalArchiveProof
             if (!$document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING)) return '';
             // The page banner (a header outside sectioning content) carries site
             // identity, so the archive is named by the first heading outside it.
+            // A heading that is wholly a link titles the listed document it
+            // links to, as each entry of a listing does, not this page.
             $heading = null;
             foreach ($document->getElementsByTagName('h1') as $candidate) {
-                if (!self::inPageBanner($candidate)) {
+                if (!self::inPageBanner($candidate) && !self::isLinkTitle($candidate)) {
                     $heading = $candidate;
                     break;
                 }
@@ -103,6 +105,14 @@ final class ReciprocalArchiveProof
             libxml_clear_errors();
             libxml_use_internal_errors($previous);
         }
+    }
+
+    private static function isLinkTitle(\DOMElement $heading): bool
+    {
+        $links = $heading->getElementsByTagName('a');
+        if (1 !== $links->length || '' === trim($links->item(0)->getAttribute('href'))) return false;
+        $normalize = static fn(string $text): string => trim(preg_replace('/\s+/u', ' ', $text) ?? '');
+        return '' !== $normalize($heading->textContent) && $normalize($links->item(0)->textContent) === $normalize($heading->textContent);
     }
 
     /** A header is the page banner unless it sits inside article, aside, main, nav or section content. */
