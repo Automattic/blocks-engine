@@ -21,7 +21,10 @@ $header = preg_replace_callback('/<!-- wp:navigation-link (\{.*?\}) \/-->/', sta
 $assert(!str_contains($header, '#section--'), 'Shared header links stay authored.');
 $pages = array_column($plan['pages'], null, 'source_path');
 $content = $pages['index.html']['canonical_block_markup'];
-$assert(2 === substr_count($content, 'data-blocks-engine-capture-responsive-fragment'), 'Both target copies retain the responsive fragment contract.');
+$assert(2 === substr_count($content, '"data-blocks-engine-capture-responsive-fragment":"section"'), 'Both target copies retain the responsive fragment contract.');
+// The capture's own resolver is replay plumbing: empty span targets stay native and the script is not shipped.
+$assert(!str_contains($content, '<!-- wp:html') && 2 === substr_count($content, '"anchor":"intro'), 'Empty fragment targets lower natively.');
+$assert(!str_contains(json_encode($plan['assets']) . json_encode($plan['writes']), 'querySelectorAll(\\"[data-blocks-engine-capture-responsive-fragment]'), 'Capture resolver script is not shipped.');
 $assert(str_contains($content, 'section--data-blocks-engine-capture-mobile'), 'Mobile target keeps the document variant id.');
 $assert(!str_contains($pages['other.html']['canonical_block_markup'], 'data-blocks-engine-capture-responsive-fragment'), 'Only one route owns the target.');
 $bootstrap = '';

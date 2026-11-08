@@ -86,6 +86,8 @@ final class CaptureEvidence
     public const RESPONSIVE_COUNTERPART_CLASS_PREFIX = 'data-blocks-engine-capture-responsive-counterpart-';
     /** Authored fragment shared by responsive target copies; ids remain variant-specific. */
     public const RESPONSIVE_FRAGMENT = 'data-blocks-engine-capture-responsive-fragment';
+    /** Marks the capture's responsive-fragment resolver script; the theme ships its own runtime. */
+    public const RESPONSIVE_FRAGMENT_RESOLVER = 'data-blocks-engine-capture-responsive-fragments';
     /** Source identity of a responsive counterpart element. */
     public const RESPONSIVE_SOURCE = 'data-blocks-engine-capture-responsive-source';
     /** Id suffix prefix for a non-default variant's copy of a shared id: `<id>--blocks-engine-capture-<variant>`. */
