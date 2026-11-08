@@ -33,6 +33,10 @@ final class ArtifactNormalizer
     // bounded on its own budget instead of the budget for parsed source bytes.
     public const DEFAULT_MAX_MEDIA_FILE_BYTES = 67108864;
     public const DEFAULT_MAX_MEDIA_TOTAL_BYTES = 536870912;
+    // The file budget bounds what the compiler parses; media it never opens is
+    // counted on its own file budget.
+    public const DEFAULT_MAX_MEDIA_FILES = 5000;
+    public const MAX_MEDIA_FILES = 20000;
     public const MAX_MEDIA_FILE_BYTES = 134217728;
     public const MAX_MEDIA_TOTAL_BYTES = 1073741824;
     // A capture report the artifact declares in `reports` is evidence about the
@@ -85,6 +89,7 @@ final class ArtifactNormalizer
         $rejectionSamples = array();
         $bytes = 0;
         $mediaBytes = 0;
+        $mediaFiles = 0;
         $reportBytes = 0;
         $truncationImpact = null;
         $seenPaths = array();
@@ -121,7 +126,16 @@ final class ArtifactNormalizer
         }
 
         foreach ( $rawFiles as $index => $file ) {
-            if ( count($files) >= $limits['max_files'] ) {
+            $isMedia = self::isReferenceBackedBinary($file);
+            if ( $isMedia && $mediaFiles >= $limits['max_media_files'] ) {
+                ++$rejected;
+                $this->recordRejection($rejectionCounts, $rejectionSamples, 'media_file_limit_exceeded', $file, ArtifactPath::safeRelativePath((string) ($file['path'] ?? '')), null);
+                if ( 1 === $rejectionCounts['media_file_limit_exceeded'] ) {
+                    $diagnostics[] = $this->diagnostic('media_file_limit_exceeded', 'warning', 'Additional referenced media files were ignored because the media file limit was reached.', array('max_media_files' => $limits['max_media_files']));
+                }
+                continue;
+            }
+            if ( ! $isMedia && count($files) - $mediaFiles >= $limits['max_files'] ) {
                 $omitted = array_slice($rawFiles, $index);
                 $rejected += count($omitted);
                 $rejectionCounts['file_limit_exceeded'] = ($rejectionCounts['file_limit_exceeded'] ?? 0) + count($omitted);
@@ -316,6 +330,7 @@ final class ArtifactNormalizer
             $bytes += $normalized['bytes'];
             if ( $referenceMedia ) {
                 $mediaBytes += $normalized['bytes'];
+                ++$mediaFiles;
             } elseif ( $capturedReport ) {
                 $reportBytes += $normalized['bytes'];
             }
@@ -492,7 +507,7 @@ final class ArtifactNormalizer
         return $impact;
     }
 
-    /** @param array<string,mixed> $artifact @return array{max_files:int,max_file_bytes:int,max_total_bytes:int,max_media_file_bytes:int,max_media_total_bytes:int,max_report_file_bytes:int,max_report_total_bytes:int} */
+    /** @param array<string,mixed> $artifact @return array{max_files:int,max_file_bytes:int,max_total_bytes:int,max_media_files:int,max_media_file_bytes:int,max_media_total_bytes:int,max_report_file_bytes:int,max_report_total_bytes:int} */
     private function limits(array $artifact): array
     {
         $requested = is_array($artifact['compiler_limits'] ?? null) ? $artifact['compiler_limits'] : array();
@@ -500,6 +515,7 @@ final class ArtifactNormalizer
             'max_files'       => min(self::MAX_FILES, max(1, (int) ($requested['max_files'] ?? self::DEFAULT_MAX_FILES))),
             'max_file_bytes'  => min(self::MAX_FILE_BYTES, max(1, (int) ($requested['max_file_bytes'] ?? self::DEFAULT_MAX_FILE_BYTES))),
             'max_total_bytes' => min(self::MAX_TOTAL_BYTES, max(1, (int) ($requested['max_total_bytes'] ?? self::DEFAULT_MAX_TOTAL_BYTES))),
+            'max_media_files'       => min(self::MAX_MEDIA_FILES, max(1, (int) ($requested['max_media_files'] ?? self::DEFAULT_MAX_MEDIA_FILES))),
             'max_media_file_bytes'  => min(self::MAX_MEDIA_FILE_BYTES, max(1, (int) ($requested['max_media_file_bytes'] ?? self::DEFAULT_MAX_MEDIA_FILE_BYTES))),
             'max_media_total_bytes' => min(self::MAX_MEDIA_TOTAL_BYTES, max(1, (int) ($requested['max_media_total_bytes'] ?? self::DEFAULT_MAX_MEDIA_TOTAL_BYTES))),
             'max_report_file_bytes'  => min(self::MAX_REPORT_FILE_BYTES, max(1, (int) ($requested['max_report_file_bytes'] ?? self::DEFAULT_MAX_REPORT_FILE_BYTES))),
@@ -666,7 +682,7 @@ final class ArtifactNormalizer
     /** @param array<int,array<string,mixed>> $files @return array<int,array<string,mixed>> */
     private function sourceFilesBeforeGeneratedExpansions(array $files, int $maxFiles): array
     {
-        if (count($files) <= $maxFiles) return $files;
+        if (count(array_filter($files, static fn(array $file): bool => !self::isReferenceBackedBinary($file))) <= $maxFiles) return $files;
         $sourceFiles = array();
         $generatedFiles = array();
         foreach ($files as $file) {

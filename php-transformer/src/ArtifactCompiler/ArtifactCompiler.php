@@ -587,6 +587,7 @@ final class ArtifactCompiler
                 'truncation_impact' => $normalized['truncation_impact'],
                 'limits'          => array(
                     'max_files'       => $normalized['limits']['max_files'],
+                    'max_media_files' => $normalized['limits']['max_media_files'],
                     'max_file_bytes'  => $normalized['limits']['max_file_bytes'],
                     'max_total_bytes' => $normalized['limits']['max_total_bytes'],
                 ),
