@@ -255,7 +255,7 @@ final class FlowContainerElementConverter implements ElementConverter
         if ( null !== $navigationSection ) {
             return ConversionOutcome::handled($navigationSection->block());
         }
-        if ( ! $this->context->shouldDeferNavigationPatternToChildren($element) ) {
+        if ( ! $this->shouldDeferNavigationPatternToChildren($element) ) {
             // A broad container can contain a real social cluster plus unrelated
             // media. Let its children be converted instead of dropping that media.
             $patterns = array( AccordionPattern::class, NavigationPattern::class );
@@ -373,6 +373,153 @@ final class FlowContainerElementConverter implements ElementConverter
         return ConversionOutcome::handled(null);
     }
 
+    private function shouldDeferNavigationPatternToChildren(DOMElement $element): bool
+    {
+        if ( 'nav' === strtolower($element->tagName) || ! $this->context->shouldPreserveWrapper($element) || $this->isVerifiedCollectionItemList($element) ) {
+            return false;
+        }
+        if ( $this->isRepeatedLinkItemCluster($element) ) {
+            return false;
+        }
+
+        $hasNavigationDescendant = false;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            if ( in_array(strtolower($child->tagName), array( 'a', 'ul', 'ol' ), true) ) {
+                return false;
+            }
+
+            $hasNavigationDescendant = $hasNavigationDescendant || 'nav' === strtolower($child->tagName) || $this->hasLinkOutsideDisclosurePanels($child, $element);
+        }
+
+        return $hasNavigationDescendant;
+    }
+
+    /**
+     * A link inside a disclosure panel is panel content, such as a link in an
+     * FAQ answer. It is not evidence of a navigation region, so it must not
+     * stop the container's disclosure items from being recognized.
+     */
+    private function hasLinkOutsideDisclosurePanels(DOMElement $child, DOMElement $container): bool
+    {
+        foreach ( $child->getElementsByTagName('a') as $anchor ) {
+            if ( ! $this->isInsideDisclosurePanel($anchor, $container) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isInsideDisclosurePanel(DOMElement $node, DOMElement $container): bool
+    {
+        $xpath = new \DOMXPath($container->ownerDocument);
+        for ( $current = $node->parentNode; $current instanceof DOMElement && ! $current->isSameNode($container); $current = $current->parentNode ) {
+            $previous = $current->previousSibling;
+            while ( null !== $previous && ! $previous instanceof DOMElement ) {
+                $previous = $previous->previousSibling;
+            }
+            if ( $previous instanceof DOMElement && $this->isDisclosureControlCarrier($previous) ) {
+                return true;
+            }
+            $id = $current->getAttribute('id');
+            if ( '' !== $id && 0 < $xpath->query('.//*[@aria-expanded][not(@aria-haspopup) or @aria-haspopup="false"][@aria-controls="' . str_replace('"', '', $id) . '"]', $container)->length ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * A disclosure control, or a heading that wraps one. A popup trigger
+     * (`aria-haspopup`) opens a menu, whose links are navigation.
+     */
+    private function isDisclosureControlCarrier(DOMElement $element): bool
+    {
+        if ( $element->hasAttribute('aria-expanded') ) {
+            return $this->isPlainDisclosureControl($element);
+        }
+        if ( 1 !== preg_match('/^h[1-6]$/', strtolower($element->tagName)) ) {
+            return false;
+        }
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && $descendant->hasAttribute('aria-expanded') ) {
+                return $this->isPlainDisclosureControl($descendant);
+            }
+        }
+
+        return false;
+    }
+
+    private function isPlainDisclosureControl(DOMElement $control): bool
+    {
+        return in_array(strtolower(trim($control->getAttribute('aria-haspopup'))), array('', 'false'), true);
+    }
+
+    private function isVerifiedCollectionItemList(DOMElement $element): bool
+    {
+        $children = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                $children[] = $child;
+            }
+        }
+        if ( 1 === count($children) ) {
+            $nested = array();
+            foreach ( $children[0]->childNodes as $child ) {
+                if ( $child instanceof DOMElement ) {
+                    $nested[] = $child;
+                }
+            }
+            if ( count($nested) >= 2 ) {
+                $children = $nested;
+            }
+        }
+        if ( count($children) < 2 ) {
+            return false;
+        }
+        foreach ( $children as $child ) {
+            if ( ! $child->hasAttribute('data-blocks-engine-collection-item-marker') ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function isRepeatedLinkItemCluster(DOMElement $element): bool
+    {
+        $items = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') ) {
+                return false;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            $anchors = $child->getElementsByTagName('a');
+            if ( 1 !== $anchors->length ) {
+                return false;
+            }
+            $anchor = $anchors->item(0);
+            if ( ! $anchor instanceof DOMElement || ! SourceDom::anchorIsHeadingWrapped($anchor, $child) ) {
+                return false;
+            }
+            $href = trim(SourceDom::attr($anchor, 'href'));
+            $label = trim(preg_replace('/\s+/', ' ', $anchor->textContent ?? '') ?? '');
+            if ( '' === $href || '' === $label || str_starts_with($href, '#') ) {
+                return false;
+            }
+            ++$items;
+        }
+
+        return 3 <= $items;
+    }
+
     private function hasMultipleAddressableInlineChildren(DOMElement $element): bool
     {
         $count = 0;
@@ -408,7 +555,7 @@ final class FlowContainerElementConverter implements ElementConverter
     /** @param array<int, array<string, mixed>> $fallbacks */
     private function accordionClaim(DOMElement $element, array &$fallbacks): ?ConversionOutcome
     {
-        if ( $this->context->shouldDeferNavigationPatternToChildren($element) ) {
+        if ( $this->shouldDeferNavigationPatternToChildren($element) ) {
             return null;
         }
         $block = $this->context->recognizePatterns($element, $fallbacks, array( AccordionPattern::class ));
@@ -418,7 +565,7 @@ final class FlowContainerElementConverter implements ElementConverter
     /** @param array<int, array<string, mixed>> $fallbacks */
     private function navigationClaim(DOMElement $element, array &$fallbacks): ?ConversionOutcome
     {
-        if ( $this->context->shouldDeferNavigationPatternToChildren($element)
+        if ( $this->shouldDeferNavigationPatternToChildren($element)
             || ! $this->navigationPattern->claimsBeforeAuthorOwnedLayout($element)
         ) {
             return null;

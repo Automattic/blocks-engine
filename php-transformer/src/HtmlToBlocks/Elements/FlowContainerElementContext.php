@@ -31,7 +31,6 @@ final class FlowContainerElementContext
         private readonly Closure $shouldPreserveEmptyVisualElement,
         private readonly Closure $isInertEmptyElement,
         private readonly PatternContext $patternContext,
-        private readonly Closure $shouldDeferNavigationPatternToChildren,
         private readonly Closure $rememberAccordionDisclosureRoot,
         private readonly Closure $metadataGridBlock,
         private readonly Closure $rememberNativeDisclosureRoot,
@@ -81,7 +80,6 @@ final class FlowContainerElementContext
     public function isInertEmptyElement(DOMElement $element): bool { return ($this->isInertEmptyElement)($element); }
 
     public function patternContext(): PatternContext { return $this->patternContext; }
-    public function shouldDeferNavigationPatternToChildren(DOMElement $element): bool { return ($this->shouldDeferNavigationPatternToChildren)($element); }
     /** @param array<string, mixed> $block @return array<string, mixed> */
     public function rememberAccordionDisclosureRoot(array $block, DOMElement $element): array { return ($this->rememberAccordionDisclosureRoot)($block, $element); }
     /** @return array<string, mixed>|null */
