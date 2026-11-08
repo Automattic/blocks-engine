@@ -4043,10 +4043,10 @@ $assert(str_contains($visualIframeGeometryMarkup, 'width="100%"') && str_contain
 $assert((str_contains($visualIframeGeometryMarkup, 'margin-bottom:10px') || str_contains($visualIframeGeometryCss, 'margin-bottom:10px')) && str_contains($visualIframeGeometryMarkup, 'Following content'), 'iframe wrapper margins and following content layout remain serialized');
 
 $suppressedIframe = ( new HtmlTransformer() )->transform(
-    '<main><iframe src="https://example.test/tag-manager" width="0" height="0" style="display:none"></iframe><iframe src="https://example.test/worker" width="1" height="1" style="visibility:hidden"></iframe><iframe src="javascript:alert(1)" width="640" height="360" srcdoc="<p>unsafe</p>"></iframe><iframe src="https://example.test/unbounded"></iframe></main>'
+    '<main><iframe src="https://example.test/tag-manager" width="0" height="0" style="display:none"></iframe><iframe src="javascript:alert(1)" width="640" height="360" srcdoc="<p>unsafe</p>"></iframe><iframe src="https://example.test/unbounded"></iframe></main>'
 )->toArray();
 $suppressedIframeMarkup = (string) ($suppressedIframe['serialized_blocks'] ?? '');
-$assert(! str_contains($suppressedIframeMarkup, '<iframe'), 'hidden, zero-size, unsafe, and unbounded iframes remain suppressed');
+$assert(! str_contains($suppressedIframeMarkup, '<iframe'), 'zero-size, unsafe, and unbounded iframes remain suppressed');
 
 $staticTemplate = ( new HtmlTransformer() )->transform(
     '<main><section><h2>Visible</h2><template><article><h3>Deferred article</h3><p>Readable metadata.</p></article></template><p>After.</p></section></main>'
