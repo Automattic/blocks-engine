@@ -795,4 +795,32 @@ final class ImageLowering
 
         return implode(' ', $classes);
     }
+
+    public function isImageOnlyAnchor(DOMElement $anchor): bool
+    {
+        $imageChildren = 0;
+        foreach ( $anchor->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                if ( in_array(strtolower($child->tagName), array( 'img', 'picture' ), true) || SourceDom::imageOnlyCarrierElement($child) instanceof DOMElement ) {
+                    ++$imageChildren;
+                    continue;
+                }
+                if ( $this->isHiddenImageLinkLabel($child) ) {
+                    continue;
+                }
+                // Lightbox links commonly append empty overlay elements beside
+                // their image. They are decoration, not additional link content.
+                if ( '' !== trim($child->textContent ?? '') ) {
+                    return false;
+                }
+                continue;
+            }
+
+            if ( '' !== trim($child->textContent ?? '') ) {
+                return false;
+            }
+        }
+
+        return 1 === $imageChildren;
+    }
 }
