@@ -311,6 +311,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly Elements\CustomWrapperConventions $wrapperConventions;
     private readonly Elements\EmptyVisualSpacerLowering $emptyVisualSpacers;
     private readonly Diagnostics\FallbackReconciliation $fallbackReconciliation;
+    private readonly Elements\InlineCheckableControlLowering $inlineCheckableControls;
     private readonly SourceProvenance $sourceProvenance;
 
     private readonly RuntimeResourceElementConverter $runtimeResourceConverter;
@@ -598,6 +599,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->wrapperConventions = new Elements\CustomWrapperConventions($this->styleResolver);
         $this->emptyVisualSpacers = new Elements\EmptyVisualSpacerLowering($this, $this, $this->session, $this->styleResolver, $this->emptyElementFootprint, $this->runtimeIslands);
         $this->fallbackReconciliation = new Diagnostics\FallbackReconciliation($this->runtimeIslands);
+        $this->inlineCheckableControls = new Elements\InlineCheckableControlLowering($this, $this->runtime, $this->session, $this->sourceElementClassifier, $this->richTextMaterializer, $this->authoredStateButtons, $this->runtimeIslands, $this->layoutShells);
         $this->customImageHosts = new Elements\CustomImageHostLowering($this, $this->blockFactory, $this->styleResolver, $this->session, $this->sourceElementClassifier, $this->sourceElementDescription, $this->imageLowering, $this->layoutShells, $this->runtimeIslands, $this->authorLayoutOwnership);
         $this->anchors = new Elements\AnchorLowering($this, $this, $this->styleResolver, $this->session, $this->sourceElementClassifier, $this->sourceElementDescription, $this->imageLowering, $this->imageUrls, $this->layoutShells, $this->linkWrapperPropagator, $this->runtimeIslands, $this->customImageHosts);
         $this->layoutTables = new Elements\LayoutTableLowering(
@@ -3194,7 +3196,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return $prelude->block;
         }
 
-        $checkable = $this->inlineCheckableControlBlock($element);
+        $checkable = $this->inlineCheckableControls->inlineCheckableControlBlock($element);
         if (null !== $checkable) return $checkable;
 
         if ( $this->richTextConverter->handles($tagName) ) {
@@ -6076,68 +6078,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         return false;
-    }
-
-    /** A bounded phrasing tree with named binary SVG controls is layout plus
-     * editable text, rather than one invalid RichText run. Keep source wrappers
-     * with the existing layout shell and transparent text carriers.
-     */
-    private function inlineCheckableControlBlock(DOMElement $element): ?array
-    {
-        if (!in_array(strtolower($element->tagName), array('div', 'span', 'button'), true)) return null;
-        $buttons = 'button' === strtolower($element->tagName) ? array($element) : iterator_to_array($element->getElementsByTagName('button'));
-        if (array() === $buttons || 16 < count($buttons) || 64 < $element->getElementsByTagName('*')->length) return null;
-        foreach (array_merge(array($element), iterator_to_array($element->getElementsByTagName('*'))) as $node) {
-            if ($this->runtimeIslands->isRuntimeDomTarget($node) || array() !== SourceDom::eventMetadata($node) || $node->hasAttribute('data-action') || $node->hasAttribute('jsaction')) return null;
-            foreach ($node->attributes as $attribute) if (str_starts_with(strtolower($attribute->name), 'data-wp-')) return null;
-        }
-        // Prove the complete tree before installing any retained selector paths.
-        $supports = function (DOMElement $node, int $depth) use (&$supports): bool {
-            if ($depth > 16) return false;
-            if ('button' === strtolower($node->tagName)) return true;
-            if (!in_array(strtolower($node->tagName), array('div', 'span'), true)) return false;
-            foreach (SourceDom::elementElementChildren($node) as $child) {
-                if ('button' === strtolower($child->tagName) || 0 < $child->getElementsByTagName('button')->length) {
-                    if (!$supports($child, $depth + 1)) return false;
-                } elseif (!$this->sourceElementClassifier->isInlineContentElement(strtolower($child->tagName)) || $this->richTextMaterializer->requiresHtmlFallback($this->outerHtml($child))) {
-                    return false;
-                }
-            }
-            return true;
-        };
-        if (!$supports($element, 0)) return null;
-        $controls = array();
-        foreach ($buttons as $button) {
-            if ('checkbox' !== strtolower(trim($this->attr($button, 'role'))) || '' === trim($this->attr($button, 'aria-label') . $this->attr($button, 'title')) || $this->runtimeIslands->isRuntimeDomTarget($button)) return null;
-            $block = $this->authoredStateButtons->fromElement($button);
-            if (null === $block) return null;
-            $controls[$button->getNodePath()] = $block;
-        }
-        $build = function (DOMElement $node) use (&$build, $controls): array {
-            if (isset($controls[$node->getNodePath()])) return $controls[$node->getNodePath()];
-            $children = array(); $text = '';
-            $flush = function () use (&$children, &$text): void {
-                if ('' !== trim($text)) $children[] = $this->createBlock('core/paragraph', array('content' => $text, 'className' => self::INLINE_LAYOUT_CARRIER_CLASS));
-                $text = '';
-            };
-            foreach ($node->childNodes as $child) {
-                if ($child instanceof \DOMText) { $text .= $this->runtime->escapeHtml($child->textContent); continue; }
-                if (!$child instanceof DOMElement) continue;
-                if ('button' === strtolower($child->tagName) || 0 < $child->getElementsByTagName('button')->length) {
-                    $flush();
-                    $children[] = $build($child);
-                } else {
-                    $content = $this->richTextMaterializer->content($child);
-                    $flush();
-                    $this->session->authorSelectorProjectionState()->markRetainedSourcePath($child->getNodePath());
-                    $children[] = $this->layoutShells->blockForElements(array($child), array($this->createBlock('core/paragraph', array('content' => $content, 'className' => self::INLINE_LAYOUT_CARRIER_CLASS))), $child);
-                }
-            }
-            $flush();
-            $this->session->authorSelectorProjectionState()->markRetainedSourcePath($node->getNodePath());
-            return $this->layoutShells->blockForElements(array($node), $children, $node);
-        };
-        return $build($element);
     }
 
     /**
