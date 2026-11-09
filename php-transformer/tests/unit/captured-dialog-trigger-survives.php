@@ -28,7 +28,7 @@ $html = '<body><header><nav class="bar"><a href="#top" class="logo">Brand</a><di
 $blocks = (string) ( ( new HtmlTransformer() )->transform($html, array())->toArray()['serialized_blocks'] ?? '' );
 
 $assert(str_contains($blocks, 'id="blocks-engine-dialog-trigger-abc"'), 'the dialog trigger keeps the id the dialog binds to', $blocks);
-$assert(str_contains($blocks, 'data-blocks-engine-triggers="blocks-engine-dialog-trigger-abc"'), 'the dialog still names its trigger', $blocks);
+$assert(str_contains($blocks, '"data-blocks-engine-triggers":"blocks-engine-dialog-trigger-abc"'), 'the dialog still names its trigger', $blocks);
 $assert(1 === preg_match('/<button[^>]*>/', $blocks) && str_contains($blocks, 'Toggle menu'), 'the trigger converts to an operable button that keeps its label', $blocks);
 
 // An unbound hamburger beside a converted navigation is still redundant chrome.

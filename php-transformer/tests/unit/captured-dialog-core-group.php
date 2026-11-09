@@ -30,4 +30,11 @@ if ('dialog' !== $shell['tagName'] || 'opener' !== $shell['attributes']['data-bl
     || str_contains($result['serialized_blocks'], '/captured-dialog')) {
     throw new RuntimeException('The core Group must retain editable children and its native dialog binding.');
 }
+// The wrapper-chain pass must not fold away runtime metadata when the
+// captured panel and its content are both otherwise foldable Groups.
+$nested = (new HtmlTransformer())->transform('<div data-blocks-engine-captured-dialog="true" id="nested-panel" data-blocks-engine-triggers="opener"><div class="content"><h2>Editable title</h2><p>Editable body</p></div></div>')->toArray();
+$nestedPanel = $walk($nested['blocks'] ?? array());
+if (null === $nestedPanel || 'nested-panel' !== ($nestedPanel['attrs']['metadata']['blocksEngineDialog']['attributes']['id'] ?? null)) {
+    throw new RuntimeException('Wrapper coalescing must retain the core Group dialog owner.');
+}
 echo "captured-dialog-core-group: ok\n";

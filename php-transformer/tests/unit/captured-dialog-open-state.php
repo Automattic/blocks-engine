@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../fixtures/captured-components.php';
+require_once __DIR__ . '/../fixtures/render-core-dialogs.php';
 
 /**
  * A projected modal opens in its source open state, not its rest state.
@@ -61,7 +62,8 @@ $dialog = static function (string $css, string $triggerAttributes = ''): string 
     $compiler = new ArtifactCompiler();
     $shared = $compiler->prepareShared($artifact);
     $result = $compiler->compose($shared, $compiler->compilePreparedPages($shared, $compiler->preparePages($artifact, $shared)))->toArray();
-    $all = stripslashes((string) json_encode($result, JSON_UNESCAPED_SLASHES));
+    $plan = $result['source_reports']['wordpress_site_plan'] ?? array();
+    $all = render_core_dialogs(implode('', array_column(array_merge($plan['pages'] ?? array(), $plan['template_parts'] ?? array()), 'canonical_block_markup')));
     preg_match_all('/<dialog [^>]*>/', $all, $matches);
     foreach ( $matches[0] as $tag ) {
         // The block's rendered dialog, not the projected source HTML.
