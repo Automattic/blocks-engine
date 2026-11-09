@@ -2403,11 +2403,22 @@ final class ShellExtraction
         $areas = array();
         foreach ($parts as $part) if ('inline_shared_shell' === ($part['placement']['kind'] ?? null) && in_array($part['area'] ?? null, array('header', 'footer'), true)) $areas[(string) $part['slug']] = (string) $part['area'];
         if (array() === $areas) return array('pages' => $pages, 'frames' => array(), 'generic_source' => null);
+        // Without a heading/main landmark, repeated wrapper structure can
+        // still prove the content boundary. Require the exact frame on every
+        // captured route; a route-specific chain retains in-place transport.
+        $invariant = array();
+        foreach ($pages as $index => $page) {
+            if (!empty($page['synthetic'])) continue;
+            $candidate = $this->shellFrame((string) ($page['canonical_block_markup'] ?? ''), $areas, true);
+            if (null !== $candidate) $invariant[$index] = $candidate;
+        }
+        $capturedCount = count(array_filter($pages, static fn(array $page): bool => empty($page['synthetic'])));
+        $invariant = $capturedCount >= 2 && count($invariant) === $capturedCount && 1 === count(array_unique(array_map(self::frameIdentity(...), $invariant))) ? $invariant : array();
         $frames = array();
         $split = array();
         foreach ($pages as $index => $page) {
             if (!empty($page['synthetic'])) continue;
-            $frame = $this->shellFrame((string) ($page['canonical_block_markup'] ?? ''), $areas);
+            $frame = $this->shellFrame((string) ($page['canonical_block_markup'] ?? ''), $areas) ?? ($invariant[$index] ?? null);
             if (null === $frame) continue;
             $ranges = array(array('offset' => 0, 'length' => strlen($frame['opening'])), array('offset' => strlen($page['canonical_block_markup']) - strlen($frame['closing']), 'length' => strlen($frame['closing'])));
             $found = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, $ranges);
@@ -2587,7 +2598,7 @@ final class ShellExtraction
      * @param array<string,string> $areas Inline shell part slug to its area.
      * @return array{opening:string,closing:string,content:string}|null
      */
-    private function shellFrame(string $markup, array $areas): ?array
+    private function shellFrame(string $markup, array $areas, bool $allowInvariantChain = false): ?array
     {
         $nodes = self::blockNodes(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup));
         if (array() === $nodes) return null;
@@ -2618,7 +2629,14 @@ final class ShellExtraction
             }
             $from = isset($positions['header']) ? $positions['header'] + 1 : 0;
             $to = isset($positions['footer']) ? $positions['footer'] - 1 : count($siblings) - 1;
-            if ($from <= $to && (count($refs) > 1 || self::nodesHoldPageHeading($markup, $nodes, array_slice($siblings, $from, $to - $from + 1)) || self::nodesHoldMain($markup, $nodes, array_slice($siblings, $from, $to - $from + 1)))) break;
+            // A footer at the end of a sole-child wrapper chain also has an
+            // unambiguous content gap, provided other routes prove that frame.
+            $chain = $allowInvariantChain && isset($positions['footer']) && !isset($positions['header']) && $positions['footer'] === count($siblings) - 1 && null !== $parent;
+            for ($up = $parent; $chain && null !== $up; $up = $nodes[$up]['parent']) {
+                $peers = null === $nodes[$up]['parent'] ? self::topLevelNodeIds($nodes) : $nodes[$nodes[$up]['parent']]['children'];
+                if (1 !== count($peers) || 'group' !== $nodes[$up]['name']) $chain = false;
+            }
+            if ($from <= $to && ($chain || count($refs) > 1 || self::nodesHoldPageHeading($markup, $nodes, array_slice($siblings, $from, $to - $from + 1)) || self::nodesHoldMain($markup, $nodes, array_slice($siblings, $from, $to - $from + 1)))) break;
             if (null === $parent || count($refs) > 1) return null;
             $parent = $nodes[$parent]['parent'];
         }

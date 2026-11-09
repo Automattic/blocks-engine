@@ -418,6 +418,7 @@
       "php tests/contract/entry-chrome-wrapper.php",
       "php tests/contract/wrapped-flex-header-shell.php",
       "php tests/contract/shell-frame-hoist.php",
+      "php tests/contract/route-invariant-footer-frame.php",
       "php tests/contract/site-wide-chrome.php",
       "php tests/contract/generic-page-shell-frame.php",
       "php tests/contract/single-route-shell-frame.php",
