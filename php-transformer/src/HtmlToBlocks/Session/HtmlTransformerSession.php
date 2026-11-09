@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackEmitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProjectionState;
@@ -13,6 +14,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\PresentationResolu
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceStyleResolutionState;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription;
+use DOMElement;
 
 /**
  * Mutable data accumulated while converting one HTML document.
@@ -70,6 +72,13 @@ final class HtmlTransformerSession
     {
         return $this->authorStyleAnalysis
             ?? throw new \LogicException('Author styles have not been prepared for this transform.');
+    }
+
+    public function authorStyleRuleCandidates(DOMElement $element, ?CssSelectorMatchCache $selectorCache = null): array
+    {
+        $index = $this->authorStyleAnalysis()->styleRuleCandidateIndex();
+        $selectorCache ??= $this->sourceStyleResolutionState()->selectorMatchCache;
+        return $selectorCache->styleRuleCandidates($element, 'author-rules', $index);
     }
 
     public function installLayoutGeometryState(LayoutGeometryState $state): void
