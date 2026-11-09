@@ -167,7 +167,7 @@ final class RichTextMaterializer implements RichTextMaterialization
                 continue;
             }
 
-            if ( '' === trim($sourceInline->textContent ?? '') && 0 === SourceDom::childElementCount($sourceInline) && ! $this->inlinePolicy->retainsEmptyRichTextInline($sourceInline) ) {
+            if ( '' === trim($sourceInline->textContent ?? '') && 0 === SourceDom::childElementCount($sourceInline) && ! $this->preservesInlineSpaces($sourceInline) && ! $this->inlinePolicy->retainsEmptyRichTextInline($sourceInline) ) {
                 // Drop the empty wrapper, not its text: a whitespace-only span still separates words.
                 $text = $targetInline->textContent;
                 if ( '' === $text ) {
@@ -221,6 +221,36 @@ final class RichTextMaterializer implements RichTextMaterialization
         }
 
         return SourceDom::innerHtml($body);
+    }
+
+    /** A space-only run is not empty when its inherited source cascade preserves spaces. */
+    private function preservesInlineSpaces(DOMElement $element): bool
+    {
+        if ( '' === $element->textContent ) {
+            return false;
+        }
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $declarations = $this->styleResolver->referenceViewportAuthorDeclarations($node, array( 'white-space', 'white-space-collapse' ));
+            $collapse = '';
+            foreach ( $declarations as $property => $value ) {
+                $value = CssValueInspector::comparable($value);
+                if ( 'white-space-collapse' === $property ) {
+                    $collapse = $value;
+                } else {
+                    $collapse = match ($value) {
+                        'pre', 'pre-wrap' => 'preserve',
+                        'normal', 'nowrap' => 'collapse',
+                        'pre-line' => 'preserve-breaks',
+                        default => $value,
+                    };
+                }
+            }
+            if ( in_array($collapse, array( '', 'inherit', 'unset' ), true) ) {
+                continue;
+            }
+            return 1 === preg_match('/\b(?:preserve|break-spaces)\b/', $collapse) && 'preserve-breaks' !== $collapse;
+        }
+        return false;
     }
 
     /** Normalize attributes inside RichText, without decoding its text nodes. */
@@ -301,6 +331,8 @@ final class RichTextMaterializer implements RichTextMaterialization
             'place-items',
             'text-decoration',
             'text-transform',
+            'white-space',
+            'white-space-collapse',
             'width',
         ));
 
