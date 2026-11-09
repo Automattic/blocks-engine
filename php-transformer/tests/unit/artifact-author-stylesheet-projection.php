@@ -719,7 +719,8 @@ $scopedResponsive = ( new ArtifactCompiler() )->compile(array(
         array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>:where(.mobile-document) [data-mesh-id="content"] > #copy{position:relative;margin:36px 0 52px}</style><main><div class="mobile-document"><div data-mesh-id="content"><div id="copy">Copy</div></div></div></main>' ),
     ),
 ) )->toArray();
-$scopedResponsiveCss = implode("\n", array_column($scopedResponsive['assets'] ?? array(), 'content'));
+// Editor-only repairs name the original selector inside their lost-identity guard.
+$scopedResponsiveCss = implode("\n", array_column(array_filter($scopedResponsive['assets'] ?? array(), static fn (array $asset): bool => 'editor' !== ($asset['stylesheet_target'] ?? '')), 'content'));
 $assert(preg_match('/:where\(\.mobile-document\)\s+:where\(\.blocks-engine-attribute-[a-f0-9-]+\)>:where\(#copy\)/', $scopedResponsiveCss) && ! str_contains($scopedResponsiveCss, '[data-mesh-id="content"] > #copy'), 'zero-specificity responsive scopes retain attribute-ancestry combinators through canonical block markup');
 
 $dataMeshGrid = ( new ArtifactCompiler() )->compile(array(

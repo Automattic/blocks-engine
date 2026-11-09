@@ -948,6 +948,7 @@
       "php tests/unit/editor-anchor-attribute-id-projection.php",
       "php tests/unit/editor-anchor-id-specificity.php",
       "php tests/unit/editor-anchor-projection-coverage.php",
+      "php tests/contract/editor-anchor-retained-cascade.php",
       "php tests/unit/editor-list-view-container-names.php",
       "php tests/unit/navigation-collapsed-item-band.php",
       "php tests/unit/page-only-stylesheet-keeps-shared-header.php",
