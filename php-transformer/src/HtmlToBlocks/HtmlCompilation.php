@@ -316,6 +316,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly Elements\AnchorLowering $anchors;
     private readonly Elements\RenderNeutralElements $renderNeutral;
     private readonly Elements\InertElements $inertElements;
+    private readonly Elements\EmptyInlineGeometryLowering $emptyInlineGeometry;
     private readonly SourceProvenance $sourceProvenance;
 
     private readonly RuntimeResourceElementConverter $runtimeResourceConverter;
@@ -609,6 +610,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         );
         $this->renderNeutral = new Elements\RenderNeutralElements($this->session, $this->styleResolver, $this->sourceElementClassifier, $this->sourceElementDescription, $this->runtimeIslands, $this->emptyElementFootprint);
         $this->inertElements = new Elements\InertElements($this->styleResolver, $this->sourceElementClassifier, $this->sourceVisibility, $this->runtimeIslands);
+        $this->emptyInlineGeometry = new Elements\EmptyInlineGeometryLowering($this, $this->session, $this->sourceElementClassifier, $this->emptyElementFootprint, $this->authoredStateButtons, $this->layoutShells, $this->runtimeIslands);
         $this->customImageHosts = new Elements\CustomImageHostLowering($this, $this->blockFactory, $this->styleResolver, $this->session, $this->sourceElementClassifier, $this->sourceElementDescription, $this->imageLowering, $this->layoutShells, $this->runtimeIslands, $this->authorLayoutOwnership);
         $this->anchors = new Elements\AnchorLowering($this, $this, $this->styleResolver, $this->session, $this->sourceElementClassifier, $this->sourceElementDescription, $this->imageLowering, $this->imageUrls, $this->layoutShells, $this->linkWrapperPropagator, $this->runtimeIslands, $this->customImageHosts);
         $this->layoutTables = new Elements\LayoutTableLowering(
@@ -1338,7 +1340,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 return $this->convertChildren($element, $fallbacks, $captureUnsupported);
             },
             function (DOMElement $element, array &$fallbacks): ?array {
-                return $this->emptyInlineGeometryBlock($element, $fallbacks);
+                return $this->emptyInlineGeometry->emptyInlineGeometryBlock($element, $fallbacks);
             },
             function (DOMElement $element, array &$fallbacks): ?array {
                 $block = $this->recognizePatterns($element, $fallbacks, array( DetailsPattern::class ));
@@ -6575,12 +6577,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return false;
     }
 
-    /** @return array<string, mixed> */
-    private function preservedSourceControlBlock(DOMElement $element): array
-    {
-        return $this->authoredStateButtons->fromElement($element) ?? $this->htmlPreservationBlock($element);
-    }
-
     /** A bounded phrasing tree with named binary SVG controls is layout plus
      * editable text, rather than one invalid RichText run. Keep source wrappers
      * with the existing layout shell and transparent text carriers.
@@ -6641,125 +6637,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return $this->layoutShells->blockForElements(array($node), $children, $node);
         };
         return $build($element);
-    }
-
-    /**
-     * An empty inline tree whose source CSS still generates a line box or flex
-     * track is layout, not text and not a raw HTML island. core/group cannot
-     * keep the source phrasing tags, so the existing layout shell does.
-     *
-     * @param array<int, array<string, mixed>> $fallbacks
-     * @return array<string, mixed>|null
-     */
-    private function emptyInlineGeometryBlock(DOMElement $element, array &$fallbacks): ?array
-    {
-        if ( $this->hasPaintedSourceText($element) || $this->emptyElementFootprint->subtreeHasPaintedPseudo($element, $this->session->sourceStyleResolutionState()->pseudoElementRules()) || $this->runtimeIslands->isRuntimeDomTarget($element) ) {
-            return null;
-        }
-        $inner = array();
-        $layout = false;
-        foreach ( SourceDom::elementElementChildren($element) as $child ) {
-            if ( FormControlClassifier::isControlElement($child) ) {
-                $inner[] = $this->preservedSourceControlBlock($child);
-                continue;
-            }
-            if ( ! $this->isEmptyInlineGeometryNode($child) || $this->containsExcludedMedia($child) ) {
-                return null;
-            }
-            $layout = $layout || $this->emptyElementFootprint->declaresEmptyInlineLayoutBox($child);
-            $inner[] = $this->emptyInlineGeometryShell($child);
-        }
-        if ( ! $layout || array() === $inner ) {
-            return null;
-        }
-
-        return $this->layoutShells->blockForElements(array( $element ), $inner, $element);
-    }
-
-    private function emptyInlineGeometryShell(DOMElement $element): array
-    {
-        $wrappers = array( $element );
-        $branch = $element;
-        while ( true ) {
-            $children = SourceDom::elementElementChildren($branch);
-            if ( 1 !== count($children) || ! $this->isEmptyInlineGeometryNode($children[0]) ) {
-                break;
-            }
-            $child = $children[0];
-            $wrappers[] = $child;
-            $branch = $child;
-            if ( count(SourceDom::elementElementChildren($child)) > 1 ) {
-                break;
-            }
-        }
-        $inner = array();
-        foreach ( SourceDom::elementElementChildren($branch) as $child ) {
-            if ( $child === (array() === $wrappers ? null : $wrappers[array_key_last($wrappers)]) || ! $this->isEmptyInlineGeometryNode($child) ) {
-                continue;
-            }
-            $inner[] = count(SourceDom::elementElementChildren($child)) > 1
-                ? $this->emptyInlineGeometryShell($child)
-                : $this->layoutShells->blockForElements($this->emptyInlineWrapperChain($child), array(), $child);
-        }
-
-        return $this->layoutShells->blockForElements($wrappers, $inner, $element);
-    }
-
-    /**
-     * @return list<DOMElement>
-     */
-    private function emptyInlineWrapperChain(DOMElement $element): array
-    {
-        $chain = array( $element );
-        $cursor = $element;
-        while ( true ) {
-            $children = SourceDom::elementElementChildren($cursor);
-            if ( 1 !== count($children) || ! $this->isEmptyInlineGeometryNode($children[0]) ) {
-                break;
-            }
-            $child = $children[0];
-            if ( '' === trim($this->attr($child, 'class')) && '' === trim($this->attr($child, 'style')) && 0 === $child->childElementCount ) {
-                break;
-            }
-            $chain[] = $child;
-            $cursor = $child;
-        }
-
-        return $chain;
-    }
-
-    private function isEmptyInlineGeometryNode(DOMElement $element): bool
-    {
-        return $this->sourceElementClassifier->isInlineContentElement(strtolower($element->tagName))
-            && ! $this->hasPaintedSourceText($element)
-            && ! $this->containsExcludedMedia($element)
-            && ! $this->runtimeIslands->isRuntimeDomTarget($element);
-    }
-
-    private function hasPaintedSourceText(DOMElement $element): bool
-    {
-        if ( '' !== trim($element->textContent ?? '') ) {
-            return true;
-        }
-        foreach ( $element->getElementsByTagName('*') as $node ) {
-            if ( $node instanceof DOMElement && '' !== trim($this->attr($node, 'data-text')) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private function containsExcludedMedia(DOMElement $element): bool
-    {
-        foreach ( array_merge(array( $element ), SourceDom::descendantElements($element)) as $node ) {
-            $tag = strtolower($node->tagName);
-            if ( in_array($tag, array( 'audio', 'canvas', 'iframe', 'img', 'object', 'picture', 'svg', 'video' ), true) ) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**
