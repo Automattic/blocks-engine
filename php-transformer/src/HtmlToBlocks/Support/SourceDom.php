@@ -754,6 +754,26 @@ final class SourceDom
     }
 
     /**
+     * Unwraps links whose only content is line breaks: an image link whose
+     * image was deleted (`<a href="photo.jpg"><br></a>`, common in Blogger
+     * posts) renders as the break alone, with nothing to see or click. Links
+     * carrying `id` or `name` stay, as fragment targets.
+     */
+    public static function unwrapLineBreakOnlyLinks(DOMElement $root): void
+    {
+        $document = $root->ownerDocument;
+        if ( ! $document instanceof \DOMDocument ) return;
+        $links = (new \DOMXPath($document))->query('.//a[br][not(@id)][not(@name)][not(*[not(self::br)])][normalize-space() = ""]', $root);
+        if ( false === $links ) return;
+        foreach ( iterator_to_array($links) as $link ) {
+            $parent = $link->parentNode;
+            if ( null === $parent ) continue;
+            while ( null !== $link->firstChild ) $parent->insertBefore($link->firstChild, $link);
+            $parent->removeChild($link);
+        }
+    }
+
+    /**
      * Removes invalid XML attribute names (including int array keys) and
      * invalid xml:space values from the parsed subtree.
      *

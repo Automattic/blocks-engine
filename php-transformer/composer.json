@@ -721,6 +721,7 @@
       "php tests/unit/wordpress-site-plan-post-chrome-unique-menu.php",
       "php tests/unit/post-content-main-boundary.php",
       "php tests/unit/wordpress-site-plan-visible-months.php",
+      "php tests/unit/legacy-inline-markup.php",
       "php tests/unit/wordpress-stylesheet-instances.php",
       "php tests/unit/artifact-encoded-asset-reference.php",
       "php tests/unit/shared-chrome-projection-media-instances.php",

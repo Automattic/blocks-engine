@@ -1599,6 +1599,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
         $timer->start('transform.source_normalization');
         SourceDom::removeIntegerKeyAttributes($body);
+        SourceDom::unwrapLineBreakOnlyLinks($body);
         // Resolve before dispatch: controls, rich text, and preserved markup
         // serialize source images without passing through native image lowering.
         // Use a static node set: indexed iteration of a live DOMNodeList can
