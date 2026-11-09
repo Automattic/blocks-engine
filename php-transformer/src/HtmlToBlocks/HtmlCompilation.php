@@ -611,7 +611,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->session,
             $this->styleResolver,
             $this->blockFactory,
-            $this->authorLayoutOwnership,
             $this
         );
         $this->structuredCardLists = new Elements\StructuredCardListLowering(
@@ -681,7 +680,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             fn (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array => $this->convertChildren($element, $fallbacks, $captureUnsupported),
             fn (DOMElement $element): string => $this->richTextMarkerForElement($element),
             fn (DOMElement $element): ?string => $this->dynamicTextContent($element),
-            fn (DOMElement $element, string $tagName): ?DOMElement => $this->ancestorElement($element, $tagName),
+            fn (DOMElement $element, string $tagName): ?DOMElement => SourceDom::ancestorElement($element, $tagName),
             fn (DOMElement $element): bool => $this->listStructure->isStructuralListItem($element),
             fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element),
             fn (DOMElement $element): array => $this->emptyVisualSpacerBlock($element),
@@ -2870,11 +2869,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $id,
             fn (): bool => (bool) $this->tableClassificationPolicy->classify($table)['representable']
         );
-    }
-
-    private function ancestorElement(DOMElement $element, string $tagName): ?DOMElement
-    {
-        return $this->authorLayoutOwnership->ancestorElement($element, $tagName);
     }
 
     private function normalizeHtml5VoidElements(string $html): string
@@ -7212,7 +7206,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 foreach ( $ids as $id ) {
                     if ( preg_match('/(?:^|[\\s,(])(?:url\\(\\s*["\']?#' . preg_quote($id, '/') . '["\']?\\s*\\)|#' . preg_quote($id, '/') . '(?:$|[\\s,)]))/', $attribute->value)
                         && 'svg' !== strtolower($candidate->tagName)
-                        && null === $this->ancestorElement($candidate, 'svg') ) {
+                        && null === SourceDom::ancestorElement($candidate, 'svg') ) {
                         return true;
                     }
                 }
@@ -7372,7 +7366,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return true;
         }
 
-        $table = $this->ancestorElement($element, 'table');
+        $table = SourceDom::ancestorElement($element, 'table');
         if ($table instanceof DOMElement && $this->tableClassificationPolicy->lowersToColumns($table) && $this->layoutTables->layoutTableUsesAutoTracks($table)) {
             return true;
         }

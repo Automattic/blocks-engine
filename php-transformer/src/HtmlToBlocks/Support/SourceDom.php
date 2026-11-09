@@ -801,6 +801,16 @@ final class SourceDom
         }
     }
 
+    public static function ancestorElement(DOMElement $element, string $tagName): ?DOMElement
+    {
+        for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+            if ( $tagName === strtolower($parent->tagName) ) {
+                return $parent;
+            }
+        }
+        return null;
+    }
+
     /**
      * @return array<int, string>
      */
