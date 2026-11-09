@@ -90,6 +90,13 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
  */
 final class PresetBinding
 {
+    /**
+     * A type selector at the start of a compound: any CSS identifier, so the
+     * hack selectors `_:future` and `_::-webkit-full-page-media` name an
+     * element `_` (which no block is) rather than matching every element.
+     */
+    private const TYPE_SELECTOR = '/^((?:-?[a-z_]|--)[\w-]*)/i';
+
     /** Blocks whose colour, font-size and spacing support serializes on the wrapper. */
     private const WRAPPER_BLOCKS = array('paragraph', 'heading', 'group', 'columns', 'column', 'list', 'list-item', 'quote', 'buttons');
 
@@ -1057,7 +1064,7 @@ final class PresetBinding
     {
         foreach ($this->fontRules as $rule) {
             $subject = self::subjectCompound($rule['selector']);
-            if (preg_match('/^([a-z][a-z0-9-]*)/i', $subject, $match) && strtolower($match[1]) !== $tag) continue;
+            if (preg_match(self::TYPE_SELECTOR, $subject, $match) && strtolower($match[1]) !== $tag) continue;
             if (null === self::subjectTokens($rule['selector'])) continue;
             if (null !== $rule['value'] && $this->sameFont($value, $this->resolve($rule['value']))) continue;
             return true;
@@ -1926,7 +1933,9 @@ final class PresetBinding
      */
     private static function subjectTokens(string $selector): ?array
     {
-        if (1 === preg_match('/::?(?:before|after|marker|placeholder|selection|first-line|first-letter|backdrop|file-selector-button)\s*$/i', trim($selector))) return null;
+        // A pseudo-element subject styles that pseudo-element, never the
+        // element itself (`_::-webkit-full-page-media` included).
+        if (1 === preg_match('/(?:::[\w-]+(?:\([^()]*\))?|:(?:before|after|first-line|first-letter))\s*$/i', trim($selector))) return null;
         $compound = self::subjectCompound($selector);
         $negated = array();
         $compound = (string) preg_replace_callback('/:not\(\s*((?:\.(?:\\\\.|[\w-])+)+)\s*\)/', static function (array $match) use (&$negated): string {
@@ -1934,7 +1943,7 @@ final class PresetBinding
             return '';
         }, $compound);
         $tokens = array();
-        if (1 === preg_match('/^([a-z][a-z0-9-]*)/i', $compound, $match)) $tokens[] = 'tag:' . strtolower($match[1]);
+        if (1 === preg_match(self::TYPE_SELECTOR, $compound, $match)) $tokens[] = 'tag:' . strtolower($match[1]);
         if (preg_match_all('/\.((?:\\\\.|[\w-])+)/', $compound, $matches)) foreach ($matches[1] as $class) $tokens[] = 'class:' . stripslashes($class);
         if (preg_match_all('/#((?:\\\\.|[\w-])+)/', $compound, $matches)) foreach ($matches[1] as $id) $tokens[] = 'id:' . stripslashes($id);
         return array('tokens' => $tokens, 'negated' => $negated);

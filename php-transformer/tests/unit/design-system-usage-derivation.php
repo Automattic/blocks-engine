@@ -323,6 +323,9 @@ foreach (array(
     'attribute present' => array('[data-w-cloak]{color:#0000!important}', 'paragraph', 'p', ' data-w-cloak=""', 'text', 'color', 'textColor', false),
     'unrelated background longhand' => array('.x{background-attachment:scroll!important}', 'group', 'div', '', 'background', 'background-color', 'backgroundColor', true),
     'universal subject' => array('*{color:#0000!important}', 'paragraph', 'p', '', 'text', 'color', 'textColor', false),
+    // Safari-only hack lists: `_` is a type selector no block is, and a
+    // pseudo-element subject styles the pseudo-element, not the block.
+    'hack type selector and pseudo-element' => array(':root select,_::-webkit-full-page-media,_:future{color:#0000!important}', 'paragraph', 'p', '', 'text', 'color', 'textColor', true),
 ) as $case => [$css, $block, $tag, $extra, $key, $property, $preset, $binds]) {
     $markup = '<!-- wp:' . $block . ' {"className":"x","style":{"color":{"' . $key . '":"#e11d48"}}} --><' . $tag . ' class="x"' . $extra . ' style="' . $property . ':#e11d48">Hi</' . $tag . '><!-- /wp:' . $block . ' -->';
     $guard = new PresetBinding($bindSystem, array(array('kind' => 'css', 'content' => $css)));
