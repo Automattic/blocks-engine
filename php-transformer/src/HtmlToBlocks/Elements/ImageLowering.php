@@ -739,7 +739,7 @@ final class ImageLowering
             // inert identities retain the historical class transport.
             $styledLeaf = $this->imageNeedsSeparateFigureBox($image, $figure);
             $marker = $styledLeaf ? $this->session->authorSelectorProjectionState()->ensureImageWrapperMarker($image->getNodePath() ?? '') : '';
-            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $this->nonCoreImageFigureClassName($figure), $styledLeaf ? $marker : $this->nonCoreImageClassName($image), ...$this->authorSemanticMarkersForElement($image));
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $this->nonCoreImageFigureClassName($figure), $styledLeaf ? $marker : $this->nonCoreImageClassName($image), ...$this->session->authorSelectorProjectionState()->semanticMarkersForElement($image));
         } else {
             $attrs['className'] = $this->styleResolver->mergePresentationClassNames((string) ($attrs['className'] ?? ''), $this->styleResolver->injectedFigureHeightClassName($image));
         }
@@ -778,13 +778,6 @@ final class ImageLowering
         });
 
         return implode(' ', $classes);
-    }
-
-    /** @return list<string> */
-    private function authorSemanticMarkersForElement(DOMElement $element): array
-    {
-        $path = SourceDom::sourceElementIdentity($element);
-        return $this->session->authorSelectorProjectionState()->semanticMarkersForPath($path);
     }
 
     private function nonCoreImageFigureClassName(DOMElement $figure): string

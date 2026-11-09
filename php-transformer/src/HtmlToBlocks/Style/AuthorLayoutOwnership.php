@@ -257,7 +257,7 @@ final class AuthorLayoutOwnership
         }
 
         // A paragraph carrier can host selector-addressed phrasing without a group.
-        return (array() !== $this->session->authorSelectorProjectionState()->semanticMarkersForPath(SourceDom::sourceElementIdentity($element)));
+        return (array() !== $this->session->authorSelectorProjectionState()->semanticMarkersForElement($element));
     }
 
     public function isDirectFormattingRunBeforeBlock(DOMElement $element): bool
@@ -293,7 +293,7 @@ final class AuthorLayoutOwnership
             || $this->sourceElementClassifier->isInlineSourceElement(strtolower($parent->tagName))
             || ! ShellLandmarkPolicy::isInlineContentWrapperTag($parent->tagName)
             || ! $this->hasBoxChromeWrapperStyling($parent)
-            || ( ! (array() !== $this->session->authorSelectorProjectionState()->semanticMarkersForPath(SourceDom::sourceElementIdentity($element))) && '' === $this->richTextMarker($element) )
+            || ( ! (array() !== $this->session->authorSelectorProjectionState()->semanticMarkersForElement($element)) && '' === $this->richTextMarker($element) )
         ) {
             return false;
         }
