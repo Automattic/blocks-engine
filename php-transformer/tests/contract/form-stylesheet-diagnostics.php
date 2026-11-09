@@ -64,6 +64,6 @@ $withoutDiagnostics = static function (array $value) use (&$withoutDiagnostics):
 };
 $hash = hash('sha256', json_encode($withoutDiagnostics($result), JSON_THROW_ON_ERROR));
 // Updated for flow resets that restore UA margins instead of erasing them.
-$assert('661a40572172daf3f7ceee121e3c57021f09dabc750e82d10c1de21976515483' === $hash, 'non-diagnostic transform output retains the control-row presentation baseline: ' . $hash);
+$assert('ad23f6784db236e207794a9025400d47a9ef113bddb781e4df425179ee0ee3e0' === $hash, 'non-diagnostic transform output retains the control-row presentation baseline: ' . $hash);
 fwrite(STDOUT, 'fixture layout graph bytes: ' . strlen(json_encode($layout, JSON_THROW_ON_ERROR)) . PHP_EOL);
 exit($failures ? 1 : 0);
