@@ -308,6 +308,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly Elements\InertElements $inertElements;
     private readonly Elements\EmptyInlineGeometryLowering $emptyInlineGeometry;
     private readonly Elements\CustomWrapperConventions $wrapperConventions;
+    private readonly Elements\EmptyVisualSpacerLowering $emptyVisualSpacers;
     private readonly SourceProvenance $sourceProvenance;
 
     private readonly RuntimeResourceElementConverter $runtimeResourceConverter;
@@ -422,17 +423,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private const SYNTHETIC_IMAGE_FIGURE_CLASS = SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS;
 
     private const INLINE_LAYOUT_CARRIER_CLASS = AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS;
-
-
-    private const EMPTY_FLEX_ITEM_CLASS = 'blocks-engine-empty-flex-item';
-
-    /**
-     * Marks a childless flex item inside a column-direction (or
-     * column-reverse) container. The main axis there is height, not width,
-     * so the compatibility box this class carries zeroes the opposite
-     * properties from {@see EMPTY_FLEX_ITEM_CLASS}'s row-axis assumption.
-     */
-    private const EMPTY_FLEX_ITEM_COLUMN_CLASS = 'blocks-engine-empty-flex-column-item';
 
 
     public const EMPTY_VISUAL_GROUP_CLASS = 'blocks-engine-empty-visual-group';
@@ -603,6 +593,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->inertElements = new Elements\InertElements($this->styleResolver, $this->sourceElementClassifier, $this->sourceVisibility, $this->runtimeIslands);
         $this->emptyInlineGeometry = new Elements\EmptyInlineGeometryLowering($this, $this->session, $this->sourceElementClassifier, $this->emptyElementFootprint, $this->authoredStateButtons, $this->layoutShells, $this->runtimeIslands);
         $this->wrapperConventions = new Elements\CustomWrapperConventions($this->styleResolver);
+        $this->emptyVisualSpacers = new Elements\EmptyVisualSpacerLowering($this, $this, $this->session, $this->styleResolver, $this->emptyElementFootprint, $this->runtimeIslands);
         $this->customImageHosts = new Elements\CustomImageHostLowering($this, $this->blockFactory, $this->styleResolver, $this->session, $this->sourceElementClassifier, $this->sourceElementDescription, $this->imageLowering, $this->layoutShells, $this->runtimeIslands, $this->authorLayoutOwnership);
         $this->anchors = new Elements\AnchorLowering($this, $this, $this->styleResolver, $this->session, $this->sourceElementClassifier, $this->sourceElementDescription, $this->imageLowering, $this->imageUrls, $this->layoutShells, $this->linkWrapperPropagator, $this->runtimeIslands, $this->customImageHosts);
         $this->layoutTables = new Elements\LayoutTableLowering(
@@ -682,7 +673,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             fn (DOMElement $element, string $tagName): ?DOMElement => SourceDom::ancestorElement($element, $tagName),
             fn (DOMElement $element): bool => $this->listStructure->isStructuralListItem($element),
             fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element),
-            fn (DOMElement $element): array => $this->emptyVisualSpacerBlock($element),
+            fn (DOMElement $element): array => $this->emptyVisualSpacers->emptyVisualSpacerBlock($element),
             function (DOMElement $element): void { $this->rememberNativeDisclosure($element); },
             fn (DOMElement $element): bool => $this->runtimeIslands->retainsRuntimeTextLeafInRichText($element)
         ), $this->styleResolver, $this->runtime, $this->sourceBlockAttributeProjector);
@@ -1055,7 +1046,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             backgroundImageBlock: fn (DOMElement $element): ?array => $this->imageLowering->backgroundImageBlock($element),
             coalescedSingleGroupWrapper: fn (DOMElement $element, array $child): ?array => $this->coalescedSingleGroupWrapper($element, $child),
             shouldPreserveWrapper: fn (DOMElement $element, ?string $asTag = null): bool => $this->shouldPreserveWrapper($element, $asTag),
-            emptyVisualSpacerBlock: fn (DOMElement $element): array => $this->emptyVisualSpacerBlock($element)
+            emptyVisualSpacerBlock: fn (DOMElement $element): array => $this->emptyVisualSpacers->emptyVisualSpacerBlock($element)
         ));
         $this->mediaDispatchConverter = new MediaDispatchElementConverter(new MediaDispatchElementContext(
             function (DOMElement $element, array &$fallbacks): ?array {
@@ -3339,7 +3330,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             // unsupported-element fallback.
             if ( SourceDom::isEmptyNonNavigatingAnchor($element) ) {
                 return $this->shouldPreserveEmptyVisualElement($element)
-                    ? $this->emptyVisualSpacerBlock($element)
+                    ? $this->emptyVisualSpacers->emptyVisualSpacerBlock($element)
                     : null;
             }
 
@@ -4777,113 +4768,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             && array() === SourceDom::safeDataAttributes($element);
     }
 
-    /** @return array<string, mixed> */
-    private function emptyVisualElementAttributes(DOMElement $element): array
-    {
-        $attrs = $this->styleResolver->presentationAttributes($element);
-        $parent = $element->parentNode;
-        if ( ! $parent instanceof DOMElement ) {
-            return $attrs;
-        }
-
-        $parentDeclarations = $this->styleResolver->structuralPresentationDeclarations($parent);
-        $parentDisplay = CssValueInspector::comparable((string) ($parentDeclarations['display'] ?? ''));
-        if ( ! in_array($parentDisplay, array( 'flex', 'inline-flex' ), true) ) {
-            return $attrs;
-        }
-
-        // Resolve the element's full matched CSS, not only its inline style:
-        // a utility-class divider (e.g. Tailwind's `h-px w-24`) declares its
-        // geometry on a stylesheet rule that the narrower inline-only
-        // resolver used here previously never saw, so an authored box was
-        // misread as sizeless.
-        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        $position = strtolower(trim((string) ($declarations['position'] ?? 'static')));
-        if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
-            return $attrs;
-        }
-
-        // The zero-collapse compatibility box below only removes the flex
-        // main-axis footprint core would otherwise add to a childless flex
-        // item. Which CSS properties own that axis depends on the parent's
-        // flex-direction: a row container's main axis is width, a column
-        // container's is height. Checking width alone let an authored
-        // height survive the escape hatch but still be crushed by the
-        // row-shaped compatibility box below.
-        $isColumnAxis = in_array(strtolower(trim((string) ($parentDeclarations['flex-direction'] ?? 'row'))), array( 'column', 'column-reverse' ), true);
-        $mainAxisSizeProperties = $isColumnAxis
-            ? array( 'height', 'min-height', 'max-height', 'flex', 'flex-basis' )
-            : array( 'width', 'min-width', 'max-width', 'flex', 'flex-basis' );
-        foreach ( $mainAxisSizeProperties as $property ) {
-            if ( isset($declarations[$property]) && '' !== trim($declarations[$property]) && 'auto' !== strtolower(trim($declarations[$property])) ) {
-                return $attrs;
-            }
-        }
-        foreach ( $this->session->sourceStyleResolutionState()->pseudoElementRules() as $rule ) {
-            if ( $this->styleResolver->matchesCssSelector($element, $rule['selector']) && array_intersect_key($rule['declarations'], array_flip(array( 'content', 'display', 'width', 'min-width' ))) ) {
-                return $attrs;
-            }
-        }
-
-        $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . ( $isColumnAxis ? self::EMPTY_FLEX_ITEM_COLUMN_CLASS : self::EMPTY_FLEX_ITEM_CLASS ));
-        if ( $this->runtimeIslands->isRuntimeDomTarget($element) ) {
-            $attrs['className'] = trim($attrs['className'] . ' ' . self::EMPTY_RUNTIME_TARGET_CLASS);
-            $this->session->runtimeBehaviorState()->markEmptyRuntimeTargetGenerated();
-        }
-        return $attrs;
-    }
-
-    /** @return array<string, mixed> */
-    private function emptyVisualSpacerBlock(DOMElement $element): array
-    {
-        $attrs = $this->emptyVisualElementAttributes($element);
-        if ( ! $this->emptyElementFootprint->isEmptyVisualInlineCandidate($element) ) {
-            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::EMPTY_VISUAL_GROUP_CLASS);
-            $this->session->runtimeBehaviorState()->markEmptyVisualGroupGenerated();
-            // Carry complex paint, but let native background support own a
-            // CSS block box's solid colour so editor recolouring can win.
-            $attrs['className'] = $this->mergeClassNames(
-                (string) $attrs['className'],
-                $this->styleResolver->emptyElementBackgroundCarrierClassName($element, $this->emptyElementFootprint->hasEmptyVisualBlockDisplay($element) && isset($attrs['style']['color']['background']))
-            );
-            // Empty, nested layout wrappers can still own measurable grid or
-            // flex tracks (fluid-engine sections commonly put those tracks on
-            // a child below a data-bearing presentation wrapper). Lowering the
-            // outer visual carrier as an empty group used to discard that
-            // child and its selector identity, collapsing its authored tracks.
-            $innerBlocks = array();
-            if ( 0 < $this->childElementCount($element)
-                && '' === SourceDom::renderedTextContent($element)
-                && $this->hasEmptyGridTrackDescendant($element)
-            ) {
-                $ignoredFallbacks = array();
-                $innerBlocks = $this->convertChildren($element, $ignoredFallbacks, true);
-            }
-            $block = $this->createBlock('core/group', $attrs, $innerBlocks, $element);
-            $block['_editability_visual_owned'] = true;
-            return $block;
-        }
-
-        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        $attrs['height'] = $this->styleResolver->resolveCssVariablesInValue($declarations['height']);
-        $attrs['width'] = $this->styleResolver->resolveCssVariablesInValue($declarations['width']);
-
-        return $this->createBlock('core/spacer', $attrs, array(), $element);
-    }
-
-    private function hasEmptyGridTrackDescendant(DOMElement $element): bool
-    {
-        foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement
-                && '' === SourceDom::renderedTextContent($descendant)
-                && $this->emptyElementFootprint->hasAuthoredGridTracks($descendant)
-            ) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     /**
      * An empty href-less named `<a>` is a fragment target. Preserve its
      * identifier on a native block HTML anchor rather than recording it as
@@ -4907,7 +4791,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $element->setAttribute('id', $id);
         }
 
-        return $this->emptyVisualSpacerBlock($element);
+        return $this->emptyVisualSpacers->emptyVisualSpacerBlock($element);
     }
 
     private function hasEmptyVisualInlineChild(DOMElement $element): bool
