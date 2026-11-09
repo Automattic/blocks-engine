@@ -32,7 +32,7 @@ $rejected = false;
 try {
     (new WordPressSitePlan(true))->fromResult($missing);
 } catch (ValidationException $exception) {
-    $rejected = 'unresolved_local_browser_reference' === ($exception->diagnostic()['reason'] ?? null);
+    $rejected = 'missing_stylesheet_import' === ($exception->diagnostic()['reason'] ?? null);
 }
 $assert($rejected, 'A real unresolved @import remains rejected.');
 

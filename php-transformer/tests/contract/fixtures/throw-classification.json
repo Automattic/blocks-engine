@@ -1491,6 +1491,14 @@
         "test": "tests/contract/missing-local-media.php"
       }
     },
+    "src/WordPressSitePlan/MissingStylesheetImportRecovery.php": {
+      "ValidationException($diagnostic['message'])": {
+        "class": "integrity",
+        "count": 1,
+        "finding": "wordpress_site_plan_missing_stylesheet_import",
+        "test": "tests/contract/missing-local-media.php"
+      }
+    },
     "src/WordPressSitePlan/DocumentRootContext.php": {
       "InvalidArgumentException('Document root context must be an attribute map.')": {
         "class": "integrity",

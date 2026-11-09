@@ -18,7 +18,7 @@ final class AssetReferenceCanonicalizer
     private string $siteRoot;
 
     /** @param array<int,array<string,string>> $tokens */
-    public function __construct(array $tokens, string $siteRoot = '', private readonly ?MissingMediaRecovery $missingMedia = null, private readonly ?MissingFontSourceRecovery $missingFonts = null)
+    public function __construct(array $tokens, string $siteRoot = '', private readonly ?MissingMediaRecovery $missingMedia = null, private readonly ?MissingFontSourceRecovery $missingFonts = null, private readonly ?MissingStylesheetImportRecovery $missingImports = null)
     {
         $this->siteRoot = self::identity($siteRoot);
         foreach ($tokens as $token) {
@@ -106,15 +106,19 @@ final class AssetReferenceCanonicalizer
         $replace = fn(string $reference, string $element = '', string $attribute = ''): string => $this->reference($reference, $origin)
             ?? $this->missingMedia?->recover($reference, $origin, $element, $attribute)
             ?? $reference;
-        $fontCss = fn(string $css): string => $this->missingFonts?->stylesheet($css, $origin, fn(string $url): ?string => $this->reference($url, $origin)) ?? $css;
-        if (str_ends_with(strtolower($origin), '.css')) return self::css($fontCss($content), $replace);
+        $resolve = fn(string $url): ?string => $this->reference($url, $origin);
+        $stylesheet = function (string $css) use ($origin, $resolve): string {
+            $css = $this->missingFonts?->stylesheet($css, $origin, $resolve) ?? $css;
+            return $this->missingImports?->stylesheet($css, $origin, $resolve) ?? $css;
+        };
+        if (str_ends_with(strtolower($origin), '.css')) return self::css($stylesheet($content), $replace);
         $content = self::escapedTags(self::tags($content, $replace), $replace);
         if (str_contains($content, '\\u003c')) {
             $content = self::replaceDelimited('~(\bstyle\s*=\s*([\'\"]))~i', null, $content, static fn(array $match): string => $match[1] . self::css($match[3], $replace) . $match[2]);
         }
         if (false !== stripos($content, '<style')) {
-            $content = self::replaceRegex('~<style\b[^>]*>(.*?)</style\s*>~is', static function (array $match) use ($replace, $fontCss): string {
-                return str_replace($match[1], self::css($fontCss($match[1]), $replace), $match[0]);
+            $content = self::replaceRegex('~<style\b[^>]*>(.*?)</style\s*>~is', static function (array $match) use ($replace, $stylesheet): string {
+                return str_replace($match[1], self::css($stylesheet($match[1]), $replace), $match[0]);
             }, $content);
         }
         // Block comments are the supported serialized JSON transport. Restricting
