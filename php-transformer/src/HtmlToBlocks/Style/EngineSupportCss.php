@@ -265,6 +265,9 @@ final class EngineSupportCss
             // paragraph host, whose saved block attributes carry source geometry.
             $parts[] = ':where(a.' . ButtonLinkDispatcher::ACCESSIBLE_EMPTY_LINK_CLASS . '){display:block;width:100%;height:100%;min-height:inherit}';
         }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::INLINE_FLOW_WRAPPER_CLASS) ) {
+            $parts[] = ':where(.' . SourceBlockAttributeProjector::INLINE_FLOW_WRAPPER_CLASS . '){display:contents}';
+        }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTONS_CLASS) ) {
             // A synthesized core/buttons wrapper is required for validity, but it
             // did not exist in the source. Flatten it so the next real box is the
