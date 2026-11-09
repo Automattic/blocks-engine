@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CaptureReplayScripts;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Support\InlineBodyStyle;
@@ -634,7 +635,9 @@ final class ArtifactNormalizer
             $styles = array();
             foreach ( StyleTagScanner::scan($content) as $style ) {
                 $attributes = $style['attributes'];
-                $css = trim($style['content']);
+                // Each sheet is its own stylesheet: close what its end leaves
+                // open before anything is appended or joined to it.
+                $css = CssSyntaxScanner::closedAtEnd(trim($style['content']));
                 if ( '' === $css || ! StyleTagScanner::isCssType($this->htmlAttribute($attributes, 'type')) ) {
                     continue;
                 }
