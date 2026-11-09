@@ -44,7 +44,7 @@ final class InlineContentElementConverter implements ElementConverter
 
     public static function handlesTag(string $tagName): bool
     {
-        return in_array($tagName, array( 'abbr', 'b', 'cite', 'code', 'del', 'em', 'font', 'i', 'ins', 'kbd', 'mark', 'rp', 'rt', 'ruby', 's', 'samp', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'u', 'var' ), true);
+        return in_array($tagName, array( 'abbr', 'acronym', 'b', 'cite', 'code', 'del', 'em', 'font', 'i', 'ins', 'kbd', 'mark', 'rp', 'rt', 'ruby', 's', 'samp', 'small', 'span', 'strike', 'strong', 'sub', 'sup', 'time', 'tt', 'u', 'var' ), true);
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */
