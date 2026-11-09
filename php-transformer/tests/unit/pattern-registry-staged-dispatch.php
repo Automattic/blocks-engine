@@ -151,7 +151,7 @@ $createBlock = new SourceBlockCreatorFixture(static fn (string $name, array $att
 $navigationConverter = new class implements PatternTreeConverter {
     public int $calls = 0;
 
-    public function children(DOMElement $element, array &$fallbacks, bool $captureUnsupported): array
+    public function children(DOMElement $element, array &$fallbacks, bool $captureUnsupported, bool $preserveLinkContainers = false): array
     {
         return array();
     }
