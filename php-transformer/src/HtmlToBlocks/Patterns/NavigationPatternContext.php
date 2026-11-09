@@ -801,12 +801,12 @@ final class NavigationPatternContext
                 $item = $parent . '>.wp-block-navigation-item:nth-child(' . (++$position) . ')';
                 foreach (preg_split('/\s+/', trim($block['attrs']['className'] ?? '')) ?: array() as $marker) {
                     if (!str_starts_with($marker, 'blocks-engine-navigation-')) continue;
-                    $targets[$marker][] = $item;
+                    $targets[$marker][$item] = true;
                 }
                 $boxTarget = $item;
                 foreach ($block['attrs']['metadata']['blocksEngineNavigationAnchor']['boxes'] ?? array() as $box) {
                     $boxTarget .= '>' . $box['tag'];
-                    $targets[$box['marker']][] = $boxTarget;
+                    $targets[$box['marker']][$boxTarget] = true;
                 }
                 $collect($block['innerBlocks'] ?? array(), $item . '>.wp-block-navigation__submenu-container');
             }
@@ -821,7 +821,11 @@ final class NavigationPatternContext
             $current = $this->withoutCurrentItemPresentation($block);
             $targets = $levelCounts = array();
             $collect($block['innerBlocks'] ?? array(), '');
-            foreach ($targets as $marker => $paths) {
+            foreach ($targets as $marker => $pathSet) {
+                // A carrier can repeat a marker through inherited presentation.
+                // Count distinct siblings, not marker occurrences, when deciding
+                // whether a complete level can use an unindexed address.
+                $paths = array_keys($pathSet);
                 foreach (array_reverse($levelCounts, true) as $parent => $count) {
                     $pattern = '/^' . preg_quote($parent, '/') . '>\\.wp-block-navigation-item:nth-child\\([0-9]+\\)(.*)$/';
                     $groups = array();
@@ -834,7 +838,7 @@ final class NavigationPatternContext
                         $paths[] = $parent . '>.wp-block-navigation-item' . $suffix;
                     }
                 }
-                $targets[$marker] = str_starts_with($marker, 'blocks-engine-navigation-anchor-') && count($targets[$marker]) > 1
+                $targets[$marker] = str_starts_with($marker, 'blocks-engine-navigation-anchor-') && count($pathSet) > 1
                     ? array(' .wp-block-navigation-item.' . $marker)
                     : $paths;
             }
