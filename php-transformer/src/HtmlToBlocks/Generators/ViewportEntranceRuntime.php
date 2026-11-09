@@ -55,7 +55,9 @@ function replayViewportEntrances() {
                     element.setAttribute(name, value);
             }
         };
-        if (reduced.matches || !window.IntersectionObserver) {
+        // A device-scoped entrance (the source animates it only on some devices)
+        // shows the settled pose wherever its media query does not match.
+        if (reduced.matches || !window.IntersectionObserver || (typeof state.media === 'string' && !matchMedia(state.media).matches)) {
             apply('after');
             continue;
         }
