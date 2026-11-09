@@ -161,6 +161,18 @@ foreach ( array(
     $assert($expected === ($named[$path] ?? null), $path . ' is named by its page words, not its heading', json_encode($named));
 }
 
+// #5270: repeated adjacent site-name segments must all be removed.
+$issuePage = static fn (string $title, string $heading): string => '<!doctype html><html><head><title>' . $title . '</title><meta property="og:title" content="' . $heading . ' | Acme"></head><body><main><h1>' . $heading . '</h1><p>Body.</p></main></body></html>';
+$issue = $titles(array(
+    'index.html' => $issuePage('Acme | Codes and Tools for the Trades', 'Home'),
+    'electrical/index.html' => $issuePage('Electrical | Acme | Acme', 'Electrical'),
+    'plumbing/index.html' => $issuePage('Plumbing | Acme | Acme', 'Plumbing'),
+    'about/index.html' => $issuePage('About Acme | Acme', 'About Acme'),
+));
+foreach ( array('electrical/index.html' => 'Electrical', 'plumbing/index.html' => 'Plumbing', 'about/index.html' => 'About Acme') as $path => $expected ) {
+    $assert($expected === ($issue[$path] ?? null), "#5270 $path", json_encode($issue));
+}
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "document title page names: {$failures} failed, {$passes} passed\n");
     exit(1);
