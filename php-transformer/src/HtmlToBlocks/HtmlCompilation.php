@@ -609,7 +609,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->styleResolver,
             $this->blockFactory,
             $this->authorLayoutOwnership,
-            fn (DOMNode $parent, array &$fallbacks, bool $captureUnsupported = false): array => $this->convertChildren($parent, $fallbacks, $captureUnsupported)
+            $this
         );
         $this->structuredCardLists = new Elements\StructuredCardListLowering(
             $this,
@@ -618,7 +618,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->richTextMaterializer,
             $this->sourceElementClassifier,
             $this->runtime,
-            fn (DOMElement $element, array &$fallbacks, bool $captureUnsupported = false): ?array => $this->convertElement($element, $fallbacks, $captureUnsupported),
+            $this,
             fn (): RichTextStylingHookNormalizer => $this->richTextStylingHooks()
         );
         $this->authorSelectorSemanticPreparer = new AuthorSelectorSemanticPreparer($this->sourceElementClassifier,
