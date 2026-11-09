@@ -232,7 +232,7 @@ final class RuntimeIslandPackageBuilder
 
             $scripts[] = $this->buildScript($sourceKind, $attributes, $scriptRole, $inline, $files, $sourcePath, is_scalar($runtimeIsland['selector'] ?? null) ? (string) $runtimeIsland['selector'] : '');
 
-            return $this->dedupeRows($scripts);
+            return DeterministicRowDeduplicator::dedupe($scripts);
         }
 
         $required = is_array($runtimeIsland['required_scripts'] ?? null) ? $runtimeIsland['required_scripts'] : array();
@@ -258,7 +258,7 @@ final class RuntimeIslandPackageBuilder
             $scripts[] = $this->buildScript($sourceKind, $attributes, $scriptRole, $inline, $files, $sourcePath, is_scalar($requiredScript['selector'] ?? null) ? (string) $requiredScript['selector'] : '');
         }
 
-        return $this->dedupeRows($scripts);
+        return DeterministicRowDeduplicator::dedupe($scripts);
     }
 
     /**
@@ -447,12 +447,4 @@ final class RuntimeIslandPackageBuilder
         );
     }
 
-    /**
-     * @param array<int, array<string, mixed>> $rows
-     * @return array<int, array<string, mixed>>
-     */
-    private function dedupeRows(array $rows): array
-    {
-        return DeterministicRowDeduplicator::dedupe($rows);
-    }
 }

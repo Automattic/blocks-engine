@@ -203,9 +203,9 @@ final class RuntimeScriptEvidenceAnalyzer
         if (preg_match_all('/document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\1\s*\)/', $script, $matches)) {
             foreach ($matches[2] as $id) $selectors['#' . $id] = true;
         }
-        $pattern = $this->selectorPattern();
+        $pattern = RuntimeSelectorVocabulary::scriptSelectorPattern();
         foreach (array('/document\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])(' . $pattern . ')\1\s*\)/', '/\b(?!document\b)[A-Za-z_$][A-Za-z0-9_$]*\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])(' . $pattern . ')\1\s*\)/', '/\.\s*closest\s*\(\s*(["\'])(' . $pattern . ')\1\s*\)/') as $expression) {
-            if (preg_match_all($expression, $script, $matches)) foreach ($matches[2] as $selector) $selectors[$this->canonicalSelector($selector)] = true;
+            if (preg_match_all($expression, $script, $matches)) foreach ($matches[2] as $selector) $selectors[RuntimeSelectorVocabulary::canonicalScriptSelector($selector)] = true;
         }
         if (preg_match_all('/(?:querySelector(?:All)?|closest)\s*\(\s*(["\'`])(.{1,240}?)\1\s*\)/s', $script, $calls, PREG_SET_ORDER)) {
             foreach ($calls as $call) {
@@ -226,9 +226,9 @@ final class RuntimeScriptEvidenceAnalyzer
     {
         $selectors = array(); $use = '\.\s*getContext\s*\(';
         if (preg_match_all('/document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\1\s*\)\s*' . $use . '/', $script, $matches)) foreach ($matches[2] as $id) $selectors['#' . $id] = true;
-        if (preg_match_all('/document\s*\.\s*querySelector\s*\(\s*(["\'])(' . $this->selectorPattern() . ')\1\s*\)\s*' . $use . '/', $script, $matches)) foreach ($matches[2] as $selector) $selectors[$this->canonicalSelector($selector)] = true;
-        if (preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*(?:getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)|querySelector\s*\(\s*(["\'])(' . $this->selectorPattern() . ')\4\s*\))/', $script, $assignments, PREG_SET_ORDER)) {
-            foreach ($assignments as $assignment) if (preg_match('/\b' . preg_quote($assignment[1], '/') . '\s*' . $use . '/', $script)) $selectors['' !== ($assignment[3] ?? '') ? '#' . $assignment[3] : $this->canonicalSelector($assignment[5])] = true;
+        if (preg_match_all('/document\s*\.\s*querySelector\s*\(\s*(["\'])(' . RuntimeSelectorVocabulary::scriptSelectorPattern() . ')\1\s*\)\s*' . $use . '/', $script, $matches)) foreach ($matches[2] as $selector) $selectors[RuntimeSelectorVocabulary::canonicalScriptSelector($selector)] = true;
+        if (preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*(?:getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)|querySelector\s*\(\s*(["\'])(' . RuntimeSelectorVocabulary::scriptSelectorPattern() . ')\4\s*\))/', $script, $assignments, PREG_SET_ORDER)) {
+            foreach ($assignments as $assignment) if (preg_match('/\b' . preg_quote($assignment[1], '/') . '\s*' . $use . '/', $script)) $selectors['' !== ($assignment[3] ?? '') ? '#' . $assignment[3] : RuntimeSelectorVocabulary::canonicalScriptSelector($assignment[5])] = true;
         }
         foreach ($this->scopedElementSelectors($script, 'canvas', $use) as $selector) $selectors[$selector] = true;
         if (preg_match_all('/\b[A-Za-z_$][A-Za-z0-9_$]*(?:\s*\.\s*[A-Za-z_$][A-Za-z0-9_$]*)*\s*\([^;)]*document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\1\s*\)/', $script, $matches)) foreach ($matches[2] as $id) $selectors['#' . $id] = true;
@@ -240,7 +240,7 @@ final class RuntimeScriptEvidenceAnalyzer
     {
         $selectors = array(); $use = '\.\s*(?:addEventListener|value|checked|selectedIndex|selectedOptions|options|files|validity|setCustomValidity|focus|select|click|dispatchEvent)\b';
         if (preg_match_all('/document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\1\s*\)\s*(?:\.\s*[^;\n]*)?' . $use . '/', $script, $matches)) foreach ($matches[2] as $id) $selectors['#' . $id] = true;
-        if (preg_match_all('/document\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])(' . $this->selectorPattern() . ')\1\s*\)\s*(?:\.\s*[^;\n]*)?' . $use . '/', $script, $matches)) foreach ($matches[2] as $selector) $selectors[$this->canonicalSelector($selector)] = true;
+        if (preg_match_all('/document\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])(' . RuntimeSelectorVocabulary::scriptSelectorPattern() . ')\1\s*\)\s*(?:\.\s*[^;\n]*)?' . $use . '/', $script, $matches)) foreach ($matches[2] as $selector) $selectors[RuntimeSelectorVocabulary::canonicalScriptSelector($selector)] = true;
         foreach ($this->assignedSelectors($script, $use) as $selector) $selectors[$selector] = true;
         // QuerySelectorAll callbacks frequently use the callback parameter rather
         // than the selector expression. Retain every selected target when that
@@ -264,17 +264,17 @@ final class RuntimeScriptEvidenceAnalyzer
     private function assignedSelectors(string $script, string $use, bool $events = false): array
     {
         $found = array();
-        if (preg_match_all('/function\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(\s*\)\s*\{[^{}]{0,200}?return\s+document\s*\.\s*querySelectorAll\s*\(\s*(["\'])(' . $this->selectorPattern() . ')\2\s*\)/', $script, $helpers, PREG_SET_ORDER)) {
+        if (preg_match_all('/function\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(\s*\)\s*\{[^{}]{0,200}?return\s+document\s*\.\s*querySelectorAll\s*\(\s*(["\'])(' . RuntimeSelectorVocabulary::scriptSelectorPattern() . ')\2\s*\)/', $script, $helpers, PREG_SET_ORDER)) {
             foreach ($helpers as $helper) {
-                $selector = $this->canonicalSelector($helper[3]);
+                $selector = RuntimeSelectorVocabulary::canonicalScriptSelector($helper[3]);
                 $call = preg_quote($helper[1], '/') . '\s*\(\s*\)';
                 if ($events || !preg_match('/\b' . $call . '\s*(?:' . $use . '|\.\s*forEach\b)/', $script)) continue;
                 $found[$selector] = true;
             }
         }
-        if (!preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*(?:getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)|querySelector(?:All)?\s*\(\s*(["\'])(' . $this->selectorPattern() . ')\4\s*\))/', $script, $assignments, PREG_SET_ORDER)) return $events ? $found : array_keys($found);
+        if (!preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*(?:getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)|querySelector(?:All)?\s*\(\s*(["\'])(' . RuntimeSelectorVocabulary::scriptSelectorPattern() . ')\4\s*\))/', $script, $assignments, PREG_SET_ORDER)) return $events ? $found : array_keys($found);
         foreach ($assignments as $assignment) {
-            $selector = '' !== ($assignment[3] ?? '') ? '#' . $assignment[3] : $this->canonicalSelector($assignment[5]);
+            $selector = '' !== ($assignment[3] ?? '') ? '#' . $assignment[3] : RuntimeSelectorVocabulary::canonicalScriptSelector($assignment[5]);
             if (!preg_match_all('/\b' . preg_quote($assignment[1], '/') . '\s*' . $use . '/', $script, $matches)) continue;
             if ($events) $found[$selector] = array_merge($found[$selector] ?? array(), $matches[2] ?? array()); else $found[$selector] = true;
         }
@@ -323,13 +323,11 @@ final class RuntimeScriptEvidenceAnalyzer
         if (preg_match('/\b(?:addEventListener|appendChild|removeChild|replaceChildren|insertAdjacentHTML|innerHTML|outerHTML|textContent|value|checked|selectedIndex|setAttribute|removeAttribute|toggleAttribute|getContext|submit|fetch)\b|\.\s*(?:classList|hidden|disabled|style|dataset)\b/', $matches[2])) return false;
         return true;
     }
-    private function selectorPattern(): string { return RuntimeSelectorVocabulary::scriptSelectorPattern(); }
-    private function canonicalSelector(string $selector): string { return RuntimeSelectorVocabulary::canonicalScriptSelector($selector); }
     private function selectorKind(string $selector): string { return str_starts_with($selector, '#') ? 'id' : (str_starts_with($selector, '.') ? 'class' : (str_contains($selector, '[') ? 'attribute' : 'element')); }
     /** @return array<int, string> */
     private function dataSelectors(string $selector): array { $out = array(); if (preg_match_all('/(?:^|[\s>+~,])((?:[a-z][a-z0-9-]*)?\[data-[A-Za-z][A-Za-z0-9_-]*(?:\s*=\s*(?:"(?:\\\\.|[^"\\\\])*"|\'(?:\\\\.|[^\'\\\\])*\'|[^\s"\'\]]{1,80}))?\])/i', $selector, $matches)) foreach ($matches[1] as $candidate) { $canonical = RuntimeSelectorVocabulary::canonicalScriptSelector($candidate); if (str_contains($canonical, '[')) $out[] = $canonical; } return array_values(array_unique($out)); }
     /** @return array<int, string> */
     private function scopedElementSelectors(string $script, string $tag, string $use = ''): array { $out = array(); if (preg_match('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\./', $script, $roots)) if (preg_match('/\b' . preg_quote($roots[1], '/') . '\s*\.\s*querySelector\s*\(\s*(["\'])' . $tag . '\1\s*\)(?:\s*' . $use . ')?/', $script)) $out[] = $tag; return $out; }
     /** @return array<int, string> */
-    private function appendedRootSelectors(string $script): array { $out = array(); if (preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*(?:getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)|querySelector\s*\(\s*(["\'])(' . $this->selectorPattern() . ')\4\s*\))/', $script, $roots, PREG_SET_ORDER)) foreach ($roots as $root) if (preg_match('/\b' . preg_quote($root[1], '/') . '\s*\.\s*appendChild\s*\(/', $script)) $out[] = '' !== ($root[3] ?? '') ? '#' . $root[3] : $this->canonicalSelector($root[5]); return array_values(array_unique($out)); }
+    private function appendedRootSelectors(string $script): array { $out = array(); if (preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*(?:getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)|querySelector\s*\(\s*(["\'])(' . RuntimeSelectorVocabulary::scriptSelectorPattern() . ')\4\s*\))/', $script, $roots, PREG_SET_ORDER)) foreach ($roots as $root) if (preg_match('/\b' . preg_quote($root[1], '/') . '\s*\.\s*appendChild\s*\(/', $script)) $out[] = '' !== ($root[3] ?? '') ? '#' . $root[3] : RuntimeSelectorVocabulary::canonicalScriptSelector($root[5]); return array_values(array_unique($out)); }
 }

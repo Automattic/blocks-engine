@@ -42,7 +42,7 @@ final class ClosedStateNormalizer
         $height = strtolower(trim((string) ($declarations['height'] ?? '')));
         $maxHeight = strtolower(trim((string) ($declarations['max-height'] ?? '')));
         $overflow = strtolower(trim((string) ($declarations['overflow'] ?? '')));
-        if ( isset($revealProperties['height']) && $this->isZeroLength($height) ) {
+        if ( isset($revealProperties['height']) && CssValueInspector::isZeroLength($height) ) {
             unset($declarations['height']);
             $stripped[] = 'height:0';
             if ( isset($revealProperties['overflow']) && $this->isHiddenOverflow($overflow) ) {
@@ -50,7 +50,7 @@ final class ClosedStateNormalizer
                 $stripped[] = 'overflow:hidden';
             }
         }
-        if ( isset($revealProperties['max-height']) && $this->isZeroLength($maxHeight) ) {
+        if ( isset($revealProperties['max-height']) && CssValueInspector::isZeroLength($maxHeight) ) {
             unset($declarations['max-height']);
             $stripped[] = 'max-height:0';
             if ( isset($revealProperties['overflow']) && $this->isHiddenOverflow($overflow) ) {
@@ -258,11 +258,6 @@ final class ClosedStateNormalizer
             'overflow:hidden' => array( 'overflow' => 'visible!important' ),
             default => array(),
         };
-    }
-
-    private function isZeroLength(string $value): bool
-    {
-        return CssValueInspector::isZeroLength($value);
     }
 
     private function isHiddenOverflow(string $value): bool

@@ -3774,7 +3774,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             $descendant = $this->soleMeaningfulChild($anchor);
             if ( $descendant instanceof DOMElement && $this->hasElementChild($descendant) ) {
                 foreach ( preg_split('/\s+/', trim($this->attr($descendant, 'class'))) ?: array() as $candidate ) {
-                    if ( $this->isCarriableWrapperClassName($candidate) ) {
+                    if ( SourceDom::isBoundedClassToken($candidate) ) {
                         $classes[$candidate] = true;
                     }
                 }
@@ -3807,7 +3807,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 break;
             }
             foreach ( preg_split('/\s+/', trim($this->attr($node, 'class'))) ?: array() as $candidate ) {
-                if ( $this->isCarriableWrapperClassName($candidate) ) {
+                if ( SourceDom::isBoundedClassToken($candidate) ) {
                     $classes[$candidate] = true;
                 }
             }
@@ -3826,17 +3826,6 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return false;
-    }
-
-    /**
-     * A single class token safe to carry from a replaced wrapper onto the
-     * generated navigation item. HTML class tokens are whitespace-delimited;
-     * `.` and `:` are legal inside a token. Unlike selector composition, this
-     * value only ever reaches an HTML `class` attribute.
-     */
-    private function isCarriableWrapperClassName(string $candidate): bool
-    {
-        return SourceDom::isBoundedClassToken($candidate);
     }
 
     /**

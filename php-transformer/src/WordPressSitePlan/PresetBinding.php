@@ -351,13 +351,13 @@ final class PresetBinding
         if (!str_contains($markup, '<!-- wp:navigation ')) return $markup;
         return (string) preg_replace_callback('/<!-- wp:navigation (\{(?:(?!-->).)*\}) -->(.*?)<!-- \/wp:navigation -->/s', function (array $match): string {
             $attributes = json_decode($match[1], false);
-            if (!$attributes instanceof \stdClass || self::encode($attributes) !== $match[1] || isset($attributes->textColor) || isset($attributes->style->color->text)) return $match[0];
+            if (!$attributes instanceof \stdClass || BlockAttributes::encode($attributes) !== $match[1] || isset($attributes->textColor) || isset($attributes->style->color->text)) return $match[0];
             $classes = is_string($attributes->className ?? null) ? $attributes->className : '';
             $slug = $this->navigationSlug($match[2], $this->tagTokens('<nav>', $classes));
             if (null === $slug) return $match[0];
             $attributes->textColor = $slug;
             ++$this->bound;
-            return '<!-- wp:navigation ' . self::encode($attributes) . ' -->' . $match[2] . '<!-- /wp:navigation -->';
+            return '<!-- wp:navigation ' . BlockAttributes::encode($attributes) . ' -->' . $match[2] . '<!-- /wp:navigation -->';
         }, $markup);
     }
 
@@ -676,7 +676,7 @@ final class PresetBinding
     private function bindBlock(string $name, string $json, string $markup, int $after): ?array
     {
         $attributes = json_decode($json, false);
-        if (!$attributes instanceof \stdClass || self::encode($attributes) !== $json) {
+        if (!$attributes instanceof \stdClass || BlockAttributes::encode($attributes) !== $json) {
             $this->refuseLiteralColors($attributes);
             return null;
         }
@@ -912,7 +912,7 @@ final class PresetBinding
             $current = array_diff(preg_split('/\s+/', trim($classes)) ?: array(), $dropClasses);
             $newHtml = self::withAttribute($newHtml, 'class', implode(' ', array_values(array_unique(array_filter(array_merge($current, $addClasses), static fn(string $class): bool => '' !== $class)))));
         }
-        $delimiter = '<!-- wp:' . $name . (array() === get_object_vars($attributes) ? '' : ' ' . self::encode($attributes)) . ' -->';
+        $delimiter = '<!-- wp:' . $name . (array() === get_object_vars($attributes) ? '' : ' ' . BlockAttributes::encode($attributes)) . ' -->';
         return array($delimiter, $tagStart, $tagEnd, $newHtml);
     }
 
@@ -2121,9 +2121,4 @@ final class PresetBinding
         if (array() === get_object_vars($attributes->style)) unset($attributes->style);
     }
 
-    /** Core's serialize_block_attributes() encoding. */
-    private static function encode(\stdClass $attributes): string
-    {
-        return BlockAttributes::encode($attributes);
-    }
 }
