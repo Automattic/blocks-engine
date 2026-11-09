@@ -4416,6 +4416,56 @@ PHP;
     /** @param array<int,array<string,mixed>> $pages @return array<int,array<string,mixed>> */
     private function routesForPages(array $pages): array { $routes = array(); foreach ($pages as $page) $routes[] = array('kind' => 'route', 'source_path' => $page['source_path'], 'target_path' => $page['route']['path'], 'target_slug' => $page['slug'], 'title' => $page['title'], 'parent_source_path' => $page['parent_source_path'], 'source_relation' => !empty($page['synthetic']) ? 'synthetic_parent' : (!empty($page['entrypoint']) ? 'entrypoint' : 'document'), 'order' => count($routes)); return $routes; }
 
+    /**
+     * The generated templates without those that repeat the template
+     * WordPress falls back to.
+     *
+     * Without archive.html or search.html WordPress renders those lifecycles
+     * through index.html; the entry route is the static front page
+     * (show_on_front=page), so without front-page.html it renders through
+     * page.html. A byte-identical copy only repeats its fallback. A page
+     * template the entry route selects itself would outrank page.html, so
+     * front-page.html stays then.
+     *
+     * @param array<int,array<string,mixed>> $templates
+     * @param array<int,array<string,mixed>> $pages
+     * @return array<int,array<string,mixed>>
+     */
+    private static function withoutRedundantTemplates(array $templates, array $pages): array
+    {
+        $fallbacks = array('archive' => 'index', 'search' => 'index');
+        $entry = array_values(array_filter($pages, static fn(array $page): bool => !empty($page['entrypoint'])))[0] ?? null;
+        if (null !== $entry && 'page' === ($entry['post_type'] ?? 'page') && !isset($entry['route_template']) && in_array($entry['metadata']['post_meta']['_wp_page_template'] ?? 'default', array('', 'default'), true)) $fallbacks['front-page'] = 'page';
+        $markup = array_column($templates, 'canonical_block_markup', 'slug');
+        return array_values(array_filter($templates, static fn(array $template): bool => !isset($fallbacks[$template['slug']], $markup[$fallbacks[$template['slug']]]) || $markup[$template['slug']] !== $markup[$fallbacks[$template['slug']]]));
+    }
+
+    /**
+     * The markup WordPress renders for each lifecycle a plan's templates
+     * serve, keyed by template slug and resolved through the template
+     * hierarchy. The entry route is the static front page, so front-page
+     * falls back to page.
+     *
+     * @param array<string,mixed> $plan
+     * @return array<string,string>
+     */
+    public static function renderedTemplates(array $plan): array
+    {
+        $templates = array_column(is_array($plan['templates'] ?? null) ? $plan['templates'] : array(), 'canonical_block_markup', 'slug');
+        $archives = array('author', 'category', 'date', 'tag', 'taxonomy');
+        $rendered = array();
+        foreach (array_unique(array_merge(self::NATIVE_TEMPLATE_SLUGS, $archives, array('home'), array_map('strval', array_keys($templates)))) as $slug) {
+            $base = explode('-', $slug)[0];
+            $chain = array($slug, $base);
+            if ('front' === $base || 'page' === $base) $chain[] = 'page';
+            elseif ('single' === $base) $chain[] = 'single';
+            elseif (in_array($base, $archives, true)) $chain[] = 'archive';
+            $chain[] = 'index';
+            foreach ($chain as $candidate) if (isset($templates[$candidate])) { $rendered[$slug] = (string) $templates[$candidate]; break; }
+        }
+        return $rendered;
+    }
+
     /** One key for placement, exclusions, template registration and assignment. */
     public static function routeTemplateKey(array $page): string
     {
@@ -4560,7 +4610,9 @@ PHP;
                  if ('footer' === $part['area']) $after .= $reference; else $before .= $reference;
              }
               if (in_array($templateSlug, array('index', 'search', 'archive'), true)) {
-                  $query = ('search' === $templateSlug ? '<!-- wp:query-title {"type":"search"} /-->' . "\n" : ('archive' === $templateSlug ? '<!-- wp:query-title {"type":"archive"} /-->' . "\n" : ''))
+                  // Each title renders only in its own context, so one listing
+                  // serves the home, archive and search lifecycles alike.
+                  $query = '<!-- wp:query-title {"type":"archive"} /-->' . "\n" . '<!-- wp:query-title {"type":"search"} /-->' . "\n"
                       . self::queryLoopMarkup(true);
                   $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} -->' . "\n" . '<main class="wp-block-group">' . "\n" . $query . "\n" . '</main>' . "\n" . '<!-- /wp:group -->';
               } elseif ('404' === $templateSlug) {
@@ -4607,6 +4659,7 @@ PHP;
             $template['content_hash'] = self::contentHash($template['canonical_block_markup']);
         }
         unset($template);
+        $templates = self::withoutRedundantTemplates($templates, $pages);
         foreach ($templates as &$template) if (isset($frames[$template['slug']])) $template['shell_frame'] = $frames[$template['slug']]['shells']; unset($template);
          $explicitSlugs = array_fill_keys(array_map(static fn(array $surface): string => $surface['template_surface']['slug'], $surfaces), true);
          $templates = array_values(array_filter($templates, static fn(array $template): bool => !isset($explicitSlugs[$template['slug']])));

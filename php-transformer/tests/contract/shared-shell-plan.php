@@ -13,7 +13,7 @@ $rawPages = static function (array $plan): array { $rows = array(); foreach ($pl
 // content in the post-content slot. Most checks below are about that composed
 // document, so $pages returns it; $rawPages returns the stored page content.
 $pages = static function (array $plan) use ($rawPages): array {
-    $templates = array_column($plan['templates'], 'canonical_block_markup', 'slug');
+    $templates = WordPressSitePlan::renderedTemplates($plan);
     $rows = $rawPages($plan);
     foreach ($rows as $source => $page) {
         $template = !empty($page['entrypoint']) ? 'front-page' : (isset($templates['page-' . $page['slug']]) ? 'page-' . $page['slug'] : 'page');
@@ -50,8 +50,8 @@ foreach (array('index.html', 'guides/about.html', 'guides/team.html') as $source
     // and still renders before the header.
     $assert(1 === substr_count($markup, '"tagName":"header"') && !str_contains($markup, 'Skip to content') && str_contains($markup, 'article header') && str_contains($markup, 'article footer') && 2 === substr_count($markup, '"tagName":"footer"'), "{$source} removes the shared header with its skip link and retains article landmarks and its footer: {$markup}");
 }
-$assert(1 === substr_count($declaredWrites['templates/front-page.html']['payload']['data'], '"slug":"header"') && 1 === substr_count($declaredWrites['templates/page.html']['payload']['data'], '"slug":"header"') && 1 === substr_count($declaredWrites['templates/index.html']['payload']['data'], '"slug":"header"'), 'All base templates bind the shared header exactly once.');
-$assert(1 === substr_count($declaredWrites['templates/search.html']['payload']['data'] ?? '', '"slug":"header","area":"header"'), 'The search template binds the shared header wherever index is bound, so search results do not render headerless.');
+$assert(1 === substr_count(WordPressSitePlan::renderedTemplates($plan)['front-page'], '"slug":"header"') && 1 === substr_count($declaredWrites['templates/page.html']['payload']['data'], '"slug":"header"') && 1 === substr_count($declaredWrites['templates/index.html']['payload']['data'], '"slug":"header"'), 'All base templates bind the shared header exactly once.');
+$assert(1 === substr_count(WordPressSitePlan::renderedTemplates($plan)['search'] ?? '', '"slug":"header","area":"header"'), 'The search template binds the shared header wherever index is bound, so search results do not render headerless.');
 $assert(array() !== array_filter($plan['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null) && str_contains((string) ($asset['content'] ?? ''), '.site-header')), 'Scoped shell styling is represented as a normal declared CSS asset write.');
 $assert(in_array('wordpress_site_plan_shell_extracted', $diagnostics, true) && in_array('wordpress_site_plan_shell_retained_ambiguous', $diagnostics, true), 'Shell planning emits bounded extracted and retained reason-coded diagnostics.');
 $assert(array_values(array_unique($diagnostics)) === array_values(array_unique($plan['reporting']['diagnostic_codes'])), 'Every shell diagnostic is linked through plan reporting.');
@@ -87,7 +87,7 @@ $assert(2 === count($routeVariantParts) && array() === array_filter($routeVarian
 $singleResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<header id="solo-shell" class="solo" style="border-top:2px solid #111"><p>Solo</p></header><main>Home</main><footer>Solo footer</footer>')))->toArray();
 $single = $singleResult['source_reports']['wordpress_site_plan'];
 $singleWrites = $writes($single);
-$assert(2 === count(array_filter($single['template_parts'], static fn(array $part): bool => 'entry_shell' === ($part['placement']['kind'] ?? null))) && str_contains($singleWrites['templates/front-page.html']['payload']['data'], '"slug":"header","area":"header","tagName":"div"') && str_contains($singleWrites['templates/front-page.html']['payload']['data'], '"slug":"footer","area":"footer","tagName":"div"') && str_contains($singleWrites['templates/page.html']['payload']['data'], '"slug":"header","area":"header","tagName":"div"') && str_contains($singleWrites['templates/index.html']['payload']['data'], '"slug":"header","area":"header","tagName":"div"'), 'A single-page artifact binds entry-shell template parts through div transport references to native templates.');
+$assert(2 === count(array_filter($single['template_parts'], static fn(array $part): bool => 'entry_shell' === ($part['placement']['kind'] ?? null))) && str_contains(WordPressSitePlan::renderedTemplates($single)['front-page'], '"slug":"header","area":"header","tagName":"div"') && str_contains(WordPressSitePlan::renderedTemplates($single)['front-page'], '"slug":"footer","area":"footer","tagName":"div"') && str_contains($singleWrites['templates/page.html']['payload']['data'], '"slug":"header","area":"header","tagName":"div"') && str_contains($singleWrites['templates/index.html']['payload']['data'], '"slug":"header","area":"header","tagName":"div"'), 'A single-page artifact binds entry-shell template parts through div transport references to native templates.');
 $fragmentSingle = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<header><a href="#top">Brand</a><a href="#site-nav">Skip to navigation</a><nav id="site-nav"><ul><li><a href="#menu">Menu</a></li><li><a href="#visit">Visit</a></li></ul></nav></header><main><section id="menu"><a href="#visit">Find us</a></section><section id="visit">Visit</section></main><footer>Footer</footer>')))->toArray()['source_reports']['wordpress_site_plan'];
 $fragmentChrome = implode("\n", array_merge(array_column($fragmentSingle['template_parts'], 'canonical_block_markup'), array_map(static fn(array $menu): string => (string) ($menu['block_markup'] ?? ''), array_filter($fragmentSingle['menus'], static fn(array $menu): bool => str_contains((string) $menu['source_path'], '#')))));
 $assert(str_contains($fragmentChrome, 'href="/#top"') && str_contains(str_replace('\\/', '/', $fragmentChrome), '"url":"/#menu"') && str_contains(str_replace('\\/', '/', $fragmentChrome), '"url":"/#visit"') && str_contains($fragmentChrome, 'href="#site-nav"') && 1 === preg_match_all('/href="#|"url":"#/', $fragmentChrome), 'Entry chrome qualifies same-page fragment links to the route that owns the target section, keeping targets inside the chrome itself.');
@@ -116,7 +116,7 @@ $nestedViewportHtml = '<!doctype html><html><head><style>.viewport-shell{display
 $nestedViewportPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $nestedViewportHtml)))->toArray()['source_reports']['wordpress_site_plan'];
 $nestedViewportPage = $rawPages($nestedViewportPlan)['index.html']['canonical_block_markup'] ?? '';
 $nestedViewportParts = array_column($nestedViewportPlan['template_parts'], null, 'slug');
-$nestedViewportFront = $writes($nestedViewportPlan)['templates/front-page.html']['payload']['data'] ?? '';
+$nestedViewportFront = WordPressSitePlan::renderedTemplates($nestedViewportPlan)['front-page'] ?? '';
 $headerRef = strpos($nestedViewportFront, '"slug":"header"');
 $main = strpos($nestedViewportFront, 'wp:post-content');
 $footerRef = strpos($nestedViewportFront, '"slug":"footer"');
@@ -169,7 +169,7 @@ foreach (array('index.html' => 'Home production', 'about.html' => 'About the com
     $assert(!str_contains($markup, 'Lake Country Players') && !str_contains($markup, 'wp:navigation') && str_contains($markup, $hero), "{$source} leaves shared header markup out of page content while retaining its page-owned hero.");
 }
 $documentHeaderWrites = $writes($documentHeaderResult);
-$assert(1 === substr_count($documentHeaderWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($documentHeaderWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"'), 'Front-page and page templates each bind the editable shared header once.');
+$assert(1 === substr_count(WordPressSitePlan::renderedTemplates($documentHeaderResult)['front-page'] ?? '', '"slug":"header"') && 1 === substr_count($documentHeaderWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"'), 'Front-page and page templates each bind the editable shared header once.');
 
 $ariaBannerResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main>Home</main>', 'about.html' => '<main>About</main>')))->toArray();
 foreach ($ariaBannerResult['source_reports']['compiled_site']['pages'] as &$ariaBannerPage) {
@@ -212,7 +212,7 @@ $assert('post' === ($postPages['notes/first.html']['post_type'] ?? null) && 'pos
 $mixedShells = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<header>Shared header</header><main>Home</main><footer>Shared footer</footer>', 'about.html' => '<header>Shared header</header><main>About</main><footer>Shared footer</footer>', 'contact.html' => '<header>Shared header</header><main>Contact</main><footer>Contact footer</footer>')))->toArray()['source_reports']['wordpress_site_plan'];
 $mixedWrites = $writes($mixedShells);
 $assert(str_contains($mixedWrites['templates/page-contact.html']['payload']['data'] ?? '', '"slug":"header"') && !str_contains($mixedWrites['templates/page-contact.html']['payload']['data'] ?? '', '"slug":"footer"') && str_contains($mixedWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"') && str_contains($mixedWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"footer"'), 'A footer-only exclusion creates a route template that retains the globally shared header and excludes only the divergent footer.');
-$assert(str_contains($mixedWrites['templates/search.html']['payload']['data'] ?? '', '"slug":"header"') && str_contains($mixedWrites['templates/search.html']['payload']['data'] ?? '', '"slug":"footer"'), 'The search template rides along with index for both the shared header and the shared footer, not only the header.');
+$assert(str_contains(WordPressSitePlan::renderedTemplates($mixedShells)['search'] ?? '', '"slug":"header"') && str_contains(WordPressSitePlan::renderedTemplates($mixedShells)['search'] ?? '', '"slug":"footer"'), 'The search template rides along with index for both the shared header and the shared footer, not only the header.');
 // No single landmark is the header, but both open every route: the route
 // edge holds both, so they become one part instead of page-local copies.
 $multipleHeaders = array_values(array_filter($multiple['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
@@ -245,7 +245,7 @@ $footerPlan = $footerPlanFor(array(
     'about.html' => '<div class="hidden lg:block">%s</div>',
     'team.html' => '<div class="hidden lg:block">%s</div>',
 ));
-$footerTemplates = array_column($footerPlan['templates'], 'canonical_block_markup', 'slug');
+$footerTemplates = WordPressSitePlan::renderedTemplates($footerPlan);
 $footerParts = array_values(array_filter($footerPlan['template_parts'], static fn(array $part): bool => 'footer' === ($part['slug'] ?? null)));
 $assert(1 === count($footerParts) && 'inline_shared_shell' === ($footerParts[0]['placement']['kind'] ?? null) && in_array('hidden', $footerParts[0]['ancestor_context']['classes'] ?? array(), true) && in_array('lg:block', $footerParts[0]['ancestor_context']['classes'] ?? array(), true), 'The repeated footer has one shared owner and retains authored ancestor evidence.');
 foreach (array('front-page', 'page') as $slug) {
@@ -282,7 +282,7 @@ $variantFooterPlan = $footerPlanFor(array(
     'about.html' => '<div class="hidden lg:block">%s</div>',
     'contact.html' => '<div class="lg:hidden">%s</div>',
 ));
-$variantTemplates = array_column($variantFooterPlan['templates'], 'canonical_block_markup', 'slug');
+$variantTemplates = WordPressSitePlan::renderedTemplates($variantFooterPlan);
 $variantPages = $rawPages($variantFooterPlan);
 $assert(1 === substr_count($variantTemplates['page'] ?? '', '"slug":"footer"') && str_contains($variantTemplates['page'] ?? '', 'hidden lg:block') && !isset($variantTemplates['page-about']) && 1 === substr_count($variantTemplates['page-contact'] ?? '', '"slug":"footer"') && str_contains($variantTemplates['page-contact'] ?? '', 'lg:hidden') && !str_contains($variantTemplates['page-contact'] ?? '', 'hidden lg:block') && !str_contains($variantPages['about.html']['canonical_block_markup'], '"slug":"footer"') && !str_contains($variantPages['contact.html']['canonical_block_markup'], '"slug":"footer"') && 1 === count(array_filter($variantFooterPlan['template_parts'], static fn(array $part): bool => 'footer' === ($part['slug'] ?? null))), 'The generic page template takes the first wrapper; the route with a distinct visibility wrapper gets its own template; the footer remains one shared editable part.');
 WordPressSitePlan::assertValid($variantFooterPlan);
@@ -442,7 +442,7 @@ $assert(1 === count(array_filter($wavePlan['template_parts'], static fn(array $p
 foreach (array('index.html' => 'Home', 'about.html' => 'About', 'contact.html' => 'Contact') as $source => $title) $assert(!str_contains($wavePages[$source]['canonical_block_markup'] ?? '', 'header-wrapper') && !str_contains($wavePages[$source]['canonical_block_markup'] ?? '', 'navTrigger') && str_contains($wavePages[$source]['canonical_block_markup'] ?? '', '>' . $title . '</h1>'), "{$source} retains only its page-content subtree after generic nested chrome extraction.");
 $indexMarkup = $waveWrites['templates/index.html']['payload']['data'] ?? '';
 $assert(1 === substr_count($indexMarkup, '"slug":"header"') && str_contains($indexMarkup, 'wp:query') && str_contains($indexMarkup, 'wp:post-template') && !str_contains($indexMarkup, 'wp:post-content') && str_contains($indexMarkup, '"anchor":"wrapper"'), 'Index restores the shared wrapper context around the header part and native Query Loop.');
-foreach (array('templates/page.html', 'templates/front-page.html') as $target) $assert(1 === substr_count($waveWrites[$target]['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($waveWrites[$target]['payload']['data'] ?? '', 'wp:post-content') && str_contains($waveWrites[$target]['payload']['data'] ?? '', '"anchor":"wrapper"'), "{$target} restores the shared wrapper context around the header part and singular post content.");
+foreach (array('page', 'front-page') as $target) $assert(1 === substr_count(WordPressSitePlan::renderedTemplates($wavePlan)[$target] ?? '', '"slug":"header"') && 1 === substr_count(WordPressSitePlan::renderedTemplates($wavePlan)[$target] ?? '', 'wp:post-content') && str_contains(WordPressSitePlan::renderedTemplates($wavePlan)[$target] ?? '', '"anchor":"wrapper"'), "{$target} restores the shared wrapper context around the header part and singular post content.");
 
 $statefulWaveShell = static function (string $current, string $content, bool $color = false): string {
     $link = static function (string $name, string $label, string $current): string {
@@ -553,7 +553,7 @@ foreach (array('index.html' => 'Home', 'about.html' => 'About') as $source => $t
     $markup = $nestedThemePages[$source]['canonical_block_markup'] ?? '';
     $assert(!str_contains($markup, 'SITE_HEADER') && !str_contains($markup, 'Brand') && 1 === substr_count($markup, '"slug":"header"') && str_contains($markup, '>' . $title . '</h2>'), "{$source} replaces duplicated header content with one reference at the source position.");
 }
-$assert(1 === substr_count($nestedThemeWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($nestedThemeWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"') && !str_contains($rawPages($nestedThemePlan)['index.html']['canonical_block_markup'], '"slug":"header"'), 'Singular templates hold the nested shared chrome once, in its source layout, and the page content holds none.');
+$assert(1 === substr_count(WordPressSitePlan::renderedTemplates($nestedThemePlan)['front-page'] ?? '', '"slug":"header"') && 1 === substr_count($nestedThemeWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"') && !str_contains($rawPages($nestedThemePlan)['index.html']['canonical_block_markup'], '"slug":"header"'), 'Singular templates hold the nested shared chrome once, in its source layout, and the page content holds none.');
 
 $nestedThemeDivergentResult = $nestedThemeResult;
 foreach ($nestedThemeDivergentResult['source_reports']['compiled_site']['pages'] as &$nestedThemePage) {
@@ -621,7 +621,7 @@ foreach (array('index.html', 'about.html', 'blog.html') as $source) {
     $markup = $multiColorPages[$source]['canonical_block_markup'] ?? '';
     $assert(!str_contains($markup, 'wp:navigation') && str_contains($markup, $source === 'blog.html' ? 'Blog archive' : ($source === 'about.html' ? 'About' : 'Home')), "{$source} keeps its content region and does not carry navigation after shared-header extraction.");
 }
-$assert(str_contains($multiColorWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"') && str_contains($multiColorWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"header"'), 'Generic templates keep the shared header part.');
+$assert(str_contains($multiColorWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"') && str_contains(WordPressSitePlan::renderedTemplates($multiColorPlan)['front-page'] ?? '', '"slug":"header"'), 'Generic templates keep the shared header part.');
 $assert(str_contains($multiColorWrites['templates/page-blog.html']['payload']['data'] ?? '', '"slug":"header"') && !str_contains($multiColorWrites['templates/page-blog.html']['payload']['data'] ?? '', '"slug":"footer"'), 'A page-specific template created for a divergent footer still references the shared header and carries no navigation of its own.');
 
 $nestedMultiColorShell = static function (string $current, string $title): string {
@@ -651,7 +651,7 @@ foreach (array('index.html' => 'Home', 'about.html' => 'About', 'blog.html' => '
     $markup = $nestedMultiColorPages[$source]['canonical_block_markup'] ?? '';
     $assert(!str_contains($markup, 'wp:navigation') && str_contains($markup, $title) && !isset($nestedMultiColorWrites['templates/page-' . basename($source, '.html') . '.html']), "{$source} nested chrome stays in the shared header rather than a page-specific template, and page content has no navigation.");
 }
-$assert(str_contains($nestedMultiColorWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"') && str_contains($nestedMultiColorWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"header"'), 'Nested multi-color chrome binds the shared header on generic templates.');
+$assert(str_contains($nestedMultiColorWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"') && str_contains(WordPressSitePlan::renderedTemplates($nestedMultiColorPlan)['front-page'] ?? '', '"slug":"header"'), 'Nested multi-color chrome binds the shared header on generic templates.');
 
 $responsiveDuplicateShell = static function (string $title, bool $dual, bool $correspondence): string {
     $link = static function (string $href, string $label) use ($correspondence): string {
@@ -682,7 +682,7 @@ foreach (array('index.html' => 'Home', 'about.html' => 'About') as $source => $t
     $markup = $responsiveDuplicatePages[$source]['canonical_block_markup'] ?? '';
     $assert(!str_contains($markup, 'site-header') && !str_contains($markup, 'Ticker') && str_contains($markup, '"slug":"header"') && str_contains($markup, '"slug":"footer"') && str_contains($markup, '>' . $title . '</h1>'), "{$source} replaces duplicated chrome with source-position references and keeps its page content.");
 }
-$assert(!str_contains($responsiveDuplicateWrites['templates/front-page.html']['payload']['data'] ?? '', 'wp:template-part') && 1 === substr_count($responsiveDuplicateWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"footer"') && !str_contains($rawPages($responsiveDuplicatePlan)['about.html']['canonical_block_markup'], 'wp:template-part'), 'The page template holds the shared chrome once. The responsive-pair home page has two references per region, so it stays in place.');
+$assert(!str_contains(WordPressSitePlan::renderedTemplates($responsiveDuplicatePlan)['front-page'] ?? '', 'wp:template-part') && 1 === substr_count($responsiveDuplicateWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"footer"') && !str_contains($rawPages($responsiveDuplicatePlan)['about.html']['canonical_block_markup'], 'wp:template-part'), 'The page template holds the shared chrome once. The responsive-pair home page has two references per region, so it stays in place.');
 $responsiveDuplicateTheme = json_decode($responsiveDuplicateWrites['theme.json']['payload']['data'] ?? '', true);
 $responsiveDuplicatePartNames = array_column($responsiveDuplicateTheme['templateParts'] ?? array(), 'name');
 sort($responsiveDuplicatePartNames, SORT_STRING);
@@ -712,7 +712,7 @@ foreach (array('index.html' => 'Home', 'about.html' => 'About') as $source => $t
     $markup = $unlabeledChromePages[$source]['canonical_block_markup'] ?? '';
     $assert(!str_contains($markup, 'masthead') && !str_contains($markup, 'colophon') && !str_contains($markup, 'wp:navigation') && str_contains($markup, '"slug":"header"') && str_contains($markup, '"slug":"footer"') && str_contains($markup, '>' . $title . '</h1>'), "{$source} replaces duplicate dual-document content with shared references and keeps its title.");
 }
-$assert(!str_contains($unlabeledChromeWrites['templates/front-page.html']['payload']['data'] ?? '', 'wp:template-part') && !str_contains($unlabeledChromeWrites['templates/page.html']['payload']['data'] ?? '', 'wp:template-part'), 'Generic templates do not move unlabeled chrome away from its source ancestors.');
+$assert(!str_contains(WordPressSitePlan::renderedTemplates($unlabeledChromePlan)['front-page'] ?? '', 'wp:template-part') && !str_contains($unlabeledChromeWrites['templates/page.html']['payload']['data'] ?? '', 'wp:template-part'), 'Generic templates do not move unlabeled chrome away from its source ancestors.');
 $unlabeledSinglePlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
     'index.html' => $unlabeledChrome('Home', false),
     'about.html' => $unlabeledChrome('About', false),
@@ -736,7 +736,7 @@ $unlabeledSoloPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'in
 // masthead. The theme recovers the current item at render time, so the shared
 // part serves the page the way the in-content marker did.
 $unlabeledSoloWrites = $writes($unlabeledSoloPlan);
-$assert(1 === count(array_filter($unlabeledSoloPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null))) && !str_contains($pages($unlabeledSoloPlan)['index.html']['canonical_block_markup'] ?? '', 'wp:navigation') && str_contains($pages($unlabeledSoloPlan)['index.html']['canonical_block_markup'] ?? '', '>Home</h1>') && str_contains($unlabeledSoloWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"header"') && str_contains($unlabeledSoloWrites['functions.php']['payload']['data'] ?? '', "render_block_core/navigation-link"), 'A single-page unlabeled masthead becomes the header part, and the theme restores its current item at render time.');
+$assert(1 === count(array_filter($unlabeledSoloPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null))) && !str_contains($pages($unlabeledSoloPlan)['index.html']['canonical_block_markup'] ?? '', 'wp:navigation') && str_contains($pages($unlabeledSoloPlan)['index.html']['canonical_block_markup'] ?? '', '>Home</h1>') && str_contains(WordPressSitePlan::renderedTemplates($unlabeledSoloPlan)['front-page'] ?? '', '"slug":"header"') && str_contains($unlabeledSoloWrites['functions.php']['payload']['data'] ?? '', "render_block_core/navigation-link"), 'A single-page unlabeled masthead becomes the header part, and the theme restores its current item at render time.');
 
 $unlabeledClusterChrome = static function (string $title, string $current, bool $deep): string {
     $link = static function (string $name, string $label, string $current): string {
@@ -773,7 +773,7 @@ foreach (array('index.html' => 'Home', 'about.html' => 'About', 'blog/index.html
     $markup = $unlabeledClusterPages[$source]['canonical_block_markup'] ?? '';
     $assert(!str_contains($markup, 'wp:navigation') && str_contains($markup, '>' . $title . '</h1>'), "{$source} loses shared unlabeled chrome across wrapper-depth clusters and keeps its title.");
 }
-$assert(1 === substr_count($unlabeledClusterWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($unlabeledClusterWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"') && str_contains($unlabeledClusterWrites['templates/single.html']['payload']['data'] ?? '', '"slug":"header"'), 'Page and post templates hold shared chrome outside post content.');
+$assert(1 === substr_count(WordPressSitePlan::renderedTemplates($unlabeledClusterPlan)['front-page'] ?? '', '"slug":"header"') && 1 === substr_count($unlabeledClusterWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"') && str_contains($unlabeledClusterWrites['templates/single.html']['payload']['data'] ?? '', '"slug":"header"'), 'Page and post templates hold shared chrome outside post content.');
 
 $transparentHeader = static function (string $title, bool $deep): string {
     $header = '<!-- wp:group {"className":"masthead"} --><div class="wp-block-group masthead"><!-- wp:navigation --><!-- wp:navigation-link {"label":"Home","url":"/"} /--><!-- wp:navigation-link {"label":"Blog","url":"/blog"} /--><!-- /wp:navigation --></div><!-- /wp:group -->';
@@ -947,9 +947,9 @@ $variantPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.ht
 $variantWrites = $writes($variantPlan);
 $variantPages = $pages($variantPlan);
 $variantHeaderParts = array_values(array_filter($variantPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null) && in_array($part['placement']['kind'] ?? null, array('shared_shell', 'entry_shell'), true)));
-foreach (array('index.html' => 'templates/front-page.html', 'about.html' => 'templates/page.html', 'shop.html' => 'templates/page.html') as $source => $template) {
+foreach (array('index.html' => 'front-page', 'about.html' => 'page', 'shop.html' => 'page') as $source => $template) {
     $markup = $variantPages[$source]['canonical_block_markup'] ?? '';
-    $templateMarkup = $variantWrites[$template]['payload']['data'] ?? '';
+    $templateMarkup = WordPressSitePlan::renderedTemplates($variantPlan)[$template] ?? '';
     $desktopAt = strpos($markup, 'data-blocks-engine-capture-desktop-document');
     $mobileAt = strpos($markup, 'data-blocks-engine-capture-mobile-document');
     $desktopMarkup = false !== $desktopAt ? substr($markup, $desktopAt, (false !== $mobileAt ? $mobileAt : strlen($markup)) - $desktopAt) : '';
@@ -966,7 +966,7 @@ $variantHeader = $variantHeaderParts[0] ?? array();
 $variantHeaderMarkup = (string) ($variantHeader['canonical_block_markup'] ?? '');
 $assert(1 === count($variantHeaderParts) && 'shared_shell' === ($variantHeader['placement']['kind'] ?? null) && 'responsive_variant_partition' === ($variantHeader['provenance']['reason'] ?? null), 'Divergent desktop and mobile headers that match across routes become one template-bound header part.');
 $assert(str_contains($variantHeaderMarkup, 'data-blocks-engine-capture-desktop-document') && str_contains($variantHeaderMarkup, 'data-blocks-engine-capture-mobile-document') && str_contains($variantHeaderMarkup, 'Menu') && str_contains($variantHeaderMarkup, 'Example Band'), 'The shared header part keeps each viewport\'s chrome behind the existing variant visibility class: ' . $variantHeaderMarkup);
-$assert(1 === substr_count($variantWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($variantWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"') && !str_contains($variantWrites['templates/page-notes.html']['payload']['data'] ?? '', '"slug":"header"'), 'Templates reference the shared header, and a route without that chrome stays excluded.');
+$assert(1 === substr_count(WordPressSitePlan::renderedTemplates($variantPlan)['front-page'] ?? '', '"slug":"header"') && 1 === substr_count($variantWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"') && !str_contains($variantWrites['templates/page-notes.html']['payload']['data'] ?? '', '"slug":"header"'), 'Templates reference the shared header, and a route without that chrome stays excluded.');
 $assert(!str_contains($variantPages['notes.html']['canonical_block_markup'] ?? '', '"tagName":"header"'), 'A route without header chrome does not gain one.');
 $variantFooterParts = array_values(array_filter($variantPlan['template_parts'], static fn(array $part): bool => 'footer' === ($part['area'] ?? null) && in_array($part['placement']['kind'] ?? null, array('shared_shell', 'entry_shell'), true)));
 $variantFooterMarkup = (string) (($variantFooterParts[0]['canonical_block_markup'] ?? ''));
@@ -1012,7 +1012,7 @@ foreach (array('index.html', 'journal.html', 'shop.html') as $source) {
     $assert(!str_contains($markup, '"tagName":"header"') && !str_contains($markup, '"tagName":"footer"'), "{$source} does not keep viewport chrome in page content.");
 }
 $partitionWrites = $writes($partitionPlan);
-$assert(1 === substr_count($partitionWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($partitionWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"footer"'), 'Templates bind the shared header and footer parts.');
+$assert(1 === substr_count(WordPressSitePlan::renderedTemplates($partitionPlan)['front-page'] ?? '', '"slug":"header"') && 1 === substr_count($partitionWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"footer"'), 'Templates bind the shared header and footer parts.');
 $equivalentDocument = static function (string $title, string $current, ?string $config, bool $markedLayer, string $brand = 'Acme'): string {
     $item = static function (string $href, string $label) use ($current): string {
         $classes = 'nav-item' . ('/' === $href ? ' nav-item--home' : '') . ($href === $current ? ' nav-item--active' : '');
@@ -1049,8 +1049,8 @@ foreach (array('index.html' => 'Home', 'services.html' => 'Services', 'contact.h
 }
 $aboutHeader = array_values(array_filter($equivalentPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null) && array('about.html') === ($part['placement']['source_paths'] ?? null)))[0] ?? array();
 $assert(array() === $aboutHeader && str_contains($equivalentPages['about.html']['canonical_block_markup'] ?? '', 'Other brand') && !str_contains($equivalentWrites['templates/page-about.html']['payload']['data'] ?? '', 'wp:navigation'), 'A unique header stays content without a single-use part or the shared navigation.');
-$assert(1 === substr_count($equivalentWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($equivalentWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"') && !isset($equivalentWrites['templates/page-services.html']) && 1 === substr_count($equivalentWrites['templates/page-about.html']['payload']['data'] ?? '', '"slug":"footer"') && !str_contains($equivalentWrites['templates/page-about.html']['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($equivalentWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"footer"'), 'The generic page template holds the shared chrome once for the routes that share it. The route with its own header gets its own template with its header variant and the shared footer.');
-$assert(!str_contains($equivalentWrites['templates/front-page.html']['payload']['data'] ?? '', 'data-blocks-engine-capture-desktop-document'), 'Equivalent-document extraction does not invent a responsive-variant partition.');
+$assert(1 === substr_count(WordPressSitePlan::renderedTemplates($equivalentPlan)['front-page'] ?? '', '"slug":"header"') && 1 === substr_count($equivalentWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"') && !isset($equivalentWrites['templates/page-services.html']) && 1 === substr_count($equivalentWrites['templates/page-about.html']['payload']['data'] ?? '', '"slug":"footer"') && !str_contains($equivalentWrites['templates/page-about.html']['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($equivalentWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"footer"'), 'The generic page template holds the shared chrome once for the routes that share it. The route with its own header gets its own template with its header variant and the shared footer.');
+$assert(!str_contains(WordPressSitePlan::renderedTemplates($equivalentPlan)['front-page'] ?? '', 'data-blocks-engine-capture-desktop-document'), 'Equivalent-document extraction does not invent a responsive-variant partition.');
 
 // Footer copy is repeated inside two different authored wrappers. Keep both
 // wrapper geometries in their source position while sharing only the identical

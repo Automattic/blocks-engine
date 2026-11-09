@@ -27,7 +27,7 @@ $assert(!str_contains($headers[0]['canonical_block_markup'], 'item--isCurrentPag
 foreach ($plan['pages'] as $page) {
     $markup = $page['canonical_block_markup'];
     $templateSlug = $page['entrypoint'] ? 'front-page' : 'page';
-    $template = array_column($plan['templates'], 'canonical_block_markup', 'slug')[$templateSlug] ?? '';
+    $template = WordPressSitePlan::renderedTemplates($plan)[$templateSlug] ?? '';
     $assert(str_contains($template . $markup, 'wp:template-part {"slug":"' . $headers[0]['slug'] . '"'), $page['source_path'] . ' binds the shared header part.');
     $assert(!str_contains($markup, '<header') && !str_contains($markup, '<!-- wp:navigation '), $page['source_path'] . ' has no inline header navigation.');
 }
