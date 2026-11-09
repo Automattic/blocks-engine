@@ -34,7 +34,16 @@ foreach (array('DIV' => 'navigation-list-host-ownership.php', 'UL' => 'navigatio
             if (preg_match('/margin-bottom\s*:\s*(13|23)px\b/', $body, $match)) $marginRules[] = array('selector' => $selector, 'value' => $match[1], 'conditions' => $conditions);
         });
     }
-    $marginRules = array_values(array_filter($marginRules, static fn(array $rule): bool => !str_contains($rule['selector'], 'blocks-engine-navigation-list-box-')));
+    // A source rule and its list-box projection can now share one body.
+    // Ignore only the list-box arms, not the source-shaped arms beside them.
+    foreach ($marginRules as &$rule) {
+        $rule['selector'] = implode(',', array_filter(
+            CssStylesheetTransformer::splitSelectorList($rule['selector']) ?? array(),
+            static fn(string $selector): bool => !str_contains($selector, 'blocks-engine-navigation-list-box-')
+        ));
+    }
+    unset($rule);
+    $marginRules = array_values(array_filter($marginRules, static fn(array $rule): bool => '' !== $rule['selector']));
     $assert(2 === count($marginRules), $kind . ': base and tablet list-margin facts both survive');
     foreach ($marginRules as $rule) {
         $assert(!$matches($rule['selector'], $nodes['control']), $kind . ': source list type cannot claim a control-owned NAV root');

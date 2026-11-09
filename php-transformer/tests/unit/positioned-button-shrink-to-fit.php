@@ -60,7 +60,7 @@ $assert(
     $positionedMarkup
 );
 $assert(
-    (bool) preg_match('/:where\(\.wp-block-button\)\{[^}]*position:\s*absolute/', $positionedCss),
+    (bool) preg_match('/:where\(\.wp-block-button\)(?:,[^{]*)?\{[^}]*position:\s*absolute/', $positionedCss),
     '2: class-owned position lands on the wp-block-button box that generates a containing-block child',
     $positionedCss
 );
@@ -71,7 +71,7 @@ $assert(
     $positionedCss
 );
 $assert(
-    (bool) preg_match('/:where\(\.wp-block-button\)\{[^}]*translate:-50% -50%/', $positionedCss)
+    (bool) preg_match('/:where\(\.wp-block-button\)(?:,[^{]*)?\{[^}]*translate:-50% -50%/', $positionedCss)
         && ! preg_match('/wp-block-button__link\)\{[^}]*translate:/', $positionedCss),
     '4: authored translate stays on the positioning box only',
     $positionedCss

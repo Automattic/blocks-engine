@@ -10,7 +10,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 $source = file_get_contents(dirname(__DIR__) . '/fixtures/buttons-wrapper-responsive-width-release.html');
 $result = (new HtmlTransformer())->transform($source)->toArray();
 $css = implode("\n", array_column(array_filter($result['assets'], static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
-if ( 1 !== preg_match('/@media \(min-width:768px\)\{[^{}]*:where\(\.wp-block-buttons\)\{width:auto\}/', $css) ) {
+if ( 1 !== preg_match('/@media \(min-width:768px\)\{[^{}]*:where\(\.wp-block-buttons\)(?:,[^{]*)?\{width:auto\}/', $css) ) {
     throw new RuntimeException('The breakpoint width release reaches the core/buttons wrapper.');
 }
 echo "Buttons wrapper responsive width release contract passed.\n";

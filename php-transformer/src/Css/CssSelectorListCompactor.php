@@ -248,6 +248,7 @@ final class CssSelectorListCompactor
         if ( ! str_contains($prelude, ',') ) {
             return $prelude;
         }
+        $prelude = self::hoistTypeGuards($prelude);
         $prelude = self::mergeNthChildRuns($prelude);
         if ( ! str_contains($prelude, ',') ) {
             return $prelude;
@@ -320,6 +321,31 @@ final class CssSelectorListCompactor
             }
         }
         return implode(',', $output);
+    }
+
+    /** Hoist a common zero-weight exclusion from equal-weight type alternatives. */
+    private static function hoistTypeGuards(string $prelude): string
+    {
+        $arms = CssStylesheetTransformer::splitSelectorList($prelude);
+        if (null === $arms) return $prelude;
+        $groups = array();
+        foreach ($arms as $index => $arm) {
+            if (!preg_match('/^([a-zA-Z][a-zA-Z0-9_-]*)(:not\(:where\(.+\)\))$/D', trim($arm), $match)) continue;
+            $parsed = CssSelectorMatcher::parse($arm);
+            if (!$parsed['supported'] || count($parsed['compounds']) !== 1) continue;
+            $groups[$match[2]][$index] = $match[1];
+        }
+        foreach ($groups as $guard => $tags) {
+            if (count($tags) < 2) continue;
+            $replacement = ':is(' . implode(',', array_unique($tags)) . ')' . $guard;
+            $original = implode(',', array_intersect_key($arms, $tags));
+            if (strlen($replacement) >= strlen($original)) continue;
+            $first = array_key_first($tags);
+            foreach ($tags as $index => $tag) unset($arms[$index]);
+            $arms[$first] = $replacement;
+        }
+        ksort($arms);
+        return implode(',', $arms);
     }
 
     /** @var array<string, string|null> Bounded syntax-only cache; never holds document state. */

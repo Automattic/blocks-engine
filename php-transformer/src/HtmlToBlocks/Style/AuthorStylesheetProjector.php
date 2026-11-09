@@ -239,12 +239,35 @@ final class AuthorStylesheetProjector
         $this->contentBoxOrder = null;
         $this->contentBoxOverrides = array();
         $css = $this->emitProjectedStyleRule($lifted['prelude'], $body, $context, $inConditional, array( ...$outerConditions, ...$ancestors ));
+        $css = $this->mergeAdjacentProjectedRules($css);
         $css = ColorSchemeVariant::wrap($css, $lifted['scheme'], $ancestors);
         if ( ! $this->contentBoxRestated ) {
             return $css;
         }
 
         return $this->moveContentBoxRestatements($css, $context, array( ...$outerConditions, ...$ancestors ));
+    }
+
+    /** Merge only adjacent rules with byte-identical declarations in this source rule. */
+    private function mergeAdjacentProjectedRules(string $css): string
+    {
+        // Nested rules and at-rule contexts cannot be combined across their host.
+        if (str_contains($css, '@') || str_contains($css, '/*') || preg_match('/\{[^}]*\{/', $css)) return $css;
+        $rules = array();
+        (new CssStylesheetTransformer())->visitStyleRules($css, static function (string $selector, string $body) use (&$rules): void {
+            $last = count($rules) - 1;
+            $mergeable = true;
+            foreach (CssStylesheetTransformer::splitSelectorList($selector) ?? array() as $arm) {
+                if (!CssSelectorMatcher::parse($arm)['supported']) $mergeable = false;
+            }
+            if ($last >= 0 && $mergeable && $rules[$last]['mergeable'] && $rules[$last]['body'] === $body
+                && !str_contains($selector . $rules[$last]['selector'], '.editor-styles-wrapper')) {
+                $rules[$last]['selector'] .= ',' . $selector;
+            } else {
+                $rules[] = array('selector' => $selector, 'body' => $body, 'mergeable' => $mergeable);
+            }
+        });
+        return implode('', array_map(static fn (array $rule): string => $rule['selector'] . '{' . $rule['body'] . '}', $rules));
     }
 
     /**
@@ -2063,7 +2086,7 @@ final class AuthorStylesheetProjector
                 // A constant baseline beats native defaults without flattening
                 // source specificity, states, conditional groups or layer order.
                 $baseline = $inner['author_precedence']
-                    ? str_repeat(':not(.' . $context->authorStyles->classSpecificityShim() . ')', 4)
+                    ? CssSpecificityProjection::guard('.' . $context->authorStyles->classSpecificityShim(), 4)
                     : '';
                 $rewritten[] = $inner['selector'] . $baseline . $this->selectorSpecificityShims($parsed, $context) . $suffix . $inner['pseudo_element'];
             }
@@ -4301,7 +4324,7 @@ final class AuthorStylesheetProjector
             // ancestry. Core defaults must not outrank typed item declarations.
             // The native item contributes one class of the shared four-class
             // baseline; retain the other three without changing author order.
-            $baseline = str_repeat(':not(.' . $context->authorStyles->classSpecificityShim() . ')', 3);
+            $baseline = CssSpecificityProjection::guard('.' . $context->authorStyles->classSpecificityShim(), 3);
         }
         // The native item class is the rule's single native scope: Core styles
         // `.wp-block-navigation .wp-block-navigation-item` (display:flex), so an
