@@ -85,6 +85,7 @@ final class ArtifactNormalizer
         $rejectionSamples = array();
         $bytes = 0;
         $mediaBytes = 0;
+        $mediaFiles = 0;
         $reportBytes = 0;
         $truncationImpact = null;
         $seenPaths = array();
@@ -121,13 +122,26 @@ final class ArtifactNormalizer
         }
 
         foreach ( $rawFiles as $index => $file ) {
-            if ( count($files) >= $limits['max_files'] ) {
-                $omitted = array_slice($rawFiles, $index);
+            // Reference-backed media has its own count budget when declared,
+            // just as it has its own byte budget. It must not consume the
+            // caller's reservation for parsed sources and inline expansions.
+            $separateMediaBudget = null !== $limits['max_media_files'];
+            $referenceMediaFile = $separateMediaBudget && self::isReferenceBackedBinary($file);
+            if ($referenceMediaFile && $mediaFiles >= $limits['max_media_files']) {
+                ++$rejected;
+                $this->recordRejection($rejectionCounts, $rejectionSamples, 'media_file_limit_exceeded', $file, (string) ($file['path'] ?? ''), null);
+                continue;
+            }
+            if ( ! $referenceMediaFile && count($files) - $mediaFiles >= $limits['max_files'] ) {
+                // With independent budgets, exhausting parsed sources must
+                // not discard later reference-backed media in the envelope.
+                $omitted = $separateMediaBudget ? array($file) : array_slice($rawFiles, $index);
                 $rejected += count($omitted);
                 $rejectionCounts['file_limit_exceeded'] = ($rejectionCounts['file_limit_exceeded'] ?? 0) + count($omitted);
                 $this->appendRejectionSamples($rejectionSamples, $omitted, 'file_limit_exceeded');
-                $truncationImpact = $this->truncationImpact(array_slice($rawFiles, $index), $files);
+                $truncationImpact = $this->truncationImpact($omitted, $files);
                 $diagnostics[] = $this->diagnostic('file_limit_exceeded', 'warning', 'Additional artifact files were ignored because the file limit was reached.', array('max_files' => $limits['max_files'], 'truncation_impact' => $truncationImpact));
+                if ($separateMediaBudget) continue;
                 break;
             }
 
@@ -320,6 +334,7 @@ final class ArtifactNormalizer
                 $reportBytes += $normalized['bytes'];
             }
             $files[] = $normalized;
+            if ($referenceMediaFile) ++$mediaFiles;
         }
 
         $runtimeDeclarations = RuntimeDeclarations::bindAssetPublications($runtimeDeclarations, $files);
@@ -498,6 +513,7 @@ final class ArtifactNormalizer
         $requested = is_array($artifact['compiler_limits'] ?? null) ? $artifact['compiler_limits'] : array();
         return array(
             'max_files'       => min(self::MAX_FILES, max(1, (int) ($requested['max_files'] ?? self::DEFAULT_MAX_FILES))),
+            'max_media_files' => isset($requested['max_media_files']) ? min(self::MAX_FILES, max(1, (int) $requested['max_media_files'])) : null,
             'max_file_bytes'  => min(self::MAX_FILE_BYTES, max(1, (int) ($requested['max_file_bytes'] ?? self::DEFAULT_MAX_FILE_BYTES))),
             'max_total_bytes' => min(self::MAX_TOTAL_BYTES, max(1, (int) ($requested['max_total_bytes'] ?? self::DEFAULT_MAX_TOTAL_BYTES))),
             'max_media_file_bytes'  => min(self::MAX_MEDIA_FILE_BYTES, max(1, (int) ($requested['max_media_file_bytes'] ?? self::DEFAULT_MAX_MEDIA_FILE_BYTES))),

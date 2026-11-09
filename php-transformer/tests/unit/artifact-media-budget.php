@@ -62,6 +62,9 @@ $mediaArtifact = array(
     // The contract a request bundle declares: an unchanged source-read budget,
     // plus a media budget sized for real captures.
     'compiler_limits' => array(
+        // The importer reserves parsed files separately from opaque media.
+        'max_files'             => 1,
+        'max_media_files'       => 41,
         'max_file_bytes'        => 10485760,
         'max_total_bytes'       => 335544320,
         'max_media_file_bytes'  => 67108864,
@@ -74,6 +77,14 @@ $normalized = (new ArtifactNormalizer())->normalize($mediaArtifact);
 $paths = array_column($normalized['files'], 'path');
 $assert(in_array('media/tour.mp4', $paths, true) && in_array('media/hero-0.jpg', $paths, true), 'Reference-backed media larger than the source-read budget is admitted.');
 $assert(0 === $normalized['rejected_count'], 'Reference-backed media is not rejected by the budgets that bound parsed source bytes.');
+
+// Envelope ordering must not couple the independently negotiated budgets.
+$interleaved = $mediaArtifact;
+array_splice($interleaved['files'], 1, 0, array(array('path' => 'extra.txt', 'content' => 'over the source count budget')));
+$interleavedResult = (new ArtifactNormalizer())->normalize($interleaved);
+$assert(1 === $interleavedResult['rejected_count'], 'Only the excess parsed source is rejected.');
+$assert(count($mediaFiles) === count($interleavedResult['files']), 'Exhausting the source count budget preserves all subsequent reference-backed media.');
+$assert(in_array('media/hero-39.jpg', array_column($interleavedResult['files'], 'path'), true), 'The final media reference survives an earlier source-count rejection.');
 
 $shared = (new ArtifactCompiler())->prepareShared($mediaArtifact, $reader);
 $assert(array('index') === $reader->reads, 'Staged preparation reads only the text payload it parses.');
