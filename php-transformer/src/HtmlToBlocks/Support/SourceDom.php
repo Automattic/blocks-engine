@@ -2253,4 +2253,11 @@ final class SourceDom
             static fn (mixed $child): bool => $child instanceof DOMElement
         ));
     }
+
+    /** Capture runtime CSS owns these hosts, outside author selector analysis. */
+    public static function isCaptureDeviceVisibilityCarrier(DOMElement $element): bool
+    {
+        return ($element->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) && SourceDom::isDocumentVariantRoot($element))
+            || SourceDom::isDeviceVisibilityCarrier($element);
+    }
 }
