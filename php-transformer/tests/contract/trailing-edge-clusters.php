@@ -31,7 +31,7 @@ foreach (array(false, true) as $retainEmbeds) {
     $assert(1 === count($footers) && array() === $retained, $evidence);
     $assert(str_contains($footers[0]['canonical_block_markup'], 'Shared colophon'), 'The footer part retains its copy.');
     $assert(4 === count($footers[0]['placement']['source_paths'] ?? array_keys($footers[0]['provenance']['sources'] ?? array())), 'One footer cluster spans every route: ' . $evidence);
-    $templates = array_column($plan['templates'], 'canonical_block_markup', 'slug');
+    $templates = WordPressSitePlan::renderedTemplates($plan);
     foreach ($plan['pages'] as $page) {
         $markup = $page['canonical_block_markup'];
         $assert(!str_contains($markup, 'wp:template-part') && str_contains($markup, 'Body ' . $page['title']), 'Route content retains only its own body: ' . $page['source_path']);

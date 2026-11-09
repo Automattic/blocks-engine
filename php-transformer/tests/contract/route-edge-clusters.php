@@ -44,7 +44,7 @@ foreach (array(false, true) as $retainEmbeds) {
         $assert(6 === count($header['placement']['source_paths'] ?? array_keys($header['provenance']['sources'] ?? array())), 'One part per six-route language cluster: ' . $evidence);
         $assert(!str_contains($header['canonical_block_markup'], 'Episode') && !str_contains($header['canonical_block_markup'], 'Date'), 'Hero is not chrome.');
     }
-    $templates = array_column($plan['templates'], 'canonical_block_markup', 'slug');
+    $templates = WordPressSitePlan::renderedTemplates($plan);
     $episodes = array_column(array_values(array_filter($plan['pages'], static fn(array $page): bool => str_contains($page['source_path'], '/'))), null, 'source_path');
     $assert($episodes['podcast/a.html']['slug'] === $episodes['podcasts-fr/a.html']['slug'], 'Episode routes share a terminal slug.');
     $assert(WordPressSitePlan::routeTemplateKey($episodes['podcast/a.html']) === WordPressSitePlan::routeTemplateKey($episodes['podcast/b.html']), 'Identical episode frames share a template within EN.');
@@ -69,7 +69,7 @@ foreach (array('en' => array('Explore', 'Contact us'), 'fr' => array('Découvrir
 }
 $plan = (new WordPressSitePlan())->fromResult((new ArtifactCompiler())->compile(array('entrypoint' => 'en-home.html', 'files' => $artifacts))->toArray());
 WordPressSitePlan::assertValid($plan);
-$templates = array_column($plan['templates'], 'canonical_block_markup', 'slug');
+$templates = WordPressSitePlan::renderedTemplates($plan);
 $bindings = array();
 foreach ($plan['pages'] as $page) {
     $key = WordPressSitePlan::routeTemplateKey($page);

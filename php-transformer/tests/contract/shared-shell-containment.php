@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
 $assert = static function (bool $condition, string $message): void { if (!$condition) throw new RuntimeException($message); };
 $document = static fn(string $title): string => '<!doctype html><html><head><style>body{margin:0}.frame{height:100vh;display:flex;flex-direction:column}.frame>main{flex:1}.frame>header{height:72px}.frame>footer{height:48px}</style></head><body><div class="frame"><header class="masthead"><nav><a href="/">Home</a><a href="/about">About</a></nav></header><main><h1>' . $title . '</h1></main><footer class="colophon"><p>Shared footer</p></footer></div></body></html>';
@@ -15,7 +16,7 @@ $assert(3 === count($parts['header']['placement']['source_paths']) && 3 === coun
 $runtime = new Runtime();
 // The frame element stays the flex parent of header, main and footer. It lives
 // in the template now, so the page content holds only the main block.
-$templates = array_column($plan['templates'], 'canonical_block_markup', 'slug');
+$templates = WordPressSitePlan::renderedTemplates($plan);
 foreach (array('front-page', 'page') as $slug) {
     $found = false;
     $walk = static function (array $blocks) use (&$walk, &$found, $assert, $slug): void {

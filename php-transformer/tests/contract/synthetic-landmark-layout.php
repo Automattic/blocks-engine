@@ -4,6 +4,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
 $assert = static function (bool $ok, string $message): void { if (!$ok) throw new RuntimeException($message); };
 $css = 'body{margin:0}.page{display:flex;flex-direction:column;align-items:center}.masthead{width:100%;background:#eee}.bar{display:flex;justify-content:space-between}.brand{width:623px}';
@@ -39,7 +40,7 @@ $render = static function(string $markup, string $content = '') use (&$render, $
     }
     return $html;
 };
-$templates = array_column($plan['templates'], 'canonical_block_markup', 'slug');
+$templates = WordPressSitePlan::renderedTemplates($plan);
 $page = $plan['pages'][0];
 $template = $templates[!empty($page['entrypoint']) ? 'front-page' : 'page'];
 $assert(str_contains($template . $page['canonical_block_markup'], '"slug":"' . $part['slug'] . '"'), 'The measured page renders through the extracted part.');

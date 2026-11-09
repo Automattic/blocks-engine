@@ -31,7 +31,7 @@ foreach (array(false, true) as $wrapped) {
     $parts[$variant] = $part['canonical_block_markup'];
     if ($wrapped) $assert(2 === count($part['placement']['source_paths'] ?? array()), 'Both routes share the nested header');
     $assert(str_contains($parts[$variant], '"type":"flex"') && !str_contains($parts[$variant], 'blocks-engine-css-owned-layout'), $variant . ': the header retains native flex layout');
-    $templates = array_column($plan['templates'], 'canonical_block_markup', 'slug');
+    $templates = WordPressSitePlan::renderedTemplates($plan);
     foreach (array('front-page', 'page', 'index', 'archive', 'search', '404', 'single') as $slug) {
         $assert(1 === substr_count($templates[$slug] ?? '', '"slug":"' . $part['slug'] . '"'), $variant . ': ' . $slug . ' references the shared header once');
     }
