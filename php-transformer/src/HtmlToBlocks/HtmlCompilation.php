@@ -1068,17 +1068,12 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             fn (DOMElement $element): ?array => $this->imageBlockFromAnchor($element)
         ));
         $this->unsupportedRecorder = new UnsupportedElementRecorder($this->session, $this->createUnsupportedElementContext(), $this->formControlMetadataBuilder);
-        $convertChildren = function (DOMElement $element, array &$fallbacks, bool $captureUnsupported = true): array {
-            return $this->convertChildren($element, $fallbacks, $captureUnsupported);
-        };
         $recognizePatterns = function (DOMElement $element, array &$fallbacks, array $patterns): ?array {
             return $this->recognizePatterns($element, $fallbacks, $patterns);
         };
         $capturedDialogConverter = new CapturedDialogConverter(
             $this->session,
-            function (DOMElement $element, array &$fallbacks) use ($convertChildren): array {
-                return $convertChildren($element, $fallbacks, true);
-            },
+            $this,
             $this->styleResolver
         );
         $this->elementPrelude = new ElementConversionPrelude(
@@ -1101,18 +1096,14 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
              $capturedDialogConverter,
              new CapturedChoiceGroupConverter(
                  $this->session,
-                 function (DOMElement $element, array &$fallbacks) use ($convertChildren): array {
-                     return $convertChildren($element, $fallbacks, true);
-                 },
+                 $this,
                  $this->styleResolver,
              ),
              new CapturedListboxConverter($this->authoredFormControlBlockConverter),
              new CapturedSelectableSetConverter(
                 $this,
                 $this->styleResolver,
-                function (DOMElement $element, array &$fallbacks) use ($convertChildren): array {
-                    return $convertChildren($element, $fallbacks, true);
-                },
+                $this,
                 function (): string {
                     $className = CapturedSelectableSetConverter::VISUALLY_HIDDEN_TABLIST_CLASS;
                     $this->session->layoutGeometryState()->registerRule($className, CapturedSelectableSetConverter::visuallyHiddenTabListCss($className));
@@ -1132,9 +1123,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             ),
             new ScrollStateConverter(
                 $this->session,
-                function (DOMElement $element, array &$fallbacks) use ($convertChildren): array {
-                    return $convertChildren($element, $fallbacks, true);
-                },
+                $this,
                 $this->styleResolver
             ),
             new ThemeToggleConverter(
@@ -1175,8 +1164,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->runtime,
             $this->sourceElementClassifier,
             $this->session->transformationProvenanceState(),
-            $convertChildren,
-            fn (DOMElement $element, array &$fallbacks, bool $captureUnsupported): ?array => $this->convertElement($element, $fallbacks, $captureUnsupported),
+            $this,
             fn (DOMElement $element, array &$fallbacks): ?array => $this->linkedRuntimeControlBlockFromAnchor($element, $fallbacks),
             $recognizePatterns,
             $this->authorLayoutOwnership,
@@ -1185,8 +1173,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->session,
             capturedCollection: new CapturedCollectionConverter(
                 $this->session,
-                function (DOMElement $element, array &$fallbacks) use ($convertChildren): array { return $convertChildren($element, $fallbacks, true); },
-                fn (DOMElement $element, array &$fallbacks): ?array => $this->convertElement($element, $fallbacks, true)
+                $this
             )
         );
     }

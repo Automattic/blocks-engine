@@ -6,22 +6,19 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CapturedDialogBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
-use Closure;
 use DOMElement;
 use LogicException;
 
 /** Materializes a captured dialog into its companion block. */
 final class CapturedDialogConverter implements ElementConverter
 {
-    /**
-     * @param Closure(DOMElement, array<int, array<string, mixed>>&): array<int, array<string, mixed>> $convertChildren
-     */
     public function __construct(
         private readonly HtmlTransformerSession $session,
-        private readonly Closure $convertChildren,
+        private readonly PatternTreeConverter $tree,
         private readonly StyleResolver $styleResolver
     ) {
     }
@@ -125,7 +122,7 @@ final class CapturedDialogConverter implements ElementConverter
             'resting' => in_array(SourceDom::attr($element, 'data-blocks-engine-resting'), array('authored', 'hidden'), true) ? SourceDom::attr($element, 'data-blocks-engine-resting') : '',
             'restingState' => CapturedDialogBlockGenerator::restingState(json_decode(SourceDom::attr($element, 'data-blocks-engine-resting-state'), true)),
         ), static fn(mixed $value): bool => false !== $value && '' !== $value && array() !== $value);
-        $children = ($this->convertChildren)($element, $fallbacks);
+        $children = $this->tree->children($element, $fallbacks, true);
         $escape = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $tag = $attrs['tagName'] ?? 'dialog';
         $opening = '<' . $tag;
