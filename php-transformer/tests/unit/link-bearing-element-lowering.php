@@ -77,6 +77,22 @@ if (1 !== substr_count($styledMarkup, '<a ')) throw new RuntimeException('One au
 if (!str_contains($styledMarkup, 'padding')) throw new RuntimeException('A promoted download control must keep the authored padding core/file cannot hold.');
 if ('pass' !== ((new BlockValidityValidator())->validateBlocks($styledDownload['blocks'] ?? array())['status'] ?? '')) throw new RuntimeException('A promoted download control must stay editor-valid.');
 
+// A border reset is a common button declaration, not evidence against a
+// control surface: a padded, painted download control that says "no border"
+// stays one button rather than falling back to core/file and its invented
+// second Download link.
+foreach (array('border:0', 'border:none', 'border-width:0') as $borderReset) {
+    $resetDownload = (new HtmlTransformer())->transform(
+        '<html><body><main><section><p>Download the catalogue.</p><a class="primary-button" href="catalogue.pdf" download>Download catalogue <span>↓</span></a></section></main></body></html>',
+        array('static_css' => '.primary-button{display:inline-flex;padding:1rem 1.25rem;background:#fff;color:#000;text-transform:uppercase;' . $borderReset . '}')
+    )->toArray();
+    $resetMarkup = (string) ($resetDownload['serialized_blocks'] ?? '');
+    $resetNames = $blockNames($resetDownload['blocks'] ?? array());
+    if (!in_array('core/button', $resetNames, true) || in_array('core/file', $resetNames, true)) throw new RuntimeException(sprintf('A download control declaring %s must stay a button, not a document link.', $borderReset));
+    if (1 !== substr_count($resetMarkup, '<a ')) throw new RuntimeException(sprintf('A download control declaring %s must materialise as exactly one anchor.', $borderReset));
+    if (!str_contains($resetMarkup, 'href="catalogue.pdf"') || !str_contains($resetMarkup, 'Download catalogue') || !str_contains($resetMarkup, 'padding')) throw new RuntimeException(sprintf('A download control declaring %s must keep its href, label and padding.', $borderReset));
+}
+
 // A synthetic paragraph carrier saves its anchor verbatim, so a margin the
 // author wrote on that anchor arrives with it. Restating the same margin as a
 // block attribute on the carrier applies it twice — once on the host box and
