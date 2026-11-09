@@ -300,6 +300,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly Elements\InlineSvgTextGroupLowering $inlineSvgTextGroups;
 
     private readonly RichTextMaterializer $richTextMaterializer;
+    private readonly Elements\CapturedDisclosureDialog $capturedDisclosureDialogs;
     private readonly Elements\StructuredCardListLowering $structuredCardLists;
     private readonly AuthoredMarqueeRecognizer $authoredMarqueeRecognizer;
 
@@ -518,6 +519,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->styleResolver,
             $this->runtime
         );
+        $this->capturedDisclosureDialogs = new Elements\CapturedDisclosureDialog($this->styleResolver);
         $this->richTextMaterializer = new RichTextMaterializer($this->styleResolver, $this->svgMaterializer, $this->session, $this);
         $this->authoredStateButtons = new Elements\AuthoredStateButtonLowering($this->session, $this->svgMaterializer);
         $this->linkedIconTextRows = new Elements\LinkedIconTextRowLowering(
@@ -848,7 +850,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             fn (DOMElement $image): array => $this->imageDimensions->minimumPixelSize($image)
         ));
         $detailsConverter = new DetailsElementConverter(new DetailsElementContext(
-            fn (DOMElement $element): ?DOMElement => $this->capturedDisclosureDialog($element),
+            fn (DOMElement $element): ?DOMElement => $this->capturedDisclosureDialogs->fromDetails($element),
             function (DOMElement $element, array &$fallbacks): array {
                 return $this->capturedDialogBlock($element, $fallbacks);
             },
@@ -4378,63 +4380,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private function capturedDialogBlock(DOMElement $element, array &$fallbacks): array
     {
         return $this->elementPrelude->capturedDialogBlock($element, $fallbacks);
-    }
-
-    /**
-     * A details disclosure can only lower to a captured dialog when the source
-     * provides the trigger linkage that makes the dialog operable at runtime.
-     */
-    private function capturedDisclosureDialog(DOMElement $element): ?DOMElement
-    {
-        $summary = null;
-        $dialog = null;
-
-        foreach ( $element->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType ) {
-                if ( '' !== trim(str_replace("\xc2\xa0", ' ', $child->textContent ?? '')) ) {
-                    return null;
-                }
-                continue;
-            }
-
-            if ( ! $child instanceof DOMElement ) {
-                return null;
-            }
-
-            $tagName = strtolower($child->tagName);
-            if ( 'summary' === $tagName && ! $summary instanceof DOMElement ) {
-                $summary = $child;
-                continue;
-            }
-
-            if ( 'dialog' === strtolower($this->attr($child, 'role')) && ! $dialog instanceof DOMElement ) {
-                $dialog = $child;
-                continue;
-            }
-
-            return null;
-        }
-
-        if ( ! $summary instanceof DOMElement || ! $dialog instanceof DOMElement ) {
-            return null;
-        }
-
-        if ( '' === trim($this->attr($dialog, 'data-blocks-engine-triggers')) ) {
-            return null;
-        }
-
-        $label = str_replace("\xc2\xa0", ' ', html_entity_decode($this->styleResolver->innerHtml($summary), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
-        if ( '' !== trim(strip_tags($label)) ) {
-            return null;
-        }
-
-        foreach ( $dialog->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement && in_array(strtolower($descendant->tagName), array( 'script', 'canvas', 'template', 'iframe', 'form' ), true) ) {
-                return null;
-            }
-        }
-
-        return $dialog;
     }
 
     /** @return array<string, mixed> */
