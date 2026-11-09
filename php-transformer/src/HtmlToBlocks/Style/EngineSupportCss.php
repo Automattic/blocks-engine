@@ -53,6 +53,7 @@ final class EngineSupportCss
 
     private const CSS_OWNED_GRID_CLASS = 'blocks-engine-css-owned-grid';
 
+
     /**
      * @return list<string>
      */
@@ -272,11 +273,13 @@ final class EngineSupportCss
             // descendant that still generates a box. See
             // LayoutParticipation::transferredItemDeclarations().
             $neutralButton = SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS;
+            $flexContainers = '.' . $neutralButton . '.flex,.' . $neutralButton . '.inline-flex';
             $rules = array(
                 '.' . $neutralButton => LayoutParticipation::transferredItemDeclarations(),
-                '.' . $neutralButton . '.flex,.' . $neutralButton . '.inline-flex' => LayoutParticipation::transferredFlexContainerDeclarations(),
+                $flexContainers => LayoutParticipation::transferredFlexContainerDeclarations(),
             );
-            $buttonCss = ':where(.' . $neutralButton . '){display:contents!important}';
+            $buttonCss = ':where(.' . $neutralButton . '){display:contents!important}'
+                . LayoutParticipation::transferredFlexContainerPaddingRule($flexContainers);
             foreach ( $rules as $selector => $declarations ) {
                 $axisRules = '';
                 foreach ( array( 'width' => 'fit-content', 'height' => 'auto' ) as $property => $default ) {
