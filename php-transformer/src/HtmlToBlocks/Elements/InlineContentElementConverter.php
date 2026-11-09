@@ -70,6 +70,17 @@ final class InlineContentElementConverter implements ElementConverter
             }
         }
 
+        // A named graphic of images is one group of native images; the group
+        // carries the graphic's accessible name.
+        if ( SourceDom::isImageOnlyNamedGraphic($element) ) {
+            $attrs = $this->styleResolver->presentationAttributes($element);
+            $label = trim(SourceDom::attr($element, 'aria-label'));
+            if ( '' !== $label ) {
+                $attrs['ariaLabel'] = $label;
+            }
+            return ConversionOutcome::handled($this->createBlock->createBlock('core/group', $attrs, $this->context->convertChildren($element, $fallbacks), $element));
+        }
+
         // Captured markup can place flow content inside an inline wrapper. A
         // native group retains that wrapper's presentation while its children
         // follow their own semantic conversion paths.

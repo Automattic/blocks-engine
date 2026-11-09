@@ -7144,8 +7144,10 @@ PHP;
         }
         foreach (array_merge($templates, $parts, $pages) as $document) {
             if (!str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), CaptureEvidence::VIEWPORT_ENTRANCE)) continue;
-            $entranceScript = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ViewportEntranceRuntime::script();
-            $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_script( 'blocks-engine-viewport-entrances', false, array(), null, true ); wp_enqueue_script( 'blocks-engine-viewport-entrances' ); wp_add_inline_script( 'blocks-engine-viewport-entrances', " . var_export($entranceScript, true) . " ); } );";
+            // Device-scoped entrances resolve through the site's live core
+            // viewport queries, so they follow block visibility breakpoints.
+            $entranceScript = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ViewportEntranceRuntime::script('__BLOCKS_ENGINE_VIEWPORT_QUERIES__');
+            $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { \$queries = array(); if ( method_exists( 'WP_Theme_JSON', 'get_viewport_media_queries' ) ) { foreach ( WP_Theme_JSON::get_viewport_media_queries( wp_get_global_settings( array( 'viewport' ) ), array( 'include_desktop' => true ) ) as \$state => \$query ) { \$queries[ ltrim( \$state, '@' ) ] = preg_replace( '/^@media\\s+/', '', \$query ); } } wp_register_script( 'blocks-engine-viewport-entrances', false, array(), null, true ); wp_enqueue_script( 'blocks-engine-viewport-entrances' ); wp_add_inline_script( 'blocks-engine-viewport-entrances', str_replace( '__BLOCKS_ENGINE_VIEWPORT_QUERIES__', (string) wp_json_encode( (object) \$queries ), " . var_export($entranceScript, true) . " ) ); } );";
             break;
         }
         foreach (array_merge($templates, $parts, $pages) as $document) {

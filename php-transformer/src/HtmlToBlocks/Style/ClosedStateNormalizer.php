@@ -190,12 +190,19 @@ final class ClosedStateNormalizer
                     break;
                 }
             }
-            $player = $region->parentNode;
-            if ( ! $hasRange || ! $hasMediaButton || ! $player instanceof DOMElement || in_array(strtolower($player->tagName), array( 'html', 'body' ), true) ) {
+            if ( ! $hasRange || ! $hasMediaButton ) {
                 continue;
             }
-            if ( $player->getElementsByTagName('video')->length > 0 || $player->getElementsByTagName('audio')->length > 0 ) {
-                return true;
+            // Canva can wrap the controls separately from the media. Search
+            // only the nearest three containers, never the whole document.
+            $player = $region->parentNode;
+            for ( $depth = 0; $depth < 3 && $player instanceof DOMElement; ++$depth, $player = $player->parentNode ) {
+                if ( in_array(strtolower($player->tagName), array( 'html', 'body' ), true) ) {
+                    break;
+                }
+                if ( $player->getElementsByTagName('video')->length > 0 || $player->getElementsByTagName('audio')->length > 0 ) {
+                    return true;
+                }
             }
         }
 
