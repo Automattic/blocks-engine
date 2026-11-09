@@ -70,6 +70,53 @@ $assert(
     'the repaired element carries the importer marker used by its repair'
 );
 
+// #5198: a time readout is player chrome, not a hidden content panel.
+$mediaControls = <<<'HTML'
+<style>.ctl{opacity:0}.ctl.on{opacity:1}</style>
+<div style="position:relative;overflow:hidden;height:400px">
+  <video muted src="v.mp4"></video>
+  <div role="group" aria-label="Video controls" style="position:absolute;top:24px">
+    <div style="transform:translateY(82px)">
+      <div class="ctl">
+        <input type="range" aria-label="Seek bar" value="0" max="4.44">
+        <p>0.0s</p>
+        <button aria-label="Play"></button>
+      </div>
+    </div>
+  </div>
+</div>
+HTML;
+$mediaControlsResult = ( new HtmlTransformer() )->transform($mediaControls)->toArray();
+$mediaControlsAfterAuthor = $cssContent($mediaControlsResult, 'after-author', 'both');
+$assert(
+    ! str_contains($mediaControlsAfterAuthor, 'opacity:1!important'),
+    'hover-only media controls keep their idle opacity instead of revealing the time readout',
+    $mediaControlsAfterAuthor
+);
+
+$audioControlsResult = ( new HtmlTransformer() )->transform(str_replace(
+    array( '<video muted src="v.mp4"></video>', 'Video controls' ),
+    array( '<audio src="a.mp3"></audio>', 'Audio controls' ),
+    $mediaControls
+))->toArray();
+$assert(
+    ! str_contains($cssContent($audioControlsResult, 'after-author', 'both'), 'opacity:1!important'),
+    'audio player chrome also keeps its idle closed state'
+);
+
+foreach ( array(
+    'without a media element' => str_replace('<video muted src="v.mp4"></video>', '', $mediaControls),
+    'without a controls group' => str_replace('role="group" aria-label="Video controls"', 'role="region" aria-label="Settings"', $mediaControls),
+    'without a seek range' => str_replace('type="range"', 'type="text"', $mediaControls),
+    'without a media button' => str_replace('aria-label="Play"', 'aria-label="Submit"', $mediaControls),
+) as $case => $contentPanel ) {
+    $contentPanelResult = ( new HtmlTransformer() )->transform($contentPanel)->toArray();
+    $assert(
+        str_contains($cssContent($contentPanelResult, 'after-author', 'both'), '.ctl{opacity:1!important'),
+        'content ' . $case . ' still receives the closed-state reveal'
+    );
+}
+
 $faq = <<<'HTML'
 <div data-hook="widget-accordion-wrapper">
   <div role="region">
