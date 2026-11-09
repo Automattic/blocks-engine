@@ -977,19 +977,12 @@ final class PresetBinding
             if (isset($this->system->elements['button']['padding']) && str_contains($prelude, '.wp-block-button__link')
                 && array() === array_filter(CssValueSplitter::splitTopLevel($prelude, array(',')), static fn(string $arm): bool => !str_contains($arm, '.wp-block-button__link'))
                 && !preg_match('/:(?:hover|focus|active|disabled)|!important|\{/i', $prelude . $body)) {
-                $body = implode(';', array_filter(CssValueSplitter::splitTopLevel($body, array(';')), function (string $declaration): bool {
-                    $pair = explode(':', $declaration, 2);
-                    return 2 !== count($pair) || !$this->matchesButtonElement(trim($pair[0]), trim($pair[1]));
-                }));
+                [$shared, $kept] = $this->partitionButtonDeclarations($body);
+                $body = implode(';', $kept);
             }
             if (null !== ($slug = $this->system->buttonVariationSlug()) && str_contains($prelude, '.wp-block-button__link') && !preg_match('/:(?:hover|focus|active|disabled)|!important|\{/i', $prelude . $body)
                 && array() === array_filter(CssValueSplitter::splitTopLevel($prelude, array(',')), static fn(string $arm): bool => !str_contains($arm, '.wp-block-button__link'))) {
-                $shared = $kept = array();
-                foreach (CssValueSplitter::splitTopLevel($body, array(';')) as $declaration) {
-                    $pair = explode(':', $declaration, 2);
-                    if (2 === count($pair) && $this->matchesButtonElement(trim($pair[0]), trim($pair[1]))) $shared[] = $declaration;
-                    else $kept[] = $declaration;
-                }
+                [$shared, $kept] = $this->partitionButtonDeclarations($body);
                 if (array() !== $shared) {
                     // Keep off-look controls unchanged, but let the registered
                     // variation beat both author rules and wp-element-button.
@@ -999,6 +992,40 @@ final class PresetBinding
             }
             return $prelude . '{' . $this->bindRuleBody($transformer, $body, self::rootSelector($prelude)) . '}';
         });
+    }
+
+    /**
+     * Yield only independent cascade families. A retained shorthand can reset
+     * a matching longhand, so those declarations must travel together. Keeping
+     * the original ordered family preserves its resolved per-longhand values,
+     * including resets and values we cannot safely expand (variables, logical
+     * properties and future shorthand syntax).
+     *
+     * @return array{list<string>, list<string>}
+     */
+    private function partitionButtonDeclarations(string $body): array
+    {
+        $declarations = CssValueSplitter::splitTopLevel($body, array(';'));
+        $families = $matches = $retained = array();
+        foreach ($declarations as $index => $declaration) {
+            $pair = explode(':', $declaration, 2);
+            $property = strtolower(trim($pair[0]));
+            $family = str_starts_with($property, '--') ? $property : explode('-', $property)[0];
+            $family = match ($family) {
+                'top', 'right', 'bottom', 'left' => 'inset',
+                'line' => 'font',
+                default => $family,
+            };
+            $families[$index] = $family;
+            $matches[$index] = 2 === count($pair) && $this->matchesButtonElement($property, trim($pair[1]));
+            if (!$matches[$index]) $retained[$family] = true;
+        }
+        $shared = $kept = array();
+        foreach ($declarations as $index => $declaration) {
+            if ($matches[$index] && !isset($retained[$families[$index]]) && !isset($retained['all'])) $shared[] = $declaration;
+            else $kept[] = $declaration;
+        }
+        return array($shared, $kept);
     }
 
     /** Only complete, exactly matching blocks opt into a variation. */
