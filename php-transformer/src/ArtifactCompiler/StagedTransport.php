@@ -817,7 +817,7 @@ trait StagedTransport
             if (isset($file['payload_reference'])) {
                 $reference = $this->payloadReference($file['payload_reference']);
                 $references[$path] = $reference;
-                if ($required && !$this->isReferenceBackedBinary($file)) {
+                if ($required && !ArtifactNormalizer::isReferenceBackedBinary($file)) {
                     $content = $this->readPayload($reference, $payloadReader);
                     unset($file['payload_reference']);
                     $file['content'] = $content;
@@ -979,7 +979,7 @@ trait StagedTransport
             // Reference-backed media is never opened by a reader, so its bytes
             // cannot cause the allocation this budget exists to bound. It is
             // still bounded, on the media budget, so growth stays refusable.
-            if ($this->isReferenceBackedBinary($file)) {
+            if (ArtifactNormalizer::isReferenceBackedBinary($file)) {
                 if ($reference['bytes'] > $maxMediaFile) throw new \InvalidArgumentException('A reference-backed media payload exceeds the compiler per-file media byte limit.');
                 $mediaTotal += $reference['bytes'];
                 if ($mediaTotal > $maxMediaTotal) throw new \InvalidArgumentException('Reference-backed media payloads exceed the compiler aggregate media byte limit.');
@@ -1026,7 +1026,7 @@ trait StagedTransport
             if (!isset($file['payload_reference'])) continue;
             if (null === $payloadReader) throw new \InvalidArgumentException('Composition requires a payload reader for referenced staged payloads.');
             $reference = $this->payloadReference($file['payload_reference']);
-            if ($this->isReferenceBackedBinary($file)) continue;
+            if (ArtifactNormalizer::isReferenceBackedBinary($file)) continue;
             $content = $this->readPayload($reference, $payloadReader);
             unset($file['payload_reference']);
             if (!empty($file['binary'])) {
@@ -1047,12 +1047,6 @@ trait StagedTransport
             return $sharedPlan['shared_reduction']['files'];
         }
         return $this->materializePlanArtifact($sharedPlan['artifact'], $payloadReader)['files'];
-    }
-
-    /** @param array<string,mixed> $file */
-    private function isReferenceBackedBinary(array $file): bool
-    {
-        return ArtifactNormalizer::isReferenceBackedBinary($file);
     }
 
     /** @param array<string,mixed> $hashInput */

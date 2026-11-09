@@ -1981,7 +1981,7 @@ final class NavigationPatternContext
             if ( in_array($property, array( 'font', 'font-size' ), true) && str_contains($value, '--scaling-factor') ) {
                 continue;
             }
-            if ( 'color' === $property && $this->isTransparentColor($value) ) {
+            if ( 'color' === $property && CssValueInspector::isTransparentColor($value) ) {
                 continue;
             }
             if ( '' !== $value ) {
@@ -2081,12 +2081,6 @@ final class NavigationPatternContext
         }
 
         return is_string($shared) ? $shared : '';
-    }
-
-    /** Transparent ink is invisible unless a clipped background travels with it. */
-    private function isTransparentColor(string $value): bool
-    {
-        return CssValueInspector::isTransparentColor($value);
     }
 
     /**

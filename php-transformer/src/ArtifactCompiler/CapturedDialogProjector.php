@@ -79,7 +79,7 @@ final class CapturedDialogProjector
         }
         $routes = CaptureReceiptRoutes::resolve($files, $receipt);
         foreach (($report['pages'] ?? array()) as $page) {
-            $path = $routes[$this->normalizedUrl((string) ($page['sourceUrl'] ?? ''))] ?? '';
+            $path = $routes[CaptureReceiptRoutes::normalizedUrl((string) ($page['sourceUrl'] ?? ''))] ?? '';
             foreach ($files as &$file) {
                 if ('' === $path || $path !== ($file['path'] ?? null) || !is_string($file['content'] ?? null)) continue;
                 $document = new DOMDocument('1.0', 'UTF-8');
@@ -269,7 +269,7 @@ final class CapturedDialogProjector
             if (array() === $dialogStates) {
                 continue;
             }
-            $path = $routes[$this->normalizedUrl($page['sourceUrl'])] ?? '';
+            $path = $routes[CaptureReceiptRoutes::normalizedUrl($page['sourceUrl'])] ?? '';
             $index = $fileIndexes[$path] ?? null;
             if (! is_int($index) || ! is_string($files[$index]['content'] ?? null)) {
                 $diagnostics[] = $this->diagnostic('captured_interaction_source_unmatched', 'warning', 'A captured interaction page did not match an artifact HTML document.', array('source_url' => $page['sourceUrl']));
@@ -514,7 +514,7 @@ final class CapturedDialogProjector
             }
             // A navigation button with its dropdown panel of links stays in place:
             // it becomes a navigation submenu, not a dialog opened from a button.
-            if (array() === array_filter($triggers, fn (DOMElement $trigger): bool => ! $this->isNavigationDropdownTrigger($trigger))) {
+            if (array() === array_filter($triggers, fn (DOMElement $trigger): bool => ! NavigationPattern::ownsCapturedSubmenuTrigger($trigger))) {
                 $handledNavigationDropdown = true;
                 foreach ($triggers as $trigger) {
                     $this->consumeMatchedCloseHelper($document, array($trigger), $trigger->parentNode);
@@ -813,7 +813,7 @@ final class CapturedDialogProjector
             $groups = array();
             foreach ($xpath->query('.//*[@' . CaptureEvidence::DIALOG_TRIGGER . ']', $scope) ?: array() as $trigger) {
                 if (! $trigger instanceof DOMElement || $this->insideProjectedDialog($trigger)) continue;
-                if ($this->isNavigationDropdownTrigger($trigger)) continue;
+                if (NavigationPattern::ownsCapturedSubmenuTrigger($trigger)) continue;
                 $key = trim($trigger->getAttribute(CaptureEvidence::DIALOG_TRIGGER));
                 if (1 === preg_match('/^[A-Za-z0-9_-]{1,64}$/', $key) && $key === trim($trigger->getAttribute('aria-controls'))) {
                     $groups[$key][] = $trigger;
@@ -1074,7 +1074,7 @@ final class CapturedDialogProjector
             $xpath = new DOMXPath($document);
             $changed = false;
             foreach ($document->getElementsByTagName('*') as $trigger) {
-                if (!$this->isNavigationDropdownTrigger($trigger)) continue;
+                if (!NavigationPattern::ownsCapturedSubmenuTrigger($trigger)) continue;
                 $key = $trigger->getAttribute(CaptureEvidence::DIALOG_TRIGGER);
                 foreach ($this->documentScopes($document) as $scope) {
                     if (!SourceDom::elementContains($scope, $trigger)) continue;
@@ -1158,11 +1158,6 @@ final class CapturedDialogProjector
         unset($file);
     }
 
-    private function isNavigationDropdownTrigger(DOMElement $trigger): bool
-    {
-        return NavigationPattern::ownsCapturedSubmenuTrigger($trigger);
-    }
-
     private function isCapturedNavigationOverlayTrigger(DOMElement $trigger): bool
     {
         return 'dialog' === strtolower(trim($trigger->getAttribute('aria-haspopup')))
@@ -1172,7 +1167,7 @@ final class CapturedDialogProjector
     private function hasNavigationOwnedDialogTrigger(DOMDocument $document): bool
     {
         foreach ($document->getElementsByTagName('*') as $node) {
-            if ($node instanceof DOMElement && '' !== trim($node->getAttribute(CaptureEvidence::DIALOG_TRIGGER)) && $this->isNavigationDropdownTrigger($node)) return true;
+            if ($node instanceof DOMElement && '' !== trim($node->getAttribute(CaptureEvidence::DIALOG_TRIGGER)) && NavigationPattern::ownsCapturedSubmenuTrigger($node)) return true;
         }
         return false;
     }
@@ -1181,7 +1176,7 @@ final class CapturedDialogProjector
     {
         foreach (iterator_to_array($document->getElementsByTagName('*')) as $node) {
             $parent = $node->parentNode;
-            if ($node instanceof DOMElement && $parent instanceof DOMElement && $this->isNavigationDropdownTrigger($node)) {
+            if ($node instanceof DOMElement && $parent instanceof DOMElement && NavigationPattern::ownsCapturedSubmenuTrigger($node)) {
                 $this->consumeMatchedCloseHelper($document, array($node), $parent);
             }
         }
@@ -1368,7 +1363,7 @@ final class CapturedDialogProjector
         foreach ($document->getElementsByTagName('*') as $node) {
             if (!$node instanceof DOMElement || '' === trim($node->getAttribute(CaptureEvidence::DIALOG_TRIGGER))) continue;
             // A navigation dropdown trigger becomes a submenu, so it needs no dialog binding.
-            if ($this->isNavigationDropdownTrigger($node)) continue;
+            if (NavigationPattern::ownsCapturedSubmenuTrigger($node)) continue;
             $id = trim($node->getAttribute('id'));
             if ('' === $id || !isset($bound[$id])) return false;
         }
@@ -1793,11 +1788,6 @@ final class CapturedDialogProjector
         }
 
         return $sole;
-    }
-
-    private function normalizedUrl(string $url): string
-    {
-        return CaptureReceiptRoutes::normalizedUrl($url);
     }
 
     private function xpathLiteral(string $value): string
