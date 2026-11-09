@@ -706,11 +706,17 @@ final class GeneratedBlockStyleProjector
             $controlStyle,
             $this->styleResolver->authorStructuralDeclarations($control)
         ) ? '' : ';min-width:0';
+        // Core's link `word-break:break-word` turns every character into a soft
+        // wrap opportunity, so the wrapper's min-content contribution collapses
+        // to one glyph and a squeezed row stacks the label letter by letter.
+        // Restore the initial value at Core's weight; this sheet follows Core's,
+        // and an authored word-break projected onto the link still outranks it.
         $generatedStyles->registerDirectFlexButton(
             $marker,
             $wrapper . '{display:block!important;gap:0!important' . $wrapperFloor . '}'
                 . $button . '{display:block!important;margin:0!important;min-width:0' . ($stretchesCrossAxis ? ';width:100%!important' : '') . '}'
                 . $link . '{box-sizing:border-box' . ($stretchesCrossAxis ? ';width:100%!important' : '') . '}'
+                . $button . '>.wp-block-button__link{word-break:normal}'
                 . ($hasWidth || ! $isFlex ? '' : $wrapper . '{width:auto!important}')
                 . ($isGrid ? $button . '{width:100%}' : '')
                 . ($isFlex ? $button . '{width:100%!important;height:100%}' . $link . '{' . ($hasWidth ? '' : 'width:100%!important;') . 'height:100%}' : '')

@@ -156,6 +156,23 @@ $assert(
     $explicitFloorCss
 );
 
+// The link's min-content floor follows the source anchor's word-break, not
+// Core's `break-word`, which would let a squeezed row stack the label one glyph
+// per line. The reset carries Core's weight, so an authored value still wins.
+foreach ( array( '' => false, 'word-break:break-all;' => true ) as $authored => $projected ) {
+    $wordBreakCss = $cssOf($transform(
+        '<style>.hdr{display:flex;align-items:center;justify-content:space-between;width:300px}.actions{display:flex;gap:12px}'
+        . '.cta{display:inline-flex;align-items:center;gap:8px;padding:10px 20px;background:#059669;color:#fff;' . $authored . '}</style>'
+        . '<header class="hdr"><a href="/">Brand</a><div class="actions"><a class="cta" href="https://wa.me/1">Talk on WhatsApp</a></div></header>'
+    ));
+    $assert(
+        1 === preg_match('/:where\(\.blocks-engine-control-[a-z0-9-]+\.wp-block-button\)>\.wp-block-button__link\{word-break:normal\}/', $wordBreakCss)
+            && $projected === (1 === preg_match('/:not\(be-t-0\)\{[^}]*word-break:break-all/', $wordBreakCss)),
+        '7: the direct-flex link resets Core break-word at Core weight while an authored word-break stays projected',
+        $wordBreakCss
+    );
+}
+
 if ( $failures > 0 ) {
     fwrite(STDERR, PHP_EOL . "button link automatic minimum tests: {$passes} passed, {$failures} FAILED" . PHP_EOL);
     exit(1);
