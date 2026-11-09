@@ -616,6 +616,7 @@
       "php tests/unit/image-slideshow-gallery.php",
       "php tests/unit/group-tag-name-save-agreement.php",
       "php tests/unit/authored-marquee-block.php",
+      "php tests/contract/authored-marquee-source-classes.php",
       "php tests/unit/copy-to-clipboard-block.php",
       "php tests/unit/theme-toggle-block.php",
       "php tests/unit/collection-filter-block.php",

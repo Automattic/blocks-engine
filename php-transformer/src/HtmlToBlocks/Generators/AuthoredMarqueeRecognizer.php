@@ -109,6 +109,9 @@ final class AuthoredMarqueeRecognizer
             'duration' => $motion['duration'],
             'decorative' => SourceDom::hasAriaHiddenAncestor($element),
         );
+        if ( '' !== trim($this->attr($element, 'class')) ) {
+            $attributes['sourceClassName'] = trim($this->attr($element, 'class'));
+        }
         $markup = $generator->markup($attributes);
 
         return array(
@@ -357,6 +360,9 @@ final class AuthoredMarqueeRecognizer
             'direction' => $this->attr($track, 'data-marquee-animation'),
             'duration' => min(600, max(1, $duration)),
         );
+        if ( '' !== trim($this->attr($element, 'class')) ) {
+            $attributes['sourceClassName'] = trim($this->attr($element, 'class'));
+        }
         $markup = ( new AuthoredMarqueeBlockGenerator() )->markup($attributes);
 
         return array(
@@ -433,6 +439,9 @@ final class AuthoredMarqueeRecognizer
             'duration' => min(600, max(1, 40 / (float) $speed)),
             'decorative' => SourceDom::hasAriaHiddenAncestor($element),
         );
+        if ( '' !== trim($this->attr($element, 'class')) ) {
+            $attributes['sourceClassName'] = trim($this->attr($element, 'class'));
+        }
         $markup = $generator->markup($attributes);
         return array(
             'blockName' => $this->generatedBlocks()->blockName(AuthoredMarqueeBlockGenerator::LOCAL_NAME),
