@@ -250,11 +250,32 @@ $footerParts = array_values(array_filter($footerPlan['template_parts'], static f
 $assert(1 === count($footerParts) && 'inline_shared_shell' === ($footerParts[0]['placement']['kind'] ?? null) && in_array('hidden', $footerParts[0]['ancestor_context']['classes'] ?? array(), true) && in_array('lg:block', $footerParts[0]['ancestor_context']['classes'] ?? array(), true), 'The repeated footer has one shared owner and retains authored ancestor evidence.');
 foreach (array('front-page', 'page') as $slug) {
     $markup = $footerTemplates[$slug] ?? '';
-    $assert(1 === preg_match('/<!-- wp:group [^>]*"className":"hidden lg:block"[^>]*--><div class="wp-block-group hidden lg:block">\s*<!-- wp:template-part \{"slug":"footer"[^>]*\/-->\s*<\/div><!-- \/wp:group -->/', $markup), "The {$slug} template wraps its one editable footer reference in the authored responsive group: {$markup}");
+    $assert(1 === substr_count($markup, '<!-- wp:template-part {"slug":"footer"') && !str_contains($markup, 'hidden lg:block'), "The {$slug} template keeps one footer reference without repeating the shared responsive wrapper: {$markup}");
 }
 foreach (array('index.html', 'about.html', 'team.html') as $source) $assert(!str_contains($rawPages($footerPlan)[$source]['canonical_block_markup'] ?? '', 'hidden lg:block'), "{$source} keeps only its own content.");
-$assert(!str_contains($footerParts[0]['canonical_block_markup'], 'hidden lg:block'), 'The visibility wrapper stays route-owned around its reference rather than becoming global part content.');
+// Every template frame repeats the same wrapper after its content, so the
+// wrapper is footer chrome and the part owns it once.
+$assert(str_starts_with($footerParts[0]['canonical_block_markup'], '<!-- wp:group {"className":"hidden lg:block"} --><div class="wp-block-group hidden lg:block">') && str_contains($footerParts[0]['canonical_block_markup'], 'Shared colophon'), 'An identical visibility wrapper in every frame folds into the footer part around its content.');
 WordPressSitePlan::assertValid($footerPlan);
+
+// Site-wide layers after the footer (a consent banner) repeat in every frame,
+// so they join the footer part; each template keeps only its references.
+$trailingResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><h1>Home</h1></main>', 'about.html' => '<main><h1>About</h1></main>')))->toArray();
+foreach ($trailingResult['source_reports']['compiled_site']['pages'] as &$trailingPage) {
+    $title = ucfirst(pathinfo($trailingPage['source_path'], PATHINFO_FILENAME));
+    $trailingPage['block_markup'] = '<!-- wp:group {"className":"page-inner"} --><div class="wp-block-group page-inner">'
+        . '<!-- wp:group {"tagName":"main"} --><main class="wp-block-group"><!-- wp:heading --><h2 class="wp-block-heading">' . $title . '</h2><!-- /wp:heading --></main><!-- /wp:group -->'
+        . '<!-- wp:group {"className":"footer-wrap"} --><div class="wp-block-group footer-wrap"><!-- wp:group {"className":"site-footer","tagName":"footer"} --><footer class="wp-block-group site-footer"><!-- wp:paragraph --><p>Shared colophon</p><!-- /wp:paragraph --></footer><!-- /wp:group --></div><!-- /wp:group -->'
+        . '<!-- wp:group {"className":"consent"} --><div class="wp-block-group consent"><!-- wp:paragraph --><p>Cookie notice</p><!-- /wp:paragraph --></div><!-- /wp:group -->'
+        . '</div><!-- /wp:group -->';
+}
+unset($trailingPage);
+$trailingPlan = (new WordPressSitePlan())->fromResult($trailingResult);
+$trailingFooter = array_values(array_filter($trailingPlan['template_parts'], static fn(array $part): bool => 'footer' === ($part['area'] ?? null)))[0]['canonical_block_markup'] ?? '';
+$trailingTemplates = array_column($trailingPlan['templates'], 'canonical_block_markup', 'slug');
+$assert(str_contains($trailingFooter, 'footer-wrap') && str_contains($trailingFooter, 'Cookie notice') && strpos($trailingFooter, 'Shared colophon') < strpos($trailingFooter, 'Cookie notice'), 'Trailing frame chrome joins the footer part in source order: ' . $trailingFooter);
+foreach ($trailingTemplates as $slug => $markup) $assert(!str_contains($markup, 'Cookie notice') && !str_contains($markup, 'footer-wrap') && 1 === substr_count($markup, '"slug":"footer"'), "The {$slug} template keeps one footer reference instead of repeating trailing chrome: {$markup}");
+WordPressSitePlan::assertValid($trailingPlan);
 
 $variantFooterPlan = $footerPlanFor(array(
     'index.html' => '<div class="hidden lg:block">%s</div>',

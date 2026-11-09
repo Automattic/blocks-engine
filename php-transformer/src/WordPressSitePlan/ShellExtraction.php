@@ -2495,6 +2495,69 @@ final class ShellExtraction
     }
 
     /**
+     * Fold the chrome that follows the content slot in every template frame
+     * into the footer part.
+     *
+     * A frame repeats its trailing siblings (the footer wrapper around the
+     * part reference, and site-wide layers such as a consent banner or chat
+     * widget) verbatim in every template. When every frame ends with the same
+     * run (before any trailing modal dialog) and that run holds the one inline
+     * footer reference, the run is the
+     * footer: it moves into the part and each frame keeps one reference. The
+     * reference renders as a layout-transparent transport wrapper, so sibling
+     * order and paint are unchanged.
+     *
+     * @param array<string,array{opening:string,closing:string,shells:array<int,string>}> $frames
+     * @param array<int,array<string,mixed>> $parts
+     * @param array<int,array<string,mixed>> $pages
+     * @return array{frames:array<string,array{opening:string,closing:string,shells:array<int,string>}>,parts:array<int,array<string,mixed>>}
+     */
+    public function foldFrameTrailingChrome(array $frames, array $parts, array $pages): array
+    {
+        $unchanged = array('frames' => $frames, 'parts' => $parts);
+        $footers = array_keys(array_filter($parts, static fn(array $part): bool => 'footer' === ($part['area'] ?? null) && 'inline_shared_shell' === ($part['placement']['kind'] ?? null)));
+        if (1 !== count($footers)) return $unchanged;
+        $partIndex = $footers[0];
+        $slug = (string) $parts[$partIndex]['slug'];
+        $reference = '/<!--\s*wp:template-part\s+\{[^}]*"slug":"' . preg_quote($slug, '/') . '"[^}]*\}\s*\/-->/';
+        foreach ($pages as $page) if (1 === preg_match($reference, (string) ($page['canonical_block_markup'] ?? ''))) return $unchanged;
+        $slot = '<!-- wp:post-content {"className":"blocks-engine-frame-slot"} /-->';
+        $runs = array();
+        foreach ($frames as $template => $frame) {
+            if (!in_array($slug, $frame['shells'], true)) continue;
+            $markup = $frame['opening'] . $slot . $frame['closing'];
+            $nodes = self::blockNodes(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup));
+            $slotId = null;
+            foreach ($nodes as $id => $node) if ($node['offset'] === strlen($frame['opening'])) { $slotId = $id; break; }
+            if (null === $slotId) return $unchanged;
+            $parent = $nodes[$slotId]['parent'];
+            $siblings = null === $parent ? self::topLevelNodeIds($nodes) : $nodes[$parent]['children'];
+            $trailing = array_slice($siblings, (int) array_search($slotId, $siblings, true) + 1);
+            // A modal dialog mounted at the end belongs to its header trigger
+            // and renders in the top layer; it stays in the frame.
+            while (array() !== $trailing && self::isCapturedModalDialogBlock(substr($markup, $nodes[end($trailing)]['offset'], $nodes[end($trailing)]['end'] - $nodes[end($trailing)]['offset']))) array_pop($trailing);
+            if (array() === $trailing) return $unchanged;
+            $start = $nodes[$trailing[0]]['offset'];
+            $end = $nodes[$trailing[count($trailing) - 1]]['end'];
+            $run = substr($markup, $start, $end - $start);
+            if (1 !== preg_match_all($reference, $run, $found)) return $unchanged;
+            // Everything the frame holds after the slot outside this run (its
+            // closing wrappers) must not reference the part again.
+            if (1 !== preg_match_all($reference, $frame['closing'])) return $unchanged;
+            $runs[$template] = array('run' => $run, 'start' => $start - strlen($frame['opening']) - strlen($slot), 'reference' => $found[0][0]);
+        }
+        if (array() === $runs || 1 !== count(array_unique(array_map(static fn(array $run): string => self::frameIdentity(array('opening' => $run['run'], 'closing' => '')), $runs)))) return $unchanged;
+        $first = reset($runs);
+        $partMarkup = (string) preg_replace_callback($reference, static fn(): string => (string) $parts[$partIndex]['canonical_block_markup'], $first['run'], 1);
+        foreach ($runs as $template => $run) {
+            $frames[$template]['closing'] = substr_replace($frames[$template]['closing'], $run['reference'], $run['start'], strlen($run['run']));
+        }
+        $parts[$partIndex]['canonical_block_markup'] = $partMarkup;
+        $parts[$partIndex]['content_hash'] = WordPressSitePlan::contentHash($partMarkup);
+        return array('frames' => $frames, 'parts' => $parts);
+    }
+
+    /**
      * The captured dialog and its trigger are linked by id. The shared header
      * part holds one trigger, so a frame's dialog takes that trigger's id.
      *
