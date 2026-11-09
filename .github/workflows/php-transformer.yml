@@ -27,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        php-version: ["8.2", "8.3", "8.4", "8.5"]
+        php-version: ["8.3", "8.4", "8.5"]
 
     defaults:
       run:
@@ -249,7 +249,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        php-version: ["8.2", "8.3", "8.4", "8.5"]
+        php-version: ["8.3", "8.4", "8.5"]
     services:
       mysql:
         image: mysql:8.0.36
@@ -296,12 +296,12 @@ jobs:
           WP_TESTS_DIR: ${{ runner.temp }}/wordpress-develop/tests/phpunit
         run: composer test:wordpress-integration
       - name: Setup Node for native document context proof
-        if: matrix.php-version == '8.2'
+        if: matrix.php-version == '8.3'
         uses: actions/setup-node@v4
         with:
           node-version: "20"
       - name: Verify native document ancestor context in Chromium
-        if: matrix.php-version == '8.2'
+        if: matrix.php-version == '8.3'
         working-directory: php-transformer
         env:
           BODY_CONTEXT_WORDPRESS_BOOTSTRAP: ${{ runner.temp }}/wordpress-develop/tests/phpunit/includes/bootstrap.php
@@ -313,7 +313,7 @@ jobs:
           php tests/contract/document-body-context.php
           PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/contract/document-body-context-browser.mjs
       - name: Verify disposable HTTP frontend and Gutenberg save/reload
-        if: matrix.php-version == '8.2'
+        if: matrix.php-version == '8.3'
         working-directory: php-transformer
         env:
           BODY_CONTEXT_DISPOSABLE: "1"
@@ -339,7 +339,7 @@ jobs:
           php -S 127.0.0.1:19006 -t "$SITE" > "$RUNNER_TEMP/document-context-http/server.log" 2>&1 &
           PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/integration/document-body-context-browser.mjs
       - name: Verify authored carousel PHP and native save control contract
-        if: matrix.php-version == '8.2'
+        if: matrix.php-version == '8.3'
         working-directory: php-transformer
         env:
           BE_EDITOR_WP_URL: http://127.0.0.1:19006
@@ -354,7 +354,7 @@ jobs:
           export BE_EDITOR_POST_ID="$(php -r '$x=json_decode(file_get_contents($argv[1]),true); echo $x["post_id"];' "$BE_EDITOR_EVIDENCE_DIR/carousel-control-page.json")"
           node tests/carousel-control-acceptance.mjs
       - name: Retain document context runtime evidence
-        if: always() && matrix.php-version == '8.2'
+        if: always() && matrix.php-version == '8.3'
         uses: actions/upload-artifact@v4
         with:
           name: document-context-runtime
