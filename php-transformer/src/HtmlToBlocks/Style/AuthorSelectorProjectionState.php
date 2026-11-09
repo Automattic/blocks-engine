@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Closure;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use DOMElement;
 
@@ -1043,6 +1044,13 @@ final class AuthorSelectorProjectionState
     public function mediaTextImageMarker(string $path): string
     {
         return $this->mediaTextImageMarkers[$path] ?? '';
+    }
+
+    /** @return list<string> */
+    public function semanticMarkersForElement(DOMElement $element): array
+    {
+        $path = SourceDom::sourceElementIdentity($element);
+        return $this->semanticMarkersForPath($path);
     }
 
     /** @return list<string> */

@@ -4,22 +4,19 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ScrollStateBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
-use Closure;
 use DOMElement;
 use LogicException;
 
 /** Preserves a captured scroll-driven class/style toggle as a companion block. */
 final class ScrollStateConverter implements ElementConverter
 {
-    /**
-     * @param Closure(DOMElement, array<int, array<string, mixed>>&): array<int, array<string, mixed>> $convertChildren
-     */
     public function __construct(
         private readonly HtmlTransformerSession $session,
-        private readonly Closure $convertChildren,
+        private readonly PatternTreeConverter $tree,
         private readonly StyleResolver $styleResolver
     ) {
     }
@@ -76,7 +73,7 @@ final class ScrollStateConverter implements ElementConverter
             'config' => '{}' === $config ? '' : $config,
         ), static fn(mixed $value): bool => '' !== $value);
 
-        $children = ($this->convertChildren)($element, $fallbacks);
+        $children = $this->tree->children($element, $fallbacks, true);
         $escape = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $opening = '<' . $tagName;
         if ('' !== $anchor) $opening .= ' id="' . $escape($anchor) . '"';

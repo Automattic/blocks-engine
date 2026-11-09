@@ -86,5 +86,6 @@ if ('rgb(229,227,220)' !== ($projected[0]['customOverlayBackgroundColor'] ?? '')
 if ('center' !== ($projected[0]['layout']['justifyContent'] ?? '') || !str_contains($styles, 'min-height:100dvh!important;justify-content:center!important')) $failures[] = 'Center the stacked links on both axes.';
 if (!str_contains($styles, 'width:47px!important') || !str_contains($styles, 'height:37px!important')) $failures[] = 'Keep the source button slot.';
 if (!str_contains($styles, '.wp-block-navigation__responsive-container-close{position:absolute!important;inset:0!important;display:flex!important') || !str_contains($styles, 'z-index:-1!important')) $failures[] = 'The close icon occupies the burger slot above the panel surface.';
+if (!str_contains($styles, 'transform:none!important;animation:none!important;z-index:auto!important') || str_contains($styles, 'isolation:isolate')) $failures[] = 'The open container must not become the fixed panel\'s containing block or stacking context.';
 foreach ($failures as $failure) fwrite(STDERR, 'FAIL: ' . $failure . PHP_EOL);
 exit(array() === $failures ? 0 : 1);

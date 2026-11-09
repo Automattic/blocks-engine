@@ -739,7 +739,7 @@ final class ImageLowering
             // inert identities retain the historical class transport.
             $styledLeaf = $this->imageNeedsSeparateFigureBox($image, $figure);
             $marker = $styledLeaf ? $this->session->authorSelectorProjectionState()->ensureImageWrapperMarker($image->getNodePath() ?? '') : '';
-            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $this->nonCoreImageFigureClassName($figure), $styledLeaf ? $marker : $this->nonCoreImageClassName($image), ...$this->authorSemanticMarkersForElement($image));
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $this->nonCoreImageFigureClassName($figure), $styledLeaf ? $marker : $this->nonCoreImageClassName($image), ...$this->session->authorSelectorProjectionState()->semanticMarkersForElement($image));
         } else {
             $attrs['className'] = $this->styleResolver->mergePresentationClassNames((string) ($attrs['className'] ?? ''), $this->styleResolver->injectedFigureHeightClassName($image));
         }
@@ -780,13 +780,6 @@ final class ImageLowering
         return implode(' ', $classes);
     }
 
-    /** @return list<string> */
-    private function authorSemanticMarkersForElement(DOMElement $element): array
-    {
-        $path = SourceDom::sourceElementIdentity($element);
-        return $this->session->authorSelectorProjectionState()->semanticMarkersForPath($path);
-    }
-
     private function nonCoreImageFigureClassName(DOMElement $figure): string
     {
         $classes = array_filter(preg_split('/\s+/', trim(SourceDom::attr($figure, 'class'))) ?: array(), static function (string $className): bool {
@@ -794,5 +787,33 @@ final class ImageLowering
         });
 
         return implode(' ', $classes);
+    }
+
+    public function isImageOnlyAnchor(DOMElement $anchor): bool
+    {
+        $imageChildren = 0;
+        foreach ( $anchor->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                if ( in_array(strtolower($child->tagName), array( 'img', 'picture' ), true) || SourceDom::imageOnlyCarrierElement($child) instanceof DOMElement ) {
+                    ++$imageChildren;
+                    continue;
+                }
+                if ( $this->isHiddenImageLinkLabel($child) ) {
+                    continue;
+                }
+                // Lightbox links commonly append empty overlay elements beside
+                // their image. They are decoration, not additional link content.
+                if ( '' !== trim($child->textContent ?? '') ) {
+                    return false;
+                }
+                continue;
+            }
+
+            if ( '' !== trim($child->textContent ?? '') ) {
+                return false;
+            }
+        }
+
+        return 1 === $imageChildren;
     }
 }

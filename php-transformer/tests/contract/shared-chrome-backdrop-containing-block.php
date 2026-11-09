@@ -37,15 +37,18 @@ $links = '<nav><a href="index.html">Home</a><a href="about.html">About</a><a hre
 $backdrop = '<div class="page-bg" style="position:absolute;inset:0;background:#fffaf2"></div>';
 
 /** @return array{parts: array<string,array<string,mixed>>, css: string} */
-$compile = static function (string $header, string $before, bool $partitioned = true) use ($links): array {
+$compile = static function (string $header, string $before, bool $partitioned = true, bool $attributed = false) use ($links): array {
     $document = static function (string $title, string $suffix) use ($header, $before, $links): string {
         $footer = '<footer id="site-footer" class="site-footer"><p>Dunbar footer</p>' . $links . '</footer>';
         return '<div id="site" class="site" style="position:relative">' . $before
             . '<div id="root" class="root" style="position:relative">' . str_replace('>Shop<', '' === $suffix ? '>Shop<' : '>Shop now<', $header)
             . '<main><h1>' . $title . '</h1><p>Body copy.</p></main>' . $footer . '</div></div>';
     };
+    // A capture that marks each device document with its scope attributes
+    // partitions the parts as layout-shells rather than class-only groups.
+    $marker = static fn(string $device): string => $attributed ? ' data-blocks-engine-capture-device-document="' . $device . '" data-blocks-engine-capture-document-scope=""' : '';
     $page = static fn(string $title): string => $partitioned
-        ? '<div class="data-blocks-engine-capture-desktop-document">' . $document($title, '') . '</div><div class="data-blocks-engine-capture-mobile-document">' . $document($title, 'mobile') . '</div>'
+        ? '<div class="data-blocks-engine-capture-desktop-document"' . $marker('desktop') . '>' . $document($title, '') . '</div><div class="data-blocks-engine-capture-mobile-document"' . $marker('mobile') . '>' . $document($title, 'mobile') . '</div>'
         : $document($title, '');
     $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
         'index.html' => $page('Home'),
@@ -114,6 +117,11 @@ $mobileCap = '<style>:where(.data-blocks-engine-capture-mobile-document) #site{w
 $capped = $compile($header, $backdrop . $mobileCap);
 $assert(str_contains($capped['css'], '.wp-site-blocks #site{position:static}'), '5a: the full-width desktop container still moves: ' . $capped['css']);
 $assert(!str_contains($capped['css'], '#site--data-blocks-engine-capture-mobile'), '5b: the 320px mobile container keeps its own box: ' . $capped['css']);
+
+// 6. The same capture with scope-attributed device documents (Wix): the
+// chrome roots are still found inside each device-document shell.
+$attributed = $compile($header, $backdrop, true, true);
+$assert(str_contains($attributed['css'], ':where(.wp-site-blocks){position:relative}') && str_contains($attributed['css'], ':where(#site-header){z-index:1}'), '6: layout-shell device documents keep the backdrop transfer and header lift: ' . $attributed['css']);
 
 if ($failures > 0) {
     fwrite(STDERR, sprintf("%d failure(s), %d pass(es)\n", $failures, $passes));

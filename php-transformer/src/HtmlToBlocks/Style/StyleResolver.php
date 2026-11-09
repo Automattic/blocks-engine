@@ -6750,6 +6750,29 @@ final class StyleResolver implements ElementPresentationResolver
         return implode(' ', array_values(array_unique($classes)));
     }
 
+    public function promotedClassName(string $className): string
+    {
+        if ( '' === trim($className) || ! $this->session->sourceStyleResolutionState()->hasClassPromotions() ) {
+            return $this->presentationClassName($className);
+        }
+
+        $classes = preg_split('/\s+/', trim($className)) ?: array();
+        foreach ( $classes as $class ) {
+            foreach ( $this->session->sourceStyleResolutionState()->classPromotions($class) as $terminalClass ) {
+                if ( ! in_array($terminalClass, $classes, true) ) {
+                    $classes[] = $terminalClass;
+                }
+            }
+        }
+
+        return $this->presentationClassName(implode(' ', $classes));
+    }
+
+    public function innerHtml(DOMElement $element): string
+    {
+        return SourceDom::innerHtml($element, $this->serializedInlineStyle(...));
+    }
+
     /**
      * Source classes may style a replacement stage, except for hooks whose
      * matching source rules position, hide, or animate the replaced slides.

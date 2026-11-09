@@ -365,7 +365,8 @@ PHP;
         $this->routeLinkedFragments = $this->routeLinkedFragments($documents, $routeMap);
         $this->missingMedia = new MissingMediaRecovery($this->strictMissingMedia, array_column($assets, 'target_path'));
         $missingFonts = new MissingFontSourceRecovery($this->strictMissingMedia);
-        $references = new AssetReferenceCanonicalizer($tokens, self::entryRootFromDocuments($documents), $this->missingMedia, $missingFonts);
+        $missingImports = new MissingStylesheetImportRecovery($this->strictMissingMedia);
+        $references = new AssetReferenceCanonicalizer($tokens, self::entryRootFromDocuments($documents), $this->missingMedia, $missingFonts, $missingImports);
         $pages = $this->documents($documents, false, $tokens, $references, $routeMap);
         // Probe presentation with the final plan's canonical listing projection.
         // Entity ownership is already proven independently and must survive a
@@ -552,6 +553,9 @@ PHP;
         $shells['diagnostics'] = array_merge($shells['diagnostics'], $documentChrome['diagnostics']);
         $shellFrames = $this->shellExtraction->hoistInlineShellFrames($documentChrome['pages'], $parts, $shells['runtime_declarations']);
         $pages = $shellFrames['pages'];
+        $folded = $this->shellExtraction->foldFrameTrailingChrome($shellFrames['frames'], $parts, $pages);
+        $shellFrames['frames'] = $folded['frames'];
+        $parts = $folded['parts'];
         // The generic page template is shared by routes that did not author it,
         // so the rules aimed at its markers are site-wide chrome rules.
         $frameParts = isset($shellFrames['frames']['page']) ? array(array('slug' => 'page-frame', 'placement' => array('kind' => 'shared_shell'), 'canonical_block_markup' => $shellFrames['frames']['page']['opening'] . $shellFrames['frames']['page']['closing'])) : array();
@@ -726,7 +730,7 @@ PHP;
         $scriptLoading = $this->scriptLoading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
         $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens, $pages, $menus, $runtimeEmoji, $rootDocuments), $assetWrites);
         $unitFindings = array_merge($this->unitFindingDiagnostics(), NavigationInstanceDiagnostics::collect($assets, $emittedMarkup . "\n" . implode("\n", self::markups($menus))));
-        $recoveryDiagnostics = array_merge($this->routeCollisionDiagnostics(), $this->unresolvedNavigationDiagnostics(), $this->unresolvedScriptReferenceDiagnostics(), $this->omittedLinkDeclarationDiagnostics(), $unitFindings, $this->missingMedia->diagnostics(), $missingFonts->diagnostics(), $eventDiagnostics, $paginationDiagnostics);
+        $recoveryDiagnostics = array_merge($this->routeCollisionDiagnostics(), $this->unresolvedNavigationDiagnostics(), $this->unresolvedScriptReferenceDiagnostics(), $this->omittedLinkDeclarationDiagnostics(), $unitFindings, $this->missingMedia->diagnostics(), $missingFonts->diagnostics(), $missingImports->diagnostics(), $eventDiagnostics, $paginationDiagnostics);
         // All shell, navigation, listing and script binding projection is now
         // complete. Only the public plan needs the bounded record form.
         // Declarations still over a byte limit are dropped here with their
@@ -2557,8 +2561,12 @@ PHP;
     /** @param array<string,mixed> $attrs */
     private static function isVariantVisibilityGroup(array $attrs): bool
     {
-        if (1 !== count($attrs) || !is_string($attrs['className'] ?? null)) return false;
-        foreach (preg_split('/\s+/', trim($attrs['className'])) ?: array() as $class) {
+        // A device document that carries capture attributes partitions the
+        // part as a layout-shell with one wrapper instead of a class-only group.
+        $wrappers = $attrs['wrappers'] ?? null;
+        $className = is_array($wrappers) && 1 === count($wrappers) ? ($wrappers[0]['attributes']['class'] ?? null) : ($attrs['className'] ?? null);
+        if (1 !== count($attrs) || !is_string($className)) return false;
+        foreach (preg_split('/\s+/', trim($className)) ?: array() as $class) {
             if (ShellExtraction::isResponsiveVariantClass($class)) return true;
         }
         return false;
@@ -4408,6 +4416,56 @@ PHP;
     /** @param array<int,array<string,mixed>> $pages @return array<int,array<string,mixed>> */
     private function routesForPages(array $pages): array { $routes = array(); foreach ($pages as $page) $routes[] = array('kind' => 'route', 'source_path' => $page['source_path'], 'target_path' => $page['route']['path'], 'target_slug' => $page['slug'], 'title' => $page['title'], 'parent_source_path' => $page['parent_source_path'], 'source_relation' => !empty($page['synthetic']) ? 'synthetic_parent' : (!empty($page['entrypoint']) ? 'entrypoint' : 'document'), 'order' => count($routes)); return $routes; }
 
+    /**
+     * The generated templates without those that repeat the template
+     * WordPress falls back to.
+     *
+     * Without archive.html or search.html WordPress renders those lifecycles
+     * through index.html; the entry route is the static front page
+     * (show_on_front=page), so without front-page.html it renders through
+     * page.html. A byte-identical copy only repeats its fallback. A page
+     * template the entry route selects itself would outrank page.html, so
+     * front-page.html stays then.
+     *
+     * @param array<int,array<string,mixed>> $templates
+     * @param array<int,array<string,mixed>> $pages
+     * @return array<int,array<string,mixed>>
+     */
+    private static function withoutRedundantTemplates(array $templates, array $pages): array
+    {
+        $fallbacks = array('archive' => 'index', 'search' => 'index');
+        $entry = array_values(array_filter($pages, static fn(array $page): bool => !empty($page['entrypoint'])))[0] ?? null;
+        if (null !== $entry && 'page' === ($entry['post_type'] ?? 'page') && !isset($entry['route_template']) && in_array($entry['metadata']['post_meta']['_wp_page_template'] ?? 'default', array('', 'default'), true)) $fallbacks['front-page'] = 'page';
+        $markup = array_column($templates, 'canonical_block_markup', 'slug');
+        return array_values(array_filter($templates, static fn(array $template): bool => !isset($fallbacks[$template['slug']], $markup[$fallbacks[$template['slug']]]) || $markup[$template['slug']] !== $markup[$fallbacks[$template['slug']]]));
+    }
+
+    /**
+     * The markup WordPress renders for each lifecycle a plan's templates
+     * serve, keyed by template slug and resolved through the template
+     * hierarchy. The entry route is the static front page, so front-page
+     * falls back to page.
+     *
+     * @param array<string,mixed> $plan
+     * @return array<string,string>
+     */
+    public static function renderedTemplates(array $plan): array
+    {
+        $templates = array_column(is_array($plan['templates'] ?? null) ? $plan['templates'] : array(), 'canonical_block_markup', 'slug');
+        $archives = array('author', 'category', 'date', 'tag', 'taxonomy');
+        $rendered = array();
+        foreach (array_unique(array_merge(self::NATIVE_TEMPLATE_SLUGS, $archives, array('home'), array_map('strval', array_keys($templates)))) as $slug) {
+            $base = explode('-', $slug)[0];
+            $chain = array($slug, $base);
+            if ('front' === $base || 'page' === $base) $chain[] = 'page';
+            elseif ('single' === $base) $chain[] = 'single';
+            elseif (in_array($base, $archives, true)) $chain[] = 'archive';
+            $chain[] = 'index';
+            foreach ($chain as $candidate) if (isset($templates[$candidate])) { $rendered[$slug] = (string) $templates[$candidate]; break; }
+        }
+        return $rendered;
+    }
+
     /** One key for placement, exclusions, template registration and assignment. */
     public static function routeTemplateKey(array $page): string
     {
@@ -4552,7 +4610,9 @@ PHP;
                  if ('footer' === $part['area']) $after .= $reference; else $before .= $reference;
              }
               if (in_array($templateSlug, array('index', 'search', 'archive'), true)) {
-                  $query = ('search' === $templateSlug ? '<!-- wp:query-title {"type":"search"} /-->' . "\n" : ('archive' === $templateSlug ? '<!-- wp:query-title {"type":"archive"} /-->' . "\n" : ''))
+                  // Each title renders only in its own context, so one listing
+                  // serves the home, archive and search lifecycles alike.
+                  $query = '<!-- wp:query-title {"type":"archive"} /-->' . "\n" . '<!-- wp:query-title {"type":"search"} /-->' . "\n"
                       . self::queryLoopMarkup(true);
                   $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} -->' . "\n" . '<main class="wp-block-group">' . "\n" . $query . "\n" . '</main>' . "\n" . '<!-- /wp:group -->';
               } elseif ('404' === $templateSlug) {
@@ -4599,6 +4659,7 @@ PHP;
             $template['content_hash'] = self::contentHash($template['canonical_block_markup']);
         }
         unset($template);
+        $templates = self::withoutRedundantTemplates($templates, $pages);
         foreach ($templates as &$template) if (isset($frames[$template['slug']])) $template['shell_frame'] = $frames[$template['slug']]['shells']; unset($template);
          $explicitSlugs = array_fill_keys(array_map(static fn(array $surface): string => $surface['template_surface']['slug'], $surfaces), true);
          $templates = array_values(array_filter($templates, static fn(array $template): bool => !isset($explicitSlugs[$template['slug']])));
@@ -7028,6 +7089,12 @@ PHP;
             if (!str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), CaptureEvidence::RESPONSIVE_FRAGMENT)) continue;
             $fragmentScript = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveFragmentRuntime::script();
             $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_script( 'blocks-engine-responsive-fragments', false, array(), null, true ); wp_enqueue_script( 'blocks-engine-responsive-fragments' ); wp_add_inline_script( 'blocks-engine-responsive-fragments', " . var_export($fragmentScript, true) . " ); } );";
+            break;
+        }
+        foreach (array_merge($templates, $parts, $pages) as $document) {
+            if (!str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), 'blocks-engine-navigation-header-offset')) continue;
+            $headerOffsetScript = NavigationHeaderOffsetRuntime::script();
+            $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_script( 'blocks-engine-navigation-header-offset', false, array(), null, true ); wp_enqueue_script( 'blocks-engine-navigation-header-offset' ); wp_add_inline_script( 'blocks-engine-navigation-header-offset', " . var_export($headerOffsetScript, true) . " ); } );";
             break;
         }
         $breadcrumbLabels = BreadcrumbLabelRuntime::labels(array_merge($templates, $parts, $pages), $pages);

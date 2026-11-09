@@ -92,11 +92,15 @@ $assert(false === has_action('admin_print_scripts', 'print_emoji_detection_scrip
 $editorUserId = wp_insert_user(array('user_login' => 'blocks-engine-editor-' . wp_generate_password(8, false), 'user_pass' => wp_generate_password(24), 'role' => 'administrator'));
 if (is_wp_error($editorUserId)) throw new RuntimeException($editorUserId->get_error_message());
 wp_set_current_user($editorUserId);
-$templateId = $theme . '//front-page';
+// The static front page renders through the template core resolves for it:
+// front-page.html when the plan emits one, otherwise page.html.
+$frontTemplateSlug = resolve_block_template('front-page', array('front-page', 'page'), '')->slug ?? '';
+$assert(in_array($frontTemplateSlug, array('front-page', 'page'), true), 'WordPress resolves the static front page to a generated template.');
+$templateId = $theme . '//' . $frontTemplateSlug;
 $partId = $theme . '//header';
 $frontTemplate = get_block_template($templateId, 'wp_template');
 $headerPartTemplate = get_block_template($partId, 'wp_template_part');
-$templates = get_block_templates(array('slug__in' => array('front-page')), 'wp_template');
+$templates = get_block_templates(array('slug__in' => array($frontTemplateSlug)), 'wp_template');
 $parts = get_block_templates(array('slug__in' => array('header')), 'wp_template_part');
 $templateContent = (string) ($frontTemplate->content ?? '');
 $partContent = (string) ($headerPartTemplate->content ?? '');
@@ -118,7 +122,7 @@ $partResponse = rest_do_request($partRequest);
 $templateRestContent = (string) (($templateResponse->get_data()['content']['raw'] ?? ''));
 $partRestContent = (string) (($partResponse->get_data()['content']['raw'] ?? ''));
 $editedTemplate = $templateContent . "\n<!-- wp:paragraph --><p>Portable template edit</p><!-- /wp:paragraph -->";
-$templatePostId = wp_insert_post(array('post_type' => 'wp_template', 'post_status' => 'publish', 'post_name' => 'front-page', 'post_title' => 'Front page', 'post_content' => wp_slash($editedTemplate)), true);
+$templatePostId = wp_insert_post(array('post_type' => 'wp_template', 'post_status' => 'publish', 'post_name' => $frontTemplateSlug, 'post_title' => 'Front page', 'post_content' => wp_slash($editedTemplate)), true);
 if (is_wp_error($templatePostId)) throw new RuntimeException($templatePostId->get_error_message());
 $pageIds['portable-template'] = $templatePostId;
 wp_set_object_terms($templatePostId, $theme, 'wp_theme');
@@ -160,7 +164,7 @@ foreach ($presetGroups as $group => $presets) foreach ($presets as $preset) {
     $assert('' !== $slug && $slug === _wp_to_kebab_case($slug) && str_contains($globalStylesheet, $variable . ':') && str_contains($probe->get_stylesheet(), 'var(' . $variable . ')'), 'WordPress emits and resolves the generated ' . $group . ' preset without changing its slug.');
 }
 $sidebarPart = current(array_filter($plan['template_parts'] ?? array(), static fn(array $part): bool => 'sidebar' === ($part['slug'] ?? null)));
-$sidebarWrite = current(array_filter($resolved['writes'] ?? array(), static fn(array $write): bool => 'templates/front-page.html' === ($write['target_path'] ?? null)));
+$sidebarWrite = current(array_filter($resolved['writes'] ?? array(), static fn(array $write): bool => 'templates/' . $frontTemplateSlug . '.html' === ($write['target_path'] ?? null)));
 $sidebarTemplateBlocks = parse_blocks((string) ($sidebarWrite['payload']['data'] ?? ''));
 $sidebarBlocks = array_values(array_filter($sidebarTemplateBlocks, static fn(array $block): bool => 'core/template-part' === ($block['blockName'] ?? null) && 'sidebar' === ($block['attrs']['slug'] ?? null)));
 $sidebarReference = isset($sidebarBlocks[0]) ? serialize_block($sidebarBlocks[0]) : '';
@@ -354,7 +358,7 @@ $deepAboutPage = get_post($pagesBySource['nested/deep/about.html']); if (!$deepA
 $assertQueue(array($deepAbout), $scripts, 'Deep nested request isolates duplicate leaf slugs');
 $setRequest($essay, false); $scripts = $resetScripts(); do_action('wp_enqueue_scripts');
 $assertQueue(array($essayScript), $scripts, 'Post request enqueues only its reconciliation-identity-scoped script.');
-$front = file_get_contents($themeDir . '/templates/front-page.html'); if (false === $front) throw new RuntimeException('Could not read front-page template.');
+$front = file_get_contents($themeDir . '/templates/' . $frontTemplateSlug . '.html'); if (false === $front) throw new RuntimeException('Could not read front-page template.');
 $post = $frontPage; $setRequest($post, true);
 $rendered = do_blocks($front); wp_reset_postdata();
 // get_the_block_template_html() finishes with core's skip link to the first <main>.

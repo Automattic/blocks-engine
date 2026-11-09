@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
@@ -63,8 +64,6 @@ final class ElementConversionPrelude
     }
 
     /**
-     * @param Closure(DOMElement, array<int, array<string, mixed>>&, bool): array<int, array<string, mixed>> $convertChildren
-     * @param Closure(DOMElement, array<int, array<string, mixed>>&, bool): ?array<string, mixed> $convertElement
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array<string, mixed> $linkedRuntimeControl
      * @param Closure(DOMElement, array<int, array<string, mixed>>&, array<int, class-string>): ?array<string, mixed> $recognizePatterns
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array<string, mixed> $proofBackedWrapperCoalescing
@@ -91,8 +90,7 @@ final class ElementConversionPrelude
         private readonly Runtime $runtime,
         private readonly SourceElementClassifier $sourceElementClassifier,
         private readonly TransformationProvenanceState $provenance,
-        private readonly Closure $convertChildren,
-        private readonly Closure $convertElement,
+        private readonly PatternTreeConverter $tree,
         private readonly Closure $linkedRuntimeControl,
         private readonly Closure $recognizePatterns,
         private readonly AuthorLayoutOwnership $authorLayoutOwnership,
@@ -109,7 +107,7 @@ final class ElementConversionPrelude
     public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported): ConversionOutcome
     {
         if (WordPressComments::hasClass($element, 'wp-block-comments')) {
-            $children = ($this->convertChildren)($element, $fallbacks, $captureUnsupported);
+            $children = $this->tree->children($element, $fallbacks, $captureUnsupported);
             return ConversionOutcome::handled($this->commentContainer($element, 'core/comments', $children));
         }
         if (WordPressComments::hasClass($element, 'wp-block-comment-template')) {
@@ -125,7 +123,7 @@ final class ElementConversionPrelude
                 }
                 foreach ($nestedReplies as [$nested, $parent]) $parent->removeChild($nested);
                 try {
-                    $children = ($this->convertChildren)($item, $fallbacks, $captureUnsupported);
+                    $children = $this->tree->children($item, $fallbacks, $captureUnsupported);
                 } finally {
                     foreach (array_reverse($nestedReplies) as [$nested, $parent, $next]) $parent->insertBefore($nested, $next);
                 }
@@ -191,7 +189,7 @@ final class ElementConversionPrelude
         }
 
         if ( 'span' === $tagName && 0 < $element->getElementsByTagName('form')->length ) {
-            $children = ($this->convertChildren)($element, $fallbacks, $captureUnsupported);
+            $children = $this->tree->children($element, $fallbacks, $captureUnsupported);
             return ConversionOutcome::handled(array() === $children ? null : $this->createBlock->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $children, $element));
         }
 
@@ -207,7 +205,7 @@ final class ElementConversionPrelude
             $path = $element->getNodePath();
             $this->provenance->releaseFormControlSlot($path);
             try {
-                $block = ($this->convertElement)($element, $fallbacks, $captureUnsupported);
+                $block = $this->tree->element($element, $fallbacks, $captureUnsupported);
             } finally {
                 $this->provenance->restoreFormControlSlot($path, $formControlSlotToken);
             }

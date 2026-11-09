@@ -17,7 +17,7 @@ $html = <<<'HTML'
 HTML;
 $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'shell.html', 'files' => array('shell.html' => $html)))->toArray()['source_reports']['wordpress_site_plan'];
 WordPressSitePlan::assertValid($plan);
-$templates = array_column($plan['templates'], 'canonical_block_markup', 'slug');
+$templates = WordPressSitePlan::renderedTemplates($plan);
 foreach (array('front-page', 'page', 'single', 'index', 'archive', 'search', '404') as $slug) {
     $markup = $templates[$slug] ?? '';
     $assert(1 === substr_count($markup, '"slug":"header"') && 1 === substr_count($markup, '"slug":"footer"'), "{$slug} references the shared header and footer exactly once.");

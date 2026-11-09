@@ -4,15 +4,15 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CollectionFilterBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
-use Closure;
 use DOMElement;
 use LogicException;
 
 /** Editable controls over native content, admitted by the evidence projector. */
 final class CapturedCollectionConverter implements ElementConverter
 {
-    public function __construct(private readonly HtmlTransformerSession $session, private readonly Closure $convertChildren, private readonly Closure $convertElement) {}
+    public function __construct(private readonly HtmlTransformerSession $session, private readonly PatternTreeConverter $tree) {}
 
     public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
     {
@@ -28,13 +28,13 @@ final class CapturedCollectionConverter implements ElementConverter
             $identity = $element->getAttribute('data-blocks-engine-collection-target');
             $element->removeAttribute('data-blocks-engine-collection-target');
             try {
-                $block = ($this->convertElement)($element, $fallbacks);
+                $block = $this->tree->element($element, $fallbacks, true);
             } finally {
                 $element->setAttribute('data-blocks-engine-collection-target', $identity);
                 if ($empty) $element->appendChild($empty);
             }
             if ($empty && is_array($block)) {
-                $emptyBlock = ($this->convertElement)($empty, $fallbacks);
+                $emptyBlock = $this->tree->element($empty, $fallbacks, true);
                 if ($emptyBlock) {
                     $block['innerBlocks'][] = $emptyBlock;
                     array_splice($block['innerContent'], -1, 0, array(null));
@@ -74,10 +74,10 @@ final class CapturedCollectionConverter implements ElementConverter
                 $attrs[$key] = $config[$key] ?? $default;
             }
             if (!in_array($attrs['mode'], array('category-and-query', 'category-or-global-search', 'captured-union'), true) || !is_array($attrs['order']) || !is_array($attrs['categoryOrders'])) return ConversionOutcome::unhandled();
-            $children = ($this->convertChildren)($element, $fallbacks);
+            $children = $this->tree->children($element, $fallbacks, true);
         } elseif (CollectionFilterBlockGenerator::CHOICES === $local) {
             $attrs['tagName'] = in_array($tagName, array('div', 'nav', 'section'), true) ? $tagName : 'div';
-            $children = ($this->convertChildren)($element, $fallbacks);
+            $children = $this->tree->children($element, $fallbacks, true);
         } elseif (CollectionFilterBlockGenerator::FIELD === $local) {
             $attrs += array('inputType' => $element->getAttribute('type') ?: 'text', 'placeholder' => $element->getAttribute('placeholder'), 'ariaLabel' => $element->getAttribute('aria-label'), 'value' => $element->getAttribute('value'));
         } elseif (CollectionFilterBlockGenerator::CHOICE === $local) {
@@ -96,7 +96,7 @@ final class CapturedCollectionConverter implements ElementConverter
             if ('' === $html) return ConversionOutcome::unhandled();
             return ConversionOutcome::handled(array('blockName' => $registry->blockName($local), 'attrs' => $attrs, 'innerBlocks' => array(), 'innerHTML' => $html, 'innerContent' => array($html)));
         } else {
-            $children = ($this->convertChildren)($element, $fallbacks);
+            $children = $this->tree->children($element, $fallbacks, true);
         }
         $opening = $generator->opening($attrs, $local, $registry->namespace());
         if (CollectionFilterBlockGenerator::FIELD === $local) {

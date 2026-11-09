@@ -1818,20 +1818,27 @@ final class NavigationPatternContext
         if ( ! $this->styleResolver instanceof StyleResolver ) return '';
 
         $alignment = strtolower($this->styleResolver->authoredInheritedPropertyWinner($list, 'text-align'));
-        $conditions = $this->styleResolver->inheritedBoxMediaConditions($list);
-        if ( array() === $conditions ) return $alignment;
+        $justify = static fn (string $value): string => match ( strtolower($value) ) {
+            'right', 'end' => 'flex-end',
+            'center' => 'center',
+            default => 'flex-start',
+        };
+        // Only a media stack that changes the packing needs projection; an
+        // unrelated conditional ancestor rule (a motion custom property) would
+        // otherwise add a per-document marker that splits shared chrome.
+        $base = $justify($this->styleResolver->authoredInheritedPropertyWinner($list, 'text-align', true));
+        $packings = array();
+        foreach ( $this->styleResolver->inheritedBoxMediaConditions($list) as $stack ) {
+            $packing = $justify($this->styleResolver->authoredInheritedPropertyWinner($list, 'text-align', true, $stack));
+            if ( $packing !== $base ) $packings[] = array($stack, $packing);
+        }
+        if ( array() === $packings ) return $alignment;
 
         $marker = 'blocks-engine-navigation-packing-' . substr(hash('sha256', SourceDom::elementSelector($list)), 0, 12);
         $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . $marker);
         $target = '.wp-block-navigation.' . $marker . '>.wp-block-navigation__container';
-        foreach ( $conditions as $stack ) {
-            $value = strtolower($this->styleResolver->authoredInheritedPropertyWinner($list, 'text-align', true, $stack));
-            $justify = match ( $value ) {
-                'right', 'end' => 'flex-end',
-                'center' => 'center',
-                default => 'flex-start',
-            };
-            $this->sourceTargetProjection?->record(SourceDom::elementSelector($list), $target, 'justify-content:' . $justify . '!important', $stack);
+        foreach ( $packings as [$stack, $packing] ) {
+            $this->sourceTargetProjection?->record(SourceDom::elementSelector($list), $target, 'justify-content:' . $packing . '!important', $stack);
         }
 
         return $alignment;

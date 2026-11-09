@@ -754,6 +754,26 @@ final class SourceDom
     }
 
     /**
+     * Unwraps links whose only content is line breaks: an image link whose
+     * image was deleted (`<a href="photo.jpg"><br></a>`, common in Blogger
+     * posts) renders as the break alone, with nothing to see or click. Links
+     * carrying `id` or `name` stay, as fragment targets.
+     */
+    public static function unwrapLineBreakOnlyLinks(DOMElement $root): void
+    {
+        $document = $root->ownerDocument;
+        if ( ! $document instanceof \DOMDocument ) return;
+        $links = (new \DOMXPath($document))->query('.//a[br][not(@id)][not(@name)][not(*[not(self::br)])][normalize-space() = ""]', $root);
+        if ( false === $links ) return;
+        foreach ( iterator_to_array($links) as $link ) {
+            $parent = $link->parentNode;
+            if ( null === $parent ) continue;
+            while ( null !== $link->firstChild ) $parent->insertBefore($link->firstChild, $link);
+            $parent->removeChild($link);
+        }
+    }
+
+    /**
      * Removes invalid XML attribute names (including int array keys) and
      * invalid xml:space values from the parsed subtree.
      *
@@ -2142,5 +2162,113 @@ final class SourceDom
     public static function sourceElementIdentity(DOMElement $element): string
     {
         return $element->getNodePath() ?? '';
+    }
+
+    public static function figureMediaElement(DOMElement $figure, string $tagName): ?DOMElement
+    {
+        $direct = self::firstChildElement($figure, $tagName);
+        if ( $direct instanceof DOMElement ) {
+            return $direct;
+        }
+
+        $wrapper = null;
+        foreach ( $figure->childNodes as $child ) {
+            if ( $child instanceof DOMElement && 'figcaption' === strtolower($child->tagName) ) {
+                continue;
+            }
+
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+
+            if ( ! $child instanceof DOMElement || null !== $wrapper ) {
+                return null;
+            }
+
+            $wrapper = $child;
+        }
+
+        if ( ! $wrapper instanceof DOMElement || ! in_array(strtolower($wrapper->tagName), array( 'div', 'span', 'p' ), true) ) {
+            return null;
+        }
+
+        return self::onlyChildElement($wrapper, $tagName);
+    }
+
+    public static function imageOnlyCarrierElement(DOMElement $element): ?DOMElement
+    {
+        $customImage = SourceDom::imageOnlyCustomElement($element);
+        if ( $customImage instanceof DOMElement ) {
+            return $customImage;
+        }
+        if ( ! in_array(strtolower($element->tagName), array( 'div', 'span' ), true) || '' !== trim($element->textContent ?? '') ) {
+            return null;
+        }
+
+        $image = null;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                if ( '' !== trim($child->textContent ?? '') ) {
+                    return null;
+                }
+                continue;
+            }
+
+            $candidate = 'img' === strtolower($child->tagName) ? $child : self::imageOnlyCarrierElement($child);
+            if ( ! $candidate instanceof DOMElement || $image instanceof DOMElement ) {
+                return null;
+            }
+            $image = $candidate;
+        }
+
+        return $image;
+    }
+
+    public static function renderedTextContent(DOMElement $element): string
+    {
+        $text = '';
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                $text .= $child->textContent ?? '';
+                continue;
+            }
+
+            if ( ! $child instanceof DOMElement || in_array(strtolower($child->tagName), array( 'script', 'style', 'template' ), true) ) {
+                continue;
+            }
+
+            $text .= self::renderedTextContent($child);
+        }
+
+        return trim($text);
+    }
+
+    /**
+     * @return list<DOMElement>
+     */
+    public static function elementElementChildren(DOMElement $element): array
+    {
+        return array_values(array_filter(
+            iterator_to_array($element->childNodes),
+            static fn (mixed $child): bool => $child instanceof DOMElement
+        ));
+    }
+
+    /** Capture runtime CSS owns these hosts, outside author selector analysis. */
+    public static function isCaptureDeviceVisibilityCarrier(DOMElement $element): bool
+    {
+        return ($element->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) && SourceDom::isDocumentVariantRoot($element))
+            || SourceDom::isDeviceVisibilityCarrier($element);
+    }
+
+    public static function hasRouteBearingDataAttributes(DOMElement $element): bool
+    {
+        foreach ( $element->attributes as $attribute ) {
+            if ( preg_match('/^data-[a-z0-9_-]*url$/i', $attribute->name) && '' !== trim($attribute->value) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

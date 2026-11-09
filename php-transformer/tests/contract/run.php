@@ -7000,7 +7000,7 @@ $editorStaticStateAsset = current(array_filter(
 $assert(is_array($editorStaticStateAsset) && 'editor' === ($editorStaticStateAsset['stylesheet_target'] ?? null), 'editor static-state repair is an explicit editor-only stylesheet asset');
 $editorStaticStateCss = (string) ($editorStaticStateAsset['content'] ?? '');
 $assert(str_contains($editorStaticStateCss, 'animation-delay:-999999s!important') && str_contains($editorStaticStateCss, ':root .reveal.feature-copy{opacity:1!important;transform:none!important}'), 'editor static-state CSS settles authored animation and restores conversion-proven hidden content', $editorStaticStateCss);
-$editorAnchorProcess = ':where\\(\\.blocks-engine-editor-anchor-process\\):not\\(#be-i-\\d+\\)';
+$editorAnchorProcess = ':where\\(\\.blocks-engine-editor-anchor-process\\):not\\(#be-i-\\d+\\):where\\(:not\\(#process\\)\\)';
 $assert(str_contains((string) ($editorStaticStateResult['serialized_blocks'] ?? ''), 'blocks-engine-editor-anchor-process') && 1 === preg_match('/' . $editorAnchorProcess . '\\{background:#111;padding:4rem\\}/', $editorStaticStateCss) && 1 === preg_match('/@media\\(max-width:600px\\)\\{' . $editorAnchorProcess . '\\{padding:2rem\\}\\}/', $editorStaticStateCss), 'editor static-state CSS projects authored anchor selectors onto deterministic Gutenberg wrapper classes at authored id specificity', $editorStaticStateCss);
 
 $hiddenRichTextMarker = (new HtmlTransformer())->transform('<style>.scroll-target span{display:none}</style><div class="scroll-target"><span>Bottom of page</span></div>')->toArray();

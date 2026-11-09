@@ -52,9 +52,9 @@ foreach ($branches as $branch) {
 }
 $editor = (string) strstr($bootstrap, "add_action( 'enqueue_block_editor_assets'");
 $assert(str_contains($editor, $editorTarget), 'Editor enqueues the shared instance stylesheet.');
-$templates = array_column($plan['templates'], null, 'slug');
+$templates = WordPressSitePlan::renderedTemplates($plan);
 foreach (array('front-page', 'page') as $slug) {
-    $assert(str_contains($templates[$slug]['canonical_block_markup'], 'wp:template-part {"slug":"header",'), 'Every route template adopts the shared header.');
+    $assert(str_contains($templates[$slug], 'wp:template-part {"slug":"header",'), 'Every route template adopts the shared header.');
 }
 
 echo "shared-part-instance-css contract passed\n";

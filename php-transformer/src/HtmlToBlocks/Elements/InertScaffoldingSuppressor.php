@@ -187,7 +187,7 @@ final class InertScaffoldingSuppressor implements ElementConverter
     {
         if ( 0 !== SourceDom::childElementCount($element)
             || '' !== trim($element->textContent ?? '')
-            || ! $this->isSafeTransparentCustomElement($element)
+            || ! $this->runtimeIslands->isSafeTransparentCustomElement($element)
             || $this->sourceElementClassifier->hasMotionStructureToken($element)
             || $this->statesRenderedEmptyBox($element)
             || $this->occupiesAuthorLayoutSlot($element)
@@ -424,7 +424,7 @@ final class InertScaffoldingSuppressor implements ElementConverter
     {
         if ( ! str_contains(strtolower($element->tagName), '-')
             || '' !== trim($element->textContent ?? '')
-            || ! $this->isSafeTransparentCustomElement($element)
+            || ! $this->runtimeIslands->isSafeTransparentCustomElement($element)
             || 0 !== $element->attributes->length ) {
             return false;
         }
@@ -465,29 +465,4 @@ final class InertScaffoldingSuppressor implements ElementConverter
             || in_array($visibility, array( 'hidden', 'collapse' ), true)
             || (is_numeric($opacity) && 0.0 === (float) $opacity);
     }
-
-    private function isSafeTransparentCustomElement(DOMElement $element): bool
-    {
-        foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'))) as $candidate ) {
-            if ( ! $candidate instanceof DOMElement ) {
-                continue;
-            }
-
-            if ( $this->runtimeIslands->isRuntimeDomTarget($candidate)
-                || array() !== SourceDom::eventMetadata($candidate)
-                || $this->sourceElementClassifier->hasMotionStructureToken($candidate)
-            ) {
-                return false;
-            }
-
-            foreach ( $candidate->attributes as $attribute ) {
-                if ( str_starts_with(strtolower($attribute->name), 'data-wp-') ) {
-                    return false;
-                }
-            }
-        }
-
-        return true;
-    }
-
 }

@@ -718,4 +718,30 @@ final class RuntimeIslandAnalyzer
     {
         return 1 === preg_match('/^' . RuntimeSelectorVocabulary::scriptSelectorPattern() . '$/', $selector);
     }
+
+    public function isSafeTransparentCustomElement(DOMElement $element, bool $allowMotionStructure = false): bool
+    {
+        foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'))) as $candidate ) {
+            if ( ! $candidate instanceof DOMElement ) {
+                continue;
+            }
+
+            // Runtime metadata on any descendant would be flattened by a
+            // transparent lowering, so preserve the complete custom element.
+            if ( $this->isRuntimeDomTarget($candidate)
+                || array() !== SourceDom::eventMetadata($candidate)
+                || (! $allowMotionStructure && $this->sourceElementClassifier->hasMotionStructureToken($candidate))
+            ) {
+                return false;
+            }
+
+            foreach ( $candidate->attributes as $attribute ) {
+                if ( str_starts_with(strtolower($attribute->name), 'data-wp-') ) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
 }

@@ -97,6 +97,12 @@ final class CaptureEvidence
     /** On the document root: `BackCompat` when the source rendered in quirks mode. */
     public const COMPAT_MODE = 'data-blocks-engine-capture-compat-mode';
 
+    /** Presence: captured padding is script-owned, not a responsive authored constant. */
+    public static function fluidIgnorePaddingAttribute(): string
+    {
+        return self::ATTRIBUTE_PREFIX . 'fluid-ignore-padding';
+    }
+
     // Dialogs, dropdowns and their runtime state.
 
     /** Dialog binding key on the control that opens a captured panel. */
