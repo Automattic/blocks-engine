@@ -2090,6 +2090,7 @@ PHP;
         }
         $rules .= self::detachedChromeBackdropRules($parts, $assets, $pages);
         $rules .= self::detachedViewportShellRules($parts, $assets, $pages);
+        $rules .= self::detachedMinimumWidthRules($parts, $assets, $pages);
         $rules .= self::detachedStaticStartRules($parts, $assets, $pages);
         foreach ($parts as $part) {
             if ('shared_shell' !== ($part['placement']['kind'] ?? null) || !in_array($part['area'] ?? null, array('header', 'footer'), true)) continue;
@@ -2227,18 +2228,14 @@ PHP;
     }
 
     /**
-     * A detached part is no longer included in its ancestor's viewport minimum.
-     * Transport that sizing relationship to the template, not a second viewport
-     * inside post-content. Intermediate document carriers stretch the remaining
-     * space with zero-specificity defaults so authored display rules win.
-     * Unlike a fixed height or viewport subtraction, this also permits long
-     * main content.
+     * Route elements that enclosed a detached shared part in the source, each
+     * with the id or class hook that selects it.
      *
      * @param array<int,array<string,mixed>> $parts
-     * @param array<int,array<string,mixed>> $assets
      * @param array<int,array<string,mixed>> $pages
+     * @return list<array{0:\DOMElement,1:string}>
      */
-    private static function detachedViewportShellRules(array $parts, array $assets, array $pages): string
+    private static function detachedAncestorElements(array $parts, array $pages): array
     {
         $classes = $ids = array();
         foreach ($parts as $part) {
@@ -2246,7 +2243,7 @@ PHP;
             array_push($classes, ...(array) ($part['ancestor_context']['classes'] ?? array()));
             array_push($ids, ...(array) ($part['ancestor_context']['ids'] ?? array()));
         }
-        if (array() === $classes && array() === $ids) return '';
+        if (array() === $classes && array() === $ids) return array();
         $elements = array();
         foreach ($pages as $page) {
             $document = new \DOMDocument();
@@ -2261,6 +2258,60 @@ PHP;
                 $elements[] = array($element, $hook);
             }
         }
+        return $elements;
+    }
+
+    /**
+     * A detached part is no longer included in its ancestor's minimum width
+     * (a fixed-width page frame that header, content and footer shared).
+     * Transport that minimum to the template, which again contains all three,
+     * so the part keeps the box its centering and offsets were authored for.
+     * Media conditions survive because the rules are transformed in place.
+     *
+     * @param array<int,array<string,mixed>> $parts
+     * @param array<int,array<string,mixed>> $assets
+     * @param array<int,array<string,mixed>> $pages
+     */
+    private static function detachedMinimumWidthRules(array $parts, array $assets, array $pages): string
+    {
+        $elements = self::detachedAncestorElements($parts, $pages);
+        if (array() === $elements) return '';
+        $result = array();
+        foreach ($assets as $asset) {
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
+            (new CssStylesheetTransformer())->visitStyleRules($asset['content'], static function (string $selector, string $body, array $context) use ($elements, &$result): void {
+                $minimum = CssRuleAnalyzer::declarations($body, array('min-width'))[0]['value'] ?? null;
+                if (!is_string($minimum) || 1 === preg_match('/^\s*(?:0[a-z%]*|auto|none|initial|unset|inherit|revert(?:-layer)?)\s*(?:!important\s*)?$/i', $minimum)) return;
+                $rules = array();
+                foreach (CssStylesheetTransformer::splitSelectorList($selector) ?? array($selector) as $candidate) {
+                    $parsed = CssSelectorMatcher::parse(trim($candidate));
+                    foreach ($elements as [$element, $hook]) {
+                        if (!CssSelectorMatcher::matches($element, $parsed, true)['matches']) continue;
+                        $rules[$hook] = '.wp-site-blocks:has(>.wp-block-post-content ' . $hook . '){min-width:' . trim((string) preg_replace('/\s*!important\s*$/i', '', $minimum)) . '}';
+                    }
+                }
+                $result[self::ruleInContext(implode('', $rules), $context)] = true;
+            });
+        }
+        return implode('', array_keys($result));
+    }
+
+    /**
+     * A detached part is no longer included in its ancestor's viewport minimum.
+     * Transport that sizing relationship to the template, not a second viewport
+     * inside post-content. Intermediate document carriers stretch the remaining
+     * space with zero-specificity defaults so authored display rules win.
+     * Unlike a fixed height or viewport subtraction, this also permits long
+     * main content.
+     *
+     * @param array<int,array<string,mixed>> $parts
+     * @param array<int,array<string,mixed>> $assets
+     * @param array<int,array<string,mixed>> $pages
+     */
+    private static function detachedViewportShellRules(array $parts, array $assets, array $pages): string
+    {
+        $elements = self::detachedAncestorElements($parts, $pages);
+        if (array() === $elements) return '';
         // Resolve layout from all matching declarations, including declarations
         // in other assets. Conditional rules only contribute in the same context.
         $layoutRules = array();
@@ -2276,12 +2327,11 @@ PHP;
                 }
             });
         }
-        $result = '';
+        $result = array();
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
-            // Transform rather than visit so responsive/media conditions survive.
-            $result .= (new CssStylesheetTransformer())->transformStyleRules($asset['content'], static function (string $selector, string $body, array $context) use ($elements, $layoutRules): string {
-                if (!preg_match('/(?:^|;)\s*min-height\s*:\s*([^;]*(?:vh|svh|dvh|lvh))\s*(?:;|$)/i', $body, $minimum)) return '';
+            (new CssStylesheetTransformer())->visitStyleRules($asset['content'], static function (string $selector, string $body, array $context) use ($elements, $layoutRules, &$result): void {
+                if (!preg_match('/(?:^|;)\s*min-height\s*:\s*([^;]*(?:vh|svh|dvh|lvh))\s*(?:;|$)/i', $body, $minimum)) return;
                 $rules = array();
                 foreach (CssStylesheetTransformer::splitSelectorList($selector) ?? array($selector) as $candidate) {
                     $parsed = CssSelectorMatcher::parse(trim($candidate));
@@ -2315,10 +2365,23 @@ PHP;
                             . ':where(' . $post . ',' . $post . ' ' . $hook . ',' . $post . ' :has(' . $hook . ')){flex:1;display:flex;flex-direction:column}';
                     }
                 }
-                return implode('', $rules);
+                $result[self::ruleInContext(implode('', $rules), $context)] = true;
             });
         }
-        return $result;
+        return implode('', array_keys($result));
+    }
+
+    /**
+     * Wrap a generated rule in the at-rule preludes that conditioned its
+     * source rule, so a media-scoped source keeps its scope.
+     *
+     * @param list<string> $context
+     */
+    private static function ruleInContext(string $rule, array $context): string
+    {
+        if ('' === $rule) return '';
+        foreach (array_reverse($context) as $prelude) $rule = $prelude . '{' . $rule . '}';
+        return $rule;
     }
 
     /**
