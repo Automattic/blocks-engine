@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
@@ -501,13 +502,13 @@ final class ProjectedNavigationConverter implements ElementConverter
         $color = $attrs['customOverlayTextColor'] ?? '';
         $listPadding = array();
         $chain = $this->collapsedPanelChain($navigation);
-        foreach ($this->styleResolver->collapsedViewportDeclarations($chain[0], array('padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left')) as $property => $value) {
+        foreach ($chain[0]->hasAttribute(CaptureEvidence::fluidIgnorePaddingAttribute()) ? array() : $this->styleResolver->collapsedViewportDeclarations($chain[0], array('padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left')) as $property => $value) {
             $value = $this->styleResolver->resolveCssVariablesInValue(CssValueInspector::withoutImportant($value), $chain[0]);
             if ('' !== trim($value) && !preg_match('/[{}<>;]|var\(|url\(/i', $value)) {
                 $listPadding[] = $property . ':' . $value . '!important';
             }
         }
-        $alignmentMarker = $this->responsiveNavigationAlignmentMarker($navigation);
+        $alignmentMarker = trim($this->responsiveNavigationAlignmentMarker($navigation) . ' ' . $this->responsiveNavigationHeaderOffsetMarker($navigation));
         if ( '' === $background && '' === $color && array() === $listPadding ) {
             return $alignmentMarker;
         }
@@ -539,6 +540,26 @@ final class ProjectedNavigationConverter implements ElementConverter
         $this->session->generatedSupportStylesheetState()->registerNativeNavigationOverlay($marker, $rule);
 
         return trim($marker . ' ' . $alignmentMarker);
+    }
+
+    /** Script-owned panel padding follows the live header, never its capture-time pixels. */
+    private function responsiveNavigationHeaderOffsetMarker(DOMElement $navigation): string
+    {
+        $header = $navigation->parentNode;
+        while ($header instanceof DOMElement && 'header' !== strtolower($header->tagName)) $header = $header->parentNode;
+        if (!$header instanceof DOMElement) return '';
+        foreach ($this->overlayPanelBoxes($navigation) as $box) {
+            if (!$box->hasAttribute(CaptureEvidence::fluidIgnorePaddingAttribute())) continue;
+            $position = $this->styleResolver->collapsedViewportAuthorDeclarations($box, array('position'));
+            if ('fixed' !== ($position['position'] ?? '')) continue;
+            $marker = 'blocks-engine-navigation-header-offset';
+            $open = '.wp-block-navigation.blocks-engine-native-responsive-navigation.' . $marker . ' .wp-block-navigation__responsive-container.is-menu-open:not(.disable-default-overlay)';
+            $this->session->generatedSupportStylesheetState()->registerNativeNavigationOverlay($marker,
+                $open . ' .wp-block-navigation__responsive-dialog .wp-block-navigation__responsive-container-content{box-sizing:border-box!important;min-height:100dvh!important;padding-top:var(--blocks-engine-navigation-header-height,0px)!important}'
+            );
+            return $marker;
+        }
+        return '';
     }
 
     private function responsiveNavigationAlignmentMarker(DOMElement $navigation): string
