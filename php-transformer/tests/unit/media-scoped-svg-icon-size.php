@@ -37,7 +37,7 @@ $scoped = $transform('<style>@media (min-width:768px){' . $rules . '}</style>' .
 [$class, $carrier] = $geometryRule($scoped['serialized_blocks'], $css($scoped));
 $assert('' !== $class, 'the icon is materialized with a geometry carrier');
 $assert(1 === preg_match('/@media \(min-width:768px\)\{\.' . preg_quote($class, '/') . '\{[^}]*--logged-out-icon-size:24px[^}]*width:var\(--logged-out-icon-size,26px\)!important[^}]*height:var\(--logged-out-icon-size,26px\)!important/', $carrier), 'the 24px size is restated on the carrier inside the source media query: ' . $carrier);
-$assert(1 === preg_match('/\.' . preg_quote($class, '/') . '\{display:inline;vertical-align:baseline;width:auto;height:auto\}/', $carrier), 'outside the media query the icon keeps its intrinsic size, as in the source');
+$assert(1 === preg_match('/\.' . preg_quote($class, '/') . '\{display:inline;vertical-align:baseline;width:auto;height:auto;max-width:none\}/', $carrier), 'outside the media query the icon keeps its intrinsic size, as in the source');
 $assert(!str_contains($carrier, 'var(--icon-size'), 'the more specific logged-out rule wins over the generic icon rule, as in the source');
 
 // 2. Different sizes per viewport stay per viewport.

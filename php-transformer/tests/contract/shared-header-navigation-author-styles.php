@@ -30,7 +30,8 @@ if ($page === $landmarkless) {
 $assert(isset($host[0]), 'Shared navigation has an instance marker.');
 $assert(1 === preg_match('/[^{}]*' . preg_quote($host[0], '/') . '[^{}]*wp-block-navigation-item__content[^{}]*\{[^{}]*display:flex[^{}]*padding:20px[^{}]*font-size:(?:14px|var\\([^{}]*14px\\))/', $css), 'Author link box declarations target the rendered shared instance.');
 // Core's rendered host/item shape, using only generated assets (not source CSS).
-$html = '<html><head><style>' . $css . '</style></head><body><nav class="wp-block-navigation ' . $host[0] . '"><ul class="wp-block-navigation__container"><li class="wp-block-navigation-item"><a class="wp-block-navigation-item__content">Home</a></li></ul></nav>';
+preg_match('/blocks-engine-navigation-anchor-[a-f0-9]{12}-[0-9]+/', implode('', array_column($plan['menus'], 'block_markup')), $anchor);
+$html = '<html><head><style>' . $css . '</style></head><body><nav class="wp-block-navigation ' . $host[0] . '"><ul class="wp-block-navigation__container"><li class="wp-block-navigation-item ' . ($anchor[0] ?? '') . '"><a class="wp-block-navigation-item__content">Home</a></li></ul></nav>';
 $chrome = getenv('CHROME_PATH') ?: trim((string) shell_exec('command -v chromium || command -v google-chrome || true'));
 if ('' !== $chrome) {
     $temp = tempnam(sys_get_temp_dir(), 'shared-header-nav-');

@@ -400,7 +400,7 @@ final class WrapperCoalescer
         foreach ($element->attributes as $attribute) {
             if (! in_array(strtolower($attribute->nodeName), array('class', 'style', 'data-node-view-wrapper', 'data-node-view-content', 'data-node-view-content-inner'), true)) return false;
         }
-        foreach ($this->authorStyleRuleCandidates($element) as $rule) {
+        foreach ($this->session->authorStyleRuleCandidates($element) as $rule) {
             if (str_contains($rule['selector'], '>')) return false;
         }
         $declarations = $this->inheritedWrapperDeclarations($element);
@@ -633,7 +633,7 @@ final class WrapperCoalescer
 
         $beforeCandidatesByKey = array();
         foreach ( $chain as $node ) {
-            foreach ( $this->authorStyleRuleCandidates($node) as $selector ) {
+            foreach ( $this->session->authorStyleRuleCandidates($node) as $selector ) {
                 $beforeCandidatesByKey[$selector['key']] = $selector;
             }
         }
@@ -674,7 +674,7 @@ final class WrapperCoalescer
 
         $survives = true;
         $temporarySelectorCache = new CssSelectorMatchCache();
-        $afterCandidates = $this->authorStyleRuleCandidates($matchNode, $temporarySelectorCache);
+        $afterCandidates = $this->session->authorStyleRuleCandidates($matchNode, $temporarySelectorCache);
         $candidates = array();
         foreach ( array_merge($beforeCandidates, $afterCandidates) as $selector ) {
             $candidates[$selector['key']] = $selector;
@@ -713,13 +713,6 @@ final class WrapperCoalescer
     }
 
     /** @return list<array{key: string, selector: string, parsed: array<string, mixed>, direct_child_parsed: array<string, mixed>, declarations: array<string, string>, rule_order: int}> */
-    private function authorStyleRuleCandidates(DOMElement $element, ?CssSelectorMatchCache $selectorCache = null): array
-    {
-        $index = $this->session->authorStyleAnalysis()->styleRuleCandidateIndex();
-        $selectorCache ??= $this->session->sourceStyleResolutionState()->selectorMatchCache;
-        return $selectorCache->styleRuleCandidates($element, 'author-rules', $index);
-    }
-
     /**
      * A source `div` establishing flex/grid is structural layout; a direct
      * child of one loses its own eligibility for coalescing (its geometry is
@@ -856,7 +849,7 @@ final class WrapperCoalescer
     {
         $declarations = $this->styleResolver->presentationDeclarations($element);
         $matchedRules = array();
-        foreach ( $this->authorStyleRuleCandidates($element) as $selector ) {
+        foreach ( $this->session->authorStyleRuleCandidates($element) as $selector ) {
             $ruleOrder = $selector['rule_order'];
             if ( isset($matchedRules[$ruleOrder]) || ! $selector['parsed']['supported'] ) {
                 continue;

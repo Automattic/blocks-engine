@@ -217,7 +217,7 @@ function throw_classification_subsystem(string $file): string
  * @param array<string,mixed> $entry
  * @return list<string>
  */
-function throw_classification_check_test(string $label, array $entry, string $root, string $composer): array
+function throw_classification_check_test(string $label, array $entry, string $root): array
 {
     $finding = $entry['finding'] ?? null;
     $test = $entry['test'] ?? null;
@@ -231,8 +231,8 @@ function throw_classification_check_test(string $label, array $entry, string $ro
     if (!str_contains((string) file_get_contents($root . '/' . $test), $finding)) {
         $failures[] = sprintf('%s: test %s never mentions finding %s', $label, $test, $finding);
     }
-    if (!str_contains($composer, '"php ' . $test . '"')) {
-        $failures[] = sprintf('%s: test %s is not registered in composer.json', $label, $test);
+    if (!preg_match('~^tests/(?:contract|unit)/[^/]+(?<!-fixture)\.php$~', $test)) {
+        $failures[] = sprintf('%s: test %s is not a script tests/run.php runs', $label, $test);
     }
 
     return $failures;
@@ -250,7 +250,6 @@ function throw_classification_check(array $scan, array $baseline, string $root):
         $failures[] = 'fixture schema must be ' . THROW_CLASSIFICATION_SCHEMA;
     }
     $entries = is_array($baseline['sites'] ?? null) ? $baseline['sites'] : array();
-    $composer = (string) file_get_contents($root . '/composer.json');
 
     // Throwing helpers: every configured helper exists, and every `: never` method is configured.
     foreach (THROW_CLASSIFICATION_HELPERS as $file => $helpers) {
@@ -303,7 +302,7 @@ function throw_classification_check(array $scan, array $baseline, string $root):
                     if (!isset($entry['finding'], $entry['test'])) {
                         $failures[] = sprintf('%s: an integrity backstop names both finding and test', $label);
                     } else {
-                        array_push($failures, ...throw_classification_check_test($label, $entry, $root, $composer));
+                        array_push($failures, ...throw_classification_check_test($label, $entry, $root));
                     }
                 }
                 continue;
@@ -320,7 +319,7 @@ function throw_classification_check(array $scan, array $baseline, string $root):
             } elseif ($pending === isset($entry['test'])) {
                 $failures[] = sprintf('%s: representability needs exactly one of test or pending: true', $label);
             } elseif (!$pending) {
-                array_push($failures, ...throw_classification_check_test($label, $entry, $root, $composer));
+                array_push($failures, ...throw_classification_check_test($label, $entry, $root));
             } elseif (!is_string($entry['finding']) || !preg_match('/^[a-z][a-z0-9_]*$/', $entry['finding'])) {
                 $failures[] = sprintf('%s: finding must be a snake_case code', $label);
             }

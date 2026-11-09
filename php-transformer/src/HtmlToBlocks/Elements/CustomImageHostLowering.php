@@ -47,7 +47,7 @@ final class CustomImageHostLowering
         // interactive hosts must keep their original inline control topology.
         if (!$this->runtimeIslands->isSafeTransparentCustomElement($host)
             || ($this->hasBlockFigureDisplay($host) && !$host->hasAttribute('data-image-info'))
-            || $this->authorLayoutOwnership->ancestorElement($host, 'button') instanceof DOMElement
+            || SourceDom::ancestorElement($host, 'button') instanceof DOMElement
             || $this->runtimeIslands->isRuntimeDomTarget($host)
             || array() !== $this->sourceElementDescription->interactiveAttributes($host)
             || array() !== $this->session->authorSelectorProjectionState()->semanticMarkersForElement($host)) {
