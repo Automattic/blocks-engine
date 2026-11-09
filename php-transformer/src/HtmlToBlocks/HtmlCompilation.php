@@ -228,11 +228,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private const WRAPPER_CONTENT_SHAPE_DEPTH = 2;
     use DomHelpersTrait;
 
-    private function innerHtml(DOMElement $element): string
-    {
-        return SourceDom::innerHtml($element, $this->styleResolver->serializedInlineStyle(...));
-    }
-
     private readonly AuthorLayoutOwnership $authorLayoutOwnership;
     private readonly Elements\LayoutTableLowering $layoutTables;
 
@@ -801,7 +796,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->formSuccessPanelMetadataBuilder = new FormSuccessPanelMetadataBuilder(
             fn (DOMElement $element): string => $this->elementSelector($element),
             $this->session,
-            fn (DOMElement $element): string => $this->innerHtml($element)
+            fn (DOMElement $element): string => $this->styleResolver->innerHtml($element)
         );
         $this->formFallbackFindingBuilder = new FormFallbackFindingBuilder($this->session,
             $formFallbackContext,
@@ -1184,7 +1179,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return new StyleResolutionContext(
             CssValueInspector::comparable(...),
             fn (string $selector): array => $this->parsedCssSelector($selector),
-            fn (string $className): string => $this->promotedClassName($className),
+            fn (string $className): string => $this->styleResolver->promotedClassName($className),
             fn (string $url): string => $this->imageUrls->resolvedAssetUrl($url)
         );
     }
@@ -2939,7 +2934,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return $html;
         }
 
-        return $this->innerHtml($body);
+        return $this->styleResolver->innerHtml($body);
     }
 
     private function documentRootTheme(string $html): string
@@ -3549,7 +3544,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         if ($this->session->usesFallbackReductionMode() && ( 'button' === $tagName || ( 'a' === $tagName && ! $this->sourceElementClassifier->hasBlockLevelDescendant($element) && '' === trim($this->attr($element, 'aria-label')) ) )) {
-            $text = $this->innerHtml($element);
+            $text = $this->styleResolver->innerHtml($element);
             if ('' !== trim($this->runtime->stripAllTags($text))) {
                 $attrs = array_merge($this->styleResolver->presentationAttributes($element), array('text' => $text));
                 if ('a' === $tagName && '' !== trim($this->attr($element, 'href'))) {
@@ -4098,7 +4093,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return null;
         }
 
-        $label = trim($this->runtime->stripAllTags($this->innerHtml($element)));
+        $label = trim($this->runtime->stripAllTags($this->styleResolver->innerHtml($element)));
         if ( '' === $label ) {
             $label = trim($this->attr($element, 'aria-label'));
         }
@@ -4418,7 +4413,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return null;
         }
 
-        $label = str_replace("\xc2\xa0", ' ', html_entity_decode($this->innerHtml($summary), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        $label = str_replace("\xc2\xa0", ' ', html_entity_decode($this->styleResolver->innerHtml($summary), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
         if ( '' !== trim(strip_tags($label)) ) {
             return null;
         }
@@ -5267,7 +5262,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
         $this->richTextStylingHooks()->normalize($body);
 
-        $newContent = $this->innerHtml($body);
+        $newContent = $this->styleResolver->innerHtml($body);
         if ( $newContent === $content && '' === $hoistedClasses && array() === $hoistedDeclarations ) {
             return $attrs;
         }
@@ -5275,7 +5270,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $attrs[$richTextAttribute] = $newContent;
 
         if ( '' !== $hoistedClasses ) {
-            $promoted = $this->promotedClassName($hoistedClasses);
+            $promoted = $this->styleResolver->promotedClassName($hoistedClasses);
             if ( '' !== trim($promoted) ) {
                 $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $promoted);
             }
@@ -5360,24 +5355,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $only instanceof DOMElement && $this->richTextStylingHooks()->isStylingHookSpan($only) ? $only : null;
     }
 
-
-    private function promotedClassName(string $className): string
-    {
-        if ( '' === trim($className) || ! $this->session->sourceStyleResolutionState()->hasClassPromotions() ) {
-            return $this->styleResolver->presentationClassName($className);
-        }
-
-        $classes = preg_split('/\s+/', trim($className)) ?: array();
-        foreach ( $classes as $class ) {
-            foreach ( $this->session->sourceStyleResolutionState()->classPromotions($class) as $terminalClass ) {
-                if ( ! in_array($terminalClass, $classes, true) ) {
-                    $classes[] = $terminalClass;
-                }
-            }
-        }
-
-        return $this->styleResolver->presentationClassName(implode(' ', $classes));
-    }
 
     private function shouldPreserveWrapper(DOMElement $element, ?string $asTag = null): bool
     {
@@ -5651,7 +5628,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
     private function layoutShellClassName(DOMElement $element): string
     {
-        $classes = array_values(array_filter(preg_split('/\s+/', $this->promotedClassName(SourceDom::attr($element, 'class'))) ?: array()));
+        $classes = array_values(array_filter(preg_split('/\s+/', $this->styleResolver->promotedClassName(SourceDom::attr($element, 'class'))) ?: array()));
         $tagMarker = $this->session->authorSelectorProjectionState()->tagMarker(strtolower($element->tagName));
         if ( '' !== $tagMarker ) {
             $classes[] = $tagMarker;
@@ -6096,7 +6073,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 continue;
             }
 
-            $content = $this->innerHtml($child);
+            $content = $this->styleResolver->innerHtml($child);
             if ( '' === trim($this->runtime->stripAllTags($content)) ) {
                 return null;
             }
@@ -6483,7 +6460,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             // The paragraph inherits a span's class for its layout role, but
             // semantic inline elements (time, links, emphasis, etc.) must retain
             // their source markup inside the editable RichText content.
-            $content = 'span' === strtolower($child->tagName) ? $this->innerHtml($child) : $this->outerHtml($child);
+            $content = 'span' === strtolower($child->tagName) ? $this->styleResolver->innerHtml($child) : $this->outerHtml($child);
             if ( '' === trim($this->runtime->stripAllTags($content)) ) {
                 return null;
             }
@@ -6965,7 +6942,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     {
         foreach ( $element->childNodes as $child ) {
             if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'cite', 'footer', 'figcaption' ), true) ) {
-                return $this->innerHtml($child);
+                return $this->styleResolver->innerHtml($child);
             }
         }
 
@@ -6990,7 +6967,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
         $caption = $this->firstChildElement($figure, 'figcaption');
         if ( $caption instanceof DOMElement ) {
-            $captionHtml = $this->innerHtml($caption);
+            $captionHtml = $this->styleResolver->innerHtml($caption);
             if ( '' !== trim($this->runtime->stripAllTags($captionHtml)) ) {
                 $children[] = $this->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($caption), array( 'content' => $captionHtml )), array(), $caption);
             }
@@ -7091,12 +7068,12 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
             $tagName = strtolower($child->tagName);
             if ( 'dt' === $tagName ) {
-                $term = $this->innerHtml($child);
+                $term = $this->styleResolver->innerHtml($child);
                 continue;
             }
 
             if ( 'dd' === $tagName ) {
-                $description = $this->innerHtml($child);
+                $description = $this->styleResolver->innerHtml($child);
                 if ( '' === trim($this->runtime->stripAllTags($term . $description)) ) {
                     continue;
                 }
@@ -7290,7 +7267,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 return false;
             }
 
-            if ( $this->sourceElementClassifier->hasBlockContentChildren($child) || $this->richTextMaterializer->hasStructuralHtml($this->innerHtml($child)) ) {
+            if ( $this->sourceElementClassifier->hasBlockContentChildren($child) || $this->richTextMaterializer->hasStructuralHtml($this->styleResolver->innerHtml($child)) ) {
                 return false;
             }
 
@@ -7477,7 +7454,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         if ( 'span' === $tag && $this->richTextStylingHooks()->isStylingHookSpan($element) ) {
-            $content = $this->innerHtml($element);
+            $content = $this->styleResolver->innerHtml($element);
             if ( '' === trim($this->runtime->stripAllTags($content)) ) {
                 return null;
             }
@@ -7507,7 +7484,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     {
         $attrs = array();
 
-        $className = $this->promotedClassName($this->attr($element, 'class'));
+        $className = $this->styleResolver->promotedClassName($this->attr($element, 'class'));
         if ( '' !== trim($className) ) {
             $attrs['className'] = $className;
         }
@@ -7540,7 +7517,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         $href = $this->safeNavigationUrl($this->attr($anchor, 'href'));
-        $inner = $this->innerHtml($anchor);
+        $inner = $this->styleResolver->innerHtml($anchor);
         if ( '' === $href ) {
             return $inner;
         }
