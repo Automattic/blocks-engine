@@ -291,6 +291,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly SvgMaterializer $svgMaterializer;
     private readonly Elements\AuthoredStateButtonLowering $authoredStateButtons;
     private readonly Elements\InlineSvgTextGroupLowering $inlineSvgTextGroups;
+    private readonly Elements\InlineFlowLowering $inlineFlows;
 
     private readonly RichTextMaterializer $richTextMaterializer;
     private readonly Style\SourceElementVisibility $sourceVisibility;
@@ -525,6 +526,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->flankedSeparators = new Elements\FlankedSeparatorLowering($this, $this->styleResolver, $this->sourceElementClassifier);
         $this->sourceVisibility = new Style\SourceElementVisibility($this->styleResolver);
         $this->richTextMaterializer = new RichTextMaterializer($this->styleResolver, $this->svgMaterializer, $this->session, $this);
+        $this->inlineFlows = new Elements\InlineFlowLowering($this, $this, $this->styleResolver, $this->sourceElementClassifier, $this->richTextMaterializer, $this->runtime);
         $this->authoredStateButtons = new Elements\AuthoredStateButtonLowering($this->session, $this->svgMaterializer);
         $this->linkedIconTextRows = new Elements\LinkedIconTextRowLowering(
             $this,
@@ -1045,14 +1047,14 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             },
             mediaGalleryBlock: fn (DOMElement $element, array &$fallbacks): ?array => $this->mediaGalleryBlockFromElement($element, $fallbacks),
             namePriceRowBlock: fn (DOMElement $element, array &$fallbacks): ?array => $this->namePriceRowBlockFromElement($element, $fallbacks),
-            inlineTokenGroupBlock: fn (DOMElement $element, array &$fallbacks): ?array => $this->inlineTokenGroupBlockFromElement($element, $fallbacks),
+            inlineTokenGroupBlock: fn (DOMElement $element, array &$fallbacks): ?array => $this->inlineFlows->inlineTokenGroupBlockFromElement($element, $fallbacks),
             visualTextWrapperBlock: fn (DOMElement $element): ?array => $this->visualTextWrapperBlockFromElement($element),
             standaloneSearchBlock: fn (DOMElement $element): ?array => $this->searchBlockConverter->searchBlockFromStandaloneControl($element),
             readableFormControlBlock: fn (DOMElement $element): ?array => $this->readableFormControlBlockConverter->convert($element),
             cssAuthoredMarqueeBlock: fn (DOMElement $element): ?array => $this->authoredMarqueeRecognizer->cssAuthoredMarqueeBlock($element),
             authoredCarouselBlock: fn (DOMElement $element): ?array => $this->authoredCarouselGenerator->convert($element),
             generatedComponentBlock: fn (DOMElement $element, array &$fallbacks): ?array => $this->nativeOrGeneratedComponentBlock($element, $fallbacks),
-            textFlowBlock: fn (DOMElement $element): ?array => $this->textFlowBlockFromElement($element),
+            textFlowBlock: fn (DOMElement $element): ?array => $this->inlineFlows->textFlowBlockFromElement($element),
             convertChildren: fn (DOMElement $element, array &$fallbacks): array => $this->convertChildren($element, $fallbacks, true),
             backgroundImageBlock: fn (DOMElement $element): ?array => $this->imageLowering->backgroundImageBlock($element),
             coalescedSingleGroupWrapper: fn (DOMElement $element, array $child): ?array => $this->coalescedSingleGroupWrapper($element, $child),
@@ -5097,42 +5099,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     }
 
     /**
-     * @return array<string, mixed>|null
-     */
-    private function textFlowBlockFromElement(DOMElement $element): ?array
-    {
-        if ( 'div' !== strtolower($element->tagName) || '' !== trim($this->attr($element, 'id')) || '' !== trim($this->attr($element, 'role')) ) {
-            return null;
-        }
-
-        $hasLineBreak = false;
-        foreach ( $element->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-
-            $tagName = strtolower($child->tagName);
-            if ( 'br' === $tagName ) {
-                $hasLineBreak = true;
-            }
-            if ( 'br' !== $tagName && ! $this->sourceElementClassifier->isInlineContentElement($tagName) && 'a' !== $tagName ) {
-                return null;
-            }
-        }
-
-        if ( ! $hasLineBreak ) {
-            return null;
-        }
-
-        $content = $this->richTextMaterializer->contentWithoutDecorativeSvg($element);
-        if ( '' === trim($this->runtime->stripAllTags($content)) ) {
-            return null;
-        }
-
-        return $this->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($element), array( 'content' => $content )), array(), $element);
-    }
-
-    /**
      * Lower a foreignObject-only "fit text" SVG to the native text block its
      * inner element renders as (`<svg viewBox="..."><foreignObject width="100%"
      * height="100%"><p>Label</p></foreignObject></svg>`). The SVG is a sizing
@@ -5172,57 +5138,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $attrs['fitText'] = true;
 
         return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($svg), array($this->blockFactory->rebuild($block, $attrs)), $svg);
-    }
-
-    private function inlineTokenGroupBlockFromElement(DOMElement $element, array &$fallbacks): ?array
-    {
-        if ( ! ShellLandmarkPolicy::isInlineTokenContainerTag($element->tagName) ) {
-            return null;
-        }
-
-        if ( ! $this->sourceElementClassifier->hasInlineTokenGroupSignal($element) ) {
-            return null;
-        }
-
-        $children = array();
-        foreach ( $element->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType ) {
-                if ( '' !== trim($child->textContent ?? '') ) {
-                    return null;
-                }
-                continue;
-            }
-
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-
-            if ( ! $this->sourceElementClassifier->isInlineTokenItemElement($child) ) {
-                return null;
-            }
-
-            $tagName = strtolower($child->tagName);
-            if ( in_array($tagName, array( 'a', 'button' ), true) ) {
-                $block = $this->convertElement($child, $fallbacks, true);
-                if ( null === $block ) {
-                    return null;
-                }
-                $children[] = $block;
-                continue;
-            }
-
-            $content = $this->styleResolver->innerHtml($child);
-            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
-                return null;
-            }
-            $children[] = $this->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($child), array( 'content' => $content )), array(), $child);
-        }
-
-        if ( count($children) < 2 ) {
-            return null;
-        }
-
-        return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $children, $element);
     }
 
     private function visualTextWrapperBlockFromElement(DOMElement $element): ?array
