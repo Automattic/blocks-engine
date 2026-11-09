@@ -36,12 +36,26 @@ foreach (array(
     'stylesheet geometry' => '<style>.media{width:138px;height:26px}</style>' . $host,
 ) as $case => $html) {
     $markup = $compile($html);
-    if (!str_contains($markup, '/layout-shell') || !str_contains($markup, '<!-- wp:image ')) {
-        throw new RuntimeException($case . ' must retain its presentation carrier and editable image: ' . $markup);
+    if (str_contains($markup, '/layout-shell') || str_contains($markup, '<!-- wp:html')
+        || !str_contains($markup, '<!-- wp:group ') || !str_contains($markup, '<!-- wp:image ')) {
+        throw new RuntimeException($case . ' must retain a core-editable host and image: ' . $markup);
+    }
+    $document = new DOMDocument();
+    @$document->loadHTML(preg_replace('/<!--.*?-->/s', '', $markup));
+    $xpath = new DOMXPath($document);
+    if (1 !== $xpath->query('//div[contains(concat(" ",normalize-space(@class)," ")," media ")]//img[@src][@alt="Logo"]')->length) {
+        throw new RuntimeException($case . ' lost the media host identity: ' . $markup);
     }
     if ('linked thumbnail' === $case && !str_contains($markup, 'href="/profile"')) {
         throw new RuntimeException('The thumbnail destination must survive: ' . $markup);
     }
+}
+
+// Native captured boxes must not disable the uncaptured visual-layer carrier's
+// intrinsic-height reservation (public compiler/site-plan path).
+$markup = $compile('<style>.media-column{position:relative}.visual-layer{position:absolute}</style><div class="media-column"><div class="visual-layer"><media-image><img src="hero.jpg" style="width:320px;height:281px" width="320" height="281" alt="Hero"></media-image></div></div>');
+if (!str_contains($markup, '/layout-shell') || !str_contains($markup, '<!-- wp:image ')) {
+    throw new RuntimeException('Uncaptured positioned media must retain its geometry carrier and editable image: ' . $markup);
 }
 
 fwrite(STDOUT, "custom-image-host-core-group contract passed\n");

@@ -8260,14 +8260,17 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         if ($picture instanceof DOMElement && $picture !== $host) {
             $wrappers[] = $picture;
         }
-        // Picture-less hosts may use a native group only when the boundary is
-        // inert. Linked thumbnails and geometry-bearing media still need the
-        // presentation carrier (including its intrinsic-height folding).
-        if (count($wrappers) === 1 && ! $this->canGroupPicturelessImageHost($host, $image, $link)) {
+        // Uncaptured media still relies on the presentation carrier's intrinsic
+        // height folding when its visual layer is positioned out of flow.
+        // Captured image metadata describes a retained CSS-owned box instead.
+        if (count($wrappers) === 1 && ! $host->hasAttribute('data-image-info')
+            && ! $this->canGroupPicturelessImageHost($host, $image, $link)) {
             return $this->layoutShellBlockForElements($wrappers, array($block), $host);
         }
-        // These boxes have no source-selection behavior. Expose each as a
-        // native container rather than coalescing the chain into a companion.
+        // The safety checks above establish a static, independently editable
+        // media boundary. Links and authored geometry do not require an opaque
+        // shell: CSS-owned groups retain the host box and selector identity.
+        // Expose each box without source-selection behavior as a native container.
         foreach (array_reverse($wrappers) as $wrapper) {
             $attrs = $this->authorLayoutOwnership->cssOwnedGroupAttributes($wrapper);
             $attrs['tagName'] = $wrapper === $host ? 'div' : 'picture';
@@ -8277,7 +8280,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $block;
     }
 
-    /** Keep links, geometry and out-of-flow topology on the existing carrier. */
+    /** Keep uncaptured geometry on the carrier that reserves its intrinsic height. */
     private function canGroupPicturelessImageHost(DOMElement $host, DOMElement $image, ?DOMElement $link): bool
     {
         if ($link instanceof DOMElement
