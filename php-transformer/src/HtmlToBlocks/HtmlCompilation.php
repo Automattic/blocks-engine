@@ -302,6 +302,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
     private readonly RuntimeIslandAnalyzer $runtimeIslands;
     private readonly Elements\LayoutShellLowering $layoutShells;
+    private readonly Elements\CustomVideoHostLowering $customVideoHosts;
     private readonly Elements\CustomImageHostLowering $customImageHosts;
     private readonly Elements\AnchorLowering $anchors;
     private readonly Elements\RenderNeutralElements $renderNeutral;
@@ -590,6 +591,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->runtime,
             $this->listStructure
         );
+        $this->customVideoHosts = new Elements\CustomVideoHostLowering($this->session, $this->styleResolver, $this->imageUrls, $this->runtimeIslands, $this->mediaLowering, $this->imageLowering, $this->layoutShells);
         $this->renderNeutral = new Elements\RenderNeutralElements($this->session, $this->styleResolver, $this->sourceElementClassifier, $this->sourceElementDescription, $this->runtimeIslands, $this->emptyElementFootprint);
         $this->inertElements = new Elements\InertElements($this->styleResolver, $this->sourceElementClassifier, $this->sourceVisibility, $this->runtimeIslands);
         $this->emptyInlineGeometry = new Elements\EmptyInlineGeometryLowering($this, $this->session, $this->sourceElementClassifier, $this->emptyElementFootprint, $this->authoredStateButtons, $this->layoutShells, $this->runtimeIslands);
@@ -3257,10 +3259,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             );
         }
 
-        $customVideo = $this->customVideoElement($element);
+        $customVideo = $this->customVideoHosts->customVideoElement($element);
         if ( $customVideo instanceof DOMElement ) {
             $video = $this->mediaLowering->fromElement($customVideo);
-            if ( $this->hasTransparentCustomVideoHostPresentation($element) ) {
+            if ( $this->customVideoHosts->hasTransparentCustomVideoHostPresentation($element) ) {
                 return $video;
             }
 
@@ -3269,7 +3271,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), array($video), $element);
         }
 
-        $videoPoster = $this->customVideoPosterBlock($element);
+        $videoPoster = $this->customVideoHosts->customVideoPosterBlock($element);
         if (null !== $videoPoster) return $videoPoster;
 
         // A `picture` with no image candidate (no `img`, no `source[srcset]`)
@@ -6034,171 +6036,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return null;
     }
 
-
-    private function customVideoElement(DOMElement $element): ?DOMElement
-    {
-        // Capture-snapshot `data-*` on a video host parameterizes media the
-        // capture already renders, so they no more prove a missing runtime
-        // than they do for the poster path below (#2524).
-        if ( ! str_contains($element->tagName, '-') || '' !== trim($element->textContent ?? '') || ! $this->runtimeIslands->isSafeTransparentCustomElement($element) || ! $this->hasOnlyStructuralCustomVideoHostAttributes($element, true) ) {
-            return null;
-        }
-
-        $videos = $element->getElementsByTagName('video');
-        if ( 1 !== $videos->length || ! $videos->item(0) instanceof DOMElement ) {
-            return null;
-        }
-
-        $video = $videos->item(0);
-        if ( ! $video instanceof DOMElement || ! $this->hasRedundantCustomVideoPosterMarkup($element, $video) ) {
-            return null;
-        }
-
-        return $video;
-    }
-
-    private function hasRedundantCustomVideoPosterMarkup(DOMElement $host, DOMElement $video): bool
-    {
-        $poster = $this->imageUrls->safeUrl($this->attr($video, 'poster'));
-        foreach ( $host->getElementsByTagName('*') as $descendant ) {
-            if ( ! $descendant instanceof DOMElement || $descendant === $video ) {
-                continue;
-            }
-            $tagName = strtolower($descendant->tagName);
-            if ( in_array($tagName, array( 'source', 'track' ), true) && $descendant->parentNode === $video ) {
-                continue;
-            }
-            if ( 'img' === $tagName ) {
-                if ( '' === $poster || ! $this->isRedundantCustomVideoPosterImage($descendant, $poster) ) {
-                    return false;
-                }
-                continue;
-            }
-            if ( '' !== trim($descendant->textContent ?? '') || ! (str_contains($tagName, '-') || in_array($tagName, array( 'div', 'span' ), true)) ) {
-                return false;
-            }
-            if ( $descendant->hasAttributes() ) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /** Explicit native media plus a separate decorative poster is already a
-     * browser-owned presentation tree. Keep both source boxes around editable
-     * native media instead of requiring a script to upgrade the custom tags,
-     * whether the poster layer is a bare decorative `img` or an image-only
-     * custom element wrapping one.
-     */
-    private function customVideoPosterBlock(DOMElement $element): ?array
-    {
-        if (!str_contains($element->tagName, '-') || '' !== trim($element->textContent ?? '') || !$this->runtimeIslands->isSafeTransparentCustomElement($element) || !$this->hasOnlyStructuralCustomVideoHostAttributes($element, true)) return null;
-        $children = SourceDom::elementElementChildren($element);
-        if (2 !== count($children)) return null;
-        $video = null; $poster = null;
-        foreach ($children as $child) {
-            if (null === $video && 'video' === strtolower($child->tagName)) { $video = $child; continue; }
-            if (null === $poster && null !== $this->posterLayerImage($child)) { $poster = $child; continue; }
-            return null;
-        }
-        if (!$video instanceof DOMElement || !$poster instanceof DOMElement) return null;
-        $image = $this->posterLayerImage($poster);
-        if (!$image instanceof DOMElement || !$image->hasAttribute('alt') || '' !== $this->attr($image, 'alt')) return null;
-        $videoBlock = $this->mediaLowering->fromElement($video);
-        $imageBlock = $this->imageLowering->convertImage($image);
-        if (null === $videoBlock || null === $imageBlock) return null;
-        $this->session->authorSelectorProjectionState()->ensureTagMarker(strtolower($element->tagName));
-        if ($poster !== $image && $image->parentNode === $poster) {
-            // The poster layer is wrapped: keep the wrapper's identity.
-            if (!$this->hasOnlyStructuralCustomVideoHostAttributes($poster, true) || 1 !== count(SourceDom::elementElementChildren($poster))) return null;
-            $this->session->authorSelectorProjectionState()->ensureTagMarker(strtolower($poster->tagName));
-            $posterBlock = $this->layoutShells->blockForElements(array($poster), array($imageBlock), $poster);
-        } else {
-            $posterBlock = $imageBlock;
-        }
-        $blocks = $children[0] === $video ? array($videoBlock, $posterBlock) : array($posterBlock, $videoBlock);
-        return $this->layoutShells->blockForElements(array($element), $blocks, $element);
-    }
-
-    /** The poster image an element owns: a bare decorative `img` itself, or
-     * the single image of an image-only custom element. A bare img qualifies
-     * only with media and capture-snapshot attributes, like the wrapped
-     * poster element below: an authoring signal (`aria-hidden`, a role) keeps
-     * the poster on the preserved-content path instead.
-     */
-    private function posterLayerImage(DOMElement $element): ?DOMElement
-    {
-        if ( 'img' === strtolower($element->tagName) ) {
-            return $this->isBareDecorativePosterImage($element) ? $element : null;
-        }
-
-        return SourceDom::imageOnlyCustomElement($element);
-    }
-
-    private function isBareDecorativePosterImage(DOMElement $image): bool
-    {
-        if ( !$image->hasAttribute('alt') || '' !== trim($this->attr($image, 'alt')) ) {
-            return false;
-        }
-        foreach ( $image->attributes as $attribute ) {
-            $name = strtolower($attribute->name);
-            if ( in_array($name, array( 'src', 'srcset', 'sizes', 'alt', 'width', 'height', 'loading', 'decoding', 'fetchpriority', 'draggable', 'class', 'style', 'id' ), true) ) {
-                continue;
-            }
-            if ( str_starts_with($name, 'data-') && ! str_starts_with($name, 'data-wp-') && 'data-action' !== $name ) {
-                continue;
-            }
-            return false;
-        }
-
-        return true;
-    }
-
-    private function hasOnlyStructuralCustomVideoHostAttributes(DOMElement $element, bool $allowSnapshotMetadata = false): bool
-    {
-        foreach ( $element->attributes as $attribute ) {
-            $name = strtolower($attribute->name);
-            if (in_array($name, array('class', 'style'), true)) continue;
-            if ($allowSnapshotMetadata && ('id' === $name || (str_starts_with($name, 'data-') && !str_starts_with($name, 'data-wp-') && 'data-action' !== $name))) continue;
-            return false;
-        }
-
-        return true;
-    }
-
-    private function isRedundantCustomVideoPosterImage(DOMElement $image, string $poster): bool
-    {
-        if ( ! $image->hasAttribute('alt') || '' !== $this->attr($image, 'alt') || $poster !== $this->imageUrls->sourceUrl($image) ) {
-            return false;
-        }
-
-        foreach ( $image->attributes as $attribute ) {
-            if ( ! in_array(strtolower($attribute->name), array( 'src', 'alt' ), true) ) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private function hasTransparentCustomVideoHostPresentation(DOMElement $element): bool
-    {
-        // Flattening the host drops its box. A class, id, inline declaration, or
-        // matched author rule means that box may carry presentation we cannot
-        // faithfully move onto core/video.
-        if ( '' !== $this->attr($element, 'class') || '' !== $this->attr($element, 'id') || '' !== $this->attr($element, 'style') || array() !== $this->styleResolver->structuralPresentationDeclarations($element) ) {
-            return false;
-        }
-
-        foreach ( $this->styleResolver->styleRuleCandidates($element, 'static-conditional') as $rule ) {
-            if ( $this->styleResolver->matchesCssSelector($element, $rule['selector']) && array() !== ($rule['declarations'] ?? array()) ) {
-                return false;
-            }
-        }
-
-        return true;
-    }
 
     /** @return array<string, mixed> */
     private function svgArtworkBlock(DOMElement $element, string $svg): array
