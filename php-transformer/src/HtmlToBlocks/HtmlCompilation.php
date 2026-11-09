@@ -313,6 +313,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly Elements\EmptyVisualSpacerLowering $emptyVisualSpacers;
     private readonly Diagnostics\FallbackReconciliation $fallbackReconciliation;
     private readonly Elements\InlineCheckableControlLowering $inlineCheckableControls;
+    private readonly Elements\GlobalShellArtifacts $globalShellArtifacts;
     private readonly SourceProvenance $sourceProvenance;
 
     private readonly RuntimeResourceElementConverter $runtimeResourceConverter;
@@ -602,6 +603,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->emptyVisualSpacers = new Elements\EmptyVisualSpacerLowering($this, $this, $this->session, $this->styleResolver, $this->emptyElementFootprint, $this->runtimeIslands);
         $this->fallbackReconciliation = new Diagnostics\FallbackReconciliation($this->runtimeIslands);
         $this->inlineCheckableControls = new Elements\InlineCheckableControlLowering($this, $this->runtime, $this->session, $this->sourceElementClassifier, $this->richTextMaterializer, $this->authoredStateButtons, $this->runtimeIslands, $this->layoutShells);
+        $this->globalShellArtifacts = new Elements\GlobalShellArtifacts($this, $this, $this->runtime, $this->session, $this->navigationBlockNormalizer);
         $this->customImageHosts = new Elements\CustomImageHostLowering($this, $this->blockFactory, $this->styleResolver, $this->session, $this->sourceElementClassifier, $this->sourceElementDescription, $this->imageLowering, $this->layoutShells, $this->runtimeIslands, $this->authorLayoutOwnership);
         $this->anchors = new Elements\AnchorLowering($this, $this, $this->styleResolver, $this->session, $this->sourceElementClassifier, $this->sourceElementDescription, $this->imageLowering, $this->imageUrls, $this->layoutShells, $this->linkWrapperPropagator, $this->runtimeIslands, $this->customImageHosts);
         $this->layoutTables = new Elements\LayoutTableLowering(
@@ -1691,7 +1693,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->navigationToggleSuppressor->collectSupersededNavToggleSelectors($body);
             $this->navigationToggleSuppressor->collectSupersededCapturedSubmenuSelectors($body);
             $this->collectGeneratedComponentCandidates($body);
-            $shellArtifacts = !array_key_exists('extract_global_shell', $options) || !empty($options['extract_global_shell']) ? $this->globalShellArtifacts($body, (string) ($options['source'] ?? 'html'), false, max(0, (int) ($options['global_shell_context_depth'] ?? 0))) : array();
+            $shellArtifacts = !array_key_exists('extract_global_shell', $options) || !empty($options['extract_global_shell']) ? $this->globalShellArtifacts->globalShellArtifacts($body, (string) ($options['source'] ?? 'html'), false, max(0, (int) ($options['global_shell_context_depth'] ?? 0))) : array();
             $blocks = $this->navigationBlockNormalizer->normalize($this->convertChildren($body, $fallbacks, true), $this->session->transformationProvenanceState()->sources(), $this->session->transformationProvenanceState()->sourceBaseHiddenStates(), $this->session->transformationProvenanceState()->sourceCollapsedWrapperHiddenStates());
         } finally {
             \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\InteractiveSurface::releaseDocument($document);
@@ -2088,82 +2090,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         return $blocks;
-    }
-
-    /**
-     * Convert reusable document shell interiors through the same transformer
-     * state as the full page so projected selector identities remain canonical.
-     *
-     * @return array<int, array<string, mixed>>
-     */
-    private function globalShellArtifacts(DOMElement $body, string $source, bool $removeFromContent = false, int $contextDepth = 0): array
-    {
-        $artifacts = array();
-        $removals = array();
-        // A shell compiled inside its source ancestor context sits below that
-        // many single-child wrappers; the wrappers only supply style context.
-        $container = $body;
-        for ( $depth = 0; $depth < $contextDepth; ++$depth ) {
-            $children = array();
-            foreach ( $container->childNodes as $child ) if ( $child instanceof DOMElement ) $children[] = $child;
-            if ( 1 !== count($children) ) return $artifacts;
-            $container = $children[0];
-        }
-        foreach ( $container->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-            $area = ShellLandmarkPolicy::landmarkKind(strtolower($child->tagName), $this->attr($child, 'role'));
-            if ( ! in_array($area, array( 'header', 'footer' ), true) ) {
-                continue;
-            }
-            // A document heading makes this a page introduction, not reusable chrome.
-            // It remains editable with the page even when authored in a header landmark.
-            if ( 'header' === $area && 0 < $child->getElementsByTagName('h1')->length && 0 === $child->getElementsByTagName('nav')->length ) {
-                continue;
-            }
-
-            // The landmark converts like any other element, so its group
-            // carries the same resolved block supports and carrier classes on
-            // every route whether or not an app frame wraps it. That group is
-            // the landmark box: the template part renders exactly it.
-            $shellFallbacks = array();
-            $converted = $this->convertElement($child, $shellFallbacks, true);
-            $converted = null === $converted ? array() : (isset($converted['blockName']) ? array($converted) : $converted);
-            $converted = $this->navigationBlockNormalizer->normalize($converted, $this->session->transformationProvenanceState()->sources(), $this->session->transformationProvenanceState()->sourceBaseHiddenStates(), $this->session->transformationProvenanceState()->sourceCollapsedWrapperHiddenStates());
-            if ( 1 === count($converted) && 'core/group' !== ($converted[0]['blockName'] ?? null) && $area === ($converted[0]['attrs']['tagName'] ?? null) ) {
-                // A landmark block of its own (a scroll-state carrier) is the box.
-                $markup = $this->runtime->serializeBlocks($converted);
-            } else {
-                $wrapper = 1 === count($converted) && 'core/group' === ($converted[0]['blockName'] ?? null)
-                    ? $converted[0]
-                    : $this->createBlock('core/group', array(), $converted, $child);
-                $wrapperAttrs = is_array($wrapper['attrs'] ?? null) ? $wrapper['attrs'] : array();
-                $wrapperAttrs['tagName'] = $area;
-                $markup = $this->runtime->serializeBlocks(array($this->createBlock('core/group', $wrapperAttrs, $wrapper['innerBlocks'] ?? array(), $child)));
-            }
-            if ( '' === trim($markup) ) {
-                continue;
-            }
-            $artifacts[] = array(
-                'source_path' => $source . '#' . $area,
-                'slug' => $area,
-                'title' => ucfirst($area),
-                'area' => $area,
-                'body_format' => 'blocks',
-                'block_markup' => $markup,
-                'source_selector' => strtolower($child->tagName),
-                'source_hash' => hash('sha256', $this->outerHtml($child)),
-                'placement' => array('kind' => 'entry_shell', 'source_path' => $source, 'template_slugs' => array('front-page')),
-            );
-            // A successfully projected global shell is owned by the template part,
-            // not duplicated in the entry page's post-content markup.
-            if ($removeFromContent) $removals[] = $child;
-        }
-
-        foreach ($removals as $child) $child->parentNode?->removeChild($child);
-
-        return $artifacts;
     }
 
     private function reusableComponentFingerprintFor(DOMElement $element): ?string
