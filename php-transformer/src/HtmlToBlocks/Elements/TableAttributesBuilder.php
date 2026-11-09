@@ -79,7 +79,7 @@ final class TableAttributesBuilder
                 if ( ! SourceDom::belongsToTable($row, $table) ) {
                     continue;
                 }
-                if ( in_array($this->closestTagName($row), array( 'thead', 'tfoot' ), true) ) {
+                if ( in_array(SourceDom::closestTagName($row), array( 'thead', 'tfoot' ), true) ) {
                     continue;
                 }
                 $rows[] = array( 'cells' => $this->tableCells($row) );
@@ -89,9 +89,9 @@ final class TableAttributesBuilder
             }
         }
 
-        $caption = $this->firstChildElement($table, 'caption');
+        $caption = SourceDom::firstChildElement($table, 'caption');
         if ( $caption instanceof DOMElement ) {
-            $attrs['caption'] = $this->innerHtml($caption);
+            $attrs['caption'] = SourceDom::innerHtml($caption);
             // core/table saves only the caption's RichText, not its source
             // element attributes. Keep visually hidden text inside that editable
             // value rather than adding unsupported attributes to figcaption.
@@ -182,7 +182,7 @@ final class TableAttributesBuilder
             $rules[] = '.' . $marker . '>table th,.' . $marker . '>table td{' . implode(';', array_map(static fn (string $family): string => $family . ':revert-layer', $reverted)) . '}';
         }
 
-        $head = $this->firstChildElement($table, 'thead');
+        $head = SourceDom::firstChildElement($table, 'thead');
         if ( $head instanceof DOMElement ) {
             $headDeclarations = $this->styleResolver->structuralPresentationDeclarations($head);
             if ( ! isset($headDeclarations['border']) && ! isset($headDeclarations['border-bottom']) && ! isset($headDeclarations['border-bottom-width']) ) {
@@ -229,7 +229,7 @@ final class TableAttributesBuilder
             if ( ! $row instanceof DOMElement || ! SourceDom::belongsToTable($row, $table) ) {
                 continue;
             }
-            $section = $this->closestTagName($row);
+            $section = SourceDom::closestTagName($row);
             $section = isset($sectionRows[$section]) ? $section : 'tbody';
             $rowIndex = ++$sectionRows[$section];
             $rowSelector = 'table>' . $section . '>tr:nth-child(' . $rowIndex . ')';
@@ -312,7 +312,7 @@ final class TableAttributesBuilder
             if ( ! $row instanceof DOMElement || ! SourceDom::belongsToTable($row, $table) ) {
                 continue;
             }
-            $section = $this->closestTagName($row);
+            $section = SourceDom::closestTagName($row);
             $section = isset($sectionRows[$section]) ? $section : 'tbody';
             $rowIndex = ++$sectionRows[$section];
             $cellIndex = 0;
@@ -321,7 +321,7 @@ final class TableAttributesBuilder
                     continue;
                 }
                 ++$cellIndex;
-                $declarations = $this->styleResolver->cssDeclarations($this->attr($cell, 'style'));
+                $declarations = $this->styleResolver->cssDeclarations(SourceDom::attr($cell, 'style'));
                 $geometry = array();
                 $width = trim((string) ($declarations['width'] ?? ''));
                 if ( '' !== $width && preg_match('/^(?:\d+(?:\.\d+)?(?:%|px|em|rem|vw|ch)|calc\(.+\)|var\(.+\))$/i', $width) ) {
@@ -379,18 +379,18 @@ final class TableAttributesBuilder
                 $sourceTagName = strtolower($descendant->tagName);
                 $sourceTagMarker = $this->authorSelectorProjections()->tagMarker($sourceTagName);
                 if ( '' !== $sourceTagMarker ) {
-                    $descendant->setAttribute('class', $this->mergeClassNames($this->attr($descendant, 'class'), $sourceTagMarker));
+                    $descendant->setAttribute('class', SourceDom::mergeClassNames(SourceDom::attr($descendant, 'class'), $sourceTagMarker));
                     $sourceMarkupMutated = true;
                 }
             }
             $entry = array(
-                'content' => $this->innerHtml($cell),
+                'content' => SourceDom::innerHtml($cell),
                 'tag'     => strtolower($cell->tagName),
             );
             // core/table cells carry their own spans, so merged and ragged
             // rows stay one editable table.
             foreach ( array( 'colspan', 'rowspan' ) as $span ) {
-                $value = trim($this->attr($cell, $span));
+                $value = trim(SourceDom::attr($cell, $span));
                 if ( 1 === preg_match('/^[1-9][0-9]*$/', $value) && '1' !== $value ) {
                     $entry[$span] = $value;
                 }
@@ -401,31 +401,6 @@ final class TableAttributesBuilder
             $this->onSourceMarkupMutated();
         }
         return $cells;
-    }
-
-    private function attr(DOMElement $element, string $name): string
-    {
-        return SourceDom::attr($element, $name);
-    }
-
-    private function closestTagName(DOMElement $element): ?string
-    {
-        return SourceDom::closestTagName($element);
-    }
-
-    private function firstChildElement(DOMElement $element, string $tagName): ?DOMElement
-    {
-        return SourceDom::firstChildElement($element, $tagName);
-    }
-
-    private function innerHtml(DOMElement $element): string
-    {
-        return SourceDom::innerHtml($element);
-    }
-
-    private function mergeClassNames(string ...$classNames): string
-    {
-        return SourceDom::mergeClassNames(...$classNames);
     }
 
     private function layoutGeometry(): LayoutGeometryState

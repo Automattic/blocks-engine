@@ -422,7 +422,7 @@ final class SourceElementClassifier
                 continue;
             }
 
-            if ( 'br' === $tagName || $this->isInlineContentElement($tagName) ) {
+            if ( 'br' === $tagName || ( $this->isInlineContentElement($tagName) && ! SourceDom::isImageOnlyNamedGraphic($child) ) ) {
                 $nonAnchorText = true;
                 continue;
             }

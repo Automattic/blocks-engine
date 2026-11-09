@@ -174,7 +174,8 @@ final class ButtonLinkDispatcher
             }
 
             $tagName = strtolower($child->tagName);
-            if ( in_array($tagName, array( 'br', 'img', 'svg' ), true) || $this->sourceElementClassifier->isInlineContentElement($tagName) ) {
+            if ( in_array($tagName, array( 'br', 'img', 'svg' ), true)
+                || ( $this->sourceElementClassifier->isInlineContentElement($tagName) && ! SourceDom::isImageOnlyNamedGraphic($child) ) ) {
                 continue;
             }
 

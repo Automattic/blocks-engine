@@ -96,8 +96,8 @@ final class AuthoredMarqueeRecognizer
             }
             $items[] = array(
                 'content' => $content,
-                'className' => trim($this->attr($item, 'class')),
-                'marker' => trim($this->attr($item, 'data-blocks-engine-richtext-marker')),
+                'className' => trim(SourceDom::attr($item, 'class')),
+                'marker' => trim(SourceDom::attr($item, 'data-blocks-engine-richtext-marker')),
             );
         }
 
@@ -109,8 +109,8 @@ final class AuthoredMarqueeRecognizer
             'duration' => $motion['duration'],
             'decorative' => SourceDom::hasAriaHiddenAncestor($element),
         );
-        if ( '' !== trim($this->attr($element, 'class')) ) {
-            $attributes['sourceClassName'] = trim($this->attr($element, 'class'));
+        if ( '' !== trim(SourceDom::attr($element, 'class')) ) {
+            $attributes['sourceClassName'] = trim(SourceDom::attr($element, 'class'));
         }
         $markup = $generator->markup($attributes);
 
@@ -312,7 +312,7 @@ final class AuthoredMarqueeRecognizer
 
         $track = null;
         foreach ( $element->getElementsByTagName('*') as $candidate ) {
-            if ( $candidate instanceof DOMElement && in_array($this->attr($candidate, 'data-marquee-animation'), array( 'left', 'right' ), true) ) {
+            if ( $candidate instanceof DOMElement && in_array(SourceDom::attr($candidate, 'data-marquee-animation'), array( 'left', 'right' ), true) ) {
                 $track = $candidate;
                 break;
             }
@@ -328,7 +328,7 @@ final class AuthoredMarqueeRecognizer
 
         $content = '';
         foreach ( $track->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement || 'true' === $this->attr($candidate, 'aria-hidden') || 0 !== $candidate->childElementCount ) {
+            if ( ! $candidate instanceof DOMElement || 'true' === SourceDom::attr($candidate, 'aria-hidden') || 0 !== $candidate->childElementCount ) {
                 continue;
             }
             $text = trim($candidate->textContent ?? '');
@@ -344,9 +344,9 @@ final class AuthoredMarqueeRecognizer
         $this->generatedBlocks()->register(AuthoredMarqueeBlockGenerator::class, ( new AuthoredMarqueeBlockGenerator() )->definition($this->generatedBlocks()->namespace()));
 
         $duration = 40.0;
-        $durationCandidates = array( $this->styleResolver->cssDeclarations($this->attr($track, 'style'))['--marquee-duration'] ?? '' );
+        $durationCandidates = array( $this->styleResolver->cssDeclarations(SourceDom::attr($track, 'style'))['--marquee-duration'] ?? '' );
         for ( $carrier = $element; $carrier instanceof DOMElement && 'body' !== strtolower($carrier->tagName); $carrier = $carrier->parentNode instanceof DOMElement ? $carrier->parentNode : null ) {
-            $durationCandidates[] = $this->styleResolver->cssDeclarations($this->attr($carrier, 'style'))['--marquee-duration'] ?? '';
+            $durationCandidates[] = $this->styleResolver->cssDeclarations(SourceDom::attr($carrier, 'style'))['--marquee-duration'] ?? '';
         }
         foreach ( $durationCandidates as $value ) {
             if ( preg_match('/^([0-9]+(?:\.[0-9]+)?)s$/', trim((string) $value), $matches) ) {
@@ -357,11 +357,11 @@ final class AuthoredMarqueeRecognizer
 
         $attributes = array(
             'content' => $content,
-            'direction' => $this->attr($track, 'data-marquee-animation'),
+            'direction' => SourceDom::attr($track, 'data-marquee-animation'),
             'duration' => min(600, max(1, $duration)),
         );
-        if ( '' !== trim($this->attr($element, 'class')) ) {
-            $attributes['sourceClassName'] = trim($this->attr($element, 'class'));
+        if ( '' !== trim(SourceDom::attr($element, 'class')) ) {
+            $attributes['sourceClassName'] = trim(SourceDom::attr($element, 'class'));
         }
         $markup = ( new AuthoredMarqueeBlockGenerator() )->markup($attributes);
 
@@ -386,10 +386,10 @@ final class AuthoredMarqueeRecognizer
         if ( ! $element->hasAttribute('data-marquee-items') ) {
             return null;
         }
-        $declared = json_decode($this->attr($element, 'data-marquee-items'));
-        $direction = $this->attr($element, 'data-animation-direction');
-        $speed = $this->attr($element, 'data-animation-speed');
-        $wave = $this->attr($element, 'data-wave-intensity');
+        $declared = json_decode(SourceDom::attr($element, 'data-marquee-items'));
+        $direction = SourceDom::attr($element, 'data-animation-direction');
+        $speed = SourceDom::attr($element, 'data-animation-speed');
+        $wave = SourceDom::attr($element, 'data-wave-intensity');
         if ( ! is_array($declared) || array() === $declared
             || ! in_array($direction, array( 'left', 'right' ), true)
             || ! is_numeric($speed) || ! is_finite((float) $speed) || 0 >= (float) $speed
@@ -425,8 +425,8 @@ final class AuthoredMarqueeRecognizer
             $items[] = array(
                 'content' => $this->runtime->escapeHtml($entry->text),
                 'tagName' => strtolower($measure->tagName),
-                'className' => trim($this->attr($measure, 'class')),
-                'marker' => trim($this->attr($measure, 'data-blocks-engine-richtext-marker')),
+                'className' => trim(SourceDom::attr($measure, 'class')),
+                'marker' => trim(SourceDom::attr($measure, 'data-blocks-engine-richtext-marker')),
             );
         }
 
@@ -439,8 +439,8 @@ final class AuthoredMarqueeRecognizer
             'duration' => min(600, max(1, 40 / (float) $speed)),
             'decorative' => SourceDom::hasAriaHiddenAncestor($element),
         );
-        if ( '' !== trim($this->attr($element, 'class')) ) {
-            $attributes['sourceClassName'] = trim($this->attr($element, 'class'));
+        if ( '' !== trim(SourceDom::attr($element, 'class')) ) {
+            $attributes['sourceClassName'] = trim(SourceDom::attr($element, 'class'));
         }
         $markup = $generator->markup($attributes);
         return array(
@@ -473,17 +473,12 @@ final class AuthoredMarqueeRecognizer
         }
         $this->applyAuthoredAnimationCascade(
             $cascade,
-            $this->styleResolver->cssDeclarations($this->attr($element, 'style')),
+            $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style')),
             PHP_INT_MAX,
             $sequence
         );
 
         return array_map(static fn (array $fact): string => (string) $fact['value'], $cascade);
-    }
-
-    private function attr(DOMElement $element, string $name): string
-    {
-        return SourceDom::attr($element, $name);
     }
 
     private function authorStyles(): AuthorStyleAnalysis

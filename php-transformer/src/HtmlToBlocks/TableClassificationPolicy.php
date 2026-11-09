@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 final class TableClassificationPolicy
@@ -189,7 +190,7 @@ final class TableClassificationPolicy
 
         foreach ( self::STRUCTURED_CELL_CONTENT as $tagName ) {
             foreach ( $table->getElementsByTagName($tagName) as $content ) {
-                if ( $content instanceof DOMElement && $this->belongsToTable($content, $table) ) {
+                if ( $content instanceof DOMElement && SourceDom::belongsToTable($content, $table) ) {
                     return true;
                 }
             }
@@ -235,7 +236,7 @@ final class TableClassificationPolicy
         }
 
         foreach ($table->getElementsByTagName('img') as $image) {
-            if ($image instanceof DOMElement && $this->belongsToTable($image, $table)) {
+            if ($image instanceof DOMElement && SourceDom::belongsToTable($image, $table)) {
                 return true;
             }
         }
@@ -410,7 +411,7 @@ final class TableClassificationPolicy
     {
         $rows = array();
         foreach ( $table->getElementsByTagName('tr') as $row ) {
-            if ( $row instanceof DOMElement && $this->belongsToTable($row, $table) ) {
+            if ( $row instanceof DOMElement && SourceDom::belongsToTable($row, $table) ) {
                 $rows[] = $row;
             }
         }
@@ -445,19 +446,6 @@ final class TableClassificationPolicy
         }
 
         return $width;
-    }
-
-    private function belongsToTable(DOMElement $element, DOMElement $table): bool
-    {
-        for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
-            if ( 'table' !== strtolower($node->tagName) ) {
-                continue;
-            }
-
-            return $node->isSameNode($table);
-        }
-
-        return false;
     }
 
     private function hasDescendantTable(DOMElement $table): bool
