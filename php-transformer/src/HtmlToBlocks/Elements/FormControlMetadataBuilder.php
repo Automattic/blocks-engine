@@ -454,6 +454,15 @@ final class FormControlMetadataBuilder
             $metadata['_unresolved_description_candidates'] = array_slice($description['ambiguous'], 0, 4);
         }
 
+        // A link the author gave a button role names its action by its text,
+        // exactly as a native button does; a provider control needs that wording.
+        if ( 'a' === $tagName && 'button' === strtolower(SourceDom::attr($control, 'role')) ) {
+            $text = $this->buttonText($control);
+            if ( '' !== $text ) {
+                $metadata['text'] = $text;
+            }
+        }
+
         if ( in_array($type, array( 'button', 'reset', 'submit' ), true) ) {
             $text = $this->buttonText($control);
             if ( '' !== $text ) {

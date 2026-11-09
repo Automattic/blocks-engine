@@ -51,6 +51,8 @@ foreach (array(
             if ($detailPath === $page['source_path']) $assert(str_contains($page['canonical_block_markup'], $binding['search_block_markup']), $case . ': anchor exists in detail markup');
         }
         $assert($purchases[0]['controls'] == $rows[$owner]['controls'], $case . ': purchase controls retained');
+        $links = array_values(array_filter($purchases[0]['controls'], static fn (array $c): bool => 'a' === ($c['tag'] ?? null)));
+        $assert('Add to Cart' === ($links[0]['text'] ?? null), $case . ': link button keeps its wording');
         if (isset($purchases[0]['presentation_graph'])) $assert($purchases[0]['presentation_graph'] == ($rows[$owner]['presentation_graph'] ?? null), $case . ': presentation graph retained');
     }
 }
