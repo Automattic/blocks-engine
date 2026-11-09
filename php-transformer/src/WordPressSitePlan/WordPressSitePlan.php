@@ -7031,6 +7031,12 @@ PHP;
             $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_script( 'blocks-engine-responsive-fragments', false, array(), null, true ); wp_enqueue_script( 'blocks-engine-responsive-fragments' ); wp_add_inline_script( 'blocks-engine-responsive-fragments', " . var_export($fragmentScript, true) . " ); } );";
             break;
         }
+        foreach (array_merge($templates, $parts, $pages) as $document) {
+            if (!str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), 'blocks-engine-navigation-header-offset')) continue;
+            $headerOffsetScript = NavigationHeaderOffsetRuntime::script();
+            $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_script( 'blocks-engine-navigation-header-offset', false, array(), null, true ); wp_enqueue_script( 'blocks-engine-navigation-header-offset' ); wp_add_inline_script( 'blocks-engine-navigation-header-offset', " . var_export($headerOffsetScript, true) . " ); } );";
+            break;
+        }
         $breadcrumbLabels = BreadcrumbLabelRuntime::labels(array_merge($templates, $parts, $pages), $pages);
         $breadcrumbPostTrails = BreadcrumbLabelRuntime::postTrails($pages);
         if (array() !== $breadcrumbLabels || array() !== $breadcrumbPostTrails) $lines[] = BreadcrumbLabelRuntime::source($breadcrumbLabels, $breadcrumbPostTrails);

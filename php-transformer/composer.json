@@ -100,6 +100,7 @@
       "php tests/contract/button-materialized-svg-author-rule.php",
       "php tests/contract/real-header-mobile-toggle.php",
       "php tests/contract/real-header-mobile-artwork.php",
+      "php tests/contract/mobile-navigation-header-height-padding.php",
       "php tests/contract/shell-header-incidental-evidence.php",
       "php tests/contract/responsive-navigation-list-ownership.php",
       "php tests/contract/custom-image-host-core-group.php",
