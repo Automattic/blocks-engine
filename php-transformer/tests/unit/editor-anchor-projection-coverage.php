@@ -12,6 +12,12 @@ $assert = static function (bool $condition, string $message) use (&$failures): v
         fwrite(STDERR, 'FAIL: ' . $message . PHP_EOL);
     }
 };
+// Guard placement uses selector boundaries, including pseudo-element hosts.
+$guardResult = (new HtmlTransformer())->transform('<style>#ordinary::before{content:"marker"}#ordinary:hover{outline-width:7px}#ordinary::first-letter{font-size:19px}</style><section id="ordinary"><p>Body</p></section>')->toArray();
+$guardCss = implode("\n", array_column(array_filter($guardResult['assets'], static fn(array $asset): bool => 'editor-static-state' === ($asset['source'] ?? '')), 'content'));
+$assert(str_contains($guardCss, ':where(:not(#ordinary))::before{'), 'A pseudo-element repair guards its host before the pseudo-element.');
+$assert(str_contains($guardCss, ':where(:not(#ordinary:hover)):hover{'), 'A stateful repair guards the complete original selector before the state suffix.');
+$assert(str_contains($guardCss, '::first-letter{font-size:19px}'), 'An unsupported guard retains the previous repair.');
 $bytes = 0;
 foreach (require dirname(__DIR__) . '/fixtures/editor-anchor-projection-pages.php' as $html) {
     $result = (new HtmlTransformer())->transform($html)->toArray();
