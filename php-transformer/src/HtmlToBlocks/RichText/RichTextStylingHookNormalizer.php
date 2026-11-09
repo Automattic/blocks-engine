@@ -4,7 +4,9 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CommentTextRunBoundaries;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -17,7 +19,8 @@ final class RichTextStylingHookNormalizer
     public function __construct(
         private readonly StyleResolver $styleResolver,
         private readonly RichTextMaterializer $richTextMaterializer,
-        private readonly HtmlTransformerSession $session
+        private readonly HtmlTransformerSession $session,
+        private readonly SourceElementClassifier $sourceElementClassifier
     ) {
     }
 
@@ -465,5 +468,143 @@ final class RichTextStylingHookNormalizer
         }
 
         $parent->removeChild($element);
+    }
+
+    /**
+     * Lift class/style styling hooks out of a block's RichText source so the
+     * stored block round-trips through RichText unchanged.
+     *
+     * Core text blocks store `content`, and core/file stores `fileName`, as
+     * RichText. RichText only preserves a fixed set of inline formats (a,
+     * strong, em, br, …). A `<span class="…">` / `<span style="…">` is not a format, so
+     * RichText drops its attributes on parse: the saved markup no longer matches
+     * the re-serialized block ("unexpected or invalid content"), and the class —
+     * a styling hook the materialized CSS targets — would be silently lost.
+     *
+     * The fix keys off STRUCTURE (a content-bearing span carrying only
+     * class/style), never on any specific class name:
+     *   - A SINGLE styling-hook span wrapping the ENTIRE content is UNWRAPPED and
+     *     its class/style are HOISTED onto the block (merged into `className` and
+     *     the canonical `style` object). The hook survives where RichText does
+     *     preserve it and the inner text/inline-format becomes valid content.
+     *     Nested wrappers are peeled across iterations.
+     *   - Remaining sibling/partial styling-hook spans are UNWRAPPED to their
+     *     inner content. Their per-span class styling cannot ride valid RichText
+     *     here, so this is best-effort; the emitted block is always valid.
+     * Genuine inline formats (strong/em/a/br/…) are kept, but arbitrary
+     * class/style hooks on links are moved to the block wrapper when the link is
+     * the sole content wrapper, or dropped when they are partial-content hooks.
+     * RichText's link format round-trips href/target/rel, not source CSS hooks.
+     *
+     * A list item whose content carries block-level children keeps that topology:
+     * its inline hooks still become RichText-safe marks, but no wrapper is
+     * hoisted onto the list item.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    public function hoistContentWrappingSpans(string $name, array $attrs): array
+    {
+        $richTextAttribute = 'core/file' === $name ? 'fileName' : 'content';
+        if ( ! in_array($name, array( 'core/file', 'core/paragraph', 'core/heading', 'core/list-item' ), true) ) {
+            return $attrs;
+        }
+
+        $content = (string) ($attrs[$richTextAttribute] ?? '');
+        if ( '' === $content || ( ! preg_match('/<(?:span|font|a|em|i|strong|b|mark|small|sub|sup)\b/i', $content) && ! RichTextInlineTags::containsUnknownElement($content) ) ) {
+            return $attrs;
+        }
+
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded   = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $content . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
+        if ( ! $body instanceof DOMElement ) {
+            return $attrs;
+        }
+
+        $listItemHasBlockContent = 'core/list-item' === $name && $this->sourceElementClassifier->hasBlockContentChildren($body);
+
+        $hoistedClasses      = '';
+        $hoistedDeclarations = array();
+
+        // Peel a single styling-hook span wrapping the whole content, hoisting it
+        // onto the block. A source identity needs to remain on the inline node so
+        // author selectors continue to address the saved RichText carrier.
+        while ( ! $listItemHasBlockContent && ( $wrapper = $this->soleStylingHookSpan($body) ) instanceof DOMElement ) {
+            $wrapperDeclarations = $this->styleResolver->cssDeclarations(SourceDom::attr($wrapper, 'style'));
+            if ( array() !== $this->richTextSafeIdentityAttributes($wrapper) || isset($wrapperDeclarations['--blocks-engine-richtext-marker']) ) {
+                break;
+            }
+            $hoistedClasses = trim($hoistedClasses . ' ' . SourceDom::attr($wrapper, 'class'));
+            $wrapperStyle   = trim(SourceDom::attr($wrapper, 'style'));
+            if ( '' !== $wrapperStyle ) {
+                // On an inline wrapper these values restate the parent's size;
+                // on the block they would instead inherit from its parent and
+                // erase an outer span's size (or a stylesheet heading size).
+                $size = strtolower(CssValueInspector::withoutImportant((string) ($wrapperDeclarations['font-size'] ?? '')));
+                if ( in_array($size, array( 'inherit', 'unset' ), true)
+                    || 1 === preg_match('/^(?:100(?:\.0+)?%|1(?:\.0+)?em)$/', $size) ) {
+                    unset($wrapperDeclarations['font-size']);
+                }
+                $hoistedDeclarations = array_merge($hoistedDeclarations, $wrapperDeclarations);
+            }
+            $this->unwrapElement($wrapper);
+        }
+
+        $this->normalize($body);
+
+        $newContent = $this->styleResolver->innerHtml($body);
+        if ( $newContent === $content && '' === $hoistedClasses && array() === $hoistedDeclarations ) {
+            return $attrs;
+        }
+
+        $attrs[$richTextAttribute] = $newContent;
+
+        if ( '' !== $hoistedClasses ) {
+            $promoted = $this->styleResolver->promotedClassName($hoistedClasses);
+            if ( '' !== trim($promoted) ) {
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $promoted);
+            }
+        }
+
+        if ( array() !== $hoistedDeclarations ) {
+            $mapped = $this->styleResolver->styleAttributeMapper()->map($hoistedDeclarations)['style'];
+            if ( array() !== $mapped ) {
+                $existing       = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
+                $attrs['style'] = array_replace_recursive($mapped, $existing);
+                // A size on the content overrides the host's size in the source
+                // cascade too, even when the host carries a reset such as 100%.
+                if ( isset($mapped['typography']['fontSize']) ) {
+                    $attrs['style']['typography']['fontSize'] = $mapped['typography']['fontSize'];
+                }
+            }
+        }
+
+        return $attrs;
+    }
+
+    /**
+     * The single styling-hook span that is the container's only significant
+     * child, or null when the content is plain text, inline formats, or sibling
+     * spans (which must not be hoisted as one block-level styling hook).
+     */
+    private function soleStylingHookSpan(DOMElement $container): ?DOMElement
+    {
+        $only = null;
+        foreach ( $container->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+            if ( null !== $only ) {
+                return null;
+            }
+            $only = $child;
+        }
+
+        return $only instanceof DOMElement && $this->isStylingHookSpan($only) ? $only : null;
     }
 }
