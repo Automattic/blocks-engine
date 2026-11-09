@@ -309,6 +309,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly Elements\EmptyInlineGeometryLowering $emptyInlineGeometry;
     private readonly Elements\CustomWrapperConventions $wrapperConventions;
     private readonly Elements\EmptyVisualSpacerLowering $emptyVisualSpacers;
+    private readonly Diagnostics\FallbackReconciliation $fallbackReconciliation;
     private readonly SourceProvenance $sourceProvenance;
 
     private readonly RuntimeResourceElementConverter $runtimeResourceConverter;
@@ -594,6 +595,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->emptyInlineGeometry = new Elements\EmptyInlineGeometryLowering($this, $this->session, $this->sourceElementClassifier, $this->emptyElementFootprint, $this->authoredStateButtons, $this->layoutShells, $this->runtimeIslands);
         $this->wrapperConventions = new Elements\CustomWrapperConventions($this->styleResolver);
         $this->emptyVisualSpacers = new Elements\EmptyVisualSpacerLowering($this, $this, $this->session, $this->styleResolver, $this->emptyElementFootprint, $this->runtimeIslands);
+        $this->fallbackReconciliation = new Diagnostics\FallbackReconciliation($this->runtimeIslands);
         $this->customImageHosts = new Elements\CustomImageHostLowering($this, $this->blockFactory, $this->styleResolver, $this->session, $this->sourceElementClassifier, $this->sourceElementDescription, $this->imageLowering, $this->layoutShells, $this->runtimeIslands, $this->authorLayoutOwnership);
         $this->anchors = new Elements\AnchorLowering($this, $this, $this->styleResolver, $this->session, $this->sourceElementClassifier, $this->sourceElementDescription, $this->imageLowering, $this->imageUrls, $this->layoutShells, $this->linkWrapperPropagator, $this->runtimeIslands, $this->customImageHosts);
         $this->layoutTables = new Elements\LayoutTableLowering(
@@ -1692,8 +1694,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $blocks = $this->wrapperCoalescer->compressProjectedGroupChains($blocks);
         $timer->start('transform.fallback_reduction');
         $fallbacks = array_merge($fallbacks, $this->session->transformationEvidenceState()->responsiveImageFallbacks());
-        $this->reconcileNativeListItemFallbacks($fallbacks, $blocks);
-        $this->reconcileFormControlGroupFallbacks($body, $fallbacks);
+        $this->fallbackReconciliation->reconcileNativeListItemFallbacks($fallbacks, $blocks);
+        $this->fallbackReconciliation->reconcileFormControlGroupFallbacks($body, $fallbacks);
         if (! $this->session->usesFallbackReductionMode()) {
             $blocks = $this->reduceCoreHtmlFallbackBlocks($blocks, $body);
         }
@@ -5301,90 +5303,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             }
         }
         return null;
-    }
-
-    /**
-     * Form classification must see the original conversion findings. Only after
-     * conversion can the enclosing form claim a control-only unsupported group.
-     *
-     * @param array<int, array<string, mixed>> $fallbacks
-     */
-    private function reconcileFormControlGroupFallbacks(DOMElement $body, array &$fallbacks): void
-    {
-        $forms = array();
-        $unsupported = array();
-        foreach ( $fallbacks as $index => $finding ) {
-            $selector = $finding['selector'] ?? '';
-            if ( 'html_form_fallback' === ($finding['diagnostic_code'] ?? '') ) {
-                $forms[$selector] = array_fill_keys(array_column($finding['controls'] ?? array(), 'selector'), true);
-            } elseif ( 'html_unsupported_element' === ($finding['diagnostic_code'] ?? '') ) {
-                $unsupported[$selector][] = $index;
-            }
-        }
-        if ( array() === $forms || array() === $unsupported ) return;
-
-        foreach ( $body->getElementsByTagName('*') as $element ) {
-            $selector = $this->elementSelector($element);
-            if ( ! isset($unsupported[$selector]) ) continue;
-            for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
-                $owner = $forms[$this->elementSelector($parent)] ?? null;
-                if ( null === $owner ) continue;
-                $controls = FormControlClassifier::controlElements($element);
-                if ( array() !== $controls
-                    && $this->runtimeIslands->isSafeTransparentCustomElement($element)
-                    && $this->isFormOwnedControlStructure($element, $owner)
-                ) {
-                    foreach ( $unsupported[$selector] as $index ) unset($fallbacks[$index]);
-                }
-                break;
-            }
-        }
-        $fallbacks = array_values($fallbacks);
-    }
-
-    /** @param array<string, bool> $controls */
-    private function isFormOwnedControlStructure(DOMElement $element, array $controls): bool
-    {
-        if ( FormControlClassifier::isControlElement($element) ) {
-            return isset($controls[$this->elementSelector($element)]);
-        }
-        $tag = strtolower($element->tagName);
-        if ( ! in_array($tag, array('div', 'span'), true) && ! str_contains($tag, '-') ) return false;
-        if ( (new CustomElementRuntimeDependency())->hasConfigurationAttribute($element)
-            || $element->hasAttribute('role') || $element->hasAttribute('aria-label') || $element->hasAttribute('aria-labelledby')
-        ) return false;
-        $hasChild = false;
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement ) {
-                $hasChild = true;
-                if ( ! $this->isFormOwnedControlStructure($child, $controls) ) return false;
-            } elseif ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') ) {
-                return false;
-            }
-        }
-        return $hasChild;
-    }
-
-    /** @param array<int, array<string, mixed>> $fallbacks @param array<int, array<string, mixed>> $blocks */
-    private function reconcileNativeListItemFallbacks(array &$fallbacks, array $blocks): void
-    {
-        $nativeListItemMarkup = array();
-        $collect = function (array $nodes) use (&$collect, &$nativeListItemMarkup): void {
-            foreach ($nodes as $node) {
-                if (! is_array($node)) {
-                    continue;
-                }
-                if ('core/list-item' === ($node['blockName'] ?? null)) {
-                    $content = $node['attrs']['content'] ?? null;
-                    if (is_string($content)) {
-                        $nativeListItemMarkup[] = $content;
-                    }
-                }
-                $collect(is_array($node['innerBlocks'] ?? null) ? $node['innerBlocks'] : array());
-            }
-        };
-        $collect($blocks);
-        \Automattic\BlocksEngine\PhpTransformer\Support\NativeListItemFallbackReconciler::reconcile($fallbacks, $nativeListItemMarkup);
     }
 
     /**
