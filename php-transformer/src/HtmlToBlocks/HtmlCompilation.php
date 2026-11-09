@@ -896,7 +896,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             fn (DOMElement $figure): ?DOMElement => $this->figureLinkedMediaAnchor($figure),
             fn (DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array => $this->convertPictureElement($picture, $figure, $link),
             fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->imageLowering->convertImage($image, $figure, $picture, $link),
-            fn (DOMElement $figure, string $tagName): ?DOMElement => $this->figureMediaElement($figure, $tagName),
+            fn (DOMElement $figure, string $tagName): ?DOMElement => SourceDom::figureMediaElement($figure, $tagName),
             function (DOMElement $figure, array &$fallbacks): ?array {
                 return $this->convertFigureGeneric($figure, $fallbacks);
             },
@@ -4868,7 +4868,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             }
         }
         $attrs = $this->authorLayoutOwnership->cssOwnedGroupAttributes($element, false, $topologyChanged);
-        if ( 0 === count($children) && '' === $this->renderedTextContent($element) ) {
+        if ( 0 === count($children) && '' === SourceDom::renderedTextContent($element) ) {
             // Empty source layout containers are visual boundaries, not new
             // authoring targets. Mark them so the editor suppresses Core's
             // layout picker without changing their saved frontend box.
@@ -5191,7 +5191,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     /** Non-style retention decisions, evaluated only when the footprint query needs them. */
     private function emptyVisualRetentionPolicy(DOMElement $element): iterable
     {
-        if ( '' !== $this->renderedTextContent($element) || $this->isInertOutOfFlowEmptyElement($element) ) {
+        if ( '' !== SourceDom::renderedTextContent($element) || $this->isInertOutOfFlowEmptyElement($element) ) {
             yield 'drop' => true;
             return;
         }
@@ -5224,7 +5224,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
     private function hasSubstantiveSourceDescendant(DOMElement $element): bool
     {
-        if ( '' !== $this->renderedTextContent($element) ) {
+        if ( '' !== SourceDom::renderedTextContent($element) ) {
             return true;
         }
         foreach ( array( 'audio', 'button', 'canvas', 'form', 'iframe', 'img', 'input', 'object', 'picture', 'select', 'svg', 'textarea', 'video' ) as $tagName ) {
@@ -5254,7 +5254,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     {
         $identity = strtolower(trim($this->attr($element, 'class') . ' ' . $this->attr($element, 'id') . ' ' . $this->attr($element, 'role')));
         if ( ! preg_match('/(?:^|[^a-z0-9])(?:search|cart)(?:[^a-z0-9]|$)/', $identity)
-            || '' !== $this->renderedTextContent($element)
+            || '' !== SourceDom::renderedTextContent($element)
             || $this->runtimeIslands->isRuntimeDomTarget($element)
             || $this->wrapperCoalescer->isDirectChildOfStructuralLayout($element)
             || $this->hasAuthorInlineAlignment($element)
@@ -5405,25 +5405,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             && array() === SourceDom::safeDataAttributes($element);
     }
 
-    private function renderedTextContent(DOMElement $element): string
-    {
-        $text = '';
-        foreach ( $element->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType ) {
-                $text .= $child->textContent ?? '';
-                continue;
-            }
-
-            if ( ! $child instanceof DOMElement || in_array(strtolower($child->tagName), array( 'script', 'style', 'template' ), true) ) {
-                continue;
-            }
-
-            $text .= $this->renderedTextContent($child);
-        }
-
-        return trim($text);
-    }
-
     /** @return array<string, mixed> */
     private function emptyVisualElementAttributes(DOMElement $element): array
     {
@@ -5500,7 +5481,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             // child and its selector identity, collapsing its authored tracks.
             $innerBlocks = array();
             if ( 0 < $this->childElementCount($element)
-                && '' === $this->renderedTextContent($element)
+                && '' === SourceDom::renderedTextContent($element)
                 && $this->hasEmptyGridTrackDescendant($element)
             ) {
                 $ignoredFallbacks = array();
@@ -5522,7 +5503,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     {
         foreach ( $element->getElementsByTagName('*') as $descendant ) {
             if ( $descendant instanceof DOMElement
-                && '' === $this->renderedTextContent($descendant)
+                && '' === SourceDom::renderedTextContent($descendant)
                 && $this->emptyElementFootprint->hasAuthoredGridTracks($descendant)
             ) {
                 return true;
@@ -6500,37 +6481,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $block;
     }
 
-    private function figureMediaElement(DOMElement $figure, string $tagName): ?DOMElement
-    {
-        $direct = $this->firstChildElement($figure, $tagName);
-        if ( $direct instanceof DOMElement ) {
-            return $direct;
-        }
-
-        $wrapper = null;
-        foreach ( $figure->childNodes as $child ) {
-            if ( $child instanceof DOMElement && 'figcaption' === strtolower($child->tagName) ) {
-                continue;
-            }
-
-            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
-                continue;
-            }
-
-            if ( ! $child instanceof DOMElement || null !== $wrapper ) {
-                return null;
-            }
-
-            $wrapper = $child;
-        }
-
-        if ( ! $wrapper instanceof DOMElement || ! in_array(strtolower($wrapper->tagName), array( 'div', 'span', 'p' ), true) ) {
-            return null;
-        }
-
-        return $this->onlyChildElement($wrapper, $tagName);
-    }
-
     private function figureLinkedMediaAnchor(DOMElement $figure): ?DOMElement
     {
         $anchor = null;
@@ -6589,7 +6539,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         if ( array() === $children ) {
-            if ( $this->emptyElementFootprint->shouldPreserveEmptyVisualFigure($figure, $this->renderedTextContent($figure), $this->session->sourceStyleResolutionState()->pseudoElementRules()) ) {
+            if ( $this->emptyElementFootprint->shouldPreserveEmptyVisualFigure($figure, SourceDom::renderedTextContent($figure), $this->session->sourceStyleResolutionState()->pseudoElementRules()) ) {
                 return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($figure), array(), $figure);
             }
 
@@ -7040,7 +6990,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return $image instanceof DOMElement ? $this->imageLowering->convertImage($image, null, $picture, $anchor) : null;
         }
         if ( ! $image instanceof DOMElement && 0 < $anchor->getElementsByTagName('img')->length ) {
-            $host = $this->elementElementChildren($anchor);
+            $host = SourceDom::elementElementChildren($anchor);
             if (1 === count($host) && ($customImage = SourceDom::imageOnlyCustomElement($host[0])) instanceof DOMElement) {
                 // A single retained host does not need a separate link
                 // editing surface. Let core/image own the destination while
@@ -7056,13 +7006,13 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             if ( 1 === $anchor->getElementsByTagName('img')->length ) {
                 $carrier = null;
                 foreach ( $anchor->childNodes as $child ) {
-                    if ( $child instanceof DOMElement && $this->imageOnlyCarrierElement($child) instanceof DOMElement ) {
+                    if ( $child instanceof DOMElement && SourceDom::imageOnlyCarrierElement($child) instanceof DOMElement ) {
                         $carrier = $child;
                         break;
                     }
                 }
                 if ( $carrier instanceof DOMElement ) {
-                    $image = $this->imageOnlyCarrierElement($carrier);
+                    $image = SourceDom::imageOnlyCarrierElement($carrier);
                     $safe = true;
                     for ( $node = $image?->parentNode; $node instanceof DOMElement && ! $node->isSameNode($anchor); $node = $node->parentNode ) {
                         if ( 'picture' === strtolower($node->tagName) ) {
@@ -7449,7 +7399,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $imageChildren = 0;
         foreach ( $anchor->childNodes as $child ) {
             if ( $child instanceof DOMElement ) {
-                if ( in_array(strtolower($child->tagName), array( 'img', 'picture' ), true) || $this->imageOnlyCarrierElement($child) instanceof DOMElement ) {
+                if ( in_array(strtolower($child->tagName), array( 'img', 'picture' ), true) || SourceDom::imageOnlyCarrierElement($child) instanceof DOMElement ) {
                     ++$imageChildren;
                     continue;
                 }
@@ -7772,7 +7722,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private function customVideoPosterBlock(DOMElement $element): ?array
     {
         if (!str_contains($element->tagName, '-') || '' !== trim($element->textContent ?? '') || !$this->isSafeTransparentCustomElement($element) || !$this->hasOnlyStructuralCustomVideoHostAttributes($element, true)) return null;
-        $children = $this->elementElementChildren($element);
+        $children = SourceDom::elementElementChildren($element);
         if (2 !== count($children)) return null;
         $video = null; $poster = null;
         foreach ($children as $child) {
@@ -7789,7 +7739,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->session->authorSelectorProjectionState()->ensureTagMarker(strtolower($element->tagName));
         if ($poster !== $image && $image->parentNode === $poster) {
             // The poster layer is wrapped: keep the wrapper's identity.
-            if (!$this->hasOnlyStructuralCustomVideoHostAttributes($poster, true) || 1 !== count($this->elementElementChildren($poster))) return null;
+            if (!$this->hasOnlyStructuralCustomVideoHostAttributes($poster, true) || 1 !== count(SourceDom::elementElementChildren($poster))) return null;
             $this->session->authorSelectorProjectionState()->ensureTagMarker(strtolower($poster->tagName));
             $posterBlock = $this->layoutShellBlockForElements(array($poster), array($imageBlock), $poster);
         } else {
@@ -7920,35 +7870,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $this->layoutShellBlockForElements(array( $anchor ), array( $imageBlock ), $anchor);
     }
 
-    private function imageOnlyCarrierElement(DOMElement $element): ?DOMElement
-    {
-        $customImage = SourceDom::imageOnlyCustomElement($element);
-        if ( $customImage instanceof DOMElement ) {
-            return $customImage;
-        }
-        if ( ! in_array(strtolower($element->tagName), array( 'div', 'span' ), true) || '' !== trim($element->textContent ?? '') ) {
-            return null;
-        }
-
-        $image = null;
-        foreach ( $element->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement ) {
-                if ( '' !== trim($child->textContent ?? '') ) {
-                    return null;
-                }
-                continue;
-            }
-
-            $candidate = 'img' === strtolower($child->tagName) ? $child : $this->imageOnlyCarrierElement($child);
-            if ( ! $candidate instanceof DOMElement || $image instanceof DOMElement ) {
-                return null;
-            }
-            $image = $candidate;
-        }
-
-        return $image;
-    }
-
     /** @return array<string, mixed> */
     private function svgArtworkBlock(DOMElement $element, string $svg): array
     {
@@ -8014,7 +7935,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             if ($depth > 16) return false;
             if ('button' === strtolower($node->tagName)) return true;
             if (!in_array(strtolower($node->tagName), array('div', 'span'), true)) return false;
-            foreach ($this->elementElementChildren($node) as $child) {
+            foreach (SourceDom::elementElementChildren($node) as $child) {
                 if ('button' === strtolower($child->tagName) || 0 < $child->getElementsByTagName('button')->length) {
                     if (!$supports($child, $depth + 1)) return false;
                 } elseif (!$this->sourceElementClassifier->isInlineContentElement(strtolower($child->tagName)) || $this->richTextMaterializer->requiresHtmlFallback($this->outerHtml($child))) {
@@ -8073,7 +7994,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
         $inner = array();
         $layout = false;
-        foreach ( $this->elementElementChildren($element) as $child ) {
+        foreach ( SourceDom::elementElementChildren($element) as $child ) {
             if ( FormControlClassifier::isControlElement($child) ) {
                 $inner[] = $this->preservedSourceControlBlock($child);
                 continue;
@@ -8096,23 +8017,23 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $wrappers = array( $element );
         $branch = $element;
         while ( true ) {
-            $children = $this->elementElementChildren($branch);
+            $children = SourceDom::elementElementChildren($branch);
             if ( 1 !== count($children) || ! $this->isEmptyInlineGeometryNode($children[0]) ) {
                 break;
             }
             $child = $children[0];
             $wrappers[] = $child;
             $branch = $child;
-            if ( count($this->elementElementChildren($child)) > 1 ) {
+            if ( count(SourceDom::elementElementChildren($child)) > 1 ) {
                 break;
             }
         }
         $inner = array();
-        foreach ( $this->elementElementChildren($branch) as $child ) {
+        foreach ( SourceDom::elementElementChildren($branch) as $child ) {
             if ( $child === (array() === $wrappers ? null : $wrappers[array_key_last($wrappers)]) || ! $this->isEmptyInlineGeometryNode($child) ) {
                 continue;
             }
-            $inner[] = count($this->elementElementChildren($child)) > 1
+            $inner[] = count(SourceDom::elementElementChildren($child)) > 1
                 ? $this->emptyInlineGeometryShell($child)
                 : $this->layoutShellBlockForElements($this->emptyInlineWrapperChain($child), array(), $child);
         }
@@ -8128,7 +8049,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $chain = array( $element );
         $cursor = $element;
         while ( true ) {
-            $children = $this->elementElementChildren($cursor);
+            $children = SourceDom::elementElementChildren($cursor);
             if ( 1 !== count($children) || ! $this->isEmptyInlineGeometryNode($children[0]) ) {
                 break;
             }
@@ -8141,17 +8062,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         return $chain;
-    }
-
-    /**
-     * @return list<DOMElement>
-     */
-    private function elementElementChildren(DOMElement $element): array
-    {
-        return array_values(array_filter(
-            iterator_to_array($element->childNodes),
-            static fn (mixed $child): bool => $child instanceof DOMElement
-        ));
     }
 
     private function isEmptyInlineGeometryNode(DOMElement $element): bool

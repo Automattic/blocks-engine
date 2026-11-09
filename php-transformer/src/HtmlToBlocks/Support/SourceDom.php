@@ -2163,4 +2163,94 @@ final class SourceDom
     {
         return $element->getNodePath() ?? '';
     }
+
+    public static function figureMediaElement(DOMElement $figure, string $tagName): ?DOMElement
+    {
+        $direct = self::firstChildElement($figure, $tagName);
+        if ( $direct instanceof DOMElement ) {
+            return $direct;
+        }
+
+        $wrapper = null;
+        foreach ( $figure->childNodes as $child ) {
+            if ( $child instanceof DOMElement && 'figcaption' === strtolower($child->tagName) ) {
+                continue;
+            }
+
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+
+            if ( ! $child instanceof DOMElement || null !== $wrapper ) {
+                return null;
+            }
+
+            $wrapper = $child;
+        }
+
+        if ( ! $wrapper instanceof DOMElement || ! in_array(strtolower($wrapper->tagName), array( 'div', 'span', 'p' ), true) ) {
+            return null;
+        }
+
+        return self::onlyChildElement($wrapper, $tagName);
+    }
+
+    public static function imageOnlyCarrierElement(DOMElement $element): ?DOMElement
+    {
+        $customImage = SourceDom::imageOnlyCustomElement($element);
+        if ( $customImage instanceof DOMElement ) {
+            return $customImage;
+        }
+        if ( ! in_array(strtolower($element->tagName), array( 'div', 'span' ), true) || '' !== trim($element->textContent ?? '') ) {
+            return null;
+        }
+
+        $image = null;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                if ( '' !== trim($child->textContent ?? '') ) {
+                    return null;
+                }
+                continue;
+            }
+
+            $candidate = 'img' === strtolower($child->tagName) ? $child : self::imageOnlyCarrierElement($child);
+            if ( ! $candidate instanceof DOMElement || $image instanceof DOMElement ) {
+                return null;
+            }
+            $image = $candidate;
+        }
+
+        return $image;
+    }
+
+    public static function renderedTextContent(DOMElement $element): string
+    {
+        $text = '';
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                $text .= $child->textContent ?? '';
+                continue;
+            }
+
+            if ( ! $child instanceof DOMElement || in_array(strtolower($child->tagName), array( 'script', 'style', 'template' ), true) ) {
+                continue;
+            }
+
+            $text .= self::renderedTextContent($child);
+        }
+
+        return trim($text);
+    }
+
+    /**
+     * @return list<DOMElement>
+     */
+    public static function elementElementChildren(DOMElement $element): array
+    {
+        return array_values(array_filter(
+            iterator_to_array($element->childNodes),
+            static fn (mixed $child): bool => $child instanceof DOMElement
+        ));
+    }
 }
