@@ -93,7 +93,7 @@ final class CommentTextRunBoundaries
         $segments = array( array() );
         foreach ( $run as $node ) {
             if ( $node instanceof DOMComment ) {
-                if ( '' !== $node->data ) {
+                if ( '' !== trim($node->data) ) {
                     $segments[] = array();
                 }
                 $node->parentNode?->removeChild($node);
