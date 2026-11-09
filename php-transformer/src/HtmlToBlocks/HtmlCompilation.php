@@ -315,6 +315,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly Elements\CustomImageHostLowering $customImageHosts;
     private readonly Elements\AnchorLowering $anchors;
     private readonly Elements\RenderNeutralElements $renderNeutral;
+    private readonly Elements\InertElements $inertElements;
     private readonly SourceProvenance $sourceProvenance;
 
     private readonly RuntimeResourceElementConverter $runtimeResourceConverter;
@@ -607,6 +608,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->listStructure
         );
         $this->renderNeutral = new Elements\RenderNeutralElements($this->session, $this->styleResolver, $this->sourceElementClassifier, $this->sourceElementDescription, $this->runtimeIslands, $this->emptyElementFootprint);
+        $this->inertElements = new Elements\InertElements($this->styleResolver, $this->sourceElementClassifier, $this->sourceVisibility, $this->runtimeIslands);
         $this->customImageHosts = new Elements\CustomImageHostLowering($this, $this->blockFactory, $this->styleResolver, $this->session, $this->sourceElementClassifier, $this->sourceElementDescription, $this->imageLowering, $this->layoutShells, $this->runtimeIslands, $this->authorLayoutOwnership);
         $this->anchors = new Elements\AnchorLowering($this, $this, $this->styleResolver, $this->session, $this->sourceElementClassifier, $this->sourceElementDescription, $this->imageLowering, $this->imageUrls, $this->layoutShells, $this->linkWrapperPropagator, $this->runtimeIslands, $this->customImageHosts);
         $this->layoutTables = new Elements\LayoutTableLowering(
@@ -647,7 +649,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->textLeafConverter = new TextLeafElementConverter($this->richTextMaterializer, $this->runtime, $this, $this->styleResolver, $this->sourceElementClassifier, $this->createTextLeafElementContext());
         $this->richTextConverter = new RichTextElementConverter($this, $this->styleResolver, $this->richTextMaterializer, $this->runtime, $this->createRichTextElementContext());
         $svgConverter = new SvgElementConverter($this, $this->sourceElementClassifier, $this->styleResolver, new SvgElementContext(
-            fn (DOMElement $element): bool => $this->isInertHiddenSvgStorage($element),
+            fn (DOMElement $element): bool => $this->inertElements->isInertHiddenSvgStorage($element),
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
             fn (DOMElement $element): string => $this->sanitizeInlineSvgMarkup($element),
             fn (string $html): bool => $this->isSafeSvgContent($html),
@@ -956,7 +958,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this,
             $this->runtimeIslands,
             $this->session,
-            fn (DOMElement $element): bool => $this->isInertRuntimeMediaPlaceholder($element),
+            fn (DOMElement $element): bool => $this->inertElements->isInertRuntimeMediaPlaceholder($element),
             fn (DOMElement $element): bool => $this->sourceVisibility->startsHidden($element),
             $this->sourceElementDescription
         );
@@ -1096,7 +1098,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element)
             ),
             $this->projectedNavigation,
-            new PhrasingSvgConverter($this->svgMaterializer, $this, fn (DOMElement $element): bool => $this->isInertHiddenSvgStorage($element)),
+            new PhrasingSvgConverter($this->svgMaterializer, $this, fn (DOMElement $element): bool => $this->inertElements->isInertHiddenSvgStorage($element)),
              $capturedDialogConverter,
              new CapturedChoiceGroupConverter(
                  $this->session,
@@ -3568,7 +3570,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return $transparentCustomElement;
         }
 
-        if ( $this->isInertRuntimeMediaPlaceholder($element) ) {
+        if ( $this->inertElements->isInertRuntimeMediaPlaceholder($element) ) {
             return null;
         }
 
@@ -3800,44 +3802,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $this->layoutShells->blockForElements(array( $element ), array( $navigation ), $element);
     }
 
-
-    private function isInertRuntimeMediaPlaceholder(DOMElement $element): bool
-    {
-        if ( ! $this->sourceElementClassifier->isRuntimeMediaSurfaceElement($element)
-            || ! str_contains(strtolower($element->tagName), '-')
-            || '' !== trim($element->textContent ?? '')
-        ) {
-            return false;
-        }
-
-        foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'))) as $candidate ) {
-            if ( ! $candidate instanceof DOMElement
-                || ! $this->runtimeIslands->isSafeTransparentCustomElement($candidate)
-                || '' !== trim($this->attr($candidate, 'role'))
-                || '' !== trim($this->attr($candidate, 'aria-label'))
-            ) {
-                return false;
-            }
-
-            foreach ( array( 'src', 'srcset', 'href', 'data-src', 'data-url' ) as $attribute ) {
-                if ( '' !== trim($this->attr($candidate, $attribute)) ) {
-                    return false;
-                }
-            }
-
-            foreach ( $candidate->attributes as $attribute ) {
-                if ( str_starts_with(strtolower($attribute->name), 'data-') && '' !== trim($attribute->value) ) {
-                    return false;
-                }
-            }
-
-            if ( $candidate !== $element && ! $this->sourceElementClassifier->isStructuralTransparentCustomWrapperChild($candidate) ) {
-                return false;
-            }
-        }
-
-        return true;
-    }
 
     /**
      * @return array<string, mixed>|null
@@ -6792,63 +6756,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $tag = strtolower($node->tagName);
             if ( in_array($tag, array( 'audio', 'canvas', 'iframe', 'img', 'object', 'picture', 'svg', 'video' ), true) ) {
                 return true;
-            }
-        }
-
-        return false;
-    }
-
-    private function isInertHiddenSvgStorage(DOMElement $element): bool
-    {
-        $isDomStore = $element->hasAttribute('data-dom-store');
-        if ( ! $this->sourceVisibility->startsHidden($element)
-            || (! $isDomStore && (
-                $this->styleResolver->hasConditionalStyleFamily($element, 'layout')
-                || $this->styleResolver->hasConditionalStyleFamily($element, 'visibility')
-                || $this->styleResolver->hasConditionalStyleFamily($element, 'opacity')
-            ))
-            || '' !== trim($this->attr($element, 'aria-label'))
-            || '' !== trim($this->attr($element, 'aria-labelledby'))
-            || '' !== trim($this->attr($element, 'title'))
-            || ! $this->sourceElementClassifier->hasOnlySvgDefinitions($element)
-            || $this->hiddenSvgStoreHasNonSvgConsumer($element) ) {
-            return false;
-        }
-
-        return true;
-    }
-
-    private function hiddenSvgStoreHasNonSvgConsumer(DOMElement $store): bool
-    {
-        $ids = array();
-        foreach ( $store->getElementsByTagName('*') as $definition ) {
-            if ( $definition instanceof DOMElement && '' !== trim($this->attr($definition, 'id')) ) {
-                $ids[] = trim($this->attr($definition, 'id'));
-            }
-        }
-        if ( array() === $ids || ! $store->ownerDocument instanceof DOMDocument ) {
-            return false;
-        }
-
-        foreach ( $store->ownerDocument->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement || $this->sourceElementClassifier->isDescendantOf($candidate, $store) ) {
-                continue;
-            }
-            foreach ( $candidate->attributes as $attribute ) {
-                foreach ( $ids as $id ) {
-                    if ( preg_match('/(?:^|[\\s,(])(?:url\\(\\s*["\']?#' . preg_quote($id, '/') . '["\']?\\s*\\)|#' . preg_quote($id, '/') . '(?:$|[\\s,)]))/', $attribute->value)
-                        && 'svg' !== strtolower($candidate->tagName)
-                        && null === SourceDom::ancestorElement($candidate, 'svg') ) {
-                        return true;
-                    }
-                }
-            }
-            if ( 'style' === strtolower($candidate->tagName) ) {
-                foreach ( $ids as $id ) {
-                    if ( preg_match('/url\\(\\s*["\']?#' . preg_quote($id, '/') . '["\']?\\s*\\)/', $candidate->textContent ?? '') ) {
-                        return true;
-                    }
-                }
             }
         }
 
