@@ -3625,7 +3625,7 @@ final class AuthorStylesheetProjector
     /** @param array<string, mixed> $parsed */
     private function projectTableDescendantSelector(string $selector, array $parsed, DOMElement $element, AuthorStylesheetProjectionContext $context): ?string
     {
-        $table = 'table' === strtolower($element->tagName) ? $element : $this->ancestorElement($element, 'table');
+        $table = 'table' === strtolower($element->tagName) ? $element : SourceDom::ancestorElement($element, 'table');
         if (in_array(strtolower($element->tagName), array('table', 'tr', 'td'), true)
             && $table instanceof DOMElement
             && (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\TableClassificationPolicy())->lowersToColumns($table)
@@ -3642,7 +3642,7 @@ final class AuthorStylesheetProjector
         ) {
             return null;
         }
-        $table = $this->ancestorElement($element, 'table');
+        $table = SourceDom::ancestorElement($element, 'table');
         $marker = $table instanceof DOMElement ? $context->selectorProjections->tableMarker($table->getNodePath() ?? '') : '';
         $path = $table instanceof DOMElement ? $this->serializedTableDescendantPath($table, $element, $context) : '';
         if ( '' === $marker || '' === $path ) {
@@ -3696,7 +3696,7 @@ final class AuthorStylesheetProjector
         if ( ! in_array(strtolower($element->tagName), array( 'td', 'th' ), true) ) {
             return null;
         }
-        $table = $this->ancestorElement($element, 'table');
+        $table = SourceDom::ancestorElement($element, 'table');
         if ( ! $table instanceof DOMElement ) {
             return null;
         }
@@ -3800,9 +3800,9 @@ final class AuthorStylesheetProjector
 
     private function serializedTableSection(DOMElement $element): string
     {
-        return $this->ancestorElement($element, 'thead') instanceof DOMElement
+        return SourceDom::ancestorElement($element, 'thead') instanceof DOMElement
             ? 'thead'
-            : ($this->ancestorElement($element, 'tfoot') instanceof DOMElement ? 'tfoot' : 'tbody');
+            : (SourceDom::ancestorElement($element, 'tfoot') instanceof DOMElement ? 'tfoot' : 'tbody');
     }
 
     private function belongsToTable(DOMElement $element, DOMElement $table): bool
@@ -3813,16 +3813,6 @@ final class AuthorStylesheetProjector
             }
         }
         return false;
-    }
-
-    private function ancestorElement(DOMElement $element, string $tagName): ?DOMElement
-    {
-        for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
-            if ( $tagName === strtolower($parent->tagName) ) {
-                return $parent;
-            }
-        }
-        return null;
     }
 
     /** @param array<string, mixed> $parsed */
