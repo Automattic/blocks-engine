@@ -5,7 +5,6 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CaptureReplayScripts;
-use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\AssetMaterializationState;
@@ -151,7 +150,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PlaceholderMedi
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ProbeBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\QuotePattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\QuotePatternContext;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SocialLinksPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorSemanticContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorSemanticPreparer;
@@ -300,6 +298,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly Elements\InlineSvgTextGroupLowering $inlineSvgTextGroups;
 
     private readonly RichTextMaterializer $richTextMaterializer;
+    private readonly Elements\FlankedSeparatorLowering $flankedSeparators;
+    private readonly Elements\StandaloneBreakLowering $standaloneBreaks;
     private readonly Elements\CapturedDisclosureDialog $capturedDisclosureDialogs;
     private readonly Elements\StructuredCardListLowering $structuredCardLists;
     private readonly AuthoredMarqueeRecognizer $authoredMarqueeRecognizer;
@@ -520,6 +520,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->runtime
         );
         $this->capturedDisclosureDialogs = new Elements\CapturedDisclosureDialog($this->styleResolver);
+        $this->standaloneBreaks = new Elements\StandaloneBreakLowering($this, $this->styleResolver);
+        $this->flankedSeparators = new Elements\FlankedSeparatorLowering($this, $this->styleResolver, $this->sourceElementClassifier);
         $this->richTextMaterializer = new RichTextMaterializer($this->styleResolver, $this->svgMaterializer, $this->session, $this);
         $this->authoredStateButtons = new Elements\AuthoredStateButtonLowering($this->session, $this->svgMaterializer);
         $this->linkedIconTextRows = new Elements\LinkedIconTextRowLowering(
@@ -1004,7 +1006,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             isEmptyInteractiveFeatureShell: fn (DOMElement $element): bool => $this->isEmptyInteractiveFeatureShell($element),
             capturePseudoFormFallback: function (DOMElement $element, array &$fallbacks): void { $this->formDispatcher->capturePseudoFormFallback($element, $fallbacks); },
             recognizePatterns: fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => $this->recognizePatterns($element, $fallbacks, $patterns),
-            flankedSeparatorBlock: fn (DOMElement $element): ?array => $this->flankedSeparatorBlockFromElement($element),
+            flankedSeparatorBlock: fn (DOMElement $element): ?array => $this->flankedSeparators->blockFromElement($element),
             canCaptureExternalSvgFragmentDependency: fn (DOMElement $element): bool => ! $this->runtimeIslands->isRuntimeDomTarget($element) && ! $this->hasRuntimeTargetInSubtree($element),
             sourceElementClassifier: $this->sourceElementClassifier,
             responsiveMediaBlock: fn (DOMElement $element): array => $this->imageLowering->responsiveMediaBlock($element),
@@ -3039,7 +3041,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $unsupportedRuntimeMediaOwner = null;
             $ownerFallbackIndex = null;
             if ( 'br' === strtolower($child->tagName) ) {
-                $blankLines = $this->standaloneBreakBlocks($child);
+                $blankLines = $this->standaloneBreaks->blocksFromBreak($child);
                 if ( null !== $blankLines ) {
                     $blocks = array_merge($blocks, $blankLines);
                     continue;
@@ -3133,58 +3135,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $parent = $break->parentNode;
         $display = $parent instanceof DOMElement ? strtolower($this->styleResolver->resolvedPresentationDeclarations($parent)['display'] ?? 'block') : 'block';
         return ! in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
-    }
-
-    private function standaloneBreakBlocks(DOMElement $break): ?array
-    {
-        $parent = $break->parentNode;
-        if ( ! $parent instanceof DOMElement ) return null;
-        $display = strtolower($this->styleResolver->resolvedPresentationDeclarations($parent)['display'] ?? 'block');
-        if ( in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) return null;
-
-        $first = $break;
-        $count = 0;
-        $bounds = array();
-        foreach ( array( 'previousSibling', 'nextSibling' ) as $direction ) {
-            $node = $break->$direction;
-            while ( null !== $node ) {
-                if ( XML_COMMENT_NODE === $node->nodeType || (XML_TEXT_NODE === $node->nodeType && '' === trim($node->textContent ?? '')) ) {
-                    $node = $node->$direction;
-                    continue;
-                }
-                if ( $node instanceof DOMElement && 'br' === strtolower($node->tagName) ) {
-                    if ( 'previousSibling' === $direction ) $first = $node;
-                    else ++$count;
-                    $node = $node->$direction;
-                    continue;
-                }
-                break;
-            }
-            $bounds[] = $node;
-        }
-        foreach ( $bounds as $bound ) {
-            if ( ! $bound instanceof DOMElement ) return null;
-            $boundDisplay = strtolower($this->styleResolver->resolvedPresentationDeclarations($bound)['display'] ?? '');
-            if ( '' === $boundDisplay ) {
-                if ( ! in_array(strtolower($bound->tagName), array( 'address', 'article', 'aside', 'blockquote', 'div', 'dl', 'fieldset', 'figure', 'footer', 'form', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'header', 'hr', 'main', 'nav', 'ol', 'p', 'pre', 'section', 'table', 'ul' ), true) ) return null;
-            } elseif ( ! in_array($boundDisplay, array( 'block', 'flow-root', 'flex', 'grid', 'table', 'list-item' ), true) ) return null;
-        }
-        if ( $first !== $break ) return array();
-        ++$count;
-
-        $leading = $this->styleResolver->authoredInheritedPropertyWinner($parent, 'line-height');
-        $font = $this->styleResolver->authoredInheritedPropertyWinner($parent, 'font-size');
-        $root = $this->styleResolver->documentRootFontSize($parent) ?? 16.0;
-        $fontPx = '' === $font ? 16.0 : CssLength::toPx($font, $root);
-        $height = CssLength::toPx($leading, $root, $fontPx);
-        if ( null !== $fontPx && is_numeric($leading) ) $height = (float) $leading * $fontPx;
-        if ( null !== $fontPx && 1 === preg_match('/^([\d.]+)%$/', $leading, $match) ) $height = (float) $match[1] * $fontPx / 100;
-        if ( null !== $height && $height >= 0 ) {
-            return array($this->createBlock('core/spacer', array('height' => CssLength::format($height * $count))));
-        }
-        $blocks = array();
-        for ( $i = 0; $i < $count; ++$i ) $blocks[] = $this->createBlock('core/paragraph', array('content' => ''));
-        return $blocks;
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */
@@ -5713,51 +5663,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         return $this->emptyVisualSpacerBlock($element);
-    }
-
-    /** @return array<string, mixed>|null */
-    private function flankedSeparatorBlockFromElement(DOMElement $element): ?array
-    {
-        if ( array() !== $this->htmlAttributes($element) || '' !== trim($element->textContent ?? '') ) {
-            return null;
-        }
-
-        $children = array();
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement ) {
-                $children[] = $child;
-            }
-        }
-        if ( 3 !== count($children) || 'hr' !== strtolower($children[1]->tagName) ) {
-            return null;
-        }
-
-        $margins = array();
-        foreach ( array( 'top' => $children[0], 'bottom' => $children[2] ) as $side => $flank ) {
-            if ( 0 !== $this->childElementCount($flank) || '' !== trim($flank->textContent ?? '') || array( 'style' ) !== array_keys($this->htmlAttributes($flank)) ) {
-                return null;
-            }
-
-            $declarations = $this->styleResolver->cssDeclarations($this->attr($flank, 'style'));
-            if ( array() !== array_diff(array_keys($declarations), array( 'height', 'overflow', 'width' ))
-                || 'hidden' !== strtolower(trim((string) ($declarations['overflow'] ?? '')))
-                || ! in_array(strtolower(trim((string) ($declarations['width'] ?? ''))), array( '', '100%' ), true)
-            ) {
-                return null;
-            }
-
-            $height = SpacerPattern::heightFromStyle($this->attr($flank, 'style'));
-            if ( '' === $height || ! $this->sourceElementClassifier->isPositiveCssLength($this->styleResolver->resolveCssVariablesInValue($height, $flank)) ) {
-                return null;
-            }
-            $margins[ $side ] = $height;
-        }
-
-        $separator = $children[1];
-        $attrs = $this->styleResolver->presentationAttributes($separator, array(), array( 'margin-left', 'margin-right' ));
-        $attrs['style']['spacing']['margin'] = array_merge($attrs['style']['spacing']['margin'] ?? array(), $margins);
-
-        return $this->createBlock('core/separator', $attrs, array(), $separator);
     }
 
     private function hasEmptyVisualInlineChild(DOMElement $element): bool
