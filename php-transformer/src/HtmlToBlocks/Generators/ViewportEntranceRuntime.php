@@ -13,12 +13,21 @@ final class ViewportEntranceRuntime
      * revision 7f4b5cc73eef0db4d61292eaa07ecd03c2d0e00b).
      * Keep attribute poses, CSS-animation bindings and startup contexts together:
      * the evidence is a replay contract, not an animation-provider heuristic.
+     *
+     * Evidence may carry `devices`: the device documents whose source plays the
+     * entrance. `$viewportQueries` is a JSON object of media queries keyed by
+     * device (the site's core viewport queries, the same ones block visibility
+     * uses); a device without a query matches the selected device document.
      */
-    public static function script(): string
+    public static function script(string $viewportQueries = '{}'): string
     {
-        return str_replace(array('__ENTRANCE__', '__DEVICE_DOCUMENT__', '__ENTRANCE_LOSS__'), array(CaptureEvidence::VIEWPORT_ENTRANCE, CaptureEvidence::DEVICE_DOCUMENT, CaptureEvidence::VIEWPORT_ENTRANCE . '-loss'), <<<'JS'
+        return str_replace(array('__ENTRANCE__', '__DEVICE_DOCUMENT__', '__ENTRANCE_LOSS__', '__SELECTED_DOCUMENT__', '__VIEWPORT_QUERIES__'), array(CaptureEvidence::VIEWPORT_ENTRANCE, CaptureEvidence::DEVICE_DOCUMENT, CaptureEvidence::VIEWPORT_ENTRANCE . '-loss', CaptureEvidence::SELECTED_DOCUMENT, $viewportQueries), <<<'JS'
 function replayViewportEntrances() {
     const reduced = matchMedia('(prefers-reduced-motion: reduce)');
+    const viewportQueries = __VIEWPORT_QUERIES__;
+    const selected = document.documentElement.getAttribute('__SELECTED_DOCUMENT__');
+    const onDevice = (devices) => devices.some(device => typeof viewportQueries[device] === 'string'
+        ? matchMedia(viewportQueries[device]).matches : selected === null || selected === device);
     // Engines enumerate a keyframe's properties in different orders (Chromium
     // changed it between releases), so the binding compares values, not order.
     const signature = (value) => JSON.stringify(value, (_key, field) => field && typeof field === 'object' && !Array.isArray(field)
@@ -55,7 +64,9 @@ function replayViewportEntrances() {
                     element.setAttribute(name, value);
             }
         };
-        if (reduced.matches || !window.IntersectionObserver) {
+        // An entrance the source plays only on some devices shows its settled
+        // pose on the others.
+        if (reduced.matches || !window.IntersectionObserver || (Array.isArray(state.devices) && !onDevice(state.devices))) {
             apply('after');
             continue;
         }

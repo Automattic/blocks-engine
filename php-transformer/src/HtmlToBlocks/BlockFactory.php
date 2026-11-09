@@ -517,7 +517,9 @@ final class BlockFactory
 
         if ( 'core/group' === $name ) {
             $tag = $this->groupTagName($attrs['tagName'] ?? null);
-            return array( 'opening' => '<' . $tag . $this->blockSupportAttrs($attrs, 'wp-block-group') . '>', 'closing' => '</' . $tag . '>' );
+            // Core's ariaLabel block support saves the attribute as aria-label.
+            $ariaLabel = $this->htmlAttrs(array( 'aria-label' => (string) ($attrs['ariaLabel'] ?? '') ));
+            return array( 'opening' => '<' . $tag . $this->blockSupportAttrs($attrs, 'wp-block-group') . $ariaLabel . '>', 'closing' => '</' . $tag . '>' );
         }
 
         return '';
