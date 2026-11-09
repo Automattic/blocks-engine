@@ -12,7 +12,7 @@ interface PatternTreeConverter
      * @param list<array<string, mixed>> $fallbacks
      * @return list<array<string, mixed>>
      */
-    public function children(DOMElement $element, array &$fallbacks, bool $captureUnsupported): array;
+    public function children(DOMElement $element, array &$fallbacks, bool $captureUnsupported, bool $preserveLinkContainers = false): array;
 
     /**
      * @param list<array<string, mixed>> $fallbacks
