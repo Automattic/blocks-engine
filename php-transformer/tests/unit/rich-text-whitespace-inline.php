@@ -22,4 +22,30 @@ foreach (array(
         exit(1);
     }
 }
+// Reduced centred shadow layer from #5199. Its trailing space is layout,
+// not collapsible formatting whitespace, and needs a styled RichText carrier.
+foreach (array(
+    'author pre' => array('.pre{white-space:pre}', 'class="pre"', 'white-space:pre'),
+    'inline pre-wrap' => array('', 'style="white-space:pre-wrap"', 'white-space:pre-wrap'),
+    'inline break-spaces' => array('', 'style="white-space:break-spaces"', 'white-space:break-spaces'),
+    'author preserve' => array('.pre{white-space-collapse:preserve}', 'class="pre"', 'white-space-collapse:preserve'),
+    'author important' => array('.pre{white-space:pre!important}', 'class="pre" style="white-space:normal"', 'white-space:pre'),
+) as $label => [$css, $attributes, $declaration]) {
+    $html = '<style>' . $css . '</style><p style="text-align:center;white-space:nowrap;width:200px"><span style="color:transparent;text-shadow:#fcba1f 1.5px 1.5px 0">Cheesy</span><span ' . $attributes . '> </span></p>';
+    $markup = (string) (new HtmlTransformer())->transform($html)->toArray()['serialized_blocks'];
+    if ('author pre' === $label && isset($argv[1])) {
+        file_put_contents($argv[1], '<!doctype html><body style="font:32px monospace"><section id="source">' . $html . '</section><section id="compiled">' . $markup . '</section></body>');
+    }
+    if (!preg_match('#<mark\b[^>]*style="[^"]*' . preg_quote($declaration, '#') . '(?:;|"|\s)[^>]*> </mark>#', $markup)) {
+        fwrite(STDERR, "FAIL: {$label}: preserved trailing space must retain its whitespace style in a RichText mark\n{$markup}\n");
+        exit(1);
+    }
+}
+foreach (array('normal', 'nowrap', 'pre-line') as $whiteSpace) {
+    $markup = (string) (new HtmlTransformer())->transform('<p>Cheesy<span style="white-space:' . $whiteSpace . '"> </span></p>')->toArray()['serialized_blocks'];
+    if (str_contains($markup, '<mark')) {
+        fwrite(STDERR, "FAIL: collapsible {$whiteSpace} space unexpectedly retained its wrapper\n{$markup}\n");
+        exit(1);
+    }
+}
 echo "rich-text-whitespace-inline: passed\n";
