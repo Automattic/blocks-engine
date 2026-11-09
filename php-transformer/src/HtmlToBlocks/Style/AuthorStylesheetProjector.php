@@ -2007,6 +2007,7 @@ final class AuthorStylesheetProjector
             }
 
             $otherSubjects = array();
+            $navigationSubjects = array();
             foreach ($matches as $element) {
                 $target = $context->selectorProjections->navigationSubject($element->getNodePath() ?? '');
                 $subject = CssSelectorCompoundInspector::rightmost($parsed['compounds']);
@@ -2035,8 +2036,12 @@ final class AuthorStylesheetProjector
                 $stateSelector = substr($selector, 0, null === $parsed['pseudo_state_suffix_span'] ? null : $parsed['pseudo_state_suffix_span']['start']);
                 if ($context->selectorProjections->selectsCurrentNavigationState($stateSelector)) $target = AuthorSelectorProjectionState::currentNavigationSubject($target);
                 elseif ($context->selectorProjections->selectsRestingNavigationState($stateSelector)) $target = AuthorSelectorProjectionState::restingNavigationSubject($target);
-                $rewritten[] = ':root ' . $target . $this->selectorSpecificityShims($parsed, $context) . $suffix;
+                // Many source items share one recorded marker target. Emit
+                // that subject once per source rule, not once per matching item.
+                $navigationProjection = ':root ' . $target . $this->selectorSpecificityShims($parsed, $context) . $suffix;
+                $navigationSubjects[$navigationProjection] = true;
             }
+            array_push($rewritten, ...array_keys($navigationSubjects));
             if (array() === $otherSubjects) continue;
             $matches = $otherSubjects;
 
@@ -2344,7 +2349,7 @@ final class AuthorStylesheetProjector
                 $rewritten[] = $this->projectInlineLayoutCarrierSelector($selector, $parsed, $addressableInlineCarriers);
             }
         }
-        $projected = implode(',', $rewritten);
+        $projected = implode(',', array_values(array_unique($rewritten)));
         if ( $projected !== $prelude && EngineMarker::matchesAny($projected) ) {
             $context->bindings->record($prelude, $projected);
         }
