@@ -114,7 +114,7 @@ final class ClosedStateNormalizer
 
     public function isDecorativeHiddenElement(DOMElement $element, callable $attr): bool
     {
-        if ( $this->isAccessibilityBoundaryMarker($element, $attr) ) {
+        if ( $this->isAccessibilityBoundaryMarker($element, $attr) || $this->isMediaPlayerChrome($element, $attr) ) {
             return true;
         }
 
@@ -155,6 +155,51 @@ final class ClosedStateNormalizer
         }
 
         return true;
+    }
+
+    /**
+     * Player readouts and button labels are not editorial content. Keep this
+     * check at the content-bearing boundary so all closed-state properties and
+     * nested control layers retain their authored idle presentation.
+     */
+    private function isMediaPlayerChrome(DOMElement $element, callable $attr): bool
+    {
+        for ( $region = $element; $region instanceof DOMElement; $region = $region->parentNode ) {
+            if ( 'group' !== strtolower(trim((string) $attr($region, 'role'))) ) {
+                continue;
+            }
+            $label = strtolower(trim((string) $attr($region, 'aria-label')));
+            if ( 1 !== preg_match('/\b(?:video|audio|media|player) controls\b/', $label) ) {
+                continue;
+            }
+
+            // A label alone is not enough: require actual playback controls
+            // and a media element in the same local player container.
+            $hasRange = false;
+            foreach ( $region->getElementsByTagName('input') as $input ) {
+                if ( 'range' === strtolower(trim((string) $attr($input, 'type'))) ) {
+                    $hasRange = true;
+                    break;
+                }
+            }
+            $hasMediaButton = false;
+            foreach ( $region->getElementsByTagName('button') as $button ) {
+                $buttonLabel = (string) $attr($button, 'aria-label') . ' ' . $button->textContent;
+                if ( 1 === preg_match('/\b(?:play|pause|mute|unmute)\b/i', $buttonLabel) ) {
+                    $hasMediaButton = true;
+                    break;
+                }
+            }
+            $player = $region->parentNode;
+            if ( ! $hasRange || ! $hasMediaButton || ! $player instanceof DOMElement || in_array(strtolower($player->tagName), array( 'html', 'body' ), true) ) {
+                continue;
+            }
+            if ( $player->getElementsByTagName('video')->length > 0 || $player->getElementsByTagName('audio')->length > 0 ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function isAccessibilityBoundaryMarker(DOMElement $element, callable $attr): bool
