@@ -105,6 +105,7 @@
       "php tests/contract/button-list-descendant-selectors.php",
       "php tests/contract/captured-document-link-serialization.php",
       "php tests/contract/standalone-font-glyph.php",
+      "php tests/contract/local-stylesheet-import-font-materialization.php",
       "php tests/contract/responsive-inherited-text-alignment.php",
       "php tests/unit/navigation-inherited-list-alignment.php",
       "php tests/contract/shared-shell-generated-blocks.php",
