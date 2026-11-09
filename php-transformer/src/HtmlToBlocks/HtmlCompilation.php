@@ -315,6 +315,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly Diagnostics\FallbackReconciliation $fallbackReconciliation;
     private readonly Elements\InlineCheckableControlLowering $inlineCheckableControls;
     private readonly Elements\GlobalShellArtifacts $globalShellArtifacts;
+    private readonly Elements\LinkCarrierLowering $linkCarriers;
     private readonly SourceProvenance $sourceProvenance;
 
     private readonly RuntimeResourceElementConverter $runtimeResourceConverter;
@@ -606,6 +607,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->fallbackReconciliation = new Diagnostics\FallbackReconciliation($this->runtimeIslands);
         $this->inlineCheckableControls = new Elements\InlineCheckableControlLowering($this, $this->runtime, $this->session, $this->sourceElementClassifier, $this->richTextMaterializer, $this->authoredStateButtons, $this->runtimeIslands, $this->layoutShells);
         $this->globalShellArtifacts = new Elements\GlobalShellArtifacts($this, $this, $this->runtime, $this->session, $this->navigationBlockNormalizer);
+        $this->linkCarriers = new Elements\LinkCarrierLowering($this, $this, $this->runtime, $this->styleResolver, $this->runtimeIslands, $this->layoutShells);
         $this->customImageHosts = new Elements\CustomImageHostLowering($this, $this->blockFactory, $this->styleResolver, $this->session, $this->sourceElementClassifier, $this->sourceElementDescription, $this->imageLowering, $this->layoutShells, $this->runtimeIslands, $this->authorLayoutOwnership);
         $this->anchors = new Elements\AnchorLowering($this, $this, $this->styleResolver, $this->session, $this->sourceElementClassifier, $this->sourceElementDescription, $this->imageLowering, $this->imageUrls, $this->layoutShells, $this->linkWrapperPropagator, $this->runtimeIslands, $this->customImageHosts);
         $this->layoutTables = new Elements\LayoutTableLowering(
@@ -1168,7 +1170,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->sourceElementClassifier,
             $this->session->transformationProvenanceState(),
             $this,
-            fn (DOMElement $element, array &$fallbacks): ?array => $this->linkedRuntimeControlBlockFromAnchor($element, $fallbacks),
+            fn (DOMElement $element, array &$fallbacks): ?array => $this->linkCarriers->linkedRuntimeControlBlockFromAnchor($element, $fallbacks),
             $recognizePatterns,
             $this->authorLayoutOwnership,
             fn (DOMElement $element, array &$fallbacks): ?array => $this->proofBackedWrapperCoalescing($element, $fallbacks),
@@ -3351,7 +3353,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return null;
         }
 
-        $linkBearingElement = $this->linkBearingElementBlock($element);
+        $linkBearingElement = $this->linkCarriers->linkBearingElementBlock($element);
         if ( null !== $linkBearingElement ) {
             return $linkBearingElement;
         }
@@ -3518,53 +3520,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $parent = $element->parentNode;
 
         return ! $parent instanceof DOMElement || ! in_array(strtolower($parent->tagName), array( 'ul', 'ol', 'menu' ), true);
-    }
-
-    /**
-     * Lower an otherwise-unsupported static element with a usable destination
-     * to an editable native button link. This deliberately runs only after the
-     * specialized converters: it is a capability-based escape hatch for unknown
-     * element names, including namespaced elements normalized by DOMDocument.
-     *
-     * Runtime-owned elements and elements without a safe destination continue
-     * through the explicit preservation or unsupported-diagnostic paths.
-     *
-     * @return array<string, mixed>|null
-     */
-    private function linkBearingElementBlock(DOMElement $element): ?array
-    {
-        if ( ! $this->runtimeIslands->isSafeTransparentCustomElement($element) ) {
-            return null;
-        }
-
-        $href = LinkUrlSanitizer::sanitize($this->attr($element, 'href'));
-        if ( '' === $href ) {
-            return null;
-        }
-
-        $label = trim($this->runtime->stripAllTags($this->styleResolver->innerHtml($element)));
-        if ( '' === $label ) {
-            $label = trim($this->attr($element, 'aria-label'));
-        }
-        if ( '' === $label ) {
-            $label = trim($this->attr($element, 'title'));
-        }
-        if ( '' === $label ) {
-            $label = 'Open link';
-        }
-
-        $attrs = array_merge($this->styleResolver->presentationAttributes($element), array_filter(array(
-            'url'        => $href,
-            'text'       => $label,
-            'linkTarget' => $this->attr($element, 'target'),
-            'rel'        => $this->attr($element, 'rel'),
-        ), static fn (string $value): bool => '' !== trim($value)));
-        return $this->createBlock(
-            'core/buttons',
-            array(),
-            array( $this->createBlock('core/button', $attrs, array(), $element) ),
-            $element
-        );
     }
 
     /**
@@ -5921,62 +5876,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         return $this->layoutShells->blockForElements(array($button), $children, $button);
-    }
-
-    /**
-     * Lowers a link wrapping one captured runtime control (a dialog-trigger
-     * button, say) to the source anchor saved as a layout-shell wrapper around
-     * that control's native block.
-     *
-     * The invalid interactive nesting real sources ship would otherwise take the
-     * wrapped-button preservation exit as one core/html island, although the
-     * control itself converts natively — the runtime authored-button the same
-     * element takes without a link. The shell keeps the anchor's exact
-     * attributes (the link target among them) around the editable control, and
-     * the control keeps its dialog binding attributes. Declines — keeping the
-     * wrapped-button preservation — when the control has no native conversion
-     * or any resulting block would still be core/html.
-     *
-     * @param array<int, array<string, mixed>> $fallbacks
-     */
-    private function linkedRuntimeControlBlockFromAnchor(DOMElement $anchor, array &$fallbacks): ?array
-    {
-        $control = null;
-        foreach ( $anchor->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
-                continue;
-            }
-            if ( ! $child instanceof DOMElement || 'button' !== strtolower($child->tagName) || null !== $control ) {
-                return null;
-            }
-            $control = $child;
-        }
-        if ( null === $control
-            || ! $this->runtimeIslands->isRuntimeDomTarget($control)
-            || array() === AuthoredButtonBlockGenerator::sourceSafeAttributes($control) ) {
-            return null;
-        }
-
-        $local    = array();
-        $children = $this->convertChildren($anchor, $local, true);
-        if ( array() === $children ) {
-            return null;
-        }
-        foreach ( $children as $child ) {
-            if ( 'core/html' === ($child['blockName'] ?? '') ) {
-                return null;
-            }
-        }
-        $fallbacks = array_merge($fallbacks, $local);
-
-        $href = LinkUrlSanitizer::sanitize($this->attr($anchor, 'href'));
-        if ( '' === $href ) {
-            $anchor->removeAttribute('href');
-        } else {
-            $anchor->setAttribute('href', $href);
-        }
-
-        return $this->layoutShells->blockForElements(array($anchor), $children, $anchor);
     }
 
     /**
