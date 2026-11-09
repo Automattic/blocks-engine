@@ -37,6 +37,11 @@ final class CoverPattern implements PatternRecognizerInterface
     public const CONSUMED_BACKGROUND_CLASS = 'blocks-engine-cover-consumed-background';
     /** A column hero whose child grows to fill it: the inner container and wrapper group must fill the cover too. */
     public const FILL_CLASS = 'blocks-engine-cover-fill';
+    /**
+     * Prefix of the class carrying a source child's stacking order onto the
+     * inner container (`blocks-engine-cover-stack-<z-index>`).
+     */
+    public const STACK_CLASS_PREFIX = 'blocks-engine-cover-stack-';
 
     private CoverStyleResolver $styleResolver;
     private BackgroundImageExtractor $backgroundImageExtractor;
@@ -197,6 +202,18 @@ final class CoverPattern implements PatternRecognizerInterface
             $children = array($createBlock('core/group', array('layout' => $layout), $children, null));
             if ( 'flex' === $display && $column && null !== $presentationDeclarations && $this->hasGrowingChild($element, $presentationDeclarations) ) {
                 $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::FILL_CLASS);
+            }
+        }
+
+        // A source child stacked above an authored ::before/::after overlay of
+        // the container (`z-index` on a grid/flex item or positioned child)
+        // is now nested in the inner container (z-index:auto), so the overlay
+        // would paint over it. Carry the child's stacking order onto the
+        // inner container, the wrapper that is now the cover's in-flow child.
+        if ( null !== $presentationDeclarations ) {
+            $stackOrder = $this->childStackOrder($element, $presentationDeclarations, in_array($display, array( 'flex', 'grid', 'inline-flex', 'inline-grid' ), true));
+            if ( $stackOrder > 0 ) {
+                $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::STACK_CLASS_PREFIX . $stackOrder);
             }
         }
 
@@ -374,6 +391,38 @@ final class CoverPattern implements PatternRecognizerInterface
         }
 
         return false;
+    }
+
+    /**
+     * Highest positive `z-index` a direct source child declares where it takes
+     * effect (flex/grid item or positioned box), or 0.
+     *
+     * @param callable(DOMElement): array<string, string> $childDeclarations
+     */
+    private function childStackOrder(DOMElement $element, callable $childDeclarations, bool $itemsHonorZIndex): int
+    {
+        $order = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            try {
+                $declarations = $childDeclarations($child);
+            } catch ( Throwable ) {
+                continue;
+            }
+            $zIndex = trim(CssValueInspector::comparable((string) ($declarations['z-index'] ?? '')));
+            if ( ! preg_match('/^\+?\d+$/', $zIndex) ) {
+                continue;
+            }
+            $position = CssValueInspector::comparable((string) ($declarations['position'] ?? 'static'));
+            if ( ! $itemsHonorZIndex && in_array($position, array( '', 'static' ), true) ) {
+                continue;
+            }
+            $order = max($order, (int) $zIndex);
+        }
+
+        return $order;
     }
 
     private function positionToken(string $value, string $start, string $end): string

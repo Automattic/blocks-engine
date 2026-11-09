@@ -819,6 +819,7 @@
       "php tests/unit/cover-pattern.php",
       "php tests/unit/cover-hero-gradient-min-height.php",
       "php tests/unit/cover-stacked-hero-fills-width.php",
+      "php tests/unit/cover-child-stack-order.php",
       "php tests/unit/inline-override-carrier-specificity.php",
       "php tests/unit/embed-block-factory.php",
       "php tests/unit/embed-height-preservation.php",
