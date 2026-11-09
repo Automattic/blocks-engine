@@ -358,8 +358,12 @@ final class ProjectedNavigationConverter implements ElementConverter
                 $openPanel = $host . ' .wp-block-navigation__responsive-container.is-menu-open:not(.disable-default-overlay)';
                 // The passive panel is below the retained header row. Keep Core's
                 // close icon in the replacement host, the source burger's slot.
-                $extraRules .= $host . '{position:relative!important;isolation:isolate}'
-                    . $openPanel . '{position:static!important;background:transparent!important;padding:0!important}'
+                // Core's open animation transform and flex-item z-index would make
+                // the container the fixed panel's containing block and lift it over
+                // the header row, so the container stays a plain, static box.
+                $extraRules .= $host . '{position:relative!important}'
+                    . $host . ':has(.is-menu-open) .wp-block-navigation__responsive-container-open{visibility:hidden!important}'
+                    . $openPanel . '{position:static!important;background:transparent!important;padding:0!important;transform:none!important;animation:none!important;z-index:auto!important}'
                     . $openPanel . ' .wp-block-navigation__responsive-dialog{position:static!important}'
                     . $openPanel . ' .wp-block-navigation__responsive-container-content{position:fixed!important;inset:0!important;box-sizing:border-box!important;background:' . $paint . '!important;z-index:-1!important}'
                     . $openPanel . ' .wp-block-navigation__responsive-container-close{position:absolute!important;inset:0!important;display:flex!important;align-items:center!important;justify-content:center!important;' . implode(';', $declarations) . '}'
@@ -559,7 +563,7 @@ final class ProjectedNavigationConverter implements ElementConverter
             $values = $this->styleResolver->collapsedViewportAuthorDeclarations($box, array('flex-direction', 'justify-content'));
             if (str_starts_with($values['flex-direction'] ?? '', 'column') && 'center' === ($values['justify-content'] ?? '')) {
                 $rule .= $open . ' .wp-block-navigation__responsive-container-content{min-height:100dvh!important;justify-content:center!important;align-items:' . $align . '!important;padding-block:0!important}'
-                    . $open . ' .wp-block-navigation__container{flex-direction:column!important}';
+                    . $open . ' .wp-block-navigation__container{flex-direction:column!important;justify-content:center!important}';
                 break;
             }
         }
