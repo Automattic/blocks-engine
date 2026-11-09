@@ -5226,6 +5226,18 @@ final class ArtifactCompiler
             if ( array() !== $own && count($own) < count($segments) ) {
                 return implode(' ', $own);
             }
+            // A title may name the site without the shared separator ("About
+            // Example" beside "Contact | Example"). The remaining words name
+            // the page when the site's own links call the route the same.
+            if ( 1 === count($segments) ) {
+                foreach ( $siteNameSegments as $siteName ) {
+                    $quoted = preg_quote(trim($siteName), '/');
+                    $own = trim(preg_replace('/^' . $quoted . '\s+|\s+' . $quoted . '$/iu', '', $segments[0], 1) ?? '');
+                    if ( '' !== $own && $own !== $segments[0] && mb_strtolower($own) === mb_strtolower($this->inboundPageLabel($files, $path)) ) {
+                        return $own;
+                    }
+                }
+            }
         }
 
         $contentHeading = '';
