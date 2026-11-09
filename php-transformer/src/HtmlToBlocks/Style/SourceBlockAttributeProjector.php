@@ -625,7 +625,7 @@ final class SourceBlockAttributeProjector
                         $this->generatedStyleProjector->registerDirectFlexButton($controlMarker, $logicalControl, $context->generatedStyles);
                     }
                     if ( ! $childOwnedOffsets ) {
-                        $this->registerButtonWidth($attrs, $controlMarker, $logicalControl, $context);
+                        $this->registerButtonWidth($attrs, $controlMarker, $logicalControl, $context, $participation instanceof LayoutParticipation && $participation->neutralizeButtonWrapper());
                     }
                 }
             }
@@ -657,7 +657,7 @@ final class SourceBlockAttributeProjector
                 : 'blocks-engine-native-button-alignment-' . $nativeButtonTextAlignment;
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $nativeButtonMarker);
             $this->generatedStyleProjector->registerNativeButtonStyleRule($nativeButtonMarker, $hasNativeButtonColor ? $attrs : array(), $context->generatedStyles, $nativeButtonTextAlignment);
-            $this->registerButtonWidth($attrs, $nativeButtonMarker, $logicalControl, $context);
+            $this->registerButtonWidth($attrs, $nativeButtonMarker, $logicalControl, $context, $participation instanceof LayoutParticipation && $participation->neutralizeButtonWrapper());
         }
         if ( 'core/button' === $name
             && 1 === preg_match('/(?:^|\s)(blocks-engine-native-button-alignment-(?:start|end|left|center|right))(?:\s|$)/', (string) ($attrs['className'] ?? ''), $alignmentMarker)
@@ -768,7 +768,7 @@ final class SourceBlockAttributeProjector
      *
      * @param array<string, mixed> $attrs
      */
-    private function registerButtonWidth(array $attrs, string $marker, DOMElement $sourceControl, SourceBlockAttributeProjectionContext $context): void
+    private function registerButtonWidth(array $attrs, string $marker, DOMElement $sourceControl, SourceBlockAttributeProjectionContext $context, bool $wrappersNeutralized): void
     {
         $buttonWidth = (int) ($attrs['width'] ?? 0);
         if ( ! in_array($buttonWidth, array( 25, 50, 75, 100 ), true) ) {
@@ -781,7 +781,7 @@ final class SourceBlockAttributeProjector
                 }
             }
         }
-        $this->generatedStyleProjector->registerButtonWidth($marker, $buttonWidth, $context->generatedStyles);
+        $this->generatedStyleProjector->registerButtonWidth($marker, $buttonWidth, $context->generatedStyles, $wrappersNeutralized);
     }
 
     /** @param array<int, array<string, mixed>> $innerBlocks */
