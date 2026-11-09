@@ -96,6 +96,7 @@
       "@test:packaging"
     ],
     "test:canonical": [
+      "php tests/contract/form-button-visible-text.php",
       "php tests/contract/button-materialized-svg-author-rule.php",
       "php tests/contract/real-header-mobile-toggle.php",
       "php tests/contract/real-header-mobile-artwork.php",

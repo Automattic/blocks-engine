@@ -575,7 +575,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                     }
                 }
                 return $classes;
-            }
+            },
+            $this->styleResolver
         );
         $this->pseudoFormAnalyzer = new PseudoFormAnalyzer($this->formControlMetadataBuilder, fn (DOMElement $element): string => $this->elementSelector($element));
         $this->runtimeIslands = new RuntimeIslandAnalyzer($this->session, $this->sourceElementClassifier, $this->createRuntimeIslandContext(), $this->pseudoFormAnalyzer);
