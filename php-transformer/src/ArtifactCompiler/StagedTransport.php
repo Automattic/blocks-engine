@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
+use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 
 /**
  * Staged prepare/compilePage/compose transport extracted from ArtifactCompiler.
@@ -637,7 +638,7 @@ trait StagedTransport
             'normalized' => $normalized,
             'source_documents' => $documents,
             'components' => $this->finalizeComponentFacts($this->mergeComponentFacts($componentFacts), (string) ($sharedPlan['analysis']['entry_path'] ?? '')),
-            'block_types' => $this->dedupeRows($blockTypes),
+            'block_types' => DeterministicRowDeduplicator::dedupe($blockTypes),
             'entry_blocks' => $entryBlocks,
             'omitted_pages' => $omittedPages,
             'compiled_documents' => array_filter($compiledDocuments, fn(string $path): bool => $path !== ($sharedPlan['analysis']['entry_path'] ?? ''), ARRAY_FILTER_USE_KEY),
