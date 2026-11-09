@@ -14,6 +14,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 $failures = 0;
 $assert = static function (bool $condition, string $message, string $detail = '') use (&$failures): void {
@@ -46,6 +47,13 @@ $assert('stretch' === ($default['verticalAlignment'] ?? null), 'default-align ro
 $centered = $footerLayout('footer{display:flex;justify-content:space-between;align-items:center;padding:30px}');
 $assert('flex' === ($centered['type'] ?? null), 'centered row converts to a core flex layout', (string) json_encode($centered));
 $assert(! isset($centered['verticalAlignment']), 'centered row keeps core centre alignment', (string) json_encode($centered));
+
+// core/navigation and core/social-links own their item alignment and opt out
+// of the layout's verticalAlignment; core/group keeps it.
+$runtime = new Runtime();
+$stretchRow = array( 'layout' => array( 'type' => 'flex', 'verticalAlignment' => 'stretch' ) );
+$assert(array( 'type' => 'flex' ) === ($runtime->normalizeBlockSupportAttributes('core/navigation', $stretchRow)['attrs']['layout'] ?? null), 'navigation drops the vertical alignment it does not allow');
+$assert($stretchRow === $runtime->normalizeBlockSupportAttributes('core/group', $stretchRow)['attrs'], 'group keeps its vertical alignment');
 
 if ( 0 < $failures ) {
     fwrite(STDERR, "flex row default cross-axis stretch FAILED: {$failures} failures\n");
