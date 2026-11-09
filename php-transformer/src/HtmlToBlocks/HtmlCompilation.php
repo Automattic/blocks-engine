@@ -962,7 +962,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->sourceElementClassifier,
             $this->styleResolver,
             $this,
-            fn (DOMElement $element): bool => $this->isSafeTransparentCustomElement($element),
+            fn (DOMElement $element): bool => $this->runtimeIslands->isSafeTransparentCustomElement($element),
             function (DOMElement $element, array &$fallbacks): array {
                 return $this->convertChildren($element, $fallbacks, true);
             },
@@ -3352,7 +3352,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // attribute compounds onto the native carrier's selector classes.
         // Unlike transparent flattening, this path retains the host and child
         // boundaries, so descendant motion structure does not make it unsafe.
-        if ( str_contains($tagName, '-') && $this->isSafeTransparentCustomElement($element, true)
+        if ( str_contains($tagName, '-') && $this->runtimeIslands->isSafeTransparentCustomElement($element, true)
             && ( in_array($element, $this->retainedCustomWrapperHooks, true)
                 || 'contents' === strtolower(trim((string) ($this->styleResolver->structuralPresentationDeclarations($element)['display'] ?? ''))) )
         ) {
@@ -3594,7 +3594,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // Autoplay cannot change a single slide. Keep its complete light DOM
         // (including responsive images and links), not the image-only slide path.
         if ( $this->authoredCarouselGenerator->isStaticSingleSlideCarousel($element)
-            && $this->isSafeTransparentCustomElement($element, true)
+            && $this->runtimeIslands->isSafeTransparentCustomElement($element, true)
         ) {
             return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $this->convertChildren($element, $fallbacks, $captureUnsupported), $element);
         }
@@ -3642,7 +3642,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return null;
         }
 
-        if ( $this->isOrphanListItem($element) && $this->isSafeTransparentCustomElement($element) ) {
+        if ( $this->isOrphanListItem($element) && $this->runtimeIslands->isSafeTransparentCustomElement($element) ) {
             // Invalid list ancestry does not remove browser marker rendering or
             // author `li` selectors. Keep the source root on the existing exact
             // wrapper carrier while its children remain native editable blocks.
@@ -3811,7 +3811,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         if ( ! str_contains(strtolower($element->tagName), '-')
             || '' !== trim($element->textContent ?? '')
             || SourceDom::hasRenderableMediaContent($element)
-            || ! $this->isSafeTransparentCustomElement($element)
+            || ! $this->runtimeIslands->isSafeTransparentCustomElement($element)
         ) {
             return false;
         }
@@ -4004,7 +4004,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         if ( ! RichTextInlineTags::isUnknownHtmlElement($element)
             || in_array(strtolower($element->tagName), array( 'content', 'shadow' ), true)
             || $this->sourceElementClassifier->isRuntimeMediaSurfaceElement($element)
-            || ! $this->isSafeTransparentCustomElement($element)
+            || ! $this->runtimeIslands->isSafeTransparentCustomElement($element)
         ) {
             return false;
         }
@@ -4042,7 +4042,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
      */
     private function linkBearingElementBlock(DOMElement $element): ?array
     {
-        if ( ! $this->isSafeTransparentCustomElement($element) ) {
+        if ( ! $this->runtimeIslands->isSafeTransparentCustomElement($element) ) {
             return null;
         }
 
@@ -4102,31 +4102,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $this->layoutShells->blockForElements(array( $element ), array( $navigation ), $element);
     }
 
-    private function isSafeTransparentCustomElement(DOMElement $element, bool $allowMotionStructure = false): bool
-    {
-        foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'))) as $candidate ) {
-            if ( ! $candidate instanceof DOMElement ) {
-                continue;
-            }
-
-            // Runtime metadata on any descendant would be flattened by a
-            // transparent lowering, so preserve the complete custom element.
-            if ( $this->runtimeIslands->isRuntimeDomTarget($candidate)
-                || array() !== $this->eventMetadata($candidate)
-                || (! $allowMotionStructure && $this->sourceElementClassifier->hasMotionStructureToken($candidate))
-            ) {
-                return false;
-            }
-
-            foreach ( $candidate->attributes as $attribute ) {
-                if ( str_starts_with(strtolower($attribute->name), 'data-wp-') ) {
-                    return false;
-                }
-            }
-        }
-
-        return true;
-    }
 
     private function isInertRuntimeMediaPlaceholder(DOMElement $element): bool
     {
@@ -4139,7 +4114,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
         foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'))) as $candidate ) {
             if ( ! $candidate instanceof DOMElement
-                || ! $this->isSafeTransparentCustomElement($candidate)
+                || ! $this->runtimeIslands->isSafeTransparentCustomElement($candidate)
                 || '' !== trim($this->attr($candidate, 'role'))
                 || '' !== trim($this->attr($candidate, 'aria-label'))
             ) {
@@ -6031,7 +6006,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 if ( null === $owner ) continue;
                 $controls = FormControlClassifier::controlElements($element);
                 if ( array() !== $controls
-                    && $this->isSafeTransparentCustomElement($element)
+                    && $this->runtimeIslands->isSafeTransparentCustomElement($element)
                     && $this->isFormOwnedControlStructure($element, $owner)
                 ) {
                     foreach ( $unsupported[$selector] as $index ) unset($fallbacks[$index]);
@@ -7042,7 +7017,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // Retain inline hosts and metadata-backed captured media boxes.
         // Ordinary block hosts keep the conservative clipping/crop policy;
         // interactive hosts must keep their original inline control topology.
-        if (!$this->isSafeTransparentCustomElement($host)
+        if (!$this->runtimeIslands->isSafeTransparentCustomElement($host)
             || ($this->hasBlockFigureDisplay($host) && !$host->hasAttribute('data-image-info'))
             || $this->ancestorElement($host, 'button') instanceof DOMElement
             || $this->runtimeIslands->isRuntimeDomTarget($host)
@@ -7282,7 +7257,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // Capture-snapshot `data-*` on a video host parameterizes media the
         // capture already renders, so they no more prove a missing runtime
         // than they do for the poster path below (#2524).
-        if ( ! str_contains($element->tagName, '-') || '' !== trim($element->textContent ?? '') || ! $this->isSafeTransparentCustomElement($element) || ! $this->hasOnlyStructuralCustomVideoHostAttributes($element, true) ) {
+        if ( ! str_contains($element->tagName, '-') || '' !== trim($element->textContent ?? '') || ! $this->runtimeIslands->isSafeTransparentCustomElement($element) || ! $this->hasOnlyStructuralCustomVideoHostAttributes($element, true) ) {
             return null;
         }
 
@@ -7335,7 +7310,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
      */
     private function customVideoPosterBlock(DOMElement $element): ?array
     {
-        if (!str_contains($element->tagName, '-') || '' !== trim($element->textContent ?? '') || !$this->isSafeTransparentCustomElement($element) || !$this->hasOnlyStructuralCustomVideoHostAttributes($element, true)) return null;
+        if (!str_contains($element->tagName, '-') || '' !== trim($element->textContent ?? '') || !$this->runtimeIslands->isSafeTransparentCustomElement($element) || !$this->hasOnlyStructuralCustomVideoHostAttributes($element, true)) return null;
         $children = SourceDom::elementElementChildren($element);
         if (2 !== count($children)) return null;
         $video = null; $poster = null;
