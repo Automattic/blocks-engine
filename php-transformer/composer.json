@@ -692,6 +692,7 @@
       "php tests/unit/card-fragment-author-rule.php",
       "php tests/unit/artifact-normalizer-idempotence.php",
       "php tests/unit/content-addressed-inline-assets.php",
+      "php tests/unit/unterminated-inline-stylesheet.php",
       "php tests/unit/inline-style-url-origin.php",
       "php tests/unit/unresolved-block-attribute-links.php",
       "php tests/unit/asset-target-case-collision.php",

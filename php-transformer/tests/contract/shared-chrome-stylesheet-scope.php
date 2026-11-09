@@ -164,8 +164,8 @@ $assert($routeMediaScoped, 'Route media rules retain their non-global cascade bo
 $malformed = (new ArtifactCompiler())->compile(array(
     'entrypoint' => 'index.html',
     'files' => array(
-        'index.html' => '<html><head><style>[data-chrome=grid]{display:flex}:is(.valid,.broken[foo="bar"){color:red}</style></head><body><header data-chrome="grid"><nav>Brand</nav></header><main>Home</main></body></html>',
-        'about.html' => '<html><head><style>[data-chrome=grid]{display:flex}:is(.valid,.broken[foo="bar"){color:red}</style></head><body><header data-chrome="grid"><nav>Brand</nav></header><main>About</main></body></html>',
+        'index.html' => '<html><head><style>[data-chrome=grid]{display:flex}.valid,.broken[foo=bar baz]{color:red}</style></head><body><header data-chrome="grid"><nav>Brand</nav></header><main>Home</main></body></html>',
+        'about.html' => '<html><head><style>[data-chrome=grid]{display:flex}.valid,.broken[foo=bar baz]{color:red}</style></head><body><header data-chrome="grid"><nav>Brand</nav></header><main>About</main></body></html>',
     ),
 ))->toArray()['source_reports']['wordpress_site_plan'] ?? array();
 $malformedGlobal = implode('\n', array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($malformed['assets'] ?? array(), static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null) && 'global' === ($asset['scopes'][0]['kind'] ?? null))));

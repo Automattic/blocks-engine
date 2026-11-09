@@ -231,6 +231,43 @@ final class CssSyntaxScanner
         return null;
     }
 
+    /**
+     * The stylesheet as CSS Syntax reads it to its end, written so that
+     * nothing is left open.
+     *
+     * The end of a stylesheet closes an unterminated comment, string, function
+     * or block, so `.a{opacity:0;` as a whole `<style>` is a complete rule.
+     * A top-level style rule whose prelude reaches the end without a block is
+     * a parse error and is dropped. Joined to a following sheet, either would
+     * otherwise swallow every rule after it.
+     */
+    public static function closedAtEnd(string $css): string
+    {
+        $length = strlen($css);
+        $state = self::state();
+        $blocks = 0;
+        $statement = 0;
+        for ( $offset = 0; $offset < $length; ) {
+            $offset = self::inertEnd($css, $offset, $state, '{};');
+            if ( $offset >= $length ) break;
+            $character = $css[ $offset ];
+            if ( self::isTopLevel($state) && ( '{' === $character || '}' === $character || ';' === $character ) ) {
+                if ( ';' !== $character ) $blocks = max(0, $blocks + ( '{' === $character ? 1 : -1 ));
+                if ( 0 === $blocks && '{' !== $character ) $statement = $offset + 1;
+                ++$offset;
+                continue;
+            }
+            $offset = self::consume($css, $offset, $state) ?? ( $offset + 1 );
+        }
+        if ( 0 === $blocks ) {
+            $rest = trim(self::withoutComments(substr($css, $statement)));
+            if ( '' !== $rest && '@' !== $rest[0] ) return substr($css, 0, $statement);
+        }
+        if ( $state['comment'] ) return $css . '*/' . str_repeat('}', $blocks);
+
+        return $css . $state['quote'] . str_repeat(')', max(0, $state['parens'])) . str_repeat(']', max(0, $state['brackets'])) . str_repeat('}', $blocks);
+    }
+
     /** @param array{quote: string, comment: bool, url: bool, parens: int, brackets: int} $state */
     public static function isTopLevel(array $state): bool
     {
