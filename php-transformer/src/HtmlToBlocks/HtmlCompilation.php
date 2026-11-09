@@ -5704,8 +5704,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // A lone marked descendant normally needs an independent carrier.
         // Inside a safe inline button it belongs to the paragraph's RichText,
         // just as under a source <p>; splitting it off strands SVG descendants
-        // before the existing carrier and image materialization can run.
-        if ( $this->hasSemanticCarrierChild($element) || ( null === $withLowered && $this->hasRichTextMarkedDescendant($element) && 2 > $this->childElementCount($element) ) ) {
+        // before the existing carrier and image materialization can run. Beside
+        // its own text it is part of one line box: splitting there would turn
+        // each text run into a paragraph and drop the spaces between them.
+        if ( $this->hasSemanticCarrierChild($element) || ( null === $withLowered && $this->hasRichTextMarkedDescendant($element) && 2 > $this->childElementCount($element) && ! $this->hasDirectText($element) ) ) {
             return null;
         }
 
@@ -5830,6 +5832,17 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     {
         foreach ( $element->childNodes as $child ) {
             if ( $child instanceof DOMElement && '' !== $this->session->authorSelectorProjectionState()->semanticMarker(SourceDom::sourceElementIdentity($child)) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasDirectText(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') ) {
                 return true;
             }
         }
