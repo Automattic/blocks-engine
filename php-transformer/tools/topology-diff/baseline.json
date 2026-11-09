@@ -378,12 +378,12 @@
         "27-university-department": {
             "added mark": 1,
             "added p [blocks-engine-inline-layout-carrier]": 4,
-            "added p [blocks-engine-synthetic-paragraph]": 19,
+            "added p [blocks-engine-synthetic-paragraph]": 16,
             "added p [blocks-engine-synthetic-svg-paragraph]": 6,
             "removed button": 1,
             "removed nav": 1,
             "removed ul": 1,
-            "retagged div>p [blocks-engine-lowered-paragraph]": 2,
+            "retagged div>p [blocks-engine-lowered-paragraph]": 3,
             "retagged span>mark": 19,
             "retagged span>p [blocks-engine-synthetic-paragraph]": 18,
             "retagged svg>img": 7
