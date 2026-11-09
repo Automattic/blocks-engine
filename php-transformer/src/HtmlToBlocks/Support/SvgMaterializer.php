@@ -412,6 +412,23 @@ final class SvgMaterializer implements SvgElementMaterializer
             } elseif ( array() === $dimensions ) {
                 $mediaBox .= $this->unsizedMediaAxisDeclarations($presentation);
             }
+            // A RichText icon image must size like the <svg> it replaces. An
+            // inline SVG has no `img{max-width:100%}` reset, which would make
+            // the image a compressible box that contributes no min-content
+            // width; and as a flex item it has no content-based minimum size,
+            // while an image keeps its specified size as the automatic minimum.
+            // Conditioned box rules share this rule's specificity and follow it.
+            if ( $richTextImage && ! $fillsContainingBlockWidth ) {
+                $restated = array( 'max-width' => 'none' );
+                if ( in_array($parentDisplay, array( 'flex', 'inline-flex' ), true) ) {
+                    $restated += array( 'min-width' => '0', 'min-height' => '0' );
+                }
+                foreach ( $restated as $property => $value ) {
+                    if ( ! isset($presentation[$property]) || '' === trim((string) $presentation[$property]) ) {
+                        $mediaBox .= ';' . $property . ':' . $value;
+                    }
+                }
+            }
             $carriedProperties = $this->carriedCustomPropertyDeclarations($element, $mediaBox);
             $mediaBox = ( '' === $carriedProperties ? '' : ';' . $carriedProperties ) . $mediaBox;
             $rule = ($richTextImage ? '' : '>img') . '{display:' . $imageDisplay . ($preserveInlineGeometry ? ';vertical-align:' . $this->sourceVerticalAlign($element) : '') . $mediaBox . '}';
