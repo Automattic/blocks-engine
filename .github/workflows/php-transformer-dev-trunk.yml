@@ -32,7 +32,7 @@ jobs:
       - uses: Extra-Chill/homeboy-action@v2.25.10
         with:
           component: php-transformer
-          version: 0.443.4
+          version: 0.454.3
           commands: git subtree php-transformer ${{ github.sha }} --apply --branch-only
           ssh-key: ${{ secrets.PHP_TRANSFORMER_MIRROR_DEPLOY_KEY }}
           ssh-known-hosts: |
