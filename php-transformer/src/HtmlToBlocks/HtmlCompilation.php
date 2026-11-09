@@ -303,6 +303,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly RuntimeIslandAnalyzer $runtimeIslands;
     private readonly Elements\LayoutShellLowering $layoutShells;
     private readonly Elements\CustomVideoHostLowering $customVideoHosts;
+    private readonly Elements\ListItemLowering $listItemLowering;
     private readonly Elements\CustomImageHostLowering $customImageHosts;
     private readonly Elements\AnchorLowering $anchors;
     private readonly Elements\RenderNeutralElements $renderNeutral;
@@ -593,6 +594,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->listStructure
         );
         $this->customVideoHosts = new Elements\CustomVideoHostLowering($this->session, $this->styleResolver, $this->imageUrls, $this->runtimeIslands, $this->mediaLowering, $this->imageLowering, $this->layoutShells);
+        $this->listItemLowering = new Elements\ListItemLowering($this, $this, $this->runtime, $this->session, $this->styleResolver, $this->listStructure, $this->richTextMaterializer);
         $this->renderNeutral = new Elements\RenderNeutralElements($this->session, $this->styleResolver, $this->sourceElementClassifier, $this->sourceElementDescription, $this->runtimeIslands, $this->emptyElementFootprint);
         $this->inertElements = new Elements\InertElements($this->styleResolver, $this->sourceElementClassifier, $this->sourceVisibility, $this->runtimeIslands);
         $this->emptyInlineGeometry = new Elements\EmptyInlineGeometryLowering($this, $this->session, $this->sourceElementClassifier, $this->emptyElementFootprint, $this->authoredStateButtons, $this->layoutShells, $this->runtimeIslands);
@@ -921,7 +923,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 return $this->decomposeStructuralList($element, $fallbacks);
             },
             function (DOMElement $element, array &$fallbacks): array {
-                return $this->listItems($element, $fallbacks);
+                return $this->listItemLowering->listItems($element, $fallbacks);
             },
             $this->authorLayoutOwnership
         ));
@@ -5527,37 +5529,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $items;
     }
 
-    /**
-     * @param array<int, array<string, mixed>> $fallbacks
-     * @return array<int, array<string, mixed>>
-     */
-    private function listItems(DOMElement $list, array &$fallbacks): array
-    {
-        $items = array();
-        foreach ( $this->listStructure->listMemberElements($list) as $child ) {
-            if ( 'li' !== strtolower($child->tagName) ) {
-                continue;
-            }
-
-            $nested = array();
-            foreach ( $this->listStructure->nestedListRoots($child) as $nestedList ) {
-                $nestedBlock = $this->convertElement($nestedList, $fallbacks, true);
-                if ( null !== $nestedBlock ) {
-                    $nested[] = $nestedBlock;
-                }
-            }
-
-            $content = $this->listItemContentWithoutNestedLists($child);
-            if ( '' === trim($this->runtime->stripAllTags($content)) && array() === $nested ) {
-                continue;
-            }
-
-            $items[] = $this->createBlock('core/list-item', array_merge($this->styleResolver->presentationAttributes($child), array( 'content' => $content )), $nested, $child);
-        }
-
-        return $items;
-    }
-
     /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed> */
     private function decomposeStructuralList(DOMElement $list, array &$fallbacks): array
     {
@@ -5603,39 +5574,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $items,
             $list
         );
-    }
-
-    private function listItemContentWithoutNestedLists(DOMElement $item): string
-    {
-        $content = $item->cloneNode(true);
-        if ( ! $content instanceof DOMElement ) {
-            return $this->innerHtmlWithoutTags($item, array( 'ul', 'ol', 'menu' ));
-        }
-
-        $directLists = array();
-        foreach ( $content->childNodes as $child ) {
-            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'ul', 'ol', 'menu' ), true) ) {
-                $directLists[] = $child;
-            }
-        }
-        foreach ( $directLists as $directList ) {
-            $content->removeChild($directList);
-        }
-
-        // Wrapped rich HTML remains inside core/list-item content so its authored
-        // topology survives. Materialize every source-tag marker that author CSS
-        // rewrites, not just nested list leaves.
-        foreach ( $content->getElementsByTagName('*') as $descendant ) {
-            if ( ! $descendant instanceof DOMElement ) {
-                continue;
-            }
-            $marker = $this->session->authorSelectorProjectionState()->tagMarker($descendant->tagName);
-            if ( '' !== $marker ) {
-                $descendant->setAttribute('class', $this->mergeClassNames($this->attr($descendant, 'class'), $marker));
-            }
-        }
-
-        return $this->richTextMaterializer->content($content);
     }
 
     /**
