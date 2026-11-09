@@ -180,6 +180,7 @@ final class ShellExtraction
                     $candidate = self::withVariantSourceIdentity($candidate, $page['_source_shared_variant_identities'][$candidate['area']] ?? array());
                     continue;
                 }
+                if (!empty($candidate['device_document_bundle'])) continue;
                 // Already-equivalent compiled shells keep their existing
                 // context-sensitive support assets and presentation intact.
                 if (count($identities[$candidate['area']]) < 2) continue;
@@ -571,7 +572,7 @@ final class ShellExtraction
             }
             $partMarkup = self::landmarkPartMarkup(self::withoutCurrentNavigationState($row['markup']), $area);
             $identity = $row['identity_markup'];
-            if (1 < count(array_unique($identities))) {
+            if (1 < count(array_unique($identities)) || (1 < count($scoped) && !isset($scoped['']))) {
                 if (isset($scoped[''])) continue;
                 // Labelled landmarks (including leading chrome) already have
                 // a responsive absorption path; do not preempt that ownership.
@@ -592,7 +593,7 @@ final class ShellExtraction
                 'source_path' => $sourcePath,
                 'source_hash' => $row['source_hash'],
                 'nested_shell' => true,
-                'shared_only' => true,
+                'device_document_bundle' => count($scoped) > 1 && !isset($scoped['']),
                 'offset' => $row['offset'],
                 'length' => $row['length'],
                 'additional_ranges' => $additional,
@@ -1731,11 +1732,15 @@ final class ShellExtraction
             // Nesting that bundle beneath one viewport would hide the other;
             // retain the existing partition contract for those bundles.
             foreach ($cluster['indexes'] as $index) {
+                if (!empty($candidates[$index][0]['device_document_bundle'])) { $inlineShell = false; break; }
                 $variants = $this->scopedVariantLandmarks($pages[$index]['canonical_block_markup'], $area);
                 if (!is_array($variants) || count($variants) < 2) continue;
                 $variantIdentities = array();
                 foreach ($variants as $rows) $variantIdentities = array_merge($variantIdentities, array_column($rows, 'identity_markup'));
-                if (count(array_unique($variantIdentities)) > 1) { $inlineShell = false; break; }
+                // Device documents are independent detection roots, not authored
+                // layout ancestors. Even equal variants must move together under
+                // their visibility scopes rather than leave references in content.
+                if (count(array_unique($variantIdentities)) > 1 || str_contains($pages[$index]['canonical_block_markup'], CaptureEvidence::DOCUMENT_SCOPE)) { $inlineShell = false; break; }
             }
             foreach ($applicable as $index => $page) if (!in_array($index, $cluster['indexes'], true)) $excluded[$index] = isset($candidates[$index]) ? 'non_equivalent' : 'missing';
             // 'search' is never an applicable page in its own right (WordPress
@@ -1835,8 +1840,9 @@ final class ShellExtraction
                 continue;
             }
             $absorbed = null;
-            foreach ($withoutShells as $withoutShell) {
-                if ($this->retainsResponsiveVariantLandmark($withoutShell, $area)) {
+            foreach ($withoutShells as $index => $withoutShell) {
+                $variants = $this->scopedVariantLandmarks($pages[$index]['canonical_block_markup'], $area);
+                if ($this->retainsResponsiveVariantLandmark($withoutShell, $area) || (!$inlineShell && is_array($variants) && count($variants) > 1)) {
                     $absorbed = $this->absorbResponsiveVariantLandmarks($pages, $cluster['indexes'], $area, $candidates, $withoutShells, $runtimeDeclarations);
                     break;
                 }
@@ -2867,7 +2873,7 @@ final class ShellExtraction
 
     private function retainsResponsiveVariantLandmark(string $markup, string $area): bool
     {
-        if (1 !== preg_match('/(?:' . preg_quote(CaptureEvidence::ATTRIBUTE_PREFIX, '/') . '[a-z][a-z0-9_-]{0,63}-document|site-document-variant-[a-z][a-z0-9_-]{0,31})/', $markup)) {
+        if (1 !== preg_match('/(?:' . preg_quote(CaptureEvidence::ATTRIBUTE_PREFIX, '/') . '[a-z][a-z0-9_-]{0,63}-document|' . preg_quote(CaptureEvidence::DESKTOP_ONLY_CLASS, '/') . '|' . preg_quote(CaptureEvidence::MOBILE_ONLY_CLASS, '/') . '|site-document-variant-[a-z][a-z0-9_-]{0,31})/', $markup)) {
             return false;
         }
         return array() !== $this->nestedLandmarkCandidates(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup), '', $area);
@@ -3099,18 +3105,20 @@ final class ShellExtraction
     public static function isResponsiveVariantClass(string $class): bool
     {
         return CaptureEvidence::isDeviceDocumentClass($class)
+            || CaptureEvidence::isDeviceIslandClass($class)
             || 1 === preg_match('/^site-document-variant-[a-z][a-z0-9_-]{0,31}$/', $class);
     }
 
     private static function responsiveVariantRank(string $class): int
     {
-        if (in_array($class, array(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, 'site-document-variant-default'), true)) return 0;
-        if (CaptureEvidence::MOBILE_DOCUMENT_CLASS === $class) return 1;
+        if (in_array($class, array(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, CaptureEvidence::DESKTOP_ONLY_CLASS, 'site-document-variant-default'), true)) return 0;
+        if (in_array($class, array(CaptureEvidence::MOBILE_DOCUMENT_CLASS, CaptureEvidence::MOBILE_ONLY_CLASS), true)) return 1;
         return 2;
     }
 
     /**
-     * A hoisted variant's device-document wrapper. Its rules and visibility
+     * A hoisted variant's device wrapper: its device document, nested
+     * device-only gate or root device island. Its rules and visibility
      * CSS select the device attributes, so a class-only group would detach
      * every device-gated rule from the part.
      *
@@ -3135,7 +3143,8 @@ final class ShellExtraction
     }
 
     /**
-     * The layout-shell wrapper that carries a capture device document, as a
+     * The layout-shell wrapper that carries a capture device document or a
+     * root device island (desktop-only/mobile-only), as a
      * shared part may repeat it: its tag, classes and device attributes. The
      * document id and scope marker stay with the page's own document.
      *
@@ -3149,7 +3158,8 @@ final class ShellExtraction
             $attributes = is_array($wrapper) && is_array($wrapper['attributes'] ?? null) ? $wrapper['attributes'] : array();
             if (!in_array($scopeClass, preg_split('/\s+/', trim((string) ($attributes['class'] ?? ''))) ?: array(), true)) continue;
             $kept = array_intersect_key($attributes, array_flip(array('class', EngineMarker::DEVICE_SCOPE_ATTRIBUTE, CaptureEvidence::DEVICE_DOCUMENT)));
-            if (!isset($kept[EngineMarker::DEVICE_SCOPE_ATTRIBUTE]) && !isset($kept[CaptureEvidence::DEVICE_DOCUMENT])) return null;
+            // A device island's class is itself the gate its visibility CSS selects.
+            if (!isset($kept[EngineMarker::DEVICE_SCOPE_ATTRIBUTE]) && !isset($kept[CaptureEvidence::DEVICE_DOCUMENT]) && !CaptureEvidence::isDeviceIslandClass($scopeClass)) return null;
             return array('block' => $blockName, 'wrapper' => array('tagName' => is_string($wrapper['tagName'] ?? null) ? $wrapper['tagName'] : 'div', 'attributes' => $kept));
         }
         return null;
@@ -3288,6 +3298,9 @@ final class ShellExtraction
     /** An element named footer by one of its classes or by its id. */
     private static function footerAreaFromName(string $className, string $anchor): ?string
     {
+        // Non-primary document ids carry an engine suffix; it is not part
+        // of the authored landmark name (block JSON has already been decoded).
+        $anchor = preg_replace('/' . preg_quote(CaptureEvidence::VARIANT_ID_SUFFIX_PREFIX, '/') . '[a-z][a-z0-9_-]*$/', '', $anchor) ?? $anchor;
         foreach (preg_split('/\s+/', trim($className . ' ' . $anchor)) ?: array() as $class) {
             if (in_array(strtolower($class), array('footer', 'site-footer', 'widget-footer', 'colophon', 'site-info'), true)) return 'footer';
         }
@@ -3322,7 +3335,9 @@ final class ShellExtraction
             if (!empty($page['synthetic'])) continue;
             ++$applicable;
             foreach ($page['shell_candidates'] ?? array() as $candidateIndex => $candidate) {
-                if ('header' !== $candidate['area']) continue;
+                // A bundled part has multiple presentation owners; rewriting
+                // just its primary range would discard the other device scopes.
+                if ('header' !== $candidate['area'] || !empty($candidate['device_document_bundle'])) continue;
                 $markup = $candidate['rest_markup'] ?? $candidate['markup'];
                 $nodes = self::blockNodes(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup));
                 foreach ($nodes as $node) {

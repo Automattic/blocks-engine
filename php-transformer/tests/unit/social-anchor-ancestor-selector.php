@@ -9,7 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 // sit deeper inside a column, so that rule must not reach them once Core Social
 // Links re-parents them. A rule that did select an anchor as a direct child
 // (`.bar li > a`) still crosses the inserted ul/li.
-$icon = '<img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" alt="">';
+$icon = '<img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" alt="" data-blocks-engine-capture-glyph-color="#ffffff">';
 $source = '<style>.strip{display:flex}.strip>*{margin-top:60px;flex:1}.bar ul{display:flex;margin:0;padding:0;list-style:none}.bar a{display:block;width:24px;height:24px}.bar li>a{outline:2px solid red}</style>'
     . '<div class="strip"><div class="column"><p>About</p><div class="bar"><ul aria-label="Social Bar">'
     . '<li><a href="https://www.facebook.com/example" aria-label="Facebook">' . $icon . '</a></li>'

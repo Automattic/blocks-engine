@@ -8,7 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
 
 /**
  * Capture interpreters of evidence the engine lowers or replays itself (native
- * control state, viewport entrances). They are capture plumbing, never author
+ * control state, viewport entrances, responsive fragment targets). They are capture plumbing, never author
  * behavior, so no compiled site ships them or analyses their queries.
  */
 final class CaptureReplayScripts
@@ -16,7 +16,8 @@ final class CaptureReplayScripts
     public static function isReplayScript(string $tag): bool
     {
         $attributes = HtmlTagScanner::attributes($tag);
-        return array_key_exists(CaptureEvidence::NATIVE_CONTROL_RUNTIME, $attributes) || array_key_exists(CaptureEvidence::VIEWPORT_ENTRANCE_ACTIVATOR, $attributes);
+        return array_key_exists(CaptureEvidence::NATIVE_CONTROL_RUNTIME, $attributes) || array_key_exists(CaptureEvidence::VIEWPORT_ENTRANCE_ACTIVATOR, $attributes)
+            || array_key_exists(CaptureEvidence::RESPONSIVE_FRAGMENT_RESOLVER, $attributes);
     }
 
     /** Discard capture replay interpreters, never grant a script trust by its marker. */

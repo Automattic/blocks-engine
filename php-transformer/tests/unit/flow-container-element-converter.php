@@ -62,7 +62,6 @@ $operations = array(
         'sourceTag' => $sourceElement?->tagName,
     )),
     'patternContext' => new PatternContext($null),
-    'shouldDeferNavigationPatternToChildren' => $false,
     'rememberAccordionDisclosureRoot' => static fn (array $block): array => $block,
     'metadataGridBlock' => $null,
     'rememberNativeDisclosureRoot' => static fn (): null => null,

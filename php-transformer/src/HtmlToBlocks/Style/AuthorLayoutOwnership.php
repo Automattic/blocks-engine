@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListStructure;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\WrapperCoalescer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
@@ -15,6 +16,8 @@ use DOMElement;
 /** Author-owned layout boundaries and their CSS attribute carriers. */
 final class AuthorLayoutOwnership
 {
+    public const CSS_OWNED_FLOW_CLASS = 'blocks-engine-css-owned-flow';
+
     /** @var list<string> Inline grid declarations carried to the generated stylesheet for css-owned grids. */
     private const CSS_OWNED_GRID_CARRIER_PROPERTIES = array(
         'display', 'grid', 'grid-template', 'grid-template-areas', 'grid-template-columns',
@@ -38,8 +41,124 @@ final class AuthorLayoutOwnership
         private readonly RuntimeIslandAnalyzer $runtimeIslands,
         private readonly WrapperCoalescer $wrapperCoalescer,
         private readonly HtmlTransformerSession $session,
-        private readonly Runtime $runtime
+        private readonly Runtime $runtime,
+        private readonly ListStructure $listStructure
     ) {}
+
+    /** @return array<string, mixed> */
+    public function cssOwnedGroupAttributes(DOMElement $element, bool $carryOwnTextAlignment = false, bool $topologyChanged = false): array
+    {
+        // A fixed inline height can become a clipping constraint when conversion
+        // replaces a CSS-owned container's direct children with block wrappers.
+        $excludedGeometryProperties = $topologyChanged ? array( 'height' ) : array();
+        $attrs = $this->styleResolver->presentationAttributes(
+            $element,
+            $excludedGeometryProperties,
+            $carryOwnTextAlignment ? array( 'text-align' ) : array()
+        );
+        $layout = $attrs['layout'] ?? null;
+        if ( is_array($layout) && 'grid' === (string) ($layout['type'] ?? '')
+            && ( '' !== (string) ($layout['minimumColumnWidth'] ?? '') || isset($layout['columnCount']) )
+        ) {
+            // The source track list is exactly expressible as native grid
+            // layout (repeat(auto-fill, minmax(<width>,1fr)) as
+            // minimumColumnWidth, or N equal 1fr tracks as columnCount), so
+            // WordPress owns the track geometry. Group save markup does not
+            // serialize blockGap, so source gap remains stylesheet owned by
+            // the normalization in createBlock().
+            $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
+            $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
+            unset($style['spacing']['blockGap']);
+            if ( empty($style['spacing']) ) {
+                unset($style['spacing']);
+            }
+            $background = trim((string) ($declarations['background-color'] ?? $declarations['background'] ?? ''));
+            if ( 1 === preg_match('/^(#[0-9a-f]{3,8}|[a-z][a-z-]*|(?:rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch|var)\([^()]*\))$/i', $background)
+                && ! in_array(strtolower($background), array( 'none', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true)
+                && ! isset($style['color']['background'])
+                && ! $this->styleResolver->hasConditionalStyleFamily($element, 'background')
+            ) {
+                $style['color'] = array_merge(is_array($style['color'] ?? null) ? $style['color'] : array(), array( 'background' => $background ));
+            }
+            if ( array() !== $style ) {
+                $attrs['style'] = $style;
+            }
+
+            return $this->markUnsafeFixedHeightTopologyChange($attrs, $topologyChanged);
+        }
+
+        if ( $this->isCssOwnedGridElement($element) ) {
+            return $this->markUnsafeFixedHeightTopologyChange(
+                $this->cssOwnedGridAttributes($element, $excludedGeometryProperties),
+                $topologyChanged
+            );
+        }
+
+        if ( $this->isCssOwnedFlexElement($element) ) {
+            $attrs = $this->cssOwnedFlexAttributes($element, $excludedGeometryProperties);
+        }
+
+        unset($attrs['layout']);
+        $attrs['className'] = SourceDom::mergeClassNames(
+            (string) ($attrs['className'] ?? ''),
+            self::CSS_OWNED_LAYOUT_CLASS
+        );
+        if ( ! $this->authorOwnsChildFlowSpacing($element) && ! $this->isStructuralListContext($element) ) {
+            return $this->markUnsafeFixedHeightTopologyChange($attrs, $topologyChanged);
+        }
+        $attrs['className'] = SourceDom::mergeClassNames(
+            (string) $attrs['className'],
+            self::CSS_OWNED_FLOW_CLASS
+        );
+        $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
+        $spacing = is_array($style['spacing'] ?? null) ? $style['spacing'] : array();
+        if ( ! isset($spacing['blockGap']) ) {
+            $spacing['blockGap'] = '0';
+            $style['spacing'] = $spacing;
+            $attrs['style'] = $style;
+        }
+
+        return $this->markUnsafeFixedHeightTopologyChange($attrs, $topologyChanged);
+    }
+
+    /**
+     * Pass unsafe CSS-owned height exclusions to IntrinsicVisualMediaHeight::apply().
+     * createBlock() strips this flag before serializing block markup.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function markUnsafeFixedHeightTopologyChange(array $attrs, bool $topologyChanged): array
+    {
+        if ( $topologyChanged ) {
+            $attrs['unsafeFixedHeightTopologyChange'] = true;
+        }
+
+        return $attrs;
+    }
+
+    private function isStructuralListContext(DOMElement $element): bool
+    {
+        $tagName = strtolower($element->tagName);
+        if ( in_array($tagName, array( 'ul', 'ol' ), true) && $this->listStructure->listContainsStructuralItemContent($element) ) {
+            return true;
+        }
+        if ( 'li' === $tagName && $this->listStructure->isStructuralListItem($element) ) {
+            return true;
+        }
+
+        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            $ancestorTag = strtolower($ancestor->tagName);
+            if ( 'li' === $ancestorTag && $this->listStructure->isStructuralListItem($ancestor) ) {
+                return true;
+            }
+            if ( in_array($ancestorTag, array( 'ul', 'ol' ), true) && $this->listStructure->listContainsStructuralItemContent($ancestor) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     /**
      * Author CSS owns a container's geometry when it establishes flex or grid.

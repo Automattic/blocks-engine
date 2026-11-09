@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Closure;
 use DOMElement;
 
@@ -56,7 +57,7 @@ final class NavigationOpenerPresentation
         // content; visible labels or document-dependent artwork still do.
         if (null === $this->svgMarkup) return null;
         $svg = $this->icon($control);
-        if (!$svg instanceof DOMElement) return null;
+        if (!$svg instanceof DOMElement) return $this->barArtwork($control);
         if (!SvgMaterializer::isPassiveSvgMarkup($svg) || !SourceDom::svgHasDrawableContent($svg)) return null;
         foreach ($svg->getElementsByTagName('*') as $node) {
             if (!in_array(strtolower($node->tagName), array('title', 'desc', 'g', 'path', 'circle', 'ellipse', 'rect', 'line', 'polyline', 'polygon'), true)) return null;
@@ -94,6 +95,48 @@ final class NavigationOpenerPresentation
         $icon['']['fill'] ??= 'black';
         $icon['']['stroke'] ??= 'none';
         return array('artwork' => $markup, 'button' => $button, 'icon' => $icon);
+    }
+
+    /** Materialize a passive, text-free stack of painted CSS bars as the native icon. */
+    private function barArtwork(DOMElement $control): ?array
+    {
+        $bars = array();
+        $boxWidth = 0.0;
+        $boxHeight = 0.0;
+        foreach ($control->getElementsByTagName('*') as $node) {
+            $hidden = false;
+            for ($ancestor = $node; $ancestor instanceof DOMElement && !$ancestor->isSameNode($control); $ancestor = $ancestor->parentNode) {
+                $rest = $this->styles->collapsedViewportAuthorDeclarations($ancestor, array('display', 'visibility'));
+                $hidden = $hidden || $ancestor->hasAttribute('hidden') || 'none' === CssValueInspector::withoutImportant($rest['display'] ?? '') || 'hidden' === CssValueInspector::withoutImportant($rest['visibility'] ?? '');
+            }
+            if ($hidden) continue;
+            $values = $this->styles->collapsedViewportDeclarations($node, array('display', 'width', 'height', 'background-color', 'transform', 'top', 'bottom'));
+            $values = array_replace($values, $this->styles->collapsedViewportAuthorDeclarations($node, array('transform', 'display', 'background', 'background-color')));
+            if ('none' === CssValueInspector::withoutImportant($values['display'] ?? '')) continue;
+            if ($node->childElementCount > 0) {
+                if (preg_match('/^([\d.]+)px$/', $values['width'] ?? '', $w) && preg_match('/^([\d.]+)px$/', $values['height'] ?? '', $h)) {
+                    $boxWidth = (float) $w[1];
+                    $boxHeight = (float) $h[1];
+                }
+                continue;
+            }
+            if ('' !== trim($node->textContent ?? '')) continue;
+            $color = $this->styles->resolveCssVariablesAtViewport(CssValueInspector::withoutImportant($values['background-color'] ?? $values['background'] ?? ''), $node, StyleResolver::MOBILE_REFERENCE_WIDTH);
+            if (null === CssColor::parse($color) || CssValueInspector::isTransparentColor($color)) continue;
+            if (preg_match('/scale\(\s*0\s*\)/i', $values['transform'] ?? '')) continue;
+            $width = '100%' === ($values['width'] ?? '') ? $boxWidth : (float) ($values['width'] ?? 0);
+            $height = (float) ($values['height'] ?? 0);
+            if ($width < 8 || $height <= 0 || $height > $width / 4 || $boxHeight <= 0) return null;
+            $y = ($boxHeight - $height) / 2;
+            if (preg_match('/translatey\(\s*([-\d.]+)px\s*\)/i', $values['transform'] ?? '', $offset)) $y += (float) $offset[1];
+            elseif (isset($values['top']) && !isset($values['bottom'])) $y = (float) $values['top'];
+            elseif (isset($values['bottom']) && !isset($values['top'])) $y = $boxHeight - $height - (float) $values['bottom'];
+            $bars[] = '<rect x="0" y="' . $y . '" width="' . $width . '" height="' . $height . '" fill="' . htmlspecialchars($color, ENT_QUOTES) . '"/>';
+        }
+        if (count($bars) < 2 || count($bars) > 3 || $boxWidth <= 0) return null;
+        $artwork = '<svg xmlns="http://www.w3.org/2000/svg" width="' . $boxWidth . '" height="' . $boxHeight . '" viewBox="0 0 ' . $boxWidth . ' ' . $boxHeight . '" aria-hidden="true">' . implode('', $bars) . '</svg>';
+        $button = $this->styles->authoredControlPresentation($control, array('width', 'height', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'background', 'background-color', 'border', 'box-sizing'));
+        return array('artwork' => $artwork, 'button' => $button, 'icon' => array('' => array('width' => $boxWidth . 'px', 'height' => $boxHeight . 'px', 'fill' => 'none')));
     }
 
     /** @param array<string,array<string,string>> $rules */

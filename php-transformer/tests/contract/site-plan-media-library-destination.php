@@ -60,4 +60,39 @@ $assert(!in_array($shared['target_path'], array_column($both['writes'], 'target_
 foreach (array(array($texture['token'] => array('id' => 1, 'url' => 'https://x.test/a.png')), array($content['token'] => array('id' => 0, 'url' => 'https://x.test/a.png')), array($content['token'] => array('id' => 1, 'url' => 'javascript:alert(1)'))) as $invalid) {
     try { $resolver->resolve($plan, array('theme_uri' => $themeUri, 'attachment_resolutions' => $invalid)); $assert(false, 'Invalid attachment resolution accepted.'); } catch (InvalidArgumentException) {}
 }
+$ringChartHtml = <<<'HTML'
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Ring Chart</title>
+<link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@400;800&display=swap" rel="stylesheet">
+<style>body{font-family:"Red Hat Display",sans-serif;margin:0;padding:40px}</style></head>
+<body><main><h1>Progress this week</h1><p>A ring chart drawn as inline SVG with a label set in the page's web font.</p>
+<svg width="138" height="138" viewBox="0 0 138 138" aria-hidden="true"><circle cx="69" cy="69" r="56" fill="none" stroke="#15171c" stroke-width="14"/><text x="69" y="72" text-anchor="middle" font-family="Red Hat Display" font-weight="800" font-size="28" fill="#15171c">40%</text></svg>
+<svg width="40" height="40" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="16" fill="#fcc71e"/></svg>
+</main></body></html>
+HTML;
+$ringChartResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $ringChartHtml)))->toArray();
+$ringChartPlan = $ringChartResult['source_reports']['wordpress_site_plan'];
+$ringChartConsumers = $ringChartPlan['theme']['font_materialization']['webfont_contract']['svg_consumers'];
+$assert(1 === count($ringChartConsumers), 'ring chart records only the webfont text SVG as a font consumer');
+$ringChartWrites = array_column($ringChartPlan['writes'], null, 'target_path');
+$ringChartAttachments = array();
+$ringChartSvgCount = 0;
+foreach ($ringChartPlan['assets'] as $ringChartAsset) {
+    if ('media_library' === $ringChartAsset['destination']) $ringChartAttachments[$ringChartAsset['token']] = array('id' => count($ringChartAttachments) + 1, 'url' => 'https://example.test/uploads/' . basename($ringChartAsset['target_path']));
+    if ('image/svg+xml' !== ($ringChartAsset['mime_type'] ?? null)) continue;
+    ++$ringChartSvgCount;
+    $assert(in_array('block', array_column($ringChartAsset['consumers'], 'kind'), true), 'both ring chart SVGs have block consumers');
+    if ($ringChartConsumers[0]['source_path'] === $ringChartAsset['source_path']) {
+        $assert('theme' === $ringChartAsset['destination'] && isset($ringChartWrites[$ringChartAsset['target_path']]), 'block-referenced webfont SVG retains its theme destination and write');
+        $ringChartFontTarget = $ringChartAsset['target_path'];
+    } else {
+        $assert('media_library' === $ringChartAsset['destination'], 'block-referenced SVG without webfont text stays in the Media Library');
+    }
+}
+$assert(2 === $ringChartSvgCount && 1 === count($ringChartAttachments), 'ring chart routes only the non-font SVG to media resolution');
+$resolvedRingChartPlan = $resolver->resolve($ringChartPlan, array('theme_uri' => $themeUri, 'attachment_resolutions' => $ringChartAttachments));
+WordPressSitePlan::assertValid($resolvedRingChartPlan);
+$assert(isset(array_column($resolvedRingChartPlan['writes'], null, 'target_path')[$ringChartFontTarget]), 'media resolution preserves the webfont SVG theme write');
+$assert(str_contains($resolvedRingChartPlan['pages'][0]['resolved_block_markup'], $themeUri . '/' . $ringChartFontTarget), 'webfont SVG block reference resolves to the theme URL');
+$assert(str_contains($resolvedRingChartPlan['pages'][0]['resolved_block_markup'], reset($ringChartAttachments)['url']), 'non-font SVG block reference resolves to its attachment URL');
 echo "site-plan-media-library-destination contract passed\n";

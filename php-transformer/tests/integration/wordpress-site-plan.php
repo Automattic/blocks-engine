@@ -408,7 +408,9 @@ $currentNavClosureEnd = strpos($currentNavBootstrap, "\n}, 10, 2 );", $currentNa
 if (false === $currentNavClosureEnd) throw new RuntimeException('The navigation-link current-item filter closure has no discoverable closing statement.');
 eval('$currentNavFilter = ' . substr($currentNavBootstrap, $currentNavClosureStart, $currentNavClosureEnd + 2 - $currentNavClosureStart) . ';');
 add_filter('render_block_core/navigation-link', $currentNavFilter, 10, 2);
-$currentNavPageMarkup = $bindNavigation($currentNavPlan, (string) ($currentNavPlan['pages'][0]['canonical_block_markup'] ?? ''));
+// The leading navigation is the site header, so its shared part renders it.
+$currentNavHeader = array_values(array_filter($currentNavPlan['template_parts'] ?? array(), static fn(array $part): bool => 'header' === ($part['area'] ?? null)))[0] ?? array();
+$currentNavPageMarkup = $bindNavigation($currentNavPlan, (string) ($currentNavHeader['canonical_block_markup'] ?? ''));
 $setRequest($frontPage, true);
 $currentNavRendered = do_blocks($currentNavPageMarkup);
 remove_filter('render_block_core/navigation-link', $currentNavFilter, 10);

@@ -33,7 +33,7 @@ foreach (array('different', 'identical', 'conflict') as $case) {
     foreach ($plan['pages'] as $page) {
         $assert(!str_contains($page['canonical_block_markup'], 'header-section') && !str_contains($page['canonical_block_markup'], 'footer-section'), "$case: chrome leaves page bodies");
     }
-    $assert(('identical' === $case ? 1 : 2) === substr_count($header, '<header'), "$case: expected number of header variants");
+    $assert(2 === substr_count($header, '<header'), "$case: both device scopes retain their header variant");
     if ('different' === $case) {
         $index = new Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($header);
         $assert(2 === count($index->topLevel()), 'Both devices have separate visibility groups');

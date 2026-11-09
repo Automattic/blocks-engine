@@ -50,6 +50,17 @@ final class CaptureEvidence
     /** Class on the root of the desktop (default) copy of a responsive capture. */
     public const DESKTOP_DOCUMENT_CLASS = 'data-blocks-engine-capture-desktop-document';
 
+    /** Class on a root island holding the whole desktop frame of a route; its sibling island holds the phone frame. */
+    public const DESKTOP_ONLY_CLASS = 'data-blocks-engine-capture-desktop-only';
+    /** Class on a root island holding the whole phone frame of a route, beside its desktop-only island. */
+    public const MOBILE_ONLY_CLASS = 'data-blocks-engine-capture-mobile-only';
+
+    /** Whether a class marks one island of a root desktop-only/mobile-only island pair. */
+    public static function isDeviceIslandClass(string $class): bool
+    {
+        return self::DESKTOP_ONLY_CLASS === $class || self::MOBILE_ONLY_CLASS === $class;
+    }
+
     /** Device profile named by a capture document class (`data-blocks-engine-capture-<profile>-document`), or null. */
     public static function deviceDocumentProfile(string $class): ?string
     {
@@ -73,6 +84,10 @@ final class CaptureEvidence
     public const VIEWPORT_CLASS_PREFIX = 'data-blocks-engine-capture-width-class-';
     /** Class prefix pairing responsive counterparts; followed by 12 lowercase hex digits. */
     public const RESPONSIVE_COUNTERPART_CLASS_PREFIX = 'data-blocks-engine-capture-responsive-counterpart-';
+    /** Authored fragment shared by responsive target copies; ids remain variant-specific. */
+    public const RESPONSIVE_FRAGMENT = 'data-blocks-engine-capture-responsive-fragment';
+    /** Marks the capture's responsive-fragment resolver script; the theme ships its own runtime. */
+    public const RESPONSIVE_FRAGMENT_RESOLVER = 'data-blocks-engine-capture-responsive-fragments';
     /** Source identity of a responsive counterpart element. */
     public const RESPONSIVE_SOURCE = 'data-blocks-engine-capture-responsive-source';
     /** Id suffix prefix for a non-default variant's copy of a shared id: `<id>--blocks-engine-capture-<variant>`. */

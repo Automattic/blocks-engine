@@ -86,6 +86,11 @@ final class FormPresentationGraphBuilder
         'border-radius', 'background-color',
     );
     private const ROW_ITEM_PROPERTIES = array('flex-grow', 'flex-shrink', 'flex-basis', 'width', 'min-width', 'max-width');
+    /** Elements whose default display opens a block box; a member of this kind breaks the shared line. */
+    private const BLOCK_FLOW_TAGS = array(
+        'address', 'article', 'aside', 'blockquote', 'details', 'dialog', 'dd', 'div', 'dl', 'dt', 'fieldset', 'figcaption', 'figure',
+        'footer', 'form', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'header', 'hgroup', 'hr', 'li', 'main', 'nav', 'ol', 'p', 'pre', 'section', 'table', 'ul',
+    );
     private const CONTROL_CONTAINER_PROPERTIES = array(
         'background', 'background-color', 'border', 'border-color', 'border-style', 'border-width',
         'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color',
@@ -646,6 +651,15 @@ final class FormPresentationGraphBuilder
                     $row[$role] = array( 'styles' => $styles, 'provenance' => $provenance );
                 }
                 if ( $buttonCaption && null !== ($layer = $this->captionLayer($element, $analysis['rules'], $customPropertyAnalysis['rules'])) ) {
+                    foreach ( $layer['variants'] as $variant ) {
+                        if ( count($variants) >= self::MAX_VARIANTS ) {
+                            $this->truncated = true;
+                            $this->diagnostics[] = 'variant_limit';
+                            break;
+                        }
+                        $variants[] = array( 'index' => $index, 'role' => 'caption' ) + $variant;
+                    }
+                    unset($layer['variants']);
                     $row['caption'] = $layer;
                     $hasCaptionLayer = true;
                 }
@@ -787,6 +801,7 @@ final class FormPresentationGraphBuilder
             $containerIndexes[$container['index']] = array() !== $container['styles'];
         }
         $captionIndexes = array();
+        $captionLayers = array();
         foreach ( $v2 ? $graph['group_captions'] : array() as $caption ) {
             if ( ! is_array($caption) || array_diff(array_keys($caption), array( 'index', 'styles', 'provenance' )) || ! is_int($caption['index'] ?? null) || $caption['index'] < 0 || $caption['index'] >= self::MAX_CONTROLS || isset($captionIndexes[$caption['index']]) || ! is_array($caption['styles'] ?? null) || array() === $caption['styles'] || array_diff(array_keys($caption['styles']), array_map(self::key(...), self::GROUP_CAPTION_PROPERTIES)) || ! is_array($caption['provenance'] ?? null) ) throw new InvalidArgumentException('Form presentation group caption is invalid.');
             self::assertStyles($caption['styles']); self::assertProvenance($caption['provenance'], $caption['styles'], null);
@@ -802,6 +817,7 @@ final class FormPresentationGraphBuilder
                 if ( isset($row[$role]) ) self::assertRole($row[$role], null, 'required_marker' === $role);
             }
             if ( isset($row['caption']) ) {
+                $captionLayers[$row['index']] = true;
                 self::assertRole($row['caption'], null);
                 self::assertStyles($row['caption']['styles'], self::CAPTION_LAYER_PROPERTIES);
             }
@@ -820,7 +836,7 @@ final class FormPresentationGraphBuilder
         }
         $rowLayouts = array();
         foreach ($v3 ? $graph['control_rows'] : array() as $row) {
-            if (in_array($row['styles']['display'] ?? '', array('flex', 'inline-flex', 'grid', 'inline-grid'), true)) $rowLayouts[$row['index']] = true;
+            if ('stacked' === ($row['flow'] ?? null) || in_array($row['styles']['display'] ?? '', array('flex', 'inline-flex', 'grid', 'inline-grid'), true)) $rowLayouts[$row['index']] = true;
         }
         $containerVariants = array();
         foreach ( $graph['variants'] as $variant ) {
@@ -831,10 +847,11 @@ final class FormPresentationGraphBuilder
             }
             $isVisualPart = 'visual_part' === ($variant['role'] ?? null); $isVisualGroup = 'visual_group' === ($variant['role'] ?? null);
             $keys = $isVisualPart ? array( 'index', 'role', 'part_id', 'condition', 'style_patch', 'precedence', 'provenance' ) : ($isVisualGroup ? array( 'role', 'group_id', 'condition', 'style_patch', 'precedence', 'provenance' ) : array( 'index', 'role', 'condition', 'style_patch', 'precedence', 'provenance' ));
-            if ( ! is_array($variant) || array_diff(array_keys($variant), $keys) || (! $isVisualGroup && (! is_int($variant['index'] ?? null) || $variant['index'] < 0 || $variant['index'] >= self::MAX_CONTROLS)) || ! in_array($variant['role'] ?? null, $v2 ? array( 'control', 'label', 'required_marker', 'control_container', 'visual_part', 'visual_group' ) : array( 'control', 'label' ), true) || ($isVisualPart ? (! is_string($variant['part_id'] ?? null) || ! isset($partIds[$variant['part_id']]) || $variant['index'] !== $partIds[$variant['part_id']]) : ($isVisualGroup ? (! is_string($variant['group_id'] ?? null) || ! isset($groupIds[$variant['group_id']])) : (isset($variant['part_id']) || isset($variant['group_id'])))) || ! is_array($variant['condition'] ?? null) || ! self::validCondition($variant['condition']) || ! is_array($variant['style_patch'] ?? null) || array() === $variant['style_patch'] || ! is_array($variant['precedence'] ?? null) || ! is_array($variant['provenance'] ?? null) ) {
+            if ( ! is_array($variant) || array_diff(array_keys($variant), $keys) || (! $isVisualGroup && (! is_int($variant['index'] ?? null) || $variant['index'] < 0 || $variant['index'] >= self::MAX_CONTROLS)) || ! in_array($variant['role'] ?? null, $v2 ? array( 'control', 'label', 'required_marker', 'caption', 'control_container', 'visual_part', 'visual_group' ) : array( 'control', 'label' ), true) || ($isVisualPart ? (! is_string($variant['part_id'] ?? null) || ! isset($partIds[$variant['part_id']]) || $variant['index'] !== $partIds[$variant['part_id']]) : ($isVisualGroup ? (! is_string($variant['group_id'] ?? null) || ! isset($groupIds[$variant['group_id']])) : (isset($variant['part_id']) || isset($variant['group_id'])))) || ! is_array($variant['condition'] ?? null) || ! self::validCondition($variant['condition']) || ! is_array($variant['style_patch'] ?? null) || array() === $variant['style_patch'] || ! is_array($variant['precedence'] ?? null) || ! is_array($variant['provenance'] ?? null) ) {
                 throw new InvalidArgumentException('Form presentation variant is invalid.');
             }
-            self::assertStyles($variant['style_patch']);
+            self::assertStyles($variant['style_patch'], 'caption' === $variant['role'] ? self::CAPTION_LAYER_PROPERTIES : self::PROPERTIES);
+            if ( 'caption' === $variant['role'] && ! isset($captionLayers[$variant['index']]) ) throw new InvalidArgumentException('Form presentation caption variant has no caption layer.');
             if ( 'control_container' === $variant['role'] ) $containerVariants[$variant['index']] = true;
             foreach ( $variant['precedence'] as $property => $precedence ) {
                 if ( ! in_array($property, self::PROPERTIES, true) || ! isset($variant['style_patch'][self::key($property)]) || ! is_array($precedence) || ! is_int($precedence['source_order'] ?? null) || ! is_int($precedence['specificity'] ?? null) || ! is_bool($precedence['important'] ?? null) ) throw new InvalidArgumentException('Form presentation precedence is invalid.');
@@ -870,11 +887,13 @@ final class FormPresentationGraphBuilder
     /**
      * The paint a button's sole caption carrier draws behind the caption, when
      * it paints one. The control keeps its own paint; this layer sits inside the
-     * control's padding box, as the carrier does in the source.
+     * control's padding box, as the carrier does in the source. Conditions that
+     * repaint the carrier, such as a breakpoint clearing its background, are
+     * caption variants of the same layer.
      *
      * @param list<array<string, mixed>> $rules
      * @param list<array<string, mixed>> $customPropertyRules
-     * @return array{styles: array<string, string>, provenance: list<array<string, mixed>>}|null
+     * @return array{styles: array<string, string>, provenance: list<array<string, mixed>>, variants: list<array<string, mixed>>}|null
      */
     private function captionLayer(DOMElement $control, array $rules, array $customPropertyRules): ?array
     {
@@ -882,12 +901,25 @@ final class FormPresentationGraphBuilder
         if ( null === $carrier || $carrier->isSameNode($control) ) {
             return null;
         }
-        $facts = array_intersect_key($this->matched($carrier, $rules)['base'], array_flip(self::CAPTION_LAYER_PROPERTIES));
+        $matched = $this->matched($carrier, $rules);
+        $facts = array_intersect_key($matched['base'], array_flip(self::CAPTION_LAYER_PROPERTIES));
         if ( array() === array_intersect_key($facts, array_flip(array( 'background', 'background-color', 'background-image' ))) ) {
             return null;
         }
         $styles = $this->styles($facts, $carrier, null, $customPropertyRules, true);
-        return array() === $styles ? null : array( 'styles' => $styles, 'provenance' => $this->provenance($facts, null) );
+        if ( array() === $styles ) {
+            return null;
+        }
+        $variants = array();
+        foreach ( $this->effectiveConditional($matched['conditional'], $matched['base']) as $encoded => $conditionalFacts ) {
+            $condition = json_decode($encoded, true);
+            $conditionalFacts = array_intersect_key($conditionalFacts, array_flip(self::CAPTION_LAYER_PROPERTIES));
+            $patch = $this->styles($conditionalFacts, $carrier, $condition, $customPropertyRules, true);
+            if ( array() !== $patch ) {
+                $variants[] = array( 'condition' => $condition, 'style_patch' => $patch, 'precedence' => $this->precedence($conditionalFacts), 'provenance' => $this->provenance($conditionalFacts, $condition) );
+            }
+        }
+        return array( 'styles' => $styles, 'provenance' => $this->provenance($facts, null), 'variants' => $variants );
     }
 
     private function carrierTypography(array $roles, DOMElement $label, array $rules, array $customPropertyRules, array $labelConditional = array(), bool $captionBox = false): array
@@ -1056,12 +1088,17 @@ final class FormPresentationGraphBuilder
             }
         }
         $rows = array();
+        $nearest = array();
         foreach ($candidates as $candidate) {
             $members = $candidate['members'];
             if (count($members) < 2) continue;
             // A shared ancestor is nearest only when controls occupy distinct children.
             $paths = array_map(static fn (DOMElement $item): string => $item->getNodePath(), $members);
             if (count(array_unique($paths)) < 2) continue;
+            // Candidates arrive innermost first; only the nearest ancestor of a control set can stack it.
+            $set = implode(',', array_keys($members));
+            $isNearest = !isset($nearest[$set]);
+            $nearest[$set] = true;
             $element = $candidate['element'];
             foreach (array_merge(array($element), array_values($members)) as $source) {
                 if (strlen(SourceDom::elementSelector($source)) > 2048) { $this->truncated = true; $this->diagnostics[] = 'control_row_selector_limit'; continue 2; }
@@ -1073,10 +1110,13 @@ final class FormPresentationGraphBuilder
                 $patch = $this->styles(array_intersect_key($facts, array('display' => true)), $element, json_decode($encoded, true), $customRules);
                 $layout = $layout || in_array($patch['display'] ?? '', array('flex', 'inline-flex', 'grid', 'inline-grid'), true);
             }
-            if (!$layout) continue;
+            // A <form>'s own flow is the default field stacking every consumer renders; wrappers make it a fact.
+            $stacked = !$layout && $isNearest && 'form' !== strtolower($element->tagName) && $this->stacksInBlockFlow($element, $members, $rules, $customRules);
+            if (!$layout && !$stacked) continue;
             if (count($rows) >= self::MAX_CONTROLS) { $this->truncated = true; $this->diagnostics[] = 'control_row_limit'; break; }
             $rowIndex = count($rows);
             $row = array('index' => $rowIndex) + $this->rowRole($element, self::ROW_PROPERTIES, 'control_row', $rowIndex, null, $rules, $customRules, $variants);
+            if ($stacked) $row['flow'] = 'stacked';
             $row['members'] = array();
             foreach ($members as $index => $item) {
                 $row['members'][] = array('index' => $index) + $this->rowRole($item, self::ROW_ITEM_PROPERTIES, 'control_row_item', $rowIndex, $index, $rules, $customRules, $variants);
@@ -1084,6 +1124,23 @@ final class FormPresentationGraphBuilder
             $rows[] = $row;
         }
         return $rows;
+    }
+
+    /**
+     * A block container lays its children out line by line: one block-level
+     * member breaks the shared line, so the controls are stacked.
+     *
+     * @param array<int, DOMElement> $members
+     */
+    private function stacksInBlockFlow(DOMElement $element, array $members, array $rules, array $customRules): bool
+    {
+        $own = $this->styles(array_intersect_key($this->matched($element, $rules, true)['base'], array('display' => true)), $element, null, $customRules)['display'] ?? null;
+        if (null !== $own && !in_array($own, array('block', 'flow-root', 'list-item'), true)) return false;
+        foreach ($members as $item) {
+            $display = $this->styles(array_intersect_key($this->matched($item, $rules, true)['base'], array('display' => true)), $item, null, $customRules)['display'] ?? null;
+            if (null === $display ? in_array(strtolower($item->tagName), self::BLOCK_FLOW_TAGS, true) : in_array($display, array('block', 'flex', 'grid', 'flow-root', 'list-item', 'table'), true)) return true;
+        }
+        return false;
     }
 
     private function rowRole(DOMElement $element, array $properties, string $role, int $rowIndex, ?int $memberIndex, array $rules, array $customRules, array &$variants): array
@@ -1125,7 +1182,9 @@ final class FormPresentationGraphBuilder
         if (!is_array($rows) || !array_is_list($rows) || !$rows || count($rows) > self::MAX_CONTROLS) throw new InvalidArgumentException('Form control rows are invalid.');
         $owners = array();
         foreach ($rows as $row) {
-            self::assertRowFact($row, array('index', 'source_selector', 'styles', 'provenance', 'members'), self::ROW_PROPERTIES);
+            $stacked = is_array($row) && array_key_exists('flow', $row);
+            if ($stacked && 'stacked' !== $row['flow']) throw new InvalidArgumentException('Form control row flow is invalid.');
+            self::assertRowFact($row, array_merge(array('index', 'source_selector', 'styles', 'provenance', 'members'), $stacked ? array('flow') : array()), self::ROW_PROPERTIES);
             if (isset($owners[$row['index']]) || !is_array($row['members']) || !array_is_list($row['members']) || count($row['members']) < 2 || count($row['members']) > self::MAX_CONTROLS) throw new InvalidArgumentException('Form control row members are invalid.');
             $owners[$row['index']] = array();
             foreach ($row['members'] as $member) {

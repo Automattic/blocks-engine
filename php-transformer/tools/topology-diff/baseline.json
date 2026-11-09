@@ -912,8 +912,10 @@
             "added div [blocks-engine-control]": 6,
             "added img": 1,
             "added p [blocks-engine-inline-layout-carrier]": 3,
-            "removed label": 1,
-            "removed svg": 1
+            "removed input": 1,
+            "removed svg": 1,
+            "retagged label>div [wp-block-group]": 1,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 1
         },
         "62-platformer-game": {
             "added div [blocks-engine-control]": 8,
@@ -1192,14 +1194,17 @@
         },
         "82-boutique-hotel": {
             "added div [blocks-engine-control]": 2,
+            "added div [wp-block-group]": 2,
             "added figure [blocks-engine-synthetic-image-figure]": 4,
             "added figure [blocks-engine-table]": 1,
             "added img": 4,
             "added p [blocks-engine-synthetic-paragraph]": 10,
             "added tbody": 1,
-            "removed label": 3,
+            "removed input": 2,
+            "removed label": 1,
             "removed nav": 1,
-            "removed svg": 4
+            "removed svg": 4,
+            "retagged label>p [blocks-engine-synthetic-paragraph]": 2
         },
         "83-startup-docs-hub": {
             "added figure [blocks-engine-table]": 1,

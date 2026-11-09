@@ -19,7 +19,7 @@
       "files": [
         {
           "path": "public/index.html",
-          "content": "<main><h1>Contract Site</h1><p>Entry page.</p><img src=\"assets/hero.png\" srcset=\"assets/hero.png 1x, assets/hero@2x.png 2x\" alt=\"Hero\"></main>",
+          "content": "<link rel=\"stylesheet\" href=\"assets/app.css\"><link rel=\"stylesheet\" href=\"assets/visual-repair.css\"><main><h1>Contract Site</h1><p>Entry page.</p><img src=\"assets/hero.png\" srcset=\"assets/hero.png 1x, assets/hero@2x.png 2x\" alt=\"Hero\"></main>",
           "mime_type": "text/html",
           "role": "entry"
         },
@@ -93,7 +93,7 @@
     { "path": "source_reports.artifact.files_by_kind.markdown", "assert": "equals", "value": 1 },
     { "path": "source_reports.artifact.files_by_mime.image/png", "assert": "equals", "value": 3 },
     { "path": "source_reports.artifact.internal_links", "assert": "count", "count": 0 },
-    { "path": "source_reports.artifact.asset_references", "assert": "count", "count": 5 },
+    { "path": "source_reports.artifact.asset_references", "assert": "count", "count": 7 },
     { "path": "source_reports.compiled_site.pages", "assert": "count", "count": 4 },
     { "path": "source_reports.compiled_site.pages.1.block_markup", "assert": "contains", "value": "<!-- wp:paragraph -->" },
     { "path": "source_reports.compiled_site.pages.3.title", "assert": "equals", "value": "Release Notes" },
@@ -124,7 +124,7 @@
     { "path": "source_reports.conversion_report.source_summary.route_count", "assert": "equals", "value": 4 },
     { "path": "source_reports.conversion_report.source_summary.navigation_link_count", "assert": "equals", "value": 3 },
     { "path": "source_reports.conversion_report.source_summary.menu_count", "assert": "equals", "value": 1 },
-    { "path": "source_reports.conversion_report.asset_refs", "assert": "count", "count": 5 },
+    { "path": "source_reports.conversion_report.asset_refs", "assert": "count", "count": 7 },
     { "path": "source_reports.conversion_report.presentation_gaps.0.path", "assert": "equals", "value": "public/assets/visual-repair.css" },
     { "path": "documents.0.source_path", "assert": "equals", "value": "content/notes.md" },
     { "path": "diagnostics.0.code", "assert": "equals", "value": "artifact_inputs_rejected" },

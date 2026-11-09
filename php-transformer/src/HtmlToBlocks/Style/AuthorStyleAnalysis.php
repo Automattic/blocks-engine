@@ -70,7 +70,7 @@ final class AuthorStyleAnalysis
     /** @var \SplObjectStorage<DOMElement, string>|null */
     private ?\SplObjectStorage $selectorSubtreeHashes = null;
 
-    /** @param list<array{path: string, source_path: string, content: string, source_hash: string, media: string}> $stylesheetAssets */
+    /** @param list<array{path: string, source_path: string, content: string, source_hash: string, media: string, cascade_content?: string}> $stylesheetAssets */
     public function __construct(string $html, string $combinedCss, array $stylesheetAssets, DOMElement $sourceBody)
     {
         $this->combinedCss = $combinedCss;
@@ -123,7 +123,7 @@ final class AuthorStyleAnalysis
 
     public function combinedCss(): string { return $this->combinedCss; }
     public function sourceBody(): DOMElement { return $this->sourceBody; }
-    /** @return list<array{path: string, source_path: string, content: string, source_hash: string, media: string}> */
+    /** @return list<array{path: string, source_path: string, content: string, source_hash: string, media: string, cascade_content?: string}> */
     public function stylesheetAssets(): array { return $this->stylesheetAssets; }
     /** @return list<DOMElement> */
     public function sourceElementsByClass(string $class): array { return $this->sourceElementsByClass[$class] ?? array(); }

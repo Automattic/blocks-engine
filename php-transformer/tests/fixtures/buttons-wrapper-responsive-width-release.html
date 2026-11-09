@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Callout row</title>
+<style>
+*,::before,::after{box-sizing:border-box}
+body{margin:0;font-family:sans-serif;background:#0f172a;color:#fff}
+.box{margin:40px auto;max-width:1100px;padding:32px;border:1px solid #6366f1;border-radius:24px}
+.row{display:flex;flex-direction:column;align-items:flex-start;justify-content:space-between;gap:24px}
+@media (min-width:768px){.row{flex-direction:row;align-items:center}}
+.lead{display:flex;align-items:flex-start;gap:16px}
+.icon{width:48px;height:48px;border-radius:16px;background:#f59e0b33;flex-shrink:0}
+.lead p{max-width:42rem;margin:4px 0 0;font-size:14px;line-height:1.6;color:#cbd5e1}
+.lead h3{margin:2px 0 0;font-size:20px}
+.cta{width:100%;display:inline-flex;align-items:center;gap:8px;padding:12px 20px;border-radius:12px;background:#fbbf24;color:#0f172a;font-weight:700;text-decoration:none;white-space:nowrap;flex-shrink:0}
+@media (min-width:768px){.cta{width:auto}}
+</style></head><body>
+<div class="box"><div class="row">
+<div class="lead"><div class="icon"></div><div><h3>Need a hand?</h3><p>Share your notes and we will take it from there.</p></div></div>
+<a class="cta" href="https://example.com/">Get started</a>
+</div></div>
+</body></html>

@@ -55,6 +55,20 @@ $assert('Map' === ($block['attrs']['title'] ?? null) && true === ($block['attrs'
 $assert(! str_contains($markup, '<!-- wp:html') && str_contains($markup, '<iframe class="map" src="https://example.test/map" title="Map" width="1280" height="350"'), 'companion save markup is static and contains no core HTML fallback');
 $assert(array() === ($result['fallbacks'] ?? array()) && 'pass' === ($result['source_reports']['wp_block_validity']['status'] ?? null), 'bounded companion iframe adds no fallback and has a valid Gutenberg save shape');
 
+// #5011: a captured pre-load state must retain both the native iframe and its hiding CSS.
+$hiddenSource = <<<'HTML'
+<!doctype html><html><head><meta charset="utf-8"><title>Hidden iframe</title>
+<style>.embed-hidden{display:none!important;opacity:0!important}</style></head>
+<body><main><h1>Donation form</h1><div class="embed-form"><iframe class="embed-hidden" src="https://example.org/embed/form" width="352" height="150"></iframe></div><p>After the form.</p></main></body></html>
+HTML;
+$hidden = (new HtmlTransformer())->transform($hiddenSource)->toArray();
+$hiddenMarkup = (string) ($hidden['serialized_blocks'] ?? '');
+$hiddenCss = implode("\n", array_column($hidden['assets'] ?? array(), 'content'));
+$assert(array() === ($hidden['fallbacks'] ?? array()) && ! str_contains($hiddenMarkup, '<!-- wp:html'), 'hidden sourced iframe imports without any fallback');
+$assert(str_contains($hiddenMarkup, 'wp:custom/visual-iframe') && str_contains($hiddenMarkup, 'src="https://example.org/embed/form"') && str_contains($hiddenMarkup, 'width="352" height="150"'), 'hidden sourced iframe retains its native visual-iframe representation and dimensions');
+$assert(1 === preg_match('/<iframe\\b[^>]*class="[^"]*\\bembed-hidden\\b/', $hiddenMarkup) && str_contains($hiddenCss, '.embed-hidden') && str_contains($hiddenCss, 'display:none!important') && str_contains($hiddenCss, 'opacity:0!important'), 'source class and hiding CSS survive on the saved frontend iframe');
+$assert(str_contains($hiddenMarkup, 'Donation form') && str_contains($hiddenMarkup, 'After the form.') && 'pass' === ($hidden['source_reports']['wp_block_validity']['status'] ?? null), 'hidden iframe preserves surrounding content and a valid Gutenberg save shape');
+
 $repeated = (new HtmlTransformer())->transform($source . $source)->toArray();
 $assert(1 === count($repeated['source_reports']['generated_blocks'] ?? array()), 'multiple visual iframe instances share one generated companion definition');
 

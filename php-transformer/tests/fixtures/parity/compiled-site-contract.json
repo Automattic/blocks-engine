@@ -18,7 +18,7 @@
       "files": [
         {
           "path": "public/index.html",
-          "content": "<main><h1>Compiled Site</h1><p>Generic upstream contract.</p><img src=\"assets/hero.svg\" alt=\"Hero\"></main>"
+          "content": "<link rel=\"stylesheet\" href=\"assets/site.css\"><link rel=\"stylesheet\" href=\"assets/visual-repair.css\"><main><h1>Compiled Site</h1><p>Generic upstream contract.</p><img src=\"assets/hero.svg\" alt=\"Hero\"></main>"
         },
         {
           "path": "public/about.html",
@@ -76,7 +76,7 @@
     { "path": "source_reports.compiled_site.assets", "assert": "count", "count": 6 },
     { "path": "source_reports.compiled_site.assets.0.content", "assert": "contains", "value": "blocks-engine-synthetic-image-figure" },
     { "path": "source_reports.compiled_site.assets.1.target_path", "assert": "equals", "value": "public/assets/site.css" },
-    { "path": "source_reports.compiled_site.assets.1.content", "assert": "equals", "value": "main{max-width:60rem;margin:auto}" },
+    { "path": "source_reports.compiled_site.assets.1.content", "assert": "equals", "value": "main{max-width:60rem}main:not(.be-c-0){margin:auto}" },
     { "path": "source_reports.compiled_site.assets.3.content", "assert": "contains", "value": "compiledSite" },
     { "path": "source_reports.compiled_site.theme.stylesheets.1", "assert": "equals", "value": "public/assets/site.css" },
     { "path": "source_reports.compiled_site.theme.scripts.0", "assert": "equals", "value": "public/assets/site.js" },
@@ -108,7 +108,7 @@
     { "path": "source_reports.materialization_plan.assets.1.target_path", "assert": "equals", "value": "public/assets/site.css" },
     { "path": "source_reports.materialization_plan.assets.1.content_encoding", "assert": "equals", "value": "text" },
     { "path": "source_reports.materialization_plan.assets.1.media_type", "assert": "equals", "value": "text/css" },
-    { "path": "source_reports.materialization_plan.assets.1.content", "assert": "equals", "value": "main{max-width:60rem;margin:auto}" },
+    { "path": "source_reports.materialization_plan.assets.1.content", "assert": "equals", "value": "main{max-width:60rem}main:not(.be-c-0){margin:auto}" },
     { "path": "source_reports.materialization_plan.assets.3.path", "assert": "equals", "value": "public/assets/site.js" },
     { "path": "source_reports.materialization_plan.assets.3.content", "assert": "contains", "value": "compiledSite" },
     { "path": "source_reports.materialization_plan.assets.4.path", "assert": "equals", "value": "public/assets/hero.svg" },

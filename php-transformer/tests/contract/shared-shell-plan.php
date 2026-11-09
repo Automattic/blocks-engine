@@ -711,7 +711,11 @@ $assert(!array_filter($unlabeledDivergentPlan['template_parts'], static fn(array
 $unlabeledSoloPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
     'index.html' => $unlabeledChrome('Home', false),
 )))->toArray()['source_reports']['wordpress_site_plan'];
-$assert(!array_filter($unlabeledSoloPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)) && str_contains($pages($unlabeledSoloPlan)['index.html']['canonical_block_markup'] ?? '', 'wp:navigation'), 'A single-page unlabeled masthead stays page-owned so the in-content current-navigation marker still renders.');
+// One page is enough structural evidence: the leading navigation block is the
+// masthead. The theme recovers the current item at render time, so the shared
+// part serves the page the way the in-content marker did.
+$unlabeledSoloWrites = $writes($unlabeledSoloPlan);
+$assert(1 === count(array_filter($unlabeledSoloPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null))) && !str_contains($pages($unlabeledSoloPlan)['index.html']['canonical_block_markup'] ?? '', 'wp:navigation') && str_contains($pages($unlabeledSoloPlan)['index.html']['canonical_block_markup'] ?? '', '>Home</h1>') && str_contains($unlabeledSoloWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"header"') && str_contains($unlabeledSoloWrites['functions.php']['payload']['data'] ?? '', "render_block_core/navigation-link"), 'A single-page unlabeled masthead becomes the header part, and the theme restores its current item at render time.');
 
 $unlabeledClusterChrome = static function (string $title, string $current, bool $deep): string {
     $link = static function (string $name, string $label, string $current): string {
