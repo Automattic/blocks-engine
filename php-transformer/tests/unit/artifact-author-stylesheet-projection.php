@@ -553,6 +553,35 @@ $assert(str_contains((string) ($positionedImage['serialized_blocks'] ?? ''), 'ma
 $assert(str_contains($positionedImageCss, 'object-fit:fill !important;object-position:-197.702px -102.702px !important'), 'image presentation carrier preserves source object fit and position for the nested image bridge');
 $assert(str_contains($positionedImageCss, '.map.wp-block-image > img,.map.wp-block-image > a > img{display:block;width:100%;height:100%;max-width:100%;object-fit:inherit;object-position:inherit;border-radius:inherit}'), 'nested image fills a wrapper with explicitly owned width and height, linked or not');
 
+// Corner radius follows whichever box the source rule paints after projection:
+// the figure when the image's class moved onto it, the image itself when the
+// rule's subject is a bare `img`.
+foreach (array(
+    'class moved to figure' => array('<img class="photo" src="p.jpg" alt="a">', '.photo{width:120px;height:120px;border-radius:50%}'),
+    'descendant img subject' => array('<div class="avatar"><img src="p.jpg" alt="a"></div>', '.avatar img{width:120px;height:120px;border-radius:50%}'),
+    'later radius-less breakpoint rule' => array('<div class="avatar"><img src="p.jpg" alt="a"></div>', '.avatar img{width:120px;height:120px;border-radius:50%}@media (min-width:1px){.avatar img{width:100px;height:100px}}'),
+    'mixed selector list' => array('<img class="photo" src="p.jpg" alt="a"><div class="avatar"><img src="p.jpg" alt="b"></div>', '.photo,.avatar img{width:120px;height:120px;border-radius:50%}'),
+) as $case => [$radiusHtml, $radiusCss]) {
+    $radius = ( new ArtifactCompiler() )->compile(array(
+        'files' => array(
+            array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="r.css">' . $radiusHtml ),
+            array( 'path' => 'r.css', 'kind' => 'css', 'content_base64' => base64_encode($radiusCss) ),
+            array( 'path' => 'p.jpg', 'kind' => 'image', 'content' => 'image-bytes' ),
+        ),
+    ) )->toArray();
+    $radiusDocument = new DOMDocument();
+    @$radiusDocument->loadHTML('<body>' . preg_replace('/<!--.*?-->/s', '', (string) ($radius['serialized_blocks'] ?? '')) . '</body>');
+    $radiusCascade = new StaticCssCascade($radiusDocument, implode("\n", array_column($radius['assets'] ?? array(), 'content')));
+    $radii = array();
+    foreach ( $radiusDocument->getElementsByTagName('img') as $radiusImage ) {
+        $value = $radiusCascade->resolve($radiusImage, array( 'border-radius' ), array())['border-radius'] ?? '';
+        $radii[] = 'inherit' === $value && $radiusImage->parentNode instanceof DOMElement
+            ? ($radiusCascade->resolve($radiusImage->parentNode, array( 'border-radius' ), array())['border-radius'] ?? '')
+            : $value;
+    }
+    $assert(array() !== $radii && array( '50%' ) === array_values(array_unique($radii)), 'projected image keeps its source corner radius: ' . $case . ' (got ' . implode(', ', $radii) . ')');
+}
+
 $multiPage = ( new ArtifactCompiler() )->compile(array(
     'entrypoint' => 'index.html',
     'files' => array(
