@@ -753,6 +753,32 @@ final class SourceDom
         return $attributes;
     }
 
+    /** Obsolete phrasing elements and the current element each renders exactly as. */
+    private const OBSOLETE_PHRASING = array( 'acronym' => 'abbr', 'strike' => 's', 'tt' => 'code' );
+
+    /**
+     * Renames obsolete phrasing elements (`<strike>`, `<tt>`, `<acronym>`) to
+     * the current element with the same default rendering, keeping attributes
+     * and children, so they convert as the inline formatting they are.
+     */
+    public static function renameObsoletePhrasing(DOMElement $root): void
+    {
+        $document = $root->ownerDocument;
+        if ( ! $document instanceof \DOMDocument ) return;
+        $query = implode(' | ', array_map(static fn(string $tag): string => './/' . $tag, array_keys(self::OBSOLETE_PHRASING)));
+        $elements = (new \DOMXPath($document))->query($query, $root);
+        if ( false === $elements ) return;
+        foreach ( iterator_to_array($elements) as $element ) {
+            if ( ! $element instanceof DOMElement || null === $element->parentNode ) continue;
+            $renamed = $document->createElement(self::OBSOLETE_PHRASING[ strtolower($element->tagName) ]);
+            foreach ( iterator_to_array($element->attributes) as $attribute ) {
+                $renamed->setAttribute($attribute->nodeName, $attribute->nodeValue ?? '');
+            }
+            while ( null !== $element->firstChild ) $renamed->appendChild($element->firstChild);
+            $element->parentNode->replaceChild($renamed, $element);
+        }
+    }
+
     /**
      * Removes invalid XML attribute names (including int array keys) and
      * invalid xml:space values from the parsed subtree.
