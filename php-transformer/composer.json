@@ -95,6 +95,7 @@
       "@test:parity",
       "@test:packaging"
     ],
+    "test:canonical": "@test:scripts",
     "test:scripts": [
       "Composer\\Config::disableProcessTimeout",
       "php tests/run.php"

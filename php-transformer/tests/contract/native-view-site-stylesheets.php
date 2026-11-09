@@ -98,7 +98,7 @@ preg_match_all("/^    if \( ! \\\$blocks_engine_route_styles \) wp_enqueue_style
 $nativeOrder = array_map(static fn (array $line): string => $line[2], $guarded);
 
 $frontCondition = (string) (array_values(array_filter(array_keys($routes), static fn (string $condition): bool => str_contains($condition, 'is_front_page()')))[0] ?? '');
-$aboutCondition = (string) (array_values(array_filter(array_keys($routes), static fn (string $condition): bool => str_contains($condition, "'about' === trim( get_page_uri")))[0] ?? '');
+$aboutCondition = (string) (array_values(array_filter(array_keys($routes), static fn (string $condition): bool => str_contains($condition, "'about' === \$blocks_engine_page_uri")))[0] ?? '');
 $assert('' !== $frontCondition && '' !== $aboutCondition && 2 === count($routes), 'Each canonical document keeps its own route block.');
 foreach (array($frontCondition, $aboutCondition) as $condition) {
     $files = $routes[$condition];

@@ -570,6 +570,8 @@ PHP;
         $liveElementMarkers = preg_match_all(self::ELEMENT_MARKER_PATTERN, (string) json_encode(array($emitted($pages), $emitted($parts), $frameParts, $shellFrames['frames'] ?? array(), $shells['runtime_declarations'] ?? array(), $runtimeEntityRecords)), $liveMatches) ? array_fill_keys($liveMatches[0], true) : array();
         $assets = self::projectSharedChromeStylesheets($assets, array_merge($parts, $frameParts), $pages, $references, $assetTargetCollisions, $liveElementMarkers);
         $assets = self::withoutDeadElementMarkerSelectors($assets, $liveElementMarkers);
+        // Removing dead selectors can consume a support sheet's last rule.
+        $assets = array_values(array_filter($assets, static fn(array $asset): bool => !in_array($asset['source'] ?? '', array('engine-support', 'editor-static-state'), true) || !is_string($asset['content'] ?? null) || '' !== trim($asset['content'])));
         foreach ($assetTargetCollisions as $collision) $this->recordUnitFinding(array(
             'code' => 'wordpress_site_plan_colliding_asset_target',
             'unit' => 'asset',
@@ -1621,7 +1623,70 @@ PHP;
             $asset['scopes'] = array(self::stylesheetDocumentScope($page));
         }
         unset($asset);
-        return $assets;
+        return self::allocateDocumentSupport($assets, array_keys(array_filter($documentsBySource, static fn(array $page): bool => empty($page['synthetic']))));
+    }
+
+    /**
+     * Partition generated rules by their exact consumers and delivery side.
+     * Opaque statements and URL-bearing sheets retain their original resource.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @param list<string> $canonicalSources
+     * @return array<int,array<string,mixed>>
+     */
+    private static function allocateDocumentSupport(array $assets, array $canonicalSources): array
+    {
+        $rules = $eligible = array();
+        foreach ($assets as $index => $asset) {
+            if ('engine-support' !== ($asset['source'] ?? '') || 'css' !== ($asset['kind'] ?? '') || in_array('global', array_column($asset['scopes'], 'kind'), true)) continue;
+            $content = (string) ($asset['content'] ?? '');
+            if (false !== stripos($content, 'url(')) continue;
+            $tree = new \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTree($content);
+            if (!$tree->wellFormed) continue;
+            $parts = array();
+            foreach ($tree->rules() as $rule) {
+                $text = trim(substr($content, $rule['start'], $rule['end'] - $rule['start'] + 1));
+                if (';' === $content[$rule['boundary']]) { $parts = array(); break; }
+                $parts[] = $text;
+            }
+            if (array() === $parts) continue;
+            $eligible[$index] = true;
+            $delivery = serialize(array($asset['stylesheet_placement'] ?? '', $asset['stylesheet_target'] ?? 'both', $asset['media'] ?? ''));
+            foreach ($parts as $text) {
+                $key = $delivery . "\0" . $text;
+                if (!isset($rules[$key])) $rules[$key] = array('text' => $text, 'asset' => $asset, 'index' => $index, 'scopes' => array());
+                foreach ($asset['scopes'] as $scope) $rules[$key]['scopes'][$scope['source_path']] = $scope;
+            }
+        }
+        $groups = array();
+        foreach ($rules as $rule) {
+            ksort($rule['scopes']);
+            $asset = $rule['asset'];
+            $key = serialize(array($asset['stylesheet_placement'] ?? '', $asset['stylesheet_target'] ?? 'both', $asset['media'] ?? '', $rule['scopes']));
+            if (!isset($groups[$key])) $groups[$key] = array('asset' => $asset, 'index' => $rule['index'], 'scopes' => array_values($rule['scopes']), 'rules' => array());
+            $groups[$key]['rules'][] = $rule['text'];
+        }
+        // Each allocated sheet takes the slot of the first sheet it draws
+        // rules from, so the inventory keeps its cascade order.
+        $allocated = array();
+        foreach ($groups as $key => $group) {
+            $asset = self::withRewrittenTextContent($group['asset'], implode("\n", $group['rules']));
+            $path = 'assets/css/engine-support-' . ($asset['stylesheet_placement'] ?? 'after-author') . '-' . substr(hash('sha256', $key . $asset['content']), 0, 16) . '.css';
+            $asset['source_path'] = $path;
+            $asset['target_path'] = 'assets/' . $path;
+            $asset['token'] = 'asset-' . substr(hash('sha256', $asset['target_path']), 0, 16);
+            $asset['reconciliation_identity'] = self::identity('asset', $path, $asset['target_path']);
+            $sources = array_column($group['scopes'], 'source_path');
+            $asset['scopes'] = count($sources) === count($canonicalSources) && array() === array_diff($canonicalSources, $sources)
+                ? array(array('kind' => 'global')) : $group['scopes'];
+            $allocated[$group['index']][] = $asset;
+        }
+        $result = array();
+        foreach ($assets as $index => $asset) {
+            if (!isset($eligible[$index])) $result[] = $asset;
+            foreach ($allocated[$index] ?? array() as $sheet) $result[] = $sheet;
+        }
+        return $result;
     }
 
     /**
@@ -6864,6 +6929,9 @@ PHP;
             $lines[] = "add_filter( 'render_block_core/read-more', static function ( string \$content, array \$block ): string { if ( ! in_array( 'blocks-engine-listing-overlay', preg_split( '/\\s+/', (string) ( \$block['attrs']['className'] ?? '' ) ) ?: array(), true ) ) return \$content; \$tag = new WP_HTML_Tag_Processor( \$content ); if ( \$tag->next_tag( 'A' ) ) { \$tag->set_attribute( 'aria-hidden', 'true' ); \$tag->set_attribute( 'tabindex', '-1' ); } return \$tag->get_updated_html(); }, 10, 2 );";
         }
         $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void {";
+        $lines[] = '    $blocks_engine_page_id = ' . self::DOCUMENT_ID_EXPRESSION . ';';
+        $lines[] = "    \$blocks_engine_page_identity = \$blocks_engine_page_id ? get_post_meta( \$blocks_engine_page_id, '_blocks_engine_reconciliation_identity', true ) : '';";
+        $lines[] = "    \$blocks_engine_page_uri = \$blocks_engine_page_id && '' === \$blocks_engine_page_identity && 'page' === get_post_type( \$blocks_engine_page_id ) ? trim( get_page_uri( \$blocks_engine_page_id ), '/' ) : null;";
         $importLoaded = self::importLoadedStylesheets($assets);
         $stylesheetAttributes = array();
         $stylesheetEnqueues = self::stylesheetEnqueues($assets, $pages, $rootDocuments);
@@ -6947,8 +7015,8 @@ PHP;
             $asset = $enqueue['asset'];
             if (!StylesheetActivation::active($asset) || 'frontend' === ($asset['stylesheet_target'] ?? 'both') || isset($importLoaded[$asset['target_path']])) continue;
             $partSlugs = array();
-            foreach ($partSlugsBySource[(string) ($enqueue['scope']['source_path'] ?? '')] ?? array() as $slug) $partSlugs[$slug] = true;
-            $editorStyles[] = array_filter(array('target_path' => $asset['target_path'], 'handle' => $enqueue['handle'], 'content_hash' => $asset['content_hash'], 'scopes' => array($enqueue['scope']), 'template_part_slugs' => array_keys($partSlugs), 'media' => $asset['source_media'] ?? $enqueue['media'], 'author_css' => 'engine-support' !== ($asset['source'] ?? ''), 'editor_only' => 'editor' === ($asset['stylesheet_target'] ?? 'both'), 'fallback' => empty($enqueue['fallback']) ? null : true), static fn(mixed $value): bool => null !== $value);
+            foreach ($enqueue['scopes'] ?? array($enqueue['scope']) as $owner) foreach ($partSlugsBySource[(string) ($owner['source_path'] ?? '')] ?? array() as $slug) $partSlugs[$slug] = true;
+            foreach ($enqueue['scopes'] ?? array($enqueue['scope']) as $editorScope) $editorStyles[] = array_filter(array('target_path' => $asset['target_path'], 'handle' => $enqueue['handle'], 'content_hash' => $asset['content_hash'], 'scopes' => array($editorScope), 'template_part_slugs' => array_keys($partSlugs), 'media' => $asset['source_media'] ?? $enqueue['media'], 'author_css' => 'engine-support' !== ($asset['source'] ?? ''), 'editor_only' => 'editor' === ($asset['stylesheet_target'] ?? 'both'), 'fallback' => empty($enqueue['fallback']) ? null : true), static fn(mixed $value): bool => null !== $value);
         }
         if (array() !== $editorStyles) {
             // Files and scopes own shared data; replay owns occurrence order,
@@ -7277,6 +7345,16 @@ PHP;
     private static function stylesheetEnqueues(array $assets, array $pages, array $rootDocuments = array()): array
     {
         $documentsBySource = self::assetOwnerDocuments($pages, $rootDocuments);
+        // Replay owners are delivery metadata, not empty stylesheet resources.
+        $deliveryAssets = array();
+        foreach ($assets as $asset) {
+            if (!isset($asset['stylesheet_replays'])) { $deliveryAssets[] = $asset; continue; }
+            foreach ($asset['stylesheet_replays'] as $replay) $deliveryAssets[] = array_replace($asset, $replay);
+            $resource = $asset;
+            unset($resource['stylesheet_replays']);
+            $deliveryAssets[] = $resource;
+        }
+        $assets = $deliveryAssets;
         $assetsBySource = array_column($assets, null, 'source_path');
         $before = $after = $instances = array();
         $firstManaged = count($assets);
@@ -7293,19 +7371,24 @@ PHP;
                 if (!isset($documentsBySource[$source])) continue;
                 if (!array_filter($asset['scopes'], static fn(array $scope): bool => 'global' === $scope['kind'] || ($scope['source_path'] ?? null) === $source)) continue;
                 $scope = self::stylesheetDocumentScope($documentsBySource[$source]);
-                $instances[$source][] = array('asset' => $asset, 'scope' => $scope, 'route' => $source, 'condition' => self::bootstrapScopeCondition($scope), 'media' => $occurrence['media'], 'handle' => 'blocks-engine-instance-' . substr(hash('sha256', $asset['target_path'] . "\0" . $source . "\0" . $occurrence['order']), 0, 16), 'order' => $occurrence['order'], 'resource_order' => $index) + self::stylesheetDeviceAttributes($occurrence);
+                $instances[$source][] = array('asset' => $asset, 'scope' => $scope, 'route' => $source, 'condition' => self::bootstrapScopeCondition($scope, true), 'media' => $occurrence['media'], 'handle' => 'blocks-engine-instance-' . substr(hash('sha256', $asset['target_path'] . "\0" . $source . "\0" . $occurrence['order']), 0, 16), 'order' => $occurrence['order'], 'resource_order' => $index) + self::stylesheetDeviceAttributes($occurrence);
             }
             if (!empty($asset['frame_fallback'])) {
                 $row = array('asset' => $asset, 'scope' => array('kind' => 'global'), 'condition' => 'true', 'media' => (string) ($asset['media'] ?? ''), 'handle' => 'blocks-engine-frame-fallback-' . substr(hash('sha256', $asset['target_path']), 0, 12), 'fallback' => true);
                 if ('before-author' === ($asset['stylesheet_placement'] ?? '')) $before[] = $row; else $after[] = $row;
             }
-            foreach ($asset['scopes'] as $scope) {
+            foreach ($asset['scopes'] as $scopeIndex => $scope) {
+                if (array() === $occurrences && 0 !== $scopeIndex) continue;
                 if (array() !== $occurrences && 'global' !== $scope['kind']) continue;
                 // A global resource with document instances still styles
                 // WordPress-native routes (archives, search) that no source
                 // document owns; the bootstrap guards it with the route flag.
                 $fallback = array() !== $occurrences;
-                $row = array('asset' => $asset, 'scope' => $scope, 'condition' => self::bootstrapScopeCondition($scope), 'media' => (string) ($asset['media'] ?? ''), 'handle' => 'blocks-engine-' . substr(hash('sha256', $asset['target_path']), 0, 12), 'fallback' => $fallback);
+                $row = array('asset' => $asset, 'scope' => $scope, 'condition' => self::bootstrapScopeCondition($scope, true), 'media' => (string) ($asset['media'] ?? ''), 'handle' => 'blocks-engine-' . substr(hash('sha256', $asset['target_path']), 0, 12), 'fallback' => $fallback);
+                if (!$fallback) {
+                    $row['scopes'] = $asset['scopes'];
+                    $row['condition'] = self::compactStylesheetCondition($asset['scopes']);
+                }
                 if (!$fallback && ('before-author' === ($asset['stylesheet_placement'] ?? '') || ($index < $firstManaged && 'after-author' !== ($asset['stylesheet_placement'] ?? '') && 'wordpress-compat' !== ($asset['source'] ?? '')))) $before[] = $row;
                 else $after[] = $row;
             }
@@ -7351,6 +7434,7 @@ PHP;
             $asset = $enqueue['asset'];
             if (!empty($enqueue['fallback']) || isset($importLoaded[$asset['target_path']])) continue;
             $owned = isset($enqueue['route']) ? $sourcePath === $enqueue['route'] : ('global' === $enqueue['scope']['kind'] || $sourcePath === ($enqueue['scope']['source_path'] ?? null));
+            if (isset($enqueue['scopes'])) $owned = in_array('global', array_column($enqueue['scopes'], 'kind'), true) || in_array($sourcePath, array_column($enqueue['scopes'], 'source_path'), true);
             if ($owned) $sequence[] = array('target_path' => (string) $asset['target_path'], 'handle' => (string) $enqueue['handle'], 'media' => (string) $enqueue['media'], 'stylesheet_target' => (string) ($asset['stylesheet_target'] ?? 'both'));
         }
         return $sequence;
@@ -7406,13 +7490,29 @@ PHP;
      */
     public const DOCUMENT_ID_EXPRESSION = "(int) apply_filters( 'blocks_engine_document_id', is_singular() ? get_queried_object_id() : 0 )";
 
+    /** @param list<array<string,mixed>> $scopes */
+    private static function compactStylesheetCondition(array $scopes): string
+    {
+        if (1 === count($scopes)) return self::bootstrapScopeCondition($scopes[0], true);
+        $conditions = $identities = $paths = array();
+        foreach ($scopes as $scope) {
+            if ('page' === $scope['kind'] && empty($scope['front_page'])) {
+                $identities[] = $scope['reconciliation_identity'];
+                $paths[] = $scope['route_path'];
+            } else $conditions[] = '(' . self::bootstrapScopeCondition($scope, true) . ')';
+        }
+        if (array() !== $identities) $conditions[] = "( 0 !== \$blocks_engine_page_id && ( '' !== \$blocks_engine_page_identity ? in_array( \$blocks_engine_page_identity, " . BootstrapData::literal($identities) . ", true ) : in_array( \$blocks_engine_page_uri, " . BootstrapData::literal($paths) . ", true ) ) )";
+        return implode(' || ', $conditions);
+    }
+
     /** @param array<string,mixed> $scope */
-    private static function bootstrapScopeCondition(array $scope): string
+    private static function bootstrapScopeCondition(array $scope, bool $compact = false): string
     {
         if ('global' === ($scope['kind'] ?? null)) return 'true';
         if ('archive' === ($scope['kind'] ?? null)) return var_export($scope['route_path'], true) . ' === blocks_engine_archive_path()';
         if (!empty($scope['front_page'])) return 'is_front_page()';
         if ('post' === ($scope['kind'] ?? null)) return "is_singular( 'post' ) && " . var_export($scope['reconciliation_identity'], true) . " === get_post_meta( get_queried_object_id(), '_blocks_engine_reconciliation_identity', true )";
+        if ($compact) return "0 !== \$blocks_engine_page_id && ( '' !== \$blocks_engine_page_identity ? " . var_export($scope['reconciliation_identity'], true) . " === \$blocks_engine_page_identity : " . var_export($scope['route_path'], true) . " === \$blocks_engine_page_uri )";
         return "0 !== ( \$blocks_engine_page_id = " . self::DOCUMENT_ID_EXPRESSION . " ) && ( '' !== ( \$blocks_engine_page_identity = get_post_meta( \$blocks_engine_page_id, '_blocks_engine_reconciliation_identity', true ) ) ? " . var_export($scope['reconciliation_identity'], true) . " === \$blocks_engine_page_identity : 'page' === get_post_type( \$blocks_engine_page_id ) && " . var_export($scope['route_path'], true) . " === trim( get_page_uri( \$blocks_engine_page_id ), '/' ) )";
     }
     private static function assertAssetScopes(mixed $scopes): void

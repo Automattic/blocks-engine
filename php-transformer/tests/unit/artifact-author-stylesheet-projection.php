@@ -662,7 +662,7 @@ $pageSubsetScopes = array_column($pageSubsetAssets['section.css']['scopes'] ?? a
 $assert(array('services.html', 'portfolio.html') === $pageSubsetScopes, 'a stylesheet linked by a subset of pages retains every owning page scope without becoming global');
 $pageSubsetWrites = array_column($pageSubsetStylesheet['source_reports']['wordpress_site_plan']['writes'] ?? array(), null, 'target_path');
 $pageSubsetBootstrap = (string) ($pageSubsetWrites['functions.php']['payload']['data'] ?? '');
-$assert(str_contains($pageSubsetBootstrap, "'services' === trim( get_page_uri( \$blocks_engine_page_id ), '/' )") && str_contains($pageSubsetBootstrap, "'portfolio' === trim( get_page_uri( \$blocks_engine_page_id ), '/' )"), 'a subset-scoped stylesheet bootstrap matches every owning WordPress route');
+$assert(str_contains($pageSubsetBootstrap, "'services' === \$blocks_engine_page_uri") && str_contains($pageSubsetBootstrap, "'portfolio' === \$blocks_engine_page_uri"), 'a subset-scoped stylesheet bootstrap matches every owning WordPress route');
 $assert(array(array('kind' => 'global')) === ($pageSubsetAssets['explicit-shared.css']['scopes'] ?? null), 'explicitly shared linked stylesheets retain global scope');
 $assert('asset' === ($pageSubsetAssets['unreferenced.css']['kind'] ?? null) && 'source-provenance' === ($pageSubsetAssets['unreferenced.css']['role'] ?? null), 'unreferenced author stylesheets are retained as provenance, not active CSS');
 $pageSubsetCompiledAssets = array_column($pageSubsetStylesheet['source_reports']['compiled_site']['assets'] ?? array(), null, 'path');

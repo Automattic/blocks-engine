@@ -75,10 +75,13 @@ final class EditorStaticStateAssets
                 unset($resource['stylesheet_instances'], $resource['stylesheet_parent'], $resource['frame_fallback'], $resource['reference_origin'], $resource['references']);
                 $resources[$path] = $resource;
             }
-            // The original resource remains the enqueue owner, with no duplicated payload.
-            $assets[$index] = WordPressSitePlan::withRewrittenTextContent($asset, '');
-            $assets[$index]['stylesheet_parts'] = $paths;
+            // Keep occurrence ownership as metadata on a real resource, never
+            // as an empty CSS file that would also be published to disk.
+            $asset['stylesheet_parts'] = $paths;
+            unset($asset['content'], $asset['content_hash'], $asset['size_bytes']);
+            $resources[$paths[0]]['stylesheet_replays'][] = $asset;
+            unset($assets[$index]);
         }
-        return array_merge($assets, array_values($resources));
+        return array_merge(array_values($assets), array_values($resources));
     }
 }
