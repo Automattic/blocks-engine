@@ -929,6 +929,29 @@ final class SourceDom
     }
 
     /**
+     * An element with `role="img"` whose content is only images is one named
+     * graphic (ARIA makes its descendants presentational), not phrasing
+     * content: it becomes a group of native images carrying the accessible
+     * name, never inline RichText.
+     */
+    public static function isImageOnlyNamedGraphic(DOMElement $element): bool
+    {
+        if ( 'img' !== strtolower(trim(self::attr($element, 'role'))) || 'img' === strtolower($element->tagName) || '' !== trim($element->textContent ?? '') ) {
+            return false;
+        }
+
+        $images = 0;
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( 'img' !== strtolower($descendant->tagName) ) {
+                return false;
+            }
+            ++$images;
+        }
+
+        return 0 < $images;
+    }
+
+    /**
      * Whether a text element's every `<img>` is an inline image that RichText
      * carries as its `core/image` object format: a real, safe source sitting
      * directly in the element or inside links and inline formatting. This also

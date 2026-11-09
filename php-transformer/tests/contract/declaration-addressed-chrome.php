@@ -92,7 +92,7 @@ foreach (array(
     $assert($normalize($states['index']['content']) === $normalize($states['about']['content']) && $states['index']['content'] !== $states['about']['content'], $case . ': editor-state CSS differs only in finalized declaration addresses.');
     $assert($states['index']['path'] !== $states['about']['path'] && $states['index']['path'] === $states['copy']['path'], $case . ': different bytes diverge and identical bytes share a path.');
     $stateAssets = array_values(array_filter($sitePlan['assets'], static fn (array $asset): bool => 'editor-static-state' === ($asset['source'] ?? '')));
-    $assert(2 === count($stateAssets), $case . ': identical final editor-state assets coalesce across routes.');
+    $assert(array() === $stateAssets, $case . ': editor-state sheets whose control selectors were removed with extracted chrome are not published as empty resources.');
 }
 
 // Use the public site's materialized theme presets and CSS, not compiler state.

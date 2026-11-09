@@ -2575,7 +2575,7 @@ final class StyleResolver implements ElementPresentationResolver
     {
         $parent = $element->parentNode;
         if ( ! $parent instanceof DOMElement
-            || ( 'body' !== strtolower($parent->tagName) && ! $this->isDocumentVariantRoot($parent) )
+            || ( 'body' !== strtolower($parent->tagName) && ! SourceDom::isDocumentVariantRoot($parent) )
             || '' === SourceDom::safeAnchor(SourceDom::attr($element, 'id'))
         ) {
             return '';
@@ -2592,11 +2592,6 @@ final class StyleResolver implements ElementPresentationResolver
         );
         $this->session->layoutGeometryState()->registerRule($className, '.' . $className . '{' . $rule . '}');
         return $className;
-    }
-
-    private function isDocumentVariantRoot(DOMElement $element): bool
-    {
-        return SourceDom::isDocumentVariantRoot($element);
     }
 
     /**

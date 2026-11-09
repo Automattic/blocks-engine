@@ -94,6 +94,41 @@ $assert(
     $mediaControlsAfterAuthor
 );
 
+$nestedMediaControls = <<<'HTML'
+<div class="onhyOQ">
+  <div class="twbtjQ">
+    <video muted></video>
+    <div class="QhExXw">
+      <div class="Lqh_3w" role="group" aria-label="Video controls">
+        <div role="none"><div class="Qy939g"><div class="OLvpgw" style="transform:translateY(82px)"><div class="KTdHOA ctl">
+          <input type="range" aria-label="Seek bar" value="0" max="4.44">
+          <p>0.0s</p>
+          <button aria-label="Toggle mute"></button><button aria-label="Play"></button><button aria-label="Pause"></button>
+        </div></div></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+<style>.ctl{opacity:0}</style>
+HTML;
+foreach ( array(
+    'nested Canva video controls' => $nestedMediaControls,
+    'nested audio controls' => str_replace(array( '<video muted></video>', 'Video controls' ), array( '<audio></audio>', 'Audio controls' ), $nestedMediaControls),
+    'media at the third ancestor' => str_replace(
+        array( '<div class="QhExXw">', "      </div>\n    </div>" ),
+        array( '<div class="QhExXw"><div>', "      </div></div>\n    </div>" ),
+        $nestedMediaControls
+    ),
+) as $case => $playerChrome ) {
+    $playerResult = ( new HtmlTransformer() )->transform($playerChrome)->toArray();
+    $playerCss = $cssContent($playerResult, 'after-author', 'both');
+    $assert(
+        ! str_contains($playerCss, 'opacity:1!important'),
+        $case . ' keep their idle opacity instead of revealing .ctl',
+        $playerCss
+    );
+}
+
 $audioControlsResult = ( new HtmlTransformer() )->transform(str_replace(
     array( '<video muted src="v.mp4"></video>', 'Video controls' ),
     array( '<audio src="a.mp3"></audio>', 'Audio controls' ),
@@ -106,6 +141,9 @@ $assert(
 
 foreach ( array(
     'without a media element' => str_replace('<video muted src="v.mp4"></video>', '', $mediaControls),
+    'with media only in body' => '<html><body><video></video>' . str_replace('<video muted src="v.mp4"></video>', '', $mediaControls) . '</body></html>',
+    'with media only in html' => '<html><video></video><body>' . str_replace('<video muted src="v.mp4"></video>', '', $mediaControls) . '</body></html>',
+    'with media beyond three ancestors' => str_replace('<video muted src="v.mp4"></video>', '', '<div><video></video><div><div>' . $mediaControls . '</div></div></div>'),
     'without a controls group' => str_replace('role="group" aria-label="Video controls"', 'role="region" aria-label="Settings"', $mediaControls),
     'without a seek range' => str_replace('type="range"', 'type="text"', $mediaControls),
     'without a media button' => str_replace('aria-label="Play"', 'aria-label="Submit"', $mediaControls),
