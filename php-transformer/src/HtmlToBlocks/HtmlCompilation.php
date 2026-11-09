@@ -304,6 +304,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly Elements\LayoutShellLowering $layoutShells;
     private readonly Elements\CustomVideoHostLowering $customVideoHosts;
     private readonly Elements\ListItemLowering $listItemLowering;
+    private readonly Elements\StructuredInlineItemLowering $structuredInlineItemLowering;
     private readonly Elements\CustomImageHostLowering $customImageHosts;
     private readonly Elements\AnchorLowering $anchors;
     private readonly Elements\RenderNeutralElements $renderNeutral;
@@ -596,6 +597,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         );
         $this->customVideoHosts = new Elements\CustomVideoHostLowering($this->session, $this->styleResolver, $this->imageUrls, $this->runtimeIslands, $this->mediaLowering, $this->imageLowering, $this->layoutShells);
         $this->listItemLowering = new Elements\ListItemLowering($this, $this, $this->runtime, $this->session, $this->styleResolver, $this->listStructure, $this->richTextMaterializer);
+        $this->structuredInlineItemLowering = new Elements\StructuredInlineItemLowering($this, $this->runtime, $this->sourceElementClassifier, $this->styleResolver, $this->inlineSvgTextGroups);
         $this->renderNeutral = new Elements\RenderNeutralElements($this->session, $this->styleResolver, $this->sourceElementClassifier, $this->sourceElementDescription, $this->runtimeIslands, $this->emptyElementFootprint);
         $this->inertElements = new Elements\InertElements($this->styleResolver, $this->sourceElementClassifier, $this->sourceVisibility, $this->runtimeIslands);
         $this->emptyInlineGeometry = new Elements\EmptyInlineGeometryLowering($this, $this->session, $this->sourceElementClassifier, $this->emptyElementFootprint, $this->authoredStateButtons, $this->layoutShells, $this->runtimeIslands);
@@ -4986,7 +4988,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return null;
         }
 
-        $structuredInlineItems = $this->structuredInlineItemBlocks($element);
+        $structuredInlineItems = $this->structuredInlineItemLowering->structuredInlineItemBlocks($element);
         if ( null !== $structuredInlineItems ) {
             return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $structuredInlineItems, $element);
         }
@@ -5134,59 +5136,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         return false;
-    }
-
-    /**
-     * @return array<int, array<string, mixed>>|null
-     */
-    private function structuredInlineItemBlocks(DOMElement $element): ?array
-    {
-        $blocks = array();
-
-        foreach ( $element->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType ) {
-                if ( '' !== trim($child->textContent ?? '') ) {
-                    return null;
-                }
-                continue;
-            }
-
-            if ( XML_COMMENT_NODE === $child->nodeType ) {
-                continue;
-            }
-
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-
-            if ( ! $this->sourceElementClassifier->isClassedPhrasingItem($child) ) {
-                return null;
-            }
-
-            $inlineSvgTextGroup = $this->inlineSvgTextGroups->fromElement($child);
-            if ( null !== $inlineSvgTextGroup ) {
-                $blocks[] = $inlineSvgTextGroup;
-                continue;
-            }
-
-            // The paragraph inherits a span's class for its layout role, but
-            // semantic inline elements (time, links, emphasis, etc.) must retain
-            // their source markup inside the editable RichText content.
-            $content = 'span' === strtolower($child->tagName) ? $this->styleResolver->innerHtml($child) : $this->outerHtml($child);
-            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
-                return null;
-            }
-            // Items share the wrapper's inline flow, so a span's boundary
-            // space separates it from its neighbours ("Home / Product").
-            if ( 'span' === strtolower($child->tagName) ) {
-                $text = $child->textContent;
-                $content = (1 === preg_match('/^\s/u', $text) ? ' ' : '') . $content . (1 === preg_match('/\s$/u', $text) ? ' ' : '');
-            }
-
-            $blocks[] = $this->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($child), array( 'content' => $content )), array(), $child);
-        }
-
-        return 1 < count($blocks) ? $blocks : null;
     }
 
     private function dynamicTextContent(DOMElement $element): ?string
