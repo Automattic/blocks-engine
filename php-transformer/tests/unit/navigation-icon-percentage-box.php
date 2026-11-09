@@ -15,7 +15,7 @@ $result = (new HtmlTransformer())->transform(
 )->toArray();
 $css = implode("\n", array_column($result['assets'] ?? array(), 'content'));
 if (!str_contains($result['serialized_blocks'] ?? '', 'blocks-engine-navigation-link-icon-')
-    || !preg_match('/__content\{display:inline-block;width:24px;height:24px;background-image:url\("data:image\/svg\+xml,/', $css)) {
+    || !preg_match('/__content(?::not\([^)]*\))*\{display:inline-block;[^}]*width:24px;height:24px;background-image:url\("data:image\/svg\+xml,/', $css)) {
     throw new RuntimeException('Native navigation must paint percentage-sized SVG artwork in its source wrapper box.');
 }
 echo "Navigation icon percentage box passed.\n";
