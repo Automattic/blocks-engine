@@ -60,6 +60,16 @@ $findings = static function (array $result, string $code): array {
 };
 $declaration = static fn (array $plan, string $type): ?array => current(array_filter($plan['runtime_declarations'] ?? array(), static fn (array $declaration): bool => $type === ($declaration['type'] ?? null))) ?: null;
 
+// A payment link and a price estimate are not a cart when "total" labels no
+// amount row: here it is a trust badge elsewhere in the same app root.
+$landing = '<!doctype html><html><head><title>Cart</title></head><body><div id="root"><main>'
+    . '<section class="hero"><h1>Academic help</h1><div class="badge"><div>Total privacy</div><div>100% confidential</div></div></section>'
+    . '<section class="quote"><h2>Estimate</h2><div class="range">$410 to <span>$500</span></div><p>Slides add $120.</p>'
+    . '<a class="btn" href="https://pay.example/link">Pay now via checkout</a></section>'
+    . '</main></div><script src="app.js"></script></body></html>';
+$landingScript = "document.getElementById('root').dataset.ready = '1';";
+$assert(array() === $findings($compile(array('shop.html' => $shop, 'cart.html' => $landing, 'app.js' => $landingScript)), 'html_cart_view_fallback'), 'A page whose "total" labels no amount row carries no cart view finding.');
+
 // Case A: a store with products and a cart page.
 $result = $compile(array('shop.html' => $shop, 'cart.html' => $cart, 'app.js' => $script));
 $assert('failed' !== $result['status'] && ! isset($result['source_reports']['wordpress_site_plan_diagnostics']), 'The store composes cleanly: ' . json_encode($result['source_reports']['wordpress_site_plan_diagnostics'] ?? array()));

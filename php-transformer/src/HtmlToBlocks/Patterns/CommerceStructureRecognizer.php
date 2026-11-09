@@ -714,7 +714,11 @@ final class CommerceStructureRecognizer
         return $this->classifier->hasTokenBoundary($this->vocabulary($element), 'checkout');
     }
 
-    /** Amount leaves and a total label: subtotal/shipping/total rows. */
+    /**
+     * Amount leaves and a total label: subtotal/shipping/total rows. The total
+     * label must head an amount row, so its row (the label's parent) holds an
+     * amount; the word "total" elsewhere on a page labels nothing.
+     */
     private function hasCartTotals(DOMElement $element, int $minimumAmounts = 2): bool
     {
         $amounts = 0;
@@ -726,13 +730,25 @@ final class CommerceStructureRecognizer
             if ( $this->looksLikePriceText($this->collapsedText($descendant)) ) {
                 ++$amounts;
             }
-            $vocabulary = $this->vocabulary($descendant);
-            if ( $this->classifier->hasTokenBoundary($vocabulary, 'total') || $this->classifier->hasTokenBoundary($vocabulary, 'subtotal') ) {
-                $hasTotal = true;
+            if ( ! $hasTotal ) {
+                $vocabulary = $this->vocabulary($descendant);
+                $hasTotal = ($this->classifier->hasTokenBoundary($vocabulary, 'total') || $this->classifier->hasTokenBoundary($vocabulary, 'subtotal'))
+                    && $descendant->parentNode instanceof DOMElement && $this->holdsAmount($descendant->parentNode);
             }
         }
 
         return $hasTotal && $amounts >= $minimumAmounts;
+    }
+
+    private function holdsAmount(DOMElement $row): bool
+    {
+        foreach ( $row->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && 0 === SourceDom::childElementCount($descendant) && $this->looksLikePriceText($this->collapsedText($descendant)) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** Text, class, id, aria-label and `data-*` attribute names, tokenized on non-alphanumerics. */
