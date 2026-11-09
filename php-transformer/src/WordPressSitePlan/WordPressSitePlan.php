@@ -2558,8 +2558,12 @@ PHP;
     /** @param array<string,mixed> $attrs */
     private static function isVariantVisibilityGroup(array $attrs): bool
     {
-        if (1 !== count($attrs) || !is_string($attrs['className'] ?? null)) return false;
-        foreach (preg_split('/\s+/', trim($attrs['className'])) ?: array() as $class) {
+        // A device document that carries capture attributes partitions the
+        // part as a layout-shell with one wrapper instead of a class-only group.
+        $wrappers = $attrs['wrappers'] ?? null;
+        $className = is_array($wrappers) && 1 === count($wrappers) ? ($wrappers[0]['attributes']['class'] ?? null) : ($attrs['className'] ?? null);
+        if (1 !== count($attrs) || !is_string($className)) return false;
+        foreach (preg_split('/\s+/', trim($className)) ?: array() as $class) {
             if (ShellExtraction::isResponsiveVariantClass($class)) return true;
         }
         return false;
