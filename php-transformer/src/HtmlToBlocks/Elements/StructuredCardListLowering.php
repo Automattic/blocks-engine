@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMaterializer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextStylingHookNormalizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
@@ -25,7 +26,6 @@ final class StructuredCardListLowering
     private const CSS_OWNED_GRID_CLASS = 'blocks-engine-css-owned-grid';
 
     /**
-     * @param Closure(DOMElement, array<int, array<string, mixed>>&, bool=): ?array<string, mixed> $convertElement
      * @param Closure(): RichTextStylingHookNormalizer $richTextStylingHooks
      */
     public function __construct(
@@ -35,7 +35,7 @@ final class StructuredCardListLowering
         private readonly RichTextMaterializer $richTextMaterializer,
         private readonly SourceElementClassifier $sourceElementClassifier,
         private readonly Runtime $runtime,
-        private readonly Closure $convertElement,
+        private readonly PatternTreeConverter $tree,
         private readonly Closure $richTextStylingHooks
     ) {
     }
@@ -236,7 +236,7 @@ final class StructuredCardListLowering
 
             $tag = strtolower($child->tagName);
             if ( in_array($tag, array( 'ul', 'ol' ), true) ) {
-                $nested = ($this->convertElement)($child, $fallbacks, true);
+                $nested = $this->tree->element($child, $fallbacks, true);
                 if ( null !== $nested ) {
                     $fragmentBlocks[] = $nested;
                 }
