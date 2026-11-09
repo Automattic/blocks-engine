@@ -509,6 +509,7 @@
       "php tests/unit/responsive-select-navigation.php",
       "php tests/unit/linked-image-whitespace-gap.php",
       "php tests/unit/linked-image-presentation-carrier.php",
+      "php tests/unit/linked-sized-image-box-ancestry.php",
       "php tests/unit/empty-inline-decoration.php",
       "php tests/unit/logo-empty-inline-box.php",
       "php tests/unit/rounded-site-logo.php",
