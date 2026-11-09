@@ -2260,4 +2260,15 @@ final class SourceDom
         return ($element->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) && SourceDom::isDocumentVariantRoot($element))
             || SourceDom::isDeviceVisibilityCarrier($element);
     }
+
+    public static function hasRouteBearingDataAttributes(DOMElement $element): bool
+    {
+        foreach ( $element->attributes as $attribute ) {
+            if ( preg_match('/^data-[a-z0-9_-]*url$/i', $attribute->name) && '' !== trim($attribute->value) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }

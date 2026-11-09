@@ -595,7 +595,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->session,
             $this->sourceElementDescription,
             fn (DOMElement $element): ?DOMElement => $this->soleElementChild($element),
-            fn (DOMElement $element): bool => $this->isImageOnlyAnchor($element)
+            fn (DOMElement $element): bool => $this->imageLowering->isImageOnlyAnchor($element)
         );
         $this->authorLayoutOwnership = new AuthorLayoutOwnership(
             $this->styleResolver,
@@ -6152,7 +6152,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $anchor = $child;
         }
 
-        return $anchor instanceof DOMElement && $this->isImageOnlyAnchor($anchor) ? $anchor : null;
+        return $anchor instanceof DOMElement && $this->imageLowering->isImageOnlyAnchor($anchor) ? $anchor : null;
     }
 
     private function citationFromElement(DOMElement $element): string
@@ -6612,7 +6612,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     public function imageBlockFromAnchor(DOMElement $anchor): ?array
     {
         $href = LinkUrlSanitizer::sanitize($this->attr($anchor, 'href'));
-        if ( ! $this->isImageOnlyAnchor($anchor) ) {
+        if ( ! $this->imageLowering->isImageOnlyAnchor($anchor) ) {
             return null;
         }
         if ( '' === $href ) {
@@ -6627,7 +6627,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         if ( $this->runtimeIslands->isRuntimeDomTarget($anchor)
             || array() !== $this->eventMetadata($anchor)
             || ( array() !== $this->sourceElementDescription->interactiveAttributes($anchor) && ! $this->isUnfocusableImageLink($anchor) )
-            || $this->hasRouteBearingDataAttributes($anchor)
+            || SourceDom::hasRouteBearingDataAttributes($anchor)
         ) {
             return $this->imageLowering->responsiveMediaBlock($anchor);
         }
@@ -6635,7 +6635,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $image = $picture instanceof DOMElement
             ? $this->firstChildElement($picture, 'img')
             : $this->firstChildElement($anchor, 'img');
-        if ( $image instanceof DOMElement && $this->hasRouteBearingDataAttributes($image) ) {
+        if ( $image instanceof DOMElement && SourceDom::hasRouteBearingDataAttributes($image) ) {
             return $this->imageLowering->responsiveMediaBlock($anchor);
         }
         if ( $picture instanceof DOMElement ) {
@@ -6682,7 +6682,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                         if ( $this->runtimeIslands->isRuntimeDomTarget($node)
                             || array() !== $this->eventMetadata($node)
                             || array() !== $this->sourceElementDescription->interactiveAttributes($node)
-                            || $this->hasRouteBearingDataAttributes($node) ) {
+                            || SourceDom::hasRouteBearingDataAttributes($node) ) {
                             $safe = false;
                             break;
                         }
@@ -6731,7 +6731,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->runtimeIslands->isRuntimeDomTarget(...),
             fn (DOMElement $element): bool => array() !== $this->eventMetadata($element),
             fn (DOMElement $element): bool => array() !== $this->sourceElementDescription->interactiveAttributes($element),
-            $this->hasRouteBearingDataAttributes(...),
+            SourceDom::hasRouteBearingDataAttributes(...),
         ))->project($anchor);
         if ( null === $attrs ) {
             return null;
@@ -6750,17 +6750,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         );
     }
 
-
-    private function hasRouteBearingDataAttributes(DOMElement $element): bool
-    {
-        foreach ( $element->attributes as $attribute ) {
-            if ( preg_match('/^data-[a-z0-9_-]*url$/i', $attribute->name) && '' !== trim($attribute->value) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
 
     /**
      * The image block a paragraph unwraps into keeps the paragraph's selector
@@ -6961,7 +6950,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return $this->paragraphImageChild($child, $ignoreLineBreaks);
         }
         $tagName = strtolower($child->tagName);
-        if ( in_array($tagName, array( 'img', 'picture' ), true) || ( 'a' === $tagName && $this->isImageOnlyAnchor($child) ) ) {
+        if ( in_array($tagName, array( 'img', 'picture' ), true) || ( 'a' === $tagName && $this->imageLowering->isImageOnlyAnchor($child) ) ) {
             return $child;
         }
 
@@ -6996,7 +6985,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         if ( ! $anchor instanceof DOMElement
-            || $this->isImageOnlyAnchor($anchor)
+            || $this->imageLowering->isImageOnlyAnchor($anchor)
             || '' === trim($anchor->textContent ?? '')
             || 0 === $anchor->getElementsByTagName('img')->length
         ) {
@@ -7046,33 +7035,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             && 1 === $anchor->getElementsByTagName('img')->length;
     }
 
-    private function isImageOnlyAnchor(DOMElement $anchor): bool
-    {
-        $imageChildren = 0;
-        foreach ( $anchor->childNodes as $child ) {
-            if ( $child instanceof DOMElement ) {
-                if ( in_array(strtolower($child->tagName), array( 'img', 'picture' ), true) || SourceDom::imageOnlyCarrierElement($child) instanceof DOMElement ) {
-                    ++$imageChildren;
-                    continue;
-                }
-                if ( $this->imageLowering->isHiddenImageLinkLabel($child) ) {
-                    continue;
-                }
-                // Lightbox links commonly append empty overlay elements beside
-                // their image. They are decoration, not additional link content.
-                if ( '' !== trim($child->textContent ?? '') ) {
-                    return false;
-                }
-                continue;
-            }
-
-            if ( '' !== trim($child->textContent ?? '') ) {
-                return false;
-            }
-        }
-
-        return 1 === $imageChildren;
-    }
 
     /** Retain a static host box around independently editable native media. */
     private function nativeImageInCustomHost(DOMElement $host, DOMElement $image, ?DOMElement $link = null): ?array
