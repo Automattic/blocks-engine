@@ -83,9 +83,10 @@ final class FormLayoutGraphBuilder
         // Reserve the existing control-topology wrapper coordinate before
         // inserting copy-only nodes. Adding an introduction must not renumber
         // a field or submit wrapper used by the paired provider target map.
+        // Every control receives its coordinate, whatever the form's size.
         $controlEntries = array();
         $wrapper = 0;
-        $this->collect($form, null, 0, -1, $controls, $relevant, $controlEntries, $wrapper);
+        $this->collect($form, null, 0, -1, $controls, $relevant, $controlEntries, $wrapper, PHP_INT_MAX);
         foreach ($controlEntries as $entry) $this->nodeIds[$entry['element']->getNodePath()] = $entry['id'];
 
         // Copy-only boxes participate in the source tree independently of
@@ -117,10 +118,7 @@ final class FormLayoutGraphBuilder
         $wrapper = 0;
         // The graph root is outside the topology depth coordinate; its children are depth zero.
         $this->collect($form, null, 0, -1, $controls, $relevant, $entries, $wrapper);
-        // A bounded traversal can stop between a label and its control.
-        // Never serialize a reference to an item omitted by that bound.
-        $entryIds = array_fill_keys(array_column($entries, 'id'), true);
-        $entries = array_values(array_filter($entries, static fn (array $entry): bool => ! isset($entry['for_control']) || isset($entryIds[$entry['for_control']])));
+        $entries = self::withoutDanglingLabels($entries);
         // Child counts include boxes omitted from the control/copy topology.
         $scope = array_column($entries, 'element');
         foreach ( $entries as $entry ) {
@@ -209,14 +207,18 @@ final class FormLayoutGraphBuilder
             $this->spacers[$path] = 'spacer-' . count($this->spacers);
             $relevant[$path] = true;
         }
-        $entries = array();
+        // The structure covers every control and its containers; MAX_NODES
+        // bounds only the serialized evidence. A bounded pre-order walk is a
+        // prefix of the full walk, so the graph is that prefix.
+        $all = array();
         $wrapper = 0;
-        $this->collect($form, null, 0, -1, $controls, $relevant, $entries, $wrapper);
-        // A bounded traversal can stop between a label and its control.
-        // Never serialize a reference to an item omitted by that bound.
-        $entryIds = array_fill_keys(array_column($entries, 'id'), true);
-        $entries = array_values(array_filter($entries, static fn (array $entry): bool => ! isset($entry['for_control']) || isset($entryIds[$entry['for_control']])));
-        if ( null !== $structure ) $structure = $entries;
+        $this->collect($form, null, 0, -1, $controls, $relevant, $all, $wrapper, PHP_INT_MAX);
+        if ( null !== $structure ) $structure = self::withoutDanglingLabels($all);
+        if ( count($all) > self::MAX_NODES ) {
+            $this->truncated = true;
+            $this->diagnostics[] = 'node_or_depth_limit';
+        }
+        $entries = self::withoutDanglingLabels(array_slice($all, 0, self::MAX_NODES));
         $nodes = array();
         $presentationBuilder = new FormPresentationGraphBuilder(scopeElements: array_column($entries, 'element'), selectorMatchCache: $selectorCache);
         $variants = array();
@@ -575,14 +577,14 @@ final class FormLayoutGraphBuilder
     }
 
     /** @param array<string, int> $controls @param array<string, bool> $relevant @param list<array<string, mixed>> $entries */
-    private function collect(DOMElement $element, ?string $parent, int $order, int $depth, array $controls, array $relevant, array &$entries, int &$wrapper): void
+    private function collect(DOMElement $element, ?string $parent, int $order, int $depth, array $controls, array $relevant, array &$entries, int &$wrapper, int $maxNodes = self::MAX_NODES): void
     {
         $path = $element->getNodePath();
         $root = null === $parent;
         if ( ! $root && ! isset($controls[$path]) && ! isset($relevant[$path]) ) {
             return;
         }
-        if ( $depth > self::MAX_DEPTH || count($entries) >= self::MAX_NODES ) {
+        if ( $depth > self::MAX_DEPTH || count($entries) >= $maxNodes ) {
             $this->truncated = true;
             $this->diagnostics[] = 'node_or_depth_limit';
             return;
@@ -598,11 +600,25 @@ final class FormLayoutGraphBuilder
                 continue;
             }
             $before = count($entries);
-            $this->collect($child, $id, $childOrder, $depth + 1, $controls, $relevant, $entries, $wrapper);
+            $this->collect($child, $id, $childOrder, $depth + 1, $controls, $relevant, $entries, $wrapper, $maxNodes);
             if ( count($entries) > $before ) {
                 ++$childOrder;
             }
         }
+    }
+
+    /**
+     * A bounded traversal can stop between a label and its control. Never
+     * keep a reference to an item omitted by that bound.
+     *
+     * @param list<array<string, mixed>> $entries
+     * @return list<array<string, mixed>>
+     */
+    private static function withoutDanglingLabels(array $entries): array
+    {
+        $ids = array_fill_keys(array_column($entries, 'id'), true);
+
+        return array_values(array_filter($entries, static fn (array $entry): bool => ! isset($entry['for_control']) || isset($ids[$entry['for_control']])));
     }
 
     /** @param list<array<string, mixed>> $entries */
