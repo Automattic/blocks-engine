@@ -317,6 +317,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly Elements\InlineCheckableControlLowering $inlineCheckableControls;
     private readonly Elements\GlobalShellArtifacts $globalShellArtifacts;
     private readonly Elements\LinkCarrierLowering $linkCarriers;
+    private readonly Elements\NamePriceRowLowering $namePriceRows;
     private readonly SourceProvenance $sourceProvenance;
 
     private readonly RuntimeResourceElementConverter $runtimeResourceConverter;
@@ -609,6 +610,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->inlineCheckableControls = new Elements\InlineCheckableControlLowering($this, $this->runtime, $this->session, $this->sourceElementClassifier, $this->richTextMaterializer, $this->authoredStateButtons, $this->runtimeIslands, $this->layoutShells);
         $this->globalShellArtifacts = new Elements\GlobalShellArtifacts($this, $this, $this->runtime, $this->session, $this->navigationBlockNormalizer);
         $this->linkCarriers = new Elements\LinkCarrierLowering($this, $this, $this->runtime, $this->styleResolver, $this->runtimeIslands, $this->layoutShells);
+        $this->namePriceRows = new Elements\NamePriceRowLowering($this, $this, $this->styleResolver, $this->sourceElementDescription);
         $this->customImageHosts = new Elements\CustomImageHostLowering($this, $this->blockFactory, $this->styleResolver, $this->session, $this->sourceElementClassifier, $this->sourceElementDescription, $this->imageLowering, $this->layoutShells, $this->runtimeIslands, $this->authorLayoutOwnership);
         $this->anchors = new Elements\AnchorLowering($this, $this, $this->styleResolver, $this->session, $this->sourceElementClassifier, $this->sourceElementDescription, $this->imageLowering, $this->imageUrls, $this->layoutShells, $this->linkWrapperPropagator, $this->runtimeIslands, $this->customImageHosts);
         $this->layoutTables = new Elements\LayoutTableLowering(
@@ -1049,7 +1051,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 }
             },
             mediaGalleryBlock: fn (DOMElement $element, array &$fallbacks): ?array => $this->mediaGalleryBlockFromElement($element, $fallbacks),
-            namePriceRowBlock: fn (DOMElement $element, array &$fallbacks): ?array => $this->namePriceRowBlockFromElement($element, $fallbacks),
+            namePriceRowBlock: fn (DOMElement $element, array &$fallbacks): ?array => $this->namePriceRows->namePriceRowBlockFromElement($element, $fallbacks),
             inlineTokenGroupBlock: fn (DOMElement $element, array &$fallbacks): ?array => $this->inlineFlows->inlineTokenGroupBlockFromElement($element, $fallbacks),
             visualTextWrapperBlock: fn (DOMElement $element): ?array => $this->visualTextWrapperBlockFromElement($element),
             standaloneSearchBlock: fn (DOMElement $element): ?array => $this->searchBlockConverter->searchBlockFromStandaloneControl($element),
@@ -5496,94 +5498,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $ancestorPath = $ancestor->getNodePath();
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) if ( $node->getNodePath() === $ancestorPath ) return true;
         return false;
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $fallbacks
-     * @return array<string, mixed>|null
-     */
-    private function namePriceRowBlockFromElement(DOMElement $element, array &$fallbacks): ?array
-    {
-        $children = $this->sourceElementDescription->namePriceChildren($element);
-        if ( null === $children || ! $this->hasEqualWidthFlexColumnsGeometry($element, $children) ) {
-            return null;
-        }
-
-        // core/columns is a flex layout; WordPress rejects it with is-layout-grid.
-        // Decline when the resolved layout is grid so the container demotes to
-        // core/group, where grid layout is native.
-        $layout = $this->styleResolver->presentationAttributes($element)['layout'] ?? null;
-        if ( is_array($layout) && 'grid' === (string) ($layout['type'] ?? '') ) {
-            return null;
-        }
-
-        $rowFallbacks = array();
-        $columns = array();
-        foreach ( $children as $child ) {
-            $converted = array_filter(array( $this->convertElement($child, $rowFallbacks, true) ));
-            if ( array() === $converted ) {
-                return null;
-            }
-
-            $columns[] = $this->createBlock('core/column', $this->styleResolver->presentationAttributes($child), $converted, $child);
-        }
-        array_push($fallbacks, ...$rowFallbacks);
-
-        return $this->createBlock('core/columns', $this->styleResolver->presentationAttributes($element), $columns, $element);
-    }
-
-    /**
-     * core/columns gives each child an equal share of its row. Name/price and
-     * label/value semantics alone say nothing about that geometry: ordinary
-     * block flow is stacked, and flex items retain their content-sized basis.
-     * Restrict this decomposition to the source layout signal that core/columns
-     * can reproduce: a horizontal, non-wrapping flex row with equal zero-basis
-     * flex items.
-     *
-     * @param array<int, DOMElement> $children
-     */
-    private function hasEqualWidthFlexColumnsGeometry(DOMElement $element, array $children): bool
-    {
-        $container = $this->styleResolver->structuralPresentationDeclarations($element);
-        if ( 'flex' !== CssValueInspector::comparable((string) ($container['display'] ?? '')) ) {
-            return false;
-        }
-
-        $direction = strtolower(trim((string) ($container['flex-direction'] ?? 'row')));
-        $wrap = strtolower(trim((string) ($container['flex-wrap'] ?? 'nowrap')));
-        if ( ! in_array($direction, array( 'row', 'row-reverse' ), true) || 'nowrap' !== $wrap ) {
-            return false;
-        }
-
-        $flex = null;
-        foreach ( $children as $child ) {
-            $childFlex = $this->equalWidthFlexSignal($this->styleResolver->structuralPresentationDeclarations($child));
-            if ( null === $childFlex || ( null !== $flex && $flex !== $childFlex ) ) {
-                return false;
-            }
-            $flex = $childFlex;
-        }
-
-        return null !== $flex;
-    }
-
-    /**
-     * @param array<string, string> $declarations
-     */
-    private function equalWidthFlexSignal(array $declarations): ?string
-    {
-        $flex = preg_replace('/\s+/', ' ', strtolower(trim((string) ($declarations['flex'] ?? '')))) ?? '';
-        if ( preg_match('/^([1-9][0-9]*(?:\.[0-9]+)?)(?: [0-9]+(?:\.[0-9]+)? (?:0|0%|0px))?$/', $flex, $matches) ) {
-            return $matches[1];
-        }
-
-        $grow = trim((string) ($declarations['flex-grow'] ?? ''));
-        $basis = strtolower(trim((string) ($declarations['flex-basis'] ?? '')));
-        if ( is_numeric($grow) && 0 < (float) $grow && in_array($basis, array( '0', '0%', '0px' ), true) ) {
-            return $grow;
-        }
-
-        return null;
     }
 
     private function convertPictureElement(DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array
