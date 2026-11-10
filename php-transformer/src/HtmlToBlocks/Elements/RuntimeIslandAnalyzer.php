@@ -746,11 +746,34 @@ final class RuntimeIslandAnalyzer
         return 1 === preg_match('/^' . RuntimeSelectorVocabulary::scriptSelectorPattern() . '$/', $selector);
     }
 
-    public function isSafeTransparentCustomElement(DOMElement $element, bool $allowMotionStructure = false): bool
+    public function isSafeTransparentCustomElement(DOMElement $element, bool $allowMotionStructure = false, bool $requireOrdinaryFlow = false): bool
     {
+        if ( $requireOrdinaryFlow ) {
+            foreach ( array( 'role', 'aria-label', 'aria-labelledby' ) as $attribute ) {
+                if ( '' !== trim(SourceDom::attr($element, $attribute)) ) {
+                    return false;
+                }
+            }
+            if ( ( new CustomElementRuntimeDependency() )->hasProvenRuntimeDependency(
+                $element,
+                $this->session->runtimeBehaviorState()->runtimeScriptMetadata(),
+                $this->session->runtimeBehaviorState()->runtimeProjectionScriptAssets()
+            ) ) {
+                return false;
+            }
+        }
         foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'))) as $candidate ) {
             if ( ! $candidate instanceof DOMElement ) {
                 continue;
+            }
+
+            if ( $requireOrdinaryFlow && (
+                $candidate->hasAttribute('slot')
+                || $candidate->hasAttribute('hidden')
+                || in_array(strtolower($candidate->tagName), array( 'slot', 'shadow', 'content', 'template', 'script', 'style', 'svg', 'math', 'img', 'picture', 'video', 'audio', 'iframe', 'object', 'embed', 'canvas', 'details', 'dialog', 'form', 'input', 'select', 'textarea', 'button' ), true)
+                || ( $candidate !== $element && \Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags::isUnknownHtmlElement($candidate) )
+            ) ) {
+                return false;
             }
 
             // Runtime metadata on any descendant would be flattened by a

@@ -87,6 +87,43 @@ final class RenderNeutralElements
         return true;
     }
 
+    /** A neutral autonomous host whose ordinary light DOM needs no component lowering. */
+    public function isRenderNeutralCustomFlowWrapper(DOMElement $element): bool
+    {
+        if ( ! RichTextInlineTags::isUnknownHtmlElement($element)
+            || ! CustomElementRuntimeDependency::isCustomElementTag(strtolower($element->tagName))
+            || '' !== trim(SourceDom::attr($element, 'class'))
+            || '' !== trim(SourceDom::attr($element, 'id'))
+            || $element->hasAttribute('hidden')
+            || '' === trim($element->textContent ?? '')
+            || ! $this->isRenderNeutralWrapper($element)
+            || ! $this->runtimeIslands->isSafeTransparentCustomElement($element, false, true)
+        ) {
+            return false;
+        }
+
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( 'none' === ($this->styleResolver->cssDeclarations(SourceDom::attr($descendant, 'style'))['display'] ?? '') ) {
+                return false;
+            }
+        }
+
+        $children = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_COMMENT_NODE === $child->nodeType || ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement || ! $this->sourceElementClassifier->isStructuralTransparentCustomWrapperChild($child) ) {
+                return false;
+            }
+            $children[] = $child;
+        }
+
+        // Repeated siblings may be a cohesive component; retain that existing
+        // disposition rather than reclassifying collections as wrappers.
+        return 1 === count($children);
+    }
+
     /**
      * A hyphenated custom element whose whole subtree renders nothing: no
      * text, no media, graphics, or iframes, no form or interactive controls,
