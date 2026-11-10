@@ -32,7 +32,16 @@ final class CommerceStructureRecognizer
 
     public function looksLikePriceText(string $text): bool
     {
-        return (bool) preg_match('/(?:\p{Sc}[\s\x{a0}]?\d|\d[\d\s\x{a0}.,]*[\s\x{a0}]?\p{Sc}|\d+(?:[.,]\d{2})?[\s\x{a0}]?(?:usd|eur|gbp|cad|aud)\b)/iu', trim($text));
+        return (bool) preg_match('/(?:\p{Sc}[\s\x{a0}]?\d|\d[\d\s\x{a0}.,]*[\s\x{a0}]?\p{Sc}|\d+(?:[.,]\d{2})?[\s\x{a0}]?(?:usd|eur|gbp|cad|aud)\b)/iu', self::withoutAggregateAmounts(trim($text)));
+    }
+
+    /**
+     * Remove aggregate figures such as "$370M+ total sales" or "$2.5 billion":
+     * a magnitude suffix makes the amount a statistic, not a price a shopper pays.
+     */
+    private static function withoutAggregateAmounts(string $text): string
+    {
+        return preg_replace('/\p{Sc}[\s\x{a0}]?\d[\d.,]*(?:[\s\x{a0}]?(?:k|m|mm|b|bn|thousand|million|billion|trillion)\b\+?)/iu', ' ', $text) ?? $text;
     }
 
     /**
@@ -621,7 +630,7 @@ final class CommerceStructureRecognizer
      */
     private function currencyFormattedText(string $text, DOMElement $element): string
     {
-        $text = trim(preg_replace('/\s+/', ' ', $text) ?? '');
+        $text = trim(preg_replace('/\s+/', ' ', self::withoutAggregateAmounts($text)) ?? '');
         if ( '' === $text ) {
             return '';
         }
