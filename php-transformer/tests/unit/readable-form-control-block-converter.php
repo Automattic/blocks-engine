@@ -48,7 +48,6 @@ $runtimeRecorder = new FormRuntimeIslandRecorder(
     static function (DOMElement $element, string $kind, string $reason, string $capability, array $metadata) use (&$recorded): void {
         $recorded[] = compact('kind', 'reason', 'capability', 'metadata');
     },
-    static fn (DOMElement $element): array => array(),
     $session
 );
 $authoredRegistry = $session->requireGeneratedBlockRegistry();
