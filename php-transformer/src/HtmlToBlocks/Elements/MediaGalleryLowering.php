@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\GalleryPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
-use Closure;
 use DOMElement;
 
 /**
@@ -20,7 +20,7 @@ final class MediaGalleryLowering
         private readonly SourceElementClassifier $sourceElementClassifier,
         private readonly StyleResolver $styleResolver,
         private readonly ImageLowering $imageLowering,
-        private readonly Closure $recognizePatterns
+        private readonly PatternTreeConverter $tree
     ) {
     }
 
@@ -30,7 +30,7 @@ final class MediaGalleryLowering
     public function mediaGalleryBlockFromElement(DOMElement $element, array &$fallbacks): ?array
     {
         if ( $this->sourceElementClassifier->isImageOnlySlideshowCollection($element) ) {
-            return ($this->recognizePatterns)($element, $fallbacks, array(GalleryPattern::class));
+            return $this->tree->patterns($element, $fallbacks, array(GalleryPattern::class));
         }
 
         if ( ! $this->isGalleryCompatibleMediaLayout($element) ) {
@@ -46,7 +46,7 @@ final class MediaGalleryLowering
                 ? $this->imageLowering->responsiveMediaBlock($element) : null;
         }
 
-        return ($this->recognizePatterns)($element, $fallbacks, array(GalleryPattern::class));
+        return $this->tree->patterns($element, $fallbacks, array(GalleryPattern::class));
     }
 
     private function isGalleryCompatibleMediaLayout(DOMElement $element): bool

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Closure;
 use DOMElement;
 
@@ -11,7 +12,6 @@ final class FigureElementContext
 {
     /**
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array<string, mixed> $mediaGalleryBlock
-     * @param Closure(DOMElement, array<int, array<string, mixed>>&, array<int, class-string>): ?array<string, mixed> $recognizePatterns
      * @param Closure(DOMElement): ?DOMElement $linkedMediaAnchor
      * @param Closure(DOMElement, ?DOMElement, ?DOMElement): ?array<string, mixed> $convertPicture
      * @param Closure(DOMElement, ?DOMElement, ?DOMElement, ?DOMElement): ?array<string, mixed> $convertImage
@@ -21,7 +21,7 @@ final class FigureElementContext
      */
     public function __construct(
         private readonly Closure $mediaGalleryBlock,
-        private readonly Closure $recognizePatterns,
+        private readonly PatternTreeConverter $tree,
         private readonly Closure $linkedMediaAnchor,
         private readonly Closure $convertPicture,
         private readonly Closure $convertImage,
@@ -44,7 +44,7 @@ final class FigureElementContext
      */
     public function recognizePatterns(DOMElement $element, array &$fallbacks, array $patterns): ?array
     {
-        return ($this->recognizePatterns)($element, $fallbacks, $patterns);
+        return $this->tree->patterns($element, $fallbacks, $patterns);
     }
 
     public function linkedMediaAnchor(DOMElement $figure): ?DOMElement

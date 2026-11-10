@@ -3,12 +3,14 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\QuotePattern;
 use DOMElement;
 
 /** Converts blockquotes through the quote pattern recognizer. */
 final class QuoteElementConverter implements ElementConverter
 {
-    public function __construct(private readonly QuoteElementContext $context)
+    public function __construct(private readonly PatternTreeConverter $tree)
     {
     }
 
@@ -19,6 +21,6 @@ final class QuoteElementConverter implements ElementConverter
             return ConversionOutcome::unhandled();
         }
 
-        return ConversionOutcome::handled($this->context->recognizeQuote($element, $fallbacks));
+        return ConversionOutcome::handled($this->tree->patterns($element, $fallbacks, array( QuotePattern::class )));
     }
 }

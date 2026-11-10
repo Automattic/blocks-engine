@@ -19,6 +19,7 @@ use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationReso
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\RichTextMaterializationFixture;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\PatternTreeFixture;
 
 $assertions = 0;
 $failures   = array();
@@ -74,7 +75,7 @@ $makeConverter = static function (array $overrides = array()): RichTextElementCo
         $c['mixedMediaLinkGroupFromParagraph'],
         $c['compactLinkedIconTextRowFromParagraph'],
         $c['convertText'],
-        $c['convertChildren']
+        new PatternTreeFixture(children: $c['convertChildren'])
     ));
 };
 

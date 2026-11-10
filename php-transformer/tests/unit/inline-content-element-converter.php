@@ -11,6 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttribu
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\RichTextMaterializationFixture;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\PatternTreeFixture;
 
 $assertions = 0;
 $failures = array();
@@ -33,13 +34,12 @@ $elementFrom = static function (string $html): DOMElement {
 
 $state = (object) array( 'mode' => 'plain' );
 $context = new InlineContentElementContext(
-    static fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => 'social' === $state->mode ? array( 'blockName' => 'core/social-links' ) : null,
+    new PatternTreeFixture(static fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => 'social' === $state->mode ? array( 'blockName' => 'core/social-links' ) : null),
     static fn (DOMElement $element): bool => 'runtime' === $state->mode,
     static fn (DOMElement $element): ?array => 'svg-text' === $state->mode ? array( 'blockName' => 'core/image' ) : null,
     static fn (DOMElement $element): bool => 'positioned' === $state->mode,
     static fn (DOMElement $element, array &$fallbacks): ?array => array( 'blockName' => 'core/group', 'attrs' => array( 'positioned' => true ) ),
     static fn (DOMElement $element): bool => false,
-    static fn (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array => array(),
     static fn (DOMElement $element): string => '',
     static fn (DOMElement $element): ?string => null,
     static fn (DOMElement $element, string $tagName): ?DOMElement => null,
