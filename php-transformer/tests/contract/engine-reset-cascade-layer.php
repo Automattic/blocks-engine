@@ -6,6 +6,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\HeadlessChrome;
 
 $assert = static function (bool $condition, string $message): void {
     if ( ! $condition ) {
@@ -57,7 +58,7 @@ try {
         file_put_contents($file, '<!doctype html><style>' . $outputCss . '</style>'
             . '<style>:where(figure){margin:0 0 1em}</style>' . $result['serialized_blocks']
             . '<script>document.body.dataset.margin=getComputedStyle(document.querySelector("figure")).marginBottom</script>');
-        $output = shell_exec('TMPDIR=/tmp ' . escapeshellarg($chrome) . ' --headless --no-sandbox --disable-gpu --user-data-dir='
+        $output = shell_exec(HeadlessChrome::tmpdirPrefix() . escapeshellarg($chrome) . ' --headless --no-sandbox --disable-gpu --user-data-dir='
             . escapeshellarg($profile) . ' --dump-dom --virtual-time-budget=1000 ' . escapeshellarg('file://' . $file) . ' 2>/dev/null');
         $expected = $authored ? '5px' : '0px';
         $assert(str_contains((string) $output, 'data-margin="' . $expected . '"'), 'synthetic figure bottom margin is ' . $expected . ' against unlayered Core CSS: ' . (string) $output);

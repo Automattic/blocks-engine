@@ -211,8 +211,6 @@ use DOMNode;
 /** Run-scoped compiler for one HTML document. */
 final class HtmlCompilation extends SourceBlockCreator implements RichTextInlinePolicy, PatternTreeConverter
 {
-    private const GENERATED_COMPONENT_MIN_SOURCE_DEPTH = 14;
-
     use DomHelpersTrait;
 
     private readonly AuthorLayoutOwnership $authorLayoutOwnership;
@@ -302,6 +300,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly Elements\StructuredInlineItemLowering $structuredInlineItemLowering;
     private readonly Elements\SyntheticImageFigureFlow $syntheticImageFigureFlow;
     private readonly Support\SourceDocumentEnvelope $documentEnvelope;
+    private readonly Support\GeneratedComponentCandidates $generatedComponentCandidates;
     private readonly Elements\CustomImageHostLowering $customImageHosts;
     private readonly Elements\AnchorLowering $anchors;
     private readonly Elements\RenderNeutralElements $renderNeutral;
@@ -316,6 +315,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly Elements\MediaGalleryLowering $mediaGalleries;
     private readonly Elements\ParagraphImageUnwrapping $paragraphImages;
     private readonly Elements\TextlessMediaLowering $textlessMedia;
+    private readonly Support\StyledSourceClassBoundary $styledClassBoundaries;
     private readonly SourceProvenance $sourceProvenance;
 
 
@@ -587,6 +587,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->listStructure
         );
         $emptyFeatureShells = new Elements\EmptyInteractiveFeatureShell($this->runtimeIslands, $this->wrapperCoalescer);
+        $this->generatedComponentCandidates = new Support\GeneratedComponentCandidates($this->session, $this->sourceElementClassifier);
         $this->documentEnvelope = new Support\SourceDocumentEnvelope($this->styleResolver);
         $this->customVideoHosts = new Elements\CustomVideoHostLowering($this->session, $this->styleResolver, $this->imageUrls, $this->runtimeIslands, $this->mediaLowering, $this->imageLowering, $this->layoutShells);
         $this->listItemLowering = new Elements\ListItemLowering($this, $this, $this->runtime, $this->session, $this->styleResolver, $this->listStructure, $this->richTextMaterializer);
@@ -959,6 +960,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->sourceElementDescription
         );
         $this->textlessMedia = new Elements\TextlessMediaLowering($visualIframeGenerator, $this->paragraphImages);
+        $this->styledClassBoundaries = new Support\StyledSourceClassBoundary($this->session);
         $this->customBlockGenerator = new CustomBlockGenerator(
             $this->sourceElementClassifier,
             $this->styleResolver,
@@ -1666,7 +1668,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->navigationToggleSuppressor->collectProjectedNavigationRelationships($body);
             $this->navigationToggleSuppressor->collectSupersededNavToggleSelectors($body);
             $this->navigationToggleSuppressor->collectSupersededCapturedSubmenuSelectors($body);
-            $this->collectGeneratedComponentCandidates($body);
+            $this->generatedComponentCandidates->collectGeneratedComponentCandidates($body);
             $shellArtifacts = !array_key_exists('extract_global_shell', $options) || !empty($options['extract_global_shell']) ? $this->globalShellArtifacts->globalShellArtifacts($body, (string) ($options['source'] ?? 'html'), false, max(0, (int) ($options['global_shell_context_depth'] ?? 0))) : array();
             $blocks = $this->navigationBlockNormalizer->normalize($this->convertChildren($body, $fallbacks, true), $this->session->transformationProvenanceState()->sources(), $this->session->transformationProvenanceState()->sourceBaseHiddenStates(), $this->session->transformationProvenanceState()->sourceCollapsedWrapperHiddenStates());
         } finally {
@@ -2116,25 +2118,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private function authoredCssText(string $html, string $staticCss): string
     {
         return $this->stylesheetAnalysisComposer->combinedAuthorStylesheet($html, $staticCss);
-    }
-
-    private function collectGeneratedComponentCandidates(DOMElement $element, int $depth = 0): void
-    {
-        if (self::GENERATED_COMPONENT_MIN_SOURCE_DEPTH <= $depth
-            && ('div' === strtolower($element->tagName) || str_contains(strtolower($element->tagName), '-'))
-            && ($this->sourceElementClassifier->hasRepeatedDirectChildTags($element) || str_contains(strtolower($element->tagName), '-'))
-            && ($this->session->fallbackEmitter()->isRepeatableContentComponent($element) || $this->session->fallbackEmitter()->isSafeCustomElementHost($element))
-            && ! $this->session->fallbackEmitter()->containsProductGrid($element)
-        ) {
-            $this->session->reusableComponentState()->markGeneratedCandidate((string) $element->getNodePath());
-            return;
-        }
-
-        foreach ($element->childNodes as $child) {
-            if ($child instanceof DOMElement) {
-                $this->collectGeneratedComponentCandidates($child, $depth + 1);
-            }
-        }
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */
@@ -4060,48 +4043,14 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $child = 1 === SourceDom::childElementCount($element) ? $element->firstElementChild : null;
         if ('div' === strtolower($tag) && '' === trim($this->attr($element, 'id'))
             && $child instanceof DOMElement && 'div' === strtolower($child->tagName)
-            && !$this->hasAuthorSemanticMarker($element) && !$this->hasStyledSourceClassBoundary($element)
+            && !$this->hasAuthorSemanticMarker($element) && !$this->styledClassBoundaries->hasStyledSourceClassBoundary($element)
             && $this->renderNeutral->isRenderNeutralWrapper($element) && $this->renderNeutral->isRenderNeutralWrapper($child)
             && $this->containsGeneratedComponentCandidate($element)
         ) {
             return false;
         }
 
-        return ( ShellLandmarkPolicy::isWrapperPreservingTag($tag) || RichTextInlineTags::isUnknownHtmlElement($element) ) && ( $this->runtimeIslands->isRuntimeDomTarget($element) || $this->hasAuthorSemanticMarker($element) || array() !== $this->styleResolver->presentationAttributes($element) || array() !== $this->sourceElementDescription->structureSignals($element, array()) || $this->hasStyledSourceClassBoundary($element) );
-    }
-
-    /**
-     * Presentation attributes omit class-owned CSS. A wrapper can therefore
-     * look empty while still owning inherited declarations or the ancestor
-     * boundary needed by a descendant rule.
-     */
-    private function hasStyledSourceClassBoundary(DOMElement $element): bool
-    {
-        $classes = SourceDom::classNames($element);
-        if (array() === $classes) return false;
-
-        $nodes = array($element);
-        foreach ($element->getElementsByTagName('*') as $descendant) {
-            $nodes[] = $descendant;
-        }
-        foreach ($nodes as $node) {
-            foreach ($this->session->authorStyleRuleCandidates($node) as $candidate) {
-                if (array() === $candidate['declarations'] || ! ($candidate['parsed']['supported'] ?? false)) continue;
-                $compounds = $candidate['parsed']['compounds'];
-                // On descendants the source class must be an ancestor, not
-                // merely another class on the selector's subject.
-                if ($node !== $element) array_pop($compounds);
-                $namesClass = false;
-                foreach ($compounds as $compound) {
-                    if (array() !== array_intersect($classes, $compound['classes'])) {
-                        $namesClass = true;
-                        break;
-                    }
-                }
-                if ($namesClass && $this->session->sourceStyleResolutionState()->selectorMatchCache->matches($node, $candidate['selector'], $candidate['parsed'])['matches']) return true;
-            }
-        }
-        return false;
+        return ( ShellLandmarkPolicy::isWrapperPreservingTag($tag) || RichTextInlineTags::isUnknownHtmlElement($element) ) && ( $this->runtimeIslands->isRuntimeDomTarget($element) || $this->hasAuthorSemanticMarker($element) || array() !== $this->styleResolver->presentationAttributes($element) || array() !== $this->sourceElementDescription->structureSignals($element, array()) || $this->styledClassBoundaries->hasStyledSourceClassBoundary($element) );
     }
 
     /**
