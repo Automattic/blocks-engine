@@ -194,7 +194,8 @@ final class StyleResolver implements ElementPresentationResolver
             $this->responsivePropertyFamily(...),
             $this->hasConditionalGridTemplateColumns(...),
             $this->authorNormalDeclarationSpecificity(...),
-            $this->authorImportantDeclarationSpecificity(...)
+            $this->authorImportantDeclarationSpecificity(...),
+            $this->conditionalAuthorDeclaredPropertyValues(...)
         );
     }
 

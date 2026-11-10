@@ -163,6 +163,9 @@ final class Runtime
         if ( isset($attrs['anchor']) && ! $this->supportsFeature($supports, 'anchor', 'anchor') ) unset($attrs['anchor']);
         if ( isset($attrs['layout']) && ! $this->supportsFeature($supports, 'layout', 'layout') ) unset($attrs['layout']);
         if ( 'grid' === ($attrs['layout']['type'] ?? null) && ! $this->supportsFeature($supports, 'layout', 'grid') ) unset($attrs['layout']);
+        // Blocks that own their item alignment (core/navigation,
+        // core/social-links) opt out of the layout's vertical alignment.
+        if ( isset($attrs['layout']['verticalAlignment']) && false === ($supports['layout']['allowVerticalAlignment'] ?? null) ) unset($attrs['layout']['verticalAlignment']);
         // The legacy core/button width attribute is never serialized by the
         // editor save function, irrespective of runtime support metadata.
         if ( 'core/button' === $blockName ) unset($attrs['width']);
