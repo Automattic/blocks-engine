@@ -131,6 +131,13 @@ final class SvgMaterializer implements SvgElementMaterializer
             return $imageBlock;
         }
 
+        // Links only work in the parent document, not an image document. Reuse
+        // the typed artwork companion, but only when links are the sole reason
+        // this SVG fails the native image compatibility checks.
+        if ( $this->hasSvgRegionLink($element) && $this->isNativeImageCompatibleSvg($element, $html, true) ) {
+            return $this->context->svgArtworkBlock($element, $html);
+        }
+
         if ( $this->hasPageCssAnimatedDescendant($element) ) {
             return $this->context->svgArtworkBlock($element, $html);
         }
@@ -1796,9 +1803,20 @@ final class SvgMaterializer implements SvgElementMaterializer
         ));
     }
 
-    private function isNativeImageCompatibleSvg(DOMElement $element, string $html): bool
+    private function hasSvgRegionLink(DOMElement $element): bool
     {
-        if ( ! $this->isPassiveSvgMarkup($element) ) {
+        foreach ( $element->getElementsByTagName('a') as $anchor ) {
+            $href = trim(SourceDom::attr($anchor, 'href') ?: SourceDom::attr($anchor, 'xlink:href'));
+            if ( '' !== $href && ! str_starts_with($href, '#') ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function isNativeImageCompatibleSvg(DOMElement $element, string $html, bool $allowRegionLinks = false): bool
+    {
+        if ( ! $this->isPassiveSvgMarkup($element, $allowRegionLinks) ) {
             return false;
         }
 
@@ -1823,7 +1841,10 @@ final class SvgMaterializer implements SvgElementMaterializer
                 return false;
             }
         }
-        if ( preg_match('/\s(?:href|xlink:href)\s*=\s*(["\'])(?!#)[^"\']+\1/i', $html) ) {
+        // Only anchor destinations are exempt; external use/image references
+        // must continue to fail the ordinary image compatibility checks.
+        $referenceMarkup = $allowRegionLinks ? (preg_replace('/<a\b[^>]*>/i', '', $html) ?? $html) : $html;
+        if ( preg_match('/\s(?:href|xlink:href)\s*=\s*(["\'])(?!#)[^"\']+\1/i', $referenceMarkup) ) {
             return false;
         }
         if ( $this->usesAuthorFontFace($html) ) {
@@ -2239,7 +2260,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         return ! in_array($namespace, $namespaces, true);
     }
 
-    public static function isPassiveSvgMarkup(DOMElement $element): bool
+    public static function isPassiveSvgMarkup(DOMElement $element, bool $allowRegionLinks = false): bool
     {
         // Full set of safe SVG structure/presentation/text/filter elements. These carry
         // only geometry, gradients, filters, and text — no scripting or external embedding
@@ -2296,20 +2317,28 @@ final class SvgMaterializer implements SvgElementMaterializer
             if ( in_array(strtolower($child->tagName), array('style', 'link'), true) ) {
                 continue;
             }
-            if ( ! $child instanceof DOMElement || ! self::isPassiveSvgElement($child, $allowedTags, $allowedAttributes) ) {
+            if ( ! $child instanceof DOMElement || ! self::isPassiveSvgElement($child, $allowedTags, $allowedAttributes, $allowRegionLinks) ) {
                 return false;
             }
         }
 
-        return self::isPassiveSvgElement($element, $allowedTags, $allowedAttributes);
+        return self::isPassiveSvgElement($element, $allowedTags, $allowedAttributes, $allowRegionLinks);
     }
 
     /**
      * @param array<string, int> $allowedTags
      * @param array<string, int> $allowedAttributes
      */
-    private static function isPassiveSvgElement(DOMElement $element, array $allowedTags, array $allowedAttributes): bool
+    private static function isPassiveSvgElement(DOMElement $element, array $allowedTags, array $allowedAttributes, bool $allowRegionLinks = false): bool
     {
+        $regionLink = $allowRegionLinks && 'a' === strtolower($element->tagName);
+        if ( $regionLink ) {
+            $allowedTags['a'] = 1;
+            foreach ( array( 'target', 'rel', 'download', 'hreflang', 'type' ) as $attribute ) {
+                $allowedAttributes[$attribute] = 1;
+            }
+        }
+
         // SMIL transform animation is self-contained in an SVG image document.
         // Keep the target implicit and restrict it to geometry: general SMIL
         // attribute mutation (notably href) is not passive artwork.
@@ -2355,7 +2384,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             if ( (! isset($allowedAttributes[$name]) && ! $isInertDataAttribute && ! $isInertGroupWeight) || preg_match('/^on[a-z]+$/i', $name) || preg_match('/javascript\s*:|\b(?:expression|behavior)\s*:/i', $value) ) {
                 return false;
             }
-            if ( preg_match('/(?:^|:)href$/i', $name) && ! str_starts_with(trim($value), '#') && ! $embeddedRaster ) {
+            if ( preg_match('/(?:^|:)href$/i', $name) && ! str_starts_with(trim($value), '#') && ! $embeddedRaster && ! $regionLink ) {
                 return false;
             }
             if ( preg_match('/\burl\s*\((?!\s*["\']?#[-_a-z0-9]+["\']?\s*\))/i', $value) ) {
