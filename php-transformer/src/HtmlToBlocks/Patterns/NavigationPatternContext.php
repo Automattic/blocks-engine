@@ -246,9 +246,19 @@ final class NavigationPatternContext
      * text presentation. Such an element (a logo heading) is what paints the
      * label, so it must survive the label's inline reduction.
      */
-    public function serializedInlineStyle(DOMElement $element): string
+    public function serializedInlineStyle(DOMElement $element, ?DOMElement $item = null): string
     {
-        return $this->styleResolver?->serializedInlineStyle($element) ?? SourceDom::attr($element, 'style');
+        $style = $this->styleResolver?->serializedInlineStyle($element) ?? SourceDom::attr($element, 'style');
+        if (null === $item || !$this->styleResolver instanceof StyleResolver) return $style;
+
+        // Core replaces the item's label wrappers. Keep the inline tokens they
+        // supply in the anchor's scope, without overriding its own definitions.
+        $properties = array();
+        for ($node = $element->parentNode; $node instanceof DOMElement && !$node->isSameNode($item); $node = $node->parentNode) {
+            $properties += $this->styleResolver->consumedInlineCustomProperties($node);
+        }
+        $properties = array_intersect_key($this->styleResolver->cascadedCustomProperties($element), $properties);
+        return $this->styleResolver->cssDeclarationString($properties) . (array() === $properties ? '' : ';') . $style;
     }
 
     public function ownsLabelTypography(DOMElement $element): bool
@@ -2318,7 +2328,8 @@ final class NavigationPatternContext
         while ( $node instanceof DOMElement && $depth < 12 ) {
             ++$depth;
             $resolved     = $this->styleResolver->resolveCssVariablesInValue(
-                $this->styleResolver->specificityResolvedPresentationStyle($node)
+                $this->styleResolver->specificityResolvedPresentationStyle($node),
+                $node
             );
             $declarations = $this->styleResolver->cssDeclarations($resolved);
             $value        = trim((string) ($declarations[$property] ?? ''));

@@ -3565,7 +3565,12 @@ final class NavigationPattern implements PatternRecognizerInterface
             // the authored conditional cascade rather than freeze on Core's LI.
             unset($itemAttrs['style'], $itemAttrs['textColor'], $itemAttrs['backgroundColor'], $itemAttrs['fontSize']);
             $anchorAttrs = array();
-            $itemAttrs['metadata']['blocksEngineNavigationAnchor'] = array('style' => $anchor->getAttribute('style'), 'className' => $anchorClassName);
+            $anchorStyle = $navigationContext->serializedInlineStyle($anchor, $item);
+            $itemAttrs['metadata']['blocksEngineNavigationAnchor'] = array('style' => $anchorStyle, 'className' => $anchorClassName);
+            if ($anchorStyle !== $navigationContext->serializedInlineStyle($anchor)) {
+                $typography = $navigationContext->resolvedStyleAttributes($anchor)['typography'] ?? array();
+                if (array() !== $typography) $itemAttrs['style']['typography'] = $typography;
+            }
             if ('' !== trim($anchor->getAttribute('id'))) $itemAttrs['metadata']['blocksEngineNavigationAnchor']['id'] = $anchor->getAttribute('id');
             if ('' !== trim($item->getAttribute('style'))) $itemAttrs['metadata']['blocksEngineNavigationAnchor']['itemStyle'] = $item->getAttribute('style');
             $boxes = $navigationContext->navigationAnchorBoxes($anchor, $item, null !== $submenuContainer);
