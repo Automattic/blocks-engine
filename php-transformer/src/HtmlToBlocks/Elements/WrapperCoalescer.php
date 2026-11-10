@@ -117,15 +117,15 @@ final class WrapperCoalescer
         $candidate = $this->collectWrapperChain($block, $depth);
         $chain = $candidate['chain'];
         $terminal = $candidate['terminal'];
-        // A div chain around a core block already has a native representation:
+        // A div chain around core content already has a native representation:
         // nested core/group wrappers keep every id and class, editable with
-        // core tools. Fold it into a generated companion only when native
-        // nesting would breach the editability depth budget, or around
-        // non-core terminals that need shell transport.
+        // core tools. A freeform terminal is only a traversal sentinel: all of
+        // its children replace it on save, regardless of their block names.
+        // Branching into headings, paragraphs or template parts must not make
+        // otherwise native wrappers require a companion block.
         $terminalName = (string) ($terminal['blockName'] ?? '');
-        $nativeGroupTree = (('core/freeform' === $terminalName
-                && array() !== array_filter($terminal['innerBlocks'] ?? array(), static fn (array $child): bool => 'core/group' === ($child['blockName'] ?? null)))
-            || (str_starts_with($terminalName, 'core/') && ! in_array($terminalName, array( 'core/freeform', 'core/html' ), true)))
+        $nativeGroupTree = ('core/freeform' === $terminalName
+            || (str_starts_with($terminalName, 'core/') && 'core/html' !== $terminalName))
             && array() === array_filter($chain, static fn (array $entry): bool => 'div' !== ($entry['descriptor']['tagName'] ?? null))
             && $depth + count($chain) - 1 + $this->nativeBlockHeight($terminal) <= EditabilityPolicy::THRESHOLDS['max_nesting_depth'];
         $terminalIsShell = $this->sourceElementClassifier->isLayoutShellBlock($terminal);
