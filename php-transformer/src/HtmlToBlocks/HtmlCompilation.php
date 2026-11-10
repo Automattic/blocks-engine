@@ -182,6 +182,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ContentBoxRestatem
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CapturedNavigationPanels;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DeclarativeCounterMaterializer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DefaultCommentAttributes;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorLayoutOwnership;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
@@ -196,6 +197,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\QuirksModeSource
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\RuntimeScriptProjections;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceInterItemSpaces;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\TransformOptions;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ImageUrlResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializationContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer;
@@ -1529,10 +1531,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $context = TransformationOptions::context($options);
         $startedAt = hrtime(true);
         $this->session->transformationProvenanceState()->installFallback(TransformationOptions::provenance($options));
-        $this->session->installGeneratedBlockRegistry(new GeneratedBlockRegistry($this->generatedBlockNamespaceFromOptions($options)));
+        $this->session->installGeneratedBlockRegistry(new GeneratedBlockRegistry(TransformOptions::generatedBlockNamespaceFromOptions($options)));
         $this->session->installAssetMaterializationState(new AssetMaterializationState(
             trim((string) ($options['generated_asset_root'] ?? ''), '/'),
-            $this->assetMetadataFromOptions($options)
+            TransformOptions::assetMetadataFromOptions($options)
         ));
         $this->session->configurePolicy(! empty($options['extract_global_shell']), ! empty($options['fallback_reduction_mode']));
         $this->session->runtimeBehaviorState()->installRuntimeScriptMetadata($this->runtimeIslands->runtimeScriptMetadataFromOptions($options));
@@ -1753,11 +1755,11 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $readableMarkup = '';
         foreach ($fallbacks as $fallback) {
             if ( is_array($fallback['readable_blocks'] ?? null) && array() !== $fallback['readable_blocks'] ) {
-                $readableMarkup .= $this->runtime->serializeBlocks(self::withoutDefaultCommentAttributes($fallback['readable_blocks']));
+                $readableMarkup .= $this->runtime->serializeBlocks(DefaultCommentAttributes::strip($fallback['readable_blocks']));
             }
         }
         $this->fallbackBindings->anchorPurchaseControlRuns($blocks, $fallbacks);
-        $serializedBlocks = $this->runtime->serializeBlocks(self::withoutDefaultCommentAttributes($blocks));
+        $serializedBlocks = $this->runtime->serializeBlocks(DefaultCommentAttributes::strip($blocks));
         $this->fallbackBindings->finalize($fallbacks, $blocks, $serializedBlocks);
         $reusableComponentRecognition = $this->session->reusableComponentState()->report($this->session->assetMaterializationState()->assets());
         // Resolve against emitted blocks while the existing source provenance
@@ -5041,39 +5043,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $blocks;
     }
 
-    /**
-     * Comment attributes whose value is the block's registered default. The
-     * block editor leaves these out of saved markup, so emitting them makes
-     * converted markup differ from what WordPress itself saves for the same
-     * block. Mirrors each block's block.json default.
-     */
-    private const DEFAULT_COMMENT_ATTRIBUTES = array(
-        'core/table' => array( 'hasFixedLayout' => true ),
-    );
-
-    /**
-     * @param list<array<string, mixed>> $blocks
-     * @return list<array<string, mixed>>
-     */
-    private static function withoutDefaultCommentAttributes(array $blocks): array
-    {
-        $strip = static function (array $block) use (&$strip): array {
-            $defaults = self::DEFAULT_COMMENT_ATTRIBUTES[ (string) ($block['blockName'] ?? '') ] ?? array();
-            if ( is_array($block['attrs'] ?? null) ) {
-                foreach ( $defaults as $name => $default ) {
-                    if ( array_key_exists($name, $block['attrs']) && $default === $block['attrs'][ $name ] ) {
-                        unset($block['attrs'][ $name ]);
-                    }
-                }
-            }
-            if ( is_array($block['innerBlocks'] ?? null) ) {
-                $block['innerBlocks'] = array_map($strip, $block['innerBlocks']);
-            }
-            return $block;
-        };
-        return array_map($strip, $blocks);
-    }
-
     /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed> */
     private function decomposeStructuralList(DOMElement $list, array &$fallbacks): array
     {
@@ -5189,19 +5158,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     }
 
     /**
-     * Resolve the generated custom-block namespace from transform options,
-     * defaulting to a generic namespace for standalone transforms.
-     *
-     * @param array<string, mixed> $options
-     */
-    private function generatedBlockNamespaceFromOptions(array $options): string
-    {
-        $namespace = is_scalar($options['generated_block_namespace'] ?? null) ? trim((string) $options['generated_block_namespace']) : '';
-
-        return '' !== $namespace ? $namespace : 'custom';
-    }
-
-    /**
      * @return array<int, array<string, mixed>>
      */
     private function elementContains(DOMElement $ancestor, DOMElement $element): bool
@@ -5269,50 +5225,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         return $this->layoutShells->blockForElements(array($button), $children, $button);
-    }
-
-    /**
-     * Propagate a card-link wrapper's href onto a core/image block via its
-     * native link attributes (href/linkDestination/linkTarget/rel). An image
-     * that already carries its own link is left untouched.
-     *
-     * @param array<string, mixed> $block
-     * @param array<string, string> $linkAttrs
-     */
-    /**
-     * Rebuild a converted block with updated attributes so its innerHTML and
-     * innerContent stay consistent with the stored attrs after an in-place edit
-     * (e.g. a propagated link). Engine metadata the materializer attached —
-     * source-provenance linkage and editability ownership — is preserved; no new
-     * provenance is recorded for the rebuild.
-     *
-     * @param array<string, mixed> $block
-     * @param array<string, mixed> $attrs
-     * @return array<string, mixed>
-     */
-    /**
-     * @param array<string, mixed> $options
-     * @return array<string, array<string, mixed>>
-     */
-    private function assetMetadataFromOptions(array $options): array
-    {
-        $metadata = array();
-
-        foreach ( array( $options['provenance'] ?? null, $options['context'] ?? null, $options ) as $container ) {
-            if ( ! is_array($container) || ! isset($container['asset_metadata']) || ! is_array($container['asset_metadata']) ) {
-                continue;
-            }
-
-            foreach ( $container['asset_metadata'] as $path => $asset ) {
-                if ( ! is_string($path) || '' === trim($path) || ! is_array($asset) ) {
-                    continue;
-                }
-
-                $metadata[trim($path)] = $asset;
-            }
-        }
-
-        return $metadata;
     }
 
 }
