@@ -635,7 +635,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             fn (DOMElement $element): bool => $this->ownsPositioningGeometry($element),
             fn (DOMElement $element, array &$fallbacks): ?array => $this->positionedInlineCarrierBlock($element, $fallbacks),
             fn (DOMElement $element): bool => $this->hasAuthorSemanticMarker($element),
-            fn (DOMElement $element): string => $this->richTextMarkerForElement($element),
+            $this->authorLayoutOwnership->richTextMarker(...),
             $this->listStructure,
             fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element),
             fn (DOMElement $element): array => $this->emptyVisualSpacers->emptyVisualSpacerBlock($element),
@@ -3207,19 +3207,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $this->authorLayoutOwnership->isRichTextInlineContext($element);
     }
 
-    private function richTextMarkerForElement(DOMElement $element): string
-    {
-        $marker = trim(SourceDom::attr($element, 'data-blocks-engine-richtext-marker'));
-        if ( '' !== $marker ) {
-            return $marker;
-        }
-
-        return $this->session->authorSelectorProjectionState()->richTextMarker(SourceDom::sourceElementIdentity($element));
-    }
-
     public function richTextMarker(DOMElement $element): string
     {
-        return $this->richTextMarkerForElement($element);
+        return $this->authorLayoutOwnership->richTextMarker($element);
     }
 
     /**
@@ -3898,7 +3888,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private function hasRichTextMarkedDescendant(DOMElement $element): bool
     {
         foreach ( $element->getElementsByTagName('span') as $span ) {
-            if ( $span instanceof DOMElement && '' !== $this->richTextMarkerForElement($span) && ! $this->shouldPreserveEmptyVisualElement($span) ) {
+            if ( $span instanceof DOMElement && '' !== $this->richTextMarker($span) && ! $this->shouldPreserveEmptyVisualElement($span) ) {
                 return true;
             }
         }

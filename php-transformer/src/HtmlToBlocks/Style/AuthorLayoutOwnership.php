@@ -459,7 +459,7 @@ final class AuthorLayoutOwnership
         return false;
     }
 
-    private function richTextMarker(DOMElement $element): string
+    public function richTextMarker(DOMElement $element): string
     {
         $marker = trim(SourceDom::attr($element, 'data-blocks-engine-richtext-marker'));
         return '' !== $marker ? $marker : $this->session->authorSelectorProjectionState()->richTextMarker(SourceDom::sourceElementIdentity($element));
