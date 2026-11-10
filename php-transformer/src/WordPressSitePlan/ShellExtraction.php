@@ -278,6 +278,9 @@ final class ShellExtraction
      */
     public function withSharedFooterTrailingChrome(array $originals, array $pages, array $parts, array $declarations, array $records = array(), array $assets = array()): array
     {
+        $receivedDeclarations = $declarations;
+        $receivedRecords = $records;
+        $moved = false;
         // Composition can supply content-addressed entities. Edit their resolved
         // values here, then rebuild their records without changing storage form.
         $manifestIndexes = array();
@@ -290,8 +293,8 @@ final class ShellExtraction
         unset($declaration);
         $this->resolveManifestEntities($declarations, $records);
         foreach ($parts as $partIndex => $part) {
-            if ('footer' !== ($part['area'] ?? null) || 'shared_shell' !== ($part['placement']['kind'] ?? null)) continue;
-            $sources = array_keys($part['provenance']['sources'] ?? array());
+            if ('footer' !== ($part['area'] ?? null) || !in_array($part['placement']['kind'] ?? null, array('shared_shell', 'inline_shared_shell'), true)) continue;
+            $sources = 'inline_shared_shell' === $part['placement']['kind'] ? ($part['placement']['source_paths'] ?? array()) : array_keys($part['provenance']['sources'] ?? array());
             $evidence = array();
             foreach ($originals as $original) {
                 if (!in_array($original['source_path'], $sources, true)) continue;
@@ -302,9 +305,18 @@ final class ShellExtraction
                     $scope = self::responsiveVariantClass($row) ?? '';
                     foreach ($nodes as $id => $node) {
                         if ($node['offset'] !== $row['offset'] || $node['end'] !== $row['offset'] + $row['length']) continue;
-                        $siblings = null === $node['parent'] ? self::topLevelNodeIds($nodes) : $nodes[$node['parent']]['children'];
-                        $position = array_search($id, $siblings, true);
-                        foreach (array_slice($siblings, $position + 1) as $tailPosition => $tailId) {
+                        // A footer can end a wrapper whose next sibling is the
+                        // chrome. Climb only through last-child ancestors, so we
+                        // never skip intervening blocks in document order.
+                        $cursor = $id;
+                        do {
+                            $parent = $nodes[$cursor]['parent'];
+                            $siblings = null === $parent ? self::topLevelNodeIds($nodes) : $nodes[$parent]['children'];
+                            $position = array_search($cursor, $siblings, true);
+                            $following = array_slice($siblings, $position + 1);
+                            $cursor = $parent;
+                        } while (array() === $following && null !== $cursor);
+                        foreach ($following as $tailPosition => $tailId) {
                             $tail = $nodes[$tailId];
                             $range = array('offset' => $tail['offset'], 'length' => $tail['end'] - $tail['offset']);
                             $bindings = $this->runtimeBindingsInRanges($declarations, $original, array($range));
@@ -375,6 +387,8 @@ final class ShellExtraction
                 }
                 if ('' !== $trailing) $insertions[$row['offset'] + $row['length']] = $trailing;
             }
+            if (array() === $insertions) continue;
+            $moved = true;
             krsort($insertions, SORT_NUMERIC);
             foreach ($insertions as $offset => $content) $partMarkup = substr_replace($partMarkup, $content, $offset, 0);
             $combined = array('keep' => array(), 'drop' => array());
@@ -389,6 +403,7 @@ final class ShellExtraction
             $parts[$partIndex]['canonical_block_markup'] = $partMarkup;
             $parts[$partIndex]['content_hash'] = WordPressSitePlan::contentHash($partMarkup);
         }
+        if (!$moved) return array('pages' => $pages, 'parts' => $parts, 'runtime_declarations' => $receivedDeclarations, 'runtime_entity_records' => $receivedRecords);
         foreach ($manifestIndexes as $declarationIndex) {
             $payload = $declarations[$declarationIndex]['payload'];
             $manifest = RuntimeEntityManifest::fromEntities($payload['schema'], $payload['entities']);

@@ -12,6 +12,46 @@ use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction;
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
 };
+// Exercise the real compiler placement: the footer ends a wrapper and the
+// overlay follows that wrapper, rather than being a sibling of the landmark.
+$compileInline = static function (string $mode): array {
+    $files = array();
+    foreach (array('index', 'about', 'team') as $slug) {
+        $overlay = 'absent' === $mode ? '' : '<div class="newsletter-overlay"><p>Newsletter ' . ('varying' === $mode ? $slug : 'shared') . '</p></div>';
+        $files[$slug . '.html'] = '<html><body><div id="siteWrapper"><header><p>Studio</p></header><main><h1>' . $slug . '</h1></main><footer><p>Copyright Studio</p></footer></div>' . $overlay . '</body></html>';
+    }
+    return (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray()['source_reports']['wordpress_site_plan'];
+};
+$inlinePlan = $compileInline('shared');
+$inlineFooters = array_values(array_filter($inlinePlan['template_parts'], static fn(array $part): bool => 'footer' === ($part['area'] ?? null)));
+$assert(1 === count($inlineFooters), 'The compiled routes share one footer part.');
+$assert('inline_shared_shell' === $inlineFooters[0]['placement']['kind'], 'The compiler fixture exercises inline_shared_shell placement.');
+$assert(1 === substr_count($inlineFooters[0]['canonical_block_markup'], 'Newsletter shared'), 'The inline footer owns exactly one overlay following its wrapper.');
+$assert(3 === count($inlinePlan['pages']), 'All three compiled routes are checked.');
+foreach ($inlinePlan['pages'] as $page) {
+    $assert(!str_contains($page['canonical_block_markup'], 'newsletter-overlay'), 'No compiled route retains the inline footer overlay.');
+}
+WordPressSitePlan::assertValid($inlinePlan);
+
+$absentPlan = $compileInline('absent');
+$varyingPlan = $compileInline('varying');
+$assert($absentPlan['templates'] === $varyingPlan['templates'], 'A no-op does not inline shell copies or grow template markup.');
+$assert($absentPlan['template_parts'] === $varyingPlan['template_parts'], 'A no-op preserves part markup and content_hash exactly.');
+foreach ($varyingPlan['pages'] as $page) {
+    $assert(str_contains($page['canonical_block_markup'], 'newsletter-overlay'), 'Varying overlays stay in every route.');
+}
+// Re-running a pass that cannot move anything preserves even noncanonical
+// hashes and manifest-backed declarations, rather than rewriting their storage.
+$noOpParts = $varyingPlan['template_parts'];
+foreach ($noOpParts as &$part) $part['content_hash'] = 'received-hash';
+unset($part);
+$noOp = (new ShellExtraction(new WordPressSitePlan()))->withSharedFooterTrailingChrome(
+    $varyingPlan['pages'], $varyingPlan['pages'], $noOpParts,
+    $varyingPlan['runtime_declarations'], $varyingPlan['runtime_entity_records']
+);
+$assert($varyingPlan['pages'] === $noOp['pages'] && $noOpParts === $noOp['parts'], 'A no-op returns pages and parts exactly as received.');
+$assert($varyingPlan['runtime_declarations'] === $noOp['runtime_declarations'] && $varyingPlan['runtime_entity_records'] === $noOp['runtime_entity_records'],  'A no-op returns declarations and records exactly as received.');
+
 $files = array();
 $css = '';
 foreach (array('index', 'about', 'team') as $number => $slug) {
