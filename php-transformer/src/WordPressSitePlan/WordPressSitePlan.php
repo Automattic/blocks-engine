@@ -26,6 +26,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\DeclarationCascade;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\Support\NativeListItemFallbackReconciler;
@@ -585,8 +586,8 @@ PHP;
         $liveElementMarkers = preg_match_all(self::ELEMENT_MARKER_PATTERN, (string) json_encode(array($emitted($pages), $emitted($parts), $frameParts, $shellFrames['frames'] ?? array(), $shells['runtime_declarations'] ?? array(), $runtimeEntityRecords)), $liveMatches) ? array_fill_keys($liveMatches[0], true) : array();
         $assets = self::projectSharedChromeStylesheets($assets, array_merge($parts, $frameParts), $pages, $references, $assetTargetCollisions, $liveElementMarkers);
         $assets = self::withoutDeadElementMarkerSelectors($assets, $liveElementMarkers);
-        // Removing dead selectors can consume a support sheet's last rule.
-        $assets = array_values(array_filter($assets, static fn(array $asset): bool => !in_array($asset['source'] ?? '', array('engine-support', 'editor-static-state'), true) || !is_string($asset['content'] ?? null) || '' !== trim($asset['content'])));
+        // Removing dead selectors can consume a generated sheet's last rule.
+        $assets = array_values(array_filter($assets, static fn(array $asset): bool => !in_array($asset['source'] ?? '', array('engine-support', 'editor-static-state', 'wordpress-compat'), true) || !is_string($asset['content'] ?? null) || '' !== trim($asset['content'])));
         foreach ($assetTargetCollisions as $collision) $this->recordUnitFinding(array(
             'code' => 'wordpress_site_plan_colliding_asset_target',
             'unit' => 'asset',
@@ -2499,10 +2500,13 @@ PHP;
                 if (array() === $declarations) return;
                 foreach (CssStylesheetTransformer::splitSelectorList($selector) ?? array($selector) as $item) {
                     $key = trim($item) . "\0" . $body;
-                    if (!isset($rules[$key])) $rules[$key] = array(CssSelectorMatcher::parse(trim($item)), $declarations);
+                    if (!isset($rules[$key])) $rules[$key] = array('parsed_selector' => CssSelectorMatcher::parse(trim($item)), 'declarations' => $declarations);
                 }
             });
         }
+        // Each hooked element repeats on every page; only rules whose subject
+        // compound can match it need the full matcher.
+        $index = CssSubjectIndex::build(array_values($rules));
         $result = array();
         foreach ($pages as $page) {
             $document = new \DOMDocument();
@@ -2515,7 +2519,7 @@ PHP;
                 }
                 if ('' === $hook) continue;
                 $declarationSets = array(CssRuleAnalyzer::declarations($element->getAttribute('style'), $properties));
-                foreach ($rules as [$selector, $declarations]) if (CssSelectorMatcher::matches($element, $selector, true)['matches']) $declarationSets[] = $declarations;
+                foreach (CssSubjectIndex::entries($element, $index) as $entry) if (CssSelectorMatcher::matches($element, $entry['rule']['parsed_selector'], true)['matches']) $declarationSets[] = $entry['rule']['declarations'];
                 $absolute = false; $unsafe = false;
                 foreach ($declarationSets as $declarations) {
                     foreach ($declarations as $declaration) {
@@ -3252,7 +3256,7 @@ PHP;
      * activation, ...) is the delivery contract two page stylesheets must
      * share before one file can serve both.
      */
-    private const PAGE_STYLESHEET_IDENTITY_FIELDS = array('source_path', 'target_path', 'token', 'reconciliation_identity', 'scopes', 'stylesheet_instances', 'references');
+    private const PAGE_STYLESHEET_IDENTITY_FIELDS = array('source_path', 'target_path', 'token', 'reconciliation_identity', 'scopes', 'stylesheet_instances', 'references', 'frame_fallback');
 
     /**
      * Page-scoped stylesheets with identical bytes and delivery contract
@@ -3328,7 +3332,7 @@ PHP;
             $source = (string) ($asset['source_path'] ?? '');
             // Projection can empty distinct generated resources. Empty bytes
             // are not evidence that those resource identities are equivalent.
-            $pages = 'css' === ($asset['kind'] ?? null) && is_string($asset['content'] ?? null) && '' !== trim($asset['content']) && !isset($asset['payload_reference']) && !isset($asset['content_base64']) && empty($asset['frame_fallback']) && !isset($parents[$source]) && !isset($named[(string) ($asset['token'] ?? '')]) && !isset($named[strtolower(basename((string) ($asset['target_path'] ?? '')))]) && !isset($named[strtolower(basename($source))]) ? $pagesOf($asset) : null;
+            $pages = 'css' === ($asset['kind'] ?? null) && is_string($asset['content'] ?? null) && '' !== trim($asset['content']) && !isset($asset['payload_reference']) && !isset($asset['content_base64']) && !isset($parents[$source]) && !isset($named[(string) ($asset['token'] ?? '')]) && !isset($named[strtolower(basename((string) ($asset['target_path'] ?? '')))]) && !isset($named[strtolower(basename($source))]) ? $pagesOf($asset) : null;
             if (null === $pages || array() === $pages) {
                 $merged[] = $asset;
                 continue;
@@ -3342,6 +3346,13 @@ PHP;
                 if (array() !== array_intersect_key($pagesOf($head) ?? array(), $pages)) continue;
                 // Moving this copy up to the head must not pass any resource
                 // the same page enqueues in the same run or source position.
+                // A frame fallback copy also styles native routes no document
+                // owns; there it must not pass a resource those routes load.
+                if (!empty($asset['frame_fallback'])) {
+                    for ($between = $position + 1, $count = count($merged); $between < $count; ++$between) {
+                        if ('css' === ($merged[$between]['kind'] ?? null) && (null === $pagesOf($merged[$between]) || !empty($merged[$between]['frame_fallback']))) continue 2;
+                    }
+                }
                 foreach (array_keys($pages) as $page) {
                     $own = $placement($asset, (string) $page);
                     if (null === $own) continue;
@@ -3352,6 +3363,7 @@ PHP;
                     }
                 }
                 $head['scopes'] = array_merge($head['scopes'], $asset['scopes']);
+                if (!empty($asset['frame_fallback'])) $head['frame_fallback'] = true;
                 if (isset($asset['stylesheet_instances']) || isset($head['stylesheet_instances'])) $head['stylesheet_instances'] = array_merge($head['stylesheet_instances'] ?? array(), $asset['stylesheet_instances'] ?? array());
                 if (isset($asset['references']) || isset($head['references'])) $head['references'] = self::mergedReferences(is_array($head['references'] ?? null) ? $head['references'] : array(), is_array($asset['references'] ?? null) ? $asset['references'] : array());
                 $merged[$position] = $head;
