@@ -1021,7 +1021,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             capturePseudoFormFallback: function (DOMElement $element, array &$fallbacks): void { $this->formDispatcher->capturePseudoFormFallback($element, $fallbacks); },
             recognizePatterns: fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => $this->recognizePatterns($element, $fallbacks, $patterns),
             flankedSeparatorBlock: fn (DOMElement $element): ?array => $this->flankedSeparators->blockFromElement($element),
-            canCaptureExternalSvgFragmentDependency: fn (DOMElement $element): bool => ! $this->runtimeIslands->isRuntimeDomTarget($element) && ! $this->hasRuntimeTargetInSubtree($element),
+            canCaptureExternalSvgFragmentDependency: fn (DOMElement $element): bool => ! $this->runtimeIslands->isRuntimeDomTarget($element) && ! $this->runtimeIslands->hasRuntimeTargetInSubtree($element),
             sourceElementClassifier: $this->sourceElementClassifier,
             responsiveMediaBlock: fn (DOMElement $element): array => $this->imageLowering->responsiveMediaBlock($element),
             authorLayoutOwnership: $this->authorLayoutOwnership,
@@ -5735,33 +5735,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             array(),
             $element
         );
-    }
-
-    private function hasRuntimeTargetInSubtree(DOMElement $element): bool
-    {
-        foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement && $this->isDeclaredRuntimeDomTarget($descendant) ) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private function isDeclaredRuntimeDomTarget(DOMElement $element): bool
-    {
-        foreach (array_keys($this->session->runtimeSelectorState()->domSelectors()) as $selector) {
-            if (str_starts_with((string) $selector, '#') && substr((string) $selector, 1) === $this->attr($element, 'id')) {
-                return true;
-            }
-            if (str_starts_with((string) $selector, '.') && in_array(substr((string) $selector, 1), $this->classNames($element), true)) {
-                return true;
-            }
-            if ($this->runtimeIslands->elementMatchesRuntimeSelector($element, (string) $selector)) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**
