@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\HeadlessChrome;
 
 require_once dirname(__DIR__, 2) . '/vendor/autoload.php';
 
@@ -85,7 +86,7 @@ const result = {
 document.body.innerHTML = "<pre id=measurement>" + JSON.stringify(result) + "</pre>";
 </script></body></html>';
         file_put_contents($directory . '/fixture.html', $document);
-        $command = 'TMPDIR=/tmp ' . escapeshellarg($chrome) . ' --headless --no-sandbox --disable-gpu --no-proxy-server --user-data-dir=' . escapeshellarg($directory . '/profile')
+        $command = HeadlessChrome::tmpdirPrefix() . escapeshellarg($chrome) . ' --headless --no-sandbox --disable-gpu --no-proxy-server --user-data-dir=' . escapeshellarg($directory . '/profile')
             . ' --window-size=' . $width . ',800 --dump-dom ' . escapeshellarg('file://' . $directory . '/fixture.html') . ' 2>/dev/null';
         exec($command, $lines, $exitCode);
         $dom = implode("\n", $lines);

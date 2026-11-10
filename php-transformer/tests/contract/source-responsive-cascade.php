@@ -3,6 +3,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\HeadlessChrome;
 
 $assert = static function (bool $ok, string $message): void {
     if (!$ok) throw new RuntimeException($message);
@@ -76,7 +77,7 @@ try {
 <script>onload=()=>{document.body.dataset.result=JSON.stringify([...document.querySelectorAll('body>iframe')].map(f=>{const d=f.contentDocument,w=f.contentWindow;return ['nav','a[href="/start"]','.frame','.padding-frame','.media-grid','.media-grid img'].map(q=>{const e=d.querySelector(q),s=w.getComputedStyle(e);return [s.display,s.width,s.height,s.paddingTop,s.paddingRight,s.paddingBottom,s.paddingLeft,s.columnGap,s.opacity,s.letterSpacing,s.gridTemplateColumns,s.color,s.backgroundColor,s.objectFit,s.position]})}))}</script>
 JS;
         file_put_contents($file, $html);
-        $output = shell_exec('TMPDIR=/tmp ' . escapeshellarg($chrome) . ' --headless --no-sandbox --disable-gpu --user-data-dir=' . escapeshellarg($profile) . ' --dump-dom --virtual-time-budget=2000 ' . escapeshellarg('file://' . $file) . ' 2>/dev/null');
+        $output = shell_exec(HeadlessChrome::tmpdirPrefix() . escapeshellarg($chrome) . ' --headless --no-sandbox --disable-gpu --user-data-dir=' . escapeshellarg($profile) . ' --dump-dom --virtual-time-budget=2000 ' . escapeshellarg('file://' . $file) . ' 2>/dev/null');
         preg_match('/data-result="([^"]+)"/', (string) $output, $data);
         $styles = json_decode(html_entity_decode($data[1] ?? '', ENT_QUOTES), true);
         $assert(2 === count($styles ?? array()), 'Browser measured source and public output at ' . $width);

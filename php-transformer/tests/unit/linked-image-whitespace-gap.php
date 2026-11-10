@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\HeadlessChrome;
 
 // Reduced page from #3449: five 51px icons, 10px author margins, and
 // whitespace in the parent's 13px Arial (not the link's font).
@@ -80,7 +81,7 @@ JS;
     $file .= '.html';
     try {
         file_put_contents($file, $document);
-        $output = shell_exec('TMPDIR=/tmp ' . escapeshellarg($chrome) . ' --headless --no-sandbox --disable-gpu --allow-file-access-from-files --virtual-time-budget=2000 --dump-dom ' . escapeshellarg('file://' . $file) . ' 2>/dev/null');
+        $output = shell_exec(HeadlessChrome::tmpdirPrefix() . escapeshellarg($chrome) . ' --headless --no-sandbox --disable-gpu --allow-file-access-from-files --virtual-time-budget=2000 --dump-dom ' . escapeshellarg('file://' . $file) . ' 2>/dev/null');
         if (!preg_match('/<pre id="measurements">(.*?)<\/pre>/s', (string) $output, $match)) throw new RuntimeException('Browser did not report measurements.');
         $boxes = json_decode(html_entity_decode($match[1]), true, 512, JSON_THROW_ON_ERROR);
         foreach (array('source', 'native') as $role) {
