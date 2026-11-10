@@ -321,6 +321,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly Elements\LinkCarrierLowering $linkCarriers;
     private readonly Elements\NamePriceRowLowering $namePriceRows;
     private readonly Elements\MediaGalleryLowering $mediaGalleries;
+    private readonly Elements\ParagraphImageUnwrapping $paragraphImages;
     private readonly SourceProvenance $sourceProvenance;
 
     private readonly RuntimeResourceElementConverter $runtimeResourceConverter;
@@ -626,6 +627,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         );
         $this->syntheticImageFigureFlow = new Elements\SyntheticImageFigureFlow($this->styleResolver, $this->sourceElementClassifier, $this->tableClassificationPolicy, $this->layoutTables);
         $this->definitionLists = new Elements\DefinitionListLowering($this, $this->runtime, $this->styleResolver);
+        $this->paragraphImages = new Elements\ParagraphImageUnwrapping($this->session, $this->styleResolver, $this->blockFactory, $this->imageLowering, $this->anchors, fn (DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array => $this->convertPictureElement($picture, $figure, $link));
         $this->structuredCardLists = new Elements\StructuredCardListLowering(
             $this,
             $this->styleResolver,
@@ -642,7 +644,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 fn (DOMElement $element): bool => $this->listStructure->isStructuralListItem($element),
                 fn (DOMElement $element): bool => $this->requiresIndependentSemanticWrapper($element),
                 fn (DOMElement $table): bool => $this->isRepresentableTable($table),
-                fn (DOMElement $element): bool => 'p' === strtolower($element->tagName) && $this->paragraphImageChild($element) instanceof DOMElement
+                fn (DOMElement $element): bool => 'p' === strtolower($element->tagName) && $this->paragraphImages->paragraphImageChild($element) instanceof DOMElement
             ),
             $this->stylesheetAnalysisComposer,
             $this->styleResolver,
@@ -1334,7 +1336,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             fn (DOMElement $element): bool => $this->hasEmptyVisualInlineChild($element),
             fn (DOMElement $element): bool => $this->hasBoxChromeWrapperStyling($element),
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
-            fn (DOMElement $element): ?array => $this->unwrappedParagraphImageBlock($element),
+            fn (DOMElement $element): ?array => $this->paragraphImages->unwrappedParagraphImageBlock($element),
             function (DOMElement $element, array &$fallbacks): ?array {
                 return $this->anchors->mixedMediaLinkGroupFromParagraph($element, $fallbacks);
             },
@@ -5336,111 +5338,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
 
     /**
-     * The image block a paragraph unwraps into keeps the paragraph's selector
-     * identity, so rules that matched the paragraph in the source (type,
-     * structural position, its box) still reach the block that replaced it.
-     *
-     * @return array<string, mixed>|null
-     */
-    private function unwrappedParagraphImageBlock(DOMElement $paragraph, bool $ignoreLineBreaks = false): ?array
-    {
-        $block = $this->imageBlockFromParagraph($paragraph, $ignoreLineBreaks);
-        if ( null === $block ) {
-            return null;
-        }
-        $path = $paragraph->getNodePath() ?? '';
-        $projections = $this->session->authorSelectorProjectionState();
-        $attrs = $block['attrs'];
-        $attrs['className'] = $this->mergeClassNames(
-            (string) ( $attrs['className'] ?? '' ),
-            ...$projections->semanticCarrierClasses($projections->ensureSemanticMarker($path), $path)
-        );
-        if ( $this->paragraphImageSetsLineBox($paragraph, $ignoreLineBreaks) ) {
-            $attrs['className'] = $this->mergeClassNames((string) $attrs['className'], SourceBlockAttributeProjector::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS);
-        }
-
-        return $this->blockFactory->rebuild($block, $attrs);
-    }
-
-    /**
-     * An inline image with an authored vertical margin sizes its paragraph's
-     * line box: the margin sits inside the paragraph and never collapses with
-     * its siblings. A blockified image would let that margin collapse through
-     * the figure, so the figure keeps the image on a line instead.
-     */
-    private function paragraphImageSetsLineBox(DOMElement $paragraph, bool $ignoreLineBreaks = false): bool
-    {
-        $child = $this->paragraphImageChild($paragraph, $ignoreLineBreaks);
-        $image = $child instanceof DOMElement && 'img' === strtolower($child->tagName) ? $child : $child?->getElementsByTagName('img')->item(0);
-        if ( ! $image instanceof DOMElement
-            || ! in_array($this->styleResolver->resolvedDeclaration($image, 'display'), array( '', 'inline', 'inline-block' ), true)
-            || ! in_array($this->styleResolver->resolvedDeclaration($image, 'float'), array( '', 'none' ), true)
-            || ! in_array($this->styleResolver->resolvedDeclaration($image, 'position'), array( '', 'static', 'relative' ), true) ) {
-            return false;
-        }
-        foreach ( $this->resolvedVerticalMargins($image) as $value ) {
-            if ( '' !== $value && ! in_array($value, array( '0', '0px', 'auto' ), true) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * The element's resolved top and bottom margins, from the `margin`
-     * shorthand or its longhands, whichever the cascade declared last.
-     *
-     * @return array{top: string, bottom: string}
-     */
-    private function resolvedVerticalMargins(DOMElement $element): array
-    {
-        $margins = array( 'top' => '', 'bottom' => '' );
-        foreach ( $this->styleResolver->resolvedPresentationDeclarations($element) as $property => $value ) {
-            $value = strtolower(trim(CssValueInspector::withoutImportant((string) $value)));
-            if ( 'margin' === $property ) {
-                [ $top, , $bottom ] = CssValueInspector::expandBoxShorthand($value);
-                $margins = array( 'top' => $top, 'bottom' => $bottom );
-            } elseif ( 'margin-top' === $property || 'margin-bottom' === $property ) {
-                $margins[ substr($property, 7) ] = $value;
-            }
-        }
-
-        return $margins;
-    }
-
-    /**
-     * Route a paragraph containing a single image (or image-only link) through
-     * the existing core/image primitive. Passive inline marks around that image
-     * add no text formatting to preserve. Mixed content and multiple images
-     * remain on the paragraph RichText route.
-     *
-     * @return array<string, mixed>|null
-     */
-    private function imageBlockFromParagraph(DOMElement $paragraph, bool $ignoreLineBreaks = false): ?array
-    {
-        $child = $this->paragraphImageChild($paragraph, $ignoreLineBreaks);
-        if ( ! $child instanceof DOMElement ) {
-            return null;
-        }
-
-        $tagName = strtolower($child->tagName);
-        if ( 'img' === $tagName ) {
-            return $this->imageLowering->convertImage($child);
-        }
-        if ( 'picture' === $tagName ) {
-            return $this->convertPictureElement($child);
-        }
-
-        if ( '' !== LinkUrlSanitizer::sanitize($this->attr($child, 'href')) ) {
-            return $this->anchors->imageBlockFromAnchor($child);
-        }
-
-        $image = $this->firstChildElement($child, 'img');
-        return $image instanceof DOMElement ? $this->imageLowering->convertImage($image) : null;
-    }
-
-    /**
      * A heading or paragraph with no text carries no text semantics, so its
      * one iframe (or custom iframe element) lowers as the standalone embed it
      * visually is (#4303, #4666). A heading's image, picture or image-only
@@ -5469,7 +5366,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return null;
         }
 
-        return $this->unwrappedParagraphImageBlock($element, true);
+        return $this->paragraphImages->unwrappedParagraphImageBlock($element, true);
     }
 
     /** The element's text content, ignoring `<br>` line breaks and whitespace. */
@@ -5501,44 +5398,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         return $sole;
-    }
-
-    /**
-     * The image, picture or image-only anchor a paragraph wraps on its own
-     * (through passive inline marks), which unwraps the paragraph into a
-     * core/image block instead of a paragraph.
-     */
-    private function paragraphImageChild(DOMElement $paragraph, bool $ignoreLineBreaks = false): ?DOMElement
-    {
-        $child = null;
-        foreach ( $paragraph->childNodes as $node ) {
-            if ( $node instanceof DOMElement ) {
-                if ( $ignoreLineBreaks && 'br' === strtolower($node->tagName) ) {
-                    continue;
-                }
-                if ( $child instanceof DOMElement ) {
-                    return null;
-                }
-                $child = $node;
-                continue;
-            }
-            if ( '' !== trim($node->textContent ?? '') ) {
-                return null;
-            }
-        }
-
-        if ( ! $child instanceof DOMElement ) {
-            return null;
-        }
-        if ( SourceDom::isInlineImageMark($child) ) {
-            return $this->paragraphImageChild($child, $ignoreLineBreaks);
-        }
-        $tagName = strtolower($child->tagName);
-        if ( in_array($tagName, array( 'img', 'picture' ), true) || ( 'a' === $tagName && $this->imageLowering->isImageOnlyAnchor($child) ) ) {
-            return $child;
-        }
-
-        return null;
     }
 
 
