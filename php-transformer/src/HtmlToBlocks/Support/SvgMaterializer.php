@@ -1424,7 +1424,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             $recognized[$id] = ($recognized[$id] ?? 0) + 1;
         }
         foreach (array_keys($names) as $id) {
-            if (preg_match_all('/(?<![\w-])' . preg_quote($id, '/') . '(?![\w-])/', $html) !== ($recognized[$id] ?? 0)) return $html;
+            if (preg_match_all('/(?<![\w-])' . preg_quote((string) $id, '/') . '(?![\w-])/', $html) !== ($recognized[$id] ?? 0)) return $html;
         }
         return preg_replace_callback('/' . $reference . '/i', static function (array $match) use ($names): string {
             if ('' !== ($match[2] ?? '')) return isset($names[$match[2]]) ? ' id=' . $match[1] . $names[$match[2]] . $match[1] : $match[0];
