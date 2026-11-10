@@ -699,6 +699,7 @@ final class PresetBinding
         $addClasses = $dropClasses = array();
         $bound = 0;
         $style = $attributes->style ?? new \stdClass();
+        $deviceOverridden = $this->deviceOverriddenProperties($attributes, $declarations);
 
         $variation = $isLink && null !== $this->system->buttonVariationSlug() && $this->matchesButtonVariation($style);
         $buttonLook = $isLink && (isset($this->system->elements['button']) || $variation);
@@ -750,6 +751,9 @@ final class PresetBinding
         );
         foreach ($presets as $key => [$attribute, $property, $observedProperty, $flagClass, $presetClass]) {
             if (isset($attributes->{$attribute})) continue;
+            // A core preset class is !important and would mask the value the
+            // device-inline runtime writes for another device.
+            if (isset($deviceOverridden[$property]) || ('background' === $key && isset($deviceOverridden['background']))) continue;
             $literal = $style->color->{$key} ?? null;
             if ($buttonLook && null === $literal && $this->matchesButtonElement($property, (string) ($observed[$observedProperty] ?? ''))) continue;
             if (is_string($literal) && str_starts_with($literal, 'var:')) continue;
@@ -843,6 +847,7 @@ final class PresetBinding
             // declarations. A core size class is !important and would freeze
             // it at one step; bind its stylesheet declarations instead.
             if ('fontSize' === $key && str_contains($classes, 'blocks-engine-responsive-typography-')) continue;
+            if (isset($deviceOverridden[$property])) continue;
             $literal = $style->typography->{$key} ?? null;
             if (is_string($literal) && str_starts_with($literal, 'var:')) continue;
             if (!is_string($literal) && !in_array($key, $supports, true)) continue;
@@ -2075,6 +2080,31 @@ final class PresetBinding
     }
 
     /** @return list<array{0:string,1:string}> */
+    /**
+     * Properties whose value another device document writes inline through
+     * capture device-inline evidence. They stay inline declarations, which
+     * the runtime's per-device style can replace.
+     *
+     * @param list<array{0:string,1:string}> $declarations
+     * @return array<string, true>
+     */
+    private function deviceOverriddenProperties(\stdClass $attributes, array $declarations): array
+    {
+        $evidence = $attributes->metadata->blocksEngineRuntimeAttributes->{CaptureEvidence::DEVICE_INLINE} ?? null;
+        $devices = is_string($evidence) ? json_decode($evidence, true) : null;
+        if (!is_array($devices)) return array();
+        $base = array_column($declarations, 1, 0);
+        $overridden = array();
+        foreach ($devices as $deviceStyle) {
+            if (!is_string($deviceStyle)) continue;
+            $device = array_column(self::declarations($deviceStyle), 1, 0);
+            foreach (array_keys($base + $device) as $property) {
+                if (($base[$property] ?? null) !== ($device[$property] ?? null)) $overridden[$property] = true;
+            }
+        }
+        return $overridden;
+    }
+
     private static function declarations(string $style): array
     {
         $declarations = array();
