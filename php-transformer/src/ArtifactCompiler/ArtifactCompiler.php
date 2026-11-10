@@ -1188,7 +1188,9 @@ final class ArtifactCompiler
         $detailPages = array();
         $entryRoot = dirname($entryPath);
         $pageEvidence = array();
-        $schemaProducts = SchemaProductEvidence::rows($files, $slug, $price, $diagnostics, $productRoutes, $pageProducts, $detailPages, '.' === $entryRoot ? '' : $entryRoot, $pageEvidence);
+        $schemaProducts = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer::sourceHasPurchaseAffordance($files)
+            ? SchemaProductEvidence::rows($files, $slug, $price, $diagnostics, $productRoutes, $pageProducts, $detailPages, '.' === $entryRoot ? '' : $entryRoot, $pageEvidence)
+            : array();
         // Match the plan's page route, including explicit routes and entry roots.
         $pageRoutes = array();
         foreach ($files as $file) {
@@ -1908,6 +1910,7 @@ final class ArtifactCompiler
             'source'                    => $sourcePath,
             'source_scope'              => $sourceScope,
             'native_document_context'   => true,
+            'source_has_purchase_affordance' => \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer::sourceHasPurchaseAffordance($files),
             'declarative_state_html'    => $html,
             'static_css'                => trim(implode("\n", array_column($stylesheetPayloads, 'content'))),
             'stylesheet_payloads'       => $stylesheetPayloads,
