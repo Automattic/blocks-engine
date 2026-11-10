@@ -62,4 +62,17 @@ $assert(! str_contains($absent['serialized_blocks'], '<a '), 'an empty link with
 $worded = $transform('<style>.tint{color:red}</style><main><p>Read <span class="tint">this</span> now</p></main>');
 $assert(! str_contains($worded['serialized_blocks'], 'has-inline-color'), 'a carrier with text does not need the format class', $worded['serialized_blocks']);
 
+// The format class keeps an empty icon in RichText; it must not stop the
+// icon's colour from binding to the theme palette, as it did before.
+$tinted = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'style.css' => ':root{--brand:#e11d48}body{color:#111;background:#fff}.cta{background:var(--brand);color:#fff}.icon{display:inline-block;width:1em;height:1em;color:var(--brand)}.icon::before{content:"v"}',
+    'index.html' => '<!doctype html><html><head><link rel="stylesheet" href="style.css"></head><body><main><p>Body copy</p><a class="cta" href="/a">Go</a><div><a class="prev" href="" aria-label="Previous"><i class="icon"></i></a></div><p>Read <span class="icon"></span> this</p></main></body></html>',
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$tintedTheme = array();
+foreach ( $tinted['writes'] as $write ) if ( 'theme.json' === $write['target_path'] ) $tintedTheme = json_decode($write['payload']['data'], true, 512, JSON_THROW_ON_ERROR);
+$brand = (string) array_search('#e11d48', array_column($tintedTheme['settings']['color']['palette'] ?? array(), 'color', 'slug'), true);
+$tintedMarkup = implode('', array_column($tinted['pages'], 'canonical_block_markup'));
+$assert('' !== $brand && 2 === preg_match_all('/<mark [^>]*class="has-inline-color has-' . $brand . '-color icon\b/', $tintedMarkup), 'a coloured empty icon binds to its palette colour', $tintedMarkup);
+$assert(! str_contains($tintedMarkup, 'color:var(--brand)'), 'a bound empty icon keeps no literal colour', $tintedMarkup);
+
 echo "OK: empty-href icon links ({$assertions} assertions)\n";
