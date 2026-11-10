@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\HeadlessChrome;
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
@@ -139,9 +140,7 @@ if ('' !== $chrome) {
                 foreach ($documents as $doc) $html .= '<iframe style="border:0;width:' . $width . 'px;height:500px" srcdoc="' . htmlspecialchars('<!doctype html>' . $doc, ENT_QUOTES) . '"></iframe>';
                 $html .= '<script>onload=()=>{document.body.dataset.result=JSON.stringify([...document.querySelectorAll("iframe")].map(f=>{const a=[...f.contentDocument.querySelectorAll("header a")].find(a=>a.textContent==="Contact us");const s=f.contentWindow.getComputedStyle(a);return [s.color,s.backgroundColor,s.paddingTop,s.paddingRight,s.paddingBottom,s.paddingLeft,s.borderRadius,s.opacity,s.borderTopWidth,s.borderRightWidth,s.borderBottomWidth,s.borderLeftWidth,s.fontFamily,s.fontSize,s.fontWeight,s.lineHeight,s.textTransform,s.textAlign,s.boxShadow]}))}</script>';
                 file_put_contents($file, $html);
-                // Chrome creates its process-singleton socket under TMPDIR.
-                // Workspace-scoped temp paths can exceed Unix socket limits.
-                $output = shell_exec('TMPDIR=/tmp ' . escapeshellarg($chrome) . ' --headless --no-sandbox --disable-gpu --user-data-dir=' . escapeshellarg($profile) . ' --dump-dom --virtual-time-budget=1000 --window-size=' . $width . ',900 ' . escapeshellarg('file://' . $file) . ' 2>/dev/null');
+                $output = shell_exec(HeadlessChrome::tmpdirPrefix() . escapeshellarg($chrome) . ' --headless --no-sandbox --disable-gpu --user-data-dir=' . escapeshellarg($profile) . ' --dump-dom --virtual-time-budget=1000 --window-size=' . $width . ',900 ' . escapeshellarg('file://' . $file) . ' 2>/dev/null');
                 preg_match('/data-result="([^"]+)"/', (string) $output, $data);
                 $styles = json_decode(html_entity_decode($data[1] ?? '', ENT_QUOTES), true);
                 $assert(4 === count($styles ?? array()), 'Browser measured source, per-page baseline, frontend and editor at ' . $width);
