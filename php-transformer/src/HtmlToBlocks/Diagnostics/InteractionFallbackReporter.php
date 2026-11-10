@@ -78,15 +78,15 @@ final class InteractionFallbackReporter
     private function interactionCandidatesForElement(DOMElement $element): array
     {
         $tagName = strtolower($element->tagName);
-        $role = strtolower($this->attr($element, 'role'));
-        $classes = strtolower($this->attr($element, 'class'));
-        $id = strtolower($this->attr($element, 'id'));
+        $role = strtolower(SourceDom::attr($element, 'role'));
+        $classes = strtolower(SourceDom::attr($element, 'class'));
+        $id = strtolower(SourceDom::attr($element, 'id'));
         $data = SourceDom::safeDataAttributes($element);
         $dataText = strtolower(implode(' ', array_merge(array_keys($data), array_values($data))));
         $nameText = trim($classes . ' ' . $id . ' ' . $dataText);
         $events = SourceDom::eventMetadata($element);
         $actionDataAttributes = array_keys(array_filter($data, static fn (string $value, string $name): bool => preg_match('/^data-(?:action|on|event)$/i', $name) && '' !== trim($value), ARRAY_FILTER_USE_BOTH));
-        $hasAriaControl = '' !== trim($this->attr($element, 'aria-controls')) || '' !== trim($this->attr($element, 'aria-expanded'));
+        $hasAriaControl = '' !== trim(SourceDom::attr($element, 'aria-controls')) || '' !== trim(SourceDom::attr($element, 'aria-expanded'));
         $candidates = array();
 
         if ( 'details' === $tagName ) {
@@ -119,11 +119,11 @@ final class InteractionFallbackReporter
         }
 
         if ( in_array($role, array('tablist', 'tab', 'tabpanel'), true) ) {
-            $candidates[] = $this->interactionCandidate($element, 'tabs', 'tab' === $role ? 'tab_select' : $role, $this->controlledTarget($element), array_filter(array('role:' . $role, '' !== $this->attr($element, 'aria-controls') ? 'aria-controls' : '')), 'high', 'tab_state');
+            $candidates[] = $this->interactionCandidate($element, 'tabs', 'tab' === $role ? 'tab_select' : $role, $this->controlledTarget($element), array_filter(array('role:' . $role, '' !== SourceDom::attr($element, 'aria-controls') ? 'aria-controls' : '')), 'high', 'tab_state');
         }
 
-        if ( ( in_array($tagName, array('button', 'a'), true) || '' !== $role ) && ( preg_match('/(?:^|[\s_-])accordion(?:$|[\s_-])/', $nameText) || ( $hasAriaControl && 'tab' !== $role && '' !== trim($this->attr($element, 'aria-expanded')) ) ) ) {
-            $candidates[] = $this->interactionCandidate($element, 'accordion', $this->controlTrigger($element, $events), $this->controlledTarget($element), array_filter(array('accordion_like', '' !== $this->attr($element, 'aria-expanded') ? 'aria-expanded' : '', '' !== $this->attr($element, 'aria-controls') ? 'aria-controls' : '')), 'medium', 'accordion_state');
+        if ( ( in_array($tagName, array('button', 'a'), true) || '' !== $role ) && ( preg_match('/(?:^|[\s_-])accordion(?:$|[\s_-])/', $nameText) || ( $hasAriaControl && 'tab' !== $role && '' !== trim(SourceDom::attr($element, 'aria-expanded')) ) ) ) {
+            $candidates[] = $this->interactionCandidate($element, 'accordion', $this->controlTrigger($element, $events), $this->controlledTarget($element), array_filter(array('accordion_like', '' !== SourceDom::attr($element, 'aria-expanded') ? 'aria-expanded' : '', '' !== SourceDom::attr($element, 'aria-controls') ? 'aria-controls' : '')), 'medium', 'accordion_state');
         }
 
         return $candidates;
@@ -179,13 +179,13 @@ final class InteractionFallbackReporter
                 continue;
             }
 
-            $key = strtolower($element->tagName) . '|' . $this->elementSelector($element);
+            $key = strtolower($element->tagName) . '|' . SourceDom::elementSelector($element);
             if ( isset($seen[$key]) ) {
                 continue;
             }
             $seen[$key] = true;
 
-            $boundedHtml = $this->boundedFallbackHtml(SourceDom::safeFallbackHtml($element, $this->authorSelectorProjections()->tagMarkers()));
+            $boundedHtml = SourceDom::boundedFallbackHtml(SourceDom::safeFallbackHtml($element, $this->authorSelectorProjections()->tagMarkers()));
             $fallbacks[] = FallbackDiagnostic::build(array_filter(array(
                 'type'                => 'html',
                 'reason'              => 'interactive_control_behavior_lost',
@@ -193,8 +193,8 @@ final class InteractionFallbackReporter
                 'message'             => 'An interactive control was converted to a static block, so its source behavior is no longer wired to any runtime.',
                 'source_format'       => 'html',
                 'tag'                 => strtolower($element->tagName),
-                'selector'            => $this->elementSelector($element),
-                'attributes'          => $this->htmlAttributes($element),
+                'selector'            => SourceDom::elementSelector($element),
+                'attributes'          => SourceDom::htmlAttributes($element),
                 'context'             => $this->sourceElementDescription->sourceContext($element),
                 'events'              => SourceDom::eventMetadata($element),
                 'interaction_signals' => $signals,
@@ -222,7 +222,7 @@ final class InteractionFallbackReporter
             return false;
         }
 
-        if ( $this->hasAncestorTag($element, array( 'svg' )) ) {
+        if ( SourceDom::hasAncestorTag($element, array( 'svg' )) ) {
             return false;
         }
 
@@ -251,7 +251,7 @@ final class InteractionFallbackReporter
             return false;
         }
 
-        if ( $this->hasAncestorTag($element, array( 'form' )) ) {
+        if ( SourceDom::hasAncestorTag($element, array( 'form' )) ) {
             return false;
         }
 
@@ -277,7 +277,7 @@ final class InteractionFallbackReporter
         }
 
         foreach ( array( 'aria-controls', 'aria-expanded', 'aria-haspopup' ) as $ariaAttribute ) {
-            if ( '' !== trim($this->attr($element, $ariaAttribute)) ) {
+            if ( '' !== trim(SourceDom::attr($element, $ariaAttribute)) ) {
                 $evidence[] = $ariaAttribute;
             }
         }
@@ -291,8 +291,8 @@ final class InteractionFallbackReporter
             }
         }
 
-        if ( 'button' === strtolower($this->attr($element, 'role')) && 'button' !== $tagName ) {
-            $href = 'a' === $tagName ? LinkUrlSanitizer::sanitize($this->attr($element, 'href')) : '';
+        if ( 'button' === strtolower(SourceDom::attr($element, 'role')) && 'button' !== $tagName ) {
+            $href = 'a' === $tagName ? LinkUrlSanitizer::sanitize(SourceDom::attr($element, 'href')) : '';
             if ( '' === $href ) {
                 $evidence[] = 'role=button';
             }
@@ -334,8 +334,8 @@ final class InteractionFallbackReporter
             return false;
         }
 
-        $hasDisclosureState = '' !== trim($this->attr($element, 'aria-expanded'))
-            || '' !== trim($this->attr($element, 'aria-controls'));
+        $hasDisclosureState = '' !== trim(SourceDom::attr($element, 'aria-expanded'))
+            || '' !== trim(SourceDom::attr($element, 'aria-controls'));
         if ( ! $hasDisclosureState ) {
             return false;
         }
@@ -351,7 +351,7 @@ final class InteractionFallbackReporter
 
     private function isPreservedRuntimeIslandElement(DOMElement $element): bool
     {
-        $selector = $this->runtimeIslandSelector($element);
+        $selector = SourceDom::runtimeIslandSelector($element);
         return $this->runtimeDom()->hasIslandSelector($selector);
     }
 
@@ -363,7 +363,7 @@ final class InteractionFallbackReporter
     {
         return array_filter(
             array(
-                'selector'                => $this->elementSelector($element),
+                'selector'                => SourceDom::elementSelector($element),
                 'kind'                    => $kind,
                 'trigger'                 => $trigger,
                 'target'                  => $target,
@@ -378,13 +378,13 @@ final class InteractionFallbackReporter
 
     private function targetForElement(DOMElement $element): string
     {
-        $id = trim($this->attr($element, 'id'));
-        return '' !== $id ? '#' . $id : $this->elementSelector($element);
+        $id = trim(SourceDom::attr($element, 'id'));
+        return '' !== $id ? '#' . $id : SourceDom::elementSelector($element);
     }
 
     private function controlledTarget(DOMElement $element): string
     {
-        $target = trim($this->attr($element, 'aria-controls'));
+        $target = trim(SourceDom::attr($element, 'aria-controls'));
         return '' !== $target ? '#' . ltrim($target, '#') : $this->targetForElement($element);
     }
 
@@ -397,7 +397,7 @@ final class InteractionFallbackReporter
             return (string) ($events[0]['type'] ?? 'event');
         }
 
-        $type = strtolower($this->attr($element, 'type'));
+        $type = strtolower(SourceDom::attr($element, 'type'));
         return 'submit' === $type ? 'submit' : 'click';
     }
 
@@ -418,10 +418,10 @@ final class InteractionFallbackReporter
         foreach ( $actionDataAttributes as $attribute ) {
             $evidence[] = $attribute;
         }
-        if ( '' !== trim($this->attr($element, 'aria-controls')) ) {
+        if ( '' !== trim(SourceDom::attr($element, 'aria-controls')) ) {
             $evidence[] = 'aria-controls';
         }
-        if ( '' !== trim($this->attr($element, 'aria-expanded')) ) {
+        if ( '' !== trim(SourceDom::attr($element, 'aria-expanded')) ) {
             $evidence[] = 'aria-expanded';
         }
 
@@ -430,12 +430,12 @@ final class InteractionFallbackReporter
 
     private function modalTriggerHint(DOMElement $element): string
     {
-        return '' !== trim($this->attr($element, 'open')) ? 'open' : 'show';
+        return '' !== trim(SourceDom::attr($element, 'open')) ? 'open' : 'show';
     }
 
     private function carouselTriggerHint(DOMElement $element): string
     {
-        return preg_match('/(?:^|[\s_-])(?:next|prev|previous)(?:$|[\s_-])/', strtolower($this->attr($element, 'class'))) ? 'advance' : 'slide';
+        return preg_match('/(?:^|[\s_-])(?:next|prev|previous)(?:$|[\s_-])/', strtolower(SourceDom::attr($element, 'class'))) ? 'advance' : 'slide';
     }
 
     private function materializationHintForInteractionKind(string $kind): string
