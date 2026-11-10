@@ -117,15 +117,15 @@ final class WrapperCoalescer
         $candidate = $this->collectWrapperChain($block, $depth);
         $chain = $candidate['chain'];
         $terminal = $candidate['terminal'];
-        // A div chain around core content already has a native representation:
-        // nested core/group wrappers keep every id and class, editable with
-        // core tools. A freeform terminal is only a traversal sentinel: all of
-        // its children replace it on save, regardless of their block names.
-        // Branching into headings, paragraphs or template parts must not make
-        // otherwise native wrappers require a companion block.
+        // Preserve bounded branch compression, but keep long native div
+        // chains editable when they fit the depth budget. Freeform is only
+        // a traversal sentinel: its children occupy its saved position.
+        // Empty runtime targets still need their existing shell transport.
         $terminalName = (string) ($terminal['blockName'] ?? '');
-        $nativeGroupTree = ('core/freeform' === $terminalName
-            || (str_starts_with($terminalName, 'core/') && 'core/html' !== $terminalName))
+        $nativeGroupTree = (('core/freeform' === $terminalName
+                && (array() !== array_filter($terminal['innerBlocks'] ?? array(), static fn (array $child): bool => 'core/group' === ($child['blockName'] ?? null))
+                    || (4 <= count($chain) && array() !== ($terminal['innerBlocks'] ?? array()))))
+            || (str_starts_with($terminalName, 'core/') && !in_array($terminalName, array('core/freeform', 'core/html'), true)))
             && array() === array_filter($chain, static fn (array $entry): bool => 'div' !== ($entry['descriptor']['tagName'] ?? null))
             && $depth + count($chain) - 1 + $this->nativeBlockHeight($terminal) <= EditabilityPolicy::THRESHOLDS['max_nesting_depth'];
         $terminalIsShell = $this->sourceElementClassifier->isLayoutShellBlock($terminal);
@@ -133,6 +133,18 @@ final class WrapperCoalescer
             return $this->foldWrapperChain($chain, $terminal);
         }
 
+        if ($nativeGroupTree && array() !== $chain) {
+            // Reuse the already-normalized terminal. Rewalking suffixes of a
+            // native chain would compress them under a different chain length.
+            $children = 'core/freeform' === $terminalName ? $terminal['innerBlocks'] : array($terminal);
+            foreach (array_reverse($chain) as $entry) {
+                $wrapper = $entry['block'];
+                $wrapper['innerBlocks'] = $children;
+                $wrapper['_wrapper_normalization_boundary'] = 'single_wrapper';
+                $children = array($wrapper);
+            }
+            return $children[0];
+        }
         if (array() !== $chain) {
             $block['_wrapper_normalization_boundary'] = 'single_wrapper';
         } elseif (null !== $candidate['boundary']) {

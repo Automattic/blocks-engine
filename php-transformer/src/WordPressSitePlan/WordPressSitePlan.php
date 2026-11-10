@@ -7160,8 +7160,18 @@ PHP;
             // device markers, stylesheet-set titles and disabled states.
             $lines[] = "add_filter( 'css_do_concat', static function ( \$do_concat, \$handle ) use ( \$blocks_engine_stylesheet_attributes ) { return isset( \$blocks_engine_stylesheet_attributes[ \$handle ] ) ? false : \$do_concat; }, 10, 2 );";
         }
+        // Shared templates need late URL resolution only for their own
+        // references. Including the entire asset catalog here resurrects tokens
+        // for pruned images and makes functions.php impossible to materialize.
         $templateAssetTokens = array();
-        foreach (array_merge($templates, $parts) as $document) if (str_contains((string) ($document['canonical_block_markup'] ?? ''), self::TOKEN_PREFIX)) foreach ($tokens as $token) if (is_string($token['token'] ?? null) && is_string($token['target_path'] ?? null)) $templateAssetTokens[self::TOKEN_PREFIX . $token['token'] . '}}'] = $token['target_path'];
+        foreach (array_merge($templates, $parts) as $document) {
+            $markup = (string) ($document['canonical_block_markup'] ?? '');
+            foreach ($tokens as $token) {
+                if (!is_string($token['token'] ?? null) || !is_string($token['target_path'] ?? null)) continue;
+                $reference = self::TOKEN_PREFIX . $token['token'] . '}}';
+                if (str_contains($markup, $reference)) $templateAssetTokens[$reference] = $token['target_path'];
+            }
+        }
         if (array() !== $templateAssetTokens) {
             $lines[] = '$blocks_engine_template_asset_tokens = ' . var_export($templateAssetTokens, true) . ';';
             $lines[] = '$blocks_engine_template_attachment_ids = array();';
