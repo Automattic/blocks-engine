@@ -323,6 +323,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly Elements\NamePriceRowLowering $namePriceRows;
     private readonly Elements\MediaGalleryLowering $mediaGalleries;
     private readonly Elements\ParagraphImageUnwrapping $paragraphImages;
+    private readonly Elements\TextlessMediaLowering $textlessMedia;
     private readonly SourceProvenance $sourceProvenance;
 
     private readonly RuntimeResourceElementConverter $runtimeResourceConverter;
@@ -974,6 +975,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             fn (DOMElement $element): bool => $this->sourceVisibility->startsHidden($element),
             $this->sourceElementDescription
         );
+        $this->textlessMedia = new Elements\TextlessMediaLowering($this->visualIframeGenerator, $this->paragraphImages);
         $this->customBlockGenerator = new CustomBlockGenerator(
             $this->sourceElementClassifier,
             $this->styleResolver,
@@ -1361,7 +1363,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             },
             fn (DOMElement $element): ?array => $this->decorativeTextSvgBlock($element),
             function (DOMElement $element, array &$fallbacks): ?array {
-                return $this->mediaBlockFromTextlessElement($element, $fallbacks);
+                return $this->textlessMedia->mediaBlockFromTextlessElement($element, $fallbacks);
             },
             fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element)
         );
@@ -5295,70 +5297,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         return $this->imageLowering->convertImage($image, $figure ?? $picture, $picture, $link);
-    }
-
-
-    /**
-     * A heading or paragraph with no text carries no text semantics, so its
-     * one iframe (or custom iframe element) lowers as the standalone embed it
-     * visually is (#4303, #4666). A heading's image, picture or image-only
-     * link takes the paragraph image route, keeping the heading's selector
-     * identity the way a text-less paragraph keeps its own. `<br>` line
-     * breaks and whitespace are not text; any other text keeps the heading's
-     * RichText image behavior (#3496).
-     *
-     * @param array<int, array<string, mixed>> $fallbacks
-     * @return array<string, mixed>|null
-     */
-    private function mediaBlockFromTextlessElement(DOMElement $element, array &$fallbacks): ?array
-    {
-        $media = $this->soleElementBesideLineBreaks($element);
-        if ( null === $media || '' !== trim($this->textBesideLineBreaks($element)) ) {
-            return null;
-        }
-
-        $tagName = strtolower($media->tagName);
-        if ( 'iframe' === $tagName || ( str_contains($tagName, '-') && 1 === preg_match('/(?:^|-)iframe(?:-|$)/', $tagName) ) ) {
-            return $this->visualIframeGenerator->convert($media, $fallbacks);
-        }
-        // Paragraph images keep their own stricter route, which leaves an
-        // image beside a `<br>` in RichText.
-        if ( 'p' === strtolower($element->tagName) ) {
-            return null;
-        }
-
-        return $this->paragraphImages->unwrappedParagraphImageBlock($element, true);
-    }
-
-    /** The element's text content, ignoring `<br>` line breaks and whitespace. */
-    private function textBesideLineBreaks(DOMElement $element): string
-    {
-        $text = '';
-        foreach ( $element->childNodes as $node ) {
-            if ( $node instanceof DOMElement && 'br' === strtolower($node->tagName) ) {
-                continue;
-            }
-            $text .= $node->textContent ?? '';
-        }
-
-        return trim($text);
-    }
-
-    /** The one non-`<br>` element child, or null when there is none or several. */
-    private function soleElementBesideLineBreaks(DOMElement $element): ?DOMElement
-    {
-        $sole = null;
-        foreach ( $element->childNodes as $node ) {
-            if ( ! $node instanceof DOMElement || 'br' === strtolower($node->tagName) ) {
-                continue;
-            }
-            if ( null !== $sole ) {
-                return null;
-            }
-            $sole = $node;
-        }
-
-        return $sole;
     }
 
 
