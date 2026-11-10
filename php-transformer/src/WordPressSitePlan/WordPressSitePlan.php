@@ -2932,6 +2932,7 @@ PHP;
         }
         $projected = array();
         $emittedShared = array();
+        $emittedSources = array();
         // A per-media copy exists only to lift chrome under its condition; the
         // authored payload it came from is still one asset with one target.
         $keptInline = array();
@@ -3062,6 +3063,15 @@ PHP;
                     $projected[$index] = $existing;
                     continue 3;
                 }
+            }
+            // Per-media copies of one inline stylesheet lift under different
+            // contracts, so they stay separate assets and need separate sources.
+            // Number repeats like target collisions; keep the .shared-chrome end.
+            $sharedSource = (string) $sharedAsset['source_path'];
+            $emittedSources[$sharedSource] = ($emittedSources[$sharedSource] ?? 0) + 1;
+            if (1 < $emittedSources[$sharedSource]) {
+                $sharedAsset['source_path'] = substr($sharedSource, 0, -strlen('.shared-chrome')) . '-' . $emittedSources[$sharedSource] . '.shared-chrome';
+                $sharedAsset['reconciliation_identity'] = self::identity('asset', $sharedAsset['source_path'], $sharedAsset['target_path']);
             }
             $sharedKey = strtolower((string) $sharedAsset['path']);
             if (isset($emittedShared[$sharedKey])) {
