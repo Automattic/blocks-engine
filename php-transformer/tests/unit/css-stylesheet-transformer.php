@@ -157,10 +157,17 @@ $assert(':where(.page-a){color:blue}@media (min-width:600px){.a-only{padding:1px
 $assert('.x{color:red}.y{color:blue}.x{color:red}' !== $transformer->concatenateWithoutRedundantRules(array('.x{color:red}.y{color:blue}', '.x{color:red}')) && '.y{color:blue}.x{color:red}' === $transformer->concatenateWithoutRedundantRules(array('.x{color:red}.y{color:blue}', '.x{color:red}')), 'the surviving copy is the last one, so it still overrides the rules between the copies');
 $assert('@media print{.x{color:red}}.x{color:red}' === $transformer->concatenateWithoutRedundantRules(array('@media print{.x{color:red}}', '.x{color:red}')), 'identical rules under different conditions are distinct');
 $assert('@layer base{.x{color:red}}@layer a, b;@layer base{.x{color:red}}@layer a, b;' === $transformer->concatenateWithoutRedundantRules(array('@layer base{.x{color:red}}@layer a, b;', '@layer base{.x{color:red}}@layer a, b;')), 'layer blocks and statements are never dropped, since first appearance fixes layer order');
+foreach ( array(
+    'named layer rules repeated later are dropped' => array(array('@layer base{.x{color:red}.y{color:green}}', '@layer base{.y{color:green}}'), '@layer base{.x{color:red}.y{color:green}}'),
+    'the rule that first names a layer is kept, so layer order is unchanged' => array(array('@layer base{.x{color:red}}@layer utilities{.x{color:blue}}', '@layer base{.x{color:red}}'), '@layer base{.x{color:red}}@layer utilities{.x{color:blue}}@layer base{.x{color:red}}'),
+    'anonymous layers stay whole' => array(array('@layer{.x{color:red}}', '@layer{.x{color:red}}'), '@layer{.x{color:red}}@layer{.x{color:red}}'),
+) as $label => [$sheets, $expected] ) {
+    $assert($expected === $transformer->concatenateWithoutRedundantRules($sheets), $label);
+}
 $assert(".x{color:red\n.x{color:red}" === $transformer->concatenateWithoutRedundantRules(array('.x{color:red', '.x{color:red}')), 'malformed input is concatenated unchanged');
 
 $assert('.a-only{color:blue}@media (min-width:600px){.wide-a{margin:1px}}' === $transformer->rulesAbsentFrom(array('.shared{color:red}.a-only{color:blue}@media (min-width:600px){.wide{margin:0}.wide-a{margin:1px}}', '.a-only{color:blue}'), array('.shared{color:red}@media (min-width:600px){.wide{margin:0}}')), 'only rules missing from the present stylesheets remain, once each, in order and inside their conditional groups');
-$assert('@layer base{.x{color:red}}' === $transformer->rulesAbsentFrom(array('@layer base{.x{color:red}}'), array('@layer base{.x{color:red}}')), 'layer blocks are never treated as already present');
+$assert('' === $transformer->rulesAbsentFrom(array('@layer base{.x{color:red}}'), array('@layer base{.x{color:red}}')), 'rules inside a named layer already present are omitted');
 $source = '.small{padding:20px}@media(min-width:768px){.wide{padding:32px}}';
 $projection = '.small:not(.control){padding:20px}@media(min-width:768px){.wide{padding:32px}}';
 $assert($projection === $transformer->rulesAbsentFrom(array($projection), array($source), true), 'a later page delta retains responsive rules after its rewritten base rule, preserving cascade order');

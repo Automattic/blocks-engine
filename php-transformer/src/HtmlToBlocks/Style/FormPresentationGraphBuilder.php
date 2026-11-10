@@ -598,7 +598,7 @@ final class FormPresentationGraphBuilder
                 break;
             }
             $row = array( 'index' => $index );
-            $roles = array( 'control' => $control, 'label' => $this->label($control) );
+            $roles = array( 'control' => $control, 'label' => FormControlLabel::element($control) );
             if ( null !== $this->requiredMarker && ($marker = ($this->requiredMarker)($control)) instanceof DOMElement ) {
                 $roles['required_marker'] = $marker;
                 $hasRequiredMarker = true;
@@ -1009,11 +1009,11 @@ final class FormPresentationGraphBuilder
         if ( isset($row['label']['styles']['margin_block_end']) || isset($row['label']['styles']['margin_bottom']) ) {
             return;
         }
-        if ( ! FormControlClassifier::isDataEntryControl($control) || ! $this->label($control) instanceof DOMElement ) {
+        if ( ! FormControlClassifier::isDataEntryControl($control) || ! FormControlLabel::element($control) instanceof DOMElement ) {
             return;
         }
         $parent = $control->parentNode;
-        if ( ! $parent instanceof DOMElement || $parent->isSameNode($this->label($control)) ) {
+        if ( ! $parent instanceof DOMElement || $parent->isSameNode(FormControlLabel::element($control)) ) {
             return;
         }
         $wrapper = null;
@@ -1453,7 +1453,7 @@ final class FormPresentationGraphBuilder
         $elements = $this->controls($form);
         foreach ( $this->controls($form) as $control ) {
             if (($carrier = self::soleTextCarrier($control)) instanceof DOMElement) $elements[] = $carrier;
-            $label = $this->label($control);
+            $label = FormControlLabel::element($control);
             if ( $label instanceof DOMElement ) $elements[] = $label;
             $excluded = array( $control );
             if ( null !== $this->requiredMarker && ($marker = ($this->requiredMarker)($control)) instanceof DOMElement ) {
@@ -1471,11 +1471,6 @@ final class FormPresentationGraphBuilder
             }
         }
         return $elements;
-    }
-
-    private function label(DOMElement $control): ?DOMElement
-    {
-        return FormControlLabel::element($control);
     }
 
     private function labelSide(DOMElement $control, DOMElement $svg): string

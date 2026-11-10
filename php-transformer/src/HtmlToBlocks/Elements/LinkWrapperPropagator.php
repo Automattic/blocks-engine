@@ -78,7 +78,7 @@ final class LinkWrapperPropagator
      */
     public function linkPropagationAttributes(DOMElement $anchor): array
     {
-        $href = LinkUrlSanitizer::sanitize($this->attr($anchor, 'href'));
+        $href = LinkUrlSanitizer::sanitize(SourceDom::attr($anchor, 'href'));
         if ( '' === $href ) {
             return array();
         }
@@ -90,8 +90,8 @@ final class LinkWrapperPropagator
 
         return array_filter(array(
             'href'           => $href,
-            'target'         => $this->attr($anchor, 'target'),
-            'rel'            => $this->attr($anchor, 'rel'),
+            'target'         => SourceDom::attr($anchor, 'target'),
+            'rel'            => SourceDom::attr($anchor, 'rel'),
             'textDecoration' => 'none' === $textDecoration ? 'none' : '',
             'color'          => $this->linkWrapperPaintsAuthoredTextColor($anchor) ? 'inherit' : '',
         ), static fn (string $value): bool => '' !== trim($value));
@@ -152,7 +152,7 @@ final class LinkWrapperPropagator
      */
     private function wrapperIdentityOwnsTextColor(DOMElement $anchor): bool
     {
-        $inline = $this->styleResolver->cssDeclarations($this->attr($anchor, 'style'));
+        $inline = $this->styleResolver->cssDeclarations(SourceDom::attr($anchor, 'style'));
         if ( $this->isPaintedColor((string) ($inline['color'] ?? '')) ) {
             return true;
         }
@@ -319,13 +319,13 @@ final class LinkWrapperPropagator
 
         $replacementAttrs = array_merge($attrs, array( 'content' => $wrapped ));
         if ( 'inherit' === (string) ($linkAttrs['color'] ?? '') ) {
-            $replacementAttrs['className'] = $this->mergeClassNames(
+            $replacementAttrs['className'] = SourceDom::mergeClassNames(
                 (string) ($replacementAttrs['className'] ?? ''),
                 self::PROPAGATED_LINK_COLOR_CARRIER_CLASS
             );
         }
         if ( 'none' === (string) ($linkAttrs['textDecoration'] ?? '') ) {
-            $replacementAttrs['className'] = $this->mergeClassNames(
+            $replacementAttrs['className'] = SourceDom::mergeClassNames(
                 (string) ($replacementAttrs['className'] ?? ''),
                 SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS
             );
@@ -341,7 +341,7 @@ final class LinkWrapperPropagator
         // not become the element's only layout child, or a flex/grid source
         // row collapses into the anchor's inline flow. Plain text is unaffected.
         if ( str_contains($content, '<') ) {
-            $replacementAttrs['className'] = $this->mergeClassNames(
+            $replacementAttrs['className'] = SourceDom::mergeClassNames(
                 (string) ($replacementAttrs['className'] ?? ''),
                 self::PROPAGATED_LINK_CARRIER_CLASS
             );
@@ -374,13 +374,4 @@ final class LinkWrapperPropagator
         return '<a' . $attributes . '>' . $content . '</a>';
     }
 
-    private function attr(DOMElement $element, string $name): string
-    {
-        return SourceDom::attr($element, $name);
-    }
-
-    private function mergeClassNames(string ...$classNames): string
-    {
-        return SourceDom::mergeClassNames(...$classNames);
-    }
 }

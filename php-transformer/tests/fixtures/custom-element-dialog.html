@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+<head>
+    <title>Dialog containers</title>
+</head>
+<body>
+    <header>
+        <button type="button" aria-controls="d" aria-expanded="false">Menu</button>
+        <side-drawer role="dialog" aria-modal="true" id="d" hidden>
+            <p>Browse pages</p>
+            <nav><ul><li><a href="/a">A</a></li></ul></nav>
+        </side-drawer>
+        <site-popover role="dialog">
+            <p>Find a page</p>
+            <form action="/search" method="get">
+                <label>Query <input type="text" name="q"></label>
+                <button type="submit">Search</button>
+            </form>
+        </site-popover>
+    </header>
+    <main><h1>Dialog containers</h1></main>
+</body>
+</html>

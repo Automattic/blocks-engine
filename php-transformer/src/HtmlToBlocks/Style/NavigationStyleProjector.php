@@ -209,7 +209,7 @@ final class NavigationStyleProjector
                     }
                     $replacement = $this->projectAnchorIds($selector, $ids);
                     if ( $replacement !== $selector ) {
-                        $projected[] = $replacement;
+                        $projected[] = $this->guardEditorAnchorRepair($replacement, $selector);
                         $transportSelector = $this->editorTemplatePartTransportSelector($selector, $ids);
                         if ( null !== $transportSelector ) {
                             $transported[] = $transportSelector;
@@ -236,6 +236,25 @@ final class NavigationStyleProjector
             }
         );
         return trim(implode("\n", $repairs));
+    }
+
+    /** Limit late repairs to subjects the original selector no longer reaches. */
+    private function guardEditorAnchorRepair(string $projected, string $original): string
+    {
+        $originalHost = CssSelectorMatcher::pseudoElementHost($original);
+        $projectedHost = CssSelectorMatcher::pseudoElementHost($projected);
+        $subject = $originalHost['selector'] ?? $original;
+        $parsed = $projectedHost['parsed'] ?? CssSelectorMatcher::parse($projected);
+        $end = $parsed['rightmost_rewrite_end'] ?? null;
+        if ( ! $parsed['supported'] || null === $end || ! CssSelectorMatcher::parse($subject)['supported'] ) {
+            // Unsupported selectors must retain their existing repair rather
+            // than losing styling merely because a guard cannot be placed.
+            return $projected;
+        }
+
+        // Keep the guard on the rightmost compound, before any state or
+        // pseudo-element suffix. :where() leaves author specificity intact.
+        return substr($projected, 0, $end) . ':where(:not(' . $subject . '))' . substr($projected, $end);
     }
 
     /**

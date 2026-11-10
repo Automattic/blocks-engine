@@ -6,17 +6,15 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorLayoutOwnership;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\TableClassificationPolicy;
-use Closure;
 use DOMElement;
-use DOMNode;
 
 /**
  * Lowers source layout tables (tables used for page layout rather than data)
@@ -27,16 +25,12 @@ final class LayoutTableLowering
 {
     private const LAYOUT_TABLE_COLUMNS_CLASS = 'blocks-engine-layout-table-columns';
 
-    /**
-     * @param Closure(DOMNode, array<int, array<string, mixed>>&, bool=): array<int, array<string, mixed>> $convertChildren
-     */
     public function __construct(
         private readonly SourceBlockCreator $blocks,
         private readonly HtmlTransformerSession $session,
         private readonly StyleResolver $styleResolver,
         private readonly BlockFactory $blockFactory,
-        private readonly AuthorLayoutOwnership $authorLayoutOwnership,
-        private readonly Closure $convertChildren
+        private readonly PatternTreeConverter $tree
     ) {
     }
 
@@ -94,7 +88,7 @@ final class LayoutTableLowering
             $attrs['width'] = $width;
         }
 
-        $table = $this->authorLayoutOwnership->ancestorElement($cell, 'table');
+        $table = SourceDom::ancestorElement($cell, 'table');
         if ($table instanceof DOMElement && $this->layoutTableUsesAutoTracks($table)) {
             $attrs = $this->layoutTablePresentationCarrier($cell, $attrs, 'cell');
         }
@@ -107,7 +101,7 @@ final class LayoutTableLowering
      */
     private function layoutTableCellBlocks(DOMElement $cell, array &$fallbacks): array
     {
-        $blocks = ($this->convertChildren)($cell, $fallbacks, true);
+        $blocks = $this->tree->children($cell, $fallbacks, true);
         // Bare cell text needs editable RichText, not a new paragraph box.
         // Authored paragraphs retain their own margins and display contracts.
         $bareText = array();
@@ -155,7 +149,7 @@ final class LayoutTableLowering
             }
         }
         if ('cell' === $role) {
-            $table = $this->authorLayoutOwnership->ancestorElement($element, 'table');
+            $table = SourceDom::ancestorElement($element, 'table');
             $padding = $table instanceof DOMElement ? trim(SourceDom::attr($table, 'cellpadding')) : '';
             if ('' !== $padding && is_numeric($padding)) {
                 $declarations[] = 'padding:' . $padding . 'px';
@@ -215,7 +209,7 @@ final class LayoutTableLowering
     private function layoutTableCellInlinePadding(DOMElement $cell): array
     {
         $default = '1px';
-        $table   = $this->authorLayoutOwnership->ancestorElement($cell, 'table');
+        $table   = SourceDom::ancestorElement($cell, 'table');
         if ( $table instanceof DOMElement ) {
             $cellpadding = trim(SourceDom::attr($table, 'cellpadding'));
             if ( '' !== $cellpadding && is_numeric($cellpadding) ) {
@@ -325,7 +319,7 @@ final class LayoutTableLowering
         // stays off. Rows stack only where the source collapses their cells.
         $attrs['isStackedOnMobile'] = false;
         $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::LAYOUT_TABLE_COLUMNS_CLASS);
-        $table = 'table' === strtolower($element->tagName) ? $element : $this->authorLayoutOwnership->ancestorElement($element, 'table');
+        $table = 'table' === strtolower($element->tagName) ? $element : SourceDom::ancestorElement($element, 'table');
         if ($table instanceof DOMElement && $this->layoutTableUsesAutoTracks($table)) {
             return $this->layoutTablePresentationCarrier($element, $attrs, 'table' === strtolower($element->tagName) ? 'table' : 'row');
         }
@@ -413,7 +407,7 @@ final class LayoutTableLowering
 
         $table = 'table' === strtolower($element->tagName)
             ? $element
-            : ( $this->authorLayoutOwnership->ancestorElement($element, 'table') ?? $element );
+            : ( SourceDom::ancestorElement($element, 'table') ?? $element );
         $declarations = $this->styleResolver->structuralPresentationDeclarations($table);
         if ( 'collapse' === CssValueInspector::comparable((string) ($declarations['border-collapse'] ?? '')) ) {
             return null;

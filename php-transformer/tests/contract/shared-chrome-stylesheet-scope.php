@@ -135,7 +135,7 @@ $published = $enqueues($plan);
 $frontCondition = 'is_front_page()';
 // Page routes match reconciliation identity first, with the canonical route
 // path as fallback; locate each block by that route comparison.
-$routeCondition = static fn(string $route): string => (string) (array_values(array_filter(array_keys($published['routes']), static fn(string $condition): bool => str_contains($condition, "'" . $route . "' === trim( get_page_uri( \$blocks_engine_page_id ), '/' )")))[0] ?? $route);
+$routeCondition = static fn(string $route): string => (string) (array_values(array_filter(array_keys($published['routes']), static fn(string $condition): bool => str_contains($condition, "'" . $route . "' === \$blocks_engine_page_uri")))[0] ?? $route);
 $aboutCondition = $routeCondition('guides/about');
 $teamCondition = $routeCondition('guides/team');
 foreach (array($frontCondition, $aboutCondition, $teamCondition) as $condition) {
@@ -164,8 +164,8 @@ $assert($routeMediaScoped, 'Route media rules retain their non-global cascade bo
 $malformed = (new ArtifactCompiler())->compile(array(
     'entrypoint' => 'index.html',
     'files' => array(
-        'index.html' => '<html><head><style>[data-chrome=grid]{display:flex}:is(.valid,.broken[foo="bar"){color:red}</style></head><body><header data-chrome="grid"><nav>Brand</nav></header><main>Home</main></body></html>',
-        'about.html' => '<html><head><style>[data-chrome=grid]{display:flex}:is(.valid,.broken[foo="bar"){color:red}</style></head><body><header data-chrome="grid"><nav>Brand</nav></header><main>About</main></body></html>',
+        'index.html' => '<html><head><style>[data-chrome=grid]{display:flex}.valid,.broken[foo=bar baz]{color:red}</style></head><body><header data-chrome="grid"><nav>Brand</nav></header><main>Home</main></body></html>',
+        'about.html' => '<html><head><style>[data-chrome=grid]{display:flex}.valid,.broken[foo=bar baz]{color:red}</style></head><body><header data-chrome="grid"><nav>Brand</nav></header><main>About</main></body></html>',
     ),
 ))->toArray()['source_reports']['wordpress_site_plan'] ?? array();
 $malformedGlobal = implode('\n', array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($malformed['assets'] ?? array(), static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null) && 'global' === ($asset['scopes'][0]['kind'] ?? null))));

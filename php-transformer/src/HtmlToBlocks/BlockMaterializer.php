@@ -20,6 +20,13 @@ final class BlockMaterializer
         private readonly RuntimeIslandAnalyzer $runtimeIslands
     ) {}
 
+    private bool $selectedDocumentVisibility = false;
+
+    public function configureDeviceVisibility(string $sourceHtml): void
+    {
+        $this->selectedDocumentVisibility = EngineMarker::usesSelectedDocumentVisibility($sourceHtml);
+    }
+
     /**
      * @param array<string, mixed>              $attrs
      * @param array<int, array<string, mixed>> $innerBlocks
@@ -41,7 +48,7 @@ final class BlockMaterializer
             $runtimeAttributes = $this->runtimeIslands->runtimeAttributesCarriedBy($sourceFacts->sourceElement, $name);
             // Capture presentation hooks survive independently of author runtime
             // targeting. The render filter restores them on native block roots.
-            foreach (array(CaptureEvidence::DEVICE_INLINE, CaptureEvidence::VIEWPORT_ENTRANCE, CaptureEvidence::RESPONSIVE_FRAGMENT) as $evidenceAttribute) {
+            foreach (array(CaptureEvidence::DEVICE_INLINE, CaptureEvidence::DEVICE_CLASS, CaptureEvidence::VIEWPORT_ENTRANCE, CaptureEvidence::RESPONSIVE_FRAGMENT) as $evidenceAttribute) {
                 if ($sourceFacts->sourceElement->hasAttribute($evidenceAttribute)) {
                     $runtimeAttributes[$evidenceAttribute] = $sourceFacts->sourceElement->getAttribute($evidenceAttribute);
                 }
@@ -50,11 +57,11 @@ final class BlockMaterializer
                 $attrs['metadata'][self::RUNTIME_ATTRIBUTES_KEY] = $runtimeAttributes;
             }
             if (str_starts_with($name, 'core/') && 'core/html' !== $name) {
-                $viewports = EngineMarker::deviceViewportVisibility($sourceFacts->sourceElement);
+                $viewports = EngineMarker::deviceViewportVisibility($sourceFacts->sourceElement, $this->selectedDocumentVisibility);
                 if (array() !== $viewports) {
                     $attrs['metadata']['blockVisibility']['viewport'] = $viewports;
                 }
-                $deviceClasses = EngineMarker::deviceVisibilityClasses($sourceFacts->sourceElement);
+                $deviceClasses = EngineMarker::deviceVisibilityClasses($sourceFacts->sourceElement, $this->selectedDocumentVisibility);
                 if (array() !== $deviceClasses) {
                     $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), implode(' ', $deviceClasses));
                 }

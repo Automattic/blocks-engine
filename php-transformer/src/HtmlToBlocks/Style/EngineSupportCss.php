@@ -53,6 +53,20 @@ final class EngineSupportCss
 
     private const CSS_OWNED_GRID_CLASS = 'blocks-engine-css-owned-grid';
 
+
+    /**
+     * Synthesized boxes whose zero-margin reset ({@see self::coreDefaultResetCss()})
+     * shares the flow revert's weight. Each converted document ships its own
+     * stylesheet, so a later document's revert would otherwise win by order.
+     */
+    private const ZERO_MARGIN_BOX_CLASSES = array(
+        SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS,
+        SourceBlockAttributeProjector::SYNTHETIC_EMBED_FIGURE_CLASS,
+        SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS,
+        SourceBlockAttributeProjector::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS,
+        HtmlCompilation::LOWERED_PARAGRAPH_CLASS,
+    );
+
     /**
      * @return list<string>
      */
@@ -155,7 +169,12 @@ final class EngineSupportCss
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS) ) {
             // The injected figure must pass the source's percentage height
             // through to its original containing block, not create an auto box.
-            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS . '){width:100%;height:100%}';
+            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS . '){width:100%;height:100%}'
+                // The source fill sizing addressed the <video>, but its
+                // projected rule lands on the figure. Fill the figure with the
+                // video so it keeps the source box (and object-fit letterbox)
+                // instead of its intrinsic aspect ratio.
+                . ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS . ')>video{width:100%;height:100%}';
         }
         if ( str_contains($serializedBlocks, '<video') ) {
             $parts[] = 'video{max-width:100%}';
@@ -239,7 +258,7 @@ final class EngineSupportCss
                 . ':root .editor-styles-wrapper :where(.' . self::CSS_OWNED_LAYOUT_CLASS . ')>div:not([class]):not([id]):not([style]):has(>[data-block].wp-block-group__placeholder){display:contents}';
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_FLOW_CLASS) ) {
-            $parts[] = ':root :where(.' . self::CSS_OWNED_FLOW_CLASS . '>p){margin-top:revert;margin-bottom:revert}';
+            $parts[] = ':root :where(.' . self::CSS_OWNED_FLOW_CLASS . '>p' . self::notZeroMarginBox() . '){margin-top:revert;margin-bottom:revert}';
         }
         if ( str_contains($serializedBlocks, ButtonLinkDispatcher::POSITIONED_FRAGMENT_LINK_CARRIER_CLASS) ) {
             // Positioned fragment links retain their source anchor and selectors;
@@ -250,6 +269,9 @@ final class EngineSupportCss
             // Empty labelled links have no intrinsic inline box. Fill the
             // paragraph host, whose saved block attributes carry source geometry.
             $parts[] = ':where(a.' . ButtonLinkDispatcher::ACCESSIBLE_EMPTY_LINK_CLASS . '){display:block;width:100%;height:100%;min-height:inherit}';
+        }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::INLINE_FLOW_WRAPPER_CLASS) ) {
+            $parts[] = ':where(.' . SourceBlockAttributeProjector::INLINE_FLOW_WRAPPER_CLASS . '){display:contents}';
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTONS_CLASS) ) {
             // A synthesized core/buttons wrapper is required for validity, but it
@@ -272,11 +294,13 @@ final class EngineSupportCss
             // descendant that still generates a box. See
             // LayoutParticipation::transferredItemDeclarations().
             $neutralButton = SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS;
+            $flexContainers = '.' . $neutralButton . '.flex,.' . $neutralButton . '.inline-flex';
             $rules = array(
                 '.' . $neutralButton => LayoutParticipation::transferredItemDeclarations(),
-                '.' . $neutralButton . '.flex,.' . $neutralButton . '.inline-flex' => LayoutParticipation::transferredFlexContainerDeclarations(),
+                $flexContainers => LayoutParticipation::transferredFlexContainerDeclarations(),
             );
-            $buttonCss = ':where(.' . $neutralButton . '){display:contents!important}';
+            $buttonCss = ':where(.' . $neutralButton . '){display:contents!important}'
+                . LayoutParticipation::transferredFlexContainerPaddingRule($flexContainers);
             foreach ( $rules as $selector => $declarations ) {
                 $axisRules = '';
                 foreach ( array( 'width' => 'fit-content', 'height' => 'auto' ) as $property => $default ) {
@@ -316,7 +340,7 @@ final class EngineSupportCss
             // Cancel Core's author-origin flow margins, not the source's UA
             // margins (notably p's 1em). Author CSS follows and remains in
             // control; synthesized boxes get their own zero-margin resets.
-            $parts[] = ':root :where(.wp-block-group.' . self::CSS_OWNED_FLOW_CLASS . ')>*{margin-block-start:revert;margin-block-end:revert}';
+            $parts[] = ':root :where(.wp-block-group.' . self::CSS_OWNED_FLOW_CLASS . '>*' . self::notZeroMarginBox() . '){margin-block-start:revert;margin-block-end:revert}';
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_GRID_CLASS) ) {
             // Core flow margins are not part of a source grid contract; the
@@ -392,6 +416,11 @@ final class EngineSupportCss
      *
      * @return list<string>
      */
+    private static function notZeroMarginBox(): string
+    {
+        return ':not(.' . implode(',.', self::ZERO_MARGIN_BOX_CLASSES) . ')';
+    }
+
     public function coreDefaultResetCss(string $serializedBlocks): array
     {
         $parts = array();

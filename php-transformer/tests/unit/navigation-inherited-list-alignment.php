@@ -40,11 +40,21 @@ foreach ( array( 'right' => 'right', 'center' => 'center', 'left' => null ) as $
         'center' => 'center',
         default => 'flex-start',
     };
-    if ( isset($navigation['attrs']['layout']['justifyContent'])
-        || ! preg_match('/@media\s*\(min-width:800px\)\{[^{}]+\{justify-content:' . $justify . '!important\}\}/', $css) ) {
+    // A media winner equal to the default packing (left) needs no projection.
+    $projected = 1 === preg_match('/@media\s*\(min-width:800px\)\{[^{}]+\{justify-content:' . $justify . '!important\}\}/', $css);
+    if ( isset($navigation['attrs']['layout']['justifyContent']) || ('left' !== $alignment) !== $projected ) {
         fwrite(STDERR, 'FAIL: media-scoped inherited ' . $alignment . ' navigation packing' . PHP_EOL);
         exit(1);
     }
+}
+
+// An ancestor media rule unrelated to alignment keeps the unconditioned packing
+// and adds no per-document marker, so shared chrome stays identical across pages.
+$unrelated = (new HtmlTransformer())->transform(str_replace(array('#header-right{text-align:left}', '</style>'), array('#header-right{text-align:right}', '@media (prefers-reduced-motion:no-preference){body{--motion:1}}</style>'), $html))->toArray();
+$navigation = $findNavigation($unrelated['blocks']);
+if ( 'right' !== ($navigation['attrs']['layout']['justifyContent'] ?? null) || str_contains(json_encode($unrelated), 'navigation-packing') ) {
+    fwrite(STDERR, 'FAIL: unrelated media rule changed navigation packing: ' . json_encode($navigation['attrs'] ?? array()) . PHP_EOL);
+    exit(1);
 }
 
 echo "Inherited navigation list alignment passed\n";

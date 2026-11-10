@@ -57,7 +57,7 @@ final class AuthoredButtonBlockGenerator
         foreach (iterator_to_array($svg->attributes) as $attribute) {
             if ($icon instanceof DOMElement && $isHostAttribute(strtolower($attribute->nodeName))) $icon->removeAttribute($attribute->nodeName);
         }
-        $html = $icon instanceof DOMElement ? self::safeMarkup(SourceDom::outerHtml($icon)) : '';
+        $html = $icon instanceof DOMElement ? SourceDom::safeFallbackHtmlString(SourceDom::outerHtml($icon)) : '';
         return array_filter(array(
             'tagName' => 'span',
             'type' => 'button',
@@ -478,7 +478,7 @@ JS;
     private static function partsFrom(DOMElement $element, int $depth): array
     {
         if ( $depth > 16 ) {
-            $html = self::safeMarkup(SourceDom::outerHtml($element));
+            $html = SourceDom::safeFallbackHtmlString(SourceDom::outerHtml($element));
 
             return '' === $html ? array() : array( array( 'html' => $html ) );
         }
@@ -496,7 +496,7 @@ JS;
             }
             $tag = strtolower($child->tagName);
             if ( ! in_array($tag, self::LABEL_TAGS, true) ) {
-                $html = self::safeMarkup(SourceDom::outerHtml($child));
+                $html = SourceDom::safeFallbackHtmlString(SourceDom::outerHtml($child));
                 if ( '' !== $html ) {
                     $parts[] = array( 'html' => $html );
                 }
@@ -513,7 +513,7 @@ JS;
                 continue;
             }
             if ( array() === $inner ) {
-                $html = self::safeMarkup(SourceDom::outerHtml($child));
+                $html = SourceDom::safeFallbackHtmlString(SourceDom::outerHtml($child));
                 if ( '' !== $html ) {
                     $parts[] = array( 'html' => $html );
                 }
@@ -542,11 +542,6 @@ JS;
         }
 
         return $attributes;
-    }
-
-    private static function safeMarkup(string $html): string
-    {
-        return SourceDom::safeFallbackHtmlString($html);
     }
 
     /** @return array<string, mixed> */

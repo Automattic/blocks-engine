@@ -93,6 +93,7 @@ $neutralButton = $css->beforeAuthorCss(SourceBlockAttributeProjector::LAYOUT_NEU
 $assert(1 === count($neutralButton), 'layout-neutral inner button wrapper emits one before-author rule');
 $assert(
     ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . '){display:contents!important}'
+        . LayoutParticipation::transferredFlexContainerPaddingRule('.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . '.flex,.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . '.inline-flex')
         . ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . ')>.wp-block-button__link{' . LayoutParticipation::transferredItemDeclarations() . '}'
         . ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . '.flex,.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . '.inline-flex)>.wp-block-button__link{' . LayoutParticipation::transferredFlexContainerDeclarations() . '}'
     === $neutralButton[0],

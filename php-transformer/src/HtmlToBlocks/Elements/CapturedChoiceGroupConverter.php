@@ -6,11 +6,11 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CapturedChoiceGroupBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredControlState;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
-use Closure;
 use DOMElement;
 use DOMDocument;
 use DOMXPath;
@@ -31,18 +31,15 @@ final class CapturedChoiceGroupConverter implements ElementConverter
      */
     private array $stateClones = array();
 
-    /**
-     * @param Closure(DOMElement, array<int, array<string, mixed>>&): array<int, array<string, mixed>> $convertChildren
-     */
     public function __construct(
         private readonly HtmlTransformerSession $session,
-        private readonly Closure $convertChildren,
+        private readonly PatternTreeConverter $tree,
         private readonly ?ElementPresentationResolver $presentation = null,
     ) {
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */
-    public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
         if ('true' !== SourceDom::attr($element, 'data-blocks-engine-choice-group')) {
             return ConversionOutcome::unhandled();
@@ -104,7 +101,7 @@ final class CapturedChoiceGroupConverter implements ElementConverter
             'ariaLabel' => trim(SourceDom::attr($element, 'aria-label')),
             'config' => $config,
         ), static fn(mixed $value): bool => '' !== $value);
-        $children = ($this->convertChildren)($element, $fallbacks);
+        $children = $this->tree->children($element, $fallbacks, true);
         if (array() !== $statePresentation['tokens']) {
             $children = $this->withoutStateClassTokens($children, $statePresentation['tokens']);
         }

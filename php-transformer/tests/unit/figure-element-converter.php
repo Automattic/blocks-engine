@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FigureElementCo
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FigureElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\PatternTreeFixture;
 
 $assertions = 0;
 $failures = array();
@@ -34,7 +35,7 @@ $context = new FigureElementContext(
         $calls[] = 'gallery';
         return 'gallery' === $mode ? array( 'blockName' => 'core/gallery' ) : null;
     },
-    static function (DOMElement $element, array &$fallbacks, array $patterns) use (&$mode, &$calls): ?array {
+    new PatternTreeFixture(static function (DOMElement $element, array &$fallbacks, array $patterns) use (&$mode, &$calls): ?array {
         $pattern = basename(str_replace('\\', '/', $patterns[0]));
         $calls[] = $pattern;
         if ( 'code' === $mode && 'CodeWindowPattern' === $pattern ) {
@@ -44,7 +45,7 @@ $context = new FigureElementContext(
             return array( 'blockName' => 'core/quote' );
         }
         return null;
-    },
+    }),
     static function (DOMElement $figure) use (&$mode, &$calls): ?DOMElement {
         $calls[] = 'linked';
         return str_starts_with($mode, 'linked-') ? $figure->getElementsByTagName('a')->item(0) : null;

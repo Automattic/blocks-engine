@@ -6,6 +6,7 @@ require __DIR__ . '/../../vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DetailsElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DetailsElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\PatternTreeFixture;
 
 $assertions = 0;
 $failures = array();
@@ -37,12 +38,12 @@ $converter = new DetailsElementConverter(new DetailsElementContext(
         $fallbacks[] = array( 'captured' => true );
         return array( 'blockName' => 'core/html', 'attrs' => array( 'captured' => $element->tagName ) );
     },
-    static function (DOMElement $element, array &$fallbacks, array $patterns) use (&$patternCalls, &$seenPatterns, &$patternBlock): ?array {
+    new PatternTreeFixture(static function (DOMElement $element, array &$fallbacks, array $patterns) use (&$patternCalls, &$seenPatterns, &$patternBlock): ?array {
         ++$patternCalls;
         $seenPatterns = $patterns;
         $fallbacks[] = array( 'pattern' => true );
         return $patternBlock;
-    }
+    })
 ));
 $fallbacks = array();
 

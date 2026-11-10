@@ -42,7 +42,7 @@ final class ClosedStateNormalizer
         $height = strtolower(trim((string) ($declarations['height'] ?? '')));
         $maxHeight = strtolower(trim((string) ($declarations['max-height'] ?? '')));
         $overflow = strtolower(trim((string) ($declarations['overflow'] ?? '')));
-        if ( isset($revealProperties['height']) && $this->isZeroLength($height) ) {
+        if ( isset($revealProperties['height']) && CssValueInspector::isZeroLength($height) ) {
             unset($declarations['height']);
             $stripped[] = 'height:0';
             if ( isset($revealProperties['overflow']) && $this->isHiddenOverflow($overflow) ) {
@@ -50,7 +50,7 @@ final class ClosedStateNormalizer
                 $stripped[] = 'overflow:hidden';
             }
         }
-        if ( isset($revealProperties['max-height']) && $this->isZeroLength($maxHeight) ) {
+        if ( isset($revealProperties['max-height']) && CssValueInspector::isZeroLength($maxHeight) ) {
             unset($declarations['max-height']);
             $stripped[] = 'max-height:0';
             if ( isset($revealProperties['overflow']) && $this->isHiddenOverflow($overflow) ) {
@@ -114,7 +114,7 @@ final class ClosedStateNormalizer
 
     public function isDecorativeHiddenElement(DOMElement $element, callable $attr): bool
     {
-        if ( $this->isAccessibilityBoundaryMarker($element, $attr) ) {
+        if ( $this->isAccessibilityBoundaryMarker($element, $attr) || $this->isMediaPlayerChrome($element, $attr) ) {
             return true;
         }
 
@@ -155,6 +155,58 @@ final class ClosedStateNormalizer
         }
 
         return true;
+    }
+
+    /**
+     * Player readouts and button labels are not editorial content. Keep this
+     * check at the content-bearing boundary so all closed-state properties and
+     * nested control layers retain their authored idle presentation.
+     */
+    private function isMediaPlayerChrome(DOMElement $element, callable $attr): bool
+    {
+        for ( $region = $element; $region instanceof DOMElement; $region = $region->parentNode ) {
+            if ( 'group' !== strtolower(trim((string) $attr($region, 'role'))) ) {
+                continue;
+            }
+            $label = strtolower(trim((string) $attr($region, 'aria-label')));
+            if ( 1 !== preg_match('/\b(?:video|audio|media|player) controls\b/', $label) ) {
+                continue;
+            }
+
+            // A label alone is not enough: require actual playback controls
+            // and a media element in the same local player container.
+            $hasRange = false;
+            foreach ( $region->getElementsByTagName('input') as $input ) {
+                if ( 'range' === strtolower(trim((string) $attr($input, 'type'))) ) {
+                    $hasRange = true;
+                    break;
+                }
+            }
+            $hasMediaButton = false;
+            foreach ( $region->getElementsByTagName('button') as $button ) {
+                $buttonLabel = (string) $attr($button, 'aria-label') . ' ' . $button->textContent;
+                if ( 1 === preg_match('/\b(?:play|pause|mute|unmute)\b/i', $buttonLabel) ) {
+                    $hasMediaButton = true;
+                    break;
+                }
+            }
+            if ( ! $hasRange || ! $hasMediaButton ) {
+                continue;
+            }
+            // Canva can wrap the controls separately from the media. Search
+            // only the nearest three containers, never the whole document.
+            $player = $region->parentNode;
+            for ( $depth = 0; $depth < 3 && $player instanceof DOMElement; ++$depth, $player = $player->parentNode ) {
+                if ( in_array(strtolower($player->tagName), array( 'html', 'body' ), true) ) {
+                    break;
+                }
+                if ( $player->getElementsByTagName('video')->length > 0 || $player->getElementsByTagName('audio')->length > 0 ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private function isAccessibilityBoundaryMarker(DOMElement $element, callable $attr): bool
@@ -206,11 +258,6 @@ final class ClosedStateNormalizer
             'overflow:hidden' => array( 'overflow' => 'visible!important' ),
             default => array(),
         };
-    }
-
-    private function isZeroLength(string $value): bool
-    {
-        return CssValueInspector::isZeroLength($value);
     }
 
     private function isHiddenOverflow(string $value): bool

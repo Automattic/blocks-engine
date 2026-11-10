@@ -3,8 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CodePresentation;
-use Closure;
 use DOMElement;
 
 /**
@@ -18,11 +18,10 @@ use DOMElement;
 final class TextLeafElementContext
 {
     /**
-     * @param Closure(DOMElement, array<int, array<string, mixed>>, bool): array<int, array<string, mixed>> $convertChildren
      */
     public function __construct(
         private readonly CodePresentation $codePresentation,
-        private readonly Closure $convertChildren
+        private readonly PatternTreeConverter $tree
     ) {
     }
 
@@ -45,6 +44,6 @@ final class TextLeafElementContext
      */
     public function convertChildren(DOMElement $element, array &$fallbacks, bool $captureUnsupported = false): array
     {
-        return ($this->convertChildren)($element, $fallbacks, $captureUnsupported);
+        return $this->tree->children($element, $fallbacks, $captureUnsupported);
     }
 }

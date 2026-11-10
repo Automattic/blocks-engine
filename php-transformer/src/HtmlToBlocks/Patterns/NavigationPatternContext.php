@@ -246,9 +246,19 @@ final class NavigationPatternContext
      * text presentation. Such an element (a logo heading) is what paints the
      * label, so it must survive the label's inline reduction.
      */
-    public function serializedInlineStyle(DOMElement $element): string
+    public function serializedInlineStyle(DOMElement $element, ?DOMElement $item = null): string
     {
-        return $this->styleResolver?->serializedInlineStyle($element) ?? SourceDom::attr($element, 'style');
+        $style = $this->styleResolver?->serializedInlineStyle($element) ?? SourceDom::attr($element, 'style');
+        if (null === $item || !$this->styleResolver instanceof StyleResolver) return $style;
+
+        // Core replaces the item's label wrappers. Keep the inline tokens they
+        // supply in the anchor's scope, without overriding its own definitions.
+        $properties = array();
+        for ($node = $element->parentNode; $node instanceof DOMElement && !$node->isSameNode($item); $node = $node->parentNode) {
+            $properties += $this->styleResolver->consumedInlineCustomProperties($node);
+        }
+        $properties = array_intersect_key($this->styleResolver->cascadedCustomProperties($element), $properties);
+        return $this->styleResolver->cssDeclarationString($properties) . (array() === $properties ? '' : ';') . $style;
     }
 
     public function ownsLabelTypography(DOMElement $element): bool
@@ -801,12 +811,12 @@ final class NavigationPatternContext
                 $item = $parent . '>.wp-block-navigation-item:nth-child(' . (++$position) . ')';
                 foreach (preg_split('/\s+/', trim($block['attrs']['className'] ?? '')) ?: array() as $marker) {
                     if (!str_starts_with($marker, 'blocks-engine-navigation-')) continue;
-                    $targets[$marker][] = $item;
+                    $targets[$marker][$item] = true;
                 }
                 $boxTarget = $item;
                 foreach ($block['attrs']['metadata']['blocksEngineNavigationAnchor']['boxes'] ?? array() as $box) {
                     $boxTarget .= '>' . $box['tag'];
-                    $targets[$box['marker']][] = $boxTarget;
+                    $targets[$box['marker']][$boxTarget] = true;
                 }
                 $collect($block['innerBlocks'] ?? array(), $item . '>.wp-block-navigation__submenu-container');
             }
@@ -821,7 +831,11 @@ final class NavigationPatternContext
             $current = $this->withoutCurrentItemPresentation($block);
             $targets = $levelCounts = array();
             $collect($block['innerBlocks'] ?? array(), '');
-            foreach ($targets as $marker => $paths) {
+            foreach ($targets as $marker => $pathSet) {
+                // A carrier can repeat a marker through inherited presentation.
+                // Count distinct siblings, not marker occurrences, when deciding
+                // whether a complete level can use an unindexed address.
+                $paths = array_keys($pathSet);
                 foreach (array_reverse($levelCounts, true) as $parent => $count) {
                     $pattern = '/^' . preg_quote($parent, '/') . '>\\.wp-block-navigation-item:nth-child\\([0-9]+\\)(.*)$/';
                     $groups = array();
@@ -834,7 +848,7 @@ final class NavigationPatternContext
                         $paths[] = $parent . '>.wp-block-navigation-item' . $suffix;
                     }
                 }
-                $targets[$marker] = str_starts_with($marker, 'blocks-engine-navigation-anchor-') && count($targets[$marker]) > 1
+                $targets[$marker] = str_starts_with($marker, 'blocks-engine-navigation-anchor-') && count($pathSet) > 1
                     ? array(' .wp-block-navigation-item.' . $marker)
                     : $paths;
             }
@@ -1818,20 +1832,27 @@ final class NavigationPatternContext
         if ( ! $this->styleResolver instanceof StyleResolver ) return '';
 
         $alignment = strtolower($this->styleResolver->authoredInheritedPropertyWinner($list, 'text-align'));
-        $conditions = $this->styleResolver->inheritedBoxMediaConditions($list);
-        if ( array() === $conditions ) return $alignment;
+        $justify = static fn (string $value): string => match ( strtolower($value) ) {
+            'right', 'end' => 'flex-end',
+            'center' => 'center',
+            default => 'flex-start',
+        };
+        // Only a media stack that changes the packing needs projection; an
+        // unrelated conditional ancestor rule (a motion custom property) would
+        // otherwise add a per-document marker that splits shared chrome.
+        $base = $justify($this->styleResolver->authoredInheritedPropertyWinner($list, 'text-align', true));
+        $packings = array();
+        foreach ( $this->styleResolver->inheritedBoxMediaConditions($list) as $stack ) {
+            $packing = $justify($this->styleResolver->authoredInheritedPropertyWinner($list, 'text-align', true, $stack));
+            if ( $packing !== $base ) $packings[] = array($stack, $packing);
+        }
+        if ( array() === $packings ) return $alignment;
 
         $marker = 'blocks-engine-navigation-packing-' . substr(hash('sha256', SourceDom::elementSelector($list)), 0, 12);
         $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . $marker);
         $target = '.wp-block-navigation.' . $marker . '>.wp-block-navigation__container';
-        foreach ( $conditions as $stack ) {
-            $value = strtolower($this->styleResolver->authoredInheritedPropertyWinner($list, 'text-align', true, $stack));
-            $justify = match ( $value ) {
-                'right', 'end' => 'flex-end',
-                'center' => 'center',
-                default => 'flex-start',
-            };
-            $this->sourceTargetProjection?->record(SourceDom::elementSelector($list), $target, 'justify-content:' . $justify . '!important', $stack);
+        foreach ( $packings as [$stack, $packing] ) {
+            $this->sourceTargetProjection?->record(SourceDom::elementSelector($list), $target, 'justify-content:' . $packing . '!important', $stack);
         }
 
         return $alignment;
@@ -1957,7 +1978,7 @@ final class NavigationPatternContext
             return;
         }
 
-        $declarations = array();
+        $declarations = $projected = array();
         // `font` first: builders commonly state menu type as the shorthand, and
         // a longhand found further out should not silently outrank it.
         foreach ( array( 'font', 'color', 'font-family', 'font-size', 'font-weight', 'font-style', 'letter-spacing', 'text-transform' ) as $property ) {
@@ -1970,11 +1991,12 @@ final class NavigationPatternContext
             if ( in_array($property, array( 'font', 'font-size' ), true) && str_contains($value, '--scaling-factor') ) {
                 continue;
             }
-            if ( 'color' === $property && $this->isTransparentColor($value) ) {
+            if ( 'color' === $property && CssValueInspector::isTransparentColor($value) ) {
                 continue;
             }
             if ( '' !== $value ) {
                 $declarations[] = $property . ':' . $this->navigationProjectionValue($value);
+                array_push($projected, ...('font' === $property ? array( 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height' ) : array( $property )));
             }
         }
         if ( array() === $declarations ) {
@@ -1984,10 +2006,58 @@ final class NavigationPatternContext
         // Equal author classes do not make equal menus: a captured dialog
         // copy carries the inline menu's classes but not its cascade. The
         // rule is published once the emitted block has its instance scope.
-        $this->pendingInheritedPresentations[] = array('path' => $navigation->getNodePath() ?? '', 'source' => SourceDom::elementSelector($navigation), 'classes' => $authorClasses, 'declarations' => implode(';', $declarations));
+        $this->pendingInheritedPresentations[] = array('path' => $navigation->getNodePath() ?? '', 'source' => SourceDom::elementSelector($navigation), 'classes' => $authorClasses, 'declarations' => implode(';', $declarations), 'variants' => $this->inheritedNavigationPresentationVariants($anchors, $navigation, array_unique($projected)));
     }
 
-    /** @var list<array{path: string, source: string, classes: array<int, string>, declarations: string}> */
+    /**
+     * The recovered rule outranks the menu's own breakpoint rules on Core's
+     * anchors, so a value the links inherit differently under a screen media
+     * condition must be restated under that condition too.
+     *
+     * @param list<DOMElement> $anchors
+     * @param array<int, string> $properties
+     * @return list<array{conditions: list<string>, declarations: string}>
+     */
+    private function inheritedNavigationPresentationVariants(array $anchors, DOMElement $navigation, array $properties): array
+    {
+        if ( ! $this->styleResolver instanceof StyleResolver ) {
+            return array();
+        }
+        $stacks = array();
+        foreach ( $anchors as $anchor ) {
+            for ( $node = $anchor; $node instanceof DOMElement; $node = $node->parentNode ) {
+                foreach ( $this->styleResolver->screenMediaConditionsDeclaring($node, $properties) as $conditions ) {
+                    $stacks[ serialize($conditions) ] = $conditions;
+                }
+                if ( $node->isSameNode($navigation) ) {
+                    break;
+                }
+            }
+        }
+        $variants = array();
+        foreach ( $stacks as $conditions ) {
+            $declarations = array();
+            foreach ( $properties as $property ) {
+                $values = $resting = array();
+                foreach ( $anchors as $anchor ) {
+                    $values[] = $this->styleResolver->authoredInheritedPropertyWinner($anchor, $property, true, $conditions);
+                    $resting[] = $this->styleResolver->authoredInheritedPropertyWinner($anchor, $property);
+                }
+                $values = array_unique($values);
+                if ( 1 === count($values) && '' !== $values[0] && array( $values[0] ) !== array_unique($resting) ) {
+                    $declarations[ $property ] = $this->navigationProjectionValue($values[0]);
+                }
+            }
+            $declarations = $this->styleResolver->safeVisualDeclarations($declarations);
+            if ( array() !== $declarations ) {
+                $variants[] = array( 'conditions' => $conditions, 'declarations' => $this->styleResolver->cssDeclarationString($declarations) );
+            }
+        }
+
+        return $variants;
+    }
+
+    /** @var list<array{path: string, source: string, classes: array<int, string>, declarations: string, variants: list<array{conditions: list<string>, declarations: string}>}> */
     private array $pendingInheritedPresentations = array();
 
     /**
@@ -2006,7 +2076,7 @@ final class NavigationPatternContext
             if ($pending['path'] !== $root && !str_starts_with($pending['path'], $root . '/') && !str_starts_with($root, $pending['path'] . '/')) continue;
             if (array() !== array_diff($pending['classes'], $classes)) continue;
             if ('' === $scope && !$this->session instanceof HtmlTransformerSession) {
-                $this->sourceTargetProjection->record($pending['source'], '.wp-block-navigation' . CssIdent::compoundClassSelector($pending['classes']) . ' .wp-block-navigation-item__content', $pending['declarations']);
+                $this->recordInheritedNavigationPresentationRules($pending, '.wp-block-navigation' . CssIdent::compoundClassSelector($pending['classes']) . ' .wp-block-navigation-item__content');
                 unset($this->pendingInheritedPresentations[$index]);
                 continue;
             }
@@ -2015,8 +2085,17 @@ final class NavigationPatternContext
                 $scope = $existing[1] ?? $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-instance', $this->navigationSourceIdentity($source) . $pending['declarations']);
                 $block['attrs']['className'] = SourceDom::mergeClassNames($block['attrs']['className'] ?? '', $scope);
             }
-            $this->sourceTargetProjection->record($pending['source'], '.wp-block-navigation.' . $scope . ' .wp-block-navigation-item__content', $pending['declarations']);
+            $this->recordInheritedNavigationPresentationRules($pending, '.wp-block-navigation.' . $scope . ' .wp-block-navigation-item__content');
             unset($this->pendingInheritedPresentations[$index]);
+        }
+    }
+
+    /** @param array{source: string, declarations: string, variants: list<array{conditions: list<string>, declarations: string}>} $pending */
+    private function recordInheritedNavigationPresentationRules(array $pending, string $target): void
+    {
+        $this->sourceTargetProjection?->record($pending['source'], $target, $pending['declarations']);
+        foreach ($pending['variants'] as $variant) {
+            $this->sourceTargetProjection?->record($pending['source'], $target, $variant['declarations'], $variant['conditions']);
         }
     }
 
@@ -2070,12 +2149,6 @@ final class NavigationPatternContext
         }
 
         return is_string($shared) ? $shared : '';
-    }
-
-    /** Transparent ink is invisible unless a clipped background travels with it. */
-    private function isTransparentColor(string $value): bool
-    {
-        return CssValueInspector::isTransparentColor($value);
     }
 
     /**
@@ -2255,7 +2328,8 @@ final class NavigationPatternContext
         while ( $node instanceof DOMElement && $depth < 12 ) {
             ++$depth;
             $resolved     = $this->styleResolver->resolveCssVariablesInValue(
-                $this->styleResolver->specificityResolvedPresentationStyle($node)
+                $this->styleResolver->specificityResolvedPresentationStyle($node),
+                $node
             );
             $declarations = $this->styleResolver->cssDeclarations($resolved);
             $value        = trim((string) ($declarations[$property] ?? ''));

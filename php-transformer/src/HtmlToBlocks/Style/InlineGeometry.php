@@ -36,6 +36,7 @@ final class InlineGeometry
      * @param Closure(DOMElement): bool $hasConditionalGridTemplateColumns
      * @param Closure(DOMElement, list<string>): array{int, int, int} $authorNormalDeclarationSpecificity
      * @param Closure(DOMElement, list<string>): array{int, int, int} $authorImportantDeclarationSpecificity
+     * @param Closure(DOMElement, array<int, string>): array<string, array<int, string>> $conditionalAuthorDeclaredPropertyValues
      */
     public function __construct(
         private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession $session,
@@ -54,7 +55,8 @@ final class InlineGeometry
         private readonly Closure $responsivePropertyFamily,
         private readonly Closure $hasConditionalGridTemplateColumns,
         private readonly Closure $authorNormalDeclarationSpecificity,
-        private readonly Closure $authorImportantDeclarationSpecificity
+        private readonly Closure $authorImportantDeclarationSpecificity,
+        private readonly Closure $conditionalAuthorDeclaredPropertyValues
     ) {
     }
 
@@ -1117,7 +1119,7 @@ final class InlineGeometry
                 $layout['flexWrap'] = $flexWrap;
             }
 
-            return $layout;
+            return $this->withRowCrossAxisStretch($element, $layout, $inlineDeclarations, $mergedDeclarations);
         }
         $style = strtolower('' !== trim($mergedStyle) ? $mergedStyle : SourceDom::attr($element, 'style'));
         if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?flex\b/', $style)
@@ -1127,7 +1129,7 @@ final class InlineGeometry
                 return array();
             }
 
-            return array( 'type' => 'flex' );
+            return $this->withRowCrossAxisStretch($element, array( 'type' => 'flex' ), $inlineDeclarations, $mergedDeclarations);
         }
         if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?grid\b/', $style) ) {
             $trackList = (string) ($mergedDeclarations['grid-template-columns'] ?? $inlineDeclarations['grid-template-columns'] ?? '');
@@ -1281,6 +1283,48 @@ final class InlineGeometry
         );
 
         return $map[ $value ] ?? '';
+    }
+
+    /**
+     * Core's horizontal flex layout centres its items on the cross axis
+     * (`.is-layout-flex{align-items:center}`) unless `verticalAlignment` says
+     * otherwise. A source row's `align-items` defaults to `normal`, which for
+     * flex items is `stretch`: items start at the top of the row and fill its
+     * height. A row that resolves no `align-items` (or `normal`/`stretch`)
+     * therefore states `verticalAlignment: stretch`, or core drops its shorter
+     * items to the vertical centre (Automattic/blocks-engine#5256).
+     *
+     * Only rows: in a column the cross axis is horizontal and core reads
+     * `verticalAlignment` as main-axis justification. A row whose alignment a
+     * media query restates keeps core's default, so a generated container rule
+     * cannot outrank the author's breakpoint.
+     *
+     * @param array<string, string> $layout
+     * @param array<string, string> $inlineDeclarations
+     * @param array<string, string> $mergedDeclarations
+     * @return array<string, string>
+     */
+    private function withRowCrossAxisStretch(DOMElement $element, array $layout, array $inlineDeclarations, array $mergedDeclarations): array
+    {
+        $direction = CssValueInspector::comparable((string) ($inlineDeclarations['flex-direction'] ?? $mergedDeclarations['flex-direction'] ?? ''));
+        if ( 'vertical' === ($layout['orientation'] ?? '') || str_starts_with($direction, 'column') ) {
+            return $layout;
+        }
+
+        $alignItems = CssValueInspector::comparable((string) ($inlineDeclarations['align-items'] ?? $mergedDeclarations['align-items'] ?? ''));
+        if ( '' === $alignItems ) {
+            $placeItems = CssValueSplitter::splitTopLevelWhitespace(CssValueInspector::comparable((string) ($inlineDeclarations['place-items'] ?? $mergedDeclarations['place-items'] ?? '')));
+            $alignItems = (string) ($placeItems[0] ?? '');
+        }
+        if ( ! in_array($alignItems, array( '', 'normal', 'stretch' ), true)
+            || array() !== ($this->conditionalAuthorDeclaredPropertyValues)($element, array( 'align-items', 'place-items' ))
+        ) {
+            return $layout;
+        }
+
+        $layout['verticalAlignment'] = 'stretch';
+
+        return $layout;
     }
 
     private function layoutFlexWrap(string $value): string

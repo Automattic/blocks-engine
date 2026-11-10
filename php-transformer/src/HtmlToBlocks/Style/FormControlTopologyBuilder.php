@@ -33,7 +33,7 @@ final class FormControlTopologyBuilder
     {
         $controlIndexes = array();
         $relevantElements = array();
-        foreach ( $this->controls($form) as $index => $control ) {
+        foreach ( FormControlClassifier::controlElements($form) as $index => $control ) {
             $controlIndexes[$control->getNodePath()] = $index;
             for ( $ancestor = $control->parentNode; $ancestor instanceof DOMElement && $ancestor !== $form; $ancestor = $ancestor->parentNode ) {
                 $relevantElements[$ancestor->getNodePath()] = true;
@@ -148,7 +148,7 @@ final class FormControlTopologyBuilder
     public function directLabelControlPairs(DOMElement $form): array
     {
         $indexes = array();
-        foreach ( $this->controls($form) as $index => $control ) {
+        foreach ( FormControlClassifier::controlElements($form) as $index => $control ) {
             $indexes[$control->getNodePath()] = $index;
         }
         $pairs = array();
@@ -187,7 +187,7 @@ final class FormControlTopologyBuilder
     public function exclusiveWrapperAncestors(DOMElement $form): array
     {
         $result = array();
-        $controls = $this->controls($form);
+        $controls = FormControlClassifier::controlElements($form);
         $owners = array();
         foreach ( $controls as $control ) {
             $depth = 0;
@@ -364,9 +364,4 @@ final class FormControlTopologyBuilder
         return is_string($caption) && '' !== $caption && self::MAX_LEGEND_BYTES >= strlen($caption) ? $caption : '';
     }
 
-    /** @return array<int, DOMElement> */
-    private function controls(DOMElement $form): array
-    {
-        return FormControlClassifier::controlElements($form);
-    }
 }

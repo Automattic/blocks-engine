@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
 $assert = static function (bool $ok, string $message): void { if (!$ok) throw new RuntimeException($message); };
 $labels = array('about' => 'About', 'services' => 'Services', 'work' => 'Work', 'contact' => 'Contact');
@@ -57,7 +58,7 @@ $assert(!str_contains($menu['block_markup'] . $header, 'aria-current') && !str_c
 foreach ($plan['pages'] as $page) {
     $content = $page['canonical_block_markup'];
     $templateSlug = $page['entrypoint'] ? 'front-page' : 'page';
-    $template = array_column($plan['templates'], 'canonical_block_markup', 'slug')[$templateSlug] ?? '';
+    $template = WordPressSitePlan::renderedTemplates($plan)[$templateSlug] ?? '';
     $assert(str_contains($template . $content, 'wp:template-part {"slug":"' . $headers[0]['slug'] . '"'), 'Every route uses the same shared header part.');
     $assert(!str_contains($content, 'top-frame') && !str_contains($content, 'brand-slot') && !str_contains($content, 'logo.svg') && !str_contains($content, '<!-- wp:navigation'), 'No route retains brand or navigation in page content.');
 }

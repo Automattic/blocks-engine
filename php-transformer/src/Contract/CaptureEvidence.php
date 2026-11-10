@@ -97,6 +97,12 @@ final class CaptureEvidence
     /** On the document root: `BackCompat` when the source rendered in quirks mode. */
     public const COMPAT_MODE = 'data-blocks-engine-capture-compat-mode';
 
+    /** Presence: captured padding is script-owned, not a responsive authored constant. */
+    public static function fluidIgnorePaddingAttribute(): string
+    {
+        return self::ATTRIBUTE_PREFIX . 'fluid-ignore-padding';
+    }
+
     // Dialogs, dropdowns and their runtime state.
 
     /** Dialog binding key on the control that opens a captured panel. */
@@ -300,6 +306,8 @@ final class CaptureEvidence
     public const DEVICE_BODY = 'data-blocks-engine-capture-device-body';
     /** Per-device inline styles retained on native block roots for overlay replay. */
     public const DEVICE_INLINE = 'data-blocks-engine-capture-device-inline';
+    /** Per-device class tokens retained on native block roots for overlay replay. */
+    public const DEVICE_CLASS = 'data-blocks-engine-capture-device-class';
 
     // Published for downstream importers; Blocks Engine does not read these.
 

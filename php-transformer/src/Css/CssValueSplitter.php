@@ -152,4 +152,26 @@ final class CssValueSplitter
     {
         return '' === $state['quote'] && ! $state['comment'] && 0 === $state['parens'];
     }
+
+    /**
+     * Flat selector/declaration pairs for the top-level rules in a stylesheet.
+     *
+     * @return array<int, array{selector: string, declarations: string}>
+     */
+    public static function ruleBlocks(string $css): array
+    {
+        $rules = array();
+        if ( 1 !== preg_match_all('/([^{}]+)\{([^{}]*)\}/', $css, $matches, PREG_SET_ORDER) && array() === $matches ) {
+            return $rules;
+        }
+
+        foreach ( $matches as $match ) {
+            $rules[] = array(
+                'selector'     => trim($match[1]),
+                'declarations' => trim($match[2]),
+            );
+        }
+
+        return $rules;
+    }
 }

@@ -473,7 +473,7 @@ final class ArtifactCompiler
             $allGutenbergGaps = array_merge($allGutenbergGaps, $compiledHtmlDocument['gutenberg_gaps'] ?? array());
             $coreHtmlFallbackEvidence[] = $compiledHtmlDocument['core_html_fallback_evidence'] ?? array();
         }
-        $allGutenbergGaps = $this->dedupeRows($allGutenbergGaps);
+        $allGutenbergGaps = DeterministicRowDeduplicator::dedupe($allGutenbergGaps);
         $runtimeDeclarationDiagnostics = array();
         $runtimeEntityRecords = array();
         $normalized['runtime_declarations'] = $this->runtimeDeclarationsFromFallbacks($normalized['runtime_declarations'], $allFallbacks, $entryPath, $normalized['files'], $runtimeDeclarationDiagnostics, $runtimeEntityRecords);
@@ -3842,7 +3842,7 @@ final class ArtifactCompiler
             }
         }
 
-        if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*(?:getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)|querySelector\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\4\s*\))/', $script, $assignments, PREG_SET_ORDER) ) {
+        if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*(?:getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)|querySelector\s*\(\s*(["\'])(' . RuntimeSelectorVocabulary::scriptSelectorPattern() . ')\4\s*\))/', $script, $assignments, PREG_SET_ORDER) ) {
             foreach ( $assignments as $assignment ) {
                 $variable = (string) $assignment[1];
                 if ( ! preg_match('/(?:\bnew\s+)?\b[A-Za-z_$][A-Za-z0-9_$]*(?:\s*\.\s*[A-Za-z_$][A-Za-z0-9_$]*)*\s*\([^;)]*\b' . preg_quote($variable, '/') . '\b/', $script) ) {
@@ -3980,28 +3980,14 @@ final class ArtifactCompiler
         return $scripts;
     }
 
-    private function scriptSelectorPattern(): string
-
-    {
-
-        return RuntimeSelectorVocabulary::scriptSelectorPattern();
-
-    }
-
     private function htmlAttribute(string $tag, string $name): string
     {
-        return $this->htmlAttributes($tag)[strtolower($name)] ?? '';
+        return HtmlTagScanner::attributes($tag)[strtolower($name)] ?? '';
     }
 
     private function hasHtmlAttribute(string $tag, string $name): bool
     {
-        return array_key_exists(strtolower($name), $this->htmlAttributes($tag));
-    }
-
-    /** @return array<string,string> */
-    private function htmlAttributes(string $tag): array
-    {
-        return HtmlTagScanner::attributes($tag);
+        return array_key_exists(strtolower($name), HtmlTagScanner::attributes($tag));
     }
 
     /**
@@ -4695,7 +4681,7 @@ final class ArtifactCompiler
 
         $captured = array();
         foreach ( HtmlTagScanner::scan($html, 'img') as $image ) {
-            $attributes = $this->htmlAttributes($image['tag']);
+            $attributes = HtmlTagScanner::attributes($image['tag']);
             $asset = $this->findAssetByHtmlReference($attributes['src'] ?? '', $sourcePath, $files);
             $path = is_array($asset) ? (string) ($asset['path'] ?? '') : '';
             if ( '' === $path ) {
@@ -4742,7 +4728,7 @@ final class ArtifactCompiler
             ), static fn (mixed $value): bool => '' !== $value && array() !== $value);
         }
 
-        return $this->dedupeRows($metadata);
+        return DeterministicRowDeduplicator::dedupe($metadata);
     }
 
     /**
@@ -4766,16 +4752,7 @@ final class ArtifactCompiler
             $assets[] = array('path' => $asset['path'], 'content' => $asset['content']);
         }
 
-        return $this->dedupeRows($assets);
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $rows
-     * @return array<int, array<string, mixed>>
-     */
-    private function dedupeRows(array $rows): array
-    {
-        return DeterministicRowDeduplicator::dedupe($rows);
+        return DeterministicRowDeduplicator::dedupe($assets);
     }
 
     /**
@@ -4930,7 +4907,7 @@ final class ArtifactCompiler
             if (!empty($file['metadata']['compilation']['included_component'])) continue;
 
             $slug = $this->slugFromPath($path);
-            $area = $this->templatePartArea($path, (string) ($file['role'] ?? ''));
+            $area = ShellLandmarkPolicy::templatePartArea($path, (string) ($file['role'] ?? ''));
             $tagName = ShellLandmarkPolicy::templatePartTagName($path, (string) ($file['role'] ?? ''));
             $parts[] = array_filter(
                 array(
@@ -4964,11 +4941,6 @@ final class ArtifactCompiler
         $path = (string) ($file['path'] ?? '');
         $role = (string) ($file['role'] ?? '');
         return 'html' === ($file['kind'] ?? '') && ('template-part' === $role || preg_match('#(^|/)(parts|template-parts)/[^/]+\.html?$#i', $path));
-    }
-
-    private function templatePartArea(string $path, string $role): string
-    {
-        return ShellLandmarkPolicy::templatePartArea($path, $role);
     }
 
     /**
@@ -5110,14 +5082,24 @@ final class ArtifactCompiler
         $fold = static fn (array $values): array => array_map(static fn (string $value): string => mb_strtolower(trim($value)), $values);
         $segments = $fold($segments);
         $siteName = $fold($siteNameSegments);
-        for ( $length = min(count($siteName), count($segments) - 1); 0 < $length; --$length ) {
-            $run = $trailing ? array_slice($segments, $length * -1) : array_slice($segments, 0, $length);
-            if ( $run === array_slice($siteName, 0, $length) || $run === array_slice($siteName, $length * -1) ) {
-                return $length;
+        $matched = 0;
+        while ( count($segments) - $matched > 1 ) {
+            $found = 0;
+            $max = min(count($siteName), count($segments) - $matched - 1);
+            for ( $length = $max; 0 < $length; --$length ) {
+                $start = $trailing ? count($segments) - $matched - $length : $matched;
+                $run = array_slice($segments, $start, $length);
+                if ( $run === array_slice($siteName, 0, $length) || $run === array_slice($siteName, $length * -1) ) {
+                    $found = $length;
+                    break;
+                }
             }
+            if ( 0 === $found ) {
+                break;
+            }
+            $matched += $found;
         }
-
-        return 0;
+        return $matched;
     }
 
     /**
@@ -5225,6 +5207,18 @@ final class ArtifactCompiler
             }
             if ( array() !== $own && count($own) < count($segments) ) {
                 return implode(' ', $own);
+            }
+            // A title may name the site without the shared separator ("About
+            // Example" beside "Contact | Example"). The remaining words name
+            // the page when the site's own links call the route the same.
+            if ( 1 === count($segments) ) {
+                foreach ( $siteNameSegments as $siteName ) {
+                    $quoted = preg_quote(trim($siteName), '/');
+                    $own = trim(preg_replace('/^' . $quoted . '\s+|\s+' . $quoted . '$/iu', '', $segments[0], 1) ?? '');
+                    if ( '' !== $own && $own !== $segments[0] && mb_strtolower($own) === mb_strtolower($this->inboundPageLabel($files, $path)) ) {
+                        return $own;
+                    }
+                }
             }
         }
 
@@ -6095,8 +6089,8 @@ final class ArtifactCompiler
         }
 
         $paths = array_filter(array(
-            $this->resolveHtmlReferencePath($reference, $entryPath),
-            str_starts_with($reference, '/') ? $this->resolveHtmlReferencePath(ltrim($reference, '/'), $entryPath) : '',
+            ArtifactPath::resolveRelativePath($reference, $entryPath),
+            str_starts_with($reference, '/') ? ArtifactPath::resolveRelativePath(ltrim($reference, '/'), $entryPath) : '',
         ), static fn (string $path): bool => '' !== $path);
         $paths = array_values(array_unique($paths));
         if ( array() === $paths ) {
@@ -6146,11 +6140,6 @@ final class ArtifactCompiler
             }
         }
     }
-    private function resolveHtmlReferencePath(string $reference, string $entryPath): string
-    {
-        return ArtifactPath::resolveRelativePath($reference, $entryPath);
-    }
-
     /**
      * @param array<int, array<string, mixed>> $sourceDocumentComponents
      * @return array<int, array<string, mixed>>

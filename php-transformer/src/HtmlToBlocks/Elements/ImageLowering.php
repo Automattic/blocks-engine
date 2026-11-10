@@ -739,7 +739,7 @@ final class ImageLowering
             // inert identities retain the historical class transport.
             $styledLeaf = $this->imageNeedsSeparateFigureBox($image, $figure);
             $marker = $styledLeaf ? $this->session->authorSelectorProjectionState()->ensureImageWrapperMarker($image->getNodePath() ?? '') : '';
-            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $this->nonCoreImageFigureClassName($figure), $styledLeaf ? $marker : $this->nonCoreImageClassName($image), ...$this->authorSemanticMarkersForElement($image));
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $this->nonCoreImageFigureClassName($figure), $styledLeaf ? $marker : $this->nonCoreImageClassName($image), ...$this->session->authorSelectorProjectionState()->semanticMarkersForElement($image));
         } else {
             $attrs['className'] = $this->styleResolver->mergePresentationClassNames((string) ($attrs['className'] ?? ''), $this->styleResolver->injectedFigureHeightClassName($image));
         }
@@ -780,13 +780,6 @@ final class ImageLowering
         return implode(' ', $classes);
     }
 
-    /** @return list<string> */
-    private function authorSemanticMarkersForElement(DOMElement $element): array
-    {
-        $path = SourceDom::sourceElementIdentity($element);
-        return $this->session->authorSelectorProjectionState()->semanticMarkersForPath($path);
-    }
-
     private function nonCoreImageFigureClassName(DOMElement $figure): string
     {
         $classes = array_filter(preg_split('/\s+/', trim(SourceDom::attr($figure, 'class'))) ?: array(), static function (string $className): bool {
@@ -794,5 +787,71 @@ final class ImageLowering
         });
 
         return implode(' ', $classes);
+    }
+
+    /** @return array<string, mixed>|null */
+    public function convertPicture(DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array
+    {
+        $image = SourceDom::firstChildElement($picture, 'img');
+        if ( ! $image instanceof DOMElement ) {
+            return null;
+        }
+        $this->imageDimensions->fillParentImageViewportPair($image);
+
+        if ( $this->sourceElementClassifier->hasPictureSourceSelection($picture) ) {
+            return $this->responsiveMediaBlock($link ?? $figure ?? $picture);
+        }
+
+        return $this->convertImage($image, $figure ?? $picture, $picture, $link);
+    }
+
+    public function figureLinkedMediaAnchor(DOMElement $figure): ?DOMElement
+    {
+        $anchor = null;
+        foreach ( $figure->childNodes as $child ) {
+            if ( $child instanceof DOMElement && 'figcaption' === strtolower($child->tagName) ) {
+                continue;
+            }
+
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+
+            if ( ! $child instanceof DOMElement || 'a' !== strtolower($child->tagName) || null !== $anchor ) {
+                return null;
+            }
+
+            $anchor = $child;
+        }
+
+        return $anchor instanceof DOMElement && $this->isImageOnlyAnchor($anchor) ? $anchor : null;
+    }
+
+    public function isImageOnlyAnchor(DOMElement $anchor): bool
+    {
+        $imageChildren = 0;
+        foreach ( $anchor->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                if ( in_array(strtolower($child->tagName), array( 'img', 'picture' ), true) || SourceDom::imageOnlyCarrierElement($child) instanceof DOMElement ) {
+                    ++$imageChildren;
+                    continue;
+                }
+                if ( $this->isHiddenImageLinkLabel($child) ) {
+                    continue;
+                }
+                // Lightbox links commonly append empty overlay elements beside
+                // their image. They are decoration, not additional link content.
+                if ( '' !== trim($child->textContent ?? '') ) {
+                    return false;
+                }
+                continue;
+            }
+
+            if ( '' !== trim($child->textContent ?? '') ) {
+                return false;
+            }
+        }
+
+        return 1 === $imageChildren;
     }
 }

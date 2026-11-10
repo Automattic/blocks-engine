@@ -24,7 +24,7 @@ $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'f
     'bare.html' => $page('<main><h1>Bare</h1><p>No shared chrome here.</p></main>'),
 )))->toArray()['source_reports']['wordpress_site_plan'];
 WordPressSitePlan::assertValid($plan);
-$templates = array_column($plan['templates'], 'canonical_block_markup', 'slug');
+$templates = WordPressSitePlan::renderedTemplates($plan);
 
 $assert(1 === substr_count($templates['page'] ?? '', '"slug":"header"') && 1 === substr_count($templates['page'] ?? '', '"slug":"footer"') && str_contains($templates['page'], 'wp:post-content') && str_contains($templates['page'], 'Call'), 'The generic page template holds the header, footer and shared frame.');
 foreach (array('a', 'b', 'c') as $slug) $assert(!isset($templates['page-' . $slug]), "Page {$slug} uses the generic page template.");
@@ -48,7 +48,7 @@ $distinct = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html'
     'a.html' => $page($chrome('A')),
     'b.html' => $page('<div class="outer">' . $chrome('B') . '</div>'),
 )))->toArray()['source_reports']['wordpress_site_plan'];
-$distinctTemplates = array_column($distinct['templates'], 'canonical_block_markup', 'slug');
+$distinctTemplates = WordPressSitePlan::renderedTemplates($distinct);
 $assert(1 === substr_count($distinctTemplates['page'] ?? '', '"slug":"header"') && isset($distinctTemplates['page-b']), 'The generic page template keeps the chrome even when inner pages differ.');
 
 // Frames compare without per-document marker seeds and dialog ids.
@@ -77,7 +77,7 @@ foreach (array('header', 'footer', 'both', 'variant') as $shape) {
             . ($insideFooter ? $footer : '') . '</div>' . ($insideFooter ? '' : $footer) . '</body></html>';
     }
     $compiled = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray()['source_reports']['wordpress_site_plan'];
-    $output = array_column($compiled['templates'], 'canonical_block_markup', 'slug');
+    $output = WordPressSitePlan::renderedTemplates($compiled);
     $parts = array_column($compiled['template_parts'], 'canonical_block_markup', 'slug');
     $sharedHeader = array_key_first(array_filter($parts, static fn(string $markup): bool => str_contains($markup, 'Acme') && str_contains($markup, '<header')));
     $variantHeader = array_key_first(array_filter($parts, static fn(string $markup): bool => str_contains($markup, 'Welcome to the studio')));

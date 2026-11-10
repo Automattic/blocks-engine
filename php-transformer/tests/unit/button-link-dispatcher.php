@@ -27,6 +27,7 @@ use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ButtonLinkLeftoversFixt
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\PatternTreeFixture;
 
 $assertions = 0;
 $failures   = array();
@@ -78,15 +79,24 @@ $makeDispatcher = static function (array $overrides = array()) use ($makeRuntime
     $createBlock = $overrides['createBlock'] ?? new SourceBlockCreatorFixture(static fn (string $n, array $a, array $i, ?DOMElement $s): array => array('blockName' => $n, 'attrs' => $a));
     $presentation = $overrides['presentation'] ?? static fn (DOMElement $e, array $p, array $g): array => array();
     $structural = $overrides['structural'] ?? static fn (DOMElement $e): array => array();
+    $patterns = PatternRecognizerRegistry::createDefault(new \Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture(static fn (string $name, array $attrs = array(), array $children = array()): array => array('blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $children)), new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\Tests\Support\RichTextMaterializationFixture());
+    $patternContext = new PatternContext(
+        static fn (DOMElement $e, array $g = array()): array => array()
+    );
 
     return new ButtonLinkDispatcher(new SourceElementClassifier(), new ButtonLinkDispatchContext(
         new SourceElementClassifier(),
         new ElementPresentationResolverFixture($presentation, structuralPresentationDeclarations: $structural),
         $createBlock,
-        $overrides['patternRecognizers'] ?? PatternRecognizerRegistry::createDefault(new \Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture(static fn (string $name, array $attrs = array(), array $children = array()): array => array('blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $children)), new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\Tests\Support\RichTextMaterializationFixture()),
-        $overrides['patternContext'] ?? new PatternContext(
-            static fn (DOMElement $e, array $g = array()): array => array()
-        ),
+        new PatternTreeFixture(static function (DOMElement $element, array &$fallbacks, array $allowed) use ($patterns, $patternContext): ?array {
+            $result = $patterns->firstMatch($element, $patternContext, $allowed);
+            if ( null === $result ) {
+                return null;
+            }
+            $fallbacks = array_merge($fallbacks, $result->fallbacks());
+            return $result->block();
+        }),
+        $patternContext,
         $overrides['runtimeIslands'] ?? null,
         $overrides['formRuntimeIslands'] ?? null,
         $overrides['leftovers'] ?? null

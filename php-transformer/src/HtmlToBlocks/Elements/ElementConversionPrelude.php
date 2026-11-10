@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
@@ -28,7 +29,7 @@ use DOMElement;
  * Collaborators take existing converters, suppressors, and resolvers. Remaining
  * HtmlCompilation operations are explicit constructor closures — not a Context bag.
  */
-final class ElementConversionPrelude
+final class ElementConversionPrelude implements ElementConverter
 {
     /**
      * A menu its script opens in place. Core's generated list and items are
@@ -63,10 +64,7 @@ final class ElementConversionPrelude
     }
 
     /**
-     * @param Closure(DOMElement, array<int, array<string, mixed>>&, bool): array<int, array<string, mixed>> $convertChildren
-     * @param Closure(DOMElement, array<int, array<string, mixed>>&, bool): ?array<string, mixed> $convertElement
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array<string, mixed> $linkedRuntimeControl
-     * @param Closure(DOMElement, array<int, array<string, mixed>>&, array<int, class-string>): ?array<string, mixed> $recognizePatterns
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array<string, mixed> $proofBackedWrapperCoalescing
      * @param Closure(DOMElement): ?array<string, mixed> $layoutGeometryProofFor
      */
@@ -91,10 +89,8 @@ final class ElementConversionPrelude
         private readonly Runtime $runtime,
         private readonly SourceElementClassifier $sourceElementClassifier,
         private readonly TransformationProvenanceState $provenance,
-        private readonly Closure $convertChildren,
-        private readonly Closure $convertElement,
+        private readonly PatternTreeConverter $tree,
         private readonly Closure $linkedRuntimeControl,
-        private readonly Closure $recognizePatterns,
         private readonly AuthorLayoutOwnership $authorLayoutOwnership,
         private readonly Closure $proofBackedWrapperCoalescing,
         private readonly Closure $layoutGeometryProofFor,
@@ -106,10 +102,10 @@ final class ElementConversionPrelude
     /**
      * @param array<int, array<string, mixed>> $fallbacks
      */
-    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported): ConversionOutcome
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
         if (WordPressComments::hasClass($element, 'wp-block-comments')) {
-            $children = ($this->convertChildren)($element, $fallbacks, $captureUnsupported);
+            $children = $this->tree->children($element, $fallbacks, $captureUnsupported);
             return ConversionOutcome::handled($this->commentContainer($element, 'core/comments', $children));
         }
         if (WordPressComments::hasClass($element, 'wp-block-comment-template')) {
@@ -125,7 +121,7 @@ final class ElementConversionPrelude
                 }
                 foreach ($nestedReplies as [$nested, $parent]) $parent->removeChild($nested);
                 try {
-                    $children = ($this->convertChildren)($item, $fallbacks, $captureUnsupported);
+                    $children = $this->tree->children($item, $fallbacks, $captureUnsupported);
                 } finally {
                     foreach (array_reverse($nestedReplies) as [$nested, $parent, $next]) $parent->insertBefore($nested, $next);
                 }
@@ -191,7 +187,7 @@ final class ElementConversionPrelude
         }
 
         if ( 'span' === $tagName && 0 < $element->getElementsByTagName('form')->length ) {
-            $children = ($this->convertChildren)($element, $fallbacks, $captureUnsupported);
+            $children = $this->tree->children($element, $fallbacks, $captureUnsupported);
             return ConversionOutcome::handled(array() === $children ? null : $this->createBlock->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $children, $element));
         }
 
@@ -207,7 +203,7 @@ final class ElementConversionPrelude
             $path = $element->getNodePath();
             $this->provenance->releaseFormControlSlot($path);
             try {
-                $block = ($this->convertElement)($element, $fallbacks, $captureUnsupported);
+                $block = $this->tree->element($element, $fallbacks, $captureUnsupported);
             } finally {
                 $this->provenance->restoreFormControlSlot($path, $formControlSlotToken);
             }
@@ -278,7 +274,7 @@ final class ElementConversionPrelude
             // A script-addressed menu stays a native navigation block; its hooks
             // render with it. Anything the pattern cannot claim stays an island.
             if ( 'nav' === $tagName ) {
-                $navigation = ($this->recognizePatterns)($element, $fallbacks, array( NavigationPattern::class ));
+                $navigation = $this->tree->patterns($element, $fallbacks, array( NavigationPattern::class ));
                 if ( 'core/navigation' === ($navigation['blockName'] ?? null) ) {
                     if ( 'mobile' !== ($navigation['attrs']['overlayMenu'] ?? 'never') ) {
                         $navigation['attrs']['className'] = SourceDom::mergeClassNames((string) ($navigation['attrs']['className'] ?? ''), self::SCRIPT_NAVIGATION_CLASS);
@@ -309,7 +305,7 @@ final class ElementConversionPrelude
             return ConversionOutcome::handled($standaloneSearchTrigger);
         }
 
-        $mathBlock = ($this->recognizePatterns)($element, $fallbacks, array(MathPattern::class));
+        $mathBlock = $this->tree->patterns($element, $fallbacks, array(MathPattern::class));
         if ( null !== $mathBlock ) {
             return ConversionOutcome::handled($mathBlock);
         }

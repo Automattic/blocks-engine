@@ -91,6 +91,15 @@ final class LogoPattern implements PatternRecognizerInterface
         }
 
         if ( 'a' === $tagName && $this->hasStructuredAnchorChrome($element) ) {
+            // A <picture> cannot ride the RichText host: RichText rejects the
+            // picture wrapper around its image object, so the paragraph would
+            // fall back to a core/html island. Declining lets the anchor
+            // dispatcher lower the lockup as a link-wrapper group: the picture
+            // becomes a linked core/image and the label a linked paragraph,
+            // with the anchor's row layout and selector identity on the group.
+            if ( 0 < $element->getElementsByTagName('picture')->length ) {
+                return null;
+            }
             // Media is not button chrome. Keep the source anchor and its
             // layout in a native RichText host, without button theme defaults.
             $html = $outerHtml($element);

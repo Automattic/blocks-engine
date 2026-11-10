@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssFontShorthand;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
@@ -194,7 +195,8 @@ final class StyleResolver implements ElementPresentationResolver
             $this->responsivePropertyFamily(...),
             $this->hasConditionalGridTemplateColumns(...),
             $this->authorNormalDeclarationSpecificity(...),
-            $this->authorImportantDeclarationSpecificity(...)
+            $this->authorImportantDeclarationSpecificity(...),
+            $this->conditionalAuthorDeclaredPropertyValues(...)
         );
     }
 
@@ -1395,7 +1397,7 @@ final class StyleResolver implements ElementPresentationResolver
             return '';
         }
 
-        return $this->carriedDeclarationValue($this->cascadeFontSizeWinner($element));
+        return CssValueInspector::carriableDeclarationValue($this->cascadeFontSizeWinner($element));
     }
 
     public function responsiveTypographyClassName(DOMElement $element): string
@@ -1511,7 +1513,7 @@ final class StyleResolver implements ElementPresentationResolver
         // a conditional author rule exists, carry that real zero baseline too,
         // rather than letting an unlayered WordPress block default fill it in.
         if ( null === $baseWinner && !in_array(strtolower($element->tagName), array('article', 'aside', 'div', 'footer', 'header', 'main', 'nav', 'section'), true) ) return '';
-        $base = null === $baseWinner ? '0px' : $this->carriedDeclarationValue($baseWinner['value']);
+        $base = null === $baseWinner ? '0px' : CssValueInspector::carriableDeclarationValue($baseWinner['value']);
         $conditional = array();
         $orderedConditionalWinners = array();
         foreach ($conditionalWinners as $condition => $entry) {
@@ -1537,7 +1539,7 @@ final class StyleResolver implements ElementPresentationResolver
         foreach ($orderedConditionalWinners as $winner) {
             $condition = $winner['condition'];
             $entry = $winner['entry'];
-            $value = $this->carriedDeclarationValue($entry['value']);
+            $value = CssValueInspector::carriableDeclarationValue($entry['value']);
             if ('' !== $value) $conditional[$condition] = $value;
         }
         if ('' === $base && array() === $conditional) return '';
@@ -1626,7 +1628,7 @@ final class StyleResolver implements ElementPresentationResolver
     /** @param array{value: string, important: bool} $entry */
     private function carriedFontSizeValue(array $entry): string
     {
-        $value = $this->carriedDeclarationValue($entry['value']);
+        $value = CssValueInspector::carriableDeclarationValue($entry['value']);
 
         return '' === $value || !$entry['important'] ? $value : $value . ' !important';
     }
@@ -2575,7 +2577,7 @@ final class StyleResolver implements ElementPresentationResolver
     {
         $parent = $element->parentNode;
         if ( ! $parent instanceof DOMElement
-            || ( 'body' !== strtolower($parent->tagName) && ! $this->isDocumentVariantRoot($parent) )
+            || ( 'body' !== strtolower($parent->tagName) && ! SourceDom::isDocumentVariantRoot($parent) )
             || '' === SourceDom::safeAnchor(SourceDom::attr($element, 'id'))
         ) {
             return '';
@@ -2592,11 +2594,6 @@ final class StyleResolver implements ElementPresentationResolver
         );
         $this->session->layoutGeometryState()->registerRule($className, '.' . $className . '{' . $rule . '}');
         return $className;
-    }
-
-    private function isDocumentVariantRoot(DOMElement $element): bool
-    {
-        return SourceDom::isDocumentVariantRoot($element);
     }
 
     /**
@@ -2774,7 +2771,7 @@ final class StyleResolver implements ElementPresentationResolver
         $unmatchedCarrier = $this->inlineUnmatchedCarrierProperties();
         $overrides = array();
         foreach ( $candidates as $property => $rawValue ) {
-            $value = $this->carriedDeclarationValue($rawValue);
+            $value = CssValueInspector::carriableDeclarationValue($rawValue);
             if ( '' === $value ) {
                 continue;
             }
@@ -3011,7 +3008,7 @@ final class StyleResolver implements ElementPresentationResolver
             return array();
         }
 
-        $value = $this->carriedDeclarationValue((string) ($declarations['text-align'] ?? ''));
+        $value = CssValueInspector::carriableDeclarationValue((string) ($declarations['text-align'] ?? ''));
         if ( '' === $value ) {
             return array();
         }
@@ -3088,7 +3085,7 @@ final class StyleResolver implements ElementPresentationResolver
      */
     public function generatedRichTextAlignment(DOMElement $element): string
     {
-        $value = strtolower($this->carriedDeclarationValue((string) ($this->presentationDeclarations($element)['text-align'] ?? '')));
+        $value = strtolower(CssValueInspector::carriableDeclarationValue((string) ($this->presentationDeclarations($element)['text-align'] ?? '')));
         if ( ! in_array($value, array( 'left', 'center', 'right' ), true) ) {
             return '';
         }
@@ -3175,26 +3172,6 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         return false;
-    }
-
-    /**
-     * Strip `!important` and reject any value that could break out of the
-     * generated rule, matching the geometry loop's own guard.
-     *
-     * Anything that can leave the emitted rule's own closing brace unreachable is
-     * rejected, because this path carries values such as `box-shadow` whose
-     * grammar is full of parentheses, quotes and escapes. Three ways to do it,
-     * all verified to swallow the NEXT carrier rule in a browser:
-     *   - an unclosed `rgba(`, which makes the parser consume the brace hunting
-     *     for the `)`;
-     *   - an odd number of `'` or `"`, which puts the brace inside a string;
-     *   - a trailing backslash, which escapes the brace itself.
-     * In each case the corruption lands on an unrelated element's styling, so the
-     * malformed value is dropped rather than carried.
-     */
-    private function carriedDeclarationValue(string $rawValue): string
-    {
-        return CssValueInspector::carriableDeclarationValue($rawValue);
     }
 
     /**
@@ -3634,12 +3611,21 @@ final class StyleResolver implements ElementPresentationResolver
         $ownDefaults = $tagDefaults[strtolower($element->tagName)] ?? array();
         $parent = $element->parentNode;
         if ( $parent instanceof DOMElement ) {
+            $own = null;
             foreach ( array( 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform', 'color' ) as $property ) {
                 if ( ! isset($declarations[$property]) || in_array($property, $ownDefaults, true) ) {
                     continue;
                 }
                 $inherited = $this->resolvedInheritedTypographyValue($parent, $property);
                 $value = $this->resolveCssVariablesInValue(CssValueInspector::withoutImportant($declarations[$property]), $element);
+                // The inline value is redundant only if dropping it lets the
+                // element inherit; an own author rule with a different value
+                // would win instead.
+                $own ??= $this->cssDeclarations($this->specificityResolvedPresentationStyle($element, null, false));
+                $ownValue = trim((string) ($own[$property] ?? ''));
+                if ( '' !== $ownValue && $this->comparableInheritedTypography($this->resolveCssVariablesInValue(CssValueInspector::withoutImportant($ownValue), $element)) !== $this->comparableInheritedTypography($value) ) {
+                    continue;
+                }
                 // Equal relative expressions need not compute equally at two
                 // levels (for example font-size:120% or font-weight:bolder).
                 if ( ('font-size' === $property && preg_match('/(?:%|[0-9.](?:em|ex|ch)\b)|^(?:larger|smaller)$/i', $value))
@@ -4778,7 +4764,7 @@ final class StyleResolver implements ElementPresentationResolver
             }
             $revealsGeometry = false;
             foreach (array('height', 'max-height') as $property) {
-                if ($this->isZeroLength((string) ($declarations[$property] ?? '')) && $this->isExpandedLength($property, (string) ($state[$property] ?? ''))) {
+                if (CssValueInspector::isZeroLength((string) ($declarations[$property] ?? '')) && $this->isExpandedLength($property, (string) ($state[$property] ?? ''))) {
                     $revealed[$property] = true;
                     $revealsGeometry = true;
                 }
@@ -4799,15 +4785,10 @@ final class StyleResolver implements ElementPresentationResolver
         return in_array(CssValueInspector::comparable($value), array('block', 'contents', 'flex', 'grid', 'inline', 'inline-block', 'inline-flex', 'inline-grid', 'list-item', 'table'), true);
     }
 
-    private function isZeroLength(string $value): bool
-    {
-        return CssValueInspector::isZeroLength($value);
-    }
-
     private function isExpandedLength(string $property, string $value): bool
     {
         $value = CssValueInspector::comparable($value);
-        if ('' === $value || $this->isZeroLength($value)) {
+        if ('' === $value || CssValueInspector::isZeroLength($value)) {
             return false;
         }
 
@@ -5294,6 +5275,30 @@ final class StyleResolver implements ElementPresentationResolver
                 }
                 $stacks[serialize($conditions)] = $conditions;
             }
+        }
+        return array_values($stacks);
+    }
+
+    /**
+     * Screen media stacks under which author rules on this element restate any
+     * of the properties (a `font` shorthand restates every font longhand).
+     *
+     * @param list<string> $properties
+     * @return list<list<string>>
+     */
+    public function screenMediaConditionsDeclaring(DOMElement $element, array $properties): array
+    {
+        $stacks = array();
+        foreach ($this->matchingStyleRules($element, 'conditional') as $rule) {
+            $conditions = $rule['conditions'] ?? array();
+            $declared = array_keys($rule['declarations'] ?? array());
+            if (isset($rule['pendingFont'])) $declared[] = 'font';
+            if (in_array('font', $declared, true)) array_push($declared, ...self::FONT_SHORTHAND_LONGHANDS);
+            if (array() === $conditions || array() === array_intersect($properties, $declared)) continue;
+            foreach ($conditions as $condition) {
+                if (!preg_match('/^@media\s*(.+)$/is', $condition, $match) || !CssCascade::mediaConditionTargetsScreen($match[1])) continue 2;
+            }
+            $stacks[serialize($conditions)] = $conditions;
         }
         return array_values($stacks);
     }
@@ -6744,10 +6749,33 @@ final class StyleResolver implements ElementPresentationResolver
         $classes = preg_split('/\s+/', trim($className)) ?: array();
         $classes = array_filter($classes, fn (string $class): bool => '' !== $class
             && (! self::isBehaviorHookClassName($class) || $this->hasAuthorClassSelector($class))
-            && ! self::isGeneratedCoreClassName($class)
+            && ! GeneratedGutenbergClassPolicy::isGeneratedClassName($class)
             && ! self::isTransformerMarkerClassName($class));
 
         return implode(' ', array_values(array_unique($classes)));
+    }
+
+    public function promotedClassName(string $className): string
+    {
+        if ( '' === trim($className) || ! $this->session->sourceStyleResolutionState()->hasClassPromotions() ) {
+            return $this->presentationClassName($className);
+        }
+
+        $classes = preg_split('/\s+/', trim($className)) ?: array();
+        foreach ( $classes as $class ) {
+            foreach ( $this->session->sourceStyleResolutionState()->classPromotions($class) as $terminalClass ) {
+                if ( ! in_array($terminalClass, $classes, true) ) {
+                    $classes[] = $terminalClass;
+                }
+            }
+        }
+
+        return $this->presentationClassName(implode(' ', $classes));
+    }
+
+    public function innerHtml(DOMElement $element): string
+    {
+        return SourceDom::innerHtml($element, $this->serializedInlineStyle(...));
     }
 
     /**
@@ -6860,11 +6888,6 @@ final class StyleResolver implements ElementPresentationResolver
     private static function isBehaviorHookClassName(string $className): bool
     {
         return 1 === preg_match('/^js(?:$|[-_:]|[A-Z])/', $className);
-    }
-
-    private static function isGeneratedCoreClassName(string $className): bool
-    {
-        return GeneratedGutenbergClassPolicy::isGeneratedClassName($className);
     }
 
     /**

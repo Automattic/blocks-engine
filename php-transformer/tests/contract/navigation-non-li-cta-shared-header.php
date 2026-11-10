@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
@@ -26,7 +27,7 @@ foreach (array('div', 'li') as $tag) {
         $content = $page['canonical_block_markup'];
         $assert(!str_contains($content, '<header') && !str_contains($content, 'Book now') && !str_contains($content, 'wp:navigation'), $tag . ': page content excludes header/menu');
         $assert(str_contains($content, 'Content for '), $tag . ': page body survives');
-        $template = array_column($plan['templates'], 'canonical_block_markup', 'slug')[$page['route_template'] ?? ($page['entrypoint'] ? 'front-page' : 'page')] ?? '';
+        $template = WordPressSitePlan::renderedTemplates($plan)[$page['route_template'] ?? ($page['entrypoint'] ? 'front-page' : 'page')] ?? '';
         $assert(str_contains($template . $content, 'wp:template-part {"slug":"' . $headers[0]['slug'] . '"'), $tag . ': every route references header');
     }
     // Core renders the wrapper as an li: its projected item identity must still

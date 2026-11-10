@@ -232,8 +232,10 @@ final class NavigationBlockNormalizer
     private function mergeDeviceMenuPairs(array $blocks): array
     {
         $hiddenOn = static fn (array $block): array => array_keys(array_filter((array) ($block['attrs']['metadata']['blockVisibility']['viewport'] ?? array()), static fn (mixed $visible): bool => false === $visible));
-        $customProfile = '/(?:^|\s)(?:' . preg_quote(EngineMarker::DEVICE_ONLY_CLASS_PREFIX, '/') . '|' . preg_quote(EngineMarker::DEVICE_HIDE_CLASS_PREFIX, '/') . ')/';
-        $isNavigation = static fn (mixed $block): bool => is_array($block) && 'core/navigation' === ($block['blockName'] ?? '') && 1 !== preg_match($customProfile, (string) ($block['attrs']['className'] ?? ''));
+        // Class-gated menus follow document identity, even for core viewport names.
+        // Only viewport metadata can prove a width-collapsing pair.
+        $selectedDocumentProfile = '/(?:^|\s)(?:' . preg_quote(EngineMarker::DEVICE_ONLY_CLASS_PREFIX, '/') . '|' . preg_quote(EngineMarker::DEVICE_HIDE_CLASS_PREFIX, '/') . ')/';
+        $isNavigation = static fn (mixed $block): bool => is_array($block) && 'core/navigation' === ($block['blockName'] ?? '') && 1 !== preg_match($selectedDocumentProfile, (string) ($block['attrs']['className'] ?? ''));
         $phoneCopies = array();
         foreach ($blocks as $index => $block) {
             if ($isNavigation($block) && array() !== $hiddenOn($block) && !in_array('mobile', $hiddenOn($block), true)) {

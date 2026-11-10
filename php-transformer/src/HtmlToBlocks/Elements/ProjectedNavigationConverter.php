@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
@@ -21,14 +23,11 @@ use DOMElement;
 /** Promotes a menu toggle onto its projected navigation, or suppresses the control. */
 final class ProjectedNavigationConverter implements ElementConverter
 {
-    /**
-     * @param Closure(DOMElement, array<int, array<string, mixed>>&, array<int, class-string>): ?array<string, mixed> $recognizePatterns
-     */
     public function __construct(
         private readonly NavigationToggleSuppressor $navigationToggleSuppressor,
         private readonly StyleResolver $styleResolver,
         private readonly HtmlTransformerSession $session,
-        private readonly Closure $recognizePatterns,
+        private readonly PatternTreeConverter $tree,
         private readonly SourceBlockCreator $createBlock,
         private readonly ?Closure $isRuntimeDomTarget = null,
         private readonly ?Closure $svgMarkup = null
@@ -36,7 +35,7 @@ final class ProjectedNavigationConverter implements ElementConverter
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */
-    public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
         $runtimeButton = ('button' === $tagName || AuthoredButtonBlockGenerator::isRoleButton($element))
             && $this->isRuntimeDomTarget instanceof Closure
@@ -68,7 +67,7 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
         $projectedNavigation ??= $this->navigationToggleSuppressor->projectedNavigationTargetForControl($element);
         if ( $projectedNavigation instanceof DOMElement ) {
-            $block = ($this->recognizePatterns)($projectedNavigation, $fallbacks, array(NavigationPattern::class));
+            $block = $this->tree->patterns($projectedNavigation, $fallbacks, array(NavigationPattern::class));
             // A landmark carrier is the panel's own box around its menu. The
             // control's slot takes only that menu; Core's overlay is the panel.
             if ( null !== $block && $this->navigationToggleSuppressor->isNavigationCarrier($projectedNavigation)
@@ -358,8 +357,12 @@ final class ProjectedNavigationConverter implements ElementConverter
                 $openPanel = $host . ' .wp-block-navigation__responsive-container.is-menu-open:not(.disable-default-overlay)';
                 // The passive panel is below the retained header row. Keep Core's
                 // close icon in the replacement host, the source burger's slot.
-                $extraRules .= $host . '{position:relative!important;isolation:isolate}'
-                    . $openPanel . '{position:static!important;background:transparent!important;padding:0!important}'
+                // Core's open animation transform and flex-item z-index would make
+                // the container the fixed panel's containing block and lift it over
+                // the header row, so the container stays a plain, static box.
+                $extraRules .= $host . '{position:relative!important}'
+                    . $host . ':has(.is-menu-open) .wp-block-navigation__responsive-container-open{visibility:hidden!important}'
+                    . $openPanel . '{position:static!important;background:transparent!important;padding:0!important;transform:none!important;animation:none!important;z-index:auto!important}'
                     . $openPanel . ' .wp-block-navigation__responsive-dialog{position:static!important}'
                     . $openPanel . ' .wp-block-navigation__responsive-container-content{position:fixed!important;inset:0!important;box-sizing:border-box!important;background:' . $paint . '!important;z-index:-1!important}'
                     . $openPanel . ' .wp-block-navigation__responsive-container-close{position:absolute!important;inset:0!important;display:flex!important;align-items:center!important;justify-content:center!important;' . implode(';', $declarations) . '}'
@@ -497,13 +500,13 @@ final class ProjectedNavigationConverter implements ElementConverter
         $color = $attrs['customOverlayTextColor'] ?? '';
         $listPadding = array();
         $chain = $this->collapsedPanelChain($navigation);
-        foreach ($this->styleResolver->collapsedViewportDeclarations($chain[0], array('padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left')) as $property => $value) {
+        foreach ($chain[0]->hasAttribute(CaptureEvidence::fluidIgnorePaddingAttribute()) ? array() : $this->styleResolver->collapsedViewportDeclarations($chain[0], array('padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left')) as $property => $value) {
             $value = $this->styleResolver->resolveCssVariablesInValue(CssValueInspector::withoutImportant($value), $chain[0]);
             if ('' !== trim($value) && !preg_match('/[{}<>;]|var\(|url\(/i', $value)) {
                 $listPadding[] = $property . ':' . $value . '!important';
             }
         }
-        $alignmentMarker = $this->responsiveNavigationAlignmentMarker($navigation);
+        $alignmentMarker = trim($this->responsiveNavigationAlignmentMarker($navigation) . ' ' . $this->responsiveNavigationHeaderOffsetMarker($navigation));
         if ( '' === $background && '' === $color && array() === $listPadding ) {
             return $alignmentMarker;
         }
@@ -537,6 +540,26 @@ final class ProjectedNavigationConverter implements ElementConverter
         return trim($marker . ' ' . $alignmentMarker);
     }
 
+    /** Script-owned panel padding follows the live header, never its capture-time pixels. */
+    private function responsiveNavigationHeaderOffsetMarker(DOMElement $navigation): string
+    {
+        $header = $navigation->parentNode;
+        while ($header instanceof DOMElement && 'header' !== strtolower($header->tagName)) $header = $header->parentNode;
+        if (!$header instanceof DOMElement) return '';
+        foreach ($this->overlayPanelBoxes($navigation) as $box) {
+            if (!$box->hasAttribute(CaptureEvidence::fluidIgnorePaddingAttribute())) continue;
+            $position = $this->styleResolver->collapsedViewportAuthorDeclarations($box, array('position'));
+            if ('fixed' !== ($position['position'] ?? '')) continue;
+            $marker = 'blocks-engine-navigation-header-offset';
+            $open = '.wp-block-navigation.blocks-engine-native-responsive-navigation.' . $marker . ' .wp-block-navigation__responsive-container.is-menu-open:not(.disable-default-overlay)';
+            $this->session->generatedSupportStylesheetState()->registerNativeNavigationOverlay($marker,
+                $open . ' .wp-block-navigation__responsive-dialog .wp-block-navigation__responsive-container-content{box-sizing:border-box!important;min-height:100dvh!important;padding-top:var(--blocks-engine-navigation-header-height,0px)!important}'
+            );
+            return $marker;
+        }
+        return '';
+    }
+
     private function responsiveNavigationAlignmentMarker(DOMElement $navigation): string
     {
         $alignment = $this->responsiveNavigationOverlayAttributes($navigation)['layout']['justifyContent'] ?? '';
@@ -559,7 +582,7 @@ final class ProjectedNavigationConverter implements ElementConverter
             $values = $this->styleResolver->collapsedViewportAuthorDeclarations($box, array('flex-direction', 'justify-content'));
             if (str_starts_with($values['flex-direction'] ?? '', 'column') && 'center' === ($values['justify-content'] ?? '')) {
                 $rule .= $open . ' .wp-block-navigation__responsive-container-content{min-height:100dvh!important;justify-content:center!important;align-items:' . $align . '!important;padding-block:0!important}'
-                    . $open . ' .wp-block-navigation__container{flex-direction:column!important}';
+                    . $open . ' .wp-block-navigation__container{flex-direction:column!important;justify-content:center!important}';
                 break;
             }
         }

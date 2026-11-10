@@ -553,6 +553,35 @@ $assert(str_contains((string) ($positionedImage['serialized_blocks'] ?? ''), 'ma
 $assert(str_contains($positionedImageCss, 'object-fit:fill !important;object-position:-197.702px -102.702px !important'), 'image presentation carrier preserves source object fit and position for the nested image bridge');
 $assert(str_contains($positionedImageCss, '.map.wp-block-image > img,.map.wp-block-image > a > img{display:block;width:100%;height:100%;max-width:100%;object-fit:inherit;object-position:inherit;border-radius:inherit}'), 'nested image fills a wrapper with explicitly owned width and height, linked or not');
 
+// Corner radius follows whichever box the source rule paints after projection:
+// the figure when the image's class moved onto it, the image itself when the
+// rule's subject is a bare `img`.
+foreach (array(
+    'class moved to figure' => array('<img class="photo" src="p.jpg" alt="a">', '.photo{width:120px;height:120px;border-radius:50%}'),
+    'descendant img subject' => array('<div class="avatar"><img src="p.jpg" alt="a"></div>', '.avatar img{width:120px;height:120px;border-radius:50%}'),
+    'later radius-less breakpoint rule' => array('<div class="avatar"><img src="p.jpg" alt="a"></div>', '.avatar img{width:120px;height:120px;border-radius:50%}@media (min-width:1px){.avatar img{width:100px;height:100px}}'),
+    'mixed selector list' => array('<img class="photo" src="p.jpg" alt="a"><div class="avatar"><img src="p.jpg" alt="b"></div>', '.photo,.avatar img{width:120px;height:120px;border-radius:50%}'),
+) as $case => [$radiusHtml, $radiusCss]) {
+    $radius = ( new ArtifactCompiler() )->compile(array(
+        'files' => array(
+            array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="r.css">' . $radiusHtml ),
+            array( 'path' => 'r.css', 'kind' => 'css', 'content_base64' => base64_encode($radiusCss) ),
+            array( 'path' => 'p.jpg', 'kind' => 'image', 'content' => 'image-bytes' ),
+        ),
+    ) )->toArray();
+    $radiusDocument = new DOMDocument();
+    @$radiusDocument->loadHTML('<body>' . preg_replace('/<!--.*?-->/s', '', (string) ($radius['serialized_blocks'] ?? '')) . '</body>');
+    $radiusCascade = new StaticCssCascade($radiusDocument, implode("\n", array_column($radius['assets'] ?? array(), 'content')));
+    $radii = array();
+    foreach ( $radiusDocument->getElementsByTagName('img') as $radiusImage ) {
+        $value = $radiusCascade->resolve($radiusImage, array( 'border-radius' ), array())['border-radius'] ?? '';
+        $radii[] = 'inherit' === $value && $radiusImage->parentNode instanceof DOMElement
+            ? ($radiusCascade->resolve($radiusImage->parentNode, array( 'border-radius' ), array())['border-radius'] ?? '')
+            : $value;
+    }
+    $assert(array() !== $radii && array( '50%' ) === array_values(array_unique($radii)), 'projected image keeps its source corner radius: ' . $case . ' (got ' . implode(', ', $radii) . ')');
+}
+
 $multiPage = ( new ArtifactCompiler() )->compile(array(
     'entrypoint' => 'index.html',
     'files' => array(
@@ -662,7 +691,7 @@ $pageSubsetScopes = array_column($pageSubsetAssets['section.css']['scopes'] ?? a
 $assert(array('services.html', 'portfolio.html') === $pageSubsetScopes, 'a stylesheet linked by a subset of pages retains every owning page scope without becoming global');
 $pageSubsetWrites = array_column($pageSubsetStylesheet['source_reports']['wordpress_site_plan']['writes'] ?? array(), null, 'target_path');
 $pageSubsetBootstrap = (string) ($pageSubsetWrites['functions.php']['payload']['data'] ?? '');
-$assert(str_contains($pageSubsetBootstrap, "'services' === trim( get_page_uri( \$blocks_engine_page_id ), '/' )") && str_contains($pageSubsetBootstrap, "'portfolio' === trim( get_page_uri( \$blocks_engine_page_id ), '/' )"), 'a subset-scoped stylesheet bootstrap matches every owning WordPress route');
+$assert(str_contains($pageSubsetBootstrap, "'services' === \$blocks_engine_page_uri") && str_contains($pageSubsetBootstrap, "'portfolio' === \$blocks_engine_page_uri"), 'a subset-scoped stylesheet bootstrap matches every owning WordPress route');
 $assert(array(array('kind' => 'global')) === ($pageSubsetAssets['explicit-shared.css']['scopes'] ?? null), 'explicitly shared linked stylesheets retain global scope');
 $assert('asset' === ($pageSubsetAssets['unreferenced.css']['kind'] ?? null) && 'source-provenance' === ($pageSubsetAssets['unreferenced.css']['role'] ?? null), 'unreferenced author stylesheets are retained as provenance, not active CSS');
 $pageSubsetCompiledAssets = array_column($pageSubsetStylesheet['source_reports']['compiled_site']['assets'] ?? array(), null, 'path');
@@ -719,7 +748,8 @@ $scopedResponsive = ( new ArtifactCompiler() )->compile(array(
         array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>:where(.mobile-document) [data-mesh-id="content"] > #copy{position:relative;margin:36px 0 52px}</style><main><div class="mobile-document"><div data-mesh-id="content"><div id="copy">Copy</div></div></div></main>' ),
     ),
 ) )->toArray();
-$scopedResponsiveCss = implode("\n", array_column($scopedResponsive['assets'] ?? array(), 'content'));
+// Editor-only repairs name the original selector inside their lost-identity guard.
+$scopedResponsiveCss = implode("\n", array_column(array_filter($scopedResponsive['assets'] ?? array(), static fn (array $asset): bool => 'editor' !== ($asset['stylesheet_target'] ?? '')), 'content'));
 $assert(preg_match('/:where\(\.mobile-document\)\s+:where\(\.blocks-engine-attribute-[a-f0-9-]+\)>:where\(#copy\)/', $scopedResponsiveCss) && ! str_contains($scopedResponsiveCss, '[data-mesh-id="content"] > #copy'), 'zero-specificity responsive scopes retain attribute-ancestry combinators through canonical block markup');
 
 $dataMeshGrid = ( new ArtifactCompiler() )->compile(array(

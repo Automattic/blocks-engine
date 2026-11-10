@@ -78,8 +78,8 @@ foreach ( array( $synthetic, $inlineLayout, $layoutItems, $authorMargin ) as $re
 
 $layoutRules = array(
     'synthetic paragraph' => ':root :where(.blocks-engine-synthetic-paragraph){margin-top:0;margin-bottom:0}',
-    'css-owned flow paragraph' => ':root :where(.blocks-engine-css-owned-flow>p){margin-top:revert;margin-bottom:revert}',
-    'css-owned flow direct children' => ':root :where(.wp-block-group.blocks-engine-css-owned-flow)>*{margin-block-start:revert;margin-block-end:revert}',
+    'css-owned flow paragraph' => ':root :where(.blocks-engine-css-owned-flow>p:not(.blocks-engine-synthetic-paragraph,.blocks-engine-synthetic-embed-figure,.blocks-engine-synthetic-image-figure,.blocks-engine-synthetic-video-figure-fill,.blocks-engine-lowered-paragraph)){margin-top:revert;margin-bottom:revert}',
+    'css-owned flow direct children' => ':root :where(.wp-block-group.blocks-engine-css-owned-flow>*:not(.blocks-engine-synthetic-paragraph,.blocks-engine-synthetic-embed-figure,.blocks-engine-synthetic-image-figure,.blocks-engine-synthetic-video-figure-fill,.blocks-engine-lowered-paragraph)){margin-block-start:revert;margin-block-end:revert}',
     'css-owned grid direct children' => ':root :where(.blocks-engine-css-owned-grid)>:where(:not(h1,h2,h3,h4,h5,h6)){margin-block-start:0;margin-block-end:0}',
 );
 $editorWrapperRules = array(

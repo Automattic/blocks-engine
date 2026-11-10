@@ -250,7 +250,7 @@ final class CapturedChoiceGroupProjector
                 $diagnostics[] = $this->diagnostic('captured_choice_group_limit_exceeded', 'warning', 'A captured interaction page exceeded the choice-group limit.', array('source_url' => $page['sourceUrl']));
                 continue;
             }
-            $path = $routes[$this->normalizedUrl($page['sourceUrl'])] ?? '';
+            $path = $routes[CaptureReceiptRoutes::normalizedUrl($page['sourceUrl'])] ?? '';
             $index = $fileIndexes[$path] ?? null;
             if (! is_int($index) || ! is_string($files[$index]['content'] ?? null)) {
                 $diagnostics[] = $this->diagnostic('captured_choice_group_source_unmatched', 'warning', 'A captured choice group did not match an artifact HTML document.', array('source_url' => $page['sourceUrl']));
@@ -727,12 +727,6 @@ final class CapturedChoiceGroupProjector
             $result .= $document->saveHTML($node);
         }
         return is_string($result) ? $result : null;
-    }
-
-    /** @param array<int, array<string, mixed>> $files @return array<string, mixed>|null */
-    private function normalizedUrl(string $url): string
-    {
-        return CaptureReceiptRoutes::normalizedUrl($url);
     }
 
     /** @param array<string, mixed> $context @return array<string, mixed> */

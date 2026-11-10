@@ -209,7 +209,7 @@ final class MaterializationPlanBuilder
             }
         }
 
-        return $this->dedupeRows($links);
+        return DeterministicRowDeduplicator::dedupe($links);
     }
 
     /**
@@ -608,12 +608,4 @@ final class MaterializationPlanBuilder
         return ucwords(str_replace('-', ' ', $this->slugFromPath($path)));
     }
 
-    /**
-     * @param array<int,array<string,mixed>> $rows
-     * @return array<int,array<string,mixed>>
-     */
-    private function dedupeRows(array $rows): array
-    {
-        return DeterministicRowDeduplicator::dedupe($rows);
-    }
 }

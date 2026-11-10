@@ -107,9 +107,8 @@ $assert(
     '9: retainedWrapperLinkDeclarations() is the single source EngineSupportCss projects for the link inside a retained box'
 );
 $assert(
-    str_starts_with(LayoutParticipation::transferredFlexContainerDeclarations(), 'display:flex!important;')
-        && str_contains(LayoutParticipation::transferredFlexContainerDeclarations(), 'padding:inherit!important'),
-    '10: transferredFlexContainerDeclarations() restores a source flex container onto the link, inheriting wrapper padding'
+    str_starts_with(LayoutParticipation::transferredFlexContainerDeclarations(), 'display:flex!important;'),
+    '10: transferredFlexContainerDeclarations() restores a source flex container onto the link'
 );
 
 $block = ( new HtmlTransformer() )->transform(

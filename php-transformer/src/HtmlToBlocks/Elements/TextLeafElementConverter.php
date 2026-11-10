@@ -58,7 +58,7 @@ final class TextLeafElementConverter implements ElementConverter
     /**
      * @param array<int, array<string, mixed>> $fallbacks
      */
-    public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
         return match ($tagName) {
             'address'          => ConversionOutcome::handled($this->convertAddress($element)),

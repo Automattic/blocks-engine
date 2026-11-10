@@ -55,7 +55,7 @@ foreach (array(
     WordPressSitePlan::assertValid($plan);
     $headers = array_values(array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
     $assert(1 === count($headers), "$case: one shared header part");
-    $templates = array_column($plan['templates'], 'canonical_block_markup', 'slug');
+    $templates = WordPressSitePlan::renderedTemplates($plan);
     foreach ($plan['pages'] as $page) {
         $shared = null === $difference || 'services/index.html' !== $page['source_path'];
         $template = $templates[!empty($page['entrypoint']) ? 'front-page' : (isset($templates['page-' . $page['slug']]) ? 'page-' . $page['slug'] : 'page')];
@@ -74,7 +74,7 @@ foreach (array('with skip link' => true, 'without skip link' => false) as $case 
     WordPressSitePlan::assertValid($plan);
     $headers = array_values(array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
     $assert(1 === count($headers), "$case: one shared fixture header");
-    $templates = array_column($plan['templates'], 'canonical_block_markup', 'slug');
+    $templates = WordPressSitePlan::renderedTemplates($plan);
     $assert(6 === count($plan['pages']), "$case: all fixture routes compiled");
     foreach ($plan['pages'] as $page) {
         $template = $templates[$page['route_template'] ?? (!empty($page['entrypoint']) ? 'front-page' : 'page')];

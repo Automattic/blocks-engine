@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
@@ -193,10 +194,11 @@ final class WrapperCoalescer
     private function foldableWrapperDescriptor(array $block): ?array
     {
         // A landmark stays its own group block: folded into a layout shell's
-        // wrapper list, a header or footer loses its block identity
-        // for the editor and for shell extraction. A native grid or flex
+        // wrapper list, a header or footer (or a `role="main"` region, which
+        // only its block name records) loses its block identity for the editor
+        // and for shell extraction. A native grid or flex
         // layout is likewise an editor control the wrapper list cannot carry.
-        if (!in_array($block['blockName'] ?? null, array('core/group'), true) || in_array($block['attrs']['layout']['type'] ?? null, array('grid', 'flex'), true) || isset($block['_binding_token']) || $this->session->transformationProvenanceState()->isBindingAnchor($block['_source_provenance_id'] ?? null) || $this->hasIndependentWrapperOwnership($block) || in_array(strtolower((string) ($block['attrs']['tagName'] ?? 'div')), array_merge(array('ul', 'ol', 'li'), self::LANDMARK_GROUP_TAGS), true)) return null;
+        if (!in_array($block['blockName'] ?? null, array('core/group'), true) || in_array($block['attrs']['layout']['type'] ?? null, array('grid', 'flex'), true) || isset($block['_binding_token']) || $this->session->transformationProvenanceState()->isBindingAnchor($block['_source_provenance_id'] ?? null) || $this->hasIndependentWrapperOwnership($block) || in_array(strtolower((string) ($block['attrs']['tagName'] ?? 'div')), array_merge(array('ul', 'ol', 'li'), self::LANDMARK_GROUP_TAGS), true) || ShellLandmarkPolicy::namesRoleOnlyLandmark(is_array($block['attrs'] ?? null) ? $block['attrs'] : array())) return null;
         return $this->groupWrapperDescriptor($block);
     }
 
@@ -402,7 +404,7 @@ final class WrapperCoalescer
         foreach ($element->attributes as $attribute) {
             if (! in_array(strtolower($attribute->nodeName), array('class', 'style', 'data-node-view-wrapper', 'data-node-view-content', 'data-node-view-content-inner'), true)) return false;
         }
-        foreach ($this->authorStyleRuleCandidates($element) as $rule) {
+        foreach ($this->session->authorStyleRuleCandidates($element) as $rule) {
             if (str_contains($rule['selector'], '>')) return false;
         }
         $declarations = $this->inheritedWrapperDeclarations($element);
@@ -635,7 +637,7 @@ final class WrapperCoalescer
 
         $beforeCandidatesByKey = array();
         foreach ( $chain as $node ) {
-            foreach ( $this->authorStyleRuleCandidates($node) as $selector ) {
+            foreach ( $this->session->authorStyleRuleCandidates($node) as $selector ) {
                 $beforeCandidatesByKey[$selector['key']] = $selector;
             }
         }
@@ -676,7 +678,7 @@ final class WrapperCoalescer
 
         $survives = true;
         $temporarySelectorCache = new CssSelectorMatchCache();
-        $afterCandidates = $this->authorStyleRuleCandidates($matchNode, $temporarySelectorCache);
+        $afterCandidates = $this->session->authorStyleRuleCandidates($matchNode, $temporarySelectorCache);
         $candidates = array();
         foreach ( array_merge($beforeCandidates, $afterCandidates) as $selector ) {
             $candidates[$selector['key']] = $selector;
@@ -715,13 +717,6 @@ final class WrapperCoalescer
     }
 
     /** @return list<array{key: string, selector: string, parsed: array<string, mixed>, direct_child_parsed: array<string, mixed>, declarations: array<string, string>, rule_order: int}> */
-    private function authorStyleRuleCandidates(DOMElement $element, ?CssSelectorMatchCache $selectorCache = null): array
-    {
-        $index = $this->session->authorStyleAnalysis()->styleRuleCandidateIndex();
-        $selectorCache ??= $this->session->sourceStyleResolutionState()->selectorMatchCache;
-        return $selectorCache->styleRuleCandidates($element, 'author-rules', $index);
-    }
-
     /**
      * A source `div` establishing flex/grid is structural layout; a direct
      * child of one loses its own eligibility for coalescing (its geometry is
@@ -858,7 +853,7 @@ final class WrapperCoalescer
     {
         $declarations = $this->styleResolver->presentationDeclarations($element);
         $matchedRules = array();
-        foreach ( $this->authorStyleRuleCandidates($element) as $selector ) {
+        foreach ( $this->session->authorStyleRuleCandidates($element) as $selector ) {
             $ruleOrder = $selector['rule_order'];
             if ( isset($matchedRules[$ruleOrder]) || ! $selector['parsed']['supported'] ) {
                 continue;

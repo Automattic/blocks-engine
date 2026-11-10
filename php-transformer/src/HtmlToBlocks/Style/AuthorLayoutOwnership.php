@@ -214,14 +214,14 @@ final class AuthorLayoutOwnership
         }
 
         // Keep a formatting run's carrier boxless before a block.
-        if ( ! $this->ancestorElement($element, 'li') instanceof DOMElement
+        if ( ! SourceDom::ancestorElement($element, 'li') instanceof DOMElement
             && $this->isDirectFormattingRunBeforeBlock($element)
         ) {
             return true;
         }
 
         // A lone styled inline must not add a paragraph line box and spacing.
-        if ( ! $this->ancestorElement($element, 'li') instanceof DOMElement
+        if ( ! SourceDom::ancestorElement($element, 'li') instanceof DOMElement
             && $this->isLoneStyledInlineInFlowWrapper($element)
         ) {
             return true;
@@ -252,12 +252,12 @@ final class AuthorLayoutOwnership
             }
         }
 
-        if ( $this->ancestorElement($element, 'li') instanceof DOMElement ) {
+        if ( SourceDom::ancestorElement($element, 'li') instanceof DOMElement ) {
             return false;
         }
 
         // A paragraph carrier can host selector-addressed phrasing without a group.
-        return (array() !== $this->session->authorSelectorProjectionState()->semanticMarkersForPath(SourceDom::sourceElementIdentity($element)));
+        return (array() !== $this->session->authorSelectorProjectionState()->semanticMarkersForElement($element));
     }
 
     public function isDirectFormattingRunBeforeBlock(DOMElement $element): bool
@@ -293,7 +293,7 @@ final class AuthorLayoutOwnership
             || $this->sourceElementClassifier->isInlineSourceElement(strtolower($parent->tagName))
             || ! ShellLandmarkPolicy::isInlineContentWrapperTag($parent->tagName)
             || ! $this->hasBoxChromeWrapperStyling($parent)
-            || ( ! (array() !== $this->session->authorSelectorProjectionState()->semanticMarkersForPath(SourceDom::sourceElementIdentity($element))) && '' === $this->richTextMarker($element) )
+            || ( ! (array() !== $this->session->authorSelectorProjectionState()->semanticMarkersForElement($element)) && '' === $this->richTextMarker($element) )
         ) {
             return false;
         }
@@ -430,16 +430,6 @@ final class AuthorLayoutOwnership
         }
 
         return false;
-    }
-
-    public function ancestorElement(DOMElement $element, string $tagName): ?DOMElement
-    {
-        for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
-            if ( $tagName === strtolower($parent->tagName) ) {
-                return $parent;
-            }
-        }
-        return null;
     }
 
     public function authoredDisplay(DOMElement $element): string

@@ -876,8 +876,9 @@ for ($k = 0; $k < 112; ++$k) {
 }
 // Many repeated differing units make the scope overhead exceed the old 3x
 // limit while the shared cascade tail dominates each complete page copy.
-$copyBase = str_repeat('.native{z-index:1}', 10) . $copyBase;
-$copyVariant = str_replace('z-index:1}', 'z-index:3}', $copyBase);
+// Each unit's declarations differ, so adjacent runs cannot be scoped together.
+$copyBase = implode('', array_map(static fn (int $j): string => '.native{z-index:1;order:' . $j . '}', range(0, 9))) . $copyBase;
+$copyVariant = str_replace(array('z-index:1;', 'z-index:1}'), array('z-index:3;', 'z-index:3}'), $copyBase);
 foreach ($copyPages as $owner => &$sheets) $sheets = array((int) substr($owner, 5) % 2 ? $copyVariant : $copyBase);
 unset($sheets);
 foreach ($copyProjections as &$projection) $projection['content'] = $copyPages[$projection['owner']][0];

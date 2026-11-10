@@ -20,6 +20,7 @@ use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationReso
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\RichTextMaterializationFixture;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\PatternTreeFixture;
 
 $assertions = 0;
 $failures   = array();
@@ -59,7 +60,7 @@ $makeConverter = static function (array $overrides = array()): TextLeafElementCo
 
     return new TextLeafElementConverter(new RichTextMaterializationFixture(array( 'content' => $c['richTextContent'] )), new Runtime(), $c['createBlock'], new ElementPresentationResolverFixture($c['presentationAttributes']), new SourceElementClassifier(), new TextLeafElementContext(
         new CodePresentation(new ElementPresentationResolverFixture(static fn (DOMElement $pre): array => array('code' => true))),
-        $c['convertChildren']
+        new PatternTreeFixture(children: $c['convertChildren'])
     ));
 };
 

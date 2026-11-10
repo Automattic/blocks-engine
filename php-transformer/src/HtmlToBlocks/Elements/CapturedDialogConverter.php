@@ -6,27 +6,24 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CapturedDialogBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
-use Closure;
 use DOMElement;
 
 /** Materializes editable dialog content as a core Group with a runtime shell. */
 final class CapturedDialogConverter implements ElementConverter
 {
-    /**
-     * @param Closure(DOMElement, array<int, array<string, mixed>>&): array<int, array<string, mixed>> $convertChildren
-     */
     public function __construct(
         private readonly HtmlTransformerSession $session,
-        private readonly Closure $convertChildren,
+        private readonly PatternTreeConverter $tree,
         private readonly StyleResolver $styleResolver
     ) {
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */
-    public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
         if ( ! in_array($tagName, array('dialog', 'div'), true) || 'true' !== SourceDom::attr($element, 'data-blocks-engine-captured-dialog') ) {
             return ConversionOutcome::unhandled();
@@ -119,7 +116,7 @@ final class CapturedDialogConverter implements ElementConverter
             'resting' => in_array(SourceDom::attr($element, 'data-blocks-engine-resting'), array('authored', 'hidden'), true) ? SourceDom::attr($element, 'data-blocks-engine-resting') : '',
             'restingState' => CapturedDialogBlockGenerator::restingState(json_decode(SourceDom::attr($element, 'data-blocks-engine-resting-state'), true)),
         ), static fn(mixed $value): bool => false !== $value && '' !== $value && array() !== $value);
-        $children = ($this->convertChildren)($element, $fallbacks);
+        $children = $this->tree->children($element, $fallbacks, true);
         $escape = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $tag = $attrs['tagName'] ?? 'dialog';
         $opening = '<' . $tag;

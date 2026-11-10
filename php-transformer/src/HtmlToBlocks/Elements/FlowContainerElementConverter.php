@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredCarouselBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredMarqueeRecognizer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\AccordionPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonsContainerPattern;
@@ -29,10 +32,27 @@ final class FlowContainerElementConverter implements ElementConverter
         private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock,
         private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver $presentationResolver,
         private readonly FlowContainerElementContext $context,
-        ?NavigationPattern $navigationPattern = null
+        private readonly EmptyInteractiveFeatureShell $emptyFeatureShells,
+        private readonly FormDispatcher $formDispatcher,
+        private readonly FlankedSeparatorLowering $flankedSeparators,
+        private readonly ImageLowering $imageLowering,
+        private readonly AuthorLayoutLowering $authorLayout,
+        private readonly GeneratedComponentLowering $generatedComponents,
+        private readonly EmptyVisualRetention $emptyVisualRetention,
+        private readonly HtmlTransformerSession $session,
+        private readonly RuntimeIslandAnalyzer $runtimeIslands,
+        private readonly MetadataGridConverter $metadataGrid,
+        private readonly MediaGalleryLowering $mediaGalleries,
+        private readonly NamePriceRowLowering $namePriceRows,
+        private readonly InlineFlowLowering $inlineFlows,
+        private readonly SearchBlockConverter $searchBlocks,
+        private readonly ReadableFormControlBlockConverter $readableControls,
+        private readonly AuthoredMarqueeRecognizer $marquees,
+        private readonly AuthoredCarouselBlockGenerator $carousels,
+        private readonly EmptyVisualSpacerLowering $emptyVisualSpacers
     )
     {
-        $this->navigationPattern = $navigationPattern ?? new NavigationPattern($this->createBlock);
+        $this->navigationPattern = new NavigationPattern($this->createBlock);
     }
 
     public function handles(string $tagName): bool
@@ -41,13 +61,18 @@ final class FlowContainerElementConverter implements ElementConverter
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */
-    public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
-        if ( ! $this->handles($tagName) ) {
+        // Autonomous dialog hosts have the same light-DOM container semantics
+        // as div[role=dialog]. Keep them in the ordinary recognizer order rather
+        // than flattening their children through transparent-wrapper lowering.
+        $isCustomDialog = CustomElementRuntimeDependency::isCustomElementTag($tagName)
+            && 'dialog' === strtolower(trim(SourceDom::attr($element, 'role')));
+        if ( ! $this->handles($tagName) && ! $isCustomDialog ) {
             return ConversionOutcome::unhandled();
         }
 
-        return $this->lower($element, $tagName, $fallbacks);
+        return $this->lower($element, $isCustomDialog ? 'div' : $tagName, $fallbacks);
     }
 
     /**
@@ -82,7 +107,7 @@ final class FlowContainerElementConverter implements ElementConverter
     private function lower(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
     {
         if ( SourceDom::documentVariantRoot($element) === $element ) {
-            return ConversionOutcome::handled($this->context->authorLayoutBlock($element, $fallbacks));
+            return ConversionOutcome::handled($this->authorLayout->authorLayoutBlockFromElement($element, $fallbacks));
         }
         if (in_array($tagName, array('header', 'footer'), true)
             && in_array('wp-block-template-part', preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), true)
@@ -93,7 +118,7 @@ final class FlowContainerElementConverter implements ElementConverter
         if ( null !== $runtimeAppShell ) {
             return ConversionOutcome::handled($runtimeAppShell);
         }
-        if ( $this->context->isEmptyInteractiveFeatureShell($element) ) {
+        if ( $this->emptyFeatureShells->isEmptyInteractiveFeatureShell($element) ) {
             return ConversionOutcome::handled(null);
         }
 
@@ -103,15 +128,15 @@ final class FlowContainerElementConverter implements ElementConverter
             return ConversionOutcome::handled($this->group($element, $this->context->convertChildren($element, $fallbacks)));
         }
 
-        $marquee = $this->context->cssAuthoredMarqueeBlock($element);
+        $marquee = $this->marquees->cssAuthoredMarqueeBlock($element);
         if ( null !== $marquee ) {
             return ConversionOutcome::handled($marquee);
         }
 
-        $this->context->capturePseudoFormFallback($element, $fallbacks);
+        $this->formDispatcher->capturePseudoFormFallback($element, $fallbacks);
         $block = $this->context->recognizePatterns($element, $fallbacks, array( TabsPattern::class ));
         if ( null !== $block ) {
-            $this->context->rememberNativeTabControls($element);
+            $this->session->rememberNativeTabControls($element);
             return ConversionOutcome::handled($block);
         }
         $block = $this->context->recognizePatterns($element, $fallbacks, array( SpacerPattern::class ));
@@ -125,20 +150,25 @@ final class FlowContainerElementConverter implements ElementConverter
             }
         }
 
-        $block = $this->context->flankedSeparatorBlock($element);
+        $block = $this->flankedSeparators->blockFromElement($element);
         if ( null !== $block ) {
             return ConversionOutcome::handled($block);
         }
-        if ( $this->context->hasExternalSvgFragmentDependencyBoundary($element) ) {
-            return ConversionOutcome::handled($this->context->responsiveMediaBlock($element));
+        // A runtime-owned subtree keeps its SVG references live; only a static
+        // one can be captured as media.
+        if ( ! $this->runtimeIslands->isRuntimeDomTarget($element)
+            && ! $this->runtimeIslands->hasRuntimeTargetInSubtree($element)
+            && $this->sourceElementClassifier->hasExternalSvgFragmentDependencyBoundary($element)
+        ) {
+            return ConversionOutcome::handled($this->imageLowering->responsiveMediaBlock($element));
         }
 
         // Sibling img srcsets describe independent images, not alternatives
         // for one media unit. Responsive alternatives still own their carrier.
         if ( $this->sourceElementClassifier->hasResponsiveMediaAlternatives($element) && $this->sourceElementClassifier->hasGalleryMediaItems($element) ) {
-            return ConversionOutcome::handled($this->context->responsiveMediaBlock($element));
+            return ConversionOutcome::handled($this->imageLowering->responsiveMediaBlock($element));
         }
-        $block = $this->context->authoredCarouselBlock($element);
+        $block = $this->carousels->convert($element);
         if ( null !== $block ) {
             return ConversionOutcome::handled($block);
         }
@@ -147,7 +177,7 @@ final class FlowContainerElementConverter implements ElementConverter
             if ( null !== $claim ) {
                 return $claim;
             }
-            return ConversionOutcome::handled($this->context->authorLayoutBlock($element, $fallbacks));
+            return ConversionOutcome::handled($this->authorLayout->authorLayoutBlockFromElement($element, $fallbacks));
         }
         if ( in_array($tagName, array( 'div', 'section', 'article' ), true) && ! $this->sourceElementClassifier->hasResponsiveImageSources($element) ) {
             $block = $this->context->recognizePatterns($element, $fallbacks, array( MediaTextPattern::class ));
@@ -178,7 +208,7 @@ final class FlowContainerElementConverter implements ElementConverter
 
         if ( 'button' !== strtolower(SourceDom::attr($element, 'role'))
             && ! SourceDom::hasClass($element, 'wp-block-columns')
-            && ! $this->context->isGeneratedComponentCandidate($element)
+            && ! $this->generatedComponents->isCandidate($element)
             && $this->context->authorLayoutOwnership->isAuthorOwnedLayout($element)
         ) {
             // The element's own CSS layout (a flex/grid list of disclosure
@@ -205,10 +235,10 @@ final class FlowContainerElementConverter implements ElementConverter
                 }
             }
             $block = $this->context->proofBackedWrapperCoalescing($element, $fallbacks);
-            return ConversionOutcome::handled($block ?? $this->context->authorLayoutBlock($element, $fallbacks));
+            return ConversionOutcome::handled($block ?? $this->authorLayout->authorLayoutBlockFromElement($element, $fallbacks));
         }
 
-        if ( ! $this->context->isGeneratedComponentCandidate($element)
+        if ( ! $this->generatedComponents->isCandidate($element)
             && $this->context->authorLayoutOwnership->isDirectChildOfAuthorOwnedLayout($element)
             && in_array($tagName, array( 'div', 'section', 'article', 'aside', 'header', 'footer', 'main' ), true)
         ) {
@@ -218,8 +248,8 @@ final class FlowContainerElementConverter implements ElementConverter
                 if ( $this->context->isInertEmptyElement($element) ) {
                     return ConversionOutcome::handled(null);
                 }
-                if ( $this->context->shouldPreserveEmptyVisualElement($element) ) {
-                    return ConversionOutcome::handled($this->context->emptyVisualSpacerBlock($element));
+                if ( $this->emptyVisualRetention->shouldPreserveEmptyVisualElement($element) ) {
+                    return ConversionOutcome::handled($this->emptyVisualSpacers->emptyVisualSpacerBlock($element));
                 }
             }
             // A parent's CSS-authored layout must not hide a semantic widget
@@ -244,7 +274,7 @@ final class FlowContainerElementConverter implements ElementConverter
                     return ConversionOutcome::handled($block);
                 }
             }
-            return ConversionOutcome::handled($this->context->authorLayoutBlock($element, $fallbacks));
+            return ConversionOutcome::handled($this->authorLayout->authorLayoutBlockFromElement($element, $fallbacks));
         }
 
         $block = $this->context->recognizePatterns($element, $fallbacks, array( LogoPattern::class ));
@@ -264,18 +294,18 @@ final class FlowContainerElementConverter implements ElementConverter
             }
             $block = $this->context->recognizePatterns($element, $fallbacks, $patterns);
             if ( null !== $block ) {
-                return ConversionOutcome::handled($this->context->rememberAccordionDisclosureRoot($block, $element));
+                return ConversionOutcome::handled($this->session->runtimeBehaviorState()->rememberAccordionDisclosureRoot($block, $element));
             }
         }
 
         if ( in_array($tagName, array( 'div', 'section', 'article' ), true) ) {
-            $block = $this->context->metadataGridBlock($element);
+            $block = $this->metadataGrid->convert($element);
             if ( null !== $block ) {
                 return ConversionOutcome::handled($block);
             }
             $block = $this->context->recognizePatterns($element, $fallbacks, array( DetailsPattern::class ));
             if ( null !== $block ) {
-                $this->context->rememberNativeDisclosureRoot($element);
+                $this->session->rememberNativeDisclosure($element);
                 return ConversionOutcome::handled($block);
             }
             $block = $this->context->recognizePatterns($element, $fallbacks, array( CoverPattern::class ));
@@ -285,13 +315,13 @@ final class FlowContainerElementConverter implements ElementConverter
         }
 
         if ( $this->isClippedHorizontalTrack($element) ) {
-            return ConversionOutcome::handled($this->context->authorLayoutBlock($element, $fallbacks));
+            return ConversionOutcome::handled($this->authorLayout->authorLayoutBlockFromElement($element, $fallbacks));
         }
         $block = $this->context->recognizePatterns($element, $fallbacks, array( ColumnsPattern::class ));
         if ( null !== $block ) {
             return ConversionOutcome::handled($block);
         }
-        $block = $this->context->mediaGalleryBlock($element, $fallbacks);
+        $block = $this->mediaGalleries->mediaGalleryBlockFromElement($element, $fallbacks);
         if ( null !== $block ) {
             return ConversionOutcome::handled($block);
         }
@@ -300,15 +330,15 @@ final class FlowContainerElementConverter implements ElementConverter
             return ConversionOutcome::handled($block);
         }
 
-        $block = $this->context->namePriceRowBlock($element, $fallbacks);
+        $block = $this->namePriceRows->namePriceRowBlockFromElement($element, $fallbacks);
         if ( null !== $block ) {
             return ConversionOutcome::handled($block);
         }
-        $block = $this->context->inlineTokenGroupBlock($element, $fallbacks);
+        $block = $this->inlineFlows->inlineTokenGroupBlockFromElement($element, $fallbacks);
         if ( null !== $block ) {
             return ConversionOutcome::handled($block);
         }
-        $block = $this->context->standaloneSearchBlock($element);
+        $block = $this->searchBlocks->searchBlockFromStandaloneControl($element);
         if ( null !== $block ) {
             return ConversionOutcome::handled($block);
         }
@@ -327,25 +357,25 @@ final class FlowContainerElementConverter implements ElementConverter
             return ConversionOutcome::handled($block);
         }
         if ( 'select' === $tagName ) {
-            $block = $this->context->readableFormControlBlock($element);
+            $block = $this->readableControls->convert($element);
             if ( null !== $block ) {
                 return ConversionOutcome::handled($block);
             }
         }
-        if ( $this->context->isGeneratedComponentCandidate($element) ) {
-            $block = $this->context->generatedComponentBlock($element, $fallbacks);
+        if ( $this->generatedComponents->isCandidate($element) ) {
+            $block = $this->generatedComponents->nativeOrGeneratedBlock($element, $fallbacks);
             if ( null !== $block ) {
                 return ConversionOutcome::handled($block);
             }
         }
-        $block = $this->context->textFlowBlock($element);
+        $block = $this->inlineFlows->textFlowBlockFromElement($element);
         if ( null !== $block ) {
             return ConversionOutcome::handled($block);
         }
 
         $children = $this->context->convertChildren($element, $fallbacks);
         if ( array() === $children && ! $this->sourceElementClassifier->hasDirectMediaChild($element) ) {
-            $backgroundImage = $this->context->backgroundImageBlock($element);
+            $backgroundImage = $this->imageLowering->backgroundImageBlock($element);
             if ( null !== $backgroundImage ) {
                 // A background group already owns the source element's box.
                 if ( 'core/group' === ($backgroundImage['blockName'] ?? '') ) {
@@ -367,8 +397,8 @@ final class FlowContainerElementConverter implements ElementConverter
         if ( array() !== $children ) {
             return ConversionOutcome::handled($this->group($element, $children));
         }
-        if ( $this->context->shouldPreserveEmptyVisualElement($element) ) {
-            return ConversionOutcome::handled($this->context->emptyVisualSpacerBlock($element));
+        if ( $this->emptyVisualRetention->shouldPreserveEmptyVisualElement($element) ) {
+            return ConversionOutcome::handled($this->emptyVisualSpacers->emptyVisualSpacerBlock($element));
         }
         return ConversionOutcome::handled(null);
     }
@@ -546,7 +576,7 @@ final class FlowContainerElementConverter implements ElementConverter
         }
         $block = $this->context->recognizePatterns($element, $fallbacks, array( DetailsPattern::class ));
         if ( null !== $block ) {
-            $this->context->rememberNativeDisclosureRoot($element);
+            $this->session->rememberNativeDisclosure($element);
             return ConversionOutcome::handled($block);
         }
         return null;
@@ -559,7 +589,7 @@ final class FlowContainerElementConverter implements ElementConverter
             return null;
         }
         $block = $this->context->recognizePatterns($element, $fallbacks, array( AccordionPattern::class ));
-        return null === $block ? null : ConversionOutcome::handled($this->context->rememberAccordionDisclosureRoot($block, $element));
+        return null === $block ? null : ConversionOutcome::handled($this->session->runtimeBehaviorState()->rememberAccordionDisclosureRoot($block, $element));
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */
@@ -575,7 +605,7 @@ final class FlowContainerElementConverter implements ElementConverter
             return null;
         }
 
-        return ConversionOutcome::handled($this->context->rememberAccordionDisclosureRoot($block, $element));
+        return ConversionOutcome::handled($this->session->runtimeBehaviorState()->rememberAccordionDisclosureRoot($block, $element));
     }
 
     /** @param array<int, array<string, mixed>> $children @return array<string, mixed> */

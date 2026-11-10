@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
@@ -13,13 +14,12 @@ use DOMElement;
 final class FormCompositionPlanner
 {
     /**
-     * @param Closure(DOMElement, array<int, array<string, mixed>>&, bool): array<int, array<string, mixed>> $convertChildren
      * @param Closure(DOMElement): array<string, mixed>                                                     $presentationAttributes
      * @param Closure(DOMElement, DOMElement): bool                                                         $elementContains
      */
     public function __construct(
         private readonly HtmlTransformerSession $session,
-        private readonly Closure $convertChildren,
+        private readonly PatternTreeConverter $tree,
         private readonly Closure $presentationAttributes,
         private readonly SourceBlockCreator $createBlock,
         private readonly Closure $elementContains
@@ -41,7 +41,7 @@ final class FormCompositionPlanner
         $provenance = $this->session->transformationProvenanceState();
         $token = $provenance->reserveFormControlSlot($path);
         try {
-            $children = ($this->convertChildren)($form, $fallbacks, true);
+            $children = $this->tree->children($form, $fallbacks, true);
         } finally {
             $provenance->releaseFormControlSlot($path);
         }

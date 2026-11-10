@@ -147,4 +147,27 @@ try {
 }
 $assert('missing_font_source' === $strictFontReason, 'Strict mode rejects missing font sources.');
 
+// A local @import of a file the artifact never packaged (Tailwind's build
+// directive) is dropped with a warning; packaged and remote imports are kept (#5134).
+$imports = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => '<!doctype html><html lang="en"><head><title>Home</title><link rel="stylesheet" href="style.css"></head><body><main><h1>Bakery</h1><p>Fresh bread every morning.</p></main></body></html>',
+    'style.css' => "@import 'tailwindcss';\n@import url(\"base.css\");\n@import url(https://fonts.example.test/x.css);\nbody{font-family:sans-serif;color:#222}",
+    'base.css' => 'h1{color:#722F3E}',
+)))->toArray();
+$importPlan = $planOf($imports);
+$assert(array() !== $importPlan && 'failed' !== $imports['status'], 'A stylesheet importing a missing local file still produces a site plan.');
+WordPressSitePlan::assertValid($importPlan);
+$importCss = (string) (array_values(array_filter($importPlan['writes'] ?? array(), static fn(array $write): bool => str_ends_with($write['target_path'], '/style.css')))[0]['payload']['data'] ?? '');
+$baseToken = WordPressSitePlan::TOKEN_PREFIX . (array_column($importPlan['reference_tokens'], 'token', 'source_path')['base.css'] ?? '') . '}}';
+$assert(!str_contains($importCss, 'tailwindcss') && str_contains($importCss, '@import url("' . $baseToken . '")') && str_contains($importCss, 'https://fonts.example.test/x.css') && str_contains($importCss, '#222'), 'Only the missing local import is dropped; packaged and remote imports and the rules survive.');
+$importDiagnostics = array_values(array_filter($importPlan['diagnostics'] ?? array(), static fn(array $diagnostic): bool => 'wordpress_site_plan_missing_stylesheet_import' === ($diagnostic['code'] ?? null)));
+$assert(1 === count($importDiagnostics) && 'warning' === $importDiagnostics[0]['severity'] && 'style.css' === $importDiagnostics[0]['source_path'] && 'tailwindcss' === $importDiagnostics[0]['value'], 'The warning names the stylesheet and the missing import target.');
+$strictImportReason = null;
+try {
+    (new WordPressSitePlan(true))->fromResult($imports);
+} catch (ValidationException $exception) {
+    $strictImportReason = $exception->diagnostic()['reason'] ?? null;
+}
+$assert('missing_stylesheet_import' === $strictImportReason, 'Strict mode rejects missing stylesheet imports.');
+
 echo "missing-local-media contract passed\n";

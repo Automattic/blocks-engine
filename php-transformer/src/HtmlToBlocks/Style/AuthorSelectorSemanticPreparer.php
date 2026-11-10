@@ -208,13 +208,13 @@ final class AuthorSelectorSemanticPreparer
                 if ( '' === $path ) {
                     continue;
                 }
-                $listItem = $this->ancestorElement($element, 'li');
+                $listItem = SourceDom::ancestorElement($element, 'li');
                 $structuralListItem = $listItem instanceof DOMElement && $this->context->isStructuralListItem($listItem);
                 if ( $listItem instanceof DOMElement && ! $structuralListItem && self::richTextSelectorNeedsHook($parsed) ) {
                     $marker = $projections->ensureRichTextMarker($path);
                     $element->setAttribute('data-blocks-engine-richtext-marker', $marker);
                 } elseif ( 'span' === $inlineTag
-                    && $this->ancestorElement($element, 'label') instanceof DOMElement
+                    && SourceDom::ancestorElement($element, 'label') instanceof DOMElement
                     && self::richTextSelectorNeedsHook($parsed)
                 ) {
                     // A label's text is emitted by the input block's RichText
@@ -251,7 +251,7 @@ final class AuthorSelectorSemanticPreparer
                     && ! $this->isPhrasingWithinHeading($element)
                     && ! $this->isQuoteCitation($element)
                     && ! $projections->isControlPath($parentPath)
-                    && ! ('' !== $projections->richTextMarker($path) && $this->ancestorElement($element, 'label') instanceof DOMElement)
+                    && ! ('' !== $projections->richTextMarker($path) && SourceDom::ancestorElement($element, 'label') instanceof DOMElement)
                 ) {
                     $projections->markInlineLayoutCarrierPath($path);
                 }
@@ -291,7 +291,7 @@ final class AuthorSelectorSemanticPreparer
                 $navigationOnly = array() !== $matches;
                 foreach ($matches as $element) {
                     $navigationOnly = $navigationOnly && 'a' === strtolower($element->tagName)
-                        && $this->ancestorElement($element, 'li') instanceof DOMElement;
+                        && SourceDom::ancestorElement($element, 'li') instanceof DOMElement;
                 }
                 if ($navigationOnly) continue;
             }
@@ -901,7 +901,7 @@ final class AuthorSelectorSemanticPreparer
                 continue;
             }
             foreach ( $this->matchingSourceElements($authorStyles, $selector, $parsed) as $element ) {
-                $layoutTable = 'table' === strtolower($element->tagName) ? $element : $this->ancestorElement($element, 'table');
+                $layoutTable = 'table' === strtolower($element->tagName) ? $element : SourceDom::ancestorElement($element, 'table');
                 if (in_array(strtolower($element->tagName), array('table', 'tr', 'td'), true)
                     && $layoutTable instanceof DOMElement
                     && (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\TableClassificationPolicy())->lowersToColumns($layoutTable)
@@ -914,7 +914,7 @@ final class AuthorSelectorSemanticPreparer
                 ) {
                     continue;
                 }
-                $table = $this->ancestorElement($element, 'table');
+                $table = SourceDom::ancestorElement($element, 'table');
                 if ( ! $table instanceof DOMElement || ! $this->context->isRepresentableTable($table) ) {
                     continue;
                 }
@@ -963,15 +963,5 @@ final class AuthorSelectorSemanticPreparer
         }
 
         return false;
-    }
-
-    private function ancestorElement(DOMElement $element, string $tagName): ?DOMElement
-    {
-        for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
-            if ( $tagName === strtolower($parent->tagName) ) {
-                return $parent;
-            }
-        }
-        return null;
     }
 }

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ImageLowering;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\NavigationLabelNormalizer;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RouteStateProjector;
@@ -358,7 +359,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         // a navigation-link `url`. The guard still catches every container the
         // carrier declines, so nothing it protected loses that protection.
         $carrierFallbacks = array();
-        $hoisted = $this->brandAnchorCarrier($element, $carrierFallbacks, $presentationAttributes, $innerHtml, $createBlock, $context->recursiveConverter(), $navigationContext, $context->galleryContext());
+        $hoisted = $this->brandAnchorCarrier($element, $carrierFallbacks, $presentationAttributes, $innerHtml, $createBlock, $context->recursiveConverter(), $navigationContext, $context->images());
         if ( null !== $hoisted ) {
             return new PatternRecognitionResult($hoisted, $carrierFallbacks);
         }
@@ -1033,7 +1034,7 @@ final class NavigationPattern implements PatternRecognizerInterface
      * @param list<array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
      */
-    private function brandAnchorCarrier(DOMElement $element, array &$fallbacks, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?PatternTreeConverter $converter, ?NavigationPatternContext $navigationContext, ?GalleryPatternContext $galleryContext): ?array
+    private function brandAnchorCarrier(DOMElement $element, array &$fallbacks, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?PatternTreeConverter $converter, ?NavigationPatternContext $navigationContext, ?ImageLowering $images): ?array
     {
         if ( null === $converter ) {
             return null;
@@ -1200,8 +1201,8 @@ final class NavigationPattern implements PatternRecognizerInterface
         $brandImage = 'a' === strtolower($anchor->tagName) && 1 === $anchor->getElementsByTagName('img')->length
             ? $anchor->getElementsByTagName('img')->item(0)
             : null;
-        $brand = $brandImage instanceof DOMElement && null !== $galleryContext
-            ? $galleryContext->convertImage($brandImage, null, null, $anchor)
+        $brand = $brandImage instanceof DOMElement && null !== $images
+            ? $images->convertImage($brandImage, null, null, $anchor)
             : ( null !== $nonAnchorShape && in_array(strtolower($anchor->tagName), array( 'span', 'strong', 'em', 'b', 'i', 'small' ), true)
             ? $createBlock(
                 'core/paragraph',
@@ -3565,7 +3566,12 @@ final class NavigationPattern implements PatternRecognizerInterface
             // the authored conditional cascade rather than freeze on Core's LI.
             unset($itemAttrs['style'], $itemAttrs['textColor'], $itemAttrs['backgroundColor'], $itemAttrs['fontSize']);
             $anchorAttrs = array();
-            $itemAttrs['metadata']['blocksEngineNavigationAnchor'] = array('style' => $anchor->getAttribute('style'), 'className' => $anchorClassName);
+            $anchorStyle = $navigationContext->serializedInlineStyle($anchor, $item);
+            $itemAttrs['metadata']['blocksEngineNavigationAnchor'] = array('style' => $anchorStyle, 'className' => $anchorClassName);
+            if ($anchorStyle !== $navigationContext->serializedInlineStyle($anchor)) {
+                $typography = $navigationContext->resolvedStyleAttributes($anchor)['typography'] ?? array();
+                if (array() !== $typography) $itemAttrs['style']['typography'] = $typography;
+            }
             if ('' !== trim($anchor->getAttribute('id'))) $itemAttrs['metadata']['blocksEngineNavigationAnchor']['id'] = $anchor->getAttribute('id');
             if ('' !== trim($item->getAttribute('style'))) $itemAttrs['metadata']['blocksEngineNavigationAnchor']['itemStyle'] = $item->getAttribute('style');
             $boxes = $navigationContext->navigationAnchorBoxes($anchor, $item, null !== $submenuContainer);
@@ -3774,7 +3780,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             $descendant = $this->soleMeaningfulChild($anchor);
             if ( $descendant instanceof DOMElement && $this->hasElementChild($descendant) ) {
                 foreach ( preg_split('/\s+/', trim($this->attr($descendant, 'class'))) ?: array() as $candidate ) {
-                    if ( $this->isCarriableWrapperClassName($candidate) ) {
+                    if ( SourceDom::isBoundedClassToken($candidate) ) {
                         $classes[$candidate] = true;
                     }
                 }
@@ -3807,7 +3813,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 break;
             }
             foreach ( preg_split('/\s+/', trim($this->attr($node, 'class'))) ?: array() as $candidate ) {
-                if ( $this->isCarriableWrapperClassName($candidate) ) {
+                if ( SourceDom::isBoundedClassToken($candidate) ) {
                     $classes[$candidate] = true;
                 }
             }
@@ -3826,17 +3832,6 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return false;
-    }
-
-    /**
-     * A single class token safe to carry from a replaced wrapper onto the
-     * generated navigation item. HTML class tokens are whitespace-delimited;
-     * `.` and `:` are legal inside a token. Unlike selector composition, this
-     * value only ever reaches an HTML `class` attribute.
-     */
-    private function isCarriableWrapperClassName(string $candidate): bool
-    {
-        return SourceDom::isBoundedClassToken($candidate);
     }
 
     /**

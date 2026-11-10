@@ -185,14 +185,14 @@ final class RuntimeDependencyParityReport
         // contract honors the producer's specific repair_bucket values.
         $findings = array_map(
             static fn (array $finding): array => ConversionFindingContract::withClassification($finding),
-            $this->dedupeRows($findings)
+            DeterministicRowDeduplicator::dedupe($findings)
         );
 
         $report = array_filter(array(
             'schema'         => self::SCHEMA,
             'finding_schema' => ConversionFindingContract::SCHEMA,
             'status'         => array() === $findings ? 'pass' : 'warning',
-            'dependencies'   => $this->dedupeRows($dependencies),
+            'dependencies'   => DeterministicRowDeduplicator::dedupe($dependencies),
         ), static fn (mixed $value): bool => array() !== $value);
 
         $report['findings'] = $findings;
@@ -1068,7 +1068,7 @@ final class RuntimeDependencyParityReport
             }
         }
 
-        if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*(?:getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)|querySelector\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\4\s*\))/', $script, $assignments, PREG_SET_ORDER) ) {
+        if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*(?:getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)|querySelector\s*\(\s*(["\'])(' . RuntimeSelectorVocabulary::scriptSelectorPattern() . ')\4\s*\))/', $script, $assignments, PREG_SET_ORDER) ) {
             foreach ( $assignments as $assignment ) {
                 $variable = (string) $assignment[1];
                 if ( ! preg_match('/(?:\bnew\s+)?\b[A-Za-z_$][A-Za-z0-9_$]*(?:\s*\.\s*[A-Za-z_$][A-Za-z0-9_$]*)*\s*\([^)]*\b' . preg_quote($variable, '/') . '\b/', $script) ) {
@@ -1079,14 +1079,6 @@ final class RuntimeDependencyParityReport
         }
 
         return array_keys($selectors);
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function dataAttributeSelectorsFromCssSelector(string $selector): array
-    {
-        return RuntimeSelectorVocabulary::dataAttributeSelectorsFromCssSelector($selector);
     }
 
     /**
@@ -1104,14 +1096,6 @@ final class RuntimeDependencyParityReport
 
         $src = $this->normalizeScriptPath((string) ($target['src'] ?? ''));
         return '' !== $src && $src === $this->normalizeScriptPath($scriptPath);
-    }
-
-    private function scriptSelectorPattern(): string
-
-    {
-
-        return RuntimeSelectorVocabulary::scriptSelectorPattern();
-
     }
 
     /**
@@ -1174,12 +1158,4 @@ final class RuntimeDependencyParityReport
         return array_values($deduped);
     }
 
-    /**
-     * @param array<int, array<string, mixed>> $rows
-     * @return array<int, array<string, mixed>>
-     */
-    private function dedupeRows(array $rows): array
-    {
-        return DeterministicRowDeduplicator::dedupe($rows);
-    }
 }
