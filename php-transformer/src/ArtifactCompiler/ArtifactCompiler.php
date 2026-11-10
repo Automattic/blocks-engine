@@ -5082,14 +5082,24 @@ final class ArtifactCompiler
         $fold = static fn (array $values): array => array_map(static fn (string $value): string => mb_strtolower(trim($value)), $values);
         $segments = $fold($segments);
         $siteName = $fold($siteNameSegments);
-        for ( $length = min(count($siteName), count($segments) - 1); 0 < $length; --$length ) {
-            $run = $trailing ? array_slice($segments, $length * -1) : array_slice($segments, 0, $length);
-            if ( $run === array_slice($siteName, 0, $length) || $run === array_slice($siteName, $length * -1) ) {
-                return $length;
+        $matched = 0;
+        while ( count($segments) - $matched > 1 ) {
+            $found = 0;
+            $max = min(count($siteName), count($segments) - $matched - 1);
+            for ( $length = $max; 0 < $length; --$length ) {
+                $start = $trailing ? count($segments) - $matched - $length : $matched;
+                $run = array_slice($segments, $start, $length);
+                if ( $run === array_slice($siteName, 0, $length) || $run === array_slice($siteName, $length * -1) ) {
+                    $found = $length;
+                    break;
+                }
             }
+            if ( 0 === $found ) {
+                break;
+            }
+            $matched += $found;
         }
-
-        return 0;
+        return $matched;
     }
 
     /**
