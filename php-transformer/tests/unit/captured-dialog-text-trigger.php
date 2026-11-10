@@ -55,14 +55,15 @@ $rows = array(array('selector' => '#site-header', 'tag' => 'header', 'depth' => 
 $bound = $compile($rows);
 $boundMarkup = (string) ($bound['serialized_blocks'] ?? '');
 $assert($retired($bound), 'the published runtime is retired', json_encode($bound['source_reports']['native_runtime_replacements'] ?? null));
-$assert(!str_contains($boundMarkup, '<!-- wp:details') && 1 === substr_count($boundMarkup, '<!-- wp:custom/captured-dialog '), 'a text trigger with ancestor bindings keeps its native dialog instead of core/details', $boundMarkup);
-$assert(str_contains($boundMarkup, '"ancestorState":[{"tag":"header","closed":{"class":"dark header"},"opened":{"class":"light header"}}]'), 'the ancestor binding travels to the native dialog', $boundMarkup);
+$assert(!str_contains($boundMarkup, '<!-- wp:details') && 1 === substr_count($boundMarkup, '"blocksEngineDialog"'), 'a text trigger with ancestor bindings keeps its native dialog instead of core/details', $boundMarkup);
+require_once __DIR__ . '/../fixtures/render-core-dialogs.php';
+$assert(str_contains(html_entity_decode(render_core_dialogs($boundMarkup), ENT_QUOTES), 'data-blocks-engine-ancestor-state="[{"tag":"header","closed":{"class":"dark header"},"opened":{"class":"light header"}}]"'), 'the ancestor binding travels to the native dialog', $boundMarkup);
 
 // Without one: the retired runtime still closed the dropdown on Escape and
 // kept aria-expanded, which core/details does not.
 $plain = $compile(array());
 $plainMarkup = (string) ($plain['serialized_blocks'] ?? '');
-$assert($retired($plain) && !str_contains($plainMarkup, '<!-- wp:details') && 1 === substr_count($plainMarkup, '<!-- wp:custom/captured-dialog '), 'a text trigger without ancestor bindings keeps its native dialog too', $plainMarkup);
+$assert($retired($plain) && !str_contains($plainMarkup, '<!-- wp:details') && 1 === substr_count($plainMarkup, '"blocksEngineDialog"'), 'a text trigger without ancestor bindings keeps its native dialog too', $plainMarkup);
 $assert(0 === ($bound['metrics']['fallback_count'] ?? -1) && 0 === ($plain['metrics']['fallback_count'] ?? -1), 'both pages lower without fallback blocks');
 
 // A source disclosure that no capture runtime drives keeps core/details.

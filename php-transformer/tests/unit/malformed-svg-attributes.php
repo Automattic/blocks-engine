@@ -25,6 +25,7 @@ $cases = array(
     'not trimmed' => array('xml:space=" preserve "', '', null),
     'default' => array('xml:space="default"', '', 'default'),
     'preserve descendant' => array('', 'xml:space="preserve"', 'preserve'),
+    'empty non-SVG attribute' => array('', 'path=""', null),
 );
 foreach ( $cases as $label => [$rootAttributes, $pathAttributes, $expectedSpace] ) {
     $html = '<svg xmlns="http://www.w3.org/2000/svg" ' . $rootAttributes . ' viewBox="0 0 10 10"><path' . ($pathAttributes === '' ? '' : ' ' . $pathAttributes) . ' d="M0 0h10v10z"/></svg>';
@@ -41,6 +42,12 @@ foreach ( $cases as $label => [$rootAttributes, $pathAttributes, $expectedSpace]
         $assert(str_contains($content, 'viewBox="0 0 10 10"') && str_contains($content, 'd="M0 0h10v10z"'), "{$label}: geometry preserved");
         $assert($expectedSpace === null ? ! str_contains($content, 'xml:space=') : str_contains($content, 'xml:space="' . $expectedSpace . '"'), "{$label}: xml:space contract");
     }
+}
+
+// Presence is the value of HTML boolean globals and handlers; they still decide the fallback.
+foreach ( array('hidden=""', 'onclick=""') as $attribute ) {
+    $json = (string) json_encode((new HtmlTransformer())->transform('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path ' . $attribute . ' d="M0 0h10v10z"/></svg>')->toArray()['blocks'], JSON_UNESCAPED_SLASHES);
+    $assert(! str_contains($json, 'core/image'), "{$attribute}: not a native image");
 }
 
 // SimpleXML can construct names that older HTML parsers silently discard.

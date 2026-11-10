@@ -75,8 +75,19 @@ $assert(str_contains($projected, 'captured-dialog-closed-content"><p>Closed cont
 $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => $files))->toArray();
 $plan = $result['source_reports']['wordpress_site_plan'] ?? array();
 $markup = implode('', array_column($plan['pages'] ?? array(), 'canonical_block_markup')) . implode('', array_column($plan['template_parts'] ?? array(), 'canonical_block_markup'));
-$assert(1 === preg_match('/<!-- wp:[a-z0-9-]+\/captured-dialog (\{.*?\}) --><div ([^>]*)>(.*?)<!-- \/wp:[a-z0-9-]+\/captured-dialog -->/s', $markup, $match), 'the panel converts to a captured dialog block', $markup);
-$attrs = json_decode($match[1] ?? '', true);
+$runtime = new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime();
+$findPanel = static function (array $blocks) use (&$findPanel): ?array {
+    foreach ($blocks as $block) {
+        if (isset($block['attrs']['metadata']['blocksEngineDialog'])) return $block;
+        if (null !== ($found = $findPanel($block['innerBlocks'] ?? array()))) return $found;
+    }
+    return null;
+};
+$panel = $findPanel($runtime->parseBlocks($markup));
+$assert('core/group' === ($panel['blockName'] ?? null), 'the panel converts to an editable core Group', $markup);
+$shell = $panel['attrs']['metadata']['blocksEngineDialog']['attributes'] ?? array();
+$attrs = array('triggerIds' => explode(' ', $shell['data-blocks-engine-triggers'] ?? ''), 'presentation' => $shell['data-blocks-engine-presentation'] ?? '', 'placement' => $shell['data-blocks-engine-placement'] ?? '', 'resting' => $shell['data-blocks-engine-resting'] ?? '', 'restingState' => json_decode($shell['data-blocks-engine-resting-state'] ?? '', true));
+$match = array($runtime->serializeBlocks(array($panel)), json_encode($attrs), $panel['innerHTML'] ?? 'open', $runtime->serializeBlocks($panel['innerBlocks'] ?? array()));
 $assert(is_array($attrs) && array('menuBtn') === ($attrs['triggerIds'] ?? null), 'the saved dialog is bound to #menuBtn', $match[1] ?? $markup);
 $assert(is_array($attrs) && 'dropdown' === ($attrs['presentation'] ?? null) && 'in-place' === ($attrs['placement'] ?? null), 'the saved dialog is an in-place dropdown', $match[1] ?? $markup);
 $assert(! preg_match('/(?:^|\s)open(?:[\s=]|$)/', $match[2] ?? 'open'), 'the saved dialog is closed', $match[2] ?? $markup);
@@ -93,7 +104,7 @@ $assert(str_contains($markup, 'captured-dialog-closed-content') && str_contains(
 $assert(str_contains($definition['assets']['style.css'], ':not([open]) > * > .captured-dialog-open-content') && str_contains($definition['assets']['style.css'], '[open] > * > .captured-dialog-closed-content'), 'native open state selects the matching content without destroying either editable copy');
 file_put_contents(sys_get_temp_dir() . '/captured-dialog-resting-content.json', json_encode(array(
     'source' => $html,
-    'markup' => $markup,
+    'markup' => \Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($markup),
     'script' => $definition['view_js'],
     'css' => $definition['assets']['style.css'],
 )));

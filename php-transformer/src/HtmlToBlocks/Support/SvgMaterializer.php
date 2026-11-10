@@ -2381,7 +2381,12 @@ final class SvgMaterializer implements SvgElementMaterializer
             // SVG behavior or paint property; matched descendant CSS is still
             // baked and the original metadata travels with the asset.
             $isInertGroupWeight = 'weight' === $name && 'g' === strtolower($element->tagName) && 1 === preg_match('/^[a-z][a-z-]*$/iD', $value);
-            if ( (! isset($allowedAttributes[$name]) && ! $isInertDataAttribute && ! $isInertGroupWeight) || preg_match('/^on[a-z]+$/i', $name) || preg_match('/javascript\s*:|\b(?:expression|behavior)\s*:/i', $value) ) {
+            // An empty attribute that SVG does not define (authoring residue such
+            // as `<path path="">`) carries no paint, geometry, or behavior.
+            // Presence-only HTML globals and data-* markers (decided above) are
+            // excluded because presence is their value.
+            $isInertEmptyAttribute = '' === $value && ! str_starts_with($name, 'data-') && ! in_array($name, array( 'hidden', 'inert', 'autofocus', 'tabindex', 'contenteditable', 'draggable', 'popover' ), true);
+            if ( (! isset($allowedAttributes[$name]) && ! $isInertDataAttribute && ! $isInertGroupWeight && ! $isInertEmptyAttribute) || preg_match('/^on[a-z]+$/i', $name) || preg_match('/javascript\s*:|\b(?:expression|behavior)\s*:/i', $value) ) {
                 return false;
             }
             if ( preg_match('/(?:^|:)href$/i', $name) && ! str_starts_with(trim($value), '#') && ! $embeddedRaster && ! $regionLink ) {

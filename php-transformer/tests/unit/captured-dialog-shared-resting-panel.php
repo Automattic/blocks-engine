@@ -62,7 +62,7 @@ $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index
 $markup = implode('', array_column($result['source_reports']['wordpress_site_plan']['pages'] ?? array(), 'canonical_block_markup'))
     . json_encode($result['source_reports']['wordpress_site_plan']['template_parts'] ?? array(), JSON_UNESCAPED_SLASHES);
 $markup = stripslashes($markup);
-$assert(1 === preg_match('/<!-- wp:[a-z0-9-]+\/captured-dialog \{[^>]*"placement":"in-place","resting":"authored"[^>]*--><div [^>]*>\s*<!-- wp:navigation \{[^}]*"anchor":"nav"/', $markup), 'the panel converts to the header navigation, wrapped by its toggle\'s in-place dropdown', $markup);
+$assert(1 === preg_match('/<!-- wp:group \{[^>]*"data-blocks-engine-placement":"in-place"[^>]*"data-blocks-engine-resting":"authored"[^>]*--><div [^>]*>\s*<!-- wp:navigation \{[^}]*"anchor":"nav"/', $markup), 'the panel converts to the header navigation, wrapped by its toggle\'s in-place dropdown', $markup);
 $assert(! str_contains($markup, '<dialog') && ! str_contains($markup, 'data-blocks-engine-capture'), 'no dialog box or capture-only attribute is left', $markup);
 
 if ( $failures > 0 ) {

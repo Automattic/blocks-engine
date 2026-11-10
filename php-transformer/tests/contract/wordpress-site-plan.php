@@ -1405,11 +1405,13 @@ foreach (array(' – ', ' | ', ' - ') as $termTitleSeparator) {
     $termIdentityResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $termIdentityFiles))->toArray();
     $termIdentityPlan = $termIdentityResult['source_reports']['wordpress_site_plan'];
     $termIdentityBootstrap = (string) ($writeMap($termIdentityPlan['writes'])['functions.php']['payload']['data'] ?? '');
-    $archiveSupport = array_values(array_filter($termIdentityPlan['assets'], static fn(array $asset): bool => 'engine-support' === ($asset['source'] ?? '') && str_contains($asset['content'] ?? '', '.blocks-engine-synthetic-image-figure{margin:0}') && in_array(array('kind' => 'archive', 'source_path' => 'tag/ai/index.html', 'route_path' => 'tag/ai'), $asset['scopes'] ?? array(), true)));
+    $archiveSupport = array_values(array_filter($termIdentityPlan['assets'], static fn(array $asset): bool => 'engine-support' === ($asset['source'] ?? '') && 1 === preg_match('/\.blocks-engine-synthetic-image-figure(?::where\(:root:is\([^)]*\)\))?\{margin:0\}/', $asset['content'] ?? '') && str_contains((string) json_encode($asset['scopes'] ?? array()), 'tag\\/ai')));
     $assert(array() !== $archiveSupport, 'Captured tag documents own generated synthetic-image support CSS.');
     foreach ($archiveSupport as $support) {
         $supportHandle = 'blocks-engine-' . substr(hash('sha256', $support['target_path']), 0, 12);
-        $assert(str_contains($termIdentityBootstrap, "if ( 'tag/ai' === blocks_engine_archive_path() ) wp_enqueue_style( '" . $supportHandle . "', get_theme_file_uri( '" . $support['target_path'] . "' )"), 'Generated archive support CSS enqueues under the canonical archive condition.');
+        // Folded support may load on more routes, where it matches nothing,
+        // but always under the canonical archive condition or unconditionally.
+        $assert(1 === preg_match("/if \\( (true|[^\\n]*'tag\\/ai' === blocks_engine_archive_path\\(\\)[^\\n]*) \\) wp_enqueue_style\\( '" . preg_quote($supportHandle, '/') . "'/", $termIdentityBootstrap), 'Generated archive support CSS enqueues under the canonical archive condition.');
     }
     $rootStart = strpos($termIdentityBootstrap, 'global $blocks_engine_document_roots');
     $rootEnd = strpos($termIdentityBootstrap, "add_filter( 'language_attributes'", $rootStart);
