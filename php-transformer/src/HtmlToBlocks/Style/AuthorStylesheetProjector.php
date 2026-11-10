@@ -425,7 +425,7 @@ final class AuthorStylesheetProjector
         $svgImagePrelude = $this->projectAuthorImageSelectorPrelude($prelude, $context, 'svg', $declarations);
         $imageRule = '' === $imagePrelude
             ? ''
-            : $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations) . '}';
+            : $this->imageProjectionBridgeRule($prelude, $imagePrelude, $declarations, $context);
         if ('' !== $imagePrelude) {
             // The generic Image bridge introduces block display and responsive
             // shrinkage. An inline source image in an auto table must instead
@@ -3336,8 +3336,44 @@ final class AuthorStylesheetProjector
             . ( isset($declarations['vertical-align']) ? ';vertical-align:' . $declarations['vertical-align'] : '' ) . '}';
     }
 
+    /**
+     * The bridge lets the native image follow the figure that now carries the
+     * source rule. A selector whose subject is a bare `img` has nothing that
+     * moves to the figure, so the source rule still paints the image itself:
+     * inheriting the figure's corners there would replace the image's own
+     * radius at the same specificity, later in the cascade.
+     *
+     * @param array<string, string> $declarations
+     */
+    private function imageProjectionBridgeRule(string $prelude, string $imagePrelude, array $declarations, AuthorStylesheetProjectionContext $context): string
+    {
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude) ?? array();
+        $moved = array_values(array_filter($selectors, fn (string $selector): bool => ! $this->subjectStaysOnImage($selector, $context)));
+        if ( count($moved) === count($selectors) ) {
+            return $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations) . '}';
+        }
+        $rule = $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, false, false) . '}';
+        $movedPrelude = array() === $moved ? '' : $this->projectAuthorImageSelectorPrelude(implode(',', $moved), $context);
+
+        return '' === $movedPrelude ? $rule : $rule . $movedPrelude . '{border-radius:inherit}';
+    }
+
+    private function subjectStaysOnImage(string $selector, AuthorStylesheetProjectionContext $context): bool
+    {
+        $parsed = $context->sourceStyles->parsedSelector($selector);
+        if ( ! $parsed['supported'] ) {
+            return false;
+        }
+        $subject = CssSelectorCompoundInspector::rightmost($parsed['compounds']);
+
+        return 'img' === strtolower((string) ($subject['type'] ?? ''))
+            && array() === ($subject['classes'] ?? array())
+            && array() === ($subject['ids'] ?? array())
+            && array() === ($subject['attributes'] ?? array());
+    }
+
     /** @param array<string, string> $declarations */
-    private function imageProjectionBridgeDeclarations(array $declarations, bool $preserveObjectFit = false): string
+    private function imageProjectionBridgeDeclarations(array $declarations, bool $preserveObjectFit = false, bool $inheritRadius = true): string
     {
         $bridge = array( 'display:block' );
         $position = strtolower(trim((string) ($declarations['position'] ?? '')));
@@ -3363,7 +3399,9 @@ final class AuthorStylesheetProjector
         $objectFit = $this->explicitObjectFit($declarations);
         $bridge[] = 'object-fit:' . ($preserveObjectFit && '' !== $objectFit ? $objectFit : 'inherit');
         $bridge[] = 'object-position:inherit';
-        $bridge[] = 'border-radius:inherit';
+        if ( $inheritRadius ) {
+            $bridge[] = 'border-radius:inherit';
+        }
         return implode(';', $bridge);
     }
 
