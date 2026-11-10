@@ -3502,8 +3502,9 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function hasSubmenuDisclosureControl(DOMElement $item, DOMElement $anchor, ?DOMElement $submenuContainer, ?NavigationPatternContext $navigationContext): bool
     {
         // A link that announces its popup but leads to a page is still a link;
-        // its submenu opens on hover/focus.
-        if ( $this->isSubmenuToggleControl($anchor) && ! $this->leadsToPage($anchor) ) return true;
+        // its submenu opens on hover/focus. So is a link that is not a button
+        // whose submenu the source reveals on the item's hover/focus.
+        if ( $this->isSubmenuToggleControl($anchor) && ! $this->leadsToPage($anchor) && ! $this->isHoverRevealedLabel($item, $anchor, $submenuContainer, $navigationContext) ) return true;
         foreach ( $item->getElementsByTagName('button') as $button ) {
             // A visually hidden button is a keyboard affordance; it paints no indicator.
             if ( ! $button instanceof DOMElement || $navigationContext?->isVisuallyHiddenControl($button) ) continue;
@@ -3513,6 +3514,12 @@ final class NavigationPattern implements PatternRecognizerInterface
             return true;
         }
         return false;
+    }
+
+    private function isHoverRevealedLabel(DOMElement $item, DOMElement $anchor, ?DOMElement $submenuContainer, ?NavigationPatternContext $navigationContext): bool
+    {
+        return 'a' === strtolower($anchor->tagName) && 'button' !== strtolower(trim($anchor->getAttribute('role')))
+            && null !== $submenuContainer && true === $navigationContext?->revealsSubmenuOnItemState($item, $submenuContainer);
     }
 
     /** Whether the label is a link to a destination rather than a button. */

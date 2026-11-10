@@ -43,10 +43,16 @@ final class ParagraphImageUnwrapping
         }
         $path = $paragraph->getNodePath() ?? '';
         $projections = $this->session->authorSelectorProjectionState();
+        $marker = $projections->ensureSemanticMarker($path);
+        $child = $this->paragraphImageChild($paragraph, $ignoreLineBreaks);
+        $image = $child instanceof DOMElement && 'img' === strtolower($child->tagName) ? $child : $child?->getElementsByTagName('img')->item(0);
+        if ( $image instanceof DOMElement ) {
+            $projections->recordUnwrappedImageCarrier($image->getNodePath() ?? '', $marker);
+        }
         $attrs = $block['attrs'];
         $attrs['className'] = SourceDom::mergeClassNames(
             (string) ( $attrs['className'] ?? '' ),
-            ...$projections->semanticCarrierClasses($projections->ensureSemanticMarker($path), $path)
+            ...$projections->semanticCarrierClasses($marker, $path)
         );
         if ( $this->paragraphImageSetsLineBox($paragraph, $ignoreLineBreaks) ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) $attrs['className'], SourceBlockAttributeProjector::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS);

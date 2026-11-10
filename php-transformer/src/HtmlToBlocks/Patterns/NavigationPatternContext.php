@@ -705,6 +705,25 @@ final class NavigationPatternContext
     private array $unindicatedSubmenuParents = array();
 
     /**
+     * Whether the source reveals the submenu through an interaction state on
+     * its item (`li:hover .subnav{height:auto}`): the submenu opens on
+     * hover/focus, so the item's label is a hover target, not a toggle.
+     */
+    public function revealsSubmenuOnItemState(DOMElement $item, DOMElement $submenu): bool
+    {
+        if ( ! $this->styleResolver instanceof StyleResolver || null === $this->session ) return false;
+        foreach ( $this->session->sourceStyleResolutionState()->revealStateRules() as $rule ) {
+            if ( ! in_array((string) ($rule['state'] ?? ''), array( 'hover', 'focus', 'focus-within' ), true) ) continue;
+            $revealed = array_intersect_key((array) ($rule['declarations'] ?? array()), array_flip(array( 'display', 'visibility', 'height', 'max-height', 'opacity' )));
+            if ( array() === $revealed
+                || ! $this->styleResolver->matchesCssSelector($submenu, (string) ($rule['base_selector'] ?? ''))
+                || ! $this->styleResolver->matchesCssSelector($item, (string) ($rule['state_subject_selector'] ?? '')) ) continue;
+            return true;
+        }
+        return false;
+    }
+
+    /**
      * Record the source element core's submenu toggle stands in for. When its
      * own generated content (`::after`/`::before`) paints a visible indicator
      * (text, a border (a CSS caret) or a background), that indicator is
