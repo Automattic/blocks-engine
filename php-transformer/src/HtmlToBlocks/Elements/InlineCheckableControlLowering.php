@@ -17,7 +17,7 @@ use DOMElement;
  * Lowers a bounded phrasing tree of SVG-drawn binary button controls into
  * the layout shell plus editable text carriers.
  */
-final class InlineCheckableControlLowering
+final class InlineCheckableControlLowering implements ElementConverter
 {
     public function __construct(
         private readonly SourceBlockCreator $blocks,
@@ -31,11 +31,19 @@ final class InlineCheckableControlLowering
     ) {
     }
 
+    /** @param array<int, array<string, mixed>> $fallbacks */
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
+    {
+        $block = $this->inlineCheckableControlBlock($element);
+
+        return null === $block ? ConversionOutcome::unhandled() : ConversionOutcome::handled($block);
+    }
+
     /** A bounded phrasing tree with named binary SVG controls is layout plus
      * editable text, rather than one invalid RichText run. Keep source wrappers
      * with the existing layout shell and transparent text carriers.
      */
-    public function inlineCheckableControlBlock(DOMElement $element): ?array
+    private function inlineCheckableControlBlock(DOMElement $element): ?array
     {
         if (!in_array(strtolower($element->tagName), array('div', 'span', 'button'), true)) return null;
         $buttons = 'button' === strtolower($element->tagName) ? array($element) : iterator_to_array($element->getElementsByTagName('button'));
