@@ -125,7 +125,6 @@ $runtimeButton  = $makeDispatcher(array(
         static function (DOMElement $e, string $kind) use (&$islandRecorded): void {
             $islandRecorded = 'control' === $kind;
         },
-        static fn (DOMElement $e): array => array(),
         new HtmlTransformerSession(new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()))
     ),
 ));

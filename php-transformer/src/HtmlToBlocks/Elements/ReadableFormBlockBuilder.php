@@ -67,7 +67,6 @@ final class ReadableFormBlockBuilder
     private array $controlBoxes = array();
 
     /**
-     * @param Closure(DOMElement): array<string, mixed>                                                     $eventMetadata
      * @param Closure(DOMElement): bool                                                                     $isRuntimeDomTarget
      * @param Closure(DOMElement): array<string, mixed>                                                     $cssOwnedGroupAttributes
      * @param Closure(list<DOMElement>, list<array<string, mixed>>, DOMElement): array<string, mixed>       $layoutShellBlockForElements
@@ -77,7 +76,6 @@ final class ReadableFormBlockBuilder
         private readonly FormControlMetadataBuilder $metadataBuilder,
         private readonly ReadableFormControlBlockConverter $controlBlockConverter,
         private readonly FormRuntimeIslandRecorder $runtimeIslandRecorder,
-        private readonly Closure $eventMetadata,
         private readonly Closure $isRuntimeDomTarget,
         private readonly Closure $cssOwnedGroupAttributes,
         private readonly AuthorLayoutOwnership $authorLayoutOwnership,
@@ -110,7 +108,7 @@ final class ReadableFormBlockBuilder
     {
         $this->layoutGraph = null;
         if ( 0 < $form->getElementsByTagName('script')->length
-            || ( ! $allowFormEvents && array() !== ($this->eventMetadata)($form) )
+            || ( ! $allowFormEvents && array() !== SourceDom::eventMetadata($form) )
         ) {
             return null;
         }
@@ -133,7 +131,7 @@ final class ReadableFormBlockBuilder
             if ( null !== $label ) {
                 $this->controlLabels[(string) $label->getNodePath()] = true;
             }
-            if ( array() !== ($this->eventMetadata)($control) || ! FormControlClassifier::isReadableControl($control) ) {
+            if ( array() !== SourceDom::eventMetadata($control) || ! FormControlClassifier::isReadableControl($control) ) {
                 return null;
             }
 

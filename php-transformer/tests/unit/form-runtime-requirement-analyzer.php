@@ -25,7 +25,6 @@ $elementFrom = static function (string $html): DOMElement {
 };
 
 $analyzer = new FormRuntimeRequirementAnalyzer(
-    static fn (DOMElement $element): array => $element->hasAttribute('data-event') ? array( 'click' => true ) : array(),
     static fn (DOMElement $element): bool => $element->hasAttribute('data-runtime')
 );
 

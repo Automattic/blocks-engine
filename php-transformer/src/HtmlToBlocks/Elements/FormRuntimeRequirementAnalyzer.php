@@ -12,11 +12,9 @@ use DOMElement;
 final class FormRuntimeRequirementAnalyzer
 {
     /**
-     * @param Closure(DOMElement): array<string, mixed> $eventMetadata
      * @param Closure(DOMElement): bool                 $isRuntimeDomTarget
      */
     public function __construct(
-        private readonly Closure $eventMetadata,
         private readonly Closure $isRuntimeDomTarget
     ) {
     }
@@ -24,7 +22,7 @@ final class FormRuntimeRequirementAnalyzer
     public function requiresPreservation(DOMElement $form): bool
     {
         return 0 < $form->getElementsByTagName('script')->length
-            || array() !== ($this->eventMetadata)($form)
+            || array() !== SourceDom::eventMetadata($form)
             || $this->hasSubmissionMetadata($form)
             || self::hasCommerceSubmissionSignal($form)
             || $this->hasRuntimeDomTargets($form);

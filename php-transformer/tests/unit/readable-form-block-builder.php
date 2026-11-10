@@ -44,7 +44,6 @@ $createBlock = new SourceBlockCreatorFixture(static fn (string $name, array $att
     'innerBlocks' => $innerBlocks,
 ));
 $presentationAttributes = static fn (DOMElement $element): array => array( 'className' => 'presented-' . strtolower($element->tagName) );
-$eventMetadata = static fn (DOMElement $element): array => $element->hasAttribute('data-event') ? array( 'submit' => true ) : array();
 $isRuntimeDomTarget = static fn (DOMElement $element): bool => $element->hasAttribute('data-runtime');
 $recorded = array();
 $echoStart = count($session->transformationEvidenceState()->formControlEchoTexts());
@@ -54,7 +53,6 @@ $runtimeRecorder = new FormRuntimeIslandRecorder(
     static function (DOMElement $element, string $kind, string $reason, string $capability, array $metadata) use (&$recorded): void {
         $recorded[] = compact('kind', 'reason', 'capability', 'metadata');
     },
-    $eventMetadata,
     $session
 );
 $authoredRegistry = $session->requireGeneratedBlockRegistry();
@@ -73,7 +71,6 @@ $controlConverter = new ReadableFormControlBlockConverter(
     $authoredConverter,
     $runtimeRecorder,
     new Runtime(),
-    $eventMetadata,
     $isRuntimeDomTarget,
     $presentationAttributes,
     $createBlock,
@@ -106,7 +103,6 @@ $builder = new ReadableFormBlockBuilder(
     $metadataBuilder,
     $controlConverter,
     $runtimeRecorder,
-    $eventMetadata,
     $isRuntimeDomTarget,
     $presentationAttributes,
     $ownership,
@@ -145,11 +141,11 @@ $builder = new ReadableFormBlockBuilder(
 $assert(null === $builder->build($formFrom('<form></form>')), 'empty-form-declines-block');
 $assert(null === $builder->build($formFrom('<form><script>submit()</script><input></form>')), 'scripted-form-declines-block');
 
-$eventForm = $formFrom('<form data-event><input aria-label="Email"></form>');
+$eventForm = $formFrom('<form onsubmit="handle()"><input aria-label="Email"></form>');
 $assert(null === $builder->build($eventForm), 'eventful-form-declines-by-default');
 $assert('core/group' === ($builder->build($eventForm, true)['blockName'] ?? ''), 'eventful-form-builds-when-allowed');
 
-$assert(null === $builder->build($formFrom('<form><input data-event></form>')), 'eventful-control-declines-form');
+$assert(null === $builder->build($formFrom('<form><input onchange="handle()"></form>')), 'eventful-control-declines-form');
 $assert(null === $builder->build($formFrom('<form><input type="hidden" value="secret"></form>')), 'unreadable-control-declines-form');
 
 $echoStart = count($session->transformationEvidenceState()->formControlEchoTexts());

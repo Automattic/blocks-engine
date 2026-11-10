@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\ClassificationContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SubtreeClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CustomBlockGenerator;
@@ -471,7 +472,7 @@ final class FallbackEmitter
             'attributes'      => $this->safeSvgAttributes($element),
             'context'         => $this->sourceElementDescription->sourceContext($element),
             'classification'  => $this->classifyFallbackSubtree($element),
-            'events'          => $this->eventMetadata($element),
+            'events'          => SourceDom::eventMetadata($element),
             'text_length'     => strlen(trim($element->textContent ?? '')),
             'child_count'     => $this->childElementCount($element),
             'html'            => $boundedHtml['html'],
@@ -509,7 +510,7 @@ final class FallbackEmitter
             'attributes'      => $this->safeCanvasAttributes($element),
             'context'         => $this->sourceElementDescription->sourceContext($element),
             'classification'  => $this->classifyFallbackSubtree($element),
-            'events'                 => $this->eventMetadata($element),
+            'events'                 => SourceDom::eventMetadata($element),
             'script_dependency_hint' => '' !== $id
                 ? 'Scripts may target #' . $id . ' and call canvas APIs such as getContext(); replacing it with a wrapper block changes runtime behavior.'
                 : 'Scripts may target this canvas by selector and call canvas APIs such as getContext(); replacing it with a wrapper block changes runtime behavior.',
@@ -557,7 +558,7 @@ final class FallbackEmitter
             'attributes'      => $this->safeScriptAttributes($element),
             'context'         => $this->sourceElementDescription->sourceContext($element),
             'classification'  => $this->classifyFallbackSubtree($element),
-            'events'          => $this->eventMetadata($element),
+            'events'          => SourceDom::eventMetadata($element),
             'script_role'        => $scriptRole,
             'script_source_kind' => '' !== trim($this->attr($element, 'src')) ? 'external' : 'inline',
             'text_length'     => strlen(trim($element->textContent ?? '')),
