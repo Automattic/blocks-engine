@@ -504,7 +504,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 $classes = $this->session->authorSelectorProjectionState()->controlCarrierClasses($path);
                 $marker = $this->session->authorSelectorProjectionState()->controlMarker($path);
                 if ( '' !== $marker ) {
-                    $rule = $this->authorStylesheetProjector->controlCarrierLayerRevertRule($element, $marker);
+                    $rule = $this->controlCarrierLayerRevertRule($element, $marker);
                     if ( '' !== $rule ) {
                         $this->session->generatedSupportStylesheetState()->registerNativeButton($marker, $rule);
                     }
@@ -801,7 +801,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $detailsConverter = new DetailsElementConverter(new DetailsElementContext(
             fn (DOMElement $element): ?DOMElement => $capturedDisclosureDialogs->fromDetails($element),
             function (DOMElement $element, array &$fallbacks): array {
-                return $this->elementPrelude->capturedDialogBlock($element, $fallbacks);
+                return $this->capturedDialogBlock($element, $fallbacks);
             },
             $this
         ));
@@ -3189,6 +3189,23 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $tags[] = $this->session->requireGeneratedBlockRegistry()->blockName(AuthorLayoutBlockGenerator::LOCAL_NAME) === $name ? (string) ($attrs['tagName'] ?? 'div') : ('core/group' === $name ? (string) ($attrs['tagName'] ?? 'div') : ('core/image' === $name ? 'img' : ('core/paragraph' === $name ? 'p' : ('core/heading' === $name ? 'h' . (string) ($attrs['level'] ?? 2) : ''))));
         }
         return $tags;
+    }
+
+    /** Read lazily: the projector is built after the closure that needs it. */
+    private function controlCarrierLayerRevertRule(DOMElement $element, string $marker): string
+    {
+        return $this->authorStylesheetProjector->controlCarrierLayerRevertRule($element, $marker);
+    }
+
+    /**
+     * Read lazily: the prelude is built after the converter that needs it.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>
+     */
+    private function capturedDialogBlock(DOMElement $element, array &$fallbacks): array
+    {
+        return $this->elementPrelude->capturedDialogBlock($element, $fallbacks);
     }
 
     public function richTextMarker(DOMElement $element): string
