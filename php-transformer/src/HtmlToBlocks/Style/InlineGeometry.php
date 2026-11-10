@@ -35,6 +35,8 @@ final class InlineGeometry
      * @param Closure(string): string $responsivePropertyFamily
      * @param Closure(DOMElement): bool $hasConditionalGridTemplateColumns
      * @param Closure(DOMElement, list<string>): array{int, int, int} $authorNormalDeclarationSpecificity
+     * @param Closure(DOMElement, list<string>): array{int, int, int} $authorImportantDeclarationSpecificity
+     * @param Closure(DOMElement, array<int, string>): array<string, array<int, string>> $conditionalAuthorDeclaredPropertyValues
      */
     public function __construct(
         private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession $session,
@@ -52,7 +54,9 @@ final class InlineGeometry
         private readonly Closure $hasConditionalStyleFamily,
         private readonly Closure $responsivePropertyFamily,
         private readonly Closure $hasConditionalGridTemplateColumns,
-        private readonly Closure $authorNormalDeclarationSpecificity
+        private readonly Closure $authorNormalDeclarationSpecificity,
+        private readonly Closure $authorImportantDeclarationSpecificity,
+        private readonly Closure $conditionalAuthorDeclaredPropertyValues
     ) {
     }
 
@@ -548,6 +552,7 @@ final class InlineGeometry
         $normalPriorityOverrides = array();
         $importantDeclarations = array();
         $linkShadowDeclarations = array();
+        $sourceImportantProperties = array();
         $forcedPropertyLookup = array_fill_keys($forcedProperties, true);
         $inlineLayoutPropertyLookup = array_fill_keys($this->layoutCarrierProperties(), true);
         $inlineListMarkerPropertyLookup = array_fill_keys($this->listMarkerCarrierProperties(), true);
@@ -583,10 +588,33 @@ final class InlineGeometry
             // normal selectors, including ID selectors. Authored !important
             // rules retain their normal cascade priority through specificity.
             $importantDeclarations[] = $property . ':' . $value . ' !important';
+            if ( CssValueInspector::isImportant((string) ($declarations[$property] ?? '')) ) {
+                $sourceImportantProperties[] = $property;
+            }
         }
         $signature = implode(';', array_merge($normalPriorityDeclarations, $importantDeclarations, $linkShadowDeclarations));
         if ( array() !== $linkShadowDeclarations ) $signature .= "\nbutton-link-shadow";
         $className = $this->session->layoutGeometryState()->allocateCarrier(($this->geometryStructuralPath)($element) . "\n" . $signature . ($imageLeaf ? "\nimage-leaf" : ''));
+        $importantCompound = '.' . $className;
+        $boostedImportantDeclarations = array();
+        if ( array() !== $sourceImportantProperties ) {
+            // An inline `!important` declaration outranks every author rule,
+            // `!important` ones included. Its carrier is only a class rule, so
+            // it has to out-specify each author `!important` rule declaring the
+            // same property on this element (an ID-scoped device projection of
+            // a resting drawer offset, for one). Declarations promoted from
+            // normal inline priority stay at plain carrier specificity.
+            $importantCompound = $this->importantTierCarrierCompound($element, $className, $sourceImportantProperties);
+            if ( '.' . $className !== $importantCompound ) {
+                $boosted = array_fill_keys($sourceImportantProperties, true);
+                $plain = array();
+                foreach ( $importantDeclarations as $declaration ) {
+                    if ( isset($boosted[ substr($declaration, 0, (int) strpos($declaration, ':')) ]) ) $boostedImportantDeclarations[] = $declaration;
+                    else $plain[] = $declaration;
+                }
+                $importantDeclarations = $plain;
+            }
+        }
         $rules = array();
         if ( array() !== $normalPriorityDeclarations ) {
             $carrier = ':root ' . $this->normalTierCarrierCompound($element, $className, $normalPriorityOverrides);
@@ -596,6 +624,10 @@ final class InlineGeometry
         if ( array() !== $importantDeclarations ) {
             $selector = $imageLeaf ? NativeImageLeafPresentation::selectors('.wp-block-image.' . $className) : '.' . $className;
             $rules[] = $selector . '{' . implode(';', $importantDeclarations) . '}';
+        }
+        if ( array() !== $boostedImportantDeclarations ) {
+            $selector = $imageLeaf ? NativeImageLeafPresentation::selectors('.wp-block-image' . $importantCompound) : $importantCompound;
+            $rules[] = $selector . '{' . implode(';', $boostedImportantDeclarations) . '}';
         }
         if ( array() !== $linkShadowDeclarations ) {
             $rules[] = '.' . $className . '>.wp-block-button__link{' . implode(';', $linkShadowDeclarations) . '}';
@@ -612,7 +644,7 @@ final class InlineGeometry
         ) ) {
             // Preserve the source box on the frontend. In the editor, keep it
             // in the canvas flow so viewport chrome cannot cover editable blocks.
-            $rules[] = ':root .editor-styles-wrapper .' . $className . '{position:relative !important;inset:auto !important;z-index:auto !important}';
+            $rules[] = ':root .editor-styles-wrapper ' . $importantCompound . '{position:relative !important;inset:auto !important;z-index:auto !important}';
         }
         $float = strtolower(CssValueInspector::comparable((string) ($geometry['float'] ?? '')));
         if ( in_array($float, array( 'left', 'right' ), true) ) {
@@ -672,6 +704,23 @@ final class InlineGeometry
     private function styleAttributeMapper(): StyleAttributeMapper
     {
         return $this->styleAttributeMapper ??= new StyleAttributeMapper();
+    }
+
+    /**
+     * Carrier compound that out-specifies every matching author `!important`
+     * rule declaring one of the properties; the plain carrier class when none
+     * reaches its specificity.
+     *
+     * @param list<string> $properties
+     */
+    private function importantTierCarrierCompound(DOMElement $element, string $className, array $properties): string
+    {
+        [$ids, $classes] = ($this->authorImportantDeclarationSpecificity)($element, $properties);
+        if ( 0 < $ids ) {
+            return '.' . $className . ':is(.' . $className . ',' . str_repeat('#' . $className, $ids + 1) . ')';
+        }
+
+        return str_repeat('.' . $className, $classes + 1);
     }
 
     /**
@@ -1070,7 +1119,7 @@ final class InlineGeometry
                 $layout['flexWrap'] = $flexWrap;
             }
 
-            return $layout;
+            return $this->withRowCrossAxisStretch($element, $layout, $inlineDeclarations, $mergedDeclarations);
         }
         $style = strtolower('' !== trim($mergedStyle) ? $mergedStyle : SourceDom::attr($element, 'style'));
         if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?flex\b/', $style)
@@ -1080,7 +1129,7 @@ final class InlineGeometry
                 return array();
             }
 
-            return array( 'type' => 'flex' );
+            return $this->withRowCrossAxisStretch($element, array( 'type' => 'flex' ), $inlineDeclarations, $mergedDeclarations);
         }
         if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?grid\b/', $style) ) {
             $trackList = (string) ($mergedDeclarations['grid-template-columns'] ?? $inlineDeclarations['grid-template-columns'] ?? '');
@@ -1234,6 +1283,48 @@ final class InlineGeometry
         );
 
         return $map[ $value ] ?? '';
+    }
+
+    /**
+     * Core's horizontal flex layout centres its items on the cross axis
+     * (`.is-layout-flex{align-items:center}`) unless `verticalAlignment` says
+     * otherwise. A source row's `align-items` defaults to `normal`, which for
+     * flex items is `stretch`: items start at the top of the row and fill its
+     * height. A row that resolves no `align-items` (or `normal`/`stretch`)
+     * therefore states `verticalAlignment: stretch`, or core drops its shorter
+     * items to the vertical centre (Automattic/blocks-engine#5256).
+     *
+     * Only rows: in a column the cross axis is horizontal and core reads
+     * `verticalAlignment` as main-axis justification. A row whose alignment a
+     * media query restates keeps core's default, so a generated container rule
+     * cannot outrank the author's breakpoint.
+     *
+     * @param array<string, string> $layout
+     * @param array<string, string> $inlineDeclarations
+     * @param array<string, string> $mergedDeclarations
+     * @return array<string, string>
+     */
+    private function withRowCrossAxisStretch(DOMElement $element, array $layout, array $inlineDeclarations, array $mergedDeclarations): array
+    {
+        $direction = CssValueInspector::comparable((string) ($inlineDeclarations['flex-direction'] ?? $mergedDeclarations['flex-direction'] ?? ''));
+        if ( 'vertical' === ($layout['orientation'] ?? '') || str_starts_with($direction, 'column') ) {
+            return $layout;
+        }
+
+        $alignItems = CssValueInspector::comparable((string) ($inlineDeclarations['align-items'] ?? $mergedDeclarations['align-items'] ?? ''));
+        if ( '' === $alignItems ) {
+            $placeItems = CssValueSplitter::splitTopLevelWhitespace(CssValueInspector::comparable((string) ($inlineDeclarations['place-items'] ?? $mergedDeclarations['place-items'] ?? '')));
+            $alignItems = (string) ($placeItems[0] ?? '');
+        }
+        if ( ! in_array($alignItems, array( '', 'normal', 'stretch' ), true)
+            || array() !== ($this->conditionalAuthorDeclaredPropertyValues)($element, array( 'align-items', 'place-items' ))
+        ) {
+            return $layout;
+        }
+
+        $layout['verticalAlignment'] = 'stretch';
+
+        return $layout;
     }
 
     private function layoutFlexWrap(string $value): string

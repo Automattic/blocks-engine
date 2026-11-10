@@ -12,6 +12,12 @@ $assert = static function (bool $condition, string $message) use (&$failures): v
         fwrite(STDERR, 'FAIL: ' . $message . PHP_EOL);
     }
 };
+// Guard placement uses selector boundaries, including pseudo-element hosts.
+$guardResult = (new HtmlTransformer())->transform('<style>#ordinary::before{content:"marker"}#ordinary:hover{outline-width:7px}#ordinary::first-letter{font-size:19px}</style><section id="ordinary"><p>Body</p></section>')->toArray();
+$guardCss = implode("\n", array_column(array_filter($guardResult['assets'], static fn(array $asset): bool => 'editor-static-state' === ($asset['source'] ?? '')), 'content'));
+$assert(str_contains($guardCss, ':where(:not(#ordinary))::before{'), 'A pseudo-element repair guards its host before the pseudo-element.');
+$assert(str_contains($guardCss, ':where(:not(#ordinary:hover)):hover{'), 'A stateful repair guards the complete original selector before the state suffix.');
+$assert(str_contains($guardCss, '::first-letter{font-size:19px}'), 'An unsupported guard retains the previous repair.');
 $bytes = 0;
 foreach (require dirname(__DIR__) . '/fixtures/editor-anchor-projection-pages.php' as $html) {
     $result = (new HtmlTransformer())->transform($html)->toArray();
@@ -58,5 +64,14 @@ foreach ($editorAssets as $asset) {
     $assert(str_contains($css, 'blocks-engine-editor-anchor-content') && str_contains($css, 'padding:13px'), 'Each repair sheet retains the uncovered id rule.');
     $assert(!str_contains($css, '@font-face') && !str_contains($css, 'body{margin:0}') && !str_contains($css, 'font-family:Shared'), 'Page repair sheets do not carry the shared author stylesheet.');
 }
+// A visually hidden skip link shared by desktop and mobile capture documents:
+// its #id rule is projected as :is(#skip,.anchor), and the editor wrapper id is
+// block-<clientId>, so every copy (including the unrenamed one) needs the class.
+$skipHtml = '<style>#skip{position:absolute;width:0;height:0;opacity:0}</style>';
+foreach (array('desktop', 'mobile') as $device) {
+    $skipHtml .= '<div class="data-blocks-engine-capture-' . $device . '-document" data-blocks-engine-capture-device-document="' . $device . '" data-blocks-engine-capture-document-scope=""><button id="skip">Skip to Main Content</button><main><p>Body ' . $device . '</p></main></div>';
+}
+$skipMarkup = (string) ((new HtmlTransformer())->transform($skipHtml)->toArray()['serialized_blocks'] ?? '');
+$assert(2 === preg_match_all('/<button[^>]*class="[^"]*blocks-engine-editor-anchor-skip|class="[^"]*blocks-engine-editor-anchor-skip[^"]*"[^>]*>\s*(?:<[^>]+>\s*)*Skip to Main Content/', $skipMarkup), 'Every variant copy of an id-styled skip link carries its editor anchor class.');
 fwrite(STDOUT, 'Multi-page fixture editor-static-state bytes: ' . $bytes . PHP_EOL);
 exit($failures ? 1 : 0);

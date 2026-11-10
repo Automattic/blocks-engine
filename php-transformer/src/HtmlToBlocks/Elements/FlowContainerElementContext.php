@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorLayoutOwnership;
@@ -16,7 +17,7 @@ final class FlowContainerElementContext
         private readonly Closure $runtimeAppShellBlock,
         private readonly Closure $isEmptyInteractiveFeatureShell,
         private readonly Closure $capturePseudoFormFallback,
-        private readonly Closure $recognizePatterns,
+        private readonly PatternTreeConverter $tree,
         private readonly Closure $flankedSeparatorBlock,
         private readonly Closure $canCaptureExternalSvgFragmentDependency,
         private readonly SourceElementClassifier $sourceElementClassifier,
@@ -31,7 +32,6 @@ final class FlowContainerElementContext
         private readonly Closure $shouldPreserveEmptyVisualElement,
         private readonly Closure $isInertEmptyElement,
         private readonly PatternContext $patternContext,
-        private readonly Closure $shouldDeferNavigationPatternToChildren,
         private readonly Closure $rememberAccordionDisclosureRoot,
         private readonly Closure $metadataGridBlock,
         private readonly Closure $rememberNativeDisclosureRoot,
@@ -60,7 +60,7 @@ final class FlowContainerElementContext
     /** @param array<int, array<string, mixed>> $fallbacks */
     public function capturePseudoFormFallback(DOMElement $element, array &$fallbacks): void { ($this->capturePseudoFormFallback)($element, $fallbacks); }
     /** @param array<int, array<string, mixed>> $fallbacks @param array<int, class-string> $patterns @return array<string, mixed>|null */
-    public function recognizePatterns(DOMElement $element, array &$fallbacks, array $patterns): ?array { return ($this->recognizePatterns)($element, $fallbacks, $patterns); }
+    public function recognizePatterns(DOMElement $element, array &$fallbacks, array $patterns): ?array { return $this->tree->patterns($element, $fallbacks, $patterns); }
     /** @return array<string, mixed>|null */
     public function flankedSeparatorBlock(DOMElement $element): ?array { return ($this->flankedSeparatorBlock)($element); }
     public function hasExternalSvgFragmentDependencyBoundary(DOMElement $element): bool { return ($this->canCaptureExternalSvgFragmentDependency)($element) && $this->sourceElementClassifier->hasExternalSvgFragmentDependencyBoundary($element); }
@@ -81,7 +81,6 @@ final class FlowContainerElementContext
     public function isInertEmptyElement(DOMElement $element): bool { return ($this->isInertEmptyElement)($element); }
 
     public function patternContext(): PatternContext { return $this->patternContext; }
-    public function shouldDeferNavigationPatternToChildren(DOMElement $element): bool { return ($this->shouldDeferNavigationPatternToChildren)($element); }
     /** @param array<string, mixed> $block @return array<string, mixed> */
     public function rememberAccordionDisclosureRoot(array $block, DOMElement $element): array { return ($this->rememberAccordionDisclosureRoot)($block, $element); }
     /** @return array<string, mixed>|null */

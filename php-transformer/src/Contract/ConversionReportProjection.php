@@ -253,10 +253,10 @@ final class ConversionReportProjection
     {
         $references = self::artifactAssetReferences($sourceReports);
         if ( array() !== $references ) {
-            return self::dedupeRows($references);
+            return DeterministicRowDeduplicator::dedupe($references);
         }
 
-        return self::dedupeRows($blockReferences);
+        return DeterministicRowDeduplicator::dedupe($blockReferences);
     }
 
     /**
@@ -282,7 +282,7 @@ final class ConversionReportProjection
 
         $candidates = array_merge($candidates, $blockCandidates);
 
-        return self::dedupeRows($candidates);
+        return DeterministicRowDeduplicator::dedupe($candidates);
     }
 
     /**
@@ -362,7 +362,7 @@ final class ConversionReportProjection
             return array();
         }
 
-        return self::dedupeRows(array_values(array_filter($candidates, static fn (mixed $candidate): bool => is_array($candidate))));
+        return DeterministicRowDeduplicator::dedupe(array_values(array_filter($candidates, static fn (mixed $candidate): bool => is_array($candidate))));
     }
 
     /**
@@ -379,7 +379,7 @@ final class ConversionReportProjection
         $html = is_array($sourceReports['html'] ?? null) ? $sourceReports['html'] : array();
         $htmlIslands = is_array($html['runtime_islands'] ?? null) ? $html['runtime_islands'] : array();
 
-        return self::dedupeRows(array_values(array_filter(array_merge($islands, $htmlIslands), static fn (mixed $island): bool => is_array($island))));
+        return DeterministicRowDeduplicator::dedupe(array_values(array_filter(array_merge($islands, $htmlIslands), static fn (mixed $island): bool => is_array($island))));
     }
 
     /**
@@ -405,7 +405,7 @@ final class ConversionReportProjection
             );
         }
 
-        return self::dedupeRows($entries);
+        return DeterministicRowDeduplicator::dedupe($entries);
     }
 
     /**
@@ -618,12 +618,4 @@ final class ConversionReportProjection
         }
     }
 
-    /**
-     * @param array<int, array<string, mixed>> $rows
-     * @return array<int, array<string, mixed>>
-     */
-    private static function dedupeRows(array $rows): array
-    {
-        return DeterministicRowDeduplicator::dedupe($rows);
-    }
 }

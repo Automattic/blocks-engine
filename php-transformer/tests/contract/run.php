@@ -4044,10 +4044,10 @@ $assert(str_contains($visualIframeGeometryMarkup, 'width="100%"') && str_contain
 $assert((str_contains($visualIframeGeometryMarkup, 'margin-bottom:10px') || str_contains($visualIframeGeometryCss, 'margin-bottom:10px')) && str_contains($visualIframeGeometryMarkup, 'Following content'), 'iframe wrapper margins and following content layout remain serialized');
 
 $suppressedIframe = ( new HtmlTransformer() )->transform(
-    '<main><iframe src="https://example.test/tag-manager" width="0" height="0" style="display:none"></iframe><iframe src="https://example.test/worker" width="1" height="1" style="visibility:hidden"></iframe><iframe src="javascript:alert(1)" width="640" height="360" srcdoc="<p>unsafe</p>"></iframe><iframe src="https://example.test/unbounded"></iframe></main>'
+    '<main><iframe src="https://example.test/tag-manager" width="0" height="0" style="display:none"></iframe><iframe src="javascript:alert(1)" width="640" height="360" srcdoc="<p>unsafe</p>"></iframe><iframe src="https://example.test/unbounded"></iframe></main>'
 )->toArray();
 $suppressedIframeMarkup = (string) ($suppressedIframe['serialized_blocks'] ?? '');
-$assert(! str_contains($suppressedIframeMarkup, '<iframe'), 'hidden, zero-size, unsafe, and unbounded iframes remain suppressed');
+$assert(! str_contains($suppressedIframeMarkup, '<iframe'), 'zero-size, unsafe, and unbounded iframes remain suppressed');
 
 $staticTemplate = ( new HtmlTransformer() )->transform(
     '<main><section><h2>Visible</h2><template><article><h3>Deferred article</h3><p>Readable metadata.</p></article></template><p>After.</p></section></main>'
@@ -4803,7 +4803,7 @@ $staticSite = $compiler->compile(
     array(
         'entrypoint' => 'index.html',
         'files'      => array(
-            'index.html' => '<main><img src="assets/logo.png" alt="Logo"></main>',
+            'index.html' => '<link rel="stylesheet" href="visual-repair.css"><main><img src="assets/logo.png" alt="Logo"></main>',
             'parts/header.html' => '<header><nav><a href="/">Home</a><a href="/about.html">About</a></nav><img src="assets/logo.png" alt="Logo"></header>',
             'about.html' => '<main><h1>About</h1></main>',
             'assets/logo.png' => array(
@@ -6638,7 +6638,7 @@ $normalized = $compiler->compile(
         'files'   => array(
             array(
                 'name' => 'public/index.html',
-                'body' => '<main><h1>Aliases</h1></main>',
+                'body' => '<link rel="stylesheet" href="../style.css"><main><h1>Aliases</h1></main>',
             ),
             'public/index.html' => '<main><h1>Duplicate path</h1></main>',
             'data/settings.json' => '{"ok":true}',
@@ -6749,9 +6749,9 @@ $negotiatedLimits = (new ArtifactNormalizer())->normalize(array(
 $assert(2 === count($negotiatedLimits['files']), 'artifact compiler accepts files within explicitly negotiated limits');
 $assert(array(
     'max_files' => ArtifactNormalizer::MAX_FILES,
-    'max_media_files' => ArtifactNormalizer::MAX_FILES,
     'max_file_bytes' => ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES + 1,
     'max_total_bytes' => ArtifactNormalizer::MAX_TOTAL_BYTES,
+    'max_media_files' => ArtifactNormalizer::MAX_MEDIA_FILES,
     'max_media_file_bytes' => ArtifactNormalizer::MAX_MEDIA_FILE_BYTES,
     'max_media_total_bytes' => ArtifactNormalizer::MAX_MEDIA_TOTAL_BYTES,
     'max_report_file_bytes' => ArtifactNormalizer::MAX_REPORT_FILE_BYTES,
@@ -7001,7 +7001,7 @@ $editorStaticStateAsset = current(array_filter(
 $assert(is_array($editorStaticStateAsset) && 'editor' === ($editorStaticStateAsset['stylesheet_target'] ?? null), 'editor static-state repair is an explicit editor-only stylesheet asset');
 $editorStaticStateCss = (string) ($editorStaticStateAsset['content'] ?? '');
 $assert(str_contains($editorStaticStateCss, 'animation-delay:-999999s!important') && str_contains($editorStaticStateCss, ':root .reveal.feature-copy{opacity:1!important;transform:none!important}'), 'editor static-state CSS settles authored animation and restores conversion-proven hidden content', $editorStaticStateCss);
-$editorAnchorProcess = ':where\\(\\.blocks-engine-editor-anchor-process\\):not\\(#be-i-\\d+\\)';
+$editorAnchorProcess = ':where\\(\\.blocks-engine-editor-anchor-process\\):not\\(#be-i-\\d+\\):where\\(:not\\(#process\\)\\)';
 $assert(str_contains((string) ($editorStaticStateResult['serialized_blocks'] ?? ''), 'blocks-engine-editor-anchor-process') && 1 === preg_match('/' . $editorAnchorProcess . '\\{background:#111;padding:4rem\\}/', $editorStaticStateCss) && 1 === preg_match('/@media\\(max-width:600px\\)\\{' . $editorAnchorProcess . '\\{padding:2rem\\}\\}/', $editorStaticStateCss), 'editor static-state CSS projects authored anchor selectors onto deterministic Gutenberg wrapper classes at authored id specificity', $editorStaticStateCss);
 
 $hiddenRichTextMarker = (new HtmlTransformer())->transform('<style>.scroll-target span{display:none}</style><div class="scroll-target"><span>Bottom of page</span></div>')->toArray();
@@ -7133,6 +7133,8 @@ assertSame('failed', $unsupportedTargetResult['status'], 'Unsupported target for
 assertSame('unsupported_target_format', $unsupportedTargetResult['diagnostics'][0]['code'], 'Unsupported target diagnostics should identify the target format.');
 assertThrows(static fn () => $bridge->normalize('<!-- wp:paragraph /-->', 'markdown'), 'Declared markdown content contains serialized block comments.');
 assertThrows(static fn () => $bridge->normalize("# Title\n<p>Hello</p>", 'html'), 'Declared HTML content contains markdown markers.');
+$codeHtml = "<style>\n* { margin: 0; }\n</style><script>\n/* Clock\n * Docs: https://example.com\n */\n</script><!--\n- note\n--><pre>\n# shell\n</pre><p>Hello</p>";
+assertSame($codeHtml, $bridge->normalize($codeHtml, 'html'), 'Code inside comments, script, style and pre should not read as HTML markdown markers.');
 assertThrows(static fn () => $bridge->normalize('<p>Hello</p>', 'blocks'), 'Declared blocks content does not contain serialized block comments.');
 assertThrows(static fn () => $bridge->normalize('<!-- wp:paragraph --><p>Hello</p>', 'blocks'), 'Serialized block markup contains an unclosed block comment.');
 assertThrows(static fn () => $bridge->normalize('<!-- wp:paragraph --><p>Hello</p><!-- /wp:heading -->', 'blocks'), 'Mismatched serialized block closing comment.');

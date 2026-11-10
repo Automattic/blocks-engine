@@ -49,7 +49,9 @@ $assert(!str_contains($markup, CaptureEvidence::DOCUMENT_SCOPE), 'The part does 
 $probes = array('calc(50% - 490px)', '--footer-note-font:', 'font:var(--footer-note-font)');
 $reached = array_fill_keys($probes, 0);
 foreach ($plan['assets'] as $asset) {
-    if ('css' !== ($asset['kind'] ?? null)) continue;
+    // Editor-only anchor repairs are guarded to subjects whose saved id the
+    // editor lost, so they intentionally do not match the saved markup here.
+    if ('css' !== ($asset['kind'] ?? null) || 'editor' === ($asset['stylesheet_target'] ?? null)) continue;
     (new CssStylesheetTransformer())->visitStyleRules($asset['content'], static function (string $prelude, string $body) use ($probes, $xpath, $assert, &$reached): void {
         foreach ($probes as $probe) {
             if (!str_contains($body, $probe)) continue;

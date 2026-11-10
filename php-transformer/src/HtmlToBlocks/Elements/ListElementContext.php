@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorLayoutOwnership;
 use Closure;
 use DOMElement;
@@ -11,7 +12,6 @@ use DOMElement;
 final class ListElementContext
 {
     /**
-     * @param Closure(DOMElement, array<int, array<string, mixed>>&, array<int, class-string>): ?array<string, mixed> $recognizePatterns
      * @param Closure(array<string, mixed>, DOMElement): array<string, mixed> $rememberAccordionDisclosureRoot
      * @param Closure(DOMElement): bool $isStructuredCardList
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array<string, mixed> $decomposeStructuredCardList
@@ -20,7 +20,7 @@ final class ListElementContext
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): array<int, array<string, mixed>> $listItems
      */
     public function __construct(
-        private readonly Closure $recognizePatterns,
+        private readonly PatternTreeConverter $tree,
         private readonly Closure $rememberAccordionDisclosureRoot,
         private readonly Closure $isStructuredCardList,
         private readonly Closure $decomposeStructuredCardList,
@@ -34,7 +34,7 @@ final class ListElementContext
     /** @param array<int, array<string, mixed>> $fallbacks @param array<int, class-string> $patterns @return array<string, mixed>|null */
     public function recognizePatterns(DOMElement $element, array &$fallbacks, array $patterns): ?array
     {
-        return ($this->recognizePatterns)($element, $fallbacks, $patterns);
+        return $this->tree->patterns($element, $fallbacks, $patterns);
     }
 
     /** @param array<string, mixed> $block @return array<string, mixed> */

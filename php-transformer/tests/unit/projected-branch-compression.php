@@ -129,7 +129,7 @@ $variantMetrics = $variantResult['source_reports']['editability_report']['metric
 $variantPolicy = $variantResult['source_reports']['editability_policy'] ?? array();
 $variantBlocks = (string) ($variantResult['serialized_blocks'] ?? '');
 
-$assert(array('wrapper_to_content_ratio') === array_column($variantPolicy['failures'] ?? array(), 'metric'), 'Native responsive wrappers expose their real wrapper ratio without enforcing diagnostic-only depth.');
+$assert(array('wrapper_to_content_ratio') === array_column($variantPolicy['findings'] ?? array(), 'metric'), 'Native responsive wrappers expose their real wrapper ratio without enforcing diagnostic-only depth.');
 $assert(!str_contains($variantBlocks, '<!-- wp:custom/layout-shell'), 'Responsive counterpart div branches stay native.');
 foreach (array('desktop', 'mobile') as $variant) {
     $assert(str_contains($variantBlocks, '<div class="wp-block-group ' . $variant . '-shell layer-1">') && str_contains($variantBlocks, '<div class="wp-block-group ' . $variant . '-shell layer-20">'), 'Layout-shell serialization retains the exact saved outer and inner wrapper markup for the ' . $variant . ' counterpart.');

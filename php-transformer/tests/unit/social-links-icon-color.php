@@ -76,7 +76,7 @@ if ( $hostDecodesAvif ) {
 } else {
     $avifBlock = $social($avifGlyphs);
     $avifFindings = $undecodable($avifGlyphs);
-    $assert('core/social-links' === ($avifBlock['blockName'] ?? ''), 'an undecodable AVIF icon cluster still lowers to core/social-links');
+    $assert(!str_contains($avifGlyphs['serialized_blocks'], 'wp:social-link'), 'an undecodable AVIF icon cluster retains source artwork without monochrome evidence');
     $assert(! isset($avifBlock['attrs']['iconColorValue']), 'an AVIF glyph the host GD cannot decode keeps the default icon color, got ' . json_encode($avifBlock['attrs'] ?? null));
     $assert(1 === count($avifFindings), 'an undecodable AVIF glyph records one glyph_color_undecodable finding, got ' . json_encode($avifFindings));
     $assert('warning' === ($avifFindings[0]['severity'] ?? null) && 'image/avif' === ($avifFindings[0]['mime_type'] ?? null), 'the glyph_color_undecodable finding is a warning naming image/avif, got ' . json_encode($avifFindings));

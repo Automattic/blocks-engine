@@ -21,4 +21,14 @@ $report['pages'][0]['components'][0]['slideshow']['frames'][1]['media'] = array(
 $files[2]['content'] = json_encode($report);
 $partial = (new CapturedDialogProjector())->project($files);
 if (!str_contains(json_encode($partial['diagnostics']), 'slide-1')) throw new RuntimeException('Missing slot diagnostic absent');
+$missingFiles = require dirname(__DIR__) . '/fixtures/slideshow-components.php';
+$missingReport = json_decode($missingFiles[2]['content'], true);
+$missingReport['pages'][0]['components'][0]['slideshow']['frames'][4]['media'][0]['asset'] = 'https://example.org/missing.jpg';
+$missingFiles[2]['content'] = json_encode($missingReport);
+$missing = (new CapturedDialogProjector())->project($missingFiles);
+$missingBlocks = (new HtmlTransformer())->transform($missing['files'][0]['content'])->toArray()['serialized_blocks'];
+if (!str_contains(json_encode($missing['diagnostics']), 'slide-4') || !str_contains($missing['files'][0]['content'], 'data-blocks-engine-slideshow')
+    || !str_contains($missingBlocks, '<!-- wp:custom/authored-carousel ')) {
+    throw new RuntimeException('Missing final slideshow asset should diagnose its slot while preserving authored carousel');
+}
 echo "Slideshow components passed\n";

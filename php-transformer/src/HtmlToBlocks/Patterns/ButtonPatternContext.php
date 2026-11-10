@@ -212,6 +212,66 @@ final class ButtonPatternContext
     }
 
     /**
+     * core/button's label is RichText, which cannot hold an element without
+     * text. A text-free child the author paints at either edge of the button
+     * (a selection dot beside the label, say) is the button's own decoration:
+     * project its author rules onto the link's matching pseudo-element so it
+     * keeps its box, order and states. Children the saved label still
+     * renders ($labelHtml) keep their own box. Returns the class that scopes
+     * those pseudo-elements, or '' when the button has no such child.
+     */
+    public function installEdgeDecorations(DOMElement $button, string $labelHtml): string
+    {
+        $projections = $this->session?->authorSelectorProjectionState();
+        if ( null === $projections ) {
+            return '';
+        }
+        $children = array();
+        foreach ( $button->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                $children[] = $child;
+            } elseif ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') ) {
+                $children[] = null;
+            }
+        }
+        if ( count($children) < 2 ) {
+            return '';
+        }
+        $edges = array();
+        if ( self::isDroppedEdgeDecoration($children[0], $labelHtml) ) {
+            $edges['::before'] = $children[0];
+        }
+        if ( self::isDroppedEdgeDecoration($children[count($children) - 1], $labelHtml) ) {
+            $edges['::after'] = $children[count($children) - 1];
+        }
+        if ( array() === $edges ) {
+            return '';
+        }
+        $marker = 'blocks-engine-button-decoration-' . substr(hash('sha256', $button->getNodePath() ?? ''), 0, 12);
+        $link = ':where(.wp-block-button.' . $marker . ')>:where(.wp-block-button__link)';
+        $css = '';
+        foreach ( $edges as $pseudo => $decoration ) {
+            $projections->installInnerSubject($decoration->getNodePath() ?? '', $link, $pseudo);
+            $css .= $link . $pseudo . '{content:"";display:block;box-sizing:border-box}';
+        }
+        $this->session?->generatedSupportStylesheetState()->appendNativeButton($marker, $css);
+
+        return $marker;
+    }
+
+    /** A text-free, childless element, painted only by author CSS, that the label no longer renders. */
+    private static function isDroppedEdgeDecoration(?DOMElement $element, string $labelHtml): bool
+    {
+        $class = trim($element?->getAttribute('class') ?? '');
+
+        return $element instanceof DOMElement
+            && in_array(strtolower($element->tagName), array( 'div', 'span', 'i' ), true)
+            && ! $element->hasChildNodes()
+            && '' !== $class
+            && ! str_contains($labelHtml, $class);
+    }
+
+    /**
      * `$wrapper` is the anchor's single wrapper child whose label `$content`
      * holds; the block's RichText element renders as that wrapper.
      */

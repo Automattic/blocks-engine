@@ -340,8 +340,13 @@ JS;
     /** @return array<string, mixed> */
     private function wrapper(DOMElement $element): array
     {
+        // Author type selectors such as `dl div` are rewritten to the source
+        // tag marker; persist it on the row so the projected rule still matches.
         $wrapper = array_filter(array(
-            'className' => $element->getAttribute('class'),
+            'className' => SourceDom::mergeClassNames(
+                $element->getAttribute('class'),
+                $this->session?->authorSelectorProjectionState()->tagMarker($element->tagName) ?? ''
+            ),
             'style' => $element->getAttribute('style'),
         ), static fn (mixed $value): bool => '' !== $value);
         $attributes = array();

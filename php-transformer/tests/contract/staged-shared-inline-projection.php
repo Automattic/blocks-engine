@@ -60,7 +60,7 @@ foreach (array(3, 6) as $count) {
     $enqueues = (new ReflectionMethod(WordPressSitePlan::class, 'stylesheetEnqueues'))->invoke(null, $plan['assets'], $plan['pages']);
     foreach ($enqueues as $enqueue) {
         $asset = $enqueue['asset'];
-        $expected[] = array($asset['target_path'], $enqueue['scope'], $enqueue['handle'], $asset['source_media'] ?? $enqueue['media'], !empty($enqueue['fallback']), array());
+        foreach ($enqueue['scopes'] ?? array($enqueue['scope']) as $scope) $expected[] = array($asset['target_path'], $scope, $enqueue['handle'], $asset['source_media'] ?? $enqueue['media'], !empty($enqueue['fallback']), array());
     }
     if ($expected !== $actual) throw new RuntimeException('Presentation replay changed per-route enqueue behavior.');
     foreach ($deltas as $delta) {

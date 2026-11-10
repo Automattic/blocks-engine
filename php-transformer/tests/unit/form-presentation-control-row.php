@@ -50,4 +50,23 @@ foreach (array('unknown_key', 'wrong_property', 'unknown_member', 'unknown_row',
         // Expected: row facts have closed keys, property vocabularies and variant ownership.
     }
 }
+// Block flow: a block-level member breaks the shared line, so the nearest ancestor records a stacked row.
+$flow = static function (string $html, string $css = ''): array {
+    $document = new DOMDocument();
+    $document->loadHTML($html);
+    return (new FormPresentationGraphBuilder())->build($document->getElementsByTagName('form')->item(0), array(), $css);
+};
+$stacked = $flow('<form><div class="product"><div class="inventory"><label>Quantity</label><input type="number" name="quantity"></div><div class="buy"><button type="submit" class="add">Add</button></div></div></form>', '.add { display:inline-block }');
+$assert(array('stacked') === array_column($stacked['control_rows'] ?? array(), 'flow') && 2 === count($stacked['control_rows'][0]['members']), 'block-level members record one stacked row at the nearest ancestor');
+FormPresentationGraphBuilder::assertValid($stacked);
+$inline = $flow('<form><div class="product"><span><input type="number" name="quantity"></span><span><button type="submit">Add</button></span></div></form>');
+$assert(!isset($inline['control_rows']), 'inline members share a line and stay unrecorded');
+$invalid = $stacked;
+$invalid['control_rows'][0]['flow'] = 'row';
+try {
+    FormPresentationGraphBuilder::assertValid($invalid);
+    $assert(false, 'strict validation rejects an unknown flow');
+} catch (InvalidArgumentException) {
+    // Expected: flow is a closed vocabulary.
+}
 echo "form presentation control row passed\n";

@@ -11,6 +11,8 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutParticipation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
@@ -65,6 +67,31 @@ $assert(
     str_contains($css, 'padding:inherit!important') && str_contains($css, 'display:flex!important'),
     'the restored flex container inherits source padding instead of core .wp-element-button chrome',
     $css
+);
+
+// A padded flex control carries its source padding inline on the link; the
+// inherited fallback must leave it alone (the wrapper itself computes none).
+$padded = ( new HtmlTransformer() )->transform(
+    '<style>.row{display:flex;flex-wrap:wrap}.flex{display:flex}.items-center{align-items:center}.px-3{padding-left:12px;padding-right:12px}.py-1{padding-top:4px;padding-bottom:4px}</style>'
+    . '<div class="row"><span>Mode</span><button class="flex items-center px-3 py-1" type="button"><img src="i.png" alt="" width="14" height="14">Configure</button></div>'
+)->toArray();
+$paddedDom = new DOMDocument();
+@$paddedDom->loadHTML('<html><body>' . (string) ( $padded['serialized_blocks'] ?? '' ) . '</body></html>');
+$paddedLink = ( new DOMXPath($paddedDom) )->query('//*[contains(concat(" ", @class, " "), " wp-block-button__link ")]')->item(0);
+$overriding = array();
+preg_match_all('/([^{}]+)\{([^{}]*padding[^{}]*!important[^{}]*)\}/', $cssOf($padded), $paddedRules, PREG_SET_ORDER);
+foreach ( $paddedRules as $rule ) {
+    foreach ( CssStylesheetTransformer::splitSelectorList(trim($rule[1])) ?? array() as $selector ) {
+        $parsed = CssSelectorMatcher::parse(trim($selector));
+        if ( $paddedLink instanceof DOMElement && $parsed['supported'] && ( CssSelectorMatcher::matches($paddedLink, $parsed)['matches'] ?? false ) ) {
+            $overriding[] = trim($selector);
+        }
+    }
+}
+$assert(
+    $paddedLink instanceof DOMElement && str_contains($paddedLink->getAttribute('style'), 'padding-left:12px') && array() === $overriding,
+    'a padded flex control keeps its inline source padding; no important padding rule reaches the link',
+    implode(' | ', $overriding)
 );
 
 $inlineFlex = ( new HtmlTransformer() )->transform(

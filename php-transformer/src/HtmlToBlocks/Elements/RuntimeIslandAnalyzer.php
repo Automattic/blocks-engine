@@ -102,6 +102,33 @@ final class RuntimeIslandAnalyzer
         return false;
     }
 
+    public function hasRuntimeTargetInSubtree(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && $this->isDeclaredRuntimeDomTarget($descendant) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function isDeclaredRuntimeDomTarget(DOMElement $element): bool
+    {
+        foreach (array_keys($this->session->runtimeSelectorState()->domSelectors()) as $selector) {
+            if (str_starts_with((string) $selector, '#') && substr((string) $selector, 1) === SourceDom::attr($element, 'id')) {
+                return true;
+            }
+            if (str_starts_with((string) $selector, '.') && in_array(substr((string) $selector, 1), SourceDom::classNames($element), true)) {
+                return true;
+            }
+            if ($this->elementMatchesRuntimeSelector($element, (string) $selector)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /** @return array<int,string> */
     public function runtimeDomSelectorsForElement(DOMElement $element): array
     {
@@ -717,5 +744,54 @@ final class RuntimeIslandAnalyzer
     public function isBoundedRuntimeSelector(string $selector): bool
     {
         return 1 === preg_match('/^' . RuntimeSelectorVocabulary::scriptSelectorPattern() . '$/', $selector);
+    }
+
+    public function isSafeTransparentCustomElement(DOMElement $element, bool $allowMotionStructure = false, bool $requireOrdinaryFlow = false): bool
+    {
+        if ( $requireOrdinaryFlow ) {
+            foreach ( array( 'role', 'aria-label', 'aria-labelledby' ) as $attribute ) {
+                if ( '' !== trim(SourceDom::attr($element, $attribute)) ) {
+                    return false;
+                }
+            }
+            if ( ( new CustomElementRuntimeDependency() )->hasProvenRuntimeDependency(
+                $element,
+                $this->session->runtimeBehaviorState()->runtimeScriptMetadata(),
+                $this->session->runtimeBehaviorState()->runtimeProjectionScriptAssets()
+            ) ) {
+                return false;
+            }
+        }
+        foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'))) as $candidate ) {
+            if ( ! $candidate instanceof DOMElement ) {
+                continue;
+            }
+
+            if ( $requireOrdinaryFlow && (
+                $candidate->hasAttribute('slot')
+                || $candidate->hasAttribute('hidden')
+                || in_array(strtolower($candidate->tagName), array( 'slot', 'shadow', 'content', 'template', 'script', 'style', 'svg', 'math', 'img', 'picture', 'video', 'audio', 'iframe', 'object', 'embed', 'canvas', 'details', 'dialog', 'form', 'input', 'select', 'textarea', 'button' ), true)
+                || ( $candidate !== $element && \Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags::isUnknownHtmlElement($candidate) )
+            ) ) {
+                return false;
+            }
+
+            // Runtime metadata on any descendant would be flattened by a
+            // transparent lowering, so preserve the complete custom element.
+            if ( $this->isRuntimeDomTarget($candidate)
+                || array() !== SourceDom::eventMetadata($candidate)
+                || (! $allowMotionStructure && $this->sourceElementClassifier->hasMotionStructureToken($candidate))
+            ) {
+                return false;
+            }
+
+            foreach ( $candidate->attributes as $attribute ) {
+                if ( str_starts_with(strtolower($attribute->name), 'data-wp-') ) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
     }
 }

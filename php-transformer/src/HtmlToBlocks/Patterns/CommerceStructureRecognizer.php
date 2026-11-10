@@ -296,7 +296,8 @@ final class CommerceStructureRecognizer
             $tagName = strtolower($descendant->tagName);
             $role = strtolower(SourceDom::attr($descendant, 'role'));
             $isControl = in_array($tagName, array( 'button', 'a', 'input' ), true) || 'button' === $role;
-            if ( ! $isControl ) {
+            // Hidden inputs carry data, not an action a shopper can take.
+            if ( ! $isControl || ('input' === $tagName && 'hidden' === strtolower(SourceDom::attr($descendant, 'type'))) ) {
                 continue;
             }
 
@@ -310,7 +311,13 @@ final class CommerceStructureRecognizer
                 $this->collapsedText($descendant),
             )));
 
+            // A link that navigates to a cart or checkout page ("view cart") is
+            // navigation unless it also names a purchase action.
+            $navigates = 'a' === $tagName && 'button' !== $role && $this->navigatesAway(SourceDom::attr($descendant, 'href'));
             foreach ( $tokens as $token ) {
+                if ( $navigates && in_array($token, array( 'cart', 'checkout', 'order' ), true) && ! preg_match('/\b(?:add|buy|purchase)\b/', $haystack) ) {
+                    continue;
+                }
                 if ( $this->classifier->hasTokenBoundary($haystack, $token) ) {
                     return $descendant;
                 }
@@ -324,6 +331,13 @@ final class CommerceStructureRecognizer
         }
 
         return null;
+    }
+
+    /** Whether an href leaves the current document (not empty, a fragment or script). */
+    private function navigatesAway(string $href): bool
+    {
+        $href = strtolower(trim($href));
+        return '' !== $href && ! str_starts_with($href, '#') && ! str_starts_with($href, 'javascript:');
     }
 
     private function isGridLike(DOMElement $element): bool
@@ -700,7 +714,11 @@ final class CommerceStructureRecognizer
         return $this->classifier->hasTokenBoundary($this->vocabulary($element), 'checkout');
     }
 
-    /** Amount leaves and a total label: subtotal/shipping/total rows. */
+    /**
+     * Amount leaves and a total label: subtotal/shipping/total rows. The total
+     * label must head an amount row, so its row (the label's parent) holds an
+     * amount; the word "total" elsewhere on a page labels nothing.
+     */
     private function hasCartTotals(DOMElement $element, int $minimumAmounts = 2): bool
     {
         $amounts = 0;
@@ -712,13 +730,25 @@ final class CommerceStructureRecognizer
             if ( $this->looksLikePriceText($this->collapsedText($descendant)) ) {
                 ++$amounts;
             }
-            $vocabulary = $this->vocabulary($descendant);
-            if ( $this->classifier->hasTokenBoundary($vocabulary, 'total') || $this->classifier->hasTokenBoundary($vocabulary, 'subtotal') ) {
-                $hasTotal = true;
+            if ( ! $hasTotal ) {
+                $vocabulary = $this->vocabulary($descendant);
+                $hasTotal = ($this->classifier->hasTokenBoundary($vocabulary, 'total') || $this->classifier->hasTokenBoundary($vocabulary, 'subtotal'))
+                    && $descendant->parentNode instanceof DOMElement && $this->holdsAmount($descendant->parentNode);
             }
         }
 
         return $hasTotal && $amounts >= $minimumAmounts;
+    }
+
+    private function holdsAmount(DOMElement $row): bool
+    {
+        foreach ( $row->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && 0 === SourceDom::childElementCount($descendant) && $this->looksLikePriceText($this->collapsedText($descendant)) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** Text, class, id, aria-label and `data-*` attribute names, tokenized on non-alphanumerics. */

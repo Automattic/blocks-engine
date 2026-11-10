@@ -258,7 +258,7 @@ If the first release is only available as a Blocks Engine monorepo archive, down
           }
         },
         "require": {
-          "php": ">=8.2",
+          "php": ">=8.3",
           "league/commonmark": "^2.5",
           "league/html-to-markdown": "^5.1"
         }

@@ -8,7 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\HtmlMarkupParser;
 /** Recognizes captured category and tag collections from reciprocal links or WordPress body identity. */
 final class TaxonomyProjection
 {
-    private const TERM_ROUTE = '~(?:^|/)(category|tag)/([^/]+(?:/[^/]+)*)$~';
+    private const TERM_ROUTE = '~(?:^|/)(category|categories|tag|tags)/([^/]+(?:/[^/]+)*)$~';
 
     /**
      * Is this route a category or tag archive? Its listed entries' dates are
@@ -18,7 +18,7 @@ final class TaxonomyProjection
     {
         if (!preg_match(self::TERM_ROUTE, $route, $match) || preg_match('~/page/[1-9][0-9]{0,5}$~', $route)) return false;
 
-        return 'category' === $match[1] || !str_contains($match[2], '/');
+        return in_array($match[1], array('category', 'categories'), true) || !str_contains($match[2], '/');
     }
 
     /** @param array<int,array<string,mixed>> $documents @param array<int,array<string,mixed>> $routes @return array{entities:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>,pagination_source_paths_by_archive:array<string,array<int,string>>} */
@@ -47,7 +47,7 @@ final class TaxonomyProjection
             $route = is_string($source) ? ($routeBySource[$source] ?? null) : null;
             if (!is_string($source) || !is_string($route) || !self::isTermRoute($route)) continue;
             preg_match(self::TERM_ROUTE, $route, $termMatch);
-            $taxonomy = 'tag' === $termMatch[1] ? 'post_tag' : 'category';
+            $taxonomy = in_array($termMatch[1], array('tag', 'tags'), true) ? 'post_tag' : 'category';
             $slug = basename($route);
             if (!self::supportedTermSpelling($route, $slug)) {
                 $diagnostics[] = array('code' => 'wordpress_site_plan_taxonomy_archive_unsupported_spelling', 'severity' => 'info', 'message' => 'A captured taxonomy route or slug spelling is outside the canonical term vocabulary, so the collection stays explicitly unproven.', 'source_path' => $source, 'source_route' => $route);
@@ -70,9 +70,12 @@ final class TaxonomyProjection
             foreach ($listed as $article) foreach ($linksBySource[$article['source_path']] ?? array() as $link) {
                 if ($route === ($routeByLinkPath[$link['href']] ?? $link['href'])) $labels[$link['label']] = true;
             }
+            // An archive without a heading of its own (its headings title the
+            // listed entries) is named by the label when its document title
+            // leads with it, as CMS term archives title themselves.
             if (1 === count($labels)) {
                 $label = (string) array_key_first($labels);
-                if (in_array($label, self::collectionNames((string) ($archive['html'] ?? '')), true)) $name = $label;
+                if (in_array($label, self::collectionNames((string) ($archive['html'] ?? '')), true) || ('' === $heading && self::titleLeadsWith(self::documentTitle($archive), $label))) $name = $label;
             }
             $members = array();
             $paginationSources = array();
@@ -214,6 +217,11 @@ final class TaxonomyProjection
             $title = html_entity_decode(strip_tags($match[1] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8');
         }
         return trim(preg_replace('/\\s+/u', ' ', $title) ?? '');
+    }
+
+    private static function titleLeadsWith(string $title, string $label): bool
+    {
+        return '' !== trim($label) && 1 === preg_match('~^' . preg_quote($label, '~') . '(?:$|\s+[—–|:·•-]\s)~u', $title);
     }
 
     /** Strip only a site-name suffix corroborated by titles on other documents. */

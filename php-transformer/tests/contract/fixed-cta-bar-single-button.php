@@ -6,6 +6,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\HeadlessChrome;
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
@@ -86,9 +87,7 @@ if ('' !== $chrome) {
         foreach (array(390, 1440) as $width) {
             foreach ($pages as $kind => $page) {
                 file_put_contents($file, $page);
-                // TMPDIR may point at a deep working directory whose path
-                // exceeds Chrome's singleton-socket length limit.
-                $output = shell_exec('TMPDIR=/tmp ' . escapeshellarg($chrome) . ' --headless --no-sandbox --disable-gpu --dump-dom --window-size=' . $width . ',900 ' . escapeshellarg('file://' . $file) . ' 2>/dev/null');
+                $output = shell_exec(HeadlessChrome::tmpdirPrefix() . escapeshellarg($chrome) . ' --headless --no-sandbox --disable-gpu --dump-dom --window-size=' . $width . ',900 ' . escapeshellarg('file://' . $file) . ' 2>/dev/null');
                 preg_match('/data-probe="([^"]+)"/', (string) $output, $probeMatch);
                 $measured[$width][$kind] = json_decode(html_entity_decode($probeMatch[1] ?? '', ENT_QUOTES), true);
             }

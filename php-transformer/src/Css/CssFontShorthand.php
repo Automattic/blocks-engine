@@ -1,17 +1,20 @@
 <?php
 declare(strict_types=1);
 
-namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
-
-use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+namespace Automattic\BlocksEngine\PhpTransformer\Css;
 
 /** Conservative expansion of the ordinary (non-system) CSS font shorthand. */
 final class CssFontShorthand
 {
-    /** @return array<string, string> Empty when the value cannot safely be expanded. */
-    public static function expand(string $value, bool $allowFluidSize = false): array
+    /**
+     * @param int|null $familyOffset Receives the family start in the original value.
+     * @return array<string, string> Empty when the value cannot safely be expanded.
+     */
+    public static function expand(string $value, bool $allowFluidSize = false, ?int &$familyOffset = null): array
     {
-        $important = CssValueInspector::isImportant($value) ? ' !important' : '';
+        $familyOffset = null;
+        $leading = strlen($value) - strlen(ltrim($value));
+        $important = 1 === preg_match('/\s*!\s*important\s*$/i', $value) ? ' !important' : '';
         $value = trim(preg_replace('/\s*!important\s*$/i', '', $value) ?? $value);
         // Substitution and system/CSS-wide keywords require computed-value data.
         if (!$allowFluidSize && preg_match('/\bvar\s*\(/i', $value)) return array();
@@ -36,6 +39,14 @@ final class CssFontShorthand
                 if (array() === $tokens) return array();
                 $result['line-height'] = $lineHeight;
                 $result['font-family'] = implode(' ', $tokens);
+                // Locate the remaining tokens in the source rather than rebuilding
+                // the prefix: shorthand whitespace and spelling must survive binding.
+                $offset = strlen($value);
+                foreach (array_reverse($tokens) as $familyToken) {
+                    $offset = strrpos(substr($value, 0, $offset), $familyToken);
+                    if (false === $offset) return array();
+                }
+                $familyOffset = $leading + $offset;
                 foreach ($result as &$longhand) $longhand .= $important;
                 unset($longhand);
                 return $result;

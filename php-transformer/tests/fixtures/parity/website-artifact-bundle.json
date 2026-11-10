@@ -19,7 +19,7 @@
     { "path": "schema", "assert": "equals", "value": "blocks-engine/php-transformer/result/v1" },
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "source_reports.artifact.entry_path", "assert": "equals", "value": "index.html" },
-    { "path": "source_reports.artifact.files_by_intent.style", "assert": "equals", "value": 1 },
+    { "path": "source_reports.artifact.files_by_intent.evidence", "assert": "equals", "value": 1 },
     { "path": "source_reports.artifact.files_by_intent.behavior", "assert": "equals", "value": 1 },
     { "path": "assets", "assert": "count", "count": 2 },
     { "path": "assets.0.path", "assert": "equals", "value": "style.css" },

@@ -884,6 +884,37 @@ final class CommerceFallbackReporter
         }
     }
 
+    /** A form owns its purchase controls; a control-less form (an empty option group) does not. */
+    private function containsFormWithControls(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('form') as $form ) {
+            foreach ( array('input', 'select', 'textarea', 'button') as $tag ) {
+                foreach ( $form->getElementsByTagName($tag) as $control ) {
+                    if ( 'hidden' !== strtolower($control->getAttribute('type')) ) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /** The capture's responsive counterpart class on a cart control, when declared. */
+    private function responsiveCounterpartToken(?DOMElement $control): ?string
+    {
+        if ( null === $control ) {
+            return null;
+        }
+        foreach ( preg_split('/\s+/', $control->getAttribute('class')) ?: array() as $class ) {
+            if ( 1 === preg_match('/^' . preg_quote(CaptureEvidence::RESPONSIVE_COUNTERPART_CLASS_PREFIX, '/') . '[a-f0-9]{12}$/', $class) ) {
+                return $class;
+            }
+        }
+
+        return null;
+    }
+
     /**
      * A formless purchase region needs a cart control, with optional option inputs.
      * Ownership is deliberately left to the compiler's single-schema-product
@@ -895,6 +926,8 @@ final class CommerceFallbackReporter
     {
         $regions = array();
         $optionRegions = array();
+        $counterpartRegions = array();
+        $counterpartQuantityRegions = array();
         $hasSingleProduct = null;
         foreach ( $body->getElementsByTagName('*') as $element ) {
             if ( SourceDom::hasNonAuthoredAncestor($element) || ListingControlsRecognizer::inSearchContext($element) ) {
@@ -903,7 +936,7 @@ final class CommerceFallbackReporter
             if ( in_array(strtolower($element->tagName), array('main', 'header', 'footer', 'nav', 'form'), true) || $this->insideChromeOrForm($element) ) {
                 continue;
             }
-            if ( $element->getElementsByTagName('form')->length > 0 ) {
+            if ( $this->containsFormWithControls($element) ) {
                 continue;
             }
             $control = $this->recognizer->cartControlElement($element);
@@ -920,9 +953,6 @@ final class CommerceFallbackReporter
                 }
             }
             if ( ! $hasOptions ) {
-                if ( null === $this->recognizer->productCardData($element) ) {
-                    continue;
-                }
                 // Grid controls already have their own diagnostic and card ownership.
                 for ( $node = $control; $node instanceof DOMElement; $node = $node->parentNode ) {
                     if ( $this->recognizer->isProductGridContainer($node) ) {
@@ -930,9 +960,20 @@ final class CommerceFallbackReporter
                     }
                 }
                 // A price and checkout control alone can describe a paywall or
-                // upsell. Outside a grid, require the compiler's product evidence.
+                // upsell. Outside a grid, require the compiler's product evidence,
+                // or a capture-declared counterpart of a proven purchase control.
                 $hasSingleProduct ??= SchemaProductEvidence::hasSingleProduct($sourceHtml);
-                if ( ! $hasSingleProduct ) {
+                if ( null === $this->recognizer->productCardData($element) || ! $hasSingleProduct ) {
+                    $token = $this->responsiveCounterpartToken($control);
+                    if ( null !== $token ) {
+                        $counterpartRegions[$token][SourceDom::elementSelector($control)] = $element;
+                        foreach ( $element->getElementsByTagName('input') as $input ) {
+                            if ( 'number' === strtolower($input->getAttribute('type')) && ! SourceDom::hasNonAuthoredAncestor($input) ) {
+                                $counterpartQuantityRegions[$token][SourceDom::elementSelector($control)] = $element;
+                                break;
+                            }
+                        }
+                    }
                     continue;
                 }
             }
@@ -942,6 +983,16 @@ final class CommerceFallbackReporter
             $regions[$selector] = $element;
             if ( $hasOptions ) {
                 $optionRegions[$selector] = $element;
+            }
+        }
+        // Another device document's copy of a proven purchase control is the
+        // same purchase placement, so it needs its own runtime binding. Prefer
+        // the smallest copy region that also holds its quantity input.
+        foreach ( $regions as $element ) {
+            $token = $this->responsiveCounterpartToken($this->recognizer->cartControlElement($element));
+            $copies = null === $token ? array() : array_replace($counterpartRegions[$token] ?? array(), $counterpartQuantityRegions[$token] ?? array());
+            foreach ( $copies as $counterpartSelector => $counterpart ) {
+                $regions[$counterpartSelector] ??= $counterpart;
             }
         }
         foreach ( array_slice(array_replace($regions, $optionRegions), 0, self::MAX_CANDIDATES) as $element ) {

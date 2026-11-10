@@ -589,11 +589,13 @@ $assert(
 $mediaLogo = $transform('<a id="brand" href="/"><picture><img src="logo.png" alt=""></picture><span>Brand</span></a>');
 $mediaLogoMarkup = (string) ($mediaLogo['serialized_blocks'] ?? '');
 $assert(
-    'core/buttons' === ($mediaLogo['blocks'][0]['blockName'] ?? '')
-    && 'core/button' === ($mediaLogo['blocks'][0]['innerBlocks'][0]['blockName'] ?? '')
-    && str_contains($mediaLogoMarkup, '<picture>')
-    && str_contains($mediaLogoMarkup, '<img src="logo.png" alt="">'),
-    'ID-signaled picture logos retain their existing fallback reduction',
+    'core/group' === ($mediaLogo['blocks'][0]['blockName'] ?? '')
+    && 'core/image' === ($mediaLogo['blocks'][0]['innerBlocks'][0]['blockName'] ?? '')
+    && str_contains($mediaLogoMarkup, 'anchor":"brand"')
+    && str_contains($mediaLogoMarkup, '<a href="/"><img src="logo.png" alt=""/></a>')
+    && str_contains($mediaLogoMarkup, '<a href="/"><span>Brand</span></a>')
+    && ! str_contains($mediaLogoMarkup, '<picture>'),
+    'ID-signaled picture logos lower to a link-wrapper row group with a linked image and linked label',
     $mediaLogoMarkup
 );
 

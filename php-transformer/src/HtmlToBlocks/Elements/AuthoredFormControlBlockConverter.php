@@ -419,6 +419,15 @@ final class AuthoredFormControlBlockConverter
     /** @return array<string, mixed> */
     public function runtimeButton(DOMElement $button): array
     {
+        // SVG controls have no RichText label. Model their artwork as core
+        // images and containers rather than an opaque contentParts tree.
+        // Inline-only icons and CSS-painted controls still use the native
+        // authored button. Only block-container artwork needs a container tree;
+        // inline content already belongs to the button's editable label path.
+        if ('button' === strtolower($button->tagName) && SourceDom::isBoundCapturedDialogTrigger($button) && $button->getElementsByTagName('div')->length > 0 && $button->getElementsByTagName('svg')->length > 0 && $this->isCssDrawnControl($button)) {
+            return $this->cssDrawnControlGroup($button);
+        }
+
         $generator = new AuthoredButtonBlockGenerator();
         $registry = $this->session->requireGeneratedBlockRegistry();
         $registry->register(AuthoredButtonBlockGenerator::class, $generator->definition($registry->namespace()));
@@ -434,6 +443,47 @@ final class AuthoredFormControlBlockConverter
             'innerHTML' => $markup,
             'innerContent' => array( $markup ),
         );
+    }
+
+    private function isCssDrawnControl(DOMElement $element): bool
+    {
+        if ('svg' === strtolower($element->tagName)) {
+            $html = SourceDom::outerHtml($element);
+            return SourceDom::isSafeSvgContent($html) && !preg_match('/<(?:script|foreignObject)\b|\son[a-z]+\s*=/i', $html);
+        }
+        if ('' !== trim($element->textContent) || array() !== SourceDom::eventMetadata($element)) return false;
+        foreach ($element->childNodes as $child) {
+            if ($child instanceof DOMElement && (!in_array(strtolower($child->tagName), array('div', 'span', 'i', 'b', 'em', 'strong', 'small', 'svg'), true) || !$this->isCssDrawnControl($child))) return false;
+        }
+        return true;
+    }
+
+    /** Each source box is independently selectable in the core container tree. */
+    private function cssDrawnControlGroup(DOMElement $element): array
+    {
+        if ('svg' === strtolower($element->tagName)) {
+            $svg = SourceDom::outerHtml($element);
+            $src = 'data:image/svg+xml;base64,' . base64_encode($svg);
+            return $this->createBlock->createBlock('core/image', array(
+                'url' => $src,
+                'alt' => '',
+                'metadata' => array('blocksEngineInlineSvg' => array('svg' => $svg, 'src' => $src)),
+            ), array(), $element);
+        }
+        $children = array();
+        foreach ($element->childNodes as $child) {
+            if ($child instanceof DOMElement) $children[] = $this->cssDrawnControlGroup($child);
+        }
+        $attributes = array();
+        foreach ($element->attributes as $attribute) {
+            $attributes[strtolower($attribute->nodeName)] = $attribute->nodeValue ?? '';
+        }
+        if ('button' === strtolower($element->tagName) && !isset($attributes['type'])) $attributes['type'] = 'submit';
+        return $this->createBlock->createBlock('core/group', array(
+            'tagName' => strtolower($element->tagName),
+            'className' => SourceDom::attr($element, 'class'),
+            'metadata' => array('blocksEngineControlBox' => $attributes),
+        ), $children, $element);
     }
 
     /** @return array<string, mixed> */

@@ -387,7 +387,7 @@ final class ArtifactCompiler
         $blockTypes = is_array($reduction['block_types'] ?? null) ? $reduction['block_types'] : $this->detectBlockTypes($normalized['files'], $diagnostics);
         $companionPluginPayloadBuilder = new CompanionPluginPayload();
         $normalized['files'] = $this->withStylesheetMediaForDocuments($normalized['files']);
-        $normalized['files'] = $this->separateUnlinkedThemePreferenceStylesheets($normalized['files'], $normalized['runtime_declarations']);
+        $normalized['files'] = $this->separateUnlinkedAuthorStylesheets($normalized['files'], $normalized['runtime_declarations']);
         $this->indexFiles($normalized['files']);
         $entryBlocks = is_array($reduction['entry_blocks'] ?? null) ? $reduction['entry_blocks'] : $this->compileEntryBlocks($html, $entryPath, $normalized['files'], $companionPluginPayloadBuilder->blockNamespace($artifact), $normalized['runtime_declarations']);
         // Staged receipts carry the pages their workers omitted; whole compilation
@@ -473,7 +473,7 @@ final class ArtifactCompiler
             $allGutenbergGaps = array_merge($allGutenbergGaps, $compiledHtmlDocument['gutenberg_gaps'] ?? array());
             $coreHtmlFallbackEvidence[] = $compiledHtmlDocument['core_html_fallback_evidence'] ?? array();
         }
-        $allGutenbergGaps = $this->dedupeRows($allGutenbergGaps);
+        $allGutenbergGaps = DeterministicRowDeduplicator::dedupe($allGutenbergGaps);
         $runtimeDeclarationDiagnostics = array();
         $runtimeEntityRecords = array();
         $normalized['runtime_declarations'] = $this->runtimeDeclarationsFromFallbacks($normalized['runtime_declarations'], $allFallbacks, $entryPath, $normalized['files'], $runtimeDeclarationDiagnostics, $runtimeEntityRecords);
@@ -508,7 +508,7 @@ final class ArtifactCompiler
             foreach ($this->stylesheetAssetsForSource($document['content'], $document['path'], $documentFiles) as $stylesheet) {
                 // The canonical import walk also records which resource rules
                 // must share their importing layer rather than a replay layer.
-                $this->compatibilityStylesheetContent($stylesheet['content'], $stylesheet['path'], $documentFiles);
+                $this->stylesheetOccurrenceContent($stylesheet, $documentFiles);
             }
         }
         foreach ($normalized['files'] as &$file) {
@@ -587,6 +587,7 @@ final class ArtifactCompiler
                 'truncation_impact' => $normalized['truncation_impact'],
                 'limits'          => array(
                     'max_files'       => $normalized['limits']['max_files'],
+                    'max_media_files' => $normalized['limits']['max_media_files'],
                     'max_file_bytes'  => $normalized['limits']['max_file_bytes'],
                     'max_total_bytes' => $normalized['limits']['max_total_bytes'],
                 ),
@@ -1873,7 +1874,7 @@ final class ArtifactCompiler
         $themePreferenceOwnership = $this->themePreferenceOwnershipForSource($runtimeDeclarations, $sourcePath);
         $stylesheetAssets = $this->stylesheetAssetsForSource($html, $sourcePath, $files, true);
         $stylesheetPayloads = $this->linkedStylesheetPayloads($stylesheetAssets, $sourcePath, $files);
-        $layerOrderCss = implode("\n", array_map(fn(array $stylesheet): string => $this->compatibilityStylesheetContent($stylesheet['content'], $stylesheet['path'], $files), $stylesheetAssets));
+        $layerOrderCss = implode("\n", array_map(fn(array $stylesheet): string => $this->stylesheetOccurrenceContent($stylesheet, $files), $stylesheetAssets));
         $analysisCache = $this->cacheHtmlAnalysis
             ? $this->htmlTransformerAnalysisCache ??= new HtmlTransformerAnalysisCache()
             : new HtmlTransformerAnalysisCache();
@@ -1910,7 +1911,9 @@ final class ArtifactCompiler
             'declarative_state_html'    => $html,
             'static_css'                => trim(implode("\n", array_column($stylesheetPayloads, 'content'))),
             'stylesheet_payloads'       => $stylesheetPayloads,
-            'author_stylesheet_assets'  => $stylesheetAssets,
+            // Rule analysis reads each occurrence with its imports expanded in
+            // place, conditions attached; projections keep the authored bytes.
+            'author_stylesheet_assets'  => array_map(fn (array $stylesheet): array => $stylesheet + array('cascade_content' => $this->stylesheetOccurrenceContent($stylesheet, $files)), $stylesheetAssets),
             'author_layer_order'        => (new AuthorCascadeLayerOrder())->statement($layerOrderCss),
             'shared_stylesheet_paths'   => $this->sharedStylesheetPathsFromFiles($files),
             'skip_author_stylesheet_materialization' => true,
@@ -2344,11 +2347,7 @@ final class ArtifactCompiler
             if (!StylesheetActivation::active($stylesheet)) continue;
             // Analysis must see imported rules at their authored occurrence,
             // with import media/supports/layer qualifiers still attached.
-            $content = $this->compatibilityStylesheetContent(
-                (string) ($stylesheet['content'] ?? ''),
-                (string) ($stylesheet['path'] ?? $sourcePath),
-                $files
-            );
+            $content = $this->stylesheetOccurrenceContent(array('content' => (string) ($stylesheet['content'] ?? ''), 'path' => (string) ($stylesheet['path'] ?? $sourcePath)) + $stylesheet, $files);
             if ( '' !== trim($content) ) {
                 $payloads[] = array(
                     'content' => $this->artifactRelativeStylesheetContent($content, (string) ($stylesheet['source_path'] ?? $sourcePath), $files),
@@ -2514,7 +2513,7 @@ final class ArtifactCompiler
             $parts = array();
             $stylesheets = $this->stylesheetAssetsForSource($document['content'], $sourcePath, $documentFiles);
             foreach ($stylesheets as $stylesheet) {
-                $unit = array($this->compatibilityStylesheetContent($stylesheet['content'], $stylesheet['path'], $documentFiles));
+                $unit = array($this->stylesheetOccurrenceContent($stylesheet, $documentFiles));
                 $deltas = array_filter($files, fn(array $file): bool =>
                     ($file['metadata']['page_stylesheet_of'] ?? null) === $stylesheet['path'] && $this->fileOwnership($file) === $ownership
                 );
@@ -2552,6 +2551,19 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $files
      * @param array<string, true> $ancestors
      */
+    /**
+     * An inline <style> sheet is stored at a content-addressed path, but its
+     * @import references resolve against the owning document, like the
+     * browser's base URL. Linked sheets carry their own path as source_path.
+     *
+     * @param array<string, mixed> $stylesheet
+     * @param array<int, array<string, mixed>> $files
+     */
+    private function stylesheetOccurrenceContent(array $stylesheet, array $files): string
+    {
+        return $this->compatibilityStylesheetContent((string) $stylesheet['content'], (string) ($stylesheet['source_path'] ?? $stylesheet['path']), $files);
+    }
+
     private function compatibilityStylesheetContent(string $css, string $path, array $files, array $ancestors = array(), bool $importedLayer = false): string
     {
         if (isset($ancestors[$path])) return '';
@@ -2567,7 +2579,8 @@ final class ArtifactCompiler
                 continue;
             }
             $reference = $match[1] ?: ($match[2] ?: ($match[3] ?: ($match[4] ?: $match[5])));
-            $importPath = isset($byPath[$reference]) ? $reference : ArtifactPath::resolveRelativePath($reference, $path);
+            // Root-relative imports name the captured site root, like root-relative <link> hrefs.
+            $importPath = isset($byPath[$reference]) ? $reference : $this->stylesheetPathFromHref($reference, $path, $files);
             $file = $byPath[$importPath] ?? null;
             if (!is_array($file) || 'css' !== ($file['kind'] ?? '') || !is_string($file['content'] ?? null)) continue;
             $conditions = CssValueSplitter::splitTopLevelWhitespace(trim($match[6]));
@@ -3376,8 +3389,8 @@ final class ArtifactCompiler
     }
 
     /**
-     * Keep an ownership-captured source stylesheet as provenance when an
-     * exported artifact carries its asset but no HTML document links it. A
+     * Keep source stylesheets as provenance when no HTML document links or
+     * imports them. Theme-preference evidence retains its ownership metadata. A
      * linked copy remains an ordinary active stylesheet with its normal order,
      * media, projection and cascade semantics.
      *
@@ -3385,10 +3398,11 @@ final class ArtifactCompiler
      * @param array<int,array<string,mixed>> $runtimeDeclarations
      * @return array<int,array<string,mixed>>
      */
-    private function separateUnlinkedThemePreferenceStylesheets(array $files, array $runtimeDeclarations): array
+    private function separateUnlinkedAuthorStylesheets(array $files, array $runtimeDeclarations): array
     {
         $unlinkedEvidencePaths = array();
         $linkedStylesheetPaths = array();
+        $importQueue = array();
         foreach ( $files as $document ) {
             if ( 'html' !== ($document['kind'] ?? null) || ! is_string($document['path'] ?? null) || ! is_string($document['content'] ?? null) ) continue;
             foreach ( StyleTagScanner::scanLinks($document['content']) as $link ) {
@@ -3397,6 +3411,30 @@ final class ArtifactCompiler
                     || ! StyleTagScanner::isCssType($this->htmlAttribute($tag, 'type')) ) continue;
                 $path = $this->stylesheetPathFromHref($this->htmlAttribute($tag, 'href'), $document['path'], $files);
                 if ( '' !== $path ) $linkedStylesheetPaths[$path] = true;
+            }
+            foreach (StyleTagScanner::scan($document['content']) as $style) {
+                if (StyleTagScanner::isCssType($this->htmlAttribute($style['attributes'], 'type'))) {
+                    $importQueue[] = array($document['path'], $style['content']);
+                }
+            }
+        }
+        $byPath = array_column($files, null, 'path');
+        foreach ($linkedStylesheetPaths as $path => $_) {
+            $importQueue[] = array($path, $byPath[$path]['content'] ?? '');
+        }
+        // Walk only imports reachable from a document; a visited path also
+        // bounds cycles. Imported author files must remain CSS resources.
+        for ($cursor = 0; $cursor < count($importQueue); ++$cursor) {
+            [$sourcePath, $content] = $importQueue[$cursor];
+            $preamble = (new CssStylesheetTransformer())->splitLeadingAtRulePreamble($content);
+            foreach ($preamble['statements'] as $statement) {
+                $clean = preg_replace('#^(?:\s|/\*.*?\*/)*#s', '', $statement) ?? $statement;
+                if (!preg_match('/^@import\s+(?:url\(\s*(?:"([^"]+)"|\'([^\']+)\'|([^\s)]+))\s*\)|"([^"]+)"|\'([^\']+)\')/is', $clean, $match)) continue;
+                $reference = $match[1] ?: ($match[2] ?: ($match[3] ?: ($match[4] ?: $match[5])));
+                $path = $this->stylesheetPathFromHref($reference, $sourcePath, $files);
+                if ('' === $path || isset($linkedStylesheetPaths[$path])) continue;
+                $linkedStylesheetPaths[$path] = true;
+                $importQueue[] = array($path, $byPath[$path]['content'] ?? '');
             }
         }
         foreach ( $runtimeDeclarations as $declaration ) {
@@ -3427,11 +3465,18 @@ final class ArtifactCompiler
             }
         }
 
-        foreach ( $unlinkedEvidencePaths as $index => $provenance ) {
+        foreach ( $files as $index => $file ) {
+            if ( 'inline-style' === ($file['source'] ?? null)
+                || ! preg_match('/\.css$/i', (string) ($file['path'] ?? ''))
+                || ! in_array($file['kind'] ?? null, array('css', 'asset'), true)
+                || ('stylesheet' !== ($file['role'] ?? null) && 'style' !== ($file['intent'] ?? null))
+                || isset($file['stylesheet_occurrence']) || isset($linkedStylesheetPaths[$file['path']]) ) continue;
             $files[$index]['kind'] = 'asset';
             $files[$index]['role'] = 'source-provenance';
             $files[$index]['intent'] = 'evidence';
-            $files[$index]['theme_preference_stylesheet_provenance'] = $provenance;
+            if (isset($unlinkedEvidencePaths[$index])) {
+                $files[$index]['theme_preference_stylesheet_provenance'] = $unlinkedEvidencePaths[$index];
+            }
         }
 
         return $files;
@@ -3797,7 +3842,7 @@ final class ArtifactCompiler
             }
         }
 
-        if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*(?:getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)|querySelector\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\4\s*\))/', $script, $assignments, PREG_SET_ORDER) ) {
+        if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*(?:getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)|querySelector\s*\(\s*(["\'])(' . RuntimeSelectorVocabulary::scriptSelectorPattern() . ')\4\s*\))/', $script, $assignments, PREG_SET_ORDER) ) {
             foreach ( $assignments as $assignment ) {
                 $variable = (string) $assignment[1];
                 if ( ! preg_match('/(?:\bnew\s+)?\b[A-Za-z_$][A-Za-z0-9_$]*(?:\s*\.\s*[A-Za-z_$][A-Za-z0-9_$]*)*\s*\([^;)]*\b' . preg_quote($variable, '/') . '\b/', $script) ) {
@@ -3935,28 +3980,14 @@ final class ArtifactCompiler
         return $scripts;
     }
 
-    private function scriptSelectorPattern(): string
-
-    {
-
-        return RuntimeSelectorVocabulary::scriptSelectorPattern();
-
-    }
-
     private function htmlAttribute(string $tag, string $name): string
     {
-        return $this->htmlAttributes($tag)[strtolower($name)] ?? '';
+        return HtmlTagScanner::attributes($tag)[strtolower($name)] ?? '';
     }
 
     private function hasHtmlAttribute(string $tag, string $name): bool
     {
-        return array_key_exists(strtolower($name), $this->htmlAttributes($tag));
-    }
-
-    /** @return array<string,string> */
-    private function htmlAttributes(string $tag): array
-    {
-        return HtmlTagScanner::attributes($tag);
+        return array_key_exists(strtolower($name), HtmlTagScanner::attributes($tag));
     }
 
     /**
@@ -4650,7 +4681,7 @@ final class ArtifactCompiler
 
         $captured = array();
         foreach ( HtmlTagScanner::scan($html, 'img') as $image ) {
-            $attributes = $this->htmlAttributes($image['tag']);
+            $attributes = HtmlTagScanner::attributes($image['tag']);
             $asset = $this->findAssetByHtmlReference($attributes['src'] ?? '', $sourcePath, $files);
             $path = is_array($asset) ? (string) ($asset['path'] ?? '') : '';
             if ( '' === $path ) {
@@ -4697,7 +4728,7 @@ final class ArtifactCompiler
             ), static fn (mixed $value): bool => '' !== $value && array() !== $value);
         }
 
-        return $this->dedupeRows($metadata);
+        return DeterministicRowDeduplicator::dedupe($metadata);
     }
 
     /**
@@ -4721,16 +4752,7 @@ final class ArtifactCompiler
             $assets[] = array('path' => $asset['path'], 'content' => $asset['content']);
         }
 
-        return $this->dedupeRows($assets);
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $rows
-     * @return array<int, array<string, mixed>>
-     */
-    private function dedupeRows(array $rows): array
-    {
-        return DeterministicRowDeduplicator::dedupe($rows);
+        return DeterministicRowDeduplicator::dedupe($assets);
     }
 
     /**
@@ -4885,7 +4907,7 @@ final class ArtifactCompiler
             if (!empty($file['metadata']['compilation']['included_component'])) continue;
 
             $slug = $this->slugFromPath($path);
-            $area = $this->templatePartArea($path, (string) ($file['role'] ?? ''));
+            $area = ShellLandmarkPolicy::templatePartArea($path, (string) ($file['role'] ?? ''));
             $tagName = ShellLandmarkPolicy::templatePartTagName($path, (string) ($file['role'] ?? ''));
             $parts[] = array_filter(
                 array(
@@ -4919,11 +4941,6 @@ final class ArtifactCompiler
         $path = (string) ($file['path'] ?? '');
         $role = (string) ($file['role'] ?? '');
         return 'html' === ($file['kind'] ?? '') && ('template-part' === $role || preg_match('#(^|/)(parts|template-parts)/[^/]+\.html?$#i', $path));
-    }
-
-    private function templatePartArea(string $path, string $role): string
-    {
-        return ShellLandmarkPolicy::templatePartArea($path, $role);
     }
 
     /**
@@ -5017,7 +5034,11 @@ final class ArtifactCompiler
         // A stale title repeated by many routes is one vote, not a site-name
         // run of its own (which could otherwise swallow the actual brand).
         $titles = array_values(array_unique($titles));
-        $majority = intdiv(count($titles), 2) + 1;
+        // Only titles that carry a separator can vote: a blog whose posts use
+        // bare titles still names its pages "Page | Site", and those bare
+        // titles say nothing about the site-name run.
+        $separated = count(array_filter($titles, static fn (string $title): bool => 1 === preg_match(self::DOCUMENT_TITLE_SEPARATOR, $title)));
+        $majority = max(2, intdiv($separated, 2) + 1);
         $sharedRun = static function (array $titles, bool $leading) use ($majority): array {
             $counts = array();
             foreach ( $titles as $title ) {
@@ -5061,14 +5082,24 @@ final class ArtifactCompiler
         $fold = static fn (array $values): array => array_map(static fn (string $value): string => mb_strtolower(trim($value)), $values);
         $segments = $fold($segments);
         $siteName = $fold($siteNameSegments);
-        for ( $length = min(count($siteName), count($segments) - 1); 0 < $length; --$length ) {
-            $run = $trailing ? array_slice($segments, $length * -1) : array_slice($segments, 0, $length);
-            if ( $run === array_slice($siteName, 0, $length) || $run === array_slice($siteName, $length * -1) ) {
-                return $length;
+        $matched = 0;
+        while ( count($segments) - $matched > 1 ) {
+            $found = 0;
+            $max = min(count($siteName), count($segments) - $matched - 1);
+            for ( $length = $max; 0 < $length; --$length ) {
+                $start = $trailing ? count($segments) - $matched - $length : $matched;
+                $run = array_slice($segments, $start, $length);
+                if ( $run === array_slice($siteName, 0, $length) || $run === array_slice($siteName, $length * -1) ) {
+                    $found = $length;
+                    break;
+                }
             }
+            if ( 0 === $found ) {
+                break;
+            }
+            $matched += $found;
         }
-
-        return 0;
+        return $matched;
     }
 
     /**
@@ -5176,6 +5207,18 @@ final class ArtifactCompiler
             }
             if ( array() !== $own && count($own) < count($segments) ) {
                 return implode(' ', $own);
+            }
+            // A title may name the site without the shared separator ("About
+            // Example" beside "Contact | Example"). The remaining words name
+            // the page when the site's own links call the route the same.
+            if ( 1 === count($segments) ) {
+                foreach ( $siteNameSegments as $siteName ) {
+                    $quoted = preg_quote(trim($siteName), '/');
+                    $own = trim(preg_replace('/^' . $quoted . '\s+|\s+' . $quoted . '$/iu', '', $segments[0], 1) ?? '');
+                    if ( '' !== $own && $own !== $segments[0] && mb_strtolower($own) === mb_strtolower($this->inboundPageLabel($files, $path)) ) {
+                        return $own;
+                    }
+                }
             }
         }
 
@@ -6046,8 +6089,8 @@ final class ArtifactCompiler
         }
 
         $paths = array_filter(array(
-            $this->resolveHtmlReferencePath($reference, $entryPath),
-            str_starts_with($reference, '/') ? $this->resolveHtmlReferencePath(ltrim($reference, '/'), $entryPath) : '',
+            ArtifactPath::resolveRelativePath($reference, $entryPath),
+            str_starts_with($reference, '/') ? ArtifactPath::resolveRelativePath(ltrim($reference, '/'), $entryPath) : '',
         ), static fn (string $path): bool => '' !== $path);
         $paths = array_values(array_unique($paths));
         if ( array() === $paths ) {
@@ -6097,11 +6140,6 @@ final class ArtifactCompiler
             }
         }
     }
-    private function resolveHtmlReferencePath(string $reference, string $entryPath): string
-    {
-        return ArtifactPath::resolveRelativePath($reference, $entryPath);
-    }
-
     /**
      * @param array<int, array<string, mixed>> $sourceDocumentComponents
      * @return array<int, array<string, mixed>>

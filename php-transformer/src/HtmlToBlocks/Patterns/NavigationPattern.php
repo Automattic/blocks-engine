@@ -2122,6 +2122,16 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         $style = $navigationContext->resolvedStyle($list);
+        if ( ! in_array($navigationContext->resolvedDisplay($list), array( 'flex', 'inline-flex' ), true)
+            && $this->isResolvedNavigationRow($list, $navigationContext) ) {
+            $alignment = $navigationContext->inheritedListPackingAlignment($list, $attrs);
+            $justification = $this->listPackingJustification('text-align:' . $alignment);
+            if ( '' !== $justification ) {
+                $attrs['layout'] = array_merge($attrs['layout'] ?? array( 'type' => 'flex' ), array( 'justifyContent' => $justification ));
+            }
+
+            return $attrs;
+        }
         $justification = $this->listPackingJustification($style);
         if ( '' === $justification ) {
             return $attrs;
@@ -3555,7 +3565,12 @@ final class NavigationPattern implements PatternRecognizerInterface
             // the authored conditional cascade rather than freeze on Core's LI.
             unset($itemAttrs['style'], $itemAttrs['textColor'], $itemAttrs['backgroundColor'], $itemAttrs['fontSize']);
             $anchorAttrs = array();
-            $itemAttrs['metadata']['blocksEngineNavigationAnchor'] = array('style' => $anchor->getAttribute('style'), 'className' => $anchorClassName);
+            $anchorStyle = $navigationContext->serializedInlineStyle($anchor, $item);
+            $itemAttrs['metadata']['blocksEngineNavigationAnchor'] = array('style' => $anchorStyle, 'className' => $anchorClassName);
+            if ($anchorStyle !== $navigationContext->serializedInlineStyle($anchor)) {
+                $typography = $navigationContext->resolvedStyleAttributes($anchor)['typography'] ?? array();
+                if (array() !== $typography) $itemAttrs['style']['typography'] = $typography;
+            }
             if ('' !== trim($anchor->getAttribute('id'))) $itemAttrs['metadata']['blocksEngineNavigationAnchor']['id'] = $anchor->getAttribute('id');
             if ('' !== trim($item->getAttribute('style'))) $itemAttrs['metadata']['blocksEngineNavigationAnchor']['itemStyle'] = $item->getAttribute('style');
             $boxes = $navigationContext->navigationAnchorBoxes($anchor, $item, null !== $submenuContainer);
@@ -3764,7 +3779,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             $descendant = $this->soleMeaningfulChild($anchor);
             if ( $descendant instanceof DOMElement && $this->hasElementChild($descendant) ) {
                 foreach ( preg_split('/\s+/', trim($this->attr($descendant, 'class'))) ?: array() as $candidate ) {
-                    if ( $this->isCarriableWrapperClassName($candidate) ) {
+                    if ( SourceDom::isBoundedClassToken($candidate) ) {
                         $classes[$candidate] = true;
                     }
                 }
@@ -3797,7 +3812,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 break;
             }
             foreach ( preg_split('/\s+/', trim($this->attr($node, 'class'))) ?: array() as $candidate ) {
-                if ( $this->isCarriableWrapperClassName($candidate) ) {
+                if ( SourceDom::isBoundedClassToken($candidate) ) {
                     $classes[$candidate] = true;
                 }
             }
@@ -3816,17 +3831,6 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return false;
-    }
-
-    /**
-     * A single class token safe to carry from a replaced wrapper onto the
-     * generated navigation item. HTML class tokens are whitespace-delimited;
-     * `.` and `:` are legal inside a token. Unlike selector composition, this
-     * value only ever reaches an HTML `class` attribute.
-     */
-    private function isCarriableWrapperClassName(string $candidate): bool
-    {
-        return SourceDom::isBoundedClassToken($candidate);
     }
 
     /**

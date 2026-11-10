@@ -150,6 +150,14 @@ PHP;
     private array $routeTargets = array();
     /** @var array<string,string|false> */
     private array $routeReferenceCache = array();
+    /**
+     * Related-section card projections by shared heading, for the post group
+     * being factored. A projection reads every post in the group, so it is
+     * built once per group rather than once per post.
+     *
+     * @var array<string,array{template:string,fields:array<string,array<string,mixed>>}|null>
+     */
+    private array $relatedSectionProjections = array();
     /** @var array<string,array<string,true>> */
     private array $routeLinkedFragments = array();
     /** @var list<string> */
@@ -357,7 +365,8 @@ PHP;
         $this->routeLinkedFragments = $this->routeLinkedFragments($documents, $routeMap);
         $this->missingMedia = new MissingMediaRecovery($this->strictMissingMedia, array_column($assets, 'target_path'));
         $missingFonts = new MissingFontSourceRecovery($this->strictMissingMedia);
-        $references = new AssetReferenceCanonicalizer($tokens, self::entryRootFromDocuments($documents), $this->missingMedia, $missingFonts);
+        $missingImports = new MissingStylesheetImportRecovery($this->strictMissingMedia);
+        $references = new AssetReferenceCanonicalizer($tokens, self::entryRootFromDocuments($documents), $this->missingMedia, $missingFonts, $missingImports);
         $pages = $this->documents($documents, false, $tokens, $references, $routeMap);
         // Probe presentation with the final plan's canonical listing projection.
         // Entity ownership is already proven independently and must survive a
@@ -532,7 +541,9 @@ PHP;
         $shells = $this->shellExtraction->sharedShells($inlineShells['pages'], $reservedPartSlugs, $inlineShells['runtime_declarations'], $runtimeEntityRecords, true, true, $assets);
         $inlineAreas = array_fill_keys(array_column($inlineShells['parts'], 'area'), true);
         $shells['diagnostics'] = array_values(array_filter($shells['diagnostics'], static fn(array $diagnostic): bool => !isset($inlineAreas[$diagnostic['area'] ?? '']) || 'wordpress_site_plan_shell_retained_incomplete' !== ($diagnostic['code'] ?? null)));
-        $trailingChrome = $this->shellExtraction->withSharedFooterTrailingChrome($pages, $shells['pages'], $shells['parts'], $shells['runtime_declarations'], $runtimeEntityRecords);
+        $trailingChrome = $this->shellExtraction->withSharedFooterTrailingChrome($pages, $shells['pages'], $shells['parts'], $shells['runtime_declarations'], $runtimeEntityRecords, $assets);
+        $shells['runtime_declarations'] = $trailingChrome['runtime_declarations'];
+        $runtimeEntityRecords = $trailingChrome['runtime_entity_records'];
         $shells['pages'] = $trailingChrome['pages'];
         $shells['parts'] = $trailingChrome['parts'];
         $footerContent = $this->shellExtraction->factorSharedFooterContent($shells['pages'], $shells['parts'], $shells['runtime_declarations'], $runtimeEntityRecords);
@@ -544,6 +555,9 @@ PHP;
         $shells['diagnostics'] = array_merge($shells['diagnostics'], $documentChrome['diagnostics']);
         $shellFrames = $this->shellExtraction->hoistInlineShellFrames($documentChrome['pages'], $parts, $shells['runtime_declarations']);
         $pages = $shellFrames['pages'];
+        $folded = $this->shellExtraction->foldFrameTrailingChrome($shellFrames['frames'], $parts, $pages);
+        $shellFrames['frames'] = $folded['frames'];
+        $parts = $folded['parts'];
         // The generic page template is shared by routes that did not author it,
         // so the rules aimed at its markers are site-wide chrome rules.
         $frameParts = isset($shellFrames['frames']['page']) ? array(array('slug' => 'page-frame', 'placement' => array('kind' => 'shared_shell'), 'canonical_block_markup' => $shellFrames['frames']['page']['opening'] . $shellFrames['frames']['page']['closing'])) : array();
@@ -558,6 +572,8 @@ PHP;
         $liveElementMarkers = preg_match_all(self::ELEMENT_MARKER_PATTERN, (string) json_encode(array($emitted($pages), $emitted($parts), $frameParts, $shellFrames['frames'] ?? array(), $shells['runtime_declarations'] ?? array(), $runtimeEntityRecords)), $liveMatches) ? array_fill_keys($liveMatches[0], true) : array();
         $assets = self::projectSharedChromeStylesheets($assets, array_merge($parts, $frameParts), $pages, $references, $assetTargetCollisions, $liveElementMarkers);
         $assets = self::withoutDeadElementMarkerSelectors($assets, $liveElementMarkers);
+        // Removing dead selectors can consume a support sheet's last rule.
+        $assets = array_values(array_filter($assets, static fn(array $asset): bool => !in_array($asset['source'] ?? '', array('engine-support', 'editor-static-state'), true) || !is_string($asset['content'] ?? null) || '' !== trim($asset['content'])));
         foreach ($assetTargetCollisions as $collision) $this->recordUnitFinding(array(
             'code' => 'wordpress_site_plan_colliding_asset_target',
             'unit' => 'asset',
@@ -718,7 +734,7 @@ PHP;
         $scriptLoading = $this->scriptLoading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
         $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens, $pages, $menus, $runtimeEmoji, $rootDocuments), $assetWrites);
         $unitFindings = array_merge($this->unitFindingDiagnostics(), NavigationInstanceDiagnostics::collect($assets, $emittedMarkup . "\n" . implode("\n", self::markups($menus))));
-        $recoveryDiagnostics = array_merge($this->routeCollisionDiagnostics(), $this->unresolvedNavigationDiagnostics(), $this->unresolvedScriptReferenceDiagnostics(), $this->omittedLinkDeclarationDiagnostics(), $unitFindings, $this->missingMedia->diagnostics(), $missingFonts->diagnostics(), $eventDiagnostics, $paginationDiagnostics);
+        $recoveryDiagnostics = array_merge($this->routeCollisionDiagnostics(), $this->unresolvedNavigationDiagnostics(), $this->unresolvedScriptReferenceDiagnostics(), $this->omittedLinkDeclarationDiagnostics(), $unitFindings, $this->missingMedia->diagnostics(), $missingFonts->diagnostics(), $missingImports->diagnostics(), $eventDiagnostics, $paginationDiagnostics);
         // All shell, navigation, listing and script binding projection is now
         // complete. Only the public plan needs the bounded record form.
         // Declarations still over a byte limit are dropped here with their
@@ -795,10 +811,11 @@ PHP;
         }
         $consumers = AssetConsumers::inventory($plan);
         $unreferenced = array_merge(AssetConsumers::unreferencedImages($plan) ?? array(), self::unreferencedInlineScripts($plan));
+        $fontEmbeddingSvgs = AssetConsumers::fontEmbeddingSvgs($plan);
         $unwritten = array();
         foreach ($plan['assets'] as &$asset) {
             $asset['consumers'] = $consumers[$asset['token']] ?? array();
-            $asset['destination'] = AssetConsumers::destination($asset['consumers'], $asset, $unreferenced);
+            $asset['destination'] = AssetConsumers::destination($asset['consumers'], $asset, $unreferenced, $fontEmbeddingSvgs);
             $asset['theme_write_reasons'] = self::themeWriteReasons($asset['consumers'], $asset['destination']);
             if ('none' === $asset['destination']) $unwritten[$asset['target_path']] = true;
         }
@@ -1119,7 +1136,8 @@ PHP;
         }
         $routeSources = array(); foreach ($plan['routes'] as $route) { self::unique($routeSources, $route['source_path'], 'route source'); $page = $pagesBySource[$route['source_path']] ?? null; if (!is_array($page) || $route['target_path'] !== $page['route']['path'] || $route['target_slug'] !== $page['slug']) throw new InvalidArgumentException('WordPress site plan routes do not match canonical page routes.'); }
         if (count($routeSources) !== count($pagePaths)) throw new InvalidArgumentException('WordPress site plan must export every canonical page route.');
-        self::assertReporting($plan['reporting'], array_merge($pagePaths, array_fill_keys(array_filter(array_column($plan['templates'], 'source_path'), 'is_string'), true)), $tokens, $plan['diagnostics']);
+        // Source identities compare case-insensitively, as unique() keys them.
+        self::assertReporting($plan['reporting'], array_merge($pagePaths, array_change_key_case(array_fill_keys(array_filter(array_column($plan['templates'], 'source_path'), 'is_string'), true), CASE_LOWER)), $tokens, $plan['diagnostics']);
         self::assertOperations($plan['operations'], $plan['pages']);
         $templateTargets = array();
         foreach ( $plan['templates'] as $template ) {
@@ -1191,9 +1209,10 @@ PHP;
         // Resolution rewrites tokens to URLs, so a resolved plan keeps the
         // unresolved plan's proof for unwritten assets.
         $unreferenced = isset($plan['resolution']) ? array_fill_keys(array_column(array_filter($plan['assets'], static fn(array $asset): bool => 'none' === ($asset['destination'] ?? null)), 'token'), true) : array_merge(AssetConsumers::unreferencedImages($plan) ?? array(), self::unreferencedInlineScripts($plan));
+        $fontEmbeddingSvgs = AssetConsumers::fontEmbeddingSvgs($plan);
         foreach ( $plan['assets'] as $asset ) {
             $expectedConsumers = $asset['consumers'] ?? array();
-            if (($asset['consumers'] ?? null) !== $expectedConsumers || ($asset['destination'] ?? null) !== AssetConsumers::destination($expectedConsumers, $asset, $unreferenced) || ($asset['theme_write_reasons'] ?? null) !== self::themeWriteReasons($expectedConsumers, $asset['destination'])) throw new InvalidArgumentException('Asset consumers or destination are stale.');
+            if (($asset['consumers'] ?? null) !== $expectedConsumers || ($asset['destination'] ?? null) !== AssetConsumers::destination($expectedConsumers, $asset, $unreferenced, $fontEmbeddingSvgs) || ($asset['theme_write_reasons'] ?? null) !== self::themeWriteReasons($expectedConsumers, $asset['destination'])) throw new InvalidArgumentException('Asset consumers or destination are stale.');
             $target = $asset['target_path'];
             if ('none' === $asset['destination']) {
                 if (isset($writesByTarget[$target])) throw new InvalidArgumentException('WordPress site plan writes an unreferenced asset.');
@@ -1606,7 +1625,70 @@ PHP;
             $asset['scopes'] = array(self::stylesheetDocumentScope($page));
         }
         unset($asset);
-        return $assets;
+        return self::allocateDocumentSupport($assets, array_keys(array_filter($documentsBySource, static fn(array $page): bool => empty($page['synthetic']))));
+    }
+
+    /**
+     * Partition generated rules by their exact consumers and delivery side.
+     * Opaque statements and URL-bearing sheets retain their original resource.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @param list<string> $canonicalSources
+     * @return array<int,array<string,mixed>>
+     */
+    private static function allocateDocumentSupport(array $assets, array $canonicalSources): array
+    {
+        $rules = $eligible = array();
+        foreach ($assets as $index => $asset) {
+            if ('engine-support' !== ($asset['source'] ?? '') || 'css' !== ($asset['kind'] ?? '') || in_array('global', array_column($asset['scopes'], 'kind'), true)) continue;
+            $content = (string) ($asset['content'] ?? '');
+            if (false !== stripos($content, 'url(')) continue;
+            $tree = new \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTree($content);
+            if (!$tree->wellFormed) continue;
+            $parts = array();
+            foreach ($tree->rules() as $rule) {
+                $text = trim(substr($content, $rule['start'], $rule['end'] - $rule['start'] + 1));
+                if (';' === $content[$rule['boundary']]) { $parts = array(); break; }
+                $parts[] = $text;
+            }
+            if (array() === $parts) continue;
+            $eligible[$index] = true;
+            $delivery = serialize(array($asset['stylesheet_placement'] ?? '', $asset['stylesheet_target'] ?? 'both', $asset['media'] ?? ''));
+            foreach ($parts as $text) {
+                $key = $delivery . "\0" . $text;
+                if (!isset($rules[$key])) $rules[$key] = array('text' => $text, 'asset' => $asset, 'index' => $index, 'scopes' => array());
+                foreach ($asset['scopes'] as $scope) $rules[$key]['scopes'][$scope['source_path']] = $scope;
+            }
+        }
+        $groups = array();
+        foreach ($rules as $rule) {
+            ksort($rule['scopes']);
+            $asset = $rule['asset'];
+            $key = serialize(array($asset['stylesheet_placement'] ?? '', $asset['stylesheet_target'] ?? 'both', $asset['media'] ?? '', $rule['scopes']));
+            if (!isset($groups[$key])) $groups[$key] = array('asset' => $asset, 'index' => $rule['index'], 'scopes' => array_values($rule['scopes']), 'rules' => array());
+            $groups[$key]['rules'][] = $rule['text'];
+        }
+        // Each allocated sheet takes the slot of the first sheet it draws
+        // rules from, so the inventory keeps its cascade order.
+        $allocated = array();
+        foreach ($groups as $key => $group) {
+            $asset = self::withRewrittenTextContent($group['asset'], implode("\n", $group['rules']));
+            $path = 'assets/css/engine-support-' . ($asset['stylesheet_placement'] ?? 'after-author') . '-' . substr(hash('sha256', $key . $asset['content']), 0, 16) . '.css';
+            $asset['source_path'] = $path;
+            $asset['target_path'] = 'assets/' . $path;
+            $asset['token'] = 'asset-' . substr(hash('sha256', $asset['target_path']), 0, 16);
+            $asset['reconciliation_identity'] = self::identity('asset', $path, $asset['target_path']);
+            $sources = array_column($group['scopes'], 'source_path');
+            $asset['scopes'] = count($sources) === count($canonicalSources) && array() === array_diff($canonicalSources, $sources)
+                ? array(array('kind' => 'global')) : $group['scopes'];
+            $allocated[$group['index']][] = $asset;
+        }
+        $result = array();
+        foreach ($assets as $index => $asset) {
+            if (!isset($eligible[$index])) $result[] = $asset;
+            foreach ($allocated[$index] ?? array() as $sheet) $result[] = $sheet;
+        }
+        return $result;
     }
 
     /**
@@ -2075,6 +2157,7 @@ PHP;
         }
         $rules .= self::detachedChromeBackdropRules($parts, $assets, $pages);
         $rules .= self::detachedViewportShellRules($parts, $assets, $pages);
+        $rules .= self::detachedMinimumWidthRules($parts, $assets, $pages);
         $rules .= self::detachedStaticStartRules($parts, $assets, $pages);
         foreach ($parts as $part) {
             if ('shared_shell' !== ($part['placement']['kind'] ?? null) || !in_array($part['area'] ?? null, array('header', 'footer'), true)) continue;
@@ -2212,18 +2295,14 @@ PHP;
     }
 
     /**
-     * A detached part is no longer included in its ancestor's viewport minimum.
-     * Transport that sizing relationship to the template, not a second viewport
-     * inside post-content. Intermediate document carriers stretch the remaining
-     * space with zero-specificity defaults so authored display rules win.
-     * Unlike a fixed height or viewport subtraction, this also permits long
-     * main content.
+     * Route elements that enclosed a detached shared part in the source, each
+     * with the id or class hook that selects it.
      *
      * @param array<int,array<string,mixed>> $parts
-     * @param array<int,array<string,mixed>> $assets
      * @param array<int,array<string,mixed>> $pages
+     * @return list<array{0:\DOMElement,1:string}>
      */
-    private static function detachedViewportShellRules(array $parts, array $assets, array $pages): string
+    private static function detachedAncestorElements(array $parts, array $pages): array
     {
         $classes = $ids = array();
         foreach ($parts as $part) {
@@ -2231,7 +2310,7 @@ PHP;
             array_push($classes, ...(array) ($part['ancestor_context']['classes'] ?? array()));
             array_push($ids, ...(array) ($part['ancestor_context']['ids'] ?? array()));
         }
-        if (array() === $classes && array() === $ids) return '';
+        if (array() === $classes && array() === $ids) return array();
         $elements = array();
         foreach ($pages as $page) {
             $document = new \DOMDocument();
@@ -2246,6 +2325,60 @@ PHP;
                 $elements[] = array($element, $hook);
             }
         }
+        return $elements;
+    }
+
+    /**
+     * A detached part is no longer included in its ancestor's minimum width
+     * (a fixed-width page frame that header, content and footer shared).
+     * Transport that minimum to the template, which again contains all three,
+     * so the part keeps the box its centering and offsets were authored for.
+     * Media conditions survive because the rules are transformed in place.
+     *
+     * @param array<int,array<string,mixed>> $parts
+     * @param array<int,array<string,mixed>> $assets
+     * @param array<int,array<string,mixed>> $pages
+     */
+    private static function detachedMinimumWidthRules(array $parts, array $assets, array $pages): string
+    {
+        $elements = self::detachedAncestorElements($parts, $pages);
+        if (array() === $elements) return '';
+        $result = array();
+        foreach ($assets as $asset) {
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
+            (new CssStylesheetTransformer())->visitStyleRules($asset['content'], static function (string $selector, string $body, array $context) use ($elements, &$result): void {
+                $minimum = CssRuleAnalyzer::declarations($body, array('min-width'))[0]['value'] ?? null;
+                if (!is_string($minimum) || 1 === preg_match('/^\s*(?:0[a-z%]*|auto|none|initial|unset|inherit|revert(?:-layer)?)\s*(?:!important\s*)?$/i', $minimum)) return;
+                $rules = array();
+                foreach (CssStylesheetTransformer::splitSelectorList($selector) ?? array($selector) as $candidate) {
+                    $parsed = CssSelectorMatcher::parse(trim($candidate));
+                    foreach ($elements as [$element, $hook]) {
+                        if (!CssSelectorMatcher::matches($element, $parsed, true)['matches']) continue;
+                        $rules[$hook] = '.wp-site-blocks:has(>.wp-block-post-content ' . $hook . '){min-width:' . trim((string) preg_replace('/\s*!important\s*$/i', '', $minimum)) . '}';
+                    }
+                }
+                $result[self::ruleInContext(implode('', $rules), $context)] = true;
+            });
+        }
+        return implode('', array_keys($result));
+    }
+
+    /**
+     * A detached part is no longer included in its ancestor's viewport minimum.
+     * Transport that sizing relationship to the template, not a second viewport
+     * inside post-content. Intermediate document carriers stretch the remaining
+     * space with zero-specificity defaults so authored display rules win.
+     * Unlike a fixed height or viewport subtraction, this also permits long
+     * main content.
+     *
+     * @param array<int,array<string,mixed>> $parts
+     * @param array<int,array<string,mixed>> $assets
+     * @param array<int,array<string,mixed>> $pages
+     */
+    private static function detachedViewportShellRules(array $parts, array $assets, array $pages): string
+    {
+        $elements = self::detachedAncestorElements($parts, $pages);
+        if (array() === $elements) return '';
         // Resolve layout from all matching declarations, including declarations
         // in other assets. Conditional rules only contribute in the same context.
         $layoutRules = array();
@@ -2261,12 +2394,11 @@ PHP;
                 }
             });
         }
-        $result = '';
+        $result = array();
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
-            // Transform rather than visit so responsive/media conditions survive.
-            $result .= (new CssStylesheetTransformer())->transformStyleRules($asset['content'], static function (string $selector, string $body, array $context) use ($elements, $layoutRules): string {
-                if (!preg_match('/(?:^|;)\s*min-height\s*:\s*([^;]*(?:vh|svh|dvh|lvh))\s*(?:;|$)/i', $body, $minimum)) return '';
+            (new CssStylesheetTransformer())->visitStyleRules($asset['content'], static function (string $selector, string $body, array $context) use ($elements, $layoutRules, &$result): void {
+                if (!preg_match('/(?:^|;)\s*min-height\s*:\s*([^;]*(?:vh|svh|dvh|lvh))\s*(?:;|$)/i', $body, $minimum)) return;
                 $rules = array();
                 foreach (CssStylesheetTransformer::splitSelectorList($selector) ?? array($selector) as $candidate) {
                     $parsed = CssSelectorMatcher::parse(trim($candidate));
@@ -2300,10 +2432,23 @@ PHP;
                             . ':where(' . $post . ',' . $post . ' ' . $hook . ',' . $post . ' :has(' . $hook . ')){flex:1;display:flex;flex-direction:column}';
                     }
                 }
-                return implode('', $rules);
+                $result[self::ruleInContext(implode('', $rules), $context)] = true;
             });
         }
-        return $result;
+        return implode('', array_keys($result));
+    }
+
+    /**
+     * Wrap a generated rule in the at-rule preludes that conditioned its
+     * source rule, so a media-scoped source keeps its scope.
+     *
+     * @param list<string> $context
+     */
+    private static function ruleInContext(string $rule, array $context): string
+    {
+        if ('' === $rule) return '';
+        foreach (array_reverse($context) as $prelude) $rule = $prelude . '{' . $rule . '}';
+        return $rule;
     }
 
     /**
@@ -2546,8 +2691,12 @@ PHP;
     /** @param array<string,mixed> $attrs */
     private static function isVariantVisibilityGroup(array $attrs): bool
     {
-        if (1 !== count($attrs) || !is_string($attrs['className'] ?? null)) return false;
-        foreach (preg_split('/\s+/', trim($attrs['className'])) ?: array() as $class) {
+        // A device document that carries capture attributes partitions the
+        // part as a layout-shell with one wrapper instead of a class-only group.
+        $wrappers = $attrs['wrappers'] ?? null;
+        $className = is_array($wrappers) && 1 === count($wrappers) ? ($wrappers[0]['attributes']['class'] ?? null) : ($attrs['className'] ?? null);
+        if (1 !== count($attrs) || !is_string($className)) return false;
+        foreach (preg_split('/\s+/', trim($className)) ?: array() as $class) {
             if (ShellExtraction::isResponsiveVariantClass($class)) return true;
         }
         return false;
@@ -2604,7 +2753,10 @@ PHP;
      * two. A chrome element that carries any hook whose rules stay on the route
      * (one route content also uses, or one no lifted selector can name) keeps
      * all of its authored hooks on the route, so its rules stay in one
-     * stylesheet in source order on every route.
+     * stylesheet in source order on every route. The one exception is a rule
+     * reaching such a hook on a detached part through the ancestors it was
+     * hoisted out of: it stays on the route and a re-anchored copy is also
+     * lifted, since the route rule can no longer match the detached part.
      *
      * @param array<int,array<string,mixed>> $assets
      * @param array<int,array<string,mixed>> $parts
@@ -2627,6 +2779,7 @@ PHP;
         $inheritedContexts = array();
         $chromeElements = array();
         $hookRoutes = array('class' => array(), 'id' => array());
+        $detachedHooks = array('class' => array(), 'id' => array());
         $hasSharedNavigation = false;
         foreach ($parts as $part) {
             if (!in_array($part['placement']['kind'] ?? '', array('shared_shell', 'inline_shared_shell'), true)) continue;
@@ -2650,6 +2803,10 @@ PHP;
             // must stay where its stylesheet applies rather than become global.
             // Each page's own type rules already reach the chrome's elements.
             if (preg_match_all(self::GENERATED_CLASS_PATTERN, $markup, $matches)) foreach ($matches[0] as $class) if (!str_starts_with((string) EngineMarker::markerKind($class), 'source-')) $classes[$class] = true;
+            // A device island's class is the gate its visibility CSS selects.
+            // The part repeats the island around each variant, so that CSS
+            // follows the part to every template rendering it.
+            foreach (array(CaptureEvidence::DESKTOP_ONLY_CLASS, CaptureEvidence::MOBILE_ONLY_CLASS) as $class) if (1 === preg_match('/\bclass="(?:[^"]*\s)?' . preg_quote($class, '/') . '(?:\s[^"]*)?"/', $markup)) $classes[$class] = true;
             // Geometry carriers are content-addressed instance CSS, not document
             // markers. Structural shell dedupe can choose a different carrier
             // from the adopting page's capture; its rules must follow the part
@@ -2675,7 +2832,10 @@ PHP;
                     elseif ('' !== ($tokens[0] ?? '')) $roots[] = '.' . implode('.', array_map(array(CssIdent::class, 'escape'), $tokens));
                 }
                 foreach ($roots as $root) $detachedRoots[$root] = true;
-                if (array() !== $roots) $inheritedContexts[] = array($ancestors, $roots);
+                if (array() !== $roots) {
+                    $inheritedContexts[] = array($ancestors, $roots);
+                    $detachedHooks = array_merge_recursive($detachedHooks, self::authoredChromeHooks($markup));
+                }
             }
         }
         // Hooks that route content also uses belong to that content too; rules
@@ -2714,7 +2874,17 @@ PHP;
             }
         } while ($grown);
         foreach ($routeHooks as $kind => $names) $authored[$kind] = array_diff_key($authored[$kind], $names);
-        if (!$hasSharedNavigation && array() === $classes && array() === $authored['class'] && array() === $authored['id']) return $assets;
+        // A route-kept hook that a detached part also carries still styles that
+        // part wherever a rule reaches it through the ancestors it was hoisted
+        // out of (`#container .footer`): those ancestors are not around the
+        // template part, so such a rule never matches it from the route. The
+        // rule stays on the route for content still carrying the hook inline,
+        // and a re-anchored copy follows the part into shared chrome.
+        $detachedRouteHooks = array(
+            'class' => array_intersect_key($detachedHooks['class'], $routeHooks['class']),
+            'id' => array_intersect_key($detachedHooks['id'], $routeHooks['id']),
+        );
+        if (!$hasSharedNavigation && array() === $classes && array() === $authored['class'] && array() === $authored['id'] && array() === $detachedRouteHooks['class'] && array() === $detachedRouteHooks['id']) return $assets;
         $classMatcher = self::generatedClassMatcher($classes);
         // Current state is assigned by core on the served route, not saved in
         // the shared part. Projected selectors using only native navigation
@@ -2723,6 +2893,9 @@ PHP;
         $targetsChrome = static fn (string $selector): bool => self::selectorTargetsGeneratedClass($selector, $classMatcher)
             || self::selectorTargetsAuthoredChrome($selector, $authored, $context)
             || ($hasSharedNavigation && self::selectorTargetsRuntimeNavigationState($selector));
+        $reachesDetachedPart = static fn (string $selector): bool => self::selectorTargetsAuthoredChrome($selector, $detachedRouteHooks, $context)
+            && self::reanchoredDetachedContextSelector(trim($selector), $context, array_keys($detachedRoots)) !== trim($selector);
+        $liftsToChrome = static fn (string $selector): bool => $targetsChrome($selector) || $reachesDetachedPart($selector);
         $reanchor = static function (string $selector) use ($context, $detachedRoots, $controlRoutes): string {
             $routes = array();
             foreach ($controlRoutes as $control => $classes) {
@@ -2759,6 +2932,7 @@ PHP;
         }
         $projected = array();
         $emittedShared = array();
+        $emittedSources = array();
         // A per-media copy exists only to lift chrome under its condition; the
         // authored payload it came from is still one asset with one target.
         $keptInline = array();
@@ -2781,7 +2955,7 @@ PHP;
             $unparseable = false;
             $shared = (new CssStylesheetTransformer())->transformStyleRules(
                 $asset['content'],
-                static function (string $prelude, string $body) use ($targetsChrome, $reanchor, $inheritedContexts, $liveElementMarkers, &$matched, &$unparseable): string {
+                static function (string $prelude, string $body) use ($liftsToChrome, $reanchor, $inheritedContexts, $liveElementMarkers, &$matched, &$unparseable): string {
                     $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
                     if (null === $selectors) {
                         $unparseable = true;
@@ -2805,7 +2979,7 @@ PHP;
                             $matched = true;
                         }
                     }
-                    $kept = array_values(array_filter($selectors, $targetsChrome));
+                    $kept = array_values(array_filter($selectors, $liftsToChrome));
                     if (array() === $kept) return $inherited;
                     if (null !== $liveElementMarkers) {
                         $kept = array_values(array_filter(array_map(static fn (string $selector): ?string => self::withoutDeadElementMarkers($selector, $liveElementMarkers), $kept), 'is_string'));
@@ -2889,6 +3063,15 @@ PHP;
                     $projected[$index] = $existing;
                     continue 3;
                 }
+            }
+            // Per-media copies of one inline stylesheet lift under different
+            // contracts, so they stay separate assets and need separate sources.
+            // Number repeats like target collisions; keep the .shared-chrome end.
+            $sharedSource = (string) $sharedAsset['source_path'];
+            $emittedSources[$sharedSource] = ($emittedSources[$sharedSource] ?? 0) + 1;
+            if (1 < $emittedSources[$sharedSource]) {
+                $sharedAsset['source_path'] = substr($sharedSource, 0, -strlen('.shared-chrome')) . '-' . $emittedSources[$sharedSource] . '.shared-chrome';
+                $sharedAsset['reconciliation_identity'] = self::identity('asset', $sharedAsset['source_path'], $sharedAsset['target_path']);
             }
             $sharedKey = strtolower((string) $sharedAsset['path']);
             if (isset($emittedShared[$sharedKey])) {
@@ -4125,7 +4308,8 @@ PHP;
         if ('time' === $name) {
             return 'datePublished' === ($attributes['itemprop'] ?? null);
         }
-        if (!in_array($name, array('p', 'span', 'div', 'li', 'td', 'mark'), true)) {
+        // Blogger heads each post's date as <h2 class="date-header">.
+        if (!in_array($name, array('p', 'span', 'div', 'li', 'td', 'mark', 'h2', 'h3', 'h4', 'h5', 'h6'), true)) {
             return false;
         }
         $tokens = strtolower(trim(html_entity_decode((string) ($attributes['class'] ?? '') . ' ' . (string) ($attributes['id'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8')));
@@ -4372,6 +4556,56 @@ PHP;
     /** @param array<int,array<string,mixed>> $pages @return array<int,array<string,mixed>> */
     private function routesForPages(array $pages): array { $routes = array(); foreach ($pages as $page) $routes[] = array('kind' => 'route', 'source_path' => $page['source_path'], 'target_path' => $page['route']['path'], 'target_slug' => $page['slug'], 'title' => $page['title'], 'parent_source_path' => $page['parent_source_path'], 'source_relation' => !empty($page['synthetic']) ? 'synthetic_parent' : (!empty($page['entrypoint']) ? 'entrypoint' : 'document'), 'order' => count($routes)); return $routes; }
 
+    /**
+     * The generated templates without those that repeat the template
+     * WordPress falls back to.
+     *
+     * Without archive.html or search.html WordPress renders those lifecycles
+     * through index.html; the entry route is the static front page
+     * (show_on_front=page), so without front-page.html it renders through
+     * page.html. A byte-identical copy only repeats its fallback. A page
+     * template the entry route selects itself would outrank page.html, so
+     * front-page.html stays then.
+     *
+     * @param array<int,array<string,mixed>> $templates
+     * @param array<int,array<string,mixed>> $pages
+     * @return array<int,array<string,mixed>>
+     */
+    private static function withoutRedundantTemplates(array $templates, array $pages): array
+    {
+        $fallbacks = array('archive' => 'index', 'search' => 'index');
+        $entry = array_values(array_filter($pages, static fn(array $page): bool => !empty($page['entrypoint'])))[0] ?? null;
+        if (null !== $entry && 'page' === ($entry['post_type'] ?? 'page') && !isset($entry['route_template']) && in_array($entry['metadata']['post_meta']['_wp_page_template'] ?? 'default', array('', 'default'), true)) $fallbacks['front-page'] = 'page';
+        $markup = array_column($templates, 'canonical_block_markup', 'slug');
+        return array_values(array_filter($templates, static fn(array $template): bool => !isset($fallbacks[$template['slug']], $markup[$fallbacks[$template['slug']]]) || $markup[$template['slug']] !== $markup[$fallbacks[$template['slug']]]));
+    }
+
+    /**
+     * The markup WordPress renders for each lifecycle a plan's templates
+     * serve, keyed by template slug and resolved through the template
+     * hierarchy. The entry route is the static front page, so front-page
+     * falls back to page.
+     *
+     * @param array<string,mixed> $plan
+     * @return array<string,string>
+     */
+    public static function renderedTemplates(array $plan): array
+    {
+        $templates = array_column(is_array($plan['templates'] ?? null) ? $plan['templates'] : array(), 'canonical_block_markup', 'slug');
+        $archives = array('author', 'category', 'date', 'tag', 'taxonomy');
+        $rendered = array();
+        foreach (array_unique(array_merge(self::NATIVE_TEMPLATE_SLUGS, $archives, array('home'), array_map('strval', array_keys($templates)))) as $slug) {
+            $base = explode('-', $slug)[0];
+            $chain = array($slug, $base);
+            if ('front' === $base || 'page' === $base) $chain[] = 'page';
+            elseif ('single' === $base) $chain[] = 'single';
+            elseif (in_array($base, $archives, true)) $chain[] = 'archive';
+            $chain[] = 'index';
+            foreach ($chain as $candidate) if (isset($templates[$candidate])) { $rendered[$slug] = (string) $templates[$candidate]; break; }
+        }
+        return $rendered;
+    }
+
     /** One key for placement, exclusions, template registration and assignment. */
     public static function routeTemplateKey(array $page): string
     {
@@ -4397,7 +4631,7 @@ PHP;
             if ('single' === $key || !empty($page['entrypoint']) || !is_array($template) || isset($template['source_path'])) continue;
             $groups[$page['post_type'] . "\0" . $template['canonical_block_markup']][] = $index;
         }
-        $renames = array(); $titles = array(); $shared = array();
+        $renames = array(); $titles = array(); $shared = array(); $layouts = array();
         foreach ($groups as $indexes) {
             if (count($indexes) < 2) continue;
             $page = $pages[$indexes[0]];
@@ -4405,14 +4639,14 @@ PHP;
             $prefix = 'page' === $page['post_type'] ? 'page-' : 'single-' . $page['post_type'] . '-';
             $slug = $prefix . 'shared-' . substr(hash('sha256', $page['post_type'] . "\0" . $bySlug[$key]['canonical_block_markup']), 0, 12);
             while (isset($bySlug[$slug]) || isset($titles[$slug])) $slug .= '-shared';
-            $labels = array();
             foreach ($indexes as $index) {
                 $renames[self::routeTemplateKey($pages[$index])] = $slug;
-                $labels[] = $pages[$index]['title'];
                 $pages[$index]['route_template'] = $slug;
                 $pages[$index]['metadata']['post_meta']['_wp_page_template'] = $slug;
             }
-            $titles[$slug] = implode(' / ', array_unique($labels));
+            // Name the group, not its members: the Site Editor lists this title.
+            $ordinal = $layouts[$page['post_type']] = ($layouts[$page['post_type']] ?? 0) + 1;
+            $titles[$slug] = ucfirst(str_replace('_', ' ', $page['post_type'])) . ' (shared layout' . (1 < $ordinal ? ' ' . $ordinal : '') . ')';
         }
         foreach ($templates as &$template) {
             $slug = $renames[$template['slug']] ?? null;
@@ -4516,7 +4750,9 @@ PHP;
                  if ('footer' === $part['area']) $after .= $reference; else $before .= $reference;
              }
               if (in_array($templateSlug, array('index', 'search', 'archive'), true)) {
-                  $query = ('search' === $templateSlug ? '<!-- wp:query-title {"type":"search"} /-->' . "\n" : ('archive' === $templateSlug ? '<!-- wp:query-title {"type":"archive"} /-->' . "\n" : ''))
+                  // Each title renders only in its own context, so one listing
+                  // serves the home, archive and search lifecycles alike.
+                  $query = '<!-- wp:query-title {"type":"archive"} /-->' . "\n" . '<!-- wp:query-title {"type":"search"} /-->' . "\n"
                       . self::queryLoopMarkup(true);
                   $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} -->' . "\n" . '<main class="wp-block-group">' . "\n" . $query . "\n" . '</main>' . "\n" . '<!-- /wp:group -->';
               } elseif ('404' === $templateSlug) {
@@ -4563,6 +4799,7 @@ PHP;
             $template['content_hash'] = self::contentHash($template['canonical_block_markup']);
         }
         unset($template);
+        $templates = self::withoutRedundantTemplates($templates, $pages);
         foreach ($templates as &$template) if (isset($frames[$template['slug']])) $template['shell_frame'] = $frames[$template['slug']]['shells']; unset($template);
          $explicitSlugs = array_fill_keys(array_map(static fn(array $surface): string => $surface['template_surface']['slug'], $surfaces), true);
          $templates = array_values(array_filter($templates, static fn(array $template): bool => !isset($explicitSlugs[$template['slug']])));
@@ -4801,6 +5038,7 @@ PHP;
             // single post has nothing to factor and keeps its complete article.
             if (count($posts) < 2) continue;
             $shared = $this->sharedPostChromeIdentities($posts);
+            $this->relatedSectionProjections = array();
             $groups = array();
             foreach ($posts as $index => $post) {
                 $transformed = $this->transformPostChromeDocument($post['canonical_block_markup'], $post, $post['route']['path'] ?? '', $shared, null, $posts);
@@ -4881,6 +5119,7 @@ PHP;
             }
         }
         $shared = $this->sharedPostChromeIdentities($posts);
+        $this->relatedSectionProjections = array();
         // Only promote a common lead-image slot when every post owns one
         // ahead of its body, and the asset actually varies between posts.
         $documents = array();
@@ -5120,47 +5359,16 @@ PHP;
             if (null !== $section) $sections[] = $section + array('owner' => $owner);
         }
         foreach ($sections as $section) {
-            $cardMarkup = '';
-            foreach ($posts as $peer) {
-                $peerIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($peer['canonical_block_markup']);
-                foreach ($peerIndex->ranges() as $owner) {
-                    $peerSection = $sectionItems($peerIndex, $owner, $shared);
-                    if (null === $peerSection || $section['heading'] !== $peerSection['heading']) continue;
-                    foreach ($peerSection['items'] as $child) $cardMarkup .= substr($peerIndex->markup, $child['offset'], $child['length']);
-                    break;
-                }
+            if (!array_key_exists($section['heading'], $this->relatedSectionProjections)) {
+                $this->relatedSectionProjections[$section['heading']] = $this->relatedSectionProjection($section['heading'], $sectionItems, $posts, $shared);
             }
-            $cardIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($cardMarkup);
-            $cards = $this->listingCardRanges($cardIndex, $posts, 1);
-            if (null === $cards) continue;
-            // Never replace a whole section if some authored child has no card
-            // projection. Let the normal fallback retain its source order.
-            foreach ($cardIndex->topLevel() as $child) {
-                foreach ($cards as $card) {
-                    if ($child['offset'] >= $card['offset'] && $child['offset'] + $child['length'] <= $card['offset'] + $card['length']) continue 2;
-                }
-                continue 2;
-            }
-            $cardFields = array();
-            $bound = array();
-            foreach ($cards as $card) {
-                $ordinal = 0;
-                foreach ($cardIndex->ranges() as $range) {
-                    if ($range['offset'] < $card['offset'] || $range['offset'] + $range['length'] > $card['offset'] + $card['length']) continue;
-                    $slice = substr($cardMarkup, $range['offset'], $range['length']);
-                    if ('paragraph' !== self::listingBlockName($slice)) continue;
-                    $key = 'blocks_engine_post_field_' . substr(hash('sha256', $section['heading'] . ':' . $ordinal++), 0, 12);
-                    $cardFields[$card['post']['source_path']][$key] = ListingFieldProjection::content(array($slice));
-                    $bound[$range['offset']] = ListingFieldProjection::paragraph($slice, self::listingBlockAttributes($slice), $key, '');
-                }
-            }
-            $template = $this->listingCardTemplate($cardIndex, $cards, $cardFields, $bound);
-            if (null === $template) continue;
+            $projection = $this->relatedSectionProjections[$section['heading']];
+            if (null === $projection) continue;
             $items = $section['items'];
             $start = $items[0]['offset'];
             $end = $items[count($items) - 1]['offset'] + $items[count($items) - 1]['length'];
-            $slots[$section['owner']['offset']] = substr($index->markup, $section['owner']['offset'], $start - $section['owner']['offset']) . self::listingQueryMarkup(count($items), $template) . substr($index->markup, $end, $section['owner']['offset'] + $section['owner']['length'] - $end);
-            foreach ($cardFields as $source => $values) $fields[$source] = ($fields[$source] ?? array()) + $values;
+            $slots[$section['owner']['offset']] = substr($index->markup, $section['owner']['offset'], $start - $section['owner']['offset']) . self::listingQueryMarkup(count($items), $projection['template']) . substr($index->markup, $end, $section['owner']['offset'] + $section['owner']['length'] - $end);
+            foreach ($projection['fields'] as $source => $values) $fields[$source] = ($fields[$source] ?? array()) + $values;
         }
         foreach ($varying as $leaf) {
             if ($leaf['offset'] >= $best['offset'] && $leaf['offset'] < $best['offset'] + $best['length']) continue;
@@ -5194,6 +5402,54 @@ PHP;
             return $fallback;
         }
         return array('range' => $best, 'slots' => $slots, 'fields' => $fields, 'featured' => $featured);
+    }
+    /**
+     * Project a related section across every post in the group: the items
+     * each post lists under the shared heading become one listing whose
+     * cards yield the section's query template and per-post fields.
+     *
+     * @param array<int,array<string,mixed>> $posts
+     * @param array<string,true> $shared
+     * @return array{template:string,fields:array<string,array<string,mixed>>}|null
+     */
+    private function relatedSectionProjection(string $heading, callable $sectionItems, array $posts, array $shared): ?array
+    {
+        $cardMarkup = '';
+        foreach ($posts as $peer) {
+            $peerIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($peer['canonical_block_markup']);
+            foreach ($peerIndex->ranges() as $owner) {
+                $peerSection = $sectionItems($peerIndex, $owner, $shared);
+                if (null === $peerSection || $heading !== $peerSection['heading']) continue;
+                foreach ($peerSection['items'] as $child) $cardMarkup .= substr($peerIndex->markup, $child['offset'], $child['length']);
+                break;
+            }
+        }
+        $cardIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($cardMarkup);
+        $cards = $this->listingCardRanges($cardIndex, $posts, 1);
+        if (null === $cards) return null;
+        // Never replace a whole section if some authored child has no card
+        // projection. Let the normal fallback retain its source order.
+        foreach ($cardIndex->topLevel() as $child) {
+            foreach ($cards as $card) {
+                if ($child['offset'] >= $card['offset'] && $child['offset'] + $child['length'] <= $card['offset'] + $card['length']) continue 2;
+            }
+            return null;
+        }
+        $cardFields = array();
+        $bound = array();
+        foreach ($cards as $card) {
+            $ordinal = 0;
+            foreach ($cardIndex->ranges() as $range) {
+                if ($range['offset'] < $card['offset'] || $range['offset'] + $range['length'] > $card['offset'] + $card['length']) continue;
+                $slice = substr($cardMarkup, $range['offset'], $range['length']);
+                if ('paragraph' !== self::listingBlockName($slice)) continue;
+                $key = 'blocks_engine_post_field_' . substr(hash('sha256', $heading . ':' . $ordinal++), 0, 12);
+                $cardFields[$card['post']['source_path']][$key] = ListingFieldProjection::content(array($slice));
+                $bound[$range['offset']] = ListingFieldProjection::paragraph($slice, self::listingBlockAttributes($slice), $key, '');
+            }
+        }
+        $template = $this->listingCardTemplate($cardIndex, $cards, $cardFields, $bound);
+        return null === $template ? null : array('template' => $template, 'fields' => $cardFields);
     }
     /**
      * @param array<string,mixed> $post
@@ -5278,6 +5534,11 @@ PHP;
             return $empty;
         }
         if (null !== $contentRange && $range === $contentRange) {
+            // An id names one post's element. A shared template would repeat
+            // it on every post, so an anchored container moves with its body.
+            if (isset(self::listingBlockAttributes($slice)['anchor'])) {
+                return array('template' => '<!-- wp:post-content /-->', 'body' => $slice, 'title' => false, 'date' => false, 'shared' => false, 'content' => true, 'retained' => array(array('offset' => $range['offset'], 'length' => $range['length'])));
+            }
             $children = $index->children($range);
             $start = $children[0]['offset'];
             $last = $children[count($children) - 1];
@@ -5636,32 +5897,26 @@ PHP;
             if (1 === count($routes) && preg_match('/<h1\b/i', $slice)) continue;
             $rangeAnchors[$index] = $this->listingAnchors($slice);
         }
-        $cards = array();
-        foreach ($routes as $route => $post) {
-            $exclusive = null;
-            foreach ($ranges as $index => $range) {
-                if (!isset($rangeAnchors[$index])) continue;
-                $anchors = $rangeAnchors[$index];
-                $hits = false;
-                $others = false;
-                foreach ($anchors as $anchor) {
-                    if (self::hrefMatchesListingRoute($anchor['href'], $route)) {
-                        $hits = true;
-                    } elseif ($this->hrefMatchesAnyListingRoute($anchor['href'], array_keys($routes))) {
-                        $others = true;
-                    }
-                }
-                if (!$hits || $others) {
-                    continue;
-                }
-                if (null === $exclusive || $range['length'] > $exclusive['length']) {
-                    $exclusive = array('offset' => $range['offset'], 'length' => $range['length'], 'route' => $route, 'post' => $post);
-                }
+        // A range is a card for a route when every anchor that addresses any
+        // listed route addresses that route. Resolve each anchor to the routes
+        // it addresses once, so a listing of N posts costs one pass over its
+        // ranges instead of N passes that each rescan every route.
+        $exclusive = array();
+        foreach ($rangeAnchors as $index => $anchors) {
+            $shared = null;
+            foreach ($anchors as $anchor) {
+                $addressed = array_intersect_key(array_flip(self::listingRouteKeys($anchor['href'])), $routes);
+                if (array() === $addressed) continue;
+                $shared = null === $shared ? $addressed : array_intersect_key($shared, $addressed);
             }
-            if (null !== $exclusive) {
-                $cards[] = $exclusive;
+            foreach (null === $shared ? array() : array_keys($shared) as $route) {
+                $range = $ranges[$index];
+                if (!isset($exclusive[$route]) || $range['length'] > $exclusive[$route]['length']) {
+                    $exclusive[$route] = array('offset' => $range['offset'], 'length' => $range['length'], 'route' => $route, 'post' => $routes[$route]);
+                }
             }
         }
+        $cards = array_values(array_intersect_key(array_replace($routes, $exclusive), $exclusive));
         if (count($cards) < $minimumCards) {
             return null;
         }
@@ -6375,29 +6630,20 @@ PHP;
         return $anchors;
     }
     /** @param array<int,string> $routes */
-    private function hrefMatchesAnyListingRoute(string $href, array $routes): bool
-    {
-        foreach ($routes as $route) {
-            if (self::hrefMatchesListingRoute($href, $route)) {
-                return true;
-            }
-        }
-        return false;
-    }
     private static function hrefMatchesListingRoute(string $href, string $route): bool
+    {
+        return in_array($route, self::listingRouteKeys($href), true);
+    }
+
+    /** @return list<string> The listing route paths an href addresses. */
+    private static function listingRouteKeys(string $href): array
     {
         $path = parse_url($href, PHP_URL_PATH);
         if (!is_string($path) || '' === $path) {
             $path = $href;
         }
         $path = '/' . trim($path, '/');
-        if ($path === $route) {
-            return true;
-        }
-        if (str_ends_with($path, '/index.html') && substr($path, 0, -11) === $route) {
-            return true;
-        }
-        return false;
+        return str_ends_with($path, '/index.html') ? array($path, substr($path, 0, -11)) : array($path);
     }
     private static function visibleDateFormat(string $value): ?string
     {
@@ -6690,6 +6936,9 @@ PHP;
         if (array_filter(array_merge($pages, $parts, $templates), static fn(array $document): bool => str_contains($document['canonical_block_markup'], 'blocksEngineIcon'))) {
             $lines[] = self::ACCORDION_ICON_RENDERER;
         }
+        if (array_filter(array_merge($pages, $parts, $templates), static fn(array $document): bool => str_contains($document['canonical_block_markup'], 'blocksEngineInlineSvg'))) {
+            $lines[] = InlineSvgImageRuntime::source();
+        }
         if (array_filter(array_merge($pages, $parts, $templates), static fn(array $document): bool => str_contains($document['canonical_block_markup'], 'blocksEngineImageSelection'))) {
             $lines[] = self::IMAGE_SELECTION_RENDERER;
         }
@@ -6697,6 +6946,9 @@ PHP;
             $lines[] = "add_filter( 'render_block_core/read-more', static function ( string \$content, array \$block ): string { if ( ! in_array( 'blocks-engine-listing-overlay', preg_split( '/\\s+/', (string) ( \$block['attrs']['className'] ?? '' ) ) ?: array(), true ) ) return \$content; \$tag = new WP_HTML_Tag_Processor( \$content ); if ( \$tag->next_tag( 'A' ) ) { \$tag->set_attribute( 'aria-hidden', 'true' ); \$tag->set_attribute( 'tabindex', '-1' ); } return \$tag->get_updated_html(); }, 10, 2 );";
         }
         $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void {";
+        $lines[] = '    $blocks_engine_page_id = ' . self::DOCUMENT_ID_EXPRESSION . ';';
+        $lines[] = "    \$blocks_engine_page_identity = \$blocks_engine_page_id ? get_post_meta( \$blocks_engine_page_id, '_blocks_engine_reconciliation_identity', true ) : '';";
+        $lines[] = "    \$blocks_engine_page_uri = \$blocks_engine_page_id && '' === \$blocks_engine_page_identity && 'page' === get_post_type( \$blocks_engine_page_id ) ? trim( get_page_uri( \$blocks_engine_page_id ), '/' ) : null;";
         $importLoaded = self::importLoadedStylesheets($assets);
         $stylesheetAttributes = array();
         $stylesheetEnqueues = self::stylesheetEnqueues($assets, $pages, $rootDocuments);
@@ -6780,8 +7032,8 @@ PHP;
             $asset = $enqueue['asset'];
             if (!StylesheetActivation::active($asset) || 'frontend' === ($asset['stylesheet_target'] ?? 'both') || isset($importLoaded[$asset['target_path']])) continue;
             $partSlugs = array();
-            foreach ($partSlugsBySource[(string) ($enqueue['scope']['source_path'] ?? '')] ?? array() as $slug) $partSlugs[$slug] = true;
-            $editorStyles[] = array_filter(array('target_path' => $asset['target_path'], 'handle' => $enqueue['handle'], 'content_hash' => $asset['content_hash'], 'scopes' => array($enqueue['scope']), 'template_part_slugs' => array_keys($partSlugs), 'media' => $asset['source_media'] ?? $enqueue['media'], 'author_css' => 'engine-support' !== ($asset['source'] ?? ''), 'editor_only' => 'editor' === ($asset['stylesheet_target'] ?? 'both'), 'fallback' => empty($enqueue['fallback']) ? null : true), static fn(mixed $value): bool => null !== $value);
+            foreach ($enqueue['scopes'] ?? array($enqueue['scope']) as $owner) foreach ($partSlugsBySource[(string) ($owner['source_path'] ?? '')] ?? array() as $slug) $partSlugs[$slug] = true;
+            foreach ($enqueue['scopes'] ?? array($enqueue['scope']) as $editorScope) $editorStyles[] = array_filter(array('target_path' => $asset['target_path'], 'handle' => $enqueue['handle'], 'content_hash' => $asset['content_hash'], 'scopes' => array($editorScope), 'template_part_slugs' => array_keys($partSlugs), 'media' => $asset['source_media'] ?? $enqueue['media'], 'author_css' => 'engine-support' !== ($asset['source'] ?? ''), 'editor_only' => 'editor' === ($asset['stylesheet_target'] ?? 'both'), 'fallback' => empty($enqueue['fallback']) ? null : true), static fn(mixed $value): bool => null !== $value);
         }
         if (array() !== $editorStyles) {
             // Files and scopes own shared data; replay owns occurrence order,
@@ -6977,8 +7229,22 @@ PHP;
         }
         foreach (array_merge($templates, $parts, $pages) as $document) {
             if (!str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), CaptureEvidence::VIEWPORT_ENTRANCE)) continue;
-            $entranceScript = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ViewportEntranceRuntime::script();
-            $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_script( 'blocks-engine-viewport-entrances', false, array(), null, true ); wp_enqueue_script( 'blocks-engine-viewport-entrances' ); wp_add_inline_script( 'blocks-engine-viewport-entrances', " . var_export($entranceScript, true) . " ); } );";
+            // Device-scoped entrances resolve through the site's live core
+            // viewport queries, so they follow block visibility breakpoints.
+            $entranceScript = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ViewportEntranceRuntime::script('__BLOCKS_ENGINE_VIEWPORT_QUERIES__');
+            $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { \$queries = array(); if ( method_exists( 'WP_Theme_JSON', 'get_viewport_media_queries' ) ) { foreach ( WP_Theme_JSON::get_viewport_media_queries( wp_get_global_settings( array( 'viewport' ) ), array( 'include_desktop' => true ) ) as \$state => \$query ) { \$queries[ ltrim( \$state, '@' ) ] = preg_replace( '/^@media\\s+/', '', \$query ); } } wp_register_script( 'blocks-engine-viewport-entrances', false, array(), null, true ); wp_enqueue_script( 'blocks-engine-viewport-entrances' ); wp_add_inline_script( 'blocks-engine-viewport-entrances', str_replace( '__BLOCKS_ENGINE_VIEWPORT_QUERIES__', (string) wp_json_encode( (object) \$queries ), " . var_export($entranceScript, true) . " ) ); } );";
+            break;
+        }
+        foreach (array_merge($templates, $parts, $pages) as $document) {
+            if (!str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), CaptureEvidence::RESPONSIVE_FRAGMENT)) continue;
+            $fragmentScript = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveFragmentRuntime::script();
+            $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_script( 'blocks-engine-responsive-fragments', false, array(), null, true ); wp_enqueue_script( 'blocks-engine-responsive-fragments' ); wp_add_inline_script( 'blocks-engine-responsive-fragments', " . var_export($fragmentScript, true) . " ); } );";
+            break;
+        }
+        foreach (array_merge($templates, $parts, $pages) as $document) {
+            if (!str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), 'blocks-engine-navigation-header-offset')) continue;
+            $headerOffsetScript = NavigationHeaderOffsetRuntime::script();
+            $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_script( 'blocks-engine-navigation-header-offset', false, array(), null, true ); wp_enqueue_script( 'blocks-engine-navigation-header-offset' ); wp_add_inline_script( 'blocks-engine-navigation-header-offset', " . var_export($headerOffsetScript, true) . " ); } );";
             break;
         }
         $breadcrumbLabels = BreadcrumbLabelRuntime::labels(array_merge($templates, $parts, $pages), $pages);
@@ -7096,6 +7362,16 @@ PHP;
     private static function stylesheetEnqueues(array $assets, array $pages, array $rootDocuments = array()): array
     {
         $documentsBySource = self::assetOwnerDocuments($pages, $rootDocuments);
+        // Replay owners are delivery metadata, not empty stylesheet resources.
+        $deliveryAssets = array();
+        foreach ($assets as $asset) {
+            if (!isset($asset['stylesheet_replays'])) { $deliveryAssets[] = $asset; continue; }
+            foreach ($asset['stylesheet_replays'] as $replay) $deliveryAssets[] = array_replace($asset, $replay);
+            $resource = $asset;
+            unset($resource['stylesheet_replays']);
+            $deliveryAssets[] = $resource;
+        }
+        $assets = $deliveryAssets;
         $assetsBySource = array_column($assets, null, 'source_path');
         $before = $after = $instances = array();
         $firstManaged = count($assets);
@@ -7112,19 +7388,24 @@ PHP;
                 if (!isset($documentsBySource[$source])) continue;
                 if (!array_filter($asset['scopes'], static fn(array $scope): bool => 'global' === $scope['kind'] || ($scope['source_path'] ?? null) === $source)) continue;
                 $scope = self::stylesheetDocumentScope($documentsBySource[$source]);
-                $instances[$source][] = array('asset' => $asset, 'scope' => $scope, 'route' => $source, 'condition' => self::bootstrapScopeCondition($scope), 'media' => $occurrence['media'], 'handle' => 'blocks-engine-instance-' . substr(hash('sha256', $asset['target_path'] . "\0" . $source . "\0" . $occurrence['order']), 0, 16), 'order' => $occurrence['order'], 'resource_order' => $index) + self::stylesheetDeviceAttributes($occurrence);
+                $instances[$source][] = array('asset' => $asset, 'scope' => $scope, 'route' => $source, 'condition' => self::bootstrapScopeCondition($scope, true), 'media' => $occurrence['media'], 'handle' => 'blocks-engine-instance-' . substr(hash('sha256', $asset['target_path'] . "\0" . $source . "\0" . $occurrence['order']), 0, 16), 'order' => $occurrence['order'], 'resource_order' => $index) + self::stylesheetDeviceAttributes($occurrence);
             }
             if (!empty($asset['frame_fallback'])) {
                 $row = array('asset' => $asset, 'scope' => array('kind' => 'global'), 'condition' => 'true', 'media' => (string) ($asset['media'] ?? ''), 'handle' => 'blocks-engine-frame-fallback-' . substr(hash('sha256', $asset['target_path']), 0, 12), 'fallback' => true);
                 if ('before-author' === ($asset['stylesheet_placement'] ?? '')) $before[] = $row; else $after[] = $row;
             }
-            foreach ($asset['scopes'] as $scope) {
+            foreach ($asset['scopes'] as $scopeIndex => $scope) {
+                if (array() === $occurrences && 0 !== $scopeIndex) continue;
                 if (array() !== $occurrences && 'global' !== $scope['kind']) continue;
                 // A global resource with document instances still styles
                 // WordPress-native routes (archives, search) that no source
                 // document owns; the bootstrap guards it with the route flag.
                 $fallback = array() !== $occurrences;
-                $row = array('asset' => $asset, 'scope' => $scope, 'condition' => self::bootstrapScopeCondition($scope), 'media' => (string) ($asset['media'] ?? ''), 'handle' => 'blocks-engine-' . substr(hash('sha256', $asset['target_path']), 0, 12), 'fallback' => $fallback);
+                $row = array('asset' => $asset, 'scope' => $scope, 'condition' => self::bootstrapScopeCondition($scope, true), 'media' => (string) ($asset['media'] ?? ''), 'handle' => 'blocks-engine-' . substr(hash('sha256', $asset['target_path']), 0, 12), 'fallback' => $fallback);
+                if (!$fallback) {
+                    $row['scopes'] = $asset['scopes'];
+                    $row['condition'] = self::compactStylesheetCondition($asset['scopes']);
+                }
                 if (!$fallback && ('before-author' === ($asset['stylesheet_placement'] ?? '') || ($index < $firstManaged && 'after-author' !== ($asset['stylesheet_placement'] ?? '') && 'wordpress-compat' !== ($asset['source'] ?? '')))) $before[] = $row;
                 else $after[] = $row;
             }
@@ -7170,6 +7451,7 @@ PHP;
             $asset = $enqueue['asset'];
             if (!empty($enqueue['fallback']) || isset($importLoaded[$asset['target_path']])) continue;
             $owned = isset($enqueue['route']) ? $sourcePath === $enqueue['route'] : ('global' === $enqueue['scope']['kind'] || $sourcePath === ($enqueue['scope']['source_path'] ?? null));
+            if (isset($enqueue['scopes'])) $owned = in_array('global', array_column($enqueue['scopes'], 'kind'), true) || in_array($sourcePath, array_column($enqueue['scopes'], 'source_path'), true);
             if ($owned) $sequence[] = array('target_path' => (string) $asset['target_path'], 'handle' => (string) $enqueue['handle'], 'media' => (string) $enqueue['media'], 'stylesheet_target' => (string) ($asset['stylesheet_target'] ?? 'both'));
         }
         return $sequence;
@@ -7209,11 +7491,25 @@ PHP;
                 if (!is_array($reference)) continue;
                 if ('link' === ($reference['element'] ?? null)) $linked = true;
                 $importer = (string) ($reference['source_path'] ?? '');
-                if ('css-import' === ($reference['context'] ?? null) && isset($stylesheets[$importer]) && $importer !== $asset['source_path'] && $asset['source_path'] === ArtifactPath::resolveRelativePath((string) ($reference['url'] ?? ''), $importer)) $imported = true;
+                if ('css-import' === ($reference['context'] ?? null) && isset($stylesheets[$importer]) && $importer !== $asset['source_path'] && self::importResolvesTo((string) ($reference['url'] ?? ''), $importer, (string) $asset['source_path'])) $imported = true;
             }
             if ($imported && !$linked) $importLoaded[(string) $asset['target_path']] = true;
         }
         return $importLoaded;
+    }
+
+    /**
+     * A root-relative import names a path under the artifact root, not under
+     * its importer: an inline `<style>` asset lives at a virtual `inline/`
+     * path, so `@import "/en.css"` reaches a capture's `website/en.css`.
+     * Match it the way root-relative stylesheet links resolve, by suffix.
+     */
+    private static function importResolvesTo(string $url, string $importer, string $sourcePath): bool
+    {
+        $url = ArtifactPath::stripQueryAndFragment($url);
+        if (!str_starts_with($url, '/') || str_starts_with($url, '//')) return $sourcePath === ArtifactPath::resolveRelativePath($url, $importer);
+        $relative = ArtifactPath::resolveRelativePath(ltrim($url, '/'));
+        return '' !== $relative && ($sourcePath === $relative || str_ends_with($sourcePath, '/' . $relative));
     }
     /**
      * The post the current request renders as a document: the queried post on
@@ -7225,13 +7521,29 @@ PHP;
      */
     public const DOCUMENT_ID_EXPRESSION = "(int) apply_filters( 'blocks_engine_document_id', is_singular() ? get_queried_object_id() : 0 )";
 
+    /** @param list<array<string,mixed>> $scopes */
+    private static function compactStylesheetCondition(array $scopes): string
+    {
+        if (1 === count($scopes)) return self::bootstrapScopeCondition($scopes[0], true);
+        $conditions = $identities = $paths = array();
+        foreach ($scopes as $scope) {
+            if ('page' === $scope['kind'] && empty($scope['front_page'])) {
+                $identities[] = $scope['reconciliation_identity'];
+                $paths[] = $scope['route_path'];
+            } else $conditions[] = '(' . self::bootstrapScopeCondition($scope, true) . ')';
+        }
+        if (array() !== $identities) $conditions[] = "( 0 !== \$blocks_engine_page_id && ( '' !== \$blocks_engine_page_identity ? in_array( \$blocks_engine_page_identity, " . BootstrapData::literal($identities) . ", true ) : in_array( \$blocks_engine_page_uri, " . BootstrapData::literal($paths) . ", true ) ) )";
+        return implode(' || ', $conditions);
+    }
+
     /** @param array<string,mixed> $scope */
-    private static function bootstrapScopeCondition(array $scope): string
+    private static function bootstrapScopeCondition(array $scope, bool $compact = false): string
     {
         if ('global' === ($scope['kind'] ?? null)) return 'true';
         if ('archive' === ($scope['kind'] ?? null)) return var_export($scope['route_path'], true) . ' === blocks_engine_archive_path()';
         if (!empty($scope['front_page'])) return 'is_front_page()';
         if ('post' === ($scope['kind'] ?? null)) return "is_singular( 'post' ) && " . var_export($scope['reconciliation_identity'], true) . " === get_post_meta( get_queried_object_id(), '_blocks_engine_reconciliation_identity', true )";
+        if ($compact) return "0 !== \$blocks_engine_page_id && ( '' !== \$blocks_engine_page_identity ? " . var_export($scope['reconciliation_identity'], true) . " === \$blocks_engine_page_identity : " . var_export($scope['route_path'], true) . " === \$blocks_engine_page_uri )";
         return "0 !== ( \$blocks_engine_page_id = " . self::DOCUMENT_ID_EXPRESSION . " ) && ( '' !== ( \$blocks_engine_page_identity = get_post_meta( \$blocks_engine_page_id, '_blocks_engine_reconciliation_identity', true ) ) ? " . var_export($scope['reconciliation_identity'], true) . " === \$blocks_engine_page_identity : 'page' === get_post_type( \$blocks_engine_page_id ) && " . var_export($scope['route_path'], true) . " === trim( get_page_uri( \$blocks_engine_page_id ), '/' ) )";
     }
     private static function assertAssetScopes(mixed $scopes): void
@@ -8085,7 +8397,7 @@ PHP;
                 }
                 if (!is_string($name) || !is_string($value) || !in_array(strtolower($name), array('url', 'src', 'href', 'poster', 'action', 'srcset'), true)) continue;
                 $routeField = $route && 'url' === strtolower($name) ? 'route_url' : (in_array(strtolower($name), array('href', 'action'), true) ? 'route_' . strtolower($name) : strtolower($name));
-                foreach ('srcset' === strtolower($name) ? self::srcsetCandidates($value) : array($value) as $candidate) $assertReference($candidate, 'json:' . $routeField);
+                foreach ('srcset' === strtolower($name) ? SrcsetParser::urls($value) : array($value) as $candidate) $assertReference($candidate, 'json:' . $routeField);
             }
         };
         foreach (HtmlMarkupParser::htmlMarkupNodes($content) as $node) {
@@ -8100,7 +8412,7 @@ PHP;
                 if (!in_array($name, array('xlink:href', 'srcset', 'src', 'href', 'poster', 'action', 'style'), true)) continue;
                 if ('action' === $name && 'form' !== $node['name']) continue;
                 if ('style' === $name) { $assertCss($value, 'style_attribute'); continue; }
-                foreach ('srcset' === $name ? self::srcsetCandidates($value) : array($value) as $candidate) $assertReference($candidate, $name, $node['name'], 'link' === $node['name'] && self::isRouteLink($node['attributes']));
+                foreach ('srcset' === $name ? SrcsetParser::urls($value) : array($value) as $candidate) $assertReference($candidate, $name, $node['name'], 'link' === $node['name'] && self::isRouteLink($node['attributes']));
             }
             if ('style' === $node['kind']) $assertCss($node['css'], 'style_block');
             if ('comment' === $node['kind'] && preg_match('~^\s*wp:~i', $node['content'])) {
@@ -8112,7 +8424,7 @@ PHP;
                     foreach ($fields as $field) {
                         $name = strtolower($field[1]);
                         $routeField = $route && 'url' === $name ? 'route_url' : (in_array($name, array('href', 'action'), true) ? 'route_' . $name : $name);
-                        foreach ('srcset' === $name ? self::srcsetCandidates($field[2]) : array($field[2]) as $candidate) $assertReference(str_replace('\\/', '/', (string) $candidate), 'json:' . $routeField);
+                        foreach ('srcset' === $name ? SrcsetParser::urls($field[2]) : array($field[2]) as $candidate) $assertReference(str_replace('\\/', '/', (string) $candidate), 'json:' . $routeField);
                     }
                 }
             }
@@ -8121,11 +8433,6 @@ PHP;
     /** @return array<string,mixed>|null */
     private static function blockCommentAttributes(string $comment): ?array { if (!preg_match('~^\s*wp:[^\s{]+\s+(\{.*\})\s*/?\s*$~s', $comment, $payload)) return null; $attributes = json_decode($payload[1], true); return is_array($attributes) ? $attributes : null; }
     private static function jsonUrlIsRoute(string $comment): bool { if (!preg_match('~^\s*wp:([^\s{]+)~i', $comment, $block)) return false; return in_array(strtolower($block[1]), self::ROUTE_URL_BLOCKS, true); }
-    /** @return array<int,string> */
-    private static function srcsetCandidates(string $srcset): array
-    {
-        return SrcsetParser::urls($srcset);
-    }
     /** @param array<string,bool> $tokens @param array<string,array<string,mixed>> $writes */
     private static function assertResolution(array $plan, array $tokens, array $writes): void
     {
@@ -8201,7 +8508,8 @@ PHP;
         $localTime = null;
         $format = null; $input = $value;
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) $format = '!Y-m-d';
-        elseif (preg_match('/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/', $value, $match)) { $input = $match[1] . ('Z' === $match[2] ? '+00:00' : $match[2]); $format = '!Y-m-d\\TH:i:sP'; }
+        // ISO 8601 allows the basic offset form (-0500); normalize it to -05:00.
+        elseif (preg_match('/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.\d+)?(?:(Z)|([+-]\d{2}):?(\d{2}))$/', $value, $match)) { $input = $match[1] . ('Z' === $match[2] ? '+00:00' : $match[3] . ':' . $match[4]); $format = '!Y-m-d\\TH:i:sP'; }
         if (null === $format) return null;
         $timestamp = self::utcFromFormat($format, $input);
         // The same validated, seconds-precision input used for UTC conversion
@@ -8223,6 +8531,10 @@ PHP;
             if ($first > 31 || $second > 31 || $first < 1 || $second < 1) return null;
             $format = $first > 12 && $second <= 12 ? '!j/n/Y' : '!n/j/Y';
             return self::utcFromFormat($format, $first . '/' . $second . '/' . $match[3]);
+        }
+        // A dotted numeric date is day-first wherever it is written (de, ru, pl, cs, fi, tr).
+        if (preg_match('/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/', $value, $match)) {
+            return self::utcFromFormat('!j.n.Y', (int) $match[1] . '.' . (int) $match[2] . '.' . $match[3]);
         }
         // A closed vocabulary, not locale/strtotime guessing. All aliases in a
         // row denote the same month across fr, es, de, it, pt and nl.

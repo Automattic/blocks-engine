@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
 use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
@@ -180,6 +181,7 @@ final class ShellExtraction
                     $candidate = self::withVariantSourceIdentity($candidate, $page['_source_shared_variant_identities'][$candidate['area']] ?? array());
                     continue;
                 }
+                if (!empty($candidate['device_document_bundle'])) continue;
                 // Already-equivalent compiled shells keep their existing
                 // context-sensitive support assets and presentation intact.
                 if (count($identities[$candidate['area']]) < 2) continue;
@@ -192,8 +194,15 @@ final class ShellExtraction
                 $artifact = self::sourceSharedShellArtifact($artifacts, $page, $candidate['area'], $variant);
                 if (null === $artifact) continue;
                 $markup = (string) $artifact['canonical_block_markup'];
+                // Area and position match an artifact to a candidate, not its
+                // extent: chrome detected around the landmark (an off-canvas
+                // drawer) is absent from a landmark-only artifact.
+                if (array() !== array_diff(self::textRuns($candidate['markup']), self::textRuns($markup))) continue;
                 $candidate['identity_markup'] = self::normalizeNestedChromeMarkup($markup);
-                $candidate['template_part_markup'] = self::landmarkPartMarkup(self::withoutCurrentNavigationState($markup), $candidate['area']);
+                // Isolation proves shared identity, not presentation. Retain
+                // the route compilation's selector and geometry carriers: the
+                // isolated shell was compiled against a different style context.
+                $candidate['template_part_markup'] = self::landmarkPartMarkup(self::withoutCurrentNavigationState(str_contains($markup, CaptureEvidence::VIEWPORT_ENTRANCE . '=') ? $markup : $candidate['markup']), $candidate['area']);
             }
             unset($candidate);
         }
@@ -202,6 +211,18 @@ final class ShellExtraction
     }
 
     /** @return array<string,mixed>|null */
+    /** @return array<int,string> Visible text runs of block markup. */
+    private static function textRuns(string $markup): array
+    {
+        $source = preg_replace(array('/<!--.*?-->/s', '#<(script|style|template)\b[^>]*>.*?</\1\s*>#is'), '', $markup) ?? '';
+        $runs = array();
+        foreach (preg_split('/<[^>]*>/', $source) ?: array() as $run) {
+            $run = trim(preg_replace('/\s+/u', ' ', html_entity_decode($run, ENT_QUOTES | ENT_HTML5)) ?? '');
+            if (preg_match('/[\p{L}\p{N}]/u', $run)) $runs[$run] = $run;
+        }
+        return array_values($runs);
+    }
+
     private static function sourceSharedShellArtifact(array $artifacts, array $page, string $area, int $variant): ?array
     {
         $matches = array_values(array_filter($artifacts, static fn(array $artifact): bool =>
@@ -223,17 +244,27 @@ final class ShellExtraction
         return $row;
     }
 
-    public static function documentChromeIdentity(string $markup): string
+    public static function documentChromeIdentity(string $markup, ?string $document = null): string
     {
         // Only generated identity is ignored; authored ids, classes and all
         // content remain significant. Device variants are compared separately.
         $markup = preg_replace('/be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?/', '', $markup) ?? $markup;
+        $references = array();
+        preg_match_all('/\s(?:href|for|aria-[\w-]+)\s*=\s*([\'\"])(.*?)\1/is', $document ?? $markup, $attributes, PREG_SET_ORDER);
+        foreach ($attributes as $attribute) {
+            foreach (preg_split('/\s+/', html_entity_decode($attribute[2], ENT_QUOTES | ENT_HTML5)) ?: array() as $value) {
+                $references[ltrim($value, '#')] = true;
+            }
+        }
+        $markup = preg_replace_callback('/("(?:anchor|id)"\s*:\s*"|\sid\s*=\s*[\'\"])(yui_\d+_[\w-]+)([\'\"])/', static fn(array $match): string => isset($references[$match[2]]) ? $match[0] : $match[1] . $match[3], $markup) ?? $markup;
         $suffix = (string) DocumentVariantIds::suffixForClass(CaptureEvidence::MOBILE_DOCUMENT_CLASS);
         // Block attribute JSON escapes hyphens; rendered HTML keeps them literal.
         $markup = str_replace(str_replace('--', '\\u002d\\u002d', $suffix), $suffix, $markup);
         $markup = preg_replace('/' . preg_quote($suffix, '/') . '\b/', '', $markup) ?? $markup;
-        $markup = preg_replace_callback('/("className"\s*:\s*"|\bclass=")([^"]*)"/', static function (array $match): string {
+        $markup = preg_replace_callback('/("(?:className|class)"\s*:\s*"|\bclass=")([^"]*)"/', static function (array $match): string {
             $classes = array_values(array_filter(preg_split('/\s+/', trim($match[2])) ?: array(), static fn(string $class): bool => !str_starts_with($class, EngineMarker::EDITOR_ANCHOR_PREFIX)));
+            // Squarespace toggles this state after measuring the slide layer.
+            if (in_array('sqs-slide-layer-content', $classes, true)) $classes = array_values(array_diff($classes, array('scroll')));
             sort($classes, SORT_STRING);
             return $match[1] . implode(' ', $classes) . '"';
         }, $markup) ?? $markup;
@@ -243,12 +274,23 @@ final class ShellExtraction
     /**
      * Move repeated siblings with a hoisted footer, not with post content.
      * Evidence comes from the original block-tree siblings in every contributing
-     * route and document scope. Varying or runtime-bound siblings stay per-page.
+     * route and document scope. Varying siblings or non-equivalent runtime
+     * entities stay per-page; equivalent bindings move with their chrome.
      *
-     * @return array{pages:array,parts:array}
+     * @return array{pages:array,parts:array,runtime_declarations:array,runtime_entity_records:array}
      */
-    public function withSharedFooterTrailingChrome(array $originals, array $pages, array $parts, array $declarations, array $records = array()): array
+    public function withSharedFooterTrailingChrome(array $originals, array $pages, array $parts, array $declarations, array $records = array(), array $assets = array()): array
     {
+        // Composition can supply content-addressed entities. Edit their resolved
+        // values here, then rebuild their records without changing storage form.
+        $manifestIndexes = array();
+        foreach ($declarations as $declarationIndex => &$declaration) {
+            if (RuntimeEntityManifest::SCHEMA !== ($declaration['payload']['schema'] ?? null)) continue;
+            $manifestIndexes[] = $declarationIndex;
+            $payload = $declaration['payload'];
+            $declaration['payload'] = array('schema' => $payload['entity_schema'], 'entities' => RuntimeEntityManifest::resolve($payload, $records));
+        }
+        unset($declaration);
         $this->resolveManifestEntities($declarations, $records);
         foreach ($parts as $partIndex => $part) {
             if ('footer' !== ($part['area'] ?? null) || 'shared_shell' !== ($part['placement']['kind'] ?? null)) continue;
@@ -259,7 +301,7 @@ final class ShellExtraction
                 $markup = $original['canonical_block_markup'];
                 $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
                 $nodes = self::blockNodes($index);
-                foreach ($this->nestedLandmarkCandidates($index, '', 'footer') as $row) {
+                foreach ($this->nestedLandmarkCandidates($index, '', 'footer', false) as $row) {
                     $scope = self::responsiveVariantClass($row) ?? '';
                     foreach ($nodes as $id => $node) {
                         if ($node['offset'] !== $row['offset'] || $node['end'] !== $row['offset'] + $row['length']) continue;
@@ -269,17 +311,19 @@ final class ShellExtraction
                             $tail = $nodes[$tailId];
                             $range = array('offset' => $tail['offset'], 'length' => $tail['end'] - $tail['offset']);
                             $bindings = $this->runtimeBindingsInRanges($declarations, $original, array($range));
-                            if ($bindings['blocked'] || array() !== $bindings['refs']) continue;
+                            if ($bindings['blocked']) continue;
                             $content = substr($markup, $range['offset'], $range['length']);
-                            $identity = self::documentChromeIdentity($content);
-                            $evidence[$scope][$tailPosition][$identity][$original['source_path']] = $content;
+                            $identity = self::documentChromeIdentity($content, $markup);
+                            $identity = self::engineMarkerChromeIdentity($identity, $original['source_path'], $assets, substr_replace($markup, '<!--engine-chrome-start-->' . $content . '<!--engine-chrome-end-->', $range['offset'], $range['length']));
+                            $evidence[$scope][$tailPosition][$identity][$original['source_path']] = array('content' => $content, 'refs' => $bindings['refs']);
                         }
                     }
                 }
             }
             $partMarkup = $part['canonical_block_markup'];
             $insertions = array();
-            foreach ($this->nestedLandmarkCandidates(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($partMarkup), '', 'footer') as $row) {
+            $pendingBindings = array();
+            foreach ($this->nestedLandmarkCandidates(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($partMarkup), '', 'footer', false) as $row) {
                 $scope = self::responsiveVariantClass($row) ?? '';
                 $trailing = '';
                 foreach ($evidence[$scope] ?? array() as $identities) {
@@ -290,7 +334,7 @@ final class ShellExtraction
                     // copies or a retained footer cannot prove ownership.
                     $removals = array();
                     foreach ($pages as $index => $page) {
-                        $content = $contents[$page['source_path']] ?? null;
+                        $content = $contents[$page['source_path']]['content'] ?? null;
                         if (null === $content) continue;
                         $current = $page['canonical_block_markup'];
                         $matches = array();
@@ -309,26 +353,94 @@ final class ShellExtraction
                         }
                         if (1 !== count($matches)) continue;
                         $retained = false;
-                        foreach ($this->nestedLandmarkCandidates($currentIndex, '', 'footer') as $remaining) {
+                        foreach ($this->nestedLandmarkCandidates($currentIndex, '', 'footer', false) as $remaining) {
                             if ((self::responsiveVariantClass($remaining) ?? '') === $scope) $retained = true;
                         }
                         if (!$retained) $removals[$index] = array('offset' => $matches[0], 'content' => $content);
                     }
                     if (count($removals) !== count($sources)) continue;
+                    $bindingRefs = array();
+                    $originalIndexes = array();
+                    foreach ($originals as $originalIndex => $original) {
+                        if (!isset($contents[$original['source_path']])) continue;
+                        $originalIndexes[] = $originalIndex;
+                        $bindingRefs[$originalIndex] = $contents[$original['source_path']]['refs'];
+                    }
+                    $firstSource = array_key_first($contents);
+                    $first = array('source_path' => $firstSource, 'template_part_markup' => $contents[$firstSource]['content']);
+                    if (null === $this->sharedShellBindingHoist($declarations, $originals, $originalIndexes, $bindingRefs, $first, 'footer')) continue;
+                    $pendingBindings[] = array($originalIndexes, $bindingRefs, $first);
                     foreach ($removals as $index => $removal) {
                         $pages[$index]['canonical_block_markup'] = substr_replace($pages[$index]['canonical_block_markup'], '', $removal['offset'], strlen($removal['content']));
                         $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($pages[$index]['canonical_block_markup']);
                     }
-                    $trailing .= reset($contents);
+                    $trailing .= $contents[$firstSource]['content'];
                 }
                 if ('' !== $trailing) $insertions[$row['offset'] + $row['length']] = $trailing;
             }
             krsort($insertions, SORT_NUMERIC);
             foreach ($insertions as $offset => $content) $partMarkup = substr_replace($partMarkup, $content, $offset, 0);
+            $combined = array('keep' => array(), 'drop' => array());
+            foreach ($pendingBindings as [$originalIndexes, $bindingRefs, $first]) {
+                $first['template_part_markup'] = $partMarkup;
+                $hoist = $this->sharedShellBindingHoist($declarations, $originals, $originalIndexes, $bindingRefs, $first, 'footer');
+                if (null === $hoist) throw new \LogicException('Trailing chrome binding lost its part anchor.');
+                $combined['keep'] = array_merge($combined['keep'], $hoist['keep']);
+                $combined['drop'] = array_merge($combined['drop'], $hoist['drop']);
+            }
+            $declarations = self::applySharedShellBindingHoist($declarations, $combined, $part['source_path']);
             $parts[$partIndex]['canonical_block_markup'] = $partMarkup;
             $parts[$partIndex]['content_hash'] = WordPressSitePlan::contentHash($partMarkup);
         }
-        return array('pages' => $pages, 'parts' => $parts);
+        foreach ($manifestIndexes as $declarationIndex) {
+            $payload = $declarations[$declarationIndex]['payload'];
+            $manifest = RuntimeEntityManifest::fromEntities($payload['schema'], $payload['entities']);
+            $declarations[$declarationIndex]['payload'] = RuntimeDeclarations::canonical($manifest['payload']);
+            $records = array_values(array_column(array_merge($records, $manifest['records']), null, 'content_hash'));
+        }
+        return array('pages' => $pages, 'parts' => $parts, 'runtime_declarations' => $declarations, 'runtime_entity_records' => $records);
+    }
+
+    /**
+     * Compare generated markers by their emitted rules, including conditional
+     * context. Missing evidence keeps the class significant. The emitted copy
+     * keeps its original class, so support-CSS projection still sees its rules.
+     */
+    private static function engineMarkerChromeIdentity(string $markup, string $source, array $assets, string $documentMarkup): string
+    {
+        preg_match_all('/\bblocks-engine-responsive-typography-[a-f0-9]+\b/', $markup, $typography);
+        $classes = array_unique(array_merge(EngineMarker::all($markup), $typography[0]));
+        $replacements = array();
+        // Read the original copy, not its normalized identity, with its document
+        // ancestors intact. Boundary comments add no selector-visible wrapper.
+        $document = new \DOMDocument();
+        $document->loadHTML('<?xml encoding="UTF-8"><html><body>' . $documentMarkup . '</body></html>', LIBXML_NOERROR | LIBXML_NOWARNING);
+        $elements = (new \DOMXPath($document))->query('//*[preceding::comment()[.="engine-chrome-start"] and following::comment()[.="engine-chrome-end"]]');
+        foreach ($classes as $class) {
+            $kind = EngineMarker::withoutDocumentSeeds($class);
+            if ($kind === $class) $kind = 'blocks-engine-responsive-typography';
+            $rules = array();
+            foreach ($assets as $asset) {
+                if ('css' !== ($asset['kind'] ?? null) || !StylesheetActivation::active($asset) || !self::stylesheetAppliesToPages($asset, array($source))) continue;
+                (new CssStylesheetTransformer())->visitStyleRules((string) ($asset['content'] ?? ''), static function (string $selector, string $body, array $ancestors) use ($class, $kind, $elements, &$rules): void {
+                    // A grouped rule can name several documents' copies. Compare
+                    // only the arms emitted for this marker, not its neighbours.
+                    foreach (CssStylesheetTransformer::splitSelectorList($selector) ?? array() as $arm) {
+                        if (!preg_match('/\.' . preg_quote($class, '/') . '(?![\w-])/', $arm)) continue;
+                        $parsed = CssSelectorMatcher::parse($arm);
+                        $applies = !$parsed['supported'] || null !== $parsed['pseudo_state_suffix_span'];
+                        foreach ($elements ?: array() as $element) {
+                            if ($applies) break;
+                            $match = CssSelectorMatcher::matches($element, $parsed);
+                            $applies = !$match['supported'] || $match['matches'];
+                        }
+                        if ($applies) $rules[] = array($ancestors, str_replace($class, $kind, trim($arm)), trim($body));
+                    }
+                });
+            }
+            if (array() !== $rules) $replacements[$class] = $kind . '-' . RuntimeDeclarations::hash($rules);
+        }
+        return strtr($markup, $replacements);
     }
 
     /** @var array<string,array<int,array<string,mixed>>> Entities of this call's manifest declarations, by payload hash. */
@@ -488,6 +600,11 @@ final class ShellExtraction
                 continue;
             }
             $chrome = substr($markup, $chromeRange['offset'], $chromeRange['length']);
+            // The navigation child holds the page itself when it also holds
+            // the main landmark; its sibling is then a trailing layer.
+            if (self::containsMainLandmark($chrome)) {
+                continue;
+            }
             $content = substr($markup, $contentRange['offset'], $contentRange['length']);
             $opening = self::blockOpeningMarkup($wrapper);
             if (null === $opening) {
@@ -555,7 +672,7 @@ final class ShellExtraction
             }
             $partMarkup = self::landmarkPartMarkup(self::withoutCurrentNavigationState($row['markup']), $area);
             $identity = $row['identity_markup'];
-            if (1 < count(array_unique($identities))) {
+            if (1 < count(array_unique($identities)) || (1 < count($scoped) && !isset($scoped['']))) {
                 if (isset($scoped[''])) continue;
                 // Labelled landmarks (including leading chrome) already have
                 // a responsive absorption path; do not preempt that ownership.
@@ -576,7 +693,7 @@ final class ShellExtraction
                 'source_path' => $sourcePath,
                 'source_hash' => $row['source_hash'],
                 'nested_shell' => true,
-                'shared_only' => true,
+                'device_document_bundle' => count($scoped) > 1 && !isset($scoped['']),
                 'offset' => $row['offset'],
                 'length' => $row['length'],
                 'additional_ranges' => $additional,
@@ -786,7 +903,8 @@ final class ShellExtraction
         return str_contains($markup, '"tagName":"main"')
             || str_contains($markup, '<main ')
             || str_contains($markup, '<main>')
-            || str_contains($markup, '<!-- wp:post-content');
+            || str_contains($markup, '<!-- wp:post-content')
+            || ShellLandmarkPolicy::containsNamedMainLandmark($markup);
     }
 
     private static function isEmptyVisualGroup(string $markup): bool
@@ -1711,11 +1829,15 @@ final class ShellExtraction
             // Nesting that bundle beneath one viewport would hide the other;
             // retain the existing partition contract for those bundles.
             foreach ($cluster['indexes'] as $index) {
+                if (!empty($candidates[$index][0]['device_document_bundle'])) { $inlineShell = false; break; }
                 $variants = $this->scopedVariantLandmarks($pages[$index]['canonical_block_markup'], $area);
                 if (!is_array($variants) || count($variants) < 2) continue;
                 $variantIdentities = array();
                 foreach ($variants as $rows) $variantIdentities = array_merge($variantIdentities, array_column($rows, 'identity_markup'));
-                if (count(array_unique($variantIdentities)) > 1) { $inlineShell = false; break; }
+                // Device documents are independent detection roots, not authored
+                // layout ancestors. Even equal variants must move together under
+                // their visibility scopes rather than leave references in content.
+                if (count(array_unique($variantIdentities)) > 1 || str_contains($pages[$index]['canonical_block_markup'], CaptureEvidence::DOCUMENT_SCOPE)) { $inlineShell = false; break; }
             }
             foreach ($applicable as $index => $page) if (!in_array($index, $cluster['indexes'], true)) $excluded[$index] = isset($candidates[$index]) ? 'non_equivalent' : 'missing';
             // 'search' is never an applicable page in its own right (WordPress
@@ -1815,8 +1937,9 @@ final class ShellExtraction
                 continue;
             }
             $absorbed = null;
-            foreach ($withoutShells as $withoutShell) {
-                if ($this->retainsResponsiveVariantLandmark($withoutShell, $area)) {
+            foreach ($withoutShells as $index => $withoutShell) {
+                $variants = $this->scopedVariantLandmarks($pages[$index]['canonical_block_markup'], $area);
+                if ($this->retainsResponsiveVariantLandmark($withoutShell, $area) || (!$inlineShell && is_array($variants) && count($variants) > 1)) {
                     $absorbed = $this->absorbResponsiveVariantLandmarks($pages, $cluster['indexes'], $area, $candidates, $withoutShells, $runtimeDeclarations);
                     break;
                 }
@@ -2381,11 +2504,22 @@ final class ShellExtraction
         $areas = array();
         foreach ($parts as $part) if ('inline_shared_shell' === ($part['placement']['kind'] ?? null) && in_array($part['area'] ?? null, array('header', 'footer'), true)) $areas[(string) $part['slug']] = (string) $part['area'];
         if (array() === $areas) return array('pages' => $pages, 'frames' => array(), 'generic_source' => null);
+        // Without a heading/main landmark, repeated wrapper structure can
+        // still prove the content boundary. Require the exact frame on every
+        // captured route; a route-specific chain retains in-place transport.
+        $invariant = array();
+        foreach ($pages as $index => $page) {
+            if (!empty($page['synthetic'])) continue;
+            $candidate = $this->shellFrame((string) ($page['canonical_block_markup'] ?? ''), $areas, true);
+            if (null !== $candidate) $invariant[$index] = $candidate;
+        }
+        $capturedCount = count(array_filter($pages, static fn(array $page): bool => empty($page['synthetic'])));
+        $invariant = $capturedCount >= 2 && count($invariant) === $capturedCount && 1 === count(array_unique(array_map(self::frameIdentity(...), $invariant))) ? $invariant : array();
         $frames = array();
         $split = array();
         foreach ($pages as $index => $page) {
             if (!empty($page['synthetic'])) continue;
-            $frame = $this->shellFrame((string) ($page['canonical_block_markup'] ?? ''), $areas);
+            $frame = $this->shellFrame((string) ($page['canonical_block_markup'] ?? ''), $areas) ?? ($invariant[$index] ?? null);
             if (null === $frame) continue;
             $ranges = array(array('offset' => 0, 'length' => strlen($frame['opening'])), array('offset' => strlen($page['canonical_block_markup']) - strlen($frame['closing']), 'length' => strlen($frame['closing'])));
             $found = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, $ranges);
@@ -2473,6 +2607,69 @@ final class ShellExtraction
     }
 
     /**
+     * Fold the chrome that follows the content slot in every template frame
+     * into the footer part.
+     *
+     * A frame repeats its trailing siblings (the footer wrapper around the
+     * part reference, and site-wide layers such as a consent banner or chat
+     * widget) verbatim in every template. When every frame ends with the same
+     * run (before any trailing modal dialog) and that run holds the one inline
+     * footer reference, the run is the
+     * footer: it moves into the part and each frame keeps one reference. The
+     * reference renders as a layout-transparent transport wrapper, so sibling
+     * order and paint are unchanged.
+     *
+     * @param array<string,array{opening:string,closing:string,shells:array<int,string>}> $frames
+     * @param array<int,array<string,mixed>> $parts
+     * @param array<int,array<string,mixed>> $pages
+     * @return array{frames:array<string,array{opening:string,closing:string,shells:array<int,string>}>,parts:array<int,array<string,mixed>>}
+     */
+    public function foldFrameTrailingChrome(array $frames, array $parts, array $pages): array
+    {
+        $unchanged = array('frames' => $frames, 'parts' => $parts);
+        $footers = array_keys(array_filter($parts, static fn(array $part): bool => 'footer' === ($part['area'] ?? null) && 'inline_shared_shell' === ($part['placement']['kind'] ?? null)));
+        if (1 !== count($footers)) return $unchanged;
+        $partIndex = $footers[0];
+        $slug = (string) $parts[$partIndex]['slug'];
+        $reference = '/<!--\s*wp:template-part\s+\{[^}]*"slug":"' . preg_quote($slug, '/') . '"[^}]*\}\s*\/-->/';
+        foreach ($pages as $page) if (1 === preg_match($reference, (string) ($page['canonical_block_markup'] ?? ''))) return $unchanged;
+        $slot = '<!-- wp:post-content {"className":"blocks-engine-frame-slot"} /-->';
+        $runs = array();
+        foreach ($frames as $template => $frame) {
+            if (!in_array($slug, $frame['shells'], true)) continue;
+            $markup = $frame['opening'] . $slot . $frame['closing'];
+            $nodes = self::blockNodes(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup));
+            $slotId = null;
+            foreach ($nodes as $id => $node) if ($node['offset'] === strlen($frame['opening'])) { $slotId = $id; break; }
+            if (null === $slotId) return $unchanged;
+            $parent = $nodes[$slotId]['parent'];
+            $siblings = null === $parent ? self::topLevelNodeIds($nodes) : $nodes[$parent]['children'];
+            $trailing = array_slice($siblings, (int) array_search($slotId, $siblings, true) + 1);
+            // A modal dialog mounted at the end belongs to its header trigger
+            // and renders in the top layer; it stays in the frame.
+            while (array() !== $trailing && self::isCapturedModalDialogBlock(substr($markup, $nodes[end($trailing)]['offset'], $nodes[end($trailing)]['end'] - $nodes[end($trailing)]['offset']))) array_pop($trailing);
+            if (array() === $trailing) return $unchanged;
+            $start = $nodes[$trailing[0]]['offset'];
+            $end = $nodes[$trailing[count($trailing) - 1]]['end'];
+            $run = substr($markup, $start, $end - $start);
+            if (1 !== preg_match_all($reference, $run, $found)) return $unchanged;
+            // Everything the frame holds after the slot outside this run (its
+            // closing wrappers) must not reference the part again.
+            if (1 !== preg_match_all($reference, $frame['closing'])) return $unchanged;
+            $runs[$template] = array('run' => $run, 'start' => $start - strlen($frame['opening']) - strlen($slot), 'reference' => $found[0][0]);
+        }
+        if (array() === $runs || 1 !== count(array_unique(array_map(static fn(array $run): string => self::frameIdentity(array('opening' => $run['run'], 'closing' => '')), $runs)))) return $unchanged;
+        $first = reset($runs);
+        $partMarkup = (string) preg_replace_callback($reference, static fn(): string => (string) $parts[$partIndex]['canonical_block_markup'], $first['run'], 1);
+        foreach ($runs as $template => $run) {
+            $frames[$template]['closing'] = substr_replace($frames[$template]['closing'], $run['reference'], $run['start'], strlen($run['run']));
+        }
+        $parts[$partIndex]['canonical_block_markup'] = $partMarkup;
+        $parts[$partIndex]['content_hash'] = WordPressSitePlan::contentHash($partMarkup);
+        return array('frames' => $frames, 'parts' => $parts);
+    }
+
+    /**
      * The captured dialog and its trigger are linked by id. The shared header
      * part holds one trigger, so a frame's dialog takes that trigger's id.
      *
@@ -2502,7 +2699,7 @@ final class ShellExtraction
      * @param array<string,string> $areas Inline shell part slug to its area.
      * @return array{opening:string,closing:string,content:string}|null
      */
-    private function shellFrame(string $markup, array $areas): ?array
+    private function shellFrame(string $markup, array $areas, bool $allowInvariantChain = false): ?array
     {
         $nodes = self::blockNodes(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup));
         if (array() === $nodes) return null;
@@ -2533,7 +2730,14 @@ final class ShellExtraction
             }
             $from = isset($positions['header']) ? $positions['header'] + 1 : 0;
             $to = isset($positions['footer']) ? $positions['footer'] - 1 : count($siblings) - 1;
-            if ($from <= $to && (count($refs) > 1 || self::nodesHoldPageHeading($markup, $nodes, array_slice($siblings, $from, $to - $from + 1)) || self::nodesHoldMain($markup, $nodes, array_slice($siblings, $from, $to - $from + 1)))) break;
+            // A footer at the end of a sole-child wrapper chain also has an
+            // unambiguous content gap, provided other routes prove that frame.
+            $chain = $allowInvariantChain && isset($positions['footer']) && !isset($positions['header']) && $positions['footer'] === count($siblings) - 1 && null !== $parent;
+            for ($up = $parent; $chain && null !== $up; $up = $nodes[$up]['parent']) {
+                $peers = null === $nodes[$up]['parent'] ? self::topLevelNodeIds($nodes) : $nodes[$nodes[$up]['parent']]['children'];
+                if (1 !== count($peers) || 'group' !== $nodes[$up]['name']) $chain = false;
+            }
+            if ($from <= $to && ($chain || count($refs) > 1 || self::nodesHoldPageHeading($markup, $nodes, array_slice($siblings, $from, $to - $from + 1)) || self::nodesHoldMain($markup, $nodes, array_slice($siblings, $from, $to - $from + 1)))) break;
             if (null === $parent || count($refs) > 1) return null;
             $parent = $nodes[$parent]['parent'];
         }
@@ -2847,7 +3051,7 @@ final class ShellExtraction
 
     private function retainsResponsiveVariantLandmark(string $markup, string $area): bool
     {
-        if (1 !== preg_match('/(?:' . preg_quote(CaptureEvidence::ATTRIBUTE_PREFIX, '/') . '[a-z][a-z0-9_-]{0,63}-document|site-document-variant-[a-z][a-z0-9_-]{0,31})/', $markup)) {
+        if (1 !== preg_match('/(?:' . preg_quote(CaptureEvidence::ATTRIBUTE_PREFIX, '/') . '[a-z][a-z0-9_-]{0,63}-document|' . preg_quote(CaptureEvidence::DESKTOP_ONLY_CLASS, '/') . '|' . preg_quote(CaptureEvidence::MOBILE_ONLY_CLASS, '/') . '|site-document-variant-[a-z][a-z0-9_-]{0,31})/', $markup)) {
             return false;
         }
         return array() !== $this->nestedLandmarkCandidates(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup), '', $area);
@@ -3079,18 +3283,20 @@ final class ShellExtraction
     public static function isResponsiveVariantClass(string $class): bool
     {
         return CaptureEvidence::isDeviceDocumentClass($class)
+            || CaptureEvidence::isDeviceIslandClass($class)
             || 1 === preg_match('/^site-document-variant-[a-z][a-z0-9_-]{0,31}$/', $class);
     }
 
     private static function responsiveVariantRank(string $class): int
     {
-        if (in_array($class, array(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, 'site-document-variant-default'), true)) return 0;
-        if (CaptureEvidence::MOBILE_DOCUMENT_CLASS === $class) return 1;
+        if (in_array($class, array(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, CaptureEvidence::DESKTOP_ONLY_CLASS, 'site-document-variant-default'), true)) return 0;
+        if (in_array($class, array(CaptureEvidence::MOBILE_DOCUMENT_CLASS, CaptureEvidence::MOBILE_ONLY_CLASS), true)) return 1;
         return 2;
     }
 
     /**
-     * A hoisted variant's device-document wrapper. Its rules and visibility
+     * A hoisted variant's device wrapper: its device document, nested
+     * device-only gate or root device island. Its rules and visibility
      * CSS select the device attributes, so a class-only group would detach
      * every device-gated rule from the part.
      *
@@ -3115,7 +3321,8 @@ final class ShellExtraction
     }
 
     /**
-     * The layout-shell wrapper that carries a capture device document, as a
+     * The layout-shell wrapper that carries a capture device document or a
+     * root device island (desktop-only/mobile-only), as a
      * shared part may repeat it: its tag, classes and device attributes. The
      * document id and scope marker stay with the page's own document.
      *
@@ -3129,7 +3336,8 @@ final class ShellExtraction
             $attributes = is_array($wrapper) && is_array($wrapper['attributes'] ?? null) ? $wrapper['attributes'] : array();
             if (!in_array($scopeClass, preg_split('/\s+/', trim((string) ($attributes['class'] ?? ''))) ?: array(), true)) continue;
             $kept = array_intersect_key($attributes, array_flip(array('class', EngineMarker::DEVICE_SCOPE_ATTRIBUTE, CaptureEvidence::DEVICE_DOCUMENT)));
-            if (!isset($kept[EngineMarker::DEVICE_SCOPE_ATTRIBUTE]) && !isset($kept[CaptureEvidence::DEVICE_DOCUMENT])) return null;
+            // A device island's class is itself the gate its visibility CSS selects.
+            if (!isset($kept[EngineMarker::DEVICE_SCOPE_ATTRIBUTE]) && !isset($kept[CaptureEvidence::DEVICE_DOCUMENT]) && !CaptureEvidence::isDeviceIslandClass($scopeClass)) return null;
             return array('block' => $blockName, 'wrapper' => array('tagName' => is_string($wrapper['tagName'] ?? null) ? $wrapper['tagName'] : 'div', 'attributes' => $kept));
         }
         return null;
@@ -3268,6 +3476,9 @@ final class ShellExtraction
     /** An element named footer by one of its classes or by its id. */
     private static function footerAreaFromName(string $className, string $anchor): ?string
     {
+        // Non-primary document ids carry an engine suffix; it is not part
+        // of the authored landmark name (block JSON has already been decoded).
+        $anchor = preg_replace('/' . preg_quote(CaptureEvidence::VARIANT_ID_SUFFIX_PREFIX, '/') . '[a-z][a-z0-9_-]*$/', '', $anchor) ?? $anchor;
         foreach (preg_split('/\s+/', trim($className . ' ' . $anchor)) ?: array() as $class) {
             if (in_array(strtolower($class), array('footer', 'site-footer', 'widget-footer', 'colophon', 'site-info'), true)) return 'footer';
         }
@@ -3302,7 +3513,9 @@ final class ShellExtraction
             if (!empty($page['synthetic'])) continue;
             ++$applicable;
             foreach ($page['shell_candidates'] ?? array() as $candidateIndex => $candidate) {
-                if ('header' !== $candidate['area']) continue;
+                // A bundled part has multiple presentation owners; rewriting
+                // just its primary range would discard the other device scopes.
+                if ('header' !== $candidate['area'] || !empty($candidate['device_document_bundle'])) continue;
                 $markup = $candidate['rest_markup'] ?? $candidate['markup'];
                 $nodes = self::blockNodes(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup));
                 foreach ($nodes as $node) {

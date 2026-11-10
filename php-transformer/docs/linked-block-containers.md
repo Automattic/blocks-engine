@@ -10,7 +10,7 @@ The same flattening applied to native `<button>` controls: a disclosure toggle s
 
 ## Verification
 
-- `composer install --no-interaction && composer test:canonical && composer test:parity`
+- `composer install --no-interaction && composer test:scripts && composer test:parity`
 - `composer topology-diff -- --baseline tools/topology-diff/baseline.json`
 - `node tools/visual-parity/tests/block-link-cards.mjs` (Chromium)
 

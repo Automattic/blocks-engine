@@ -47,9 +47,22 @@ final class AssetConsumers
         return $consumers;
     }
 
-    /** @param list<array<string,mixed>> $consumers @param array<string,true>|null $unreferenced */
-    public static function destination(array $consumers, array $asset = array(), ?array $unreferenced = null): string
+    /**
+     * SVGs whose text needs an embedded web font. The font is embedded into
+     * the theme write, and an SVG served as an image cannot load fonts from
+     * elsewhere, so these stay theme assets even when a block references them.
+     *
+     * @param array<string,mixed> $plan @return array<string,true>
+     */
+    public static function fontEmbeddingSvgs(array $plan): array
     {
+        return array_fill_keys(array_column($plan['theme']['font_materialization']['webfont_contract']['svg_consumers'] ?? array(), 'source_path'), true);
+    }
+
+    /** @param list<array<string,mixed>> $consumers @param array<string,true>|null $unreferenced @param array<string,true> $fontEmbeddingSvgs */
+    public static function destination(array $consumers, array $asset = array(), ?array $unreferenced = null, array $fontEmbeddingSvgs = array()): string
+    {
+        if (isset($fontEmbeddingSvgs[$asset['source_path'] ?? ''])) return 'theme';
         foreach ($consumers as $consumer) if ('block' === $consumer['kind']) return 'media_library';
         if (null !== $unreferenced && isset($unreferenced[$asset['token'] ?? ''])) return 'none';
         return 'theme';
@@ -81,18 +94,55 @@ final class AssetConsumers
             . json_encode(array_values(array_filter($plan['writes'], static fn(array $write): bool => !isset($imageTargets[$write['target_path']]) && 'theme_bootstrap' !== ($write['kind'] ?? null))), $flags);
         $imagePayloads = array();
         foreach ($plan['writes'] as $write) if (isset($imageTargets[$write['target_path']]) && 'utf8' === ($write['payload']['encoding'] ?? null)) $imagePayloads[$write['target_path']] = (string) ($write['canonical_payload'] ?? $write['payload']['data'] ?? '');
+        // Scan each text once for the references it makes rather than
+        // rescanning the whole plan for every image. A reference the scan
+        // cannot represent, or a scan PCRE refuses, is searched literally.
+        // Only image tokens and targets are looked up, so each scan keeps just
+        // those hits rather than every token and quoted string it encloses.
+        $wanted = array('tokens' => array_fill_keys(array_map('strval', array_keys($images)), true), 'quoted' => $imageTargets);
+        $baseReferences = self::references($base, $wanted);
+        $payloadReferences = array_map(static fn (string $payload): ?array => self::references($payload, $wanted), $imagePayloads);
+        $scannable = null !== $baseReferences && !in_array(null, $payloadReferences, true);
         $unreferenced = array();
         do {
             $haystack = $base;
-            foreach ($imagePayloads as $target => $payload) if (!isset($unreferenced[$imageTargets[$target]])) $haystack .= "\n" . $payload;
+            $tokens = $baseReferences['tokens'] ?? array();
+            $quoted = $baseReferences['quoted'] ?? array();
+            foreach ($imagePayloads as $target => $payload) {
+                if (isset($unreferenced[$imageTargets[$target]])) continue;
+                $haystack .= "\n" . $payload;
+                if ($scannable) {
+                    $tokens += $payloadReferences[$target]['tokens'];
+                    $quoted += $payloadReferences[$target]['quoted'];
+                }
+            }
             $next = array();
             foreach ($images as $token => $target) {
-                $referenced = str_contains($haystack, WordPressSitePlan::TOKEN_PREFIX . $token . '}}') || str_contains($haystack, '"' . $target . '"');
+                $referenced = $scannable && !str_contains((string) $token, '}') && !str_contains($target, '"')
+                    ? isset($tokens[(string) $token]) || isset($quoted[$target])
+                    : str_contains($haystack, WordPressSitePlan::TOKEN_PREFIX . $token . '}}') || str_contains($haystack, '"' . $target . '"');
                 if (!$referenced) $next[$token] = true;
             }
             $stable = $next === $unreferenced;
             $unreferenced = $next;
         } while (!$stable);
         return $unreferenced;
+    }
+
+    /**
+     * The wanted asset tokens a text references, and the wanted quote-free
+     * strings it encloses in double quotes, overlapping enclosures included:
+     * exactly the values `str_contains()` finds for a `}`-free token or
+     * `"`-free target.
+     *
+     * @param array{tokens: array<string,mixed>, quoted: array<string,mixed>} $wanted
+     * @return array{tokens: array<string,true>, quoted: array<string,true>}|null
+     */
+    private static function references(string $text, array $wanted): ?array
+    {
+        if (false === preg_match_all('/' . preg_quote(WordPressSitePlan::TOKEN_PREFIX, '/') . '(?=([^}]*)\}\})/', $text, $tokens)) return null;
+        $tokens = array_intersect_key(array_fill_keys($tokens[1], true), $wanted['tokens']);
+        if (false === preg_match_all('/"(?=([^"]*)")/', $text, $quoted)) return null;
+        return array('tokens' => $tokens, 'quoted' => array_intersect_key(array_fill_keys($quoted[1], true), $wanted['quoted']));
     }
 }

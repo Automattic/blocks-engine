@@ -46,6 +46,13 @@ $assert('A' === ($branded['index.html'] ?? null), 'a multi-segment shared site-n
 $assert('B' === ($branded['about.html'] ?? null), 'a multi-segment shared site-name run is stripped whole', json_encode($branded));
 $assert('C' === ($branded['contact.html'] ?? null), 'each page keeps only its own segment', json_encode($branded));
 
+// A blog: bare post titles outnumber the "Page | Site" pages but do not vote.
+$blog = array('index.html' => $page('Home | Example Studio', 'Welcome'), 'about.html' => $page('About | Example Studio', 'Meet the team'), 'contact.html' => $page('Contact | Example Studio', 'Get in touch'));
+foreach (range(1, 4) as $post) $blog['post-' . $post . '.html'] = $page('Story number ' . $post, 'Story number ' . $post);
+$blog['post-5.html'] = $page('Lent - The Similarities', 'Lent');
+$blog = $titles($blog);
+$assert(array('About', 'Contact', 'Story number 1') === array($blog['about.html'] ?? null, $blog['contact.html'] ?? null, $blog['post-1.html'] ?? null), 'bare post titles do not outvote the pages\' shared site name', json_encode($blog));
+
 $spa = $titles(array(
     'index.html' => $page('Example Studio', 'Welcome'),
     'about.html' => $page('Example Studio', 'Meet the team'),
@@ -135,6 +142,36 @@ $named = $titles(array(
 ));
 $assert('Architectural Collection' === ($named['collection.html'] ?? null), 'a lower-case partial site name is still cut, not replaced by the first heading', json_encode($named));
 $assert('ABOUT my practice' === ($named['about.html'] ?? null), 'the variant site-name suffix is stripped', json_encode($named));
+
+// #5237: a route whose title names the site without the shared separator
+// ("About Acme") is still named by its page words, not its marketing heading.
+$nav = '<nav><a href="/about/index.html">About</a><a href="/trade/index.html">Trade Information</a><a href="/collections/index.html">Collections</a></nav>';
+$navPage = static fn (string $title, string $h1): string => '<!doctype html><html><head><title>' . $title . '</title></head><body><header>' . $nav . '</header><main><h1>' . $h1 . '</h1><p>Body</p></main></body></html>';
+$named = $titles(array(
+    'index.html' => $navPage('Acme — Porcelain', 'Tableware for hospitality'),
+    'trade/index.html' => $navPage('Trade Information — Acme', 'Working with trade partners'),
+    'collections/index.html' => $navPage('Collections — Acme', 'Our ranges'),
+    'about/index.html' => $navPage('About Acme', 'Ceramic character, thoughtfully chosen.'),
+));
+foreach ( array(
+    'trade/index.html' => 'Trade Information',
+    'collections/index.html' => 'Collections',
+    'about/index.html' => 'About',
+) as $path => $expected ) {
+    $assert($expected === ($named[$path] ?? null), $path . ' is named by its page words, not its heading', json_encode($named));
+}
+
+// #5270: repeated adjacent site-name segments must all be removed.
+$issuePage = static fn (string $title, string $heading): string => '<!doctype html><html><head><title>' . $title . '</title><meta property="og:title" content="' . $heading . ' | Acme"></head><body><main><h1>' . $heading . '</h1><p>Body.</p></main></body></html>';
+$issue = $titles(array(
+    'index.html' => $issuePage('Acme | Codes and Tools for the Trades', 'Home'),
+    'electrical/index.html' => $issuePage('Electrical | Acme | Acme', 'Electrical'),
+    'plumbing/index.html' => $issuePage('Plumbing | Acme | Acme', 'Plumbing'),
+    'about/index.html' => $issuePage('About Acme | Acme', 'About Acme'),
+));
+foreach ( array('electrical/index.html' => 'Electrical', 'plumbing/index.html' => 'Plumbing', 'about/index.html' => 'About Acme') as $path => $expected ) {
+    $assert($expected === ($issue[$path] ?? null), "#5270 $path", json_encode($issue));
+}
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "document title page names: {$failures} failed, {$passes} passed\n");

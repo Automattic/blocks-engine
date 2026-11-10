@@ -77,7 +77,7 @@ final class ScrollStateProjector
                 $diagnostics[] = $this->diagnostic('captured_scroll_state_limit_exceeded', 'warning', 'A captured scroll-state page exceeded the toggle limit.', array('source_url' => $page['sourceUrl'], 'max_toggles' => self::MAX_TOGGLES_PER_PAGE));
                 continue;
             }
-            $path = $routes[$this->normalizedUrl($page['sourceUrl'])] ?? '';
+            $path = $routes[CaptureReceiptRoutes::normalizedUrl($page['sourceUrl'])] ?? '';
             $index = $fileIndexes[$path] ?? null;
             if (! is_int($index) || ! is_string($files[$index]['content'] ?? null)) {
                 $diagnostics[] = $this->diagnostic('captured_scroll_state_source_unmatched', 'warning', 'A captured scroll-state page did not match an artifact HTML document.', array('source_url' => $page['sourceUrl']));
@@ -497,11 +497,6 @@ final class ScrollStateProjector
             return is_array($decoded) ? $decoded : null;
         }
         return null;
-    }
-
-    private function normalizedUrl(string $url): string
-    {
-        return CaptureReceiptRoutes::normalizedUrl($url);
     }
 
     /** @param array<string, mixed> $context @return array<string, mixed> */

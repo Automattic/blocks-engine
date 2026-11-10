@@ -10,6 +10,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormContr
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
@@ -53,7 +54,8 @@ final class FormControlMetadataBuilder
         private readonly ?Closure $hiddenState = null,
         private readonly ?HtmlTransformerSession $session = null,
         private readonly ?Closure $richTextContent = null,
-        private readonly ?Closure $controlCarrierClasses = null
+        private readonly ?Closure $controlCarrierClasses = null,
+        private readonly ?StyleResolver $styleResolver = null
     ) {
     }
 
@@ -452,6 +454,15 @@ final class FormControlMetadataBuilder
         // guessing, via this internal marker stripped before publication.
         if ( array() !== $description['ambiguous'] ) {
             $metadata['_unresolved_description_candidates'] = array_slice($description['ambiguous'], 0, 4);
+        }
+
+        // A link the author gave a button role names its action by its text,
+        // exactly as a native button does; a provider control needs that wording.
+        if ( 'a' === $tagName && 'button' === strtolower(SourceDom::attr($control, 'role')) ) {
+            $text = $this->buttonText($control);
+            if ( '' !== $text ) {
+                $metadata['text'] = $text;
+            }
         }
 
         if ( in_array($type, array( 'button', 'reset', 'submit' ), true) ) {
@@ -1178,8 +1189,19 @@ final class FormControlMetadataBuilder
         return false;
     }
 
-    private function labelTextWithoutControls(DOMNode $node): string
+    private function labelTextWithoutControls(DOMNode $node, bool $visibleOnly = false): string
     {
+        if ( $visibleOnly && $node instanceof DOMElement ) {
+            if ( $node->hasAttribute('hidden') ) {
+                return '';
+            }
+            $declarations = $this->styleResolver?->collapsedViewportAuthorDeclarations($node, array( 'display', 'visibility' )) ?? array();
+            $display = strtolower(trim(CssValueInspector::withoutImportant($declarations['display'] ?? '')));
+            $visibility = strtolower(trim(CssValueInspector::withoutImportant($declarations['visibility'] ?? '')));
+            if ( 'none' === $display || 'hidden' === $visibility ) {
+                return '';
+            }
+        }
         if ( XML_TEXT_NODE === $node->nodeType ) {
             return $node->textContent ?? '';
         }
@@ -1195,15 +1217,15 @@ final class FormControlMetadataBuilder
         $seenControl = false;
         foreach ( $node->childNodes as $child ) {
             if ( $this->subtreeHasControl($child) ) {
-                $before .= $this->labelTextWithoutControls($child);
+                $before .= $this->labelTextWithoutControls($child, $visibleOnly);
                 $seenControl = true;
                 continue;
             }
             if ( $seenControl ) {
-                $after .= $this->labelTextWithoutControls($child);
+                $after .= $this->labelTextWithoutControls($child, $visibleOnly);
                 continue;
             }
-            $before .= $this->labelTextWithoutControls($child);
+            $before .= $this->labelTextWithoutControls($child, $visibleOnly);
         }
 
         return '' !== trim($before) ? $before : $before . $after;
@@ -1306,7 +1328,7 @@ final class FormControlMetadataBuilder
 
         $text = '';
         foreach ( $control->childNodes as $child ) {
-            $text .= $this->labelTextWithoutControls($child);
+            $text .= $this->labelTextWithoutControls($child, true);
         }
         $text = $this->collapseRepeatedLabel(trim(preg_replace('/\s+/', ' ', $text) ?? ''));
         return '' !== $text ? $text : trim(SourceDom::attr($control, 'value'));

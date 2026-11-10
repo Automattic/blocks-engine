@@ -107,9 +107,8 @@ $assert(
     '9: retainedWrapperLinkDeclarations() is the single source EngineSupportCss projects for the link inside a retained box'
 );
 $assert(
-    str_starts_with(LayoutParticipation::transferredFlexContainerDeclarations(), 'display:flex!important;')
-        && str_contains(LayoutParticipation::transferredFlexContainerDeclarations(), 'padding:inherit!important'),
-    '10: transferredFlexContainerDeclarations() restores a source flex container onto the link, inheriting wrapper padding'
+    str_starts_with(LayoutParticipation::transferredFlexContainerDeclarations(), 'display:flex!important;'),
+    '10: transferredFlexContainerDeclarations() restores a source flex container onto the link'
 );
 
 $block = ( new HtmlTransformer() )->transform(
@@ -145,6 +144,20 @@ foreach ( array( 'inline-block', 'inline-flex', 'inline-grid', 'inline-table' ) 
         2 === preg_match_all('/class="wp-block-button [^"]*\\b' . preg_quote($neutralButton . '-display-' . $display, '/') . '\\b/', $markup)
             && str_contains($cssOf($result), '>.wp-block-button__link{display:' . $display . '!important}'),
         'authored ' . $display . ' controls retain their display on the participating link',
+        $markup
+    );
+}
+
+// In-flow positioning must not blockify authored inline-level controls (#5007).
+foreach ( array( 'relative', 'sticky' ) as $position ) {
+    $result = ( new HtmlTransformer() )->transform(
+        '<style>.btn{display:inline-flex;position:' . $position . ';padding:8px;background:#ddd}</style>'
+        . '<main><a class="btn" href="/one">One</a><a class="btn" href="/two">Two</a></main>'
+    )->toArray();
+    $markup = (string) $result['serialized_blocks'];
+    $assert(
+        2 === preg_match_all('/class="wp-block-button [^"]*\\b' . preg_quote($neutralButton . '-display-inline-flex', '/') . '\\b/', $markup),
+        'position:' . $position . ' controls still share a line',
         $markup
     );
 }

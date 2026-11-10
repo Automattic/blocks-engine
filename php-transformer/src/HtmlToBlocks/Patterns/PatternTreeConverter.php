@@ -12,7 +12,7 @@ interface PatternTreeConverter
      * @param list<array<string, mixed>> $fallbacks
      * @return list<array<string, mixed>>
      */
-    public function children(DOMElement $element, array &$fallbacks, bool $captureUnsupported): array;
+    public function children(DOMElement $element, array &$fallbacks, bool $captureUnsupported, bool $preserveLinkContainers = false): array;
 
     /**
      * @param list<array<string, mixed>> $fallbacks
@@ -26,4 +26,14 @@ interface PatternTreeConverter
      * @return list<array<string, mixed>>
      */
     public function childrenWithoutTags(DOMElement $element, array &$fallbacks, array $excludedTags): array;
+
+    /**
+     * First recognizer among `$allowed` that claims `$element`; its fallbacks
+     * are appended to `$fallbacks` only when it wins.
+     *
+     * @param list<array<string, mixed>> $fallbacks
+     * @param list<class-string<PatternRecognizerInterface>> $allowed
+     * @return array<string, mixed>|null
+     */
+    public function patterns(DOMElement $element, array &$fallbacks, array $allowed): ?array;
 }

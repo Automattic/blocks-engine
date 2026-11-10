@@ -5,6 +5,7 @@ require __DIR__ . '/../../vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\MediaDispatchElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\MediaDispatchElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\PatternTreeFixture;
 
 $assertions = 0;
 $failures = array();
@@ -26,7 +27,7 @@ $elementFrom = static function (string $html): DOMElement {
 };
 
 $context = new MediaDispatchElementContext(
-    static fn (DOMElement $element, array &$fallbacks): ?array => $element->hasAttribute('data-placeholder') ? array( 'blockName' => 'core/group' ) : null,
+    new PatternTreeFixture(static fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => $element->hasAttribute('data-placeholder') ? array( 'blockName' => 'core/group' ) : null),
     static fn (DOMElement $element): ?array => $element->hasAttribute('data-drop') ? null : array( 'blockName' => 'core/image' ),
     static fn (DOMElement $element): ?array => array( 'blockName' => 'core/picture' ),
     static function (DOMElement $element, array &$fallbacks): ?array {

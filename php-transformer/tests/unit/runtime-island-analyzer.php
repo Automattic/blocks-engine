@@ -178,6 +178,23 @@ $assert($blockRuntime->recordBlockRuntimeDomContract($elementFrom('<section id="
 $assert(array(array('block_name' => 'core/group', 'tag' => 'section', 'selector' => '#mount')) === $runtimeDom->preservations(), 'runtime-block-native-preservation-recorded');
 $assert(! $blockRuntime->recordBlockRuntimeDomContract($elementFrom('<input id="mount">'), 'core/group'), 'runtime-form-control-block-contract-excluded');
 
+// The neutral-flow contract is opt-in: existing component lowerings retain
+// their broader safety policy, while light-DOM wrappers reject runtime/slots.
+$ordinary = $makeAnalyzer();
+$assert($ordinary->isSafeTransparentCustomElement($elementFrom('<size-watcher data-var="x"><header><a href="/">Logo</a></header></size-watcher>'), false, true), 'ordinary-flow-is-safe');
+foreach ( array(
+    '<size-watcher role="region"><header>Logo</header></size-watcher>',
+    '<size-watcher><header slot="header">Logo</header></size-watcher>',
+    '<size-watcher><slot>Logo</slot></size-watcher>',
+    '<size-watcher><template shadowrootmode="open"><header>Logo</header></template></size-watcher>',
+    '<size-watcher><header onclick="update()">Logo</header></size-watcher>',
+    '<size-watcher><header data-wp-interactive="app">Logo</header></size-watcher>',
+    '<size-watcher><header>Logo</header></size-watcher><script>customElements.define("size-watcher", class extends HTMLElement {});</script>',
+) as $unsafe ) {
+    $assert(! $ordinary->isSafeTransparentCustomElement($elementFrom($unsafe), false, true), 'non-neutral-flow-is-unsafe', $unsafe);
+}
+$assert(! $makeAnalyzer(array('#runtime-header'))->isSafeTransparentCustomElement($elementFrom('<size-watcher><header id="runtime-header">Logo</header></size-watcher>'), false, true), 'captured-runtime-target-is-unsafe');
+
 if ($failures) {
     fwrite(STDERR, implode("\n", $failures) . "\n");
     exit(1);

@@ -23,7 +23,8 @@ final class CssRuleAnalyzer
         $counters = array( 'order' => 0, 'retained' => 0, 'scanned' => 0, 'max_scanned' => $maxScannedSelectors ?? $maxSelectors );
 
         foreach ( $stylesheets as $sheet ) {
-            $css = (string) ( $sheet['content'] ?? '' );
+            // cascade_content is the sheet with its @imports expanded where they occur.
+            $css = (string) ( $sheet['cascade_content'] ?? $sheet['content'] ?? '' );
             $stream = $this->stylesheetStream($css, (string) ( $sheet['source_path'] ?? $sheet['path'] ?? '' ), (string) ( $sheet['source_hash'] ?? '' ), $this->linkCondition($sheet), $properties, $maxCssBytes, $maxConditionDepth);
             if ( ! $this->replay($stream, $maxRules, $maxSelectors, $retainSelector, $result, $counters) ) {
                 break;

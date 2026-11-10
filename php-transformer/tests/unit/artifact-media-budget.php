@@ -85,6 +85,14 @@ $interleavedResult = (new ArtifactNormalizer())->normalize($interleaved);
 $assert(1 === $interleavedResult['rejected_count'], 'Only the excess parsed source is rejected.');
 $assert(count($mediaFiles) === count($interleavedResult['files']), 'Exhausting the source count budget preserves all subsequent reference-backed media.');
 $assert(in_array('media/hero-39.jpg', array_column($interleavedResult['files'], 'path'), true), 'The final media reference survives an earlier source-count rejection.');
+// Media is never parsed, so it does not spend the parse-file budget: a
+// one-page artifact whose file budget admits only its page still keeps all 41
+// media files. Media has its own file budget, which refuses the excess.
+$fileBudget = static fn(array $limits): array => (new ArtifactNormalizer())->normalize(array('compiler_limits' => $limits + $mediaArtifact['compiler_limits']) + $mediaArtifact);
+$withinBudget = $fileBudget(array('max_files' => 1));
+$assert(42 === count($withinBudget['files']) && 0 === $withinBudget['rejected_count'], 'Reference-backed media does not count against the parse-file budget.');
+$overBudget = $fileBudget(array('max_files' => 1, 'max_media_files' => 10));
+$assert(11 === count($overBudget['files']) && 31 === $overBudget['rejected_count'] && in_array('media_file_limit_exceeded', array_column($overBudget['diagnostics'], 'code'), true), 'Reference-backed media is bounded by its own file budget.');
 
 $shared = (new ArtifactCompiler())->prepareShared($mediaArtifact, $reader);
 $assert(array('index') === $reader->reads, 'Staged preparation reads only the text payload it parses.');

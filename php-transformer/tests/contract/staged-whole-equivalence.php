@@ -21,6 +21,7 @@ $menu = '<header class="site-header"><nav class="menu"><a href="/index.html">Hom
 $page = static fn (string $title, string $links): string => '<!doctype html><html><head><title>' . $title . '</title>' . $links . '</head><body>' . $menu . '<main><h1>' . $title . '</h1><p>' . str_repeat($title . ' body. ', 6) . '</p></main></body></html>';
 $artifact = array(
     'entrypoint' => 'index.html',
+    'provenance' => array('source_url' => 'https://captured.example/'),
     'files' => array(
         array('path' => 'base.css', 'content' => 'body{margin:0}h1{font-size:2rem}'),
         array('path' => 'inner.css', 'content' => '.menu{display:flex;gap:2rem}.menu a{color:#123456;text-decoration:none;font-weight:700}'),
@@ -53,6 +54,8 @@ foreach ( $wholePages as $path => $markup ) {
         substr_count($markup, '<!-- wp:navigation ') . ' vs ' . substr_count($stagedPages[$path] ?? '', '<!-- wp:navigation ')
     );
 }
+$origin = static fn (array $plan): ?string => $plan['source']['provenance'][0]['source_url'] ?? null;
+$assert('https://captured.example/' === $origin($whole) && $origin($whole) === $origin($staged), 'both drivers keep the artifact source origin', json_encode(array($origin($whole), $origin($staged))));
 $slugs = static fn (array $plan): array => array_values(array_map(static fn (array $part): string => (string) $part['slug'], $plan['template_parts'] ?? array()));
 $assert($slugs($whole) === $slugs($staged), 'both drivers extract the same template parts', json_encode(array($slugs($whole), $slugs($staged))));
 $assert(str_contains($wholePages['about.html'] ?? '', 'color:#123456') || str_contains(implode('', array_column($whole['assets'] ?? array(), 'content')), '#123456'), 'the whole driver applies the stylesheet only the inner pages link');

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CapturedSelectableSetProjector;
@@ -21,14 +22,13 @@ final class CapturedSelectableSetConverter implements ElementConverter
     public const FLOW_LIST_LAST_CLASS = 'blocks-engine-tabs-flow-list-last';
 
     /**
-     * @param Closure(DOMElement, array<int, array<string, mixed>>&): array<int, array<string, mixed>> $convertChildren
      * @param Closure(): string $visuallyHiddenClassName
      * @param Closure(bool): string $flowClassName Registers and returns the class that lets the tab-list and tab-panels lay out as the source's trigger row and region did.
      */
     public function __construct(
         private readonly SourceBlockCreator $createBlock,
         private readonly ElementPresentationResolver $presentation,
-        private readonly Closure $convertChildren,
+        private readonly PatternTreeConverter $tree,
         private readonly Closure $visuallyHiddenClassName,
         private readonly Closure $flowClassName,
         private readonly HtmlTransformerSession $session
@@ -134,7 +134,7 @@ final class CapturedSelectableSetConverter implements ElementConverter
         $this->pruneDeadMemberContent($panels);
         $panelBlocks = array();
         foreach ($panels as $index => $panel) {
-            $children = ($this->convertChildren)($panel, $fallbacks);
+            $children = $this->tree->children($panel, $fallbacks, true);
             if (array() === $children) {
                 $text = trim(preg_replace('/\s+/', ' ', $panel->textContent ?? '') ?? '');
                 if ('' === $text) {

@@ -71,6 +71,31 @@ final class EmptyElementFootprint
         return $this->isEmptyVisualInlineCandidate($element);
     }
 
+    /**
+     * `opacity:0` and `visibility:hidden` stop a box from painting, not from
+     * taking space: an in-flow box keeps its padding, border, and definite
+     * size, and a painted ancestor shows that space. Only a box that is not
+     * rendered, is out of flow, or is a zero box takes none.
+     */
+    public function occupiesInFlowSpace(DOMElement $element): bool
+    {
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
+        if ( $this->isOutOfFlow($declarations)
+            || in_array(CssValueInspector::comparable((string) ($declarations['display'] ?? '')), array( 'none', 'contents' ), true)
+        ) {
+            return false;
+        }
+        foreach ( array_merge(self::VERTICAL_SPACE, array( 'width', 'min-width', 'border', 'border-top', 'border-right', 'border-bottom', 'border-left', 'border-width', 'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width' )) as $property ) {
+            $value = $this->styleResolver->resolveCssVariablesInValue((string) ($declarations[$property] ?? ''), $element);
+            foreach ( preg_split('/\s+/', CssValueInspector::comparable($value)) ?: array() as $token ) {
+                if ( $this->sourceElementClassifier->isPositiveCssLength($token) ) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     private function isEmptyLayoutItemSpacer(DOMElement $element): bool
     {
         $parent = $element->parentNode;

@@ -27,6 +27,8 @@ $cases = array(
     'different instant' => array($meta('2025-04-22T22:04:36Z'), $time('2025-04-24T00:04:36+02:00'), '2025-04-22T22:04:36Z', null),
     'UTC only' => array($meta('2025-04-22T22:04:36+00:00'), $time('2025-04-22T22:04:36Z'), '2025-04-22T22:04:36Z', null),
     'JSON-LD' => array('<script type="application/ld+json">{"@type":"BlogPosting","datePublished":"2025-04-23T00:04:36+02:00"}</script>', '', '2025-04-22T22:04:36Z', '2025-04-23T00:04:36+02:00'),
+    // Hosted builders (Squarespace) emit the ISO 8601 basic offset form.
+    'basic-form offset' => array('<script type="application/ld+json">{"@type":"Article","datePublished":"2020-05-22T16:47:35-0500"}</script>', '', '2020-05-22T21:47:35Z', '2020-05-22T16:47:35-05:00'),
     'meta offset' => array($meta('2025-04-23T00:04:36.123+02:00'), '', '2025-04-22T22:04:36Z', '2025-04-23T00:04:36+02:00'),
     'microdata offset' => array('', '<time itemprop="datePublished" datetime="2025-04-23T00:04:36+02:00">Published</time>', '2025-04-22T22:04:36Z', '2025-04-23T00:04:36+02:00'),
     'zero before nonzero' => array($meta('2025-04-22T22:04:36Z'), $time('2025-04-22T22:04:36+00:00') . $time('2025-04-23T00:04:36+02:00'), '2025-04-22T22:04:36Z', '2025-04-23T00:04:36+02:00'),

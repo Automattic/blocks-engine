@@ -9,6 +9,7 @@ if ($bootstrap = getenv('SHARED_TITLE_WORDPRESS_BOOTSTRAP')) {
 }
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
@@ -89,7 +90,7 @@ foreach ($plan['pages'] as $page) {
     $ordinary = array('blockName' => 'core/site-title', 'attrs' => array('level' => 3));
     $assert($ordinary === $resolveTitle($ordinary), 'Unmarked site titles retain authored levels.');
     $assert(!str_contains($page['canonical_block_markup'], '<header') && !str_contains($page['canonical_block_markup'], 'Garden Studio'), $cell . ': Page content does not repeat header markup.');
-    $template = array_column($plan['templates'], 'canonical_block_markup', 'slug')[$page['route_template'] ?? ($page['entrypoint'] ? 'front-page' : 'page')] ?? '';
+    $template = WordPressSitePlan::renderedTemplates($plan)[$page['route_template'] ?? ($page['entrypoint'] ? 'front-page' : 'page')] ?? '';
     $assert(str_contains($template . $page['canonical_block_markup'], 'wp:template-part {"slug":"' . $headers[0]['slug'] . '"'), $cell . ': Every route references the shared header.');
 }
 }

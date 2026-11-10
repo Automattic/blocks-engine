@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ImageLowering;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ElementConversionPrelude;
@@ -36,10 +37,6 @@ final class EngineSupportCss
         return ':root .' . $marker . ':has(.wp-block-navigation__responsive-container.is-menu-open){' . implode(';', $declarations) . '}';
     }
 
-    private const BACKGROUND_IMAGE_CLASS = 'blocks-engine-background-image';
-
-    private const BACKGROUND_IMAGE_SCALE_CLASS_PREFIX = 'blocks-engine-background-image-';
-
     private const EMPTY_FLEX_ITEM_CLASS = 'blocks-engine-empty-flex-item';
 
     private const EMPTY_FLEX_ITEM_COLUMN_CLASS = 'blocks-engine-empty-flex-column-item';
@@ -55,6 +52,20 @@ final class EngineSupportCss
     private const CSS_OWNED_FLOW_CLASS = 'blocks-engine-css-owned-flow';
 
     private const CSS_OWNED_GRID_CLASS = 'blocks-engine-css-owned-grid';
+
+
+    /**
+     * Synthesized boxes whose zero-margin reset ({@see self::coreDefaultResetCss()})
+     * shares the flow revert's weight. Each converted document ships its own
+     * stylesheet, so a later document's revert would otherwise win by order.
+     */
+    private const ZERO_MARGIN_BOX_CLASSES = array(
+        SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS,
+        SourceBlockAttributeProjector::SYNTHETIC_EMBED_FIGURE_CLASS,
+        SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS,
+        SourceBlockAttributeProjector::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS,
+        HtmlCompilation::LOWERED_PARAGRAPH_CLASS,
+    );
 
     /**
      * @return list<string>
@@ -206,15 +217,15 @@ final class EngineSupportCss
             $parts[] = ':root .wp-block-image.' . SourceBlockAttributeProjector::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS . ' img{display:inline}'
                 . 'figure.wp-block-image:where(.' . SourceBlockAttributeProjector::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS . ') img{vertical-align:baseline}';
         }
-        if ( str_contains($serializedBlocks, self::BACKGROUND_IMAGE_CLASS) ) {
+        if ( str_contains($serializedBlocks, ImageLowering::BACKGROUND_IMAGE_CLASS) ) {
             // The source painted this image as a background, where the element's
             // own box decides the size and the image never overflows it. core's
             // scale attribute only reaches the image when width and height are
             // saved, so the sized cases carry that contract here instead.
-            $parts[] = ':root :where(.' . self::BACKGROUND_IMAGE_CLASS . ') img{max-width:100%}'
-                . "\n" . ':root :where(.' . self::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'cover,.' . self::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'contain){width:100%;height:100%}'
-                . "\n" . ':root :where(.' . self::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'cover) img{width:100%;height:100%;object-fit:cover}'
-                . "\n" . ':root :where(.' . self::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'contain) img{width:100%;height:100%;object-fit:contain}';
+            $parts[] = ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_CLASS . ') img{max-width:100%}'
+                . "\n" . ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'cover,.' . ImageLowering::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'contain){width:100%;height:100%}'
+                . "\n" . ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'cover) img{width:100%;height:100%;object-fit:cover}'
+                . "\n" . ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'contain) img{width:100%;height:100%;object-fit:contain}';
         }
         if ( str_contains($serializedBlocks, AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS) ) {
             $parts[] = ':where(p.' . AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS . '){display:contents;margin:0!important;padding:0!important;border:0!important}';
@@ -242,7 +253,7 @@ final class EngineSupportCss
                 . ':root .editor-styles-wrapper :where(.' . self::CSS_OWNED_LAYOUT_CLASS . ')>div:not([class]):not([id]):not([style]):has(>[data-block].wp-block-group__placeholder){display:contents}';
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_FLOW_CLASS) ) {
-            $parts[] = ':root :where(.' . self::CSS_OWNED_FLOW_CLASS . '>p){margin-top:revert;margin-bottom:revert}';
+            $parts[] = ':root :where(.' . self::CSS_OWNED_FLOW_CLASS . '>p' . self::notZeroMarginBox() . '){margin-top:revert;margin-bottom:revert}';
         }
         if ( str_contains($serializedBlocks, ButtonLinkDispatcher::POSITIONED_FRAGMENT_LINK_CARRIER_CLASS) ) {
             // Positioned fragment links retain their source anchor and selectors;
@@ -253,6 +264,9 @@ final class EngineSupportCss
             // Empty labelled links have no intrinsic inline box. Fill the
             // paragraph host, whose saved block attributes carry source geometry.
             $parts[] = ':where(a.' . ButtonLinkDispatcher::ACCESSIBLE_EMPTY_LINK_CLASS . '){display:block;width:100%;height:100%;min-height:inherit}';
+        }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::INLINE_FLOW_WRAPPER_CLASS) ) {
+            $parts[] = ':where(.' . SourceBlockAttributeProjector::INLINE_FLOW_WRAPPER_CLASS . '){display:contents}';
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTONS_CLASS) ) {
             // A synthesized core/buttons wrapper is required for validity, but it
@@ -275,11 +289,13 @@ final class EngineSupportCss
             // descendant that still generates a box. See
             // LayoutParticipation::transferredItemDeclarations().
             $neutralButton = SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS;
+            $flexContainers = '.' . $neutralButton . '.flex,.' . $neutralButton . '.inline-flex';
             $rules = array(
                 '.' . $neutralButton => LayoutParticipation::transferredItemDeclarations(),
-                '.' . $neutralButton . '.flex,.' . $neutralButton . '.inline-flex' => LayoutParticipation::transferredFlexContainerDeclarations(),
+                $flexContainers => LayoutParticipation::transferredFlexContainerDeclarations(),
             );
-            $buttonCss = ':where(.' . $neutralButton . '){display:contents!important}';
+            $buttonCss = ':where(.' . $neutralButton . '){display:contents!important}'
+                . LayoutParticipation::transferredFlexContainerPaddingRule($flexContainers);
             foreach ( $rules as $selector => $declarations ) {
                 $axisRules = '';
                 foreach ( array( 'width' => 'fit-content', 'height' => 'auto' ) as $property => $default ) {
@@ -319,7 +335,7 @@ final class EngineSupportCss
             // Cancel Core's author-origin flow margins, not the source's UA
             // margins (notably p's 1em). Author CSS follows and remains in
             // control; synthesized boxes get their own zero-margin resets.
-            $parts[] = ':root :where(.wp-block-group.' . self::CSS_OWNED_FLOW_CLASS . ')>*{margin-block-start:revert;margin-block-end:revert}';
+            $parts[] = ':root :where(.wp-block-group.' . self::CSS_OWNED_FLOW_CLASS . '>*' . self::notZeroMarginBox() . '){margin-block-start:revert;margin-block-end:revert}';
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_GRID_CLASS) ) {
             // Core flow margins are not part of a source grid contract; the
@@ -395,6 +411,11 @@ final class EngineSupportCss
      *
      * @return list<string>
      */
+    private static function notZeroMarginBox(): string
+    {
+        return ':not(.' . implode(',.', self::ZERO_MARGIN_BOX_CLASSES) . ')';
+    }
+
     public function coreDefaultResetCss(string $serializedBlocks): array
     {
         $parts = array();
@@ -757,6 +778,11 @@ final class EngineSupportCss
             $fill = ':root .wp-block-cover.' . CoverPattern::FILL_CLASS . '>.wp-block-cover__inner-container';
             $parts[] = $fill . '{flex:1 1 auto;align-self:stretch;display:flex;flex-direction:column}';
             $parts[] = $fill . '>.wp-block-group{flex-grow:1}';
+        }
+        if ( preg_match_all('/(?<![\w-])' . preg_quote(CoverPattern::STACK_CLASS_PREFIX, '/') . '(\d+)(?![\w-])/', $serializedBlocks, $stackMatches) ) {
+            foreach ( array_unique($stackMatches[1]) as $stackOrder ) {
+                $parts[] = ':root .wp-block-cover.' . CoverPattern::STACK_CLASS_PREFIX . $stackOrder . '>.wp-block-cover__inner-container{z-index:' . $stackOrder . '}';
+            }
         }
         if ( str_contains($serializedBlocks, 'blocks-engine-source-social-item-spacing') ) {
             $parts[] = '.wp-block-social-links.blocks-engine-source-social-item-spacing{gap:0}';
