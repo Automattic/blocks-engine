@@ -86,7 +86,11 @@ final class InlineContentElementConverter implements ElementConverter
         // follow their own semantic conversion paths.
         if ( $this->sourceElementClassifier->hasFlowContentChildren($element) ) {
             $children = $this->context->convertChildren($element, $fallbacks);
-            return ConversionOutcome::handled($this->group($element, $children));
+            $attrs = $this->styleResolver->presentationAttributes($element);
+            if ( $this->generatesNoBoxAroundFlowContent($element) ) {
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::INLINE_FLOW_WRAPPER_CLASS);
+            }
+            return ConversionOutcome::handled($this->createBlock->createBlock('core/group', $attrs, $children, $element));
         }
 
         if ( $this->context->isRuntimeDomTarget($element) ) {
@@ -255,6 +259,30 @@ final class InlineContentElementConverter implements ElementConverter
         // one element: a finding may bind it by the element's selector.
         if (null === $sourceElement && is_array($paragraph)) $paragraph['_source_anchor_selector'] = SourceDom::elementSelector($element);
         return $paragraph;
+    }
+
+    /**
+     * An inline box in block flow is never a containing block, and it
+     * generates no box around block-level children: a child's `height:100%`
+     * resolves against the nearest block ancestor beyond it. The group that
+     * replaces it would be an auto-height block in between, so it stays
+     * box-transparent unless the source gives the inline its own geometry
+     * or paint, which a box-transparent group could not carry.
+     */
+    private function generatesNoBoxAroundFlowContent(DOMElement $element): bool
+    {
+        $participation = LayoutParticipation::resolve($element, $this->styleResolver);
+        if ( ! $participation->isInline() || 'inline' !== $participation->sourceDisplay ) {
+            return false;
+        }
+        foreach ( $this->styleResolver->resolvedSourceStateDeclarations($element) as $property => $value ) {
+            $property = strtolower((string) $property);
+            $value = CssValueInspector::comparable((string) $value);
+            if ( 'position' === $property && ! in_array($value, array( '', 'static' ), true) ) return false;
+            if ( in_array($property, array( 'transform', 'filter', 'opacity', 'isolation', 'z-index', 'contain' ), true) && ! in_array($value, array( '', 'none', 'auto', '1', 'normal' ), true) ) return false;
+            if ( 1 === preg_match('/^(?:padding|margin|border|background|outline|box-shadow)/', $property) && ! in_array($value, array( '', '0', '0px', 'none', 'transparent', 'initial' ), true) ) return false;
+        }
+        return true;
     }
 
     /** @param array<int, array<string, mixed>> $children @return array<string, mixed> */

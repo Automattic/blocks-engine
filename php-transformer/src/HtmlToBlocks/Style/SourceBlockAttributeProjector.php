@@ -37,6 +37,8 @@ final class SourceBlockAttributeProjector
     public const CSS_OWNED_INLINE_FLOW_CLASS = 'blocks-engine-css-owned-inline-flow';
     public const CSS_OWNED_LAYOUT_ITEM_CLASS = 'blocks-engine-css-owned-layout-item';
     public const LAYOUT_NEUTRAL_BUTTONS_CLASS = 'blocks-engine-layout-neutral-buttons';
+    /** A group standing in for an inline wrapper around flow content; it generates no box. */
+    public const INLINE_FLOW_WRAPPER_CLASS = 'blocks-engine-inline-flow-wrapper';
     public const LAYOUT_NEUTRAL_BUTTON_CLASS = 'blocks-engine-layout-child-button';
 
     private const SYNTHETIC_HEADER_ANCHOR_CLASS_PREFIX = 'blocks-engine-synthetic-header-anchor-';
