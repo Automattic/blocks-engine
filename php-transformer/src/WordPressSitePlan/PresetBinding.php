@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ResponsiveCorrespondence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssFontShorthand;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
@@ -938,7 +939,9 @@ final class PresetBinding
      *   for a block literal.
      * - A font size binds only when it is the preset's own length, and a
      *   font family only when it is the preset's own stack, so no fallback
-     *   or rounding changes what renders.
+     *   or rounding changes what renders. Font-shorthand custom properties
+     *   bind only an exactly matching complete stack, in place, leaving the
+     *   rest of the shorthand literal.
      */
     public function bindStylesheet(string $css): string
     {
@@ -1157,6 +1160,20 @@ final class PresetBinding
             $value = trim(substr($value, 0, -strlen($match[0])));
         }
         if ('' === $value) return $declaration;
+        if (str_starts_with($property, '--')) {
+            $font = CssFontShorthand::expand($value, false, $familyOffset);
+            if (isset($font['font-family'])) {
+                $family = substr($value, $familyOffset);
+                $slug = $this->exactFontFamilySlug($family);
+                foreach ($this->system->fontFamilies as $preset) {
+                    if (null !== $slug && $preset['slug'] === $slug && $this->sameFont($family, $preset['fontFamily'])) {
+                        ++$this->bound;
+                        return self::sourcePresets($parts[0]) . ':' . self::sourcePresets(substr($value, 0, $familyOffset))
+                            . 'var(--wp--preset--font-family--' . $slug . ')' . $important;
+                    }
+                }
+            }
+        }
         if ((str_starts_with($property, '--') || in_array($property, array('background', 'background-image'), true)) && null === CssColor::parse($this->resolve($value))) {
             $bound = $this->bindColorTokens($value);
             return $bound === self::sourcePresets($value) ? $declaration : self::sourcePresets($parts[0]) . ':' . $bound . $important;
