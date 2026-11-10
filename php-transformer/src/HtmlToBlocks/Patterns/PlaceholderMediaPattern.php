@@ -43,23 +43,23 @@ final class PlaceholderMediaPattern implements PatternRecognizerInterface
 
     private function isPlaceholderMediaElement(DOMElement $element): bool
     {
-        $className = strtolower($this->attr($element, 'class'));
+        $className = strtolower(SourceDom::attr($element, 'class'));
         if ( ! preg_match('/(?:^|\s)(?:ph|placeholder|media-placeholder|image-placeholder|video-placeholder)(?:\s|$)/', $className) && ! preg_match('/(?:^|\s)ratio-[0-9]+(?:x|:|-)[0-9]+(?:\s|$)/', $className) ) {
             return false;
         }
 
         return '' !== $this->placeholderAspectRatio($element)
-            || preg_match('/(?:^|;)\s*aspect-ratio\s*:/i', $this->attr($element, 'style'))
+            || preg_match('/(?:^|;)\s*aspect-ratio\s*:/i', SourceDom::attr($element, 'style'))
             || preg_match('/(?:^|\s)(?:media|image|video|thumb|thumbnail|poster|avatar)(?:\s|$)/', $className);
     }
 
     private function placeholderAspectRatio(DOMElement $element): string
     {
-        if ( preg_match('/(?:^|;)\s*aspect-ratio\s*:\s*([0-9.]+\s*\/\s*[0-9.]+|[0-9.]+)\s*(?:;|$)/i', $this->attr($element, 'style'), $styleMatch) ) {
+        if ( preg_match('/(?:^|;)\s*aspect-ratio\s*:\s*([0-9.]+\s*\/\s*[0-9.]+|[0-9.]+)\s*(?:;|$)/i', SourceDom::attr($element, 'style'), $styleMatch) ) {
             return preg_replace('/\s+/', '', $styleMatch[1]) ?? '';
         }
 
-        $className = strtolower($this->attr($element, 'class'));
+        $className = strtolower(SourceDom::attr($element, 'class'));
         if ( preg_match('/(?:^|\s)ratio-([0-9]+)(?:x|:|-)([0-9]+)(?:\s|$)/', $className, $classMatch) ) {
             return $classMatch[1] . '/' . $classMatch[2];
         }
@@ -74,7 +74,7 @@ final class PlaceholderMediaPattern implements PatternRecognizerInterface
                 continue;
             }
 
-            $className = strtolower($this->attr($span, 'class'));
+            $className = strtolower(SourceDom::attr($span, 'class'));
             if ( preg_match('/(?:^|\s)(?:label|caption|placeholder-label)(?:\s|$)/', $className) ) {
                 return trim(preg_replace('/\s+/', ' ', $span->textContent ?? '') ?? '');
             }

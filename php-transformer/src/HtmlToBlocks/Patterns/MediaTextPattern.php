@@ -188,7 +188,7 @@ final class MediaTextPattern implements PatternRecognizerInterface
         if (
             null === $displayType
             && ! $hasGridTemplateColumns
-            && ! in_array('wp-block-media-text', preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array(), true)
+            && ! in_array('wp-block-media-text', preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array(), true)
         ) {
             return null;
         }
@@ -390,7 +390,7 @@ final class MediaTextPattern implements PatternRecognizerInterface
         // enclosing figure itself later gets represented once its own
         // wrapper coalesces (its class carries forward here regardless).
         $sourceFigure = $this->enclosingSourceFigure($element);
-        $figureClassName = $sourceFigure instanceof DOMElement ? trim($this->attr($sourceFigure, 'class')) : '';
+        $figureClassName = $sourceFigure instanceof DOMElement ? trim(SourceDom::attr($sourceFigure, 'class')) : '';
         if ( '' !== $figureClassName ) {
             $attrs['mediaFigureClassName'] = $figureClassName;
         }
@@ -553,7 +553,7 @@ final class MediaTextPattern implements PatternRecognizerInterface
             return false;
         }
 
-        $sourceClasses = preg_split('/\s+/', trim($this->attr($textSide, 'class'))) ?: array();
+        $sourceClasses = preg_split('/\s+/', trim(SourceDom::attr($textSide, 'class'))) ?: array();
         foreach ( preg_split('/\s+/', trim($attrs['className'])) ?: array() as $class ) {
             if ( '' === $class ) {
                 continue;
@@ -660,8 +660,8 @@ final class MediaTextPattern implements PatternRecognizerInterface
         // sizing wrapper it fills -- is never one pane of a media/text split:
         // core/media-text stretches its media to the media column, so the
         // icon would render at the column width instead of its fixed size.
-        $width = null === $fixedSize ? $this->compactHtmlDimension($this->attr($media, 'width')) : $fixedSize['width'];
-        $height = null === $fixedSize ? $this->compactHtmlDimension($this->attr($media, 'height')) : $fixedSize['height'];
+        $width = null === $fixedSize ? $this->compactHtmlDimension(SourceDom::attr($media, 'width')) : $fixedSize['width'];
+        $height = null === $fixedSize ? $this->compactHtmlDimension(SourceDom::attr($media, 'height')) : $fixedSize['height'];
         if ( null !== $width
             && null !== $height
             && 0 < $width

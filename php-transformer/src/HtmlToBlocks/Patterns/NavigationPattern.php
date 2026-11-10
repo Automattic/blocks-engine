@@ -110,11 +110,11 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function holdsAriaMenu(DOMElement $element): bool
     {
         foreach ( array_merge(array( $element ), iterator_to_array($element->childNodes)) as $list ) {
-            if ( ! $list instanceof DOMElement || ! in_array(strtolower($list->tagName), array( 'ul', 'ol' ), true) || ! in_array(strtolower($this->attr($list, 'role')), array( 'menu', 'menubar' ), true) ) {
+            if ( ! $list instanceof DOMElement || ! in_array(strtolower($list->tagName), array( 'ul', 'ol' ), true) || ! in_array(strtolower(SourceDom::attr($list, 'role')), array( 'menu', 'menubar' ), true) ) {
                 continue;
             }
             foreach ( $list->getElementsByTagName('a') as $link ) {
-                if ( 'menuitem' === strtolower($this->attr($link, 'role')) && '' !== trim($this->attr($link, 'href')) ) {
+                if ( 'menuitem' === strtolower(SourceDom::attr($link, 'role')) && '' !== trim(SourceDom::attr($link, 'href')) ) {
                     return true;
                 }
             }
@@ -166,7 +166,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             if ( ! $descendant instanceof DOMElement || '' === trim($descendant->textContent ?? '') ) {
                 continue;
             }
-            $style = strtolower(preg_replace('/\s+/', '', $this->attr($descendant, 'style')) ?? '');
+            $style = strtolower(preg_replace('/\s+/', '', SourceDom::attr($descendant, 'style')) ?? '');
             $hidden = $descendant->hasAttribute('hidden')
                 || str_contains($style, 'display:none')
                 || str_contains($style, 'visibility:hidden');
@@ -186,12 +186,12 @@ final class NavigationPattern implements PatternRecognizerInterface
     /** A hidden, destinationless overflow opener is superseded by native navigation. */
     private function isHiddenNavigationOverflowControl(DOMElement $element): bool
     {
-        if ( 'true' !== strtolower($this->attr($element, 'aria-hidden')) || $this->holdsLink($element) ) {
+        if ( 'true' !== strtolower(SourceDom::attr($element, 'aria-hidden')) || $this->holdsLink($element) ) {
             return false;
         }
         foreach ( $element->getElementsByTagName('*') as $control ) {
-            if ( $control instanceof DOMElement && 'button' === strtolower($this->attr($control, 'role'))
-                && in_array(strtolower($this->attr($control, 'aria-haspopup')), array( 'true', 'menu' ), true) ) {
+            if ( $control instanceof DOMElement && 'button' === strtolower(SourceDom::attr($control, 'role'))
+                && in_array(strtolower(SourceDom::attr($control, 'aria-haspopup')), array( 'true', 'menu' ), true) ) {
                 return true;
             }
         }
@@ -2653,7 +2653,7 @@ final class NavigationPattern implements PatternRecognizerInterface
      */
     private function hasBrandAnchorSignal(DOMElement $anchor): bool
     {
-        $haystack = strtolower(trim($this->attr($anchor, 'class') . ' ' . $this->attr($anchor, 'id') . ' ' . $this->attr($anchor, 'rel')));
+        $haystack = strtolower(trim(SourceDom::attr($anchor, 'class') . ' ' . SourceDom::attr($anchor, 'id') . ' ' . SourceDom::attr($anchor, 'rel')));
         return (bool) preg_match('/(?:^|[^a-z0-9])(?:brand|branding|logo|site-title|site-name|home-link|home-logo)(?:[^a-z0-9]|$)/', $haystack);
     }
 
@@ -2887,10 +2887,10 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function inertNavigationSupportDescendants(DOMElement $element, bool $hidden): bool
     {
-        $hidden = $hidden || 'true' === strtolower(trim($this->attr($element, 'aria-hidden')));
+        $hidden = $hidden || 'true' === strtolower(trim(SourceDom::attr($element, 'aria-hidden')));
         if ( $element->hasAttribute('href') || $element->hasAttribute('src')
             || ( ! $hidden && (
-                '' !== trim($this->attr($element, 'aria-label') . $this->attr($element, 'title'))
+                '' !== trim(SourceDom::attr($element, 'aria-label') . SourceDom::attr($element, 'title'))
                 || $element->hasAttribute('aria-controls') || $element->hasAttribute('aria-expanded')
             ) )
         ) {
@@ -2902,7 +2902,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
         }
 
-        $tabindex = trim($this->attr($element, 'tabindex'));
+        $tabindex = trim(SourceDom::attr($element, 'tabindex'));
         if ( '' !== $tabindex && ( ! $hidden || ! is_numeric($tabindex) || -1 < (int) $tabindex ) ) {
             return false;
         }
@@ -3049,7 +3049,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         $brand = $this->singleUnnamedBrandImage($anchor);
-        if ( null === $brand || '' === trim($this->attr($brand['image'], 'src')) ) {
+        if ( null === $brand || '' === trim(SourceDom::attr($brand['image'], 'src')) ) {
             return null;
         }
 
@@ -3328,7 +3328,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         foreach ( array( 'aria-label', 'title' ) as $attribute ) {
-            $fallback = trim($this->attr($anchor, $attribute));
+            $fallback = trim(SourceDom::attr($anchor, $attribute));
             if ( '' !== $fallback ) {
                 return htmlspecialchars($fallback, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
             }
@@ -3339,14 +3339,14 @@ final class NavigationPattern implements PatternRecognizerInterface
         // disagrees with anchorCarriesAccessibleName() and the anchor is kept as
         // named content while being labelled empty.
         foreach ( $anchor->getElementsByTagName('img') as $image ) {
-            $alt = trim($this->attr($image, 'alt'));
+            $alt = trim(SourceDom::attr($image, 'alt'));
             if ( '' !== $alt ) {
                 return htmlspecialchars($alt, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
             }
         }
 
         if ( 0 < $anchor->getElementsByTagName('svg')->length ) {
-            $service = SocialLinksPattern::serviceForUrl($this->attr($anchor, 'href'));
+            $service = SocialLinksPattern::serviceForUrl(SourceDom::attr($anchor, 'href'));
             if ( null !== $service ) {
                 return ucfirst($service);
             }
@@ -3779,7 +3779,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             // (inner or outer) is still excluded, same as today.
             $descendant = $this->soleMeaningfulChild($anchor);
             if ( $descendant instanceof DOMElement && $this->hasElementChild($descendant) ) {
-                foreach ( preg_split('/\s+/', trim($this->attr($descendant, 'class'))) ?: array() as $candidate ) {
+                foreach ( preg_split('/\s+/', trim(SourceDom::attr($descendant, 'class'))) ?: array() as $candidate ) {
                     if ( SourceDom::isBoundedClassToken($candidate) ) {
                         $classes[$candidate] = true;
                     }
@@ -3812,7 +3812,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             if ( 'li' === strtolower($node->tagName) || $this->holdsAnotherLabelledAnchor($node, $anchor) ) {
                 break;
             }
-            foreach ( preg_split('/\s+/', trim($this->attr($node, 'class'))) ?: array() as $candidate ) {
+            foreach ( preg_split('/\s+/', trim(SourceDom::attr($node, 'class'))) ?: array() as $candidate ) {
                 if ( SourceDom::isBoundedClassToken($candidate) ) {
                     $classes[$candidate] = true;
                 }
@@ -4432,11 +4432,11 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function hasCurrentNavigationSignal(DOMElement $element): bool
     {
-        if ( $element->hasAttribute('aria-current') && 'false' !== strtolower(trim($this->attr($element, 'aria-current'))) ) {
+        if ( $element->hasAttribute('aria-current') && 'false' !== strtolower(trim(SourceDom::attr($element, 'aria-current'))) ) {
             return true;
         }
 
-        return MenuVocabulary::containsCurrentStateToken($this->attr($element, 'class') . ' ' . $this->attr($element, 'id'));
+        return MenuVocabulary::containsCurrentStateToken(SourceDom::attr($element, 'class') . ' ' . SourceDom::attr($element, 'id'));
     }
 
 
@@ -4464,7 +4464,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             // A destination link may have a separate submenu disclosure button.
             // The linked submenu path owns the control; it is not a second label.
             if ( 'button' === strtolower($child->tagName) && 1 === count($anchors)
-                && in_array(strtolower($this->attr($anchors[0], 'aria-haspopup')), array( 'true', 'menu' ), true)
+                && in_array(strtolower(SourceDom::attr($anchors[0], 'aria-haspopup')), array( 'true', 'menu' ), true)
                 && ! $this->holdsLink($child) && array() !== $this->submenuContainers($element, $anchors[0]) ) {
                 continue;
             }
@@ -4844,7 +4844,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             if ( ! $child instanceof DOMElement
                 || 'a' !== strtolower($child->tagName)
                 || '' === trim($child->textContent ?? '')
-                || '' === trim($this->attr($child, 'href'))
+                || '' === trim(SourceDom::attr($child, 'href'))
                 || $child->hasAttribute('aria-controls')
                 || $child->hasAttribute('aria-expanded')
             ) {
@@ -4858,7 +4858,7 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function hasSubmenuSignal(DOMElement $element): bool
     {
-        if ( 'menu' === strtolower($this->attr($element, 'role')) ) {
+        if ( 'menu' === strtolower(SourceDom::attr($element, 'role')) ) {
             return true;
         }
 
@@ -4883,7 +4883,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             return $this->isLabelledCheckboxToggle($element);
         }
         if ( 'label' === $tagName ) {
-            $target = '' !== trim($this->attr($element, 'for')) ? $element->ownerDocument?->getElementById(trim($this->attr($element, 'for'))) : null;
+            $target = '' !== trim(SourceDom::attr($element, 'for')) ? $element->ownerDocument?->getElementById(trim(SourceDom::attr($element, 'for'))) : null;
             return $target instanceof DOMElement && $this->isLabelledCheckboxToggle($target);
         }
 
@@ -4895,12 +4895,12 @@ final class NavigationPattern implements PatternRecognizerInterface
             return true;
         }
 
-        $popup = strtolower(trim($this->attr($element, 'aria-haspopup')));
+        $popup = strtolower(trim(SourceDom::attr($element, 'aria-haspopup')));
         if ( in_array($popup, array( 'true', 'menu' ), true) ) {
             return true;
         }
 
-        foreach ( preg_split('/[^a-z0-9]+/', strtolower($this->attr($element, 'class') . ' ' . $this->attr($element, 'aria-label'))) ?: array() as $token ) {
+        foreach ( preg_split('/[^a-z0-9]+/', strtolower(SourceDom::attr($element, 'class') . ' ' . SourceDom::attr($element, 'aria-label'))) ?: array() as $token ) {
             if ( in_array($token, array( 'hamburger', 'menu', 'toggle' ), true) ) {
                 return true;
             }
@@ -4911,8 +4911,8 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function isLabelledCheckboxToggle(DOMElement $input): bool
     {
-        $id = trim($this->attr($input, 'id'));
-        if ( 'input' !== strtolower($input->tagName) || 'checkbox' !== strtolower($this->attr($input, 'type')) ) {
+        $id = trim(SourceDom::attr($input, 'id'));
+        if ( 'input' !== strtolower($input->tagName) || 'checkbox' !== strtolower(SourceDom::attr($input, 'type')) ) {
             return false;
         }
         // An enclosing label can bind a submenu checkbox without an id/for pair.
@@ -4924,7 +4924,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             return false;
         }
         foreach ( $input->ownerDocument?->getElementsByTagName('label') ?? array() as $label ) {
-            if ( $label instanceof DOMElement && $id === trim($this->attr($label, 'for')) ) {
+            if ( $label instanceof DOMElement && $id === trim(SourceDom::attr($label, 'for')) ) {
                 return true;
             }
         }
@@ -5009,7 +5009,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function holdsLink(DOMElement $element): bool
     {
         foreach ( $element->getElementsByTagName('a') as $link ) {
-            if ( '' !== trim($this->attr($link, 'href')) ) {
+            if ( '' !== trim(SourceDom::attr($link, 'href')) ) {
                 return true;
             }
         }
@@ -5027,7 +5027,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         // `presentation` and `none` remove only the element's own semantics.
         // The WAI-ARIA menu pattern puts them on each menu item's `li`, which
         // still holds the item's link.
-        $role = strtolower($this->attr($element, 'role'));
+        $role = strtolower(SourceDom::attr($element, 'role'));
         if ( 'separator' === $role || ( in_array($role, array( 'presentation', 'none' ), true) && ! $this->holdsLink($element) ) ) {
             return true;
         }
@@ -5040,7 +5040,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             return true;
         }
 
-        $tokens = strtolower($this->attr($element, 'class') . ' ' . $this->attr($element, 'id'));
+        $tokens = strtolower(SourceDom::attr($element, 'class') . ' ' . SourceDom::attr($element, 'id'));
 
         if ( $this->isInertOverlayNavigationChrome($element) ) {
             return true;
@@ -5069,7 +5069,7 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function isInertOverlayNavigationChrome(DOMElement $element): bool
     {
-        $tokens = strtolower($this->attr($element, 'class') . ' ' . $this->attr($element, 'id'));
+        $tokens = strtolower(SourceDom::attr($element, 'class') . ' ' . SourceDom::attr($element, 'id'));
 
         return (bool) preg_match('/overlay|fullscreen|drawer|offcanvas/', $tokens)
             && 0 === $element->getElementsByTagName('a')->length;
@@ -5119,7 +5119,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             if ( '' === $label ) {
                 continue;
             }
-            $links[] = $label . '|' . trim($this->attr($anchor, 'href'));
+            $links[] = $label . '|' . trim(SourceDom::attr($anchor, 'href'));
         }
 
         return 2 > count($links) ? '' : implode("\n", $links);
@@ -5143,17 +5143,17 @@ final class NavigationPattern implements PatternRecognizerInterface
             return true;
         }
 
-        if ( '' !== trim($this->attr($anchor, 'aria-label') . $this->attr($anchor, 'title')) ) {
+        if ( '' !== trim(SourceDom::attr($anchor, 'aria-label') . SourceDom::attr($anchor, 'title')) ) {
             return true;
         }
 
         if ( 0 < $anchor->getElementsByTagName('svg')->length
-            && null !== SocialLinksPattern::serviceForUrl($this->attr($anchor, 'href')) ) {
+            && null !== SocialLinksPattern::serviceForUrl(SourceDom::attr($anchor, 'href')) ) {
             return true;
         }
 
         foreach ( $anchor->getElementsByTagName('img') as $image ) {
-            if ( '' !== trim($this->attr($image, 'alt')) ) {
+            if ( '' !== trim(SourceDom::attr($image, 'alt')) ) {
                 return true;
             }
         }
@@ -5173,7 +5173,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             return false;
         }
 
-        $href = trim($this->attr($anchor, 'href'));
+        $href = trim(SourceDom::attr($anchor, 'href'));
         if ( '' === $href || str_starts_with($href, '#') ) {
             return false;
         }
@@ -5253,7 +5253,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             return false;
         }
 
-        $tokens = strtolower($this->attr($element, 'class') . ' ' . $this->attr($element, 'id'));
+        $tokens = strtolower(SourceDom::attr($element, 'class') . ' ' . SourceDom::attr($element, 'id'));
         return (bool) preg_match('/(?:^|[^a-z0-9])(?:label|heading|title)(?:[^a-z0-9]|$)/', $tokens);
     }
 
@@ -5502,7 +5502,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             if ( ! $child instanceof DOMElement ) {
                 continue;
             }
-            if ( 'a' !== strtolower($child->tagName) || '' === trim($this->attr($child, 'href')) ) {
+            if ( 'a' !== strtolower($child->tagName) || '' === trim(SourceDom::attr($child, 'href')) ) {
                 return false;
             }
             ++$anchors;
