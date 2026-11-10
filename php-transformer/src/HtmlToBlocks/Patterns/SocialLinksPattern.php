@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\HtmlDimensionAttribute;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\MonochromeGlyphColor;
@@ -184,10 +185,10 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         $structuralItems = true;
         $sourceRow = !in_array(strtolower($element->tagName), array('ul', 'ol'), true) && $this->hasMixedParent($element);
         foreach ( $anchors as $anchor ) {
-            $url = LinkUrlSanitizer::sanitize($this->attr($anchor, 'href'));
-            $label = trim($this->attr($anchor, 'aria-label'));
+            $url = LinkUrlSanitizer::sanitize(SourceDom::attr($anchor, 'href'));
+            $label = trim(SourceDom::attr($anchor, 'aria-label'));
             if ( '' === $label ) {
-                $label = trim($this->attr($anchor, 'title'));
+                $label = trim(SourceDom::attr($anchor, 'title'));
             }
             $text = $this->visibleText($anchor, $context);
             if ( '' === $label ) {
@@ -226,7 +227,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
 
         $attrs = $context->presentationAttributes($element);
         for ( $carrier = $element; $carrier instanceof DOMElement && 'body' !== strtolower($carrier->tagName); $carrier = $carrier->parentNode ) {
-            if ( preg_match('/(?:^|;)\s*text-align\s*:\s*(left|center|right)\b/i', $this->attr($carrier, 'style'), $alignment) ) {
+            if ( preg_match('/(?:^|;)\s*text-align\s*:\s*(left|center|right)\b/i', SourceDom::attr($carrier, 'style'), $alignment) ) {
                 $attrs['justifyContent'] = strtolower($alignment[1]);
                 break;
             }
@@ -452,7 +453,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             return false;
         }
         foreach ( $anchors as $anchor ) {
-            if ( null === self::serviceForUrl(LinkUrlSanitizer::sanitize($this->attr($anchor, 'href'))) ) {
+            if ( null === self::serviceForUrl(LinkUrlSanitizer::sanitize(SourceDom::attr($anchor, 'href'))) ) {
                 return false;
             }
         }
@@ -607,8 +608,8 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                     $dimensions[] = $size;
                     break;
                 }
-                $width = HtmlDimensionAttribute::pixels($this->attr($icon, 'width')) ?? 0.0;
-                $height = HtmlDimensionAttribute::pixels($this->attr($icon, 'height')) ?? 0.0;
+                $width = HtmlDimensionAttribute::pixels(SourceDom::attr($icon, 'width')) ?? 0.0;
+                $height = HtmlDimensionAttribute::pixels(SourceDom::attr($icon, 'height')) ?? 0.0;
                 if ( 0 < $width && 0 < $height ) {
                     $dimensions[] = min($width, $height);
                 }
@@ -705,7 +706,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
 
         $svg = $anchor->getElementsByTagName('svg')->item(0);
         if ( $svg instanceof DOMElement ) {
-            $fill = $this->concreteColor($this->attr($svg, 'fill'));
+            $fill = $this->concreteColor(SourceDom::attr($svg, 'fill'));
             if ( '' !== $fill ) {
                 return $fill;
             }
@@ -750,7 +751,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             return $captured;
         }
 
-        $url = trim($this->attr($image, 'src'));
+        $url = trim(SourceDom::attr($image, 'src'));
         if ( '' === $url ) {
             return '';
         }
@@ -784,7 +785,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
 
     private function sameDestinationGlyphColor(DOMElement $anchor, PatternContext $context): string
     {
-        $href = LinkUrlSanitizer::sanitize($this->attr($anchor, 'href'));
+        $href = LinkUrlSanitizer::sanitize(SourceDom::attr($anchor, 'href'));
         if ( '' === $href ) {
             return '';
         }
@@ -799,7 +800,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                 if ( ! $other instanceof DOMElement || $other->isSameNode($anchor) ) {
                     continue;
                 }
-                if ( LinkUrlSanitizer::sanitize($this->attr($other, 'href')) !== $href ) {
+                if ( LinkUrlSanitizer::sanitize(SourceDom::attr($other, 'href')) !== $href ) {
                     continue;
                 }
                 $image = $other->getElementsByTagName('img')->item(0);
@@ -819,7 +820,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
 
     private function ownPaintColor(DOMElement $element): string
     {
-        $style = $this->attr($element, 'style');
+        $style = SourceDom::attr($element, 'style');
         if ( '' === $style ) {
             return '';
         }

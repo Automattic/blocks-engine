@@ -22,12 +22,12 @@ final class SpacerPattern implements PatternRecognizerInterface
             return null;
         }
 
-        $height = self::heightFromStyle($this->attr($element, 'style'));
+        $height = self::heightFromStyle(SourceDom::attr($element, 'style'));
         if ( '' === $height ) {
             return null;
         }
 
-        if ( ! $this->hasClass($element, 'wp-block-spacer') && ! $this->hasClass($element, 'spacer') && ! $this->hasClass($element, 'wsite-spacer') ) {
+        if ( ! SourceDom::hasClass($element, 'wp-block-spacer') && ! SourceDom::hasClass($element, 'spacer') && ! SourceDom::hasClass($element, 'wsite-spacer') ) {
             return null;
         }
 

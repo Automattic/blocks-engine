@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 final class FigureQuotePattern implements PatternRecognizerInterface
@@ -13,7 +14,7 @@ final class FigureQuotePattern implements PatternRecognizerInterface
 
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
-        $blockquote = $this->firstChildElement($element, 'blockquote');
+        $blockquote = SourceDom::firstChildElement($element, 'blockquote');
         return $blockquote instanceof DOMElement ? $this->quotes->matchFigureBlockquote($element, $blockquote, $context) : null;
     }
 }

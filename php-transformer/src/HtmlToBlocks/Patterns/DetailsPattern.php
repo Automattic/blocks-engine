@@ -62,7 +62,7 @@ final class DetailsPattern implements PatternRecognizerInterface
      */
     private function summaryMarker(DOMElement $element, PatternContext $context): string
     {
-        $summary = $this->firstChildElement($element, 'summary');
+        $summary = SourceDom::firstChildElement($element, 'summary');
 
         return $summary instanceof DOMElement ? $context->disclosureSummaryMarker($summary) : '';
     }
@@ -77,7 +77,7 @@ final class DetailsPattern implements PatternRecognizerInterface
      */
     public function match(DOMElement $element, array &$fallbacks, callable $convertChildrenWithoutTags, callable $presentationAttributes, callable $innerHtml, callable $createBlock, string $summaryMarker = ''): ?array
     {
-        $summary = $this->firstChildElement($element, 'summary');
+        $summary = SourceDom::firstChildElement($element, 'summary');
         $children = $convertChildrenWithoutTags($element, $fallbacks, array( 'summary' ));
         if ( null === $summary && array() === $children ) {
             return null;
@@ -302,7 +302,7 @@ final class DetailsPattern implements PatternRecognizerInterface
                     continue;
                 }
 
-                if ( $candidate->isSameNode($header) || $this->containsNode($candidate, $toggle) || $this->containsNode($header, $candidate) ) {
+                if ( $candidate->isSameNode($header) || SourceDom::elementContains($candidate, $toggle) || SourceDom::elementContains($header, $candidate) ) {
                     continue;
                 }
 
@@ -348,7 +348,7 @@ final class DetailsPattern implements PatternRecognizerInterface
     private function isBoundedDisclosureHeader(DOMElement $header, DOMElement $toggle): bool
     {
         foreach ( $header->getElementsByTagName('*') as $candidate ) {
-            if ( $candidate instanceof DOMElement && ! $this->containsNode($candidate, $toggle) && ! $this->containsNode($toggle, $candidate) ) {
+            if ( $candidate instanceof DOMElement && ! SourceDom::elementContains($candidate, $toggle) && ! SourceDom::elementContains($toggle, $candidate) ) {
                 return false;
             }
         }

@@ -41,7 +41,7 @@ final class QuotePattern implements PatternRecognizerInterface
         }
 
         $createBlock = $this->createBlock->createBlock(...);
-        if ( $this->hasClass($element, 'wp-block-pullquote') ) {
+        if ( SourceDom::hasClass($element, 'wp-block-pullquote') ) {
             return new PatternRecognitionResult($createBlock('core/pullquote', array_filter(array_merge($context->presentationAttributes($element), array(
                 'value'    => $value,
                 'citation' => $citation,
@@ -72,7 +72,7 @@ final class QuotePattern implements PatternRecognizerInterface
         }
 
         $citation = $quotes->citationFromElement($blockquote);
-        $caption = $this->firstChildElement($figure, 'figcaption');
+        $caption = SourceDom::firstChildElement($figure, 'figcaption');
         // The figure collapses into core/quote only when it holds just the
         // blockquote, its caption, and aria-hidden decoration. Any other
         // child (a rating row, an author card) has no place in the quote, and
@@ -83,7 +83,7 @@ final class QuotePattern implements PatternRecognizerInterface
             if ( $child instanceof DOMElement
                 && ! $child->isSameNode($blockquote)
                 && ! ( $caption instanceof DOMElement && $child->isSameNode($caption) )
-                && 'true' !== strtolower(trim($this->attr($child, 'aria-hidden'))) ) {
+                && 'true' !== strtolower(trim(SourceDom::attr($child, 'aria-hidden'))) ) {
                 return null;
             }
         }
@@ -92,7 +92,7 @@ final class QuotePattern implements PatternRecognizerInterface
         }
         if ( '' === $citation && $caption instanceof DOMElement ) {
             $citation = SourceDom::innerHtml($caption);
-            $captionClass = trim($this->attr($caption, 'class'));
+            $captionClass = trim(SourceDom::attr($caption, 'class'));
             if ( '' !== $captionClass ) {
                 $citation = '<span class="' . htmlspecialchars($captionClass, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $citation . '</span>';
             }
@@ -106,7 +106,7 @@ final class QuotePattern implements PatternRecognizerInterface
         $createBlock = $this->createBlock->createBlock(...);
         $attrs = array_filter(array_merge($context->presentationAttributes($figure), array( 'citation' => $citation )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value);
 
-        if ( $this->hasClass($figure, 'wp-block-pullquote') || $this->hasClass($blockquote, 'wp-block-pullquote') ) {
+        if ( SourceDom::hasClass($figure, 'wp-block-pullquote') || SourceDom::hasClass($blockquote, 'wp-block-pullquote') ) {
             return new PatternRecognitionResult($createBlock('core/pullquote', array_merge($attrs, array( 'value' => $value )), array(), $figure));
         }
 
@@ -117,7 +117,7 @@ final class QuotePattern implements PatternRecognizerInterface
                 continue;
             }
             $content = SourceDom::innerHtml($child);
-            if ( 'true' !== strtolower(trim($this->attr($child, 'aria-hidden'))) || '' === trim($this->runtime->stripAllTags($content)) ) {
+            if ( 'true' !== strtolower(trim(SourceDom::attr($child, 'aria-hidden'))) || '' === trim($this->runtime->stripAllTags($content)) ) {
                 continue;
             }
             $innerBlocks[] = $createBlock('core/paragraph', array_merge($context->presentationAttributes($child), array( 'content' => $content )), array(), $child);

@@ -44,18 +44,18 @@ final class CodeWindowPattern implements PatternRecognizerInterface
      */
     public function match(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $codePresentationAttributes, callable $codeContent, callable $createBlock): ?array
     {
-        $pre = $this->firstChildElement($element, 'pre');
+        $pre = SourceDom::firstChildElement($element, 'pre');
         if ( ! $pre instanceof DOMElement ) {
             return null;
         }
 
-        $code = $this->firstChildElement($pre, 'code');
+        $code = SourceDom::firstChildElement($pre, 'code');
         if ( ! $code instanceof DOMElement ) {
             return null;
         }
 
         $label = $this->codeWindowLabel($element, $pre, $innerHtml);
-        if ( '' === $label && ! $this->hasClass($element, 'code-window') && ! $this->hasClass($element, 'code-frame') ) {
+        if ( '' === $label && ! SourceDom::hasClass($element, 'code-window') && ! SourceDom::hasClass($element, 'code-frame') ) {
             return null;
         }
 
@@ -74,7 +74,7 @@ final class CodeWindowPattern implements PatternRecognizerInterface
     private function codeWindowLabel(DOMElement $element, DOMElement $pre, callable $innerHtml): string
     {
         foreach ( array( 'data-label', 'data-title', 'data-filename', 'aria-label' ) as $attribute ) {
-            $value = trim($this->attr($element, $attribute));
+            $value = trim(SourceDom::attr($element, $attribute));
             if ( '' !== $value ) {
                 return htmlspecialchars($value, ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8');
             }
@@ -86,7 +86,7 @@ final class CodeWindowPattern implements PatternRecognizerInterface
             }
 
             $tagName = strtolower($child->tagName);
-            if ( 'figcaption' === $tagName || 'header' === $tagName || $this->hasClass($child, 'code-label') || $this->hasClass($child, 'filename') || $this->hasClass($child, 'window-title') ) {
+            if ( 'figcaption' === $tagName || 'header' === $tagName || SourceDom::hasClass($child, 'code-label') || SourceDom::hasClass($child, 'filename') || SourceDom::hasClass($child, 'window-title') ) {
                 return $innerHtml($child);
             }
         }
