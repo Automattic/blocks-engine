@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
@@ -45,7 +46,6 @@ final class CustomBlockGenerator
 
     /**
      * @param Closure(DOMElement): bool $isSafeTransparentCustomElement
-     * @param Closure(DOMElement, array<int, array<string, mixed>>&): array<int, array<string, mixed>> $convertChildren
      * @param Closure(DOMElement): bool $hasAuthorSemanticMarker
      * @param Closure(list<DOMElement>, list<array<string, mixed>>, DOMElement): array<string, mixed> $layoutShellBlockForElements
      */
@@ -54,7 +54,7 @@ final class CustomBlockGenerator
         private readonly ?ElementPresentationResolver $presentationResolver = null,
         private readonly ?SourceBlockCreator $createBlock = null,
         private readonly ?Closure $isSafeTransparentCustomElement = null,
-        private readonly ?Closure $convertChildren = null,
+        private readonly ?PatternTreeConverter $tree = null,
         private readonly ?Closure $hasAuthorSemanticMarker = null,
         private readonly ?Closure $layoutShellBlockForElements = null
     ) {
@@ -162,7 +162,7 @@ JS;
         $presentationResolver = $this->presentationResolver ?? throw new LogicException('CustomBlockGenerator was not wired for conversion.');
         $createBlock = $this->createBlock ?? throw new LogicException('CustomBlockGenerator was not wired for conversion.');
         $isSafeTransparentCustomElement = $this->isSafeTransparentCustomElement ?? throw new LogicException('CustomBlockGenerator was not wired for conversion.');
-        $convertChildren = $this->convertChildren ?? throw new LogicException('CustomBlockGenerator was not wired for conversion.');
+        $tree = $this->tree ?? throw new LogicException('CustomBlockGenerator was not wired for conversion.');
         $hasAuthorSemanticMarker = $this->hasAuthorSemanticMarker ?? throw new LogicException('CustomBlockGenerator was not wired for conversion.');
         $layoutShellBlockForElements = $this->layoutShellBlockForElements ?? throw new LogicException('CustomBlockGenerator was not wired for conversion.');
 
@@ -203,7 +203,7 @@ JS;
             if ( $isList && ! $isSafeTransparentCustomElement($child) ) {
                 return null;
             }
-            $childBlocks = $convertChildren($child, $childFallbacks);
+            $childBlocks = $tree->children($child, $childFallbacks, true);
             if ( array() === $childBlocks ) {
                 return null;
             }

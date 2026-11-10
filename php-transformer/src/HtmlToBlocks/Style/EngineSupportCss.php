@@ -169,7 +169,12 @@ final class EngineSupportCss
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS) ) {
             // The injected figure must pass the source's percentage height
             // through to its original containing block, not create an auto box.
-            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS . '){width:100%;height:100%}';
+            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS . '){width:100%;height:100%}'
+                // The source fill sizing addressed the <video>, but its
+                // projected rule lands on the figure. Fill the figure with the
+                // video so it keeps the source box (and object-fit letterbox)
+                // instead of its intrinsic aspect ratio.
+                . ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS . ')>video{width:100%;height:100%}';
         }
         if ( str_contains($serializedBlocks, '<video') ) {
             $parts[] = 'video{max-width:100%}';

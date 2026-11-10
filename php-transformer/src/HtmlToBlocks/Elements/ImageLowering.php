@@ -789,6 +789,44 @@ final class ImageLowering
         return implode(' ', $classes);
     }
 
+    /** @return array<string, mixed>|null */
+    public function convertPicture(DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array
+    {
+        $image = SourceDom::firstChildElement($picture, 'img');
+        if ( ! $image instanceof DOMElement ) {
+            return null;
+        }
+        $this->imageDimensions->fillParentImageViewportPair($image);
+
+        if ( $this->sourceElementClassifier->hasPictureSourceSelection($picture) ) {
+            return $this->responsiveMediaBlock($link ?? $figure ?? $picture);
+        }
+
+        return $this->convertImage($image, $figure ?? $picture, $picture, $link);
+    }
+
+    public function figureLinkedMediaAnchor(DOMElement $figure): ?DOMElement
+    {
+        $anchor = null;
+        foreach ( $figure->childNodes as $child ) {
+            if ( $child instanceof DOMElement && 'figcaption' === strtolower($child->tagName) ) {
+                continue;
+            }
+
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+
+            if ( ! $child instanceof DOMElement || 'a' !== strtolower($child->tagName) || null !== $anchor ) {
+                return null;
+            }
+
+            $anchor = $child;
+        }
+
+        return $anchor instanceof DOMElement && $this->isImageOnlyAnchor($anchor) ? $anchor : null;
+    }
+
     public function isImageOnlyAnchor(DOMElement $anchor): bool
     {
         $imageChildren = 0;

@@ -20,16 +20,16 @@ final class GalleryPattern implements PatternRecognizerInterface
 
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
-        $gallery = $context->galleryContext();
-        if ( null === $gallery ) {
+        $images = $context->images();
+        if ( null === $images ) {
             return null;
         }
 
         $block = $this->match(
             $element,
-            fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $gallery->convertImage($image, $figure, $picture, $link),
-            fn (DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array => $gallery->convertPicture($picture, $figure, $link),
-            fn (DOMElement $figure): ?DOMElement => $gallery->linkedMediaAnchor($figure),
+            fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $images->convertImage($image, $figure, $picture, $link),
+            $images->convertPicture(...),
+            $images->figureLinkedMediaAnchor(...),
             $context->presentationAttributes(...),
             SourceDom::innerHtml(...),
             $this->createBlock->createBlock(...)
