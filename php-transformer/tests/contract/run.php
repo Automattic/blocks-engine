@@ -5,6 +5,7 @@ require_once __DIR__ . '/../fixtures/captured-components.php';
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
 use Automattic\BlocksEngine\PhpTransformer\Contract\HtmlValidationOutcome;
@@ -752,7 +753,7 @@ $registry = new PatternRecognizerRegistry(array(
     },
 ));
 $registryContext = new PatternContext(
-    static fn (DOMElement $element): array => array()
+    new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array())
 );
 $assert($registryElement instanceof DOMElement, 'pattern registry fixture element parses');
 $assert('core/group' === ($registry->firstMatch($registryElement, $registryContext)?->block()['blockName'] ?? null), 'pattern registry returns the first recognizer match');

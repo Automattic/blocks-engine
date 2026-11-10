@@ -81,7 +81,7 @@ $makeDispatcher = static function (array $overrides = array()) use ($makeRuntime
     $structural = $overrides['structural'] ?? static fn (DOMElement $e): array => array();
     $patterns = PatternRecognizerRegistry::createDefault(new \Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture(static fn (string $name, array $attrs = array(), array $children = array()): array => array('blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $children)), new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\Tests\Support\RichTextMaterializationFixture());
     $patternContext = new PatternContext(
-        static fn (DOMElement $e, array $g = array()): array => array()
+        new ElementPresentationResolverFixture(static fn (DOMElement $e, array $g = array()): array => array())
     );
 
     return new ButtonLinkDispatcher(new SourceElementClassifier(), new ButtonLinkDispatchContext(

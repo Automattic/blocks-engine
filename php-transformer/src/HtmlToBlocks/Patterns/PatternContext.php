@@ -10,13 +10,13 @@ use Closure;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\DisclosureControlPresentation;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 
 final class PatternContext
 {
     /**
-     * @param Closure(DOMElement, array<int, string>): array<string, mixed> $presentationAttributes
      * @param PatternTreeConverter|null $recursiveConverter
      * @param NavigationPatternContext|null $navigationContext
      * @param MediaPatternContext|null $mediaContext
@@ -34,7 +34,7 @@ final class PatternContext
      * @param Closure(DOMElement): array<string, mixed>|null $socialAnchorColors
      */
     public function __construct(
-        private readonly Closure $presentationAttributes,
+        private readonly ElementPresentationResolver $presentation,
         private readonly ?PatternTreeConverter $recursiveConverter = null,
         private readonly ?NavigationPatternContext $navigationContext = null,
         private readonly ?MediaPatternContext $mediaContext = null,
@@ -125,7 +125,7 @@ final class PatternContext
      */
     public function presentationAttributes(DOMElement $element, array $excludedGeometryProperties = array()): array
     {
-        return ($this->presentationAttributes)($element, $excludedGeometryProperties);
+        return $this->presentation->presentationAttributes($element, $excludedGeometryProperties);
     }
 
     public function richTextContent(DOMElement $element): string

@@ -2480,7 +2480,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private function createPatternContext(): PatternContext
     {
         return new PatternContext(
-            fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->styleResolver->presentationAttributes($sourceElement, $excludedGeometryProperties),
+            $this->styleResolver,
             $this,
             new NavigationPatternContext(
                 $this->styleResolver,
@@ -2606,7 +2606,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private function createProbePatternContext(): PatternContext
     {
         return new PatternContext(
-            presentationAttributes: fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->styleResolver->presentationAttributes($sourceElement, $excludedGeometryProperties),
+            presentation: $this->styleResolver,
             navigationContext: new NavigationPatternContext(
                 $this->styleResolver,
                 session: $this->session,
