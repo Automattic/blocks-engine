@@ -51,7 +51,7 @@ foreach (array('Toggle search', 'Open Menu') as $label) {
     if (1 !== substr_count($capturedMarkup, 'aria-label="' . $label . '"')) $failures[] = 'Captured section must retain exactly one ' . $label . ' trigger';
 }
 foreach (array('menuDialog' => 'Link 7', 'searchDialog' => 'wp:search') as $id => $content) {
-    preg_match('/<!-- wp:[^ ]+\/captured-dialog [^>]*"dialogId":"' . $id . '"[^>]* -->(.*?)<!-- \/wp:[^ ]+\/captured-dialog -->/s', $markup, $match);
+    preg_match('/<!-- wp:group [^>]*"id":"' . $id . '"[^>]* -->(.*?)<!-- \/wp:group -->/s', $markup, $match);
     if (!str_contains($match[1] ?? '', $content)) $failures[] = $id . ' must own its panel content';
 }
 if (str_contains($markup, 'blocks-engine-native-responsive-navigation')) $failures[] = 'Captured controls must not become Core overlay openers';

@@ -52,7 +52,7 @@ foreach ($plan['diagnostics'] as $diagnostic) {
     if ('wordpress_site_plan_shell_extracted' !== ($diagnostic['code'] ?? null)) continue;
     $assert(!str_contains(json_encode($diagnostic, JSON_THROW_ON_ERROR), 'non_equivalent'), 'no route is excluded as non_equivalent: ' . json_encode($diagnostic));
 }
-$assert(str_contains(json_encode($headers), '<dialog'), 'the regression exercises a captured drawer');
+$assert(str_contains(json_encode($headers), 'blocksEngineDialog'), 'the regression exercises a captured drawer');
 // Rich navigation can retain its rendered root inside a panel. Its current
 // colour is page state even when there is no navigation-link current marker.
 $root = '<!-- wp:navigation {"overlayMenu":"never"} --><nav class="wp-block-navigation">' . $menu . '</nav><!-- /wp:navigation -->';

@@ -21,6 +21,15 @@ preg_match_all('/<!-- wp:navigation-link (\{.*?\}) \/-->/', $menu['block_markup'
 $urls = array_map(static fn(string $json): string => json_decode($json, true)['url'], $links[1]);
 $assert(array('#about', '#contact') === $urls, 'Shared navigation targets the current document sections.');
 
+// A body link from a route that owns the same section is a cross reference;
+// it does not pin the other route's header link to that route.
+$cta = $fixture;
+$cta['files'][1]['content'] = str_replace('<p>Call us.</p>', '<p>Call us.</p><p><a href="/index.html#contact">Head office</a></p>', $cta['files'][1]['content']);
+$withCta = $compile($cta);
+$assert(1 === count(array_filter($withCta['template_parts'], static fn(array $part): bool => 'header' === $part['area'])), 'A cross-route body link keeps the shared header.');
+$services = implode('', array_map(static fn(array $page): string => str_contains($page['canonical_block_markup'], 'Head office') ? $page['canonical_block_markup'] : '', $withCta['pages']));
+$assert(1 === preg_match('~href="/#contact"[^>]*>Head office~', $services), 'The body link still targets the other route.');
+
 // Cross-route fragments must not acquire same-document identity.
 $fixture['files'][1]['content'] = str_replace('/services/index.html#', '/index.html#', $fixture['files'][1]['content']);
 $other = $compile($fixture);

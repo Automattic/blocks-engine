@@ -7031,6 +7031,10 @@ PHP;
             $lines[] = "add_filter( 'style_loader_tag', static function ( string \$html, string \$handle ) use ( \$blocks_engine_stylesheet_attributes, \$blocks_engine_stylesheet_attribute_bodies ): string {";
             $lines[] = "    \$index = \$blocks_engine_stylesheet_attributes[ \$handle ] ?? null; if ( null === \$index ) return \$html; \$state = \$blocks_engine_stylesheet_attribute_bodies[ \$index ]; \$tag = new WP_HTML_Tag_Processor( \$html ); if ( \$tag->next_tag( 'LINK' ) ) { foreach ( \$state as \$attribute => \$value ) \$tag->set_attribute( \$attribute, \$value ); } return \$tag->get_updated_html();";
             $lines[] = "}, 10, 2 );";
+            // Concatenating hosts print one combined link per media group and
+            // skip style_loader_tag, which would drop the attributes above:
+            // device markers, stylesheet-set titles and disabled states.
+            $lines[] = "add_filter( 'css_do_concat', static function ( \$do_concat, \$handle ) use ( \$blocks_engine_stylesheet_attributes ) { return isset( \$blocks_engine_stylesheet_attributes[ \$handle ] ) ? false : \$do_concat; }, 10, 2 );";
         }
         $templateAssetTokens = array();
         foreach (array_merge($templates, $parts) as $document) if (str_contains((string) ($document['canonical_block_markup'] ?? ''), self::TOKEN_PREFIX)) foreach ($tokens as $token) if (is_string($token['token'] ?? null) && is_string($token['target_path'] ?? null)) $templateAssetTokens[self::TOKEN_PREFIX . $token['token'] . '}}'] = $token['target_path'];
@@ -7263,6 +7267,12 @@ PHP;
             $entranceScript = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ViewportEntranceRuntime::script('__BLOCKS_ENGINE_VIEWPORT_QUERIES__');
             $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { \$queries = array(); if ( method_exists( 'WP_Theme_JSON', 'get_viewport_media_queries' ) ) { foreach ( WP_Theme_JSON::get_viewport_media_queries( wp_get_global_settings( array( 'viewport' ) ), array( 'include_desktop' => true ) ) as \$state => \$query ) { \$queries[ ltrim( \$state, '@' ) ] = preg_replace( '/^@media\\s+/', '', \$query ); } } wp_register_script( 'blocks-engine-viewport-entrances', false, array(), null, true ); wp_enqueue_script( 'blocks-engine-viewport-entrances' ); wp_add_inline_script( 'blocks-engine-viewport-entrances', str_replace( '__BLOCKS_ENGINE_VIEWPORT_QUERIES__', (string) wp_json_encode( (object) \$queries ), " . var_export($entranceScript, true) . " ) ); } );";
             break;
+        }
+        foreach (array_merge($templates, $parts, $pages) as $document) {
+            if (str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), 'blocksEngineDialog')) {
+                $lines[] = CapturedDialogRuntime::bootstrap();
+                break;
+            }
         }
         foreach (array_merge($templates, $parts, $pages) as $document) {
             if (!str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), CaptureEvidence::RESPONSIVE_FRAGMENT)) continue;
@@ -8061,6 +8071,14 @@ PHP;
         }
         return $usage;
     }
+    /** Browser navigation attributes, excluding SVG resource references. */
+    private static function isNavigationAttribute(string $element, string $attribute): bool
+    {
+        return ('href' === $attribute && in_array($element, array('a', 'area'), true))
+            || ('xlink:href' === $attribute && 'a' === $element)
+            || ('action' === $attribute && 'form' === $element);
+    }
+
     /**
      * A document-relative a/area href or form action that names no artifact route cannot stay
      * in the plan: WordPress would resolve it against the imported page URL
@@ -8083,7 +8101,9 @@ PHP;
             };
             $markup = $tag[0];
             // A form navigates through `action`; links navigate through `href`.
-            $attribute = 1 === preg_match('~^(?:<|\\\\u003c)form~i', $markup) ? 'action' : 'href';
+            preg_match('~^(?:<|\\\\u003c)(a|area|form)\b~i', $markup, $element);
+            $attributes = array_filter(array('href', 'xlink:href', 'action'), static fn(string $name): bool => self::isNavigationAttribute(strtolower($element[1]), $name));
+            $attribute = '(?:' . implode('|', $attributes) . ')';
             foreach (array('~((?<![\w:-])' . $attribute . '\s*=\s*")([^"]*)(")~i', "~((?<![\\w:-])" . $attribute . "\\s*=\\s*')([^']*)(')~i", '~((?<![\w:-])' . $attribute . '\s*=\s*\\\\")([^"\\\\]*)(\\\\")~i', '~((?<![\w:-])' . $attribute . '\s*=\s*\\\\u0022)(.*?)(\\\\u0022)~i') as $pattern) $markup = preg_replace_callback($pattern, $replace, $markup) ?? $markup;
             return $markup;
         }, $content) ?? $content;
@@ -8234,7 +8254,10 @@ PHP;
      * its own route reaches as `#donate`. Spell that same-document link the
      * way the other routes do, so chrome repeated on every route carries one
      * link. A fragment no other route names stays bare: `#top` on every route
-     * means each route's own top.
+     * means each route's own top. A route that also links to its own
+     * `#contact` treats that section as per-page, so its link to another
+     * route's `#contact` is a deliberate cross reference and does not fix the
+     * destination.
      *
      * @param array<int,array<string,mixed>> $documents
      * @param array<int,array<string,mixed>> $routes
@@ -8243,13 +8266,26 @@ PHP;
     private function routeLinkedFragments(array $documents, array $routes): array
     {
         $targets = array_flip($this->routeSources);
-        $linked = array();
+        $cross = array();
+        $own = array();
         foreach ($documents as $document) {
             $origin = (string) ($document['source_path'] ?? '');
-            if (!preg_match_all('/(?:\bhref\s*=\s*(?:\\\\)?["\']|"url"\s*:\s*")([^"\'#\\\\]+)#([^"\'\\\\]+)/i', (string) ($document['block_markup'] ?? ''), $hrefs, PREG_SET_ORDER)) continue;
+            $markup = (string) ($document['block_markup'] ?? '');
+            if (preg_match_all('/(?:\bhref\s*=\s*(?:\\\\)?["\']|"url"\s*:\s*")#([^"\'\\\\]+)/i', $markup, $bare)) {
+                foreach ($bare[1] as $fragment) $own[$origin][$fragment] = true;
+            }
+            if (!preg_match_all('/(?:\bhref\s*=\s*(?:\\\\)?["\']|"url"\s*:\s*")([^"\'#\\\\]+)#([^"\'\\\\]+)/i', $markup, $hrefs, PREG_SET_ORDER)) continue;
             foreach ($hrefs as $href) {
                 $target = $targets[(string) $this->routeReference($href[1], $origin, $routes)] ?? null;
-                if (is_string($target) && $target !== $origin) $linked[$target][$href[2]] = true;
+                if (!is_string($target)) continue;
+                if ($target === $origin) $own[$origin][$href[2]] = true;
+                else $cross[$origin][] = array($target, $href[2]);
+            }
+        }
+        $linked = array();
+        foreach ($cross as $origin => $links) {
+            foreach ($links as [$target, $fragment]) {
+                if (!isset($own[$origin][$fragment])) $linked[$target][$fragment] = true;
             }
         }
         return $linked;
@@ -8425,7 +8461,7 @@ PHP;
     }
     private static function assertNoLocalBrowserReferences(string $content, string $sourcePath = '', string $context = 'markup', ?callable $report = null): void
     {
-        $assertReference = static function (string $candidate, string $attribute, string $element = '', bool $documentLink = false) use ($sourcePath, $context, $report): void { $url = trim(preg_split('/\s+/', trim(html_entity_decode($candidate, ENT_QUOTES | ENT_HTML5, 'UTF-8')))[0] ?? ''); $route = str_starts_with($url, '/') && (str_starts_with($attribute, 'json:route_') || ('href' === $attribute && (in_array($element, array('a', 'area'), true) || $documentLink)) || ('action' === $attribute && 'form' === $element)); if ('' !== $url && !str_starts_with($url, self::TOKEN_PREFIX) && !$route && !preg_match('~^(?:[a-z][a-z0-9+.-]*:|//|#|\?)~i', $url)) { if (null !== $report) { $report($url, $attribute); return; } throw new ValidationException(sprintf('WordPress site plan contains unresolved local browser reference %s.', $url), array('source_path' => $sourcePath, 'document_kind' => $context, 'declaration_kind' => 'browser_reference', 'declaration_index' => 0, 'reason' => 'unresolved_local_browser_reference', 'fields' => array('context' => $context, 'attribute' => $attribute, 'value' => $url))); } };
+        $assertReference = static function (string $candidate, string $attribute, string $element = '', bool $documentLink = false) use ($sourcePath, $context, $report): void { $url = trim(preg_split('/\s+/', trim(html_entity_decode($candidate, ENT_QUOTES | ENT_HTML5, 'UTF-8')))[0] ?? ''); $route = str_starts_with($url, '/') && (str_starts_with($attribute, 'json:route_') || self::isNavigationAttribute($element, $attribute) || ('href' === $attribute && $documentLink)); if ('' !== $url && !str_starts_with($url, self::TOKEN_PREFIX) && !$route && !preg_match('~^(?:[a-z][a-z0-9+.-]*:|//|#|\?)~i', $url)) { if (null !== $report) { $report($url, $attribute); return; } throw new ValidationException(sprintf('WordPress site plan contains unresolved local browser reference %s.', $url), array('source_path' => $sourcePath, 'document_kind' => $context, 'declaration_kind' => 'browser_reference', 'declaration_index' => 0, 'reason' => 'unresolved_local_browser_reference', 'fields' => array('context' => $context, 'attribute' => $attribute, 'value' => $url))); } };
         $assertCss = static function (string $css, string $cssContext) use ($assertReference): void { \Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter::rewrite(html_entity_decode($css, ENT_QUOTES | ENT_HTML5, 'UTF-8'), static function (string $url) use ($assertReference, $cssContext): string { $assertReference($url, $cssContext . ':url'); return $url; }); if (preg_match_all('/@import\s+(?:url\(\s*)?(?:"([^"]*)"|\'([^\']*)\'|([^\s\)"\';]+))/i', \Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner::withoutComments(html_entity_decode($css, ENT_QUOTES | ENT_HTML5, 'UTF-8')), $matches, PREG_SET_ORDER)) foreach ($matches as $match) $assertReference((string) (($match[1] ?? '') ?: ($match[2] ?? '') ?: ($match[3] ?? '')), $cssContext . ':@import'); };
         $assertJsonAttributes = null;
         $assertJsonAttributes = static function (array $attributes, bool $route) use (&$assertJsonAttributes, $assertReference, $sourcePath, $context, $report): void {

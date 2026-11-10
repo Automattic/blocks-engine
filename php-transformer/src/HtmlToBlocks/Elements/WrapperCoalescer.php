@@ -116,10 +116,9 @@ final class WrapperCoalescer
         $candidate = $this->collectWrapperChain($block, $depth);
         $chain = $candidate['chain'];
         $terminal = $candidate['terminal'];
-        // The terminal's editing surface does not own its div ancestors.
-        // They already have an exact native representation, even around an
-        // empty or generated terminal. Depth is diagnostic-only in the policy;
-        // folding these Groups adds editing debt without changing their DOM.
+        // Div ancestors have an exact native representation regardless of the
+        // terminal's editing surface (including an empty extracted subtree).
+        // Depth is diagnostic-only; folding adds debt without changing the DOM.
         $nativeGroupTree = array() === array_filter($chain, static fn (array $entry): bool => 'div' !== ($entry['descriptor']['tagName'] ?? null));
         $terminalIsShell = $this->sourceElementClassifier->isLayoutShellBlock($terminal);
         if (!$nativeGroupTree && (2 <= count($chain) || (array() !== $chain && $terminalIsShell))) {
@@ -183,7 +182,9 @@ final class WrapperCoalescer
     private function hasIndependentWrapperOwnership(array $block): bool
     {
         $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
-        return !empty($block['_editability_runtime_owned'])
+        // A dialog Group's identity includes its runtime shell and bindings.
+        return isset($attrs['metadata']['blocksEngineDialog'])
+            || !empty($block['_editability_runtime_owned'])
             || !empty($block['_editability_visual_owned'])
             || !empty($attrs['backgroundColor'])
             || !empty($attrs['gradient'])

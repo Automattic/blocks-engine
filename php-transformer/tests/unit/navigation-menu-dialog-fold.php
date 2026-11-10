@@ -89,7 +89,7 @@ $other = '<dialog id="dlg" data-blocks-engine-captured-dialog="true" data-blocks
     . $accordion('Shop') . $accordion('Help') . '<a href="/about">About</a><a href="/careers">Careers</a></dialog>';
 $unmatched = $transform($page($other));
 $unmatchedMarkup = (string) ($unmatched['serialized_blocks'] ?? '');
-$assert(str_contains($unmatchedMarkup, 'captured-dialog'), 'a dialog with an entry the row lacks keeps its dialog block', $unmatchedMarkup);
+$assert(str_contains($unmatchedMarkup, '"blocksEngineDialog"'), 'a dialog with an entry the row lacks keeps its dialog block', $unmatchedMarkup);
 $assert(! str_contains($unmatchedMarkup, 'blocks-engine-menu-fold'), 'and the row is not folded', $unmatchedMarkup);
 
 // The hamburger's wrapper keeps whatever the row does not have; only the hamburger goes.
@@ -102,7 +102,7 @@ $assert(str_contains($extraMarkup, 'Call us') && 2 === substr_count($extraMarkup
 $split = str_replace('<a href="/about">About</a>' . $switcher, $switcher . '<a href="/about">About</a>', $page($dialog));
 $splitResult = $transform($split);
 $splitMarkup = (string) ($splitResult['serialized_blocks'] ?? '');
-$assert(str_contains($splitMarkup, 'captured-dialog') && ! str_contains($splitMarkup, 'blocks-engine-menu-fold'), 'a row whose items are split by a control keeps the captured dialog', $splitMarkup);
+$assert(str_contains($splitMarkup, '"blocksEngineDialog"') && ! str_contains($splitMarkup, 'blocks-engine-menu-fold'), 'a row whose items are split by a control keeps the captured dialog', $splitMarkup);
 
 if ( 0 < $failures ) {
     fwrite(STDERR, "Menu dialog fold contract: {$failures} failed, {$passes} passed\n");

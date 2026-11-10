@@ -19,7 +19,7 @@ final class ParameterTablePattern implements PatternRecognizerInterface
     {
         $innerHtml = SourceDom::innerHtml(...);
 
-        if ( ! $this->hasClass($element, 'param-table') ) {
+        if ( ! SourceDom::hasClass($element, 'param-table') ) {
             return null;
         }
 
@@ -29,7 +29,7 @@ final class ParameterTablePattern implements PatternRecognizerInterface
                 continue;
             }
 
-            if ( ! $child instanceof DOMElement || ! $this->hasClass($child, 'param-row') ) {
+            if ( ! $child instanceof DOMElement || ! SourceDom::hasClass($child, 'param-row') ) {
                 return null;
             }
 
@@ -64,7 +64,7 @@ final class ParameterTablePattern implements PatternRecognizerInterface
     private function firstDirectChildWithClass(DOMElement $element, string $className): ?DOMElement
     {
         foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && $this->hasClass($child, $className) ) {
+            if ( $child instanceof DOMElement && SourceDom::hasClass($child, $className) ) {
                 return $child;
             }
         }

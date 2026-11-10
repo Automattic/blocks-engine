@@ -11,9 +11,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerS
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
-use LogicException;
 
-/** Materializes a captured dialog into its companion block. */
+/** Materializes editable dialog content as a core Group with a runtime shell. */
 final class CapturedDialogConverter implements ElementConverter
 {
     public function __construct(
@@ -98,11 +97,6 @@ final class CapturedDialogConverter implements ElementConverter
      */
     public function block(DOMElement $element, array &$fallbacks): array
     {
-        $registry = $this->session->generatedBlockRegistry()
-            ?? throw new LogicException('Generated block registry has not been prepared for this transform.');
-        $blockName = $registry->blockName(CapturedDialogBlockGenerator::LOCAL_NAME);
-        $registry->register(CapturedDialogBlockGenerator::class, (new CapturedDialogBlockGenerator())->definition($blockName));
-
         $attrs = array_filter(array(
             'tagName' => 'div' === strtolower($element->tagName) ? 'div' : '',
             'sourceStyle' => $this->openSourceStyle($element),
@@ -136,16 +130,28 @@ final class CapturedDialogConverter implements ElementConverter
         if (isset($attrs['resting'])) $opening .= ' data-blocks-engine-resting="' . $escape((string) $attrs['resting']) . '"';
         if (isset($attrs['restingState'])) $opening .= ' data-blocks-engine-resting-state="' . $escape(json_encode($attrs['restingState'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)) . '"';
         $opening .= '>';
-        if (! empty($attrs['addCloseButton'])) $opening .= '<button type="button" data-blocks-engine-dialog-close="true" aria-label="Close">Close</button>';
-        $innerContent = array($opening);
+        // Save a canonical core/group, not a companion block or raw HTML.
+        // Only the front-end shell needs the native dialog tag and bindings;
+        // its contents remain ordinary editable InnerBlocks in the editor.
+        $attributes = array();
+        preg_match_all('/ ([a-z][a-z0-9-]*)="([^"]*)"/', $opening, $shellAttributes, PREG_SET_ORDER);
+        foreach ($shellAttributes as $attribute) {
+            $attributes[$attribute[1]] = html_entity_decode($attribute[2], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        }
+        $groupAttrs = array('metadata' => array('blocksEngineDialog' => array('tagName' => $tag, 'attributes' => $attributes, 'addCloseButton' => !empty($attrs['addCloseButton']))));
+        if (isset($attrs['className'])) $groupAttrs['className'] = $attrs['className'];
+        if (isset($attrs['dialogId'])) $groupAttrs['anchor'] = $attrs['dialogId'];
+        $groupOpening = '<div' . (isset($attrs['dialogId']) ? ' id="' . $escape($attrs['dialogId']) . '"' : '')
+            . ' class="wp-block-group' . (isset($attrs['className']) ? ' ' . $escape($attrs['className']) : '') . '">';
+        $innerContent = array($groupOpening);
         foreach ($children as $_) $innerContent[] = null;
-        $innerContent[] = '</' . $tag . '>';
+        $innerContent[] = '</div>';
 
         return array(
-            'blockName' => $blockName,
-            'attrs' => $attrs,
+            'blockName' => 'core/group',
+            'attrs' => $groupAttrs,
             'innerBlocks' => $children,
-            'innerHTML' => $opening . '</' . $tag . '>',
+            'innerHTML' => $groupOpening . '</div>',
             'innerContent' => $innerContent,
         );
     }

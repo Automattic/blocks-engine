@@ -49,11 +49,11 @@ final class MathPattern implements PatternRecognizerInterface
     private function hasMathSignal(DOMElement $element): bool
     {
         $signals = strtolower(trim(implode(' ', array(
-            $this->attr($element, 'class'),
-            $this->attr($element, 'id'),
-            $this->attr($element, 'data-math'),
-            $this->attr($element, 'data-latex'),
-            $this->attr($element, 'data-tex'),
+            SourceDom::attr($element, 'class'),
+            SourceDom::attr($element, 'id'),
+            SourceDom::attr($element, 'data-math'),
+            SourceDom::attr($element, 'data-latex'),
+            SourceDom::attr($element, 'data-tex'),
         ))));
 
         return (bool) preg_match('/(?:^|[\s_-])(?:math|latex|tex|katex|mathjax)(?:$|[\s_-])/', $signals);

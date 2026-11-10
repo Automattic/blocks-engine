@@ -138,6 +138,30 @@ final class StaticStyleParityRunner
      */
     public static function candidateHtmlFromSerializedBlocks(string $serializedBlocks): string
     {
+        // Replay the core Group dialog shell just as the site's render filter
+        // does, without changing the saved (editor-valid) Group markup.
+        $groupTags = array();
+        $serializedBlocks = preg_replace_callback(
+            '/<!-- wp:group(?: (\{.*?\}))? -->\s*<(?:div|main|section|header|footer|aside|nav|article)\b[^>]*>|<\/(?:div|main|section|header|footer|aside|nav|article)>\s*<!-- \/wp:group -->/s',
+            static function (array $match) use (&$groupTags): string {
+                if (str_starts_with($match[0], '</')) {
+                    $tag = array_pop($groupTags);
+                    return null === $tag ? $match[0] : '</' . $tag . '><!-- /wp:group -->';
+                }
+                $attrs = json_decode($match[1] ?? '{}', true);
+                $shell = $attrs['metadata']['blocksEngineDialog'] ?? null;
+                $tag = is_array($shell) ? ($shell['tagName'] ?? null) : null;
+                $groupTags[] = $tag;
+                if (null === $tag) return $match[0];
+                $opening = '<' . $tag;
+                foreach ($shell['attributes'] ?? array() as $name => $value) {
+                    $opening .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+                }
+                return $opening . '>' . (!empty($shell['addCloseButton']) ? '<button type="button" data-blocks-engine-dialog-close="true" aria-label="Close">Close</button>' : '');
+            },
+            $serializedBlocks
+        ) ?? $serializedBlocks;
+
         // Navigation blocks also save as a comment-only tree. Reconstruct only
         // the stable server-rendered structure needed for selector/style probes;
         // responsive overlays and behavior remain WordPress runtime concerns.

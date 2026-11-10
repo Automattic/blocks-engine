@@ -100,9 +100,9 @@ try {
         }
         const invalid=all.filter(b=>b.isValid===false||['core/html','core/freeform'].includes(b.name));
         if(invalid.length)throw new Error(JSON.stringify(invalid.map(b=>({name:b.name,errors:b.validationIssues}))));
-        const dialogs=all.filter(b=>b.name.endsWith('/captured-dialog')&&b.attributes.presentation==='dropdown');
+        const dialogs=all.filter(b=>b.name==='core/group'&&b.attributes.metadata?.blocksEngineDialog?.attributes?.['data-blocks-engine-presentation']==='dropdown');
         if(!dialogs.length||dialogs.some(b=>!b.innerBlocks.length))throw new Error('Native mixed dropdown children missing');
-        const part=activeParts.find(p=>flatten(wp.blocks.parse(p.content.raw)).some(b=>b.name.endsWith('/captured-dialog')));
+        const part=activeParts.find(p=>flatten(wp.blocks.parse(p.content.raw)).some(b=>b.name==='core/group'&&b.attributes.metadata?.blocksEngineDialog));
         const kind=part?'wp_template_part':'page',entity=part||current;
         await wp.data.resolveSelect('core').getEntityRecord('postType',kind,entity.id);
         const original=entity.content.raw,blocks=wp.blocks.parse(original);

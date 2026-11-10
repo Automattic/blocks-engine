@@ -139,7 +139,7 @@ $capturedFallback = ( new HtmlTransformer() )->transform(
     . '<dialog data-blocks-engine-captured-dialog="true" data-blocks-engine-triggers="menu-trigger"><nav><a href="/social">Social</a><a href="mailto:hello@example.test">Contact</a></nav></dialog>'
 )->toArray();
 $capturedFallbackMarkup = (string) ($capturedFallback['serialized_blocks'] ?? '');
-$assertions[] = array(str_contains($capturedFallbackMarkup, '/captured-dialog') && str_contains($capturedFallbackMarkup, 'Social') && str_contains($capturedFallbackMarkup, 'Contact'), 'captured dialog content remains when no native navigation relationship is found');
+$assertions[] = array(str_contains($capturedFallbackMarkup, '"blocksEngineDialog"') && str_contains($capturedFallbackMarkup, 'Social') && str_contains($capturedFallbackMarkup, 'Contact'), 'captured dialog content remains when no native navigation relationship is found');
 
 $failures = array_map(
     static fn (array $assertion): string => $assertion[1],

@@ -20,7 +20,7 @@ if (preg_match('/<!-- wp:[^ ]+\/layout-shell .*?"tagName":"a"/', $markup)
 $document = new DOMDocument();
 @$document->loadHTML($markup);
 $xpath = new DOMXPath($document);
-if (1 !== $xpath->query('//*[@data-image-info="{}"]//figure/a[@href="/home/" and @target="_self" and contains(@class,"destination")]//img[@src="logo.png"]')->length) {
+if (1 !== $xpath->query('//div[contains(concat(" ",normalize-space(@class)," ")," blocks-engine-css-owned-layout ")]//figure/a[@href="/home/" and @target="_self" and contains(@class,"destination")]//img[@src="logo.png"]')->length) {
     throw new RuntimeException('Retain the custom presentation host around the linked native image.');
 }
 echo "Custom host native image link regression passed\n";

@@ -69,26 +69,26 @@ final class GalleryPattern implements PatternRecognizerInterface
             if ( 'figure' === $tagName ) {
                 $linkedMedia = $figureLinkedMediaAnchor($child);
                 if ( $linkedMedia instanceof DOMElement ) {
-                    $linkedPicture = $this->firstChildElement($linkedMedia, 'picture');
+                    $linkedPicture = SourceDom::firstChildElement($linkedMedia, 'picture');
                     if ( $linkedPicture instanceof DOMElement ) {
                         $images[] = $convertPictureElement($linkedPicture, $child, $linkedMedia);
                         continue;
                     }
 
-                    $linkedImage = $this->firstChildElement($linkedMedia, 'img');
+                    $linkedImage = SourceDom::firstChildElement($linkedMedia, 'img');
                     if ( $linkedImage instanceof DOMElement ) {
                         $images[] = $convertImageElement($linkedImage, $child, null, $linkedMedia);
                         continue;
                     }
                 }
 
-                $image = $this->firstChildElement($child, 'img');
+                $image = SourceDom::firstChildElement($child, 'img');
                 if ( $image instanceof DOMElement ) {
                     $images[] = $convertImageElement($image, $child, null, null);
                     continue;
                 }
 
-                $picture = $this->firstChildElement($child, 'picture');
+                $picture = SourceDom::firstChildElement($child, 'picture');
                 if ( $picture instanceof DOMElement ) {
                     $images[] = $convertPictureElement($picture, $child, null);
                     continue;
@@ -119,7 +119,7 @@ final class GalleryPattern implements PatternRecognizerInterface
         }
 
         $attrs = $presentationAttributes($element);
-        $caption = $this->firstChildElement($element, 'figcaption');
+        $caption = SourceDom::firstChildElement($element, 'figcaption');
         if ( $caption instanceof DOMElement ) {
             $attrs['caption'] = $innerHtml($caption);
         }
