@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
 use DOMElement;
 
@@ -16,7 +17,6 @@ final class InlineContentElementContext
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array<string, mixed> $positionedInlineCarrierBlock
      * @param Closure(DOMElement): bool $hasAuthorSemanticMarker
      * @param Closure(DOMElement): string $richTextMarker
-     * @param Closure(DOMElement): ?string $dynamicTextContent
      * @param Closure(DOMElement, string): ?DOMElement $ancestorElement
      * @param Closure(DOMElement): bool $isStructuralListItem
      * @param Closure(DOMElement): bool $shouldPreserveEmptyVisualElement
@@ -32,7 +32,6 @@ final class InlineContentElementContext
         private readonly Closure $positionedInlineCarrierBlock,
         private readonly Closure $hasAuthorSemanticMarker,
         private readonly Closure $richTextMarker,
-        private readonly Closure $dynamicTextContent,
         private readonly Closure $ancestorElement,
         private readonly Closure $isStructuralListItem,
         private readonly Closure $shouldPreserveEmptyVisualElement,
@@ -58,7 +57,23 @@ final class InlineContentElementContext
 
     public function richTextMarker(DOMElement $element): string { return ($this->richTextMarker)($element); }
 
-    public function dynamicTextContent(DOMElement $element): ?string { return ($this->dynamicTextContent)($element); }
+    public function dynamicTextContent(DOMElement $element): ?string
+    {
+        $target = trim(SourceDom::attr($element, 'data-target'));
+        if ( '' === $target ) {
+            $target = trim(SourceDom::attr($element, 'data-count'));
+        }
+        if ( '' === $target || ! is_numeric($target) ) {
+            return null;
+        }
+
+        $isFloat = 'true' === strtolower(trim(SourceDom::attr($element, 'data-float'))) || str_contains($target, '.');
+        $value = $isFloat
+            ? number_format((float) $target, 1, '.', ',')
+            : number_format((float) $target, 0, '.', ',');
+
+        return SourceDom::attr($element, 'data-prefix') . $value . SourceDom::attr($element, 'data-suffix');
+    }
     public function ancestorElement(DOMElement $element, string $tagName): ?DOMElement { return ($this->ancestorElement)($element, $tagName); }
     public function isStructuralListItem(DOMElement $element): bool { return ($this->isStructuralListItem)($element); }
     public function shouldPreserveEmptyVisualElement(DOMElement $element): bool { return ($this->shouldPreserveEmptyVisualElement)($element); }

@@ -17,13 +17,11 @@ use DOMElement;
 final class SvgMaterializationContext
 {
     /**
-     * @param Closure(DOMElement): ?string                                                         $reusableComponentFingerprintFor
      * @param Closure(DOMElement): string                                                          $sanitizeInlineSvgMarkup
      * @param Closure(DOMElement, string): array<string, mixed>                                     $svgArtworkBlock
      */
     public function __construct(
         private readonly HtmlTransformerSession $session,
-        private readonly Closure $reusableComponentFingerprintFor,
         private readonly Closure $sanitizeInlineSvgMarkup,
         private readonly Closure $svgArtworkBlock
     ) {
@@ -31,7 +29,7 @@ final class SvgMaterializationContext
 
     public function reusableComponentFingerprintFor(DOMElement $element): ?string
     {
-        return ($this->reusableComponentFingerprintFor)($element);
+        return $this->session->reusableComponentState()->fingerprintForPath((string) $element->getNodePath());
     }
 
     public function safeFallbackHtml(DOMElement $element): string

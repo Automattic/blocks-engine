@@ -42,7 +42,6 @@ $context = new InlineContentElementContext(
     static fn (DOMElement $element, array &$fallbacks): ?array => array( 'blockName' => 'core/group', 'attrs' => array( 'positioned' => true ) ),
     static fn (DOMElement $element): bool => false,
     static fn (DOMElement $element): string => '',
-    static fn (DOMElement $element): ?string => null,
     static fn (DOMElement $element, string $tagName): ?DOMElement => null,
     static fn (DOMElement $element): bool => false,
     static fn (DOMElement $element): bool => false,
