@@ -504,7 +504,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 $classes = $this->session->authorSelectorProjectionState()->controlCarrierClasses($path);
                 $marker = $this->session->authorSelectorProjectionState()->controlMarker($path);
                 if ( '' !== $marker ) {
-                    $rule = $this->controlCarrierLayerRevertRule($element, $marker);
+                    $rule = $this->authorStylesheetProjector->controlCarrierLayerRevertRule($element, $marker);
                     if ( '' !== $rule ) {
                         $this->session->generatedSupportStylesheetState()->registerNativeButton($marker, $rule);
                     }
@@ -801,7 +801,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $detailsConverter = new DetailsElementConverter(new DetailsElementContext(
             fn (DOMElement $element): ?DOMElement => $capturedDisclosureDialogs->fromDetails($element),
             function (DOMElement $element, array &$fallbacks): array {
-                return $this->capturedDialogBlock($element, $fallbacks);
+                return $this->elementPrelude->capturedDialogBlock($element, $fallbacks);
             },
             $this
         ));
@@ -1230,7 +1230,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return new RichTextElementContext(
             fn (DOMElement $element): ?array => $this->authoredMarqueeRecognizer->authoredMarqueeBlock($element),
             fn (DOMElement $element): bool => $this->hasEmptyVisualInlineChild($element),
-            fn (DOMElement $element): bool => $this->hasBoxChromeWrapperStyling($element),
+            $this->authorLayoutOwnership->hasBoxChromeWrapperStyling(...),
             $this->runtimeIslands,
             fn (DOMElement $element): ?array => $this->paragraphImages->unwrappedParagraphImageBlock($element),
             function (DOMElement $element, array &$fallbacks): ?array {
@@ -1290,11 +1290,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->codePresentation ??= new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CodePresentation($this->styleResolver),
             $this
         );
-    }
-
-    private function controlCarrierLayerRevertRule(DOMElement $element, string $marker): string
-    {
-        return $this->authorStylesheetProjector->controlCarrierLayerRevertRule($element, $marker);
     }
 
     private ?RichTextStylingHookNormalizer $richTextStylingHooks = null;
@@ -2583,12 +2578,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $blocks;
     }
 
-    /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed> */
-    private function capturedDialogBlock(DOMElement $element, array &$fallbacks): array
-    {
-        return $this->elementPrelude->capturedDialogBlock($element, $fallbacks);
-    }
-
     /** @return array<string, mixed> */
     private function runtimeAuthoredButton(DOMElement $element): array
     {
@@ -2913,7 +2902,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
     private function requiresIndependentSemanticWrapper(DOMElement $element): bool
     {
-        if ( 'span' !== strtolower($element->tagName) || $this->isRichTextInlineContext($element) ) {
+        if ( 'span' !== strtolower($element->tagName) || $this->authorLayoutOwnership->isRichTextInlineContext($element) ) {
             return false;
         }
 
@@ -2966,7 +2955,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
      */
     private function ownsPositioningGeometry(DOMElement $element): bool
     {
-        if ( ! $this->sourceElementClassifier->isInlineContentElement(strtolower($element->tagName)) || $this->isRichTextInlineContext($element) ) {
+        if ( ! $this->sourceElementClassifier->isInlineContentElement(strtolower($element->tagName)) || $this->authorLayoutOwnership->isRichTextInlineContext($element) ) {
             return false;
         }
 
@@ -3202,11 +3191,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $tags;
     }
 
-    private function isRichTextInlineContext(DOMElement $element): bool
-    {
-        return $this->authorLayoutOwnership->isRichTextInlineContext($element);
-    }
-
     public function richTextMarker(DOMElement $element): string
     {
         return $this->authorLayoutOwnership->richTextMarker($element);
@@ -3378,12 +3362,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     }
 
     /** @return list<array{key: string, selector: string, parsed: array<string, mixed>, direct_child_parsed: array<string, mixed>, declarations: array<string, string>, rule_order: int}> */
-    /** @see WrapperCoalescer::selectorMatchingSurvivesWrapperCoalescing() */
-    private function selectorMatchingSurvivesWrapperCoalescing(DOMElement $element, DOMElement $child, bool $exact = false): bool
-    {
-        return $this->wrapperCoalescer->selectorMatchingSurvivesWrapperCoalescing($element, $child, $exact);
-    }
-
     public function shouldPreserveEmptyVisualElement(DOMElement $element): bool { return $this->emptyElementFootprint->shouldPreserveEmptyVisualElement($element, $this->emptyVisualRetentionPolicy($element)); }
 
     /** Non-style retention decisions, evaluated only when the footprint query needs them. */
@@ -3543,11 +3521,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return false;
     }
 
-    private function authoredDisplay(DOMElement $element): string
-    {
-        return $this->authorLayoutOwnership->authoredDisplay($element);
-    }
-
     /**
      * Lower a foreignObject-only "fit text" SVG to the native text block its
      * inner element renders as (`<svg viewBox="..."><foreignObject width="100%"
@@ -3693,11 +3666,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private function hasBoxModelWrapperStyling(DOMElement $element): bool
     {
         return $this->wrapperStylingMatches($element, self::BOX_MODEL_WRAPPER_PROPERTIES);
-    }
-
-    private function hasBoxChromeWrapperStyling(DOMElement $element): bool
-    {
-        return $this->authorLayoutOwnership->hasBoxChromeWrapperStyling($element);
     }
 
     private function hasMarginWrapperStyling(DOMElement $element): bool
