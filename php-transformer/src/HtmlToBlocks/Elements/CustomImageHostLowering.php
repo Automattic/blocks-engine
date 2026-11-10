@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ImageUrlResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ImageDimensionResolver;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
@@ -23,7 +25,7 @@ use DOMElement;
  * block, keeping the host's box as a layout shell when its presentation needs
  * one, and decides when an image-only custom element can be promoted.
  */
-final class CustomImageHostLowering
+final class CustomImageHostLowering implements ElementConverter
 {
     public function __construct(
         private readonly SourceBlockCreator $blocks,
@@ -35,8 +37,32 @@ final class CustomImageHostLowering
         private readonly ImageLowering $imageLowering,
         private readonly LayoutShellLowering $layoutShells,
         private readonly RuntimeIslandAnalyzer $runtimeIslands,
-        private readonly AuthorLayoutOwnership $authorLayoutOwnership
+        private readonly AuthorLayoutOwnership $authorLayoutOwnership,
+        private readonly ImageDimensionResolver $imageDimensions,
+        private readonly ImageUrlResolver $imageUrls
     ) {
+    }
+
+    /** Lowers an image-only custom element host (a lone image inside a custom tag). */
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
+    {
+        $customImage = SourceDom::imageOnlyCustomElement($element);
+        if ( ! $customImage instanceof DOMElement ) {
+            return ConversionOutcome::unhandled();
+        }
+        $this->imageDimensions->fillParentImageViewportPair($customImage);
+        if ('' === $this->imageUrls->sourceUrl($customImage) && !$customImage->hasAttribute('srcset')) {
+            return ConversionOutcome::handled(null);
+        }
+        if ( ! $this->canPromoteImageOnly($element, $customImage) ) {
+            return ConversionOutcome::handled($this->nativeImageIn($element, $customImage) ?? $this->imageLowering->responsiveMediaBlock($element));
+        }
+        $picture = $customImage->parentNode;
+        return ConversionOutcome::handled($this->imageLowering->convertImage(
+            $customImage,
+            $element,
+            $picture instanceof DOMElement && 'picture' === strtolower($picture->tagName) ? $picture : null
+        ));
     }
 
     /** Retain a static host box around independently editable native media. */

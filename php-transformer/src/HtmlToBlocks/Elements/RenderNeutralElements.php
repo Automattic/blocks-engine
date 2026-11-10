@@ -317,7 +317,7 @@ final class RenderNeutralElements
      */
     public function isTransparentUnknownElement(DOMElement $element): bool
     {
-        if ( ! RichTextInlineTags::isUnknownHtmlElement($element)
+        if ( ( ! RichTextInlineTags::isUnknownHtmlElement($element) && ! str_contains(strtolower($element->tagName), '-') )
             || in_array(strtolower($element->tagName), array( 'content', 'shadow' ), true)
             || $this->sourceElementClassifier->isRuntimeMediaSurfaceElement($element)
             || ! $this->runtimeIslands->isSafeTransparentCustomElement($element)

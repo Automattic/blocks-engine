@@ -685,6 +685,9 @@ $inlineBinding = new PresetBinding($bindSystem, array());
 $inline = static fn(string $content): string => '<!-- wp:paragraph --><p>' . $content . '</p><!-- /wp:paragraph -->';
 $assert($inline('A <mark style="background-color:rgba(0, 0, 0, 0)" class="has-inline-color has-' . $slug . '-color x" role="none">b</mark>') === $inlineBinding->bind($inline('A <span class="x" style="color:#e11d48" role="none">b</span>')), 'a token-coloured span becomes the text-colour format mark');
 $assert($inline('<mark style="background-color:#ffffff" class="has-inline-color has-' . $slug . '-color">b</mark>') === $inlineBinding->bind($inline('<mark style="color:#e11d48;background-color:#ffffff">b</mark>')), 'an inline background stays a literal, as core keeps it');
+$assert($inline('<mark style="background-color:rgba(0, 0, 0, 0)" class="has-inline-color has-' . $slug . '-color icon" role="none"></mark>') === $inlineBinding->bind($inline('<mark class="icon has-inline-color" style="color:#e11d48" role="none"></mark>')), 'an empty decoration mark binds its colour even though it carries the format class');
+$custom = '<mark style="background-color:rgba(0, 0, 0, 0);color:#e11d48" class="has-inline-color">b</mark>';
+$assert($inline(str_replace('#e11d48', 'var(--wp--preset--color--' . $slug . ')', $custom)) === $inlineBinding->bind($inline($custom)), 'a custom-colour format mark with text keeps its markup and binds its literal in place');
 foreach (array(
     'it is translucent' => '<mark style="color:rgb(225 29 72 / .5)">b</mark>',
     'it is not a token' => '<mark style="color:#00ff00">b</mark>',

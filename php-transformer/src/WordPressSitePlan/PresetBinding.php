@@ -495,7 +495,7 @@ final class PresetBinding
                 continue;
             }
             $classes = preg_split('/\s+/', trim((string) ($values['class'] ?? ''))) ?: array();
-            if (in_array('has-inline-color', $classes, true)) continue;
+            if (in_array('has-inline-color', $classes, true) && !self::isEmptyMark($html, $name, $tag[0][1] + strlen($tag[0][0]))) continue;
             $close = null !== $attributes && 'span' === $name ? self::closingTag($html, 'span', $tag[0][1] + strlen($tag[0][0])) : null;
             $bound = null === $attributes ? null : $this->inlineFormat($name, $values, $html, $tag[0][1] + strlen($tag[0][0]), $reason);
             if (null !== $background) $this->refuse('inline_format_unsupported');
@@ -657,6 +657,18 @@ final class PresetBinding
         $attributes = array();
         foreach ($matches as $match) $attributes[strtolower($match[1])] = html_entity_decode($match[2], ENT_QUOTES | ENT_HTML5, 'UTF-8');
         return $attributes;
+    }
+
+    /**
+     * The conversion gives a text-less decoration mark `has-inline-color` so
+     * RichText keeps it. That class alone does not mean the mark is already
+     * in core's format, so its colour still binds like any other carrier.
+     */
+    private static function isEmptyMark(string $html, string $name, int $after): bool
+    {
+        if ('mark' !== $name) return false;
+        $close = self::closingTag($html, 'mark', $after);
+        return null !== $close && '' === trim(strip_tags(substr($html, $after, $close[0] - $after)));
     }
 
     /** @return array{0:int,1:int}|null Offset and length of the tag that closes an element opened before `$from`. */

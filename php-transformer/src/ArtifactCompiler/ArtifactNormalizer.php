@@ -137,16 +137,13 @@ final class ArtifactNormalizer
                 continue;
             }
             if ( ! $isMedia && count($files) - $mediaFiles >= $limits['max_files'] ) {
-                if (null !== $truncationImpact) continue;
-                // Parsed-source exhaustion must not discard later media, which
-                // has independent budgets. Report source omissions together.
-                $omitted = array_values(array_filter(array_slice($rawFiles, $index), static fn(array $entry): bool => !self::isReferenceBackedBinary($entry)));
+                $omitted = array_slice($rawFiles, $index);
                 $rejected += count($omitted);
                 $rejectionCounts['file_limit_exceeded'] = ($rejectionCounts['file_limit_exceeded'] ?? 0) + count($omitted);
                 $this->appendRejectionSamples($rejectionSamples, $omitted, 'file_limit_exceeded');
-                $truncationImpact = $this->truncationImpact($omitted, $files);
+                $truncationImpact = $this->truncationImpact(array_slice($rawFiles, $index), $files);
                 $diagnostics[] = $this->diagnostic('file_limit_exceeded', 'warning', 'Additional artifact files were ignored because the file limit was reached.', array('max_files' => $limits['max_files'], 'truncation_impact' => $truncationImpact));
-                continue;
+                break;
             }
 
             $path = ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''));

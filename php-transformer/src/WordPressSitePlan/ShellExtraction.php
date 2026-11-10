@@ -199,10 +199,7 @@ final class ShellExtraction
                 // drawer) is absent from a landmark-only artifact.
                 if (array() !== array_diff(self::textRuns($candidate['markup']), self::textRuns($markup))) continue;
                 $candidate['identity_markup'] = self::normalizeNestedChromeMarkup($markup);
-                // Isolation proves shared identity, not presentation. Retain
-                // the route compilation's selector and geometry carriers: the
-                // isolated shell was compiled against a different style context.
-                $candidate['template_part_markup'] = self::landmarkPartMarkup(self::withoutCurrentNavigationState(str_contains($markup, CaptureEvidence::VIEWPORT_ENTRANCE . '=') ? $markup : $candidate['markup']), $candidate['area']);
+                $candidate['template_part_markup'] = self::landmarkPartMarkup(self::withoutCurrentNavigationState($markup), $candidate['area']);
             }
             unset($candidate);
         }

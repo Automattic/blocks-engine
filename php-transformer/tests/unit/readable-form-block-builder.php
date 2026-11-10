@@ -13,6 +13,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButto
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredInputBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredTextareaBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\PatternTreeFixture;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 
 $session = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession(new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()));
@@ -129,16 +130,16 @@ $builder = new ReadableFormBlockBuilder(
     $session,
     // The production flow converter declines standalone controls; stray copy
     // converts as ordinary flow content.
-    static function (DOMElement $element, array &$fallbacks): array {
+    new PatternTreeFixture(element: static function (DOMElement $element, array &$fallbacks): ?array {
         if ( in_array(strtolower($element->tagName), array( 'input', 'select', 'textarea', 'button' ), true) ) {
-            return array();
+            return null;
         }
-        return array( array(
+        return array(
             'blockName' => 'core/paragraph',
             'attrs' => array( 'content' => trim($element->textContent) ),
             'innerBlocks' => array(),
-        ) );
-    }
+        );
+    })
 );
 
 $assert(null === $builder->build($formFrom('<form></form>')), 'empty-form-declines-block');

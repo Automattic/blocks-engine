@@ -82,7 +82,7 @@ $descriptionContext = new DescriptionListElementContext(
     static fn (DOMElement $element): ?array => 'metadata' === $state->mode ? array( 'blockName' => 'core/group', 'attrs' => array( 'metadata' => true ) ) : null,
     static fn (DOMElement $element): array => 'items' === $state->mode ? array( array( 'blockName' => 'core/list-item' ) ) : array(),
     $ownership,
-    static fn (DOMElement $element, array &$fallbacks, bool $capture): array => 'empty' === $state->mode ? array() : array( array( 'blockName' => 'core/paragraph' ) ),
+    new PatternTreeFixture(children: static fn (DOMElement $element, array &$fallbacks, bool $capture): array => 'empty' === $state->mode ? array() : array( array( 'blockName' => 'core/paragraph' ) )),
     static fn (string $text): bool => '' !== trim(strip_tags($text))
 );
 $descriptionConverter = new DescriptionListElementConverter(new SourceElementClassifier(), $createBlock, new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array( 'className' => 'presented-' . strtolower($element->tagName) )), new RichTextMaterializationFixture(array( 'content' => static fn (DOMElement $element): string => $element->textContent ?? '' )), $descriptionContext);

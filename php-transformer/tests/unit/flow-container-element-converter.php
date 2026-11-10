@@ -42,6 +42,14 @@ $operations = array(
     'capturePseudoFormFallback' => static function () use ($state): void { ++$state->captures; },
     'tree' => new PatternTreeFixture(static function (DOMElement $element, array &$fallbacks, array $patterns) use ($state): ?array {
         return 'spacer' === $state->mode && array( SpacerPattern::class ) === $patterns ? array( 'blockName' => 'core/spacer' ) : null;
+    }, static function () use ($state): array {
+        if ( 'single-child' === $state->mode ) {
+            return array( array( 'blockName' => 'core/paragraph' ) );
+        }
+        if ( 'multiple-children' === $state->mode ) {
+            return array( array( 'blockName' => 'core/heading' ), array( 'blockName' => 'core/paragraph' ) );
+        }
+        return array();
     }),
     'flankedSeparatorBlock' => $null,
     'canCaptureExternalSvgFragmentDependency' => static fn (): bool => true,
@@ -77,15 +85,6 @@ $operations = array(
     'authoredCarouselBlock' => $null,
     'generatedComponentBlock' => $null,
     'textFlowBlock' => $null,
-    'convertChildren' => static function () use ($state): array {
-        if ( 'single-child' === $state->mode ) {
-            return array( array( 'blockName' => 'core/paragraph' ) );
-        }
-        if ( 'multiple-children' === $state->mode ) {
-            return array( array( 'blockName' => 'core/heading' ), array( 'blockName' => 'core/paragraph' ) );
-        }
-        return array();
-    },
     'backgroundImageBlock' => $null,
     'coalescedSingleGroupWrapper' => $null,
     'shouldPreserveWrapper' => $false,

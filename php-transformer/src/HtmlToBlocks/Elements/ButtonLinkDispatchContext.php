@@ -5,7 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerRegistry;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
@@ -23,7 +23,7 @@ final class ButtonLinkDispatchContext
         private readonly SourceElementClassifier $sourceElementClassifier,
         private readonly ?ElementPresentationResolver $presentationResolver = null,
         private readonly ?SourceBlockCreator $createBlock = null,
-        private readonly ?PatternRecognizerRegistry $patternRecognizers = null,
+        private readonly ?PatternTreeConverter $tree = null,
         private readonly ?PatternContext $patternContext = null,
         private readonly ?RuntimeIslandAnalyzer $runtimeIslands = null,
         private readonly ?FormRuntimeIslandRecorder $formRuntimeIslandRecorder = null,
@@ -75,18 +75,7 @@ final class ButtonLinkDispatchContext
      */
     public function recognizePatterns(DOMElement $element, array &$fallbacks, array $patterns): ?array
     {
-        if ( ! $this->patternRecognizers instanceof PatternRecognizerRegistry || ! $this->patternContext instanceof PatternContext ) {
-            return null;
-        }
-
-        $result = $this->patternRecognizers->firstMatch($element, $this->patternContext, $patterns);
-        if ( null === $result ) {
-            return null;
-        }
-
-        $fallbacks = array_merge($fallbacks, $result->fallbacks());
-
-        return $result->block();
+        return $this->tree?->patterns($element, $fallbacks, $patterns);
     }
 
     /**

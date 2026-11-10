@@ -29,7 +29,7 @@ use DOMElement;
  * Collaborators take existing converters, suppressors, and resolvers. Remaining
  * HtmlCompilation operations are explicit constructor closures — not a Context bag.
  */
-final class ElementConversionPrelude
+final class ElementConversionPrelude implements ElementConverter
 {
     /**
      * A menu its script opens in place. Core's generated list and items are
@@ -102,7 +102,7 @@ final class ElementConversionPrelude
     /**
      * @param array<int, array<string, mixed>> $fallbacks
      */
-    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported): ConversionOutcome
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
         if (WordPressComments::hasClass($element, 'wp-block-comments')) {
             $children = $this->tree->children($element, $fallbacks, $captureUnsupported);

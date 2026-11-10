@@ -57,7 +57,7 @@ final class CapturedSelectableSetConverter implements ElementConverter
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */
-    public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
         // The surviving source trigger row shares the projected tab list's row
         // identity and is replaced by it. A source row can itself be role=tablist

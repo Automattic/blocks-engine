@@ -3611,12 +3611,21 @@ final class StyleResolver implements ElementPresentationResolver
         $ownDefaults = $tagDefaults[strtolower($element->tagName)] ?? array();
         $parent = $element->parentNode;
         if ( $parent instanceof DOMElement ) {
+            $own = null;
             foreach ( array( 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform', 'color' ) as $property ) {
                 if ( ! isset($declarations[$property]) || in_array($property, $ownDefaults, true) ) {
                     continue;
                 }
                 $inherited = $this->resolvedInheritedTypographyValue($parent, $property);
                 $value = $this->resolveCssVariablesInValue(CssValueInspector::withoutImportant($declarations[$property]), $element);
+                // The inline value is redundant only if dropping it lets the
+                // element inherit; an own author rule with a different value
+                // would win instead.
+                $own ??= $this->cssDeclarations($this->specificityResolvedPresentationStyle($element, null, false));
+                $ownValue = trim((string) ($own[$property] ?? ''));
+                if ( '' !== $ownValue && $this->comparableInheritedTypography($this->resolveCssVariablesInValue(CssValueInspector::withoutImportant($ownValue), $element)) !== $this->comparableInheritedTypography($value) ) {
+                    continue;
+                }
                 // Equal relative expressions need not compute equally at two
                 // levels (for example font-size:120% or font-weight:bolder).
                 if ( ('font-size' === $property && preg_match('/(?:%|[0-9.](?:em|ex|ch)\b)|^(?:larger|smaller)$/i', $value))

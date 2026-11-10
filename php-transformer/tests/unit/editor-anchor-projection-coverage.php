@@ -73,5 +73,18 @@ foreach (array('desktop', 'mobile') as $device) {
 }
 $skipMarkup = (string) ((new HtmlTransformer())->transform($skipHtml)->toArray()['serialized_blocks'] ?? '');
 $assert(2 === preg_match_all('/<button[^>]*class="[^"]*blocks-engine-editor-anchor-skip|class="[^"]*blocks-engine-editor-anchor-skip[^"]*"[^>]*>\s*(?:<[^>]+>\s*)*Skip to Main Content/', $skipMarkup), 'Every variant copy of an id-styled skip link carries its editor anchor class.');
+// A capture that already renamed the mobile copy (`#shell--…-mobile`) and
+// aliased its rules keeps one scoped identity: the main projection covers it,
+// so the editor sheet does not replay every rule the id prefixes.
+$renamedHtml = '<style>:is(#shell,#shell--data-blocks-engine-capture-mobile) .card{padding-top:29px}</style>';
+foreach (array('desktop' => '', 'mobile' => '--data-blocks-engine-capture-mobile') as $device => $suffix) {
+    $renamedHtml .= '<div class="data-blocks-engine-capture-' . $device . '-document" data-blocks-engine-capture-device-document="' . $device . '" data-blocks-engine-capture-document-scope=""><div id="shell' . $suffix . '"><p class="card">Card ' . $device . '</p></div></div>';
+}
+$renamed = array('editor' => '', 'projected' => '');
+foreach ((new HtmlTransformer())->transform($renamedHtml)->toArray()['assets'] ?? array() as $asset) {
+    if ('css' === ($asset['kind'] ?? '')) $renamed['editor-static-state' === ($asset['source'] ?? '') ? 'editor' : 'projected'] .= $asset['content'] ?? '';
+}
+$assert(!str_contains($renamed['editor'], 'padding-top:29px'), 'A pre-renamed variant id pair is covered, not replayed in the editor sheet.');
+$assert(str_contains($renamed['projected'], '.blocks-engine-editor-anchor-shell)') && str_contains($renamed['projected'], '.blocks-engine-editor-anchor-shell--data-blocks-engine-capture-mobile)'), 'The main projection gives both names of a pre-renamed pair their editor anchor.');
 fwrite(STDOUT, 'Multi-page fixture editor-static-state bytes: ' . $bytes . PHP_EOL);
 exit($failures ? 1 : 0);
