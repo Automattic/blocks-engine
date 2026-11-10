@@ -132,10 +132,9 @@ final class RichTextMaterializer implements RichTextMaterialization
             return $content;
         }
 
-        $document = new DOMDocument();
-        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . $content . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        $document = HtmlSerialization::parseFragment('<body>' . $content . '</body>');
 
-        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
+        $body = $document->getElementsByTagName('body')->item(0);
         if ( ! $body instanceof DOMElement ) {
             return $content;
         }
@@ -258,9 +257,8 @@ final class RichTextMaterializer implements RichTextMaterialization
             return $content;
         }
 
-        $document = new DOMDocument();
-        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . $content . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
+        $document = HtmlSerialization::parseFragment('<body>' . $content . '</body>');
+        $body = $document->getElementsByTagName('body')->item(0);
         if ( ! $body instanceof DOMElement ) {
             return $content;
         }
@@ -440,10 +438,9 @@ final class RichTextMaterializer implements RichTextMaterialization
             return null;
         }
 
-        $document = new DOMDocument();
-        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . $content . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        $document = HtmlSerialization::parseFragment('<body>' . $content . '</body>');
 
-        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
+        $body = $document->getElementsByTagName('body')->item(0);
         if ( ! $body instanceof DOMElement ) {
             return null;
         }

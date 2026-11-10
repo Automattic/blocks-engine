@@ -273,7 +273,7 @@ final class WordPressSitePlanResolver
         }
         foreach ($declarations as &$declaration) unset($declaration['payload_hash'], $declaration['content_hash']);
         unset($declaration);
-        return $normalize ? RuntimeDeclarations::normalizeList($declarations) : $declarations;
+        return $normalize ? RuntimeDeclarations::normalizeList($declarations, false) : $declarations;
     }
     /** @param array<int,array<string,mixed>> $declarations @param array<int,array<string,mixed>> $records @param array<int,array<string,mixed>> $pages @param array<string,string> $references @return array<int,array<string,mixed>> */
     private static function resolveManifestEntities(array $declarations, array $records, array $pages, array $references, array $attachments = array()): array

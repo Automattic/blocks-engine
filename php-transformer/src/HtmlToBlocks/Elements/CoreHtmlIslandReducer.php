@@ -10,7 +10,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerS
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
-use DOMDocument;
 use DOMElement;
 
 /**
@@ -101,13 +100,10 @@ final class CoreHtmlIslandReducer
         if (preg_match('/<\s*(?:script|style|iframe|canvas|svg|form|input|select|textarea)\b/i', $html)) {
             return null;
         }
-        $document = new DOMDocument();
-        $loaded = HtmlSerialization::loadHtml($document, '<!doctype html><html><body>' . $html . '</body></html>');
-        if ($loaded) {
-            foreach ($document->getElementsByTagName('*') as $element) {
-                if ($element instanceof DOMElement && $this->runtimeIslands->isRuntimeDomTarget($element)) {
-                    return null;
-                }
+        $document = HtmlSerialization::parseDocument('<!doctype html><html><body>' . $html . '</body></html>');
+        foreach ($document->getElementsByTagName('*') as $element) {
+            if ($element instanceof DOMElement && $this->runtimeIslands->isRuntimeDomTarget($element)) {
+                return null;
             }
         }
 
@@ -115,7 +111,7 @@ final class CoreHtmlIslandReducer
         // no longer match. Resolve box modifiers against the original source
         // and pass that evidence to the same button attribute projector.
         $sourceBoxes = array();
-        if ( $loaded && $sourceRoot instanceof DOMElement ) {
+        if ( $sourceRoot instanceof DOMElement ) {
             foreach ( $document->getElementsByTagName('a') as $anchor ) {
                 if ( ! $anchor instanceof DOMElement || '' === SourceDom::attr($anchor, 'id') ) {
                     continue;

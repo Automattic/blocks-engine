@@ -5,7 +5,6 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
-use DOMDocument;
 use DOMElement;
 use DOMText;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
@@ -383,9 +382,8 @@ JS;
         }
         ksort($candidates);
         $safeHtml = SourceDom::safeFallbackHtmlString('<b' . SourceDom::htmlAttributeString($candidates) . '></b>');
-        $document = new DOMDocument();
-        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . $safeHtml . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        $node = $loaded ? $document->getElementsByTagName('b')->item(0) : null;
+        $document = HtmlSerialization::parseFragment('<body>' . $safeHtml . '</body>');
+        $node = $document->getElementsByTagName('b')->item(0);
         if ( ! $node instanceof DOMElement ) {
             return array();
         }

@@ -8,7 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
-use DOMDocument;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 
 /** Replay source child spacing across native Query Loop transport wrappers. */
 final class ListingQueryPresentation
@@ -19,8 +19,7 @@ final class ListingQueryPresentation
         if (array() === $containers) return $assets;
         $elements = array();
         foreach (array_unique($containers) as $markup) {
-            $document = new DOMDocument();
-            $document->loadHTML('<?xml encoding="UTF-8"><body>' . $markup . '</body>', LIBXML_NOERROR | LIBXML_NOWARNING);
+            $document = HtmlSerialization::parseDocument('<body>' . $markup . '</body>');
             $body = $document->getElementsByTagName('body')->item(0);
             foreach ($body?->childNodes ?? array() as $child) if ($child instanceof \DOMElement) { $elements[] = $child; break; }
         }
