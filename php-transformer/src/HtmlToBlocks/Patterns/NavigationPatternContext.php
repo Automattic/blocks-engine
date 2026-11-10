@@ -242,6 +242,14 @@ final class NavigationPatternContext
     public const LABEL_TYPOGRAPHY_BOX_CLASS = 'blocks-engine-label-typography';
 
     /**
+     * Marks a submenu whose source wrapper clips it to nothing at rest
+     * (`height:0;overflow:hidden`). Core's single submenu list absorbs that
+     * wrapper and the padded list inside it, so the closed list must drop its
+     * block-axis padding and border to keep the source's zero footprint.
+     */
+    public const CLIPPED_SUBMENU_CLASS = 'blocks-engine-clipped-submenu';
+
+    /**
      * Whether a block-level element inside a navigation link declares its own
      * text presentation. Such an element (a logo heading) is what paints the
      * label, so it must survive the label's inline reduction.
@@ -703,6 +711,28 @@ final class NavigationPatternContext
 
     /** @var array<string, true> Source submenu parents that paint no indicator of their own and carry no disclosure control. */
     private array $unindicatedSubmenuParents = array();
+
+    /**
+     * Whether the source submenu takes no space until its item's hover/focus
+     * reveals it: a zero height or max-height that clips its content.
+     */
+    public function clipsSubmenuAtRest(DOMElement $item, DOMElement $submenu): bool
+    {
+        if ( ! $this->styleResolver instanceof StyleResolver ) return false;
+        $zero = false;
+        foreach ( array( 'height', 'max-height' ) as $property ) {
+            $zero = $zero || CssValueInspector::isZeroLength($this->styleResolver->declaredPresentation($submenu, $property)->base());
+        }
+        if ( ! $zero ) return false;
+        // Overflow is structural, outside the visual rule store; read the author's own declarations.
+        $clips = false;
+        foreach ( $this->styleResolver->authorDeclaredValuesAtAnyViewport($submenu, array( 'overflow', 'overflow-y' )) as $values ) {
+            foreach ( $values as $value ) {
+                $clips = $clips || 1 === preg_match('/^(?:hidden|clip)\b/', CssValueInspector::comparable($value));
+            }
+        }
+        return $clips && $this->revealsSubmenuOnItemState($item, $submenu);
+    }
 
     /**
      * Whether the source reveals the submenu through an interaction state on

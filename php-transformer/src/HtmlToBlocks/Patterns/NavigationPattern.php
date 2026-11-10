@@ -3590,6 +3590,9 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( $submenuContainer instanceof DOMElement ) {
             $iconMarker = $navigationContext?->submenuIconGeometryMarker($item, $anchor, $submenuContainer) ?? '';
             $itemAttrs = $this->withClassName($itemAttrs, $iconMarker);
+            if ( true === $navigationContext?->clipsSubmenuAtRest($item, $submenuContainer) ) {
+                $itemAttrs = $this->withClassName($itemAttrs, NavigationPatternContext::CLIPPED_SUBMENU_CLASS);
+            }
             // A separate source glyph is what core's icon stands in for. Without
             // one, the toggle decides whether an indicator belongs: its own
             // painted caret is reproduced on core's content, while a parent
