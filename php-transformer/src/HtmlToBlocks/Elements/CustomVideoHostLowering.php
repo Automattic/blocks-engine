@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ImageUrlResolver;
@@ -14,7 +15,7 @@ use DOMElement;
  * Lowers a custom element that hosts a native video, or a poster image
  * layered over one, without losing the host's presentation box.
  */
-final class CustomVideoHostLowering
+final class CustomVideoHostLowering implements ElementConverter
 {
     public function __construct(
         private readonly HtmlTransformerSession $session,
@@ -23,8 +24,31 @@ final class CustomVideoHostLowering
         private readonly RuntimeIslandAnalyzer $runtimeIslands,
         private readonly MediaLowering $mediaLowering,
         private readonly ImageLowering $imageLowering,
-        private readonly LayoutShellLowering $layoutShells
+        private readonly LayoutShellLowering $layoutShells,
+        private readonly SourceBlockCreator $createBlock
     ) {
+    }
+
+    /**
+     * Lowers a custom video host to its video, keeping a presentation box as a
+     * core wrapper rather than moving its geometry onto the video, or to its
+     * poster image.
+     */
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
+    {
+        $customVideo = $this->customVideoElement($element);
+        if ( $customVideo instanceof DOMElement ) {
+            $video = $this->mediaLowering->fromElement($customVideo);
+            if ( $this->hasTransparentCustomVideoHostPresentation($element) ) {
+                return ConversionOutcome::handled($video);
+            }
+
+            return ConversionOutcome::handled($this->createBlock->createBlock('core/group', $this->styleResolver->presentationAttributes($element), array($video), $element));
+        }
+
+        $poster = $this->customVideoPosterBlock($element);
+
+        return null === $poster ? ConversionOutcome::unhandled() : ConversionOutcome::handled($poster);
     }
 
     public function customVideoElement(DOMElement $element): ?DOMElement

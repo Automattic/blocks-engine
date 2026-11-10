@@ -10,7 +10,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormContr
 use DOMElement;
 
 /** Converts static search controls into native core/search blocks. */
-final class SearchBlockConverter
+final class SearchBlockConverter implements ElementConverter
 {
     public function __construct(
         private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver $presentationResolver,
@@ -22,6 +22,14 @@ final class SearchBlockConverter
         private readonly FormControlMetadataBuilder $formControlMetadataBuilder,
         private readonly PseudoFormAnalyzer $pseudoFormAnalyzer
     ) {
+    }
+
+    /** Lowers a wrapper around a search form to core/search. */
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
+    {
+        $block = $this->searchBlockFromWrapper($element);
+
+        return null === $block ? ConversionOutcome::unhandled() : ConversionOutcome::handled($block);
     }
 
     /** @return array<string, mixed>|null */
