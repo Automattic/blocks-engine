@@ -194,6 +194,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggle
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\OwnSaveShapeInverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CapturedGlyphColor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\QuirksModeSource;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\RuntimeScriptProjections;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceInterItemSpaces;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ImageUrlResolver;
@@ -1770,7 +1771,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->session->authorSelectorProjectionState()->confirmRichTextCarriers($serializedBlocks);
         $this->emittedStyleMarkup = $serializedBlocks;
         $authorStylesheetProjections = $this->authorStylesheetProjections();
-        $runtimeScriptProjections = $this->runtimeScriptProjections();
+        $runtimeScriptProjections = RuntimeScriptProjections::collect($this->session);
         $timer->start('transform.stylesheet_materialization');
         $this->materializeAuthorStylesheet(
             $html,
@@ -2476,38 +2477,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             );
         }
         $this->authorStylesheetContentBoxCss = $contentBoxRestatements->css();
-        return $projections;
-    }
-
-    /** @return list<array{path: string, selectors: array<string, list<string>>, superseded_ids: list<string>}> */
-    private function runtimeScriptProjections(): array
-    {
-        $selectorMarkers = $this->session->authorSelectorProjectionState()->runtimeAttributeSelectorMarkers();
-        $supersededIds = array_values(array_filter(array_map(
-            static fn (string $selector): string => str_starts_with($selector, '#') ? substr($selector, 1) : '',
-            $this->session->runtimeSelectorState()->supersededSelectors()
-        )));
-
-        $projections = array();
-        foreach ( $this->session->runtimeBehaviorState()->runtimeProjectionScriptAssets() as $asset ) {
-            if ( ! is_array($asset) || ! is_string($asset['path'] ?? null) || ! is_string($asset['content'] ?? null) ) {
-                continue;
-            }
-            $selectors = array();
-            foreach ( $selectorMarkers as $selector => $markers ) {
-                $selectorPattern = preg_quote($selector, '~');
-                if ( preg_match('~(?:querySelector(?:All)?|closest|matches)\s*\(\s*(["\'])' . $selectorPattern . '\1~', $asset['content']) ) {
-                    $selectors[$selector] = $markers;
-                }
-            }
-            $assetSupersededIds = array_values(array_filter($supersededIds, static function (string $id) use ($asset): bool {
-                return 1 === preg_match('~getElementById\s*\(\s*(["\'])' . preg_quote($id, '~') . '\1\s*\)~', $asset['content']);
-            }));
-            if ( array() !== $selectors || array() !== $assetSupersededIds ) {
-                $projections[] = array('path' => $asset['path'], 'selectors' => $selectors, 'superseded_ids' => $assetSupersededIds);
-            }
-        }
-
         return $projections;
     }
 
