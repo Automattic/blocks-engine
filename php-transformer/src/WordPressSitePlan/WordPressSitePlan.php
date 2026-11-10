@@ -8234,7 +8234,10 @@ PHP;
      * its own route reaches as `#donate`. Spell that same-document link the
      * way the other routes do, so chrome repeated on every route carries one
      * link. A fragment no other route names stays bare: `#top` on every route
-     * means each route's own top.
+     * means each route's own top. A route that also links to its own
+     * `#contact` treats that section as per-page, so its link to another
+     * route's `#contact` is a deliberate cross reference and does not fix the
+     * destination.
      *
      * @param array<int,array<string,mixed>> $documents
      * @param array<int,array<string,mixed>> $routes
@@ -8243,13 +8246,26 @@ PHP;
     private function routeLinkedFragments(array $documents, array $routes): array
     {
         $targets = array_flip($this->routeSources);
-        $linked = array();
+        $cross = array();
+        $own = array();
         foreach ($documents as $document) {
             $origin = (string) ($document['source_path'] ?? '');
-            if (!preg_match_all('/(?:\bhref\s*=\s*(?:\\\\)?["\']|"url"\s*:\s*")([^"\'#\\\\]+)#([^"\'\\\\]+)/i', (string) ($document['block_markup'] ?? ''), $hrefs, PREG_SET_ORDER)) continue;
+            $markup = (string) ($document['block_markup'] ?? '');
+            if (preg_match_all('/(?:\bhref\s*=\s*(?:\\\\)?["\']|"url"\s*:\s*")#([^"\'\\\\]+)/i', $markup, $bare)) {
+                foreach ($bare[1] as $fragment) $own[$origin][$fragment] = true;
+            }
+            if (!preg_match_all('/(?:\bhref\s*=\s*(?:\\\\)?["\']|"url"\s*:\s*")([^"\'#\\\\]+)#([^"\'\\\\]+)/i', $markup, $hrefs, PREG_SET_ORDER)) continue;
             foreach ($hrefs as $href) {
                 $target = $targets[(string) $this->routeReference($href[1], $origin, $routes)] ?? null;
-                if (is_string($target) && $target !== $origin) $linked[$target][$href[2]] = true;
+                if (!is_string($target)) continue;
+                if ($target === $origin) $own[$origin][$href[2]] = true;
+                else $cross[$origin][] = array($target, $href[2]);
+            }
+        }
+        $linked = array();
+        foreach ($cross as $origin => $links) {
+            foreach ($links as [$target, $fragment]) {
+                if (!isset($own[$origin][$fragment])) $linked[$target][$fragment] = true;
             }
         }
         return $linked;
