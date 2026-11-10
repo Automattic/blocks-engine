@@ -86,6 +86,11 @@ foreach (array('header', 'aside') as $landmark) {
 $contact = $compile('<section><h2>Contact us</h2><form><input name="email" type="email"><fieldset><legend>Interests</legend><label><input type="checkbox" name="interests" value="news">News</label><label><input type="checkbox" name="interests" value="events">Events</label></fieldset><button>Send</button></form></section>');
 $assert(array() === $entities($contact, 'product_grids') && array() === $entities($contact, 'product_listings'), 'Contact interests without product signals are not commerce.');
 $assert(array() === array_filter($contact['fallbacks'] ?? array(), static fn (array $finding): bool => 'html_product_grid_fallback' === ($finding['diagnostic_code'] ?? null)), 'Contact interests emit no grid findings.');
+// Valueless disclosure checkboxes (navigation folder toggles) offer no selectable value.
+$folder = static fn (string $id, string $label): string => '<li><input type="checkbox" name="folder-toggle-' . $id . '" id="folder-toggle-' . $id . '"><label for="folder-toggle-' . $id . '">' . $label . '</label><div><ul><li><a href="' . $id . '.html">' . $label . ' page</a></li></ul></div></li>';
+$toggles = $compile('<nav><ul>' . $folder('a', 'Company') . $folder('b', 'Services') . '</ul></nav><section><h2>About</h2><p>We are a consulting firm.</p></section><div id="collection-about" class="layout empty"><div class="row"></div></div>');
+$assert(array() === $entities($toggles, 'product_grids') && array() === $entities($toggles, 'product_listings'), 'Disclosure toggles beside an empty layout are not commerce.');
+$assert(array() === array_filter($toggles['fallbacks'] ?? array(), static fn (array $finding): bool => 'html_product_grid_fallback' === ($finding['diagnostic_code'] ?? null)), 'Disclosure toggles emit no grid findings.');
 $loneOrder = $compile('<section><form><select name="order"><option value="one">Uno</option><option value="two">Dos</option></select></form></section>');
 $assert(array() === $entities($loneOrder, 'product_grids') && array() === $entities($loneOrder, 'product_listings'), 'An order select without product signals is not commerce.');
 // Captured-page topology: no landmarks, deep sibling branches, duplicate devices.
