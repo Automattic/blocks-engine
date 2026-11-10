@@ -8198,6 +8198,15 @@ PHP;
         return $diagnostics;
     }
     /** @param array<int,array<string,mixed>> $routes */
+    /** Preserve fixed section destinations also referenced by other routes. */
+    public function shellFragmentReference(string $value, string $origin): string
+    {
+        $path = $this->routeSources[$origin] ?? null;
+        if (!is_string($path) || !str_starts_with($value, $path . '#')) return $value;
+        $fragment = substr($value, strlen($path) + 1);
+        return isset($this->routeLinkedFragments[$origin][$fragment]) ? $value : '#' . $fragment;
+    }
+
     private function routeReference(string $value, string $origin, array $routes): ?string
     {
         $cacheKey = $origin . "\0" . $value;

@@ -536,13 +536,34 @@ final class ShellExtraction
         $occupiedAreas = array_column($candidates, 'area');
         $nestedLandmarks = $this->nestedLandmarkShellCandidates($index, $sourcePath, $occupiedAreas);
         if (array() === $nestedLandmarks) {
-            return array_merge($candidates, $this->nestedChromeCandidates($index, $sourcePath, $occupiedAreas));
+            return $this->withSameDocumentFragments(array_merge($candidates, $this->nestedChromeCandidates($index, $sourcePath, $occupiedAreas)), $sourcePath);
         }
         // A labelled landmark claims only its own area. Unlabeled chrome still
         // supplies the other one, so a page with a nested <footer> and an
         // unlabeled leading masthead shares both.
         $occupiedAreas = array_merge($occupiedAreas, array_column($nestedLandmarks, 'area'));
-        return array_merge($candidates, $nestedLandmarks, $this->unlabeledChromeCandidates($index, $sourcePath, $occupiedAreas));
+        return $this->withSameDocumentFragments(array_merge($candidates, $nestedLandmarks, $this->unlabeledChromeCandidates($index, $sourcePath, $occupiedAreas)), $sourcePath);
+    }
+
+    /**
+     * Route links have already been resolved to plan paths. Only the owning
+     * route's fragment links are portable to every page rendering this shell.
+     * Keep source markup and ranges intact for structural removal.
+     */
+    private function withSameDocumentFragments(array $candidates, string $sourcePath): array
+    {
+        $normalize = function (string $markup) use ($sourcePath): string {
+            return preg_replace_callback('/("(?:url|href)"\s*:\s*"|\bhref\s*=\s*[\'"])([^"\']+)([\'"])/i', fn(array $match): string =>
+                $match[1] . $this->plan->shellFragmentReference($match[2], $sourcePath) . $match[3], $markup) ?? $markup;
+        };
+        foreach ($candidates as &$candidate) {
+            $markup = $normalize($candidate['markup']);
+            if ($markup === $candidate['markup']) continue;
+            $candidate['identity_markup'] = self::normalizeNestedChromeMarkup($markup);
+            $candidate['template_part_markup'] = $normalize($candidate['template_part_markup']);
+        }
+        unset($candidate);
+        return $candidates;
     }
 
     /**

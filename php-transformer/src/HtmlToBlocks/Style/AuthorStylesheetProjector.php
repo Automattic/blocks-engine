@@ -1675,6 +1675,17 @@ final class AuthorStylesheetProjector
         return implode(';', $collapsed);
     }
 
+    private static function canMatchSyntheticImageFigure(string $selector): bool
+    {
+        $compounds = CssSelectorMatcher::parse($selector)['compounds'] ?? array();
+        $subject = end($compounds);
+        if ( ! is_array($subject) ) {
+            return true;
+        }
+        $type = strtolower((string) ($subject['type'] ?? ''));
+        return '' === $type || in_array($type, array( 'figure', 'img' ), true);
+    }
+
     /**
      * A source img's percentage transforms reference its own used image box.
      * The synthetic native figure may have zero height and a different origin;
@@ -1698,7 +1709,12 @@ final class AuthorStylesheetProjector
             }
         }
         $original = CssStylesheetTransformer::splitSelectorList($this->rewriteSelectorPrelude($prelude, $context)) ?? array();
-        $original = array_map(static fn (string $selector): string => rtrim($selector) . ':not(:where(.' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS . '))', $original);
+        // Only an arm whose subject can be the synthetic figure (a figure,
+        // an untyped compound, or an image whose identity moved to it) needs
+        // the guard; a typed `body`/`p` subject never matches that wrapper.
+        $original = array_map(static fn (string $selector): string => self::canMatchSyntheticImageFigure($selector)
+            ? rtrim($selector) . ':not(:where(.' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS . '))'
+            : rtrim($selector), $original);
         $leaves = array();
         foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
             $parsed = $context->sourceStyles->parsedSelector($selector);
