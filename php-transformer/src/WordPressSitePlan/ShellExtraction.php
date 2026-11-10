@@ -770,6 +770,9 @@ final class ShellExtraction
         }
         foreach ($ranges as $range) {
             $block = substr($markup, $range['offset'], $range['length']);
+            // Modal content is not document chrome, even when its editable
+            // owner serializes as a Group. Never mine its children for parts.
+            if (self::isCapturedModalDialogBlock($block)) continue;
             // A complete labelled shell owns its descendants. Looking for
             // unlabeled chrome inside it can mistake its link row for another
             // header and its trailing controls for a footer when a preceding
@@ -852,7 +855,7 @@ final class ShellExtraction
             return false;
         }
         $attrs = json_decode($match[1], true);
-        if (!is_array($attrs)) {
+        if (!is_array($attrs) || isset($attrs['metadata']['blocksEngineDialog'])) {
             return false;
         }
         if (isset($attrs['wrappers']) && is_array($attrs['wrappers'])) {
@@ -940,7 +943,7 @@ final class ShellExtraction
 
     private static function isFooterChrome(string $markup): bool
     {
-        if (self::containsMainLandmark($markup) || self::isEmptyVisualGroup($markup) || self::containsNavigation($markup) || self::isHeadingBlock($markup)) {
+        if (self::isCapturedModalDialogBlock($markup) || self::containsMainLandmark($markup) || self::isEmptyVisualGroup($markup) || self::containsNavigation($markup) || self::isHeadingBlock($markup)) {
             return false;
         }
         if (str_contains($markup, '<!-- wp:heading') || str_contains($markup, '<!-- wp:post-content')) {
@@ -2293,7 +2296,7 @@ final class ShellExtraction
         foreach ($ranges as $range) {
             $offset = $base + $range['offset'];
             $block = substr($markup, $offset, $range['length']);
-            if (self::hasEmptyContent($block)) continue;
+            if (self::isCapturedModalDialogBlock($block) || self::hasEmptyContent($block)) continue;
             // Main content, an existing part, or a block a binding blocks ends
             // the edge with content beyond it; the other area's landmark ends
             // it without.
@@ -3480,7 +3483,13 @@ final class ShellExtraction
         return array('offset' => $candidate['start'], 'length' => $candidate['end'] - $candidate['start']);
     }
 
-    private static function isGroupBlock(string $markup): bool { return preg_match('/^<!--\s*wp:group(?:\s|\{)/', $markup) === 1; }
+    private static function isGroupBlock(string $markup): bool
+    {
+        if (1 !== preg_match('/^<!--\s*wp:group(?:\s+(\{.*?\}))?\s*-->/s', ltrim($markup), $match)) return false;
+        // Runtime-owned dialog boundaries were opaque companion blocks before
+        // their contents became core Groups. They are still not layout shells.
+        return !isset((json_decode($match[1] ?? '{}', true) ?: array())['metadata']['blocksEngineDialog']);
+    }
 
     private static function isCheckboxBlock(string $markup): bool { return preg_match('/^<!--\s*wp:[a-z][a-z0-9-]*\/authored-input\s+\{[^}]*"type":"checkbox"/', $markup) === 1; }
 
