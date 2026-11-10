@@ -340,6 +340,14 @@ final class DesignUsageCollector
             $own = $this->declarations($element, true);
             $context['color_authored'] = null !== CssColor::parse($own['color'] ?? '');
         }
+        // Pending font substitutions are absent from the classified cascade.
+        // Family and leading have independent longhand winners: a later family
+        // does not prevent the shorthand from setting (or resetting) leading.
+        $leadingFont = $this->resolver->restingFontShorthand($element, 'line-height');
+        if (null !== $leadingFont) {
+            $expanded = CssFontShorthand::expand($this->resolver->resolveDefaultSchemeCssVariablesInValue($leadingFont, $element));
+            if (isset($expanded['line-height'])) $declarations['line-height'] = $expanded['line-height'];
+        }
         $leading = self::clean($declarations['line-height'] ?? '');
         if ('' !== $leading && !in_array($leading, array('inherit', 'unset'), true)) {
             $context['line_height'] = $leading;
