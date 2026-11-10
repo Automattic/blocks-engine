@@ -17,7 +17,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceEle
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\PseudoFormAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeDomState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeSelectorState;
@@ -43,21 +42,11 @@ $elementFrom = static function (string $html): DOMElement {
     throw new RuntimeException('No element parsed');
 };
 
-$descendants = static function (DOMElement $element): array {
-    $out = array();
-    foreach ($element->getElementsByTagName('*') as $node) {
-        if ($node instanceof DOMElement) {
-            $out[] = $node;
-        }
-    }
-    return $out;
-};
-
 /**
  * @param array<int,string> $domSelectors
  * @param array<int,string> $presentationalSelectors
  */
-$makeAnalyzer = static function (array $domSelectors = array(), array $presentationalSelectors = array(), array $overrides = array()) use ($descendants): RuntimeIslandAnalyzer {
+$makeAnalyzer = static function (array $domSelectors = array(), array $presentationalSelectors = array(), array $overrides = array()): RuntimeIslandAnalyzer {
     // Behavioral evidence mirrors the DOM selectors unless a selector is
     // declared presentational-only, which is exactly the distinction
     // isPresentationalRuntimeSelector() exists to make.
@@ -75,11 +64,8 @@ $makeAnalyzer = static function (array $domSelectors = array(), array $presentat
 
     $defaults = array(
         'attr'             => static fn (DOMElement $e, string $n): string => $e->getAttribute($n),
-        'descendants'      => $descendants,
         'islandSelector'   => static fn (DOMElement $e): string => strtolower($e->tagName),
         'eventMetadata'    => static fn (DOMElement $e): array => array(),
-        'preservedRoot'    => static fn (string $h): ?DOMElement => null,
-        'hasWorkspace'     => static fn (DOMElement $e): bool => false,
         'dedupe'           => static fn (array $rows): array => array_values($rows),
     );
     $c = array_merge($defaults, $overrides);
@@ -88,10 +74,7 @@ $makeAnalyzer = static function (array $domSelectors = array(), array $presentat
 
     $metadataBuilder = new FormControlMetadataBuilder($c['islandSelector']);
     $pseudoFormAnalyzer = new PseudoFormAnalyzer($metadataBuilder, $c['islandSelector']);
-    return new RuntimeIslandAnalyzer($session, new SourceElementClassifier(), new RuntimeIslandContext(
-        $c['descendants'],
-        $c['preservedRoot'],
-        $c['hasWorkspace']), $pseudoFormAnalyzer);
+    return new RuntimeIslandAnalyzer($session, new SourceElementClassifier(), $pseudoFormAnalyzer);
 };
 
 // An id or class named by a runtime selector is a DOM target.

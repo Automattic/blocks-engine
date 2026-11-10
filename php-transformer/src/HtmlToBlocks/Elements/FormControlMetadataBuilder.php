@@ -34,15 +34,13 @@ final class FormControlMetadataBuilder
     /** Inline formatting is bounded like the copy it decorates; beyond it the plain text stays the contract. */
     private const MAX_CONTEXT_RICH_TEXT_LENGTH = 2000;
 
+    private ?FormPresentationGraphBuilder $formPresentationGraph = null;
+
     /**
      * @param Closure(DOMElement): string $elementSelector
-     * @param Closure(DOMElement): array<string, string>|null $typographyStyles Resolved snake_case typography
-     *     facts for one element, through the form presentation graph's cascade.
-     * @param Closure(DOMElement): array<string, string>|null $paintStyles Resolved snake_case paint facts
-     *     (text colour, background fill) for one element, through the same cascade.
+     * @param HtmlTransformerSession|null $session Source stylesheets for the form presentation graph's
+     *     typography, paint and hidden-state cascade; without one those facts are not resolved.
      * @param Closure(DOMElement): list<string>|null $controlCarrierClasses Registered author-selector wrapper classes.
-     * @param Closure(DOMElement, DOMElement): (array<string, string>|null)|null $hiddenState The declaration
-     *     that hides an element below a form boundary, if the source hides it unconditionally.
      * @param Closure(DOMElement): string|null $richTextContent The element's inline content as the RichText HTML
      *     the page conversion keeps (formatting hooks as semantic mark carriers), or '' when the copy carries
      *     no inline markup that is safe to carry.
@@ -50,9 +48,6 @@ final class FormControlMetadataBuilder
     public function __construct(
         private readonly Closure $elementSelector,
         private readonly ?ElementPresentationResolver $presentation = null,
-        private readonly ?Closure $typographyStyles = null,
-        private readonly ?Closure $paintStyles = null,
-        private readonly ?Closure $hiddenState = null,
         private readonly ?HtmlTransformerSession $session = null,
         private readonly ?Closure $richTextContent = null,
         private readonly ?Closure $controlCarrierClasses = null,
@@ -87,7 +82,7 @@ final class FormControlMetadataBuilder
                 // `display: none` is not judged: a custom checkbox hides its input
                 // and stays operable through its visible label.
                 $wrapper = $control->parentNode;
-                $hidden = null === $this->hiddenState || ! $wrapper instanceof DOMElement || $wrapper->isSameNode($form) ? null : ($this->hiddenState)($wrapper, $form);
+                $hidden = ! $wrapper instanceof DOMElement || $wrapper->isSameNode($form) ? null : $this->hiddenState($wrapper, $form);
                 if ( is_array($hidden) ) {
                     $metadata['hidden'] = $hidden;
                 }
@@ -301,12 +296,32 @@ final class FormControlMetadataBuilder
         // submitting!") is not copy the reader sees. Say so, and by which
         // declaration, so a consumer whose provider renders its own status can
         // leave it out instead of showing it permanently.
-        $hidden = null === $this->hiddenState ? null : ($this->hiddenState)($node, $form);
+        $hidden = $this->hiddenState($node, $form);
         if ( is_array($hidden) ) {
             $item['hidden'] = $hidden;
         }
 
         return $item;
+    }
+
+    /** @return array<string, string>|null */
+    private function hiddenState(DOMElement $element, DOMElement $boundary): ?array
+    {
+        return null === $this->session ? null : $this->formPresentation()->hiddenState($element, $boundary, ...$this->formStylesheets());
+    }
+
+    private function formPresentation(): FormPresentationGraphBuilder
+    {
+        return $this->formPresentationGraph ??= new FormPresentationGraphBuilder();
+    }
+
+    /** @return array{0: array<int, array<string, mixed>>, 1: string} */
+    private function formStylesheets(): array
+    {
+        return array(
+            $this->session->authorStyleAnalysis()->stylesheetAssets(),
+            $this->session->sourceStyleResolutionState()->formLayoutCss(),
+        );
     }
 
     /**
@@ -318,15 +333,15 @@ final class FormControlMetadataBuilder
      */
     private function contextTypography(DOMElement $node): array
     {
-        if ( null === $this->typographyStyles ) {
+        if ( null === $this->session ) {
             return array();
         }
-        $styles = ($this->typographyStyles)($node);
+        $styles = $this->formPresentation()->typographyStyles($node, ...$this->formStylesheets());
         if ( array() !== $styles ) {
             return $styles;
         }
         $carrier = FormPresentationGraphBuilder::soleTextCarrier($node);
-        return null === $carrier ? array() : ($this->typographyStyles)($carrier);
+        return null === $carrier ? array() : $this->formPresentation()->typographyStyles($carrier, ...$this->formStylesheets());
     }
 
     /**
@@ -493,7 +508,7 @@ final class FormControlMetadataBuilder
             // class rules that painted the source control stay behind with the
             // source stylesheet, and without the stated paint the materialized
             // control takes the platform's generic button colour.
-            if ( null !== $this->paintStyles ) {
+            if ( null !== $this->session ) {
                 $metadata['presentation'] = $this->withSourcePaint($metadata['presentation'] ?? array(), $control);
             }
             // A provider flattens the editable label independently from its box.
@@ -592,7 +607,7 @@ final class FormControlMetadataBuilder
      */
     private function withSourcePaint(array $presentation, DOMElement $control): array
     {
-        $paint = ($this->paintStyles)($control);
+        $paint = $this->formPresentation()->paintStyles($control, ...$this->formStylesheets());
         if ( array() === $paint ) {
             return $presentation;
         }

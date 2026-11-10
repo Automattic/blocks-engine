@@ -10,13 +10,13 @@ use Closure;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\DisclosureControlPresentation;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 
 final class PatternContext
 {
     /**
-     * @param Closure(DOMElement, array<int, string>): array<string, mixed> $presentationAttributes
      * @param PatternTreeConverter|null $recursiveConverter
      * @param NavigationPatternContext|null $navigationContext
      * @param MediaPatternContext|null $mediaContext
@@ -31,10 +31,9 @@ final class PatternContext
      * @param Closure(string, string): void|null $glyphColorUndecodable
      * @param Closure(DOMElement): string|null $capturedGlyphColor
      * @param Closure(DOMElement): string|null $richTextContent
-     * @param Closure(DOMElement): array<string, mixed>|null $socialAnchorColors
      */
     public function __construct(
-        private readonly Closure $presentationAttributes,
+        private readonly ElementPresentationResolver $presentation,
         private readonly ?PatternTreeConverter $recursiveConverter = null,
         private readonly ?NavigationPatternContext $navigationContext = null,
         private readonly ?MediaPatternContext $mediaContext = null,
@@ -51,8 +50,7 @@ final class PatternContext
         private readonly ?HtmlTransformerSession $session = null,
         private readonly ?Closure $glyphColorUndecodable = null,
         private readonly ?Closure $capturedGlyphColor = null,
-        private readonly ?Closure $richTextContent = null,
-        private readonly ?Closure $socialAnchorColors = null
+        private readonly ?Closure $richTextContent = null
     ) {
     }
 
@@ -125,7 +123,7 @@ final class PatternContext
      */
     public function presentationAttributes(DOMElement $element, array $excludedGeometryProperties = array()): array
     {
-        return ($this->presentationAttributes)($element, $excludedGeometryProperties);
+        return $this->presentation->presentationAttributes($element, $excludedGeometryProperties);
     }
 
     public function richTextContent(DOMElement $element): string
@@ -163,7 +161,19 @@ final class PatternContext
     /** @return array<string, mixed> Resolved anchor paint mapped to native color supports. */
     public function socialAnchorColors(DOMElement $element): array
     {
-        return null === $this->socialAnchorColors ? array() : ($this->socialAnchorColors)($element);
+        if ( null === $this->styles ) {
+            return array();
+        }
+        $declarations = $this->styles->resolvedPresentationDeclarations($element);
+        if ( '' === trim($declarations['color'] ?? '') ) {
+            $declarations['color'] = $this->styles->authoredInheritedPropertyWinner($element, 'color');
+        }
+        $declarations['color'] = trim((string) preg_replace('/\s*!important\s*$/i', '', $declarations['color']));
+        $mapped = (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper())->map(
+            array_intersect_key($declarations, array_flip(array('color', 'background', 'background-color'))),
+            fn (string $value): string => $this->styles->resolveCssVariablesInValue($value, $element)
+        );
+        return array_merge($mapped['attrs'] ?? array(), array('style' => $mapped['style'] ?? array()));
     }
 
     /** @return array<string, string> Resolved source CSS for social row layout and sizing. */

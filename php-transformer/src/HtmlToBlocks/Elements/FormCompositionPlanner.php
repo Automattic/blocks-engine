@@ -8,21 +8,18 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConv
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
-use Closure;
 use DOMElement;
 
 /** Preserves one controls-only subtree as a provider binding slot. */
 final class FormCompositionPlanner
 {
     /**
-     * @param Closure(DOMElement, DOMElement): bool                                                         $elementContains
      */
     public function __construct(
         private readonly HtmlTransformerSession $session,
         private readonly PatternTreeConverter $tree,
         private readonly ElementPresentationResolver $presentation,
-        private readonly SourceBlockCreator $createBlock,
-        private readonly Closure $elementContains
+        private readonly SourceBlockCreator $createBlock
     ) {
     }
 
@@ -93,7 +90,7 @@ final class FormCompositionPlanner
         $formPath = $form->getNodePath();
         $slot = null;
         for ( $candidate = $controls[0]->parentNode; $candidate instanceof DOMElement && $candidate->getNodePath() !== $formPath; $candidate = $candidate->parentNode ) {
-            if ( array_filter($controls, fn (DOMElement $control): bool => ! ($this->elementContains)($candidate, $control)) ) {
+            if ( array_filter($controls, fn (DOMElement $control): bool => ! $this->elementContains($candidate, $control)) ) {
                 continue;
             }
             foreach ( $candidate->childNodes as $child ) {
@@ -103,7 +100,7 @@ final class FormCompositionPlanner
                 if ( ! $child instanceof DOMElement ) {
                     continue;
                 }
-                if ( ! array_filter($controls, fn (DOMElement $control): bool => ($this->elementContains)($child, $control)) ) {
+                if ( ! array_filter($controls, fn (DOMElement $control): bool => $this->elementContains($child, $control)) ) {
                     continue 2;
                 }
             }
@@ -111,5 +108,18 @@ final class FormCompositionPlanner
         }
 
         return $slot;
+    }
+
+    /** Node paths compare across the source and projected-clone documents. */
+    private function elementContains(DOMElement $ancestor, DOMElement $element): bool
+    {
+        $ancestorPath = $ancestor->getNodePath();
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( $node->getNodePath() === $ancestorPath ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

@@ -18,7 +18,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMeta
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeIslandRecorder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\PseudoFormAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
@@ -58,21 +57,7 @@ $makeRuntimeIslands = static function (array $domSelectors): RuntimeIslandAnalyz
         array()
     ));
     $metadataBuilder = new FormControlMetadataBuilder(static fn (DOMElement $e): string => strtolower($e->tagName));
-    $descendants = static function (DOMElement $element): array {
-        $out = array();
-        foreach ($element->getElementsByTagName('*') as $node) {
-            if ($node instanceof DOMElement) {
-                $out[] = $node;
-            }
-        }
-        return $out;
-    };
-
-    return new RuntimeIslandAnalyzer($session, new SourceElementClassifier(), new RuntimeIslandContext(
-        $descendants,
-        static fn (string $h): ?DOMElement => null,
-        static fn (DOMElement $e): bool => false
-    ), new PseudoFormAnalyzer($metadataBuilder, static fn (DOMElement $e): string => strtolower($e->tagName)));
+    return new RuntimeIslandAnalyzer($session, new SourceElementClassifier(), new PseudoFormAnalyzer($metadataBuilder, static fn (DOMElement $e): string => strtolower($e->tagName)));
 };
 
 $makeDispatcher = static function (array $overrides = array()) use ($makeRuntimeIslands): ButtonLinkDispatcher {
@@ -81,7 +66,7 @@ $makeDispatcher = static function (array $overrides = array()) use ($makeRuntime
     $structural = $overrides['structural'] ?? static fn (DOMElement $e): array => array();
     $patterns = PatternRecognizerRegistry::createDefault(new \Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture(static fn (string $name, array $attrs = array(), array $children = array()): array => array('blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $children)), new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\Tests\Support\RichTextMaterializationFixture());
     $patternContext = new PatternContext(
-        static fn (DOMElement $e, array $g = array()): array => array()
+        new ElementPresentationResolverFixture(static fn (DOMElement $e, array $g = array()): array => array())
     );
 
     return new ButtonLinkDispatcher(new SourceElementClassifier(), new ButtonLinkDispatchContext(

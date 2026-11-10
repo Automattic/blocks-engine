@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognitionResult;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerInterface;
@@ -34,10 +35,10 @@ if ( ! $element instanceof DOMElement ) {
 }
 
 $context = new PatternContext(
-    static fn (DOMElement $source): array => array()
+    new ElementPresentationResolverFixture(static fn (DOMElement $source): array => array())
 );
 $semanticContext = new PatternContext(
-    static fn (DOMElement $source, array $excluded = array()): array => array( 'excluded' => $excluded )
+    new ElementPresentationResolverFixture(static fn (DOMElement $source, array $excluded = array()): array => array( 'excluded' => $excluded ))
 );
 $assertSame(array( 'excluded' => array( 'width' ) ), $semanticContext->presentationAttributes($element, array( 'width' )), 'Pattern context forwards presentation exclusions through its semantic API.');
 $calls = new ArrayObject();
@@ -99,7 +100,7 @@ $innerHtml = static function (DOMElement $source): string {
 };
 $createBlock = new SourceBlockCreatorFixture(static fn (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null): array => array( 'blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $children ));
 $directContext = new PatternContext(
-    static fn (DOMElement $source, array $excluded = array()): array => array(),
+    new ElementPresentationResolverFixture(static fn (DOMElement $source, array $excluded = array()): array => array()),
     markupContext: new MarkupPatternContext(
         $session
     )
@@ -119,23 +120,23 @@ $lower = new class($state) implements PatternRecognizerInterface {
     }
 };
 $declinedSpacerContext = new PatternContext(
-    static function (DOMElement $source, array $excluded = array()) use ($state): array {
+    new ElementPresentationResolverFixture(static function (DOMElement $source, array $excluded = array()) use ($state): array {
         $state[] = 'presentation';
         return array();
-    }
+    })
 );
 $declinedSpacer = ( new PatternRecognizerRegistry( array( new SpacerPattern($createBlock), $lower ) ) )->firstMatch($elementFromHtml('<div class="spacer" style="height: 24px">Visible content</div>'), $declinedSpacerContext);
 $assertSame('lower', $declinedSpacer?->block()['blockName'] ?? null, 'A declined direct spacer leaves lower recognizers available.');
 $assertSame(array( 'lower' ), $state->getArrayCopy(), 'A declined direct spacer does not invoke context callbacks or mutate recognizer state.');
 
-$missingMarkup = new PatternContext(static fn (DOMElement $source): array => array());
+$missingMarkup = new PatternContext(new ElementPresentationResolverFixture(static fn (DOMElement $source): array => array()));
 $assertSame(null, ( new MathPattern(new Runtime(), $createBlock) )->recognize($elementFromHtml('<math><mi>x</mi></math>'), $missingMarkup), 'Math declines without its atomic markup capability.');
 $placeholderState = new ArrayObject();
 $missingPlaceholderMarkup = new PatternContext(
-    static function (DOMElement $source) use ($placeholderState): array {
+    new ElementPresentationResolverFixture(static function (DOMElement $source) use ($placeholderState): array {
         $placeholderState[] = 'presentation';
         return array();
-    }
+    })
 );
 $assertSame(null, ( new PlaceholderMediaPattern(new SourceBlockCreatorFixture(static function (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null) use ($placeholderState): array {
         $placeholderState[] = 'create-block';

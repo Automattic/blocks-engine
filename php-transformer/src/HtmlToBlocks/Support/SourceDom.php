@@ -2319,4 +2319,9 @@ final class SourceDom
 
         return false;
     }
+
+    public static function normalizeHtml5VoidElements(string $html): string
+    {
+        return preg_replace('/<source\b([^>]*?)(?<!\/)\s*>/i', '<source$1></source>', $html) ?? $html;
+    }
 }

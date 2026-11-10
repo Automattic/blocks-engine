@@ -98,7 +98,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ReadableFormCon
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ReadableFormBlockBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\PseudoFormAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeResourceElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TableElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TableElementConverter;
@@ -141,7 +140,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStylesheetPr
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ProjectedSelectorBindings;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CascadeLayer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayeredCssCollector;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutGeometryState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjectionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjector;
@@ -298,7 +296,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly InteractionFallbackReporter $interactionFallbackReporter;
 
     /** Held per transform so the context-typography cascade analysis runs once. */
-    private ?FormPresentationGraphBuilder $formContextTypographyBuilder = null;
 
     private readonly AuthoredFormControlBlockConverter $authoredFormControlBlockConverter;
 
@@ -497,9 +494,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $formControlMetadataBuilder = new FormControlMetadataBuilder(
             fn (DOMElement $element): string => SourceDom::elementSelector($element),
             $this->styleResolver,
-            fn (DOMElement $element): array => $this->formContextTypography($element),
-            fn (DOMElement $element): array => $this->formContextPaint($element),
-            fn (DOMElement $element, DOMElement $boundary): ?array => $this->formContextHiddenState($element, $boundary),
             $this->session,
             fn (DOMElement $element): string => $this->formContextRichText($element),
             function (DOMElement $element): array {
@@ -520,7 +514,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->styleResolver
         );
         $pseudoFormAnalyzer = new PseudoFormAnalyzer($formControlMetadataBuilder, fn (DOMElement $element): string => SourceDom::elementSelector($element));
-        $this->runtimeIslands = new RuntimeIslandAnalyzer($this->session, $this->sourceElementClassifier, $this->createRuntimeIslandContext(), $pseudoFormAnalyzer);
+        $this->runtimeIslands = new RuntimeIslandAnalyzer($this->session, $this->sourceElementClassifier, $pseudoFormAnalyzer);
         $this->generatedComponents = new Elements\GeneratedComponentLowering($this->session, $this->runtimeIslands, $this, $this);
         $this->layoutShells = new Elements\LayoutShellLowering($this, $this->session, $this->styleResolver, $this->runtimeIslands);
         $this->sourceProvenance = new SourceProvenance(
@@ -591,7 +585,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 $this->authorLayoutOwnership,
                 fn (DOMElement $element): bool => $this->listStructure->isStructuralListItem($element),
                 fn (DOMElement $element): bool => $this->requiresIndependentSemanticWrapper($element),
-                fn (DOMElement $table): bool => $this->isRepresentableTable($table),
+                $this->session,
+                $this->tableClassificationPolicy,
                 fn (DOMElement $element): bool => 'p' === strtolower($element->tagName) && $this->paragraphImages->paragraphImageChild($element) instanceof DOMElement
             ),
             $this->stylesheetAnalysisComposer,
@@ -641,7 +636,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             fn (DOMElement $element, array &$fallbacks): ?array => $this->positionedInlineCarrierBlock($element, $fallbacks),
             fn (DOMElement $element): bool => $this->hasAuthorSemanticMarker($element),
             fn (DOMElement $element): string => $this->richTextMarkerForElement($element),
-            fn (DOMElement $element): ?string => $this->dynamicTextContent($element),
             fn (DOMElement $element, string $tagName): ?DOMElement => SourceDom::ancestorElement($element, $tagName),
             fn (DOMElement $element): bool => $this->listStructure->isStructuralListItem($element),
             fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element),
@@ -758,8 +752,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->session,
             $this,
             $this->styleResolver,
-            $this,
-            fn (DOMElement $container, DOMElement $element): bool => $this->elementContains($container, $element)
+            $this
         );
         $formRuntimeRequirementAnalyzer = new FormRuntimeRequirementAnalyzer(
             $this->runtimeIslands
@@ -1150,7 +1143,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     {
         return new SvgMaterializationContext(
             $this->session,
-            fn (DOMElement $element): ?string => $this->reusableComponentFingerprintFor($element),
             fn (DOMElement $element): string => $this->sanitizeInlineSvgMarkup($element),
             fn (DOMElement $element, string $svg): array => $this->svgArtworkBlock($element, $svg)
         );
@@ -1191,16 +1183,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->anchors,
             $this->runtime,
             fn (DOMElement $element): array => $this->runtimeAuthoredButton($element)
-        );
-    }
-
-    /** Collaborator surface for {@see RuntimeIslandAnalyzer}. */
-    private function createRuntimeIslandContext(): RuntimeIslandContext
-    {
-        return new RuntimeIslandContext(
-            fn (DOMElement $element): iterable => SourceDom::descendantElements($element),
-            fn (string $html): ?DOMElement => $this->preservedHtmlRootElement($html),
-            fn (DOMElement $element): bool => $this->hasWorkspaceSurface($element)
         );
     }
 
@@ -1308,44 +1290,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return new TextLeafElementContext(
             $this->codePresentation ??= new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CodePresentation($this->styleResolver),
             $this
-        );
-    }
-
-    /**
-     * Resolved typography for one in-form context item element, through the
-     * same cascade the form presentation graph reports its roles with. The
-     * builder is held per transform so its stylesheet analysis runs once.
-     */
-    private function formContextTypography(DOMElement $element): array
-    {
-        return ($this->formContextTypographyBuilder ??= new FormPresentationGraphBuilder())->typographyStyles(
-            $element,
-            $this->session->authorStyleAnalysis()->stylesheetAssets(),
-            $this->session->sourceStyleResolutionState()->formLayoutCss()
-        );
-    }
-
-    /**
-     * The paint one form control renders, through the same cascade. Held per
-     * transform so the stylesheet analysis runs once.
-     */
-    private function formContextPaint(DOMElement $element): array
-    {
-        return ($this->formContextTypographyBuilder ??= new FormPresentationGraphBuilder())->paintStyles(
-            $element,
-            $this->session->authorStyleAnalysis()->stylesheetAssets(),
-            $this->session->sourceStyleResolutionState()->formLayoutCss()
-        );
-    }
-
-    /** @return array<string, string>|null */
-    private function formContextHiddenState(DOMElement $element, DOMElement $boundary): ?array
-    {
-        return ($this->formContextTypographyBuilder ??= new FormPresentationGraphBuilder())->hiddenState(
-            $element,
-            $boundary,
-            $this->session->authorStyleAnalysis()->stylesheetAssets(),
-            $this->session->sourceStyleResolutionState()->formLayoutCss()
         );
     }
 
@@ -1461,7 +1405,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $sourceBodyClasses = $this->documentEnvelope->documentBodyClassNames($html);
         $this->sourceDocumentHosts = NativeGetFormBlockBuilder::declaredDocumentHosts($html);
         $normalizedHtml = CaptureReplayScripts::withoutReplayScripts(
-            $this->normalizeHtml5VoidElements($this->documentEnvelope->documentBodyHtml($this->documentEnvelope->normalizeExplicitPlaintextElements($html)))
+            SourceDom::normalizeHtml5VoidElements($this->documentEnvelope->documentBodyHtml($this->documentEnvelope->normalizeExplicitPlaintextElements($html)))
         );
         $document = new DOMDocument();
         $previous = libxml_use_internal_errors(true);
@@ -1934,11 +1878,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $blocks;
     }
 
-    private function reusableComponentFingerprintFor(DOMElement $element): ?string
-    {
-        return $this->session->reusableComponentState()->fingerprintForPath((string) $element->getNodePath());
-    }
-
     /**
      * Remove custom elements a source uses as a wrapping convention.
      *
@@ -2264,20 +2203,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $this->session->sourceStyleResolutionState()->parsedSelector($selector);
     }
 
-    private function isRepresentableTable(DOMElement $table): bool
-    {
-        $id = spl_object_id($table);
-        return $this->session->authorSelectorProjectionState()->tableRepresentable(
-            $id,
-            fn (): bool => (bool) $this->tableClassificationPolicy->classify($table)['representable']
-        );
-    }
-
-    private function normalizeHtml5VoidElements(string $html): string
-    {
-        return preg_replace('/<source\b([^>]*?)(?<!\/)\s*>/i', '<source$1></source>', $html) ?? $html;
-    }
-
     /**
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<int, array<string, mixed>>
@@ -2462,25 +2387,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         );
     }
 
-    /** @return array<string, mixed> */
-    private function socialAnchorColors(DOMElement $element): array
-    {
-        $declarations = $this->styleResolver->resolvedPresentationDeclarations($element);
-        if ( '' === trim($declarations['color'] ?? '') ) {
-            $declarations['color'] = $this->styleResolver->authoredInheritedPropertyWinner($element, 'color');
-        }
-        $declarations['color'] = trim((string) preg_replace('/\s*!important\s*$/i', '', $declarations['color']));
-        $mapped = (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper())->map(
-            array_intersect_key($declarations, array_flip(array('color', 'background', 'background-color'))),
-            fn (string $value): string => $this->styleResolver->resolveCssVariablesInValue($value, $element)
-        );
-        return array_merge($mapped['attrs'] ?? array(), array('style' => $mapped['style'] ?? array()));
-    }
-
     private function createPatternContext(): PatternContext
     {
         return new PatternContext(
-            fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->styleResolver->presentationAttributes($sourceElement, $excludedGeometryProperties),
+            $this->styleResolver,
             $this,
             new NavigationPatternContext(
                 $this->styleResolver,
@@ -2518,9 +2428,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 $this->session,
                 $this->runtimeIslands
             ),
-            new QuotePatternContext(
-                fn (DOMElement $sourceElement): string => $this->citationFromElement($sourceElement)
-            ),
+            new QuotePatternContext($this->styleResolver),
             new CodeWindowPatternContext($this->codePresentation ??= new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CodePresentation($this->styleResolver)),
             new LogoPatternContext(
                 $this->styleResolver,
@@ -2539,8 +2447,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->session,
             fn (string $mimeType, string $src) => $this->recordGlyphColorUndecodable($mimeType, $src),
             fn (DOMElement $glyph): string => null !== $this->capturedGlyphColors && isset($this->capturedGlyphColors[$glyph]) ? $this->capturedGlyphColors[$glyph] : '',
-            fn (DOMElement $sourceElement): string => $this->inlineRichTextContent($sourceElement),
-            fn (DOMElement $sourceElement): array => $this->socialAnchorColors($sourceElement)
+            fn (DOMElement $sourceElement): string => $this->inlineRichTextContent($sourceElement)
         );
     }
 
@@ -2606,7 +2513,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private function createProbePatternContext(): PatternContext
     {
         return new PatternContext(
-            presentationAttributes: fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->styleResolver->presentationAttributes($sourceElement, $excludedGeometryProperties),
+            presentation: $this->styleResolver,
             navigationContext: new NavigationPatternContext(
                 $this->styleResolver,
                 session: $this->session,
@@ -2628,7 +2535,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                  $this->session->generatedSupportStylesheetState(),
                  fn (DOMElement $element): string => SvgMaterializer::ensureSvgImageNamespace($this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element)))
              ),
-             socialAnchorColors: fn (DOMElement $sourceElement): array => $this->socialAnchorColors($sourceElement),
              styles: $this->styleResolver
          );
     }
@@ -4038,24 +3944,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return false;
     }
 
-    private function dynamicTextContent(DOMElement $element): ?string
-    {
-        $target = trim(SourceDom::attr($element, 'data-target'));
-        if ( '' === $target ) {
-            $target = trim(SourceDom::attr($element, 'data-count'));
-        }
-        if ( '' === $target || ! is_numeric($target) ) {
-            return null;
-        }
-
-        $isFloat = 'true' === strtolower(trim(SourceDom::attr($element, 'data-float'))) || str_contains($target, '.');
-        $value = $isFloat
-            ? number_format((float) $target, 1, '.', ',')
-            : number_format((float) $target, 0, '.', ',');
-
-        return SourceDom::attr($element, 'data-prefix') . $value . SourceDom::attr($element, 'data-suffix');
-    }
-
     private function createCommercePattern(): CommerceStructureRecognizer
     {
         return new CommerceStructureRecognizer(
@@ -4112,17 +4000,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $supersededRuntimeSelectors = array_values(array_unique(array_filter($supersededRuntimeSelectors, static fn(mixed $selector): bool => is_string($selector) && '' !== trim($selector))));
         if ( array() !== $supersededRuntimeSelectors ) $binding['superseded_runtime_selectors'] = $supersededRuntimeSelectors;
         return $binding;
-    }
-
-    private function citationFromElement(DOMElement $element): string
-    {
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'cite', 'footer', 'figcaption' ), true) ) {
-                return $this->styleResolver->innerHtml($child);
-            }
-        }
-
-        return '';
     }
 
     /**
@@ -4249,75 +4126,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private function captureInlineSvgFallback(DOMElement $element, array &$fallbacks): void
     {
         $this->session->fallbackEmitter()->captureInlineSvgFallback($element, $fallbacks);
-    }
-
-    private function preservedHtmlRootElement(string $html): ?DOMElement
-    {
-        if ( '' === trim($html) ) {
-            return null;
-        }
-
-        $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $this->normalizeHtml5VoidElements($html) . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
-        if ( ! $loaded ) {
-            return null;
-        }
-
-        $body = $document->getElementsByTagName('body')->item(0);
-        if ( ! $body instanceof DOMElement ) {
-            return null;
-        }
-
-        foreach ( $body->childNodes as $child ) {
-            if ( $child instanceof DOMElement ) {
-                return $child;
-            }
-        }
-
-        return null;
-    }
-
-    private function hasWorkspaceSurface(DOMElement $element): bool
-    {
-        foreach ( SourceDom::descendantElements($element) as $descendant ) {
-            $tagName = strtolower($descendant->tagName);
-            // Templates and their contents are inert, not visitor workspaces.
-            if ( 'template' === $tagName || SourceDom::hasNonAuthoredAncestor($descendant) ) {
-                continue;
-            }
-            // A canvas hidden from assistive technology is a decorative backdrop,
-            // not a surface the visitor works in, so it does not make its wrapper
-            // an application shell.
-            if ( 'canvas' === $tagName && ! SourceDom::hasAriaHiddenAncestor($descendant) ) {
-                return true;
-            }
-            // An iframe loading a third-party document by https URL is a content
-            // embed. Inline (srcdoc), blank or relative-URL frames host an app surface.
-            if ( 'iframe' === $tagName && ( $descendant->hasAttribute('srcdoc') || ! $this->sourceElementClassifier->isSafeVisualIframeUrl(trim(SourceDom::attr($descendant, 'src'))) ) ) {
-                return true;
-            }
-            if ( 'textarea' === $tagName && $this->runtimeIslands->textareaIsRuntimeWorkspaceSurface($descendant, $element) ) {
-                return true;
-            }
-            if ( in_array(strtolower(trim(SourceDom::attr($descendant, 'contenteditable'))), array('true', 'plaintext-only'), true) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * @return array<int, array<string, mixed>>
-     */
-    private function elementContains(DOMElement $ancestor, DOMElement $element): bool
-    {
-        $ancestorPath = $ancestor->getNodePath();
-        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) if ( $node->getNodePath() === $ancestorPath ) return true;
-        return false;
     }
 
 
