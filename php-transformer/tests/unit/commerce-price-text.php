@@ -50,4 +50,10 @@ $document->loadHTML('<!DOCTYPE html><html><body><div><h2>Areas we serve</h2><p>$
 if (null !== $recognizer->productCardData($document->getElementsByTagName('div')->item(0))) {
     throw new RuntimeException('An aggregate sales figure was recognized as a product price');
 }
+// A page whose header menu has a "Buy" link is not a product card either.
+$document = new DOMDocument();
+$document->loadHTML('<!DOCTYPE html><html><body><div><nav><a href="https://search.example.com/">Buy</a><a href="/sell">Sell</a></nav><h2>Learn more about the community</h2><p>$499,900</p></div></body></html>');
+if (null !== $recognizer->productCardData($document->getElementsByTagName('div')->item(0))) {
+    throw new RuntimeException('A navigation menu link was recognized as a cart control');
+}
 echo "commerce-price-text: ok\n";
