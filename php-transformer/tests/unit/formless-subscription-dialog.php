@@ -26,4 +26,9 @@ if (!str_contains($markup, '<!-- wp:button ') || !str_contains($markup, '>Checko
 if (!str_contains($markup, 'Support independent writing') || !str_contains($markup, 'Read ad-free for €1.99/month')) {
     throw new RuntimeException('Dialog content must be retained.');
 }
+// A property-search widget's radios are not product options for a "Buy" call to action.
+$listing = (new Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer())->transform('<div class="page"><main><div class="search-panel"><label><input type="radio" name="search-type" value="area"> Area</label><label><input type="radio" name="search-type" value="address"> Address</label></div><section class="cta"><h2>Find your next home</h2><p>Listings from $499,900</p><a class="btn" href="https://search.example.com/">Buy</a><a class="btn" href="/sell">Sell</a></section></main></div>')->toArray();
+if (in_array('html_commerce_controls_fallback', array_column($listing['diagnostics'], 'code'), true)) {
+    throw new RuntimeException('Search filters made a call to action a purchase region.');
+}
 echo "formless-subscription-dialog: ok\n";
