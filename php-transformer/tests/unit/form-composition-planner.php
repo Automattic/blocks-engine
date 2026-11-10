@@ -51,16 +51,7 @@ $planner = new FormCompositionPlanner(
         'attrs' => $attrs,
         'innerBlocks' => $innerBlocks,
         'sourceTag' => $sourceElement?->tagName,
-    )),
-    static function (DOMElement $container, DOMElement $element): bool {
-        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
-            if ( $node === $container ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
+    ))
 );
 
 $fallbacks = array();

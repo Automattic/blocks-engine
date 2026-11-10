@@ -141,7 +141,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStylesheetPr
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ProjectedSelectorBindings;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CascadeLayer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayeredCssCollector;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutGeometryState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjectionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjector;
@@ -298,7 +297,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly InteractionFallbackReporter $interactionFallbackReporter;
 
     /** Held per transform so the context-typography cascade analysis runs once. */
-    private ?FormPresentationGraphBuilder $formContextTypographyBuilder = null;
 
     private readonly AuthoredFormControlBlockConverter $authoredFormControlBlockConverter;
 
@@ -497,9 +495,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $formControlMetadataBuilder = new FormControlMetadataBuilder(
             fn (DOMElement $element): string => SourceDom::elementSelector($element),
             $this->styleResolver,
-            fn (DOMElement $element): array => $this->formContextTypography($element),
-            fn (DOMElement $element): array => $this->formContextPaint($element),
-            fn (DOMElement $element, DOMElement $boundary): ?array => $this->formContextHiddenState($element, $boundary),
             $this->session,
             fn (DOMElement $element): string => $this->formContextRichText($element),
             function (DOMElement $element): array {
@@ -758,8 +753,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->session,
             $this,
             $this->styleResolver,
-            $this,
-            fn (DOMElement $container, DOMElement $element): bool => $this->elementContains($container, $element)
+            $this
         );
         $formRuntimeRequirementAnalyzer = new FormRuntimeRequirementAnalyzer(
             $this->runtimeIslands
@@ -1308,44 +1302,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return new TextLeafElementContext(
             $this->codePresentation ??= new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CodePresentation($this->styleResolver),
             $this
-        );
-    }
-
-    /**
-     * Resolved typography for one in-form context item element, through the
-     * same cascade the form presentation graph reports its roles with. The
-     * builder is held per transform so its stylesheet analysis runs once.
-     */
-    private function formContextTypography(DOMElement $element): array
-    {
-        return ($this->formContextTypographyBuilder ??= new FormPresentationGraphBuilder())->typographyStyles(
-            $element,
-            $this->session->authorStyleAnalysis()->stylesheetAssets(),
-            $this->session->sourceStyleResolutionState()->formLayoutCss()
-        );
-    }
-
-    /**
-     * The paint one form control renders, through the same cascade. Held per
-     * transform so the stylesheet analysis runs once.
-     */
-    private function formContextPaint(DOMElement $element): array
-    {
-        return ($this->formContextTypographyBuilder ??= new FormPresentationGraphBuilder())->paintStyles(
-            $element,
-            $this->session->authorStyleAnalysis()->stylesheetAssets(),
-            $this->session->sourceStyleResolutionState()->formLayoutCss()
-        );
-    }
-
-    /** @return array<string, string>|null */
-    private function formContextHiddenState(DOMElement $element, DOMElement $boundary): ?array
-    {
-        return ($this->formContextTypographyBuilder ??= new FormPresentationGraphBuilder())->hiddenState(
-            $element,
-            $boundary,
-            $this->session->authorStyleAnalysis()->stylesheetAssets(),
-            $this->session->sourceStyleResolutionState()->formLayoutCss()
         );
     }
 
@@ -4307,16 +4263,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             }
         }
 
-        return false;
-    }
-
-    /**
-     * @return array<int, array<string, mixed>>
-     */
-    private function elementContains(DOMElement $ancestor, DOMElement $element): bool
-    {
-        $ancestorPath = $ancestor->getNodePath();
-        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) if ( $node->getNodePath() === $ancestorPath ) return true;
         return false;
     }
 
