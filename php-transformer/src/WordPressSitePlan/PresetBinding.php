@@ -941,7 +941,8 @@ final class PresetBinding
      *   a token's exact colour. Compound custom properties and backgrounds
      *   also bind literal colour tokens, including gradient stops.
      *   A `var()` in a whole colour must resolve the same way as
-     *   for a block literal.
+     *   for a block literal, or have unanimous class-list rendering evidence
+     *   for a class-only selector when global resolution is impossible.
      * - A font size binds only when it is the preset's own length, and a
      *   font family only when it is the preset's own stack, so no fallback
      *   or rounding changes what renders. Font-shorthand custom properties
@@ -1005,7 +1006,7 @@ final class PresetBinding
                     return $prelude . '{' . $this->bindRuleBody($transformer, implode(';', $kept), false) . '}' . $excluded . '{' . $this->bindRuleBody($transformer, implode(';', $shared), false) . '}';
                 }
             }
-            return $prelude . '{' . $this->bindRuleBody($transformer, $body, self::rootSelector($prelude)) . '}';
+            return $prelude . '{' . $this->bindRuleBody($transformer, $body, self::rootSelector($prelude), $prelude) . '}';
         });
     }
 
@@ -1114,7 +1115,7 @@ final class PresetBinding
         return null !== $a && null !== $b && abs($a - $b) < 0.001;
     }
 
-    private function bindRuleBody(CssStylesheetTransformer $transformer, string $body, bool $rootSelector = false): string
+    private function bindRuleBody(CssStylesheetTransformer $transformer, string $body, bool $rootSelector = false, string $selector = ''): string
     {
         $result = '';
         foreach ($transformer->splitStyleRuleBody($body) as $part) {
@@ -1127,7 +1128,7 @@ final class PresetBinding
             $changed = false;
             $rewritten = array();
             foreach (CssValueSplitter::splitTopLevel($declarations, array(';')) as $declaration) {
-                $bound = $this->bindDeclaration($declaration, $rootSelector);
+                $bound = $this->bindDeclaration($declaration, $rootSelector, $selector);
                 // Only source bytes are projected. Newly emitted preset reads
                 // must keep WordPress's namespace so Global Styles owns them.
                 $bound = $bound === $declaration ? self::sourcePresets($declaration) : $bound;
@@ -1138,6 +1139,36 @@ final class PresetBinding
             $result .= $changed ? implode(';', $rewritten) . (str_ends_with(rtrim($declarations), ';') ? ';' : '') : $declarations;
         }
         return $result;
+    }
+
+    /**
+     * Class-list evidence can prove a class-only selector's colour even when
+     * scoped custom properties cannot resolve globally. Context, state and
+     * attribute selectors cannot be reconstructed from class lists, so abstain.
+     *
+     * Every matching class list must supply the same exact palette token.
+     */
+    private function observedSelectorColorSlug(string $selector, string $property): ?string
+    {
+        $arms = CssStylesheetTransformer::splitSelectorList($selector);
+        if (null === $arms || array() === $arms) return null;
+        $slug = null;
+        foreach ($arms as $arm) {
+            // Projection excludes generated roles without changing source matches.
+            $arm = preg_replace('/' . preg_quote(':not(:where(.blocks-engine-role-control))', '/') . '$/', '', trim($arm)) ?? $arm;
+            if (!preg_match('/^(?:\.[a-zA-Z_][a-zA-Z0-9_-]*)+$/', $arm)) return null;
+            $classes = explode('.', substr($arm, 1));
+            $matched = false;
+            foreach ($this->classStyles as $key => $properties) {
+                if (array() !== array_diff($classes, explode(' ', $key))) continue;
+                $matched = true;
+                $observed = $this->presetSlug('color', null, $properties[$property] ?? null);
+                if (null === $observed || (null !== $slug && $slug !== $observed)) return null;
+                $slug = $observed;
+            }
+            if (!$matched) return null;
+        }
+        return $slug;
     }
 
     /** Keep source preset definitions and unbound reads out of core's namespace. */
@@ -1153,7 +1184,7 @@ final class PresetBinding
         ) ?? $css;
     }
 
-    private function bindDeclaration(string $declaration, bool $rootSelector = false): string
+    private function bindDeclaration(string $declaration, bool $rootSelector = false, string $selector = ''): string
     {
         $parts = explode(':', $declaration, 2);
         if (2 !== count($parts)) return $declaration;
@@ -1195,6 +1226,9 @@ final class PresetBinding
             'font-size' => $this->exactFontSizeSlug($value),
             default => $this->exactFontFamilySlug($value),
         };
+        if (null === $slug && 'color' === $kind && str_contains($value, 'var(') && in_array($property, array('color', 'background-color'), true)) {
+            $slug = $this->observedSelectorColorSlug($selector, $property);
+        }
         if (null === $slug && 'color' === $kind) {
             $mix = $this->translucentMix($value);
             if (null === $mix) return $declaration;
@@ -2040,6 +2074,7 @@ final class PresetBinding
         ksort($observations, SORT_STRING);
         $merged = array();
         foreach ($observations as $key => $properties) {
+            $merged[(string) $key] = array();
             foreach ($properties as $property => $values) {
                 if (array('' => true) === $values) continue;
                 $merged[(string) $key][$property] = 1 === count($values) ? (string) array_key_first($values) : '!';

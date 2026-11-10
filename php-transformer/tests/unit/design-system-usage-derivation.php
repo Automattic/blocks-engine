@@ -416,8 +416,19 @@ $assert(str_contains($sheet($quotedPreset), 'content:"--wp--preset--color--accen
 $assert(str_contains($sheet('@media(min-width:1px){.a{--wp--preset--spacing--40:3px;padding:var(--wp--preset--spacing--40)}}'), '--be--source--preset--spacing--40:3px;padding:var(--be--source--preset--spacing--40)'), 'conditional source definitions and reads share the source namespace');
 $opacity = '.text-x{--tw-text-opacity:1;color:rgb(225 29 72 / var(--tw-text-opacity, 1))}';
 $assert(str_contains($sheet($opacity), 'color:var(--wp--preset--color--' . $slug . ',rgb(225 29 72 / var(--tw-text-opacity, 1)))'), 'a Tailwind opacity variable every rule sets to its fallback resolves');
-$assert(!str_contains($sheet($opacity . '.text-opacity-50{--tw-text-opacity:.5}'), '--wp--preset--color--'), 'an opacity variable another rule sets differently keeps the literal');
-$assert(!str_contains($sheet('.a{color:hsl(var(--x))}', array(array('kind' => 'css', 'content' => ':root{--x:347 77% 50%}.dark{--x:0 0% 7%}'))), '--wp--preset--color--'), 'a colour read from a custom property a scope redefines keeps the literal');
+$assert(!str_contains($sheet($opacity . '.text-opacity-50{--tw-text-opacity:.5}'), '--wp--preset--color--'), 'without rendered evidence, an opacity variable another rule sets differently keeps the literal');
+$assert(!str_contains($sheet('.a{color:hsl(var(--x))}', array(array('kind' => 'css', 'content' => ':root{--x:347 77% 50%}.dark{--x:0 0% 7%}'))), '--wp--preset--color--'), 'without rendered evidence, a colour read from a custom property a scope redefines keeps the literal');
+$observedSheet = static function (array $rows, string $selector = '.a') use ($bindSystem): string {
+    $css = $selector . '{color:rgb(var(--txt,var(--channels)))}';
+    return (new PresetBinding($bindSystem, array(), array('index.html' => array('class_styles' => $rows))))->bindStylesheet($css);
+};
+$observedRows = array(array('classes' => 'a first', 'properties' => array('color' => array('#e11d48'))));
+$assert(str_contains($observedSheet($observedRows), 'color:var(--wp--preset--color--' . $slug . ',rgb(var(--txt,var(--channels))))'), 'uniform class-list evidence binds an unresolved colour with its original fallback');
+$observedRows[] = array('classes' => 'a second', 'properties' => array());
+$assert(!str_contains($observedSheet($observedRows), '--wp--preset--'), 'a matching class list without colour evidence prevents binding');
+$assert(!str_contains($observedSheet(array(), '.missing'), '--wp--preset--'), 'no matching evidence leaves the declaration literal');
+$assert(!str_contains($observedSheet(array($observedRows[0]), '.a:hover'), '--wp--preset--'), 'resting class-list evidence does not prove an interaction-state colour');
+
 $assert('.a{font-family:var(--wp--preset--font-family--body,Inter, sans-serif)}.b{font-family:var(--wp--preset--font-family--body,Inter,Arial)}' === $sheet('.a{font-family:Inter, sans-serif}.b{font-family:Inter,Arial}'), 'stacks with the same primary bind while retaining their original fallback');
 $fontVariables = ':root{--family:Inter, sans-serif;--other:Inter,Arial}.a{font-family:var(--family)}.b{font-family:var(--other)}';
 $assert(str_contains($sheet($fontVariables), '.a{font-family:var(--wp--preset--font-family--body,var(--family))}') && str_contains($sheet($fontVariables), '.b{font-family:var(--wp--preset--font-family--body,var(--other))}'), 'resolved font declarations bind their primary family and retain the original variable fallback');
