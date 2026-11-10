@@ -17,7 +17,7 @@ use DOMElement;
  * Lowers elements that carry a link without being a plain anchor: a
  * link-bearing custom element, or an anchor wrapping one runtime control.
  */
-final class LinkCarrierLowering
+final class LinkCarrierLowering implements ElementConverter
 {
     public function __construct(
         private readonly SourceBlockCreator $blocks,
@@ -27,6 +27,15 @@ final class LinkCarrierLowering
         private readonly RuntimeIslandAnalyzer $runtimeIslands,
         private readonly LayoutShellLowering $layoutShells
     ) {
+    }
+
+    /** Lowers a link-bearing unknown element; see {@see self::linkBearingElementBlock()}. */
+    /** @param array<int, array<string, mixed>> $fallbacks */
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
+    {
+        $block = $this->linkBearingElementBlock($element);
+
+        return null === $block ? ConversionOutcome::unhandled() : ConversionOutcome::handled($block);
     }
 
     /**
