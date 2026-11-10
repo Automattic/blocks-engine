@@ -196,7 +196,7 @@ final class FormRuntimeRequirementAnalyzer
 
     private function hasRuntimeClassSignal(DOMElement $element): bool
     {
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $class ) {
+        foreach ( SourceDom::tokens(SourceDom::attr($element, 'class')) as $class ) {
             if ( preg_match('/^js-[A-Za-z0-9_-]+$/', $class) ) {
                 return true;
             }

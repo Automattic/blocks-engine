@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
+
 /** Proves authors from reciprocal bylines or WordPress author archive body classes. */
 final class AuthorProjection
 {
@@ -10,17 +12,11 @@ final class AuthorProjection
     {
         if ('' === $html || !class_exists(\DOMDocument::class)) return false;
         $document = new \DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        try {
-            if (!$document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING)) return false;
-            $body = $document->getElementsByTagName('body')->item(0);
-            if (!$body instanceof \DOMElement) return false;
-            $classes = preg_split('/[\x20\t\r\n\f]+/', $body->getAttribute('class'), -1, PREG_SPLIT_NO_EMPTY);
-            return in_array('author', $classes, true) && in_array('author-' . $slug, $classes, true);
-        } finally {
-            libxml_clear_errors();
-            libxml_use_internal_errors($previous);
-        }
+        if (!HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8">' . $html, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING)) return false;
+        $body = $document->getElementsByTagName('body')->item(0);
+        if (!$body instanceof \DOMElement) return false;
+        $classes = preg_split('/[\x20\t\r\n\f]+/', $body->getAttribute('class'), -1, PREG_SPLIT_NO_EMPTY);
+        return in_array('author', $classes, true) && in_array('author-' . $slug, $classes, true);
     }
 
     /** @return array{entities:array,diagnostics:array,pagination_source_paths_by_archive:array} */

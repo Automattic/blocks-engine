@@ -4,19 +4,20 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ImageLowering;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceElementVisibility;
 use DOMElement;
 
 use Closure;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\DisclosureControlPresentation;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 
 final class PatternContext
 {
     /**
-     * @param Closure(DOMElement, array<int, string>): array<string, mixed> $presentationAttributes
      * @param PatternTreeConverter|null $recursiveConverter
      * @param NavigationPatternContext|null $navigationContext
      * @param MediaPatternContext|null $mediaContext
@@ -27,14 +28,10 @@ final class PatternContext
      * @param CodeWindowPatternContext|null $codeWindowContext
      * @param LogoPatternContext|null $logoContext
      * @param ImageLowering|null $images
-     * @param Closure(DOMElement): bool|null $sourceElementStartsHidden
-     * @param Closure(string, string): void|null $glyphColorUndecodable
-     * @param Closure(DOMElement): string|null $capturedGlyphColor
      * @param Closure(DOMElement): string|null $richTextContent
-     * @param Closure(DOMElement): array<string, mixed>|null $socialAnchorColors
      */
     public function __construct(
-        private readonly Closure $presentationAttributes,
+        private readonly ElementPresentationResolver $presentation,
         private readonly ?PatternTreeConverter $recursiveConverter = null,
         private readonly ?NavigationPatternContext $navigationContext = null,
         private readonly ?MediaPatternContext $mediaContext = null,
@@ -45,14 +42,11 @@ final class PatternContext
         private readonly ?CodeWindowPatternContext $codeWindowContext = null,
         private readonly ?LogoPatternContext $logoContext = null,
         private readonly ?ImageLowering $images = null,
-        private readonly ?Closure $sourceElementStartsHidden = null,
+        private readonly ?SourceElementVisibility $visibility = null,
         private readonly ?DisclosureControlPresentation $disclosure = null,
         private readonly ?StyleResolver $styles = null,
         private readonly ?HtmlTransformerSession $session = null,
-        private readonly ?Closure $glyphColorUndecodable = null,
-        private readonly ?Closure $capturedGlyphColor = null,
-        private readonly ?Closure $richTextContent = null,
-        private readonly ?Closure $socialAnchorColors = null
+        private readonly ?Closure $richTextContent = null
     ) {
     }
 
@@ -125,7 +119,7 @@ final class PatternContext
      */
     public function presentationAttributes(DOMElement $element, array $excludedGeometryProperties = array()): array
     {
-        return ($this->presentationAttributes)($element, $excludedGeometryProperties);
+        return $this->presentation->presentationAttributes($element, $excludedGeometryProperties);
     }
 
     public function richTextContent(DOMElement $element): string
@@ -145,12 +139,14 @@ final class PatternContext
     public function images(): ?ImageLowering { return $this->images; }
     public function sourceElementStartsHidden(DOMElement $element): bool
     {
-        if ( null !== $this->sourceElementStartsHidden ) {
-            return ($this->sourceElementStartsHidden)($element);
+        if ( null !== $this->visibility ) {
+            return $element->hasAttribute('hidden')
+                || SourceDom::isAriaHidden($element)
+                || $this->visibility->startsHidden($element);
         }
 
         return $element->hasAttribute('hidden')
-            || 'true' === strtolower(trim($element->getAttribute('aria-hidden')))
+            || SourceDom::isAriaHidden($element)
             || 1 === preg_match('/(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)(?:\s*!important)?\s*(?:;|$)/i', $element->getAttribute('style'));
     }
 
@@ -163,7 +159,19 @@ final class PatternContext
     /** @return array<string, mixed> Resolved anchor paint mapped to native color supports. */
     public function socialAnchorColors(DOMElement $element): array
     {
-        return null === $this->socialAnchorColors ? array() : ($this->socialAnchorColors)($element);
+        if ( null === $this->styles ) {
+            return array();
+        }
+        $declarations = $this->styles->resolvedPresentationDeclarations($element);
+        if ( '' === trim($declarations['color'] ?? '') ) {
+            $declarations['color'] = $this->styles->authoredInheritedPropertyWinner($element, 'color');
+        }
+        $declarations['color'] = trim((string) preg_replace('/\s*!important\s*$/i', '', $declarations['color']));
+        $mapped = (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper())->map(
+            array_intersect_key($declarations, array_flip(array('color', 'background', 'background-color'))),
+            fn (string $value): string => $this->styles->resolveCssVariablesInValue($value, $element)
+        );
+        return array_merge($mapped['attrs'] ?? array(), array('style' => $mapped['style'] ?? array()));
     }
 
     /** @return array<string, string> Resolved source CSS for social row layout and sizing. */
@@ -189,8 +197,8 @@ final class PatternContext
      */
     public function glyphColorUndecodable(string $mimeType, string $src): void
     {
-        if ( null !== $this->glyphColorUndecodable ) {
-            ($this->glyphColorUndecodable)($mimeType, $src);
+        if ( null !== $this->session ) {
+            $this->session->transformationEvidenceState()->recordGlyphColorUndecodable($mimeType, $src, $this->session->sourcePath());
         }
     }
 
@@ -200,6 +208,6 @@ final class PatternContext
      */
     public function capturedGlyphColor(DOMElement $glyph): string
     {
-        return null === $this->capturedGlyphColor ? '' : (string) ($this->capturedGlyphColor)($glyph);
+        return $this->session?->capturedGlyphColor($glyph) ?? '';
     }
 }

@@ -3,9 +3,12 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\StaticSite;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
+use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 
 final class MaterializationPlanBuilder
 {
@@ -39,7 +42,7 @@ final class MaterializationPlanBuilder
         $pages = array_values(array_filter($pages, static fn(array $page): bool => !isset($page['metadata']['template_surface'])));
         $templateParts = $this->templateParts((array) ($compiledSite['template_parts'] ?? array()));
         $assets = $this->assets((array) ($compiledSite['assets'] ?? array()));
-        $visualRepair = is_array($compiledSite['visual_repair'] ?? null) ? $compiledSite['visual_repair'] : array();
+        $visualRepair = ArrayField::array($compiledSite, 'visual_repair');
         $routes = $this->routes($pages, (string) ($compiledSite['entry_path'] ?? ''));
         $navigationLinks = $this->navigationLinks($pages, $templateParts, $routes);
         $menus = $this->menus($navigationLinks);
@@ -117,8 +120,8 @@ final class MaterializationPlanBuilder
                 'body_format' => (string) ($page['body_format'] ?? ''),
                 'block_markup' => (string) ($page['block_markup'] ?? ''),
                 'entrypoint'  => ! empty($page['entrypoint']),
-                'metadata'    => is_array($page['metadata'] ?? null) ? $page['metadata'] : array(),
-                'provenance'  => is_array($page['provenance'] ?? null) ? $page['provenance'] : array(),
+                'metadata'    => ArrayField::array($page, 'metadata'),
+                'provenance'  => ArrayField::array($page, 'provenance'),
             ), static fn (mixed $value): bool => '' !== $value && array() !== $value);
         }
         return $planned;
@@ -192,7 +195,7 @@ final class MaterializationPlanBuilder
                 $sourcePath = (string) ($document['source_path'] ?? '');
                 $sourceRelation = 'template_part' === $kind ? 'template_part_navigation' : 'page_navigation';
                 foreach ( $this->anchorLinks((string) ($document['block_markup'] ?? '')) as $index => $anchor ) {
-                    $targetPath = $this->targetPathFromHref($anchor['href']);
+                    $targetPath = ArtifactPath::routePath($anchor['href']);
                     $links[] = array_filter(array(
                         'kind'        => 'navigation_link',
                         'source_path' => $sourcePath,
@@ -261,7 +264,7 @@ final class MaterializationPlanBuilder
                 'area'        => (string) ($part['area'] ?? 'uncategorized'),
                 'body_format' => (string) ($part['body_format'] ?? ''),
                 'block_markup' => (string) ($part['block_markup'] ?? ''),
-                'metadata'    => is_array($part['metadata'] ?? null) ? $part['metadata'] : array(),
+                'metadata'    => ArrayField::array($part, 'metadata'),
             ), static fn (mixed $value): bool => '' !== $value && array() !== $value);
         }
         return $planned;
@@ -329,7 +332,7 @@ final class MaterializationPlanBuilder
                 'async'            => ! empty($asset['async']),
                 'source_path'      => (string) ($asset['source_path'] ?? ''),
                 'selector'         => (string) ($asset['selector'] ?? ''),
-                'references'       => is_array($asset['references'] ?? null) ? $asset['references'] : array(),
+                'references'       => ArrayField::array($asset, 'references'),
             ), static fn (mixed $value): bool => null !== $value && '' !== $value && 0 !== $value && false !== $value);
         }
         return $planned;
@@ -344,7 +347,7 @@ final class MaterializationPlanBuilder
      */
     private function theme(array $theme, array $templateParts, array $assets, array $visualRepair): array
     {
-        $fontMaterialization = is_array($theme['font_materialization'] ?? null) ? $theme['font_materialization'] : array();
+        $fontMaterialization = ArrayField::array($theme, 'font_materialization');
         if ( empty($fontMaterialization) && is_array($theme['font_usage'] ?? null) && array() !== $theme['font_usage'] ) {
             $fontMaterialization = ( new FontMaterializationPlanBuilder() )->googleFonts($theme['font_usage']);
         }
@@ -352,7 +355,7 @@ final class MaterializationPlanBuilder
             $fontHtml = (string) ($theme['font_link_html'] ?? '');
             $fontCss = (string) ($theme['static_css'] ?? '');
             if ( '' !== $fontHtml || '' !== $fontCss ) {
-                $fontMaterialization = ( new FontMaterializationPlanBuilder() )->fromWebFontSources($fontHtml, $fontCss, is_array($theme['font_css_sources'] ?? null) ? $theme['font_css_sources'] : array());
+                $fontMaterialization = ( new FontMaterializationPlanBuilder() )->fromWebFontSources($fontHtml, $fontCss, ArrayField::array($theme, 'font_css_sources'));
             }
         }
         if ( isset($fontMaterialization['webfont_contract']) ) {
@@ -363,7 +366,7 @@ final class MaterializationPlanBuilder
             'stylesheets' => $theme['stylesheets'] ?? $this->assetPathsByRole($assets, 'stylesheet'),
             'scripts' => $theme['scripts'] ?? $this->assetPathsByRole($assets, 'script'),
             'fonts' => $theme['fonts'] ?? $this->assetPathsByRole($assets, 'font'),
-            'font_usage' => is_array($theme['font_usage'] ?? null) ? $theme['font_usage'] : array(),
+            'font_usage' => ArrayField::array($theme, 'font_usage'),
             'font_materialization' => $fontMaterialization,
             'images' => $theme['images'] ?? $this->assetPathsByRole($assets, 'image'),
             'template_parts' => array_values(array_map(static fn (array $part): string => (string) ($part['source_path'] ?? ''), $templateParts)),
@@ -509,7 +512,7 @@ final class MaterializationPlanBuilder
                 continue;
             }
             foreach ( $anchorMatches as $anchorMatch ) {
-                $href = $this->attributeValue((string) $anchorMatch[1], 'href');
+                $href = HtmlSerialization::tagAttribute((string) $anchorMatch[1], 'href');
                 $label = trim(html_entity_decode(strip_tags((string) $anchorMatch[2]), ENT_QUOTES | ENT_HTML5));
                 if ( '' === $href || '' === $label ) {
                     continue;
@@ -543,7 +546,7 @@ final class MaterializationPlanBuilder
                 continue;
             }
             $href = is_string($attrs['url'] ?? null) ? trim($attrs['url']) : '';
-            $label = trim(html_entity_decode(strip_tags(is_string($attrs['label'] ?? null) ? $attrs['label'] : ''), ENT_QUOTES | ENT_HTML5));
+            $label = trim(html_entity_decode(strip_tags(ArrayField::string($attrs, 'label')), ENT_QUOTES | ENT_HTML5));
             if ( '' === $href || '' === $label ) {
                 continue;
             }
@@ -556,39 +559,9 @@ final class MaterializationPlanBuilder
         return $links;
     }
 
-    private function attributeValue(string $attributes, string $name): string
-    {
-        if ( preg_match('/(?:^|\s)' . preg_quote($name, '/') . '\s*=\s*(["\'])(.*?)\1/is', $attributes, $match) ) {
-            return html_entity_decode((string) $match[2], ENT_QUOTES | ENT_HTML5);
-        }
-
-        if ( preg_match('/(?:^|\s)' . preg_quote($name, '/') . '\s*=\s*([^\s"\'>]+)/is', $attributes, $match) ) {
-            return html_entity_decode((string) $match[1], ENT_QUOTES | ENT_HTML5);
-        }
-
-        return '';
-    }
-
-    private function targetPathFromHref(string $href): string
-    {
-        $path = (string) (parse_url($href, PHP_URL_PATH) ?: '');
-        if ( '' === $path ) {
-            return '';
-        }
-
-        $path = '/' . ltrim($path, '/');
-        $path = preg_replace('#/index\.[A-Za-z0-9]+$#', '/', $path) ?? $path;
-        $path = preg_replace('/\.[A-Za-z0-9]+$/', '', $path) ?? $path;
-        if ( '/' !== $path ) {
-            $path = rtrim($path, '/');
-        }
-
-        return '' === $path ? '/' : $path;
-    }
-
     private function slugFromHref(string $href): string
     {
-        $targetPath = $this->targetPathFromHref($href);
+        $targetPath = ArtifactPath::routePath($href);
         if ( '/' === $targetPath ) {
             return 'index';
         }

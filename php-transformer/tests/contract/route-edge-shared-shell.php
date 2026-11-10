@@ -254,4 +254,39 @@ foreach ($embedPages as $source => $row) {
     $assert(str_contains($markup . implode('', array_column($embedPlan['templates'], 'canonical_block_markup')), 'global-style') && str_contains($markup, 'body copy.') && !str_contains($markup, '<!-- wp:navigation '), "{$source} retains its embed holder in the page frame and its content, not navigation.");
 }
 
+// #5420: every route labels its header, but only some append route content.
+foreach (array(false, true) as $wrapped) {
+    $files = array();
+    foreach (array('Home', 'About', 'Pricing') as $position => $title) {
+        $banner = 0 === $position || ($wrapped && 2 === $position);
+        $chrome = '<a href="/">Acme</a><nav><ul><li><a href="/">Home</a></li><li><a href="/about/">About</a></li><li><a href="/pricing/">Pricing</a></li></ul></nav>';
+        $source = 0 === $position ? 'index.html' : strtolower($title) . '/index.html';
+        $files[$source] = '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>' . $title . '</title></head><body><header>'
+            . ($wrapped ? '<div class="site-header">' . $chrome . '</div>' : $chrome)
+            . ($banner ? '<div class="banner"><h1>Welcome</h1></div>' : '') . '</header>'
+            . '<main><h2>' . $title . '</h2><p>' . $title . ' text.</p></main><footer><p>© Acme</p></footer></body></html>';
+    }
+    $reduced = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray()['source_reports']['wordpress_site_plan'];
+    WordPressSitePlan::assertValid($reduced);
+    $parts = array_column($reduced['template_parts'], null, 'area');
+    $header = (string) ($parts['header']['canonical_block_markup'] ?? '');
+    $assert(2 === count($reduced['template_parts']) && isset($parts['footer']) && str_contains($header, 'site-title') && str_contains($header, 'navigation') && !str_contains($header, 'Welcome') && !str_contains($header, 'banner'), 'Only invariant logo/navigation belongs in the header: ' . $header);
+    foreach ($reduced['templates'] as $template) {
+        $markup = $template['canonical_block_markup'];
+        $assert(str_contains($markup, '"slug":"header"') && str_contains($markup, '"slug":"footer"'), 'Every template references both shared parts: ' . $markup);
+        if (str_contains($markup, 'wp:post-content')) $assert(strpos($markup, '"slug":"header"') < strpos($markup, 'wp:post-content'), 'The shared header precedes route content.');
+    }
+    foreach ($reduced['pages'] as $page) {
+        if (!isset($files[$page['source_path']])) continue;
+        $content = $page['canonical_block_markup'];
+        $assert(!str_contains($content, '<!-- wp:navigation') && !str_contains($content, '<!-- wp:template-part') && !str_contains($content, 'Acme</a>'), 'No route retains copied or inline chrome: ' . $content);
+        $banner = 'index.html' === $page['source_path'] || ($wrapped && 'pricing/index.html' === $page['source_path']);
+        $assert($banner === str_contains($content, 'Welcome') && (!$banner || str_contains($content, '<h1')), 'Route banners remain native headings.');
+    }
+    $headerDiagnostics = array_values(array_filter($reduced['diagnostics'], static fn(array $row): bool => 'wordpress_site_plan_shell_extracted' === $row['code'] && 'header' === ($row['area'] ?? null)));
+    $assert(1 === count($headerDiagnostics), 'One shared header cluster is extracted.');
+    $diagnostic = $headerDiagnostics[0];
+    $assert(3 === $diagnostic['page_count'] && 3 === $diagnostic['applicable_page_count'] && empty($diagnostic['exclusions']), 'All routes share the header: ' . json_encode($diagnostic));
+}
+
 fwrite(STDOUT, "Route edge shared shell contract passed.\n");

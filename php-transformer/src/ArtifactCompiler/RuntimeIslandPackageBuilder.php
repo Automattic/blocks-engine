@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 
@@ -129,7 +130,7 @@ final class RuntimeIslandPackageBuilder
     {
         $themeScriptOccurrences = array();
         foreach ( $pages as $page ) {
-            $sourcePath = is_string($page['source_path'] ?? null) ? $page['source_path'] : '';
+            $sourcePath = ArrayField::string($page, 'source_path');
             foreach ( $page['document_metadata']['scripts'] ?? array() as $script ) {
                 if ( '' !== $sourcePath && is_array($script) && is_int($script['order'] ?? null) ) {
                     $themeScriptOccurrences[$sourcePath . "\nscript:nth-of-type(" . ($script['order'] + 1) . ')'] = true;
@@ -142,12 +143,12 @@ final class RuntimeIslandPackageBuilder
             if ( ! is_array($island) ) {
                 continue;
             }
-            $sourcePath = is_string($island['source_path'] ?? null) ? $island['source_path'] : '';
+            $sourcePath = ArrayField::string($island, 'source_path');
             foreach ( $island['scripts'] ?? array() as $script ) {
                 if ( ! is_array($script) || 'telemetry' === ($script['role'] ?? null) ) {
                     continue;
                 }
-                $selector = is_string($script['selector'] ?? null) ? $script['selector'] : '';
+                $selector = ArrayField::string($script, 'selector');
                 $identity = $sourcePath . "\n" . $selector;
                 if ( '' !== $sourcePath && '' !== $selector && isset($themeScriptOccurrences[$identity]) ) {
                     $owned[$identity] = true;
@@ -189,7 +190,7 @@ final class RuntimeIslandPackageBuilder
             'disposition'         => $disposition,
             'js_handling'         => 'drop' === $disposition ? 'drop' : 'preserve_verbatim',
             'handle_hint'         => $this->handleHint($kind, $selector, $markup),
-            'attributes'          => is_array($runtimeIsland['attributes'] ?? null) ? $runtimeIsland['attributes'] : array(),
+            'attributes'          => ArrayField::array($runtimeIsland, 'attributes'),
             'scripts'             => $scripts,
         );
 
@@ -213,7 +214,7 @@ final class RuntimeIslandPackageBuilder
         $scripts = array();
 
         if ( 'script' === $kind ) {
-            $attributes = is_array($runtimeIsland['attributes'] ?? null) ? $runtimeIsland['attributes'] : array();
+            $attributes = ArrayField::array($runtimeIsland, 'attributes');
             $sourceKind = is_scalar($runtimeIsland['script_source_kind'] ?? null) ? (string) $runtimeIsland['script_source_kind'] : '';
             if ( '' === $sourceKind ) {
                 $sourceKind = '' !== trim((string) ($attributes['src'] ?? '')) ? 'external' : 'inline';
@@ -235,12 +236,12 @@ final class RuntimeIslandPackageBuilder
             return DeterministicRowDeduplicator::dedupe($scripts);
         }
 
-        $required = is_array($runtimeIsland['required_scripts'] ?? null) ? $runtimeIsland['required_scripts'] : array();
+        $required = ArrayField::array($runtimeIsland, 'required_scripts');
         foreach ( $required as $requiredScript ) {
             if ( ! is_array($requiredScript) ) {
                 continue;
             }
-            $attributes = is_array($requiredScript['attributes'] ?? null) ? $requiredScript['attributes'] : array();
+            $attributes = ArrayField::array($requiredScript, 'attributes');
             $sourceKind = is_scalar($requiredScript['script_source_kind'] ?? null) ? (string) $requiredScript['script_source_kind'] : '';
             if ( '' === $sourceKind ) {
                 $sourceKind = '' !== trim((string) ($attributes['src'] ?? '')) ? 'external' : 'inline';

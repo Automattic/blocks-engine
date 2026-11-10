@@ -13,7 +13,7 @@ $assert = static function (bool $condition, string $message): void {
 };
 $sort = '<select name="sort_by"><option value="featured">Featured</option><option value="price-ascending">Price: low to high</option><option value="price-descending">Price: high to low</option></select>';
 $card = static fn (string $name): string => '<article><img src="' . strtolower($name) . '.jpg" alt="' . $name . '"><h2>' . $name . '</h2><p>$20.00</p></article>';
-$page = '<!doctype html><html><head><title>Catalog</title></head><body><main><h1>Catalog</h1><section>'
+$page = '<!doctype html><html><head><title>Catalog</title></head><body><a href="/cart/">Cart</a><main><h1>Catalog</h1><section>'
     . '<form method="get" id="filters"><fieldset><legend>Finish</legend><label><input type="checkbox" name="filter.finish" value="matte">Matte</label><label><input type="checkbox" name="filter.finish" value="gloss">Gloss</label></fieldset>' . $sort . '<button type="submit">Apply</button></form>'
     . '<form method="get" id="sort-bar">' . $sort . '</form>'
     . '<div class="grid" style="display:grid">' . $card('Alpha') . $card('Beta') . '</div>'

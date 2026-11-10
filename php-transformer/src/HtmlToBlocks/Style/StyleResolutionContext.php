@@ -14,22 +14,15 @@ use Closure;
 final class StyleResolutionContext
 {
     /**
-     * @param Closure(string): string                  $cssComparableValue
      * @param Closure(string): array<string, mixed>    $parsedCssSelector
      * @param Closure(string): string                  $promotedClassName
      * @param Closure(string): string                  $resolvedAssetImageUrl
      */
     public function __construct(
-        private readonly Closure $cssComparableValue,
         private readonly Closure $parsedCssSelector,
         private readonly Closure $promotedClassName,
         private readonly Closure $resolvedAssetImageUrl
     ) {
-    }
-
-    public function cssComparableValue(string $value): string
-    {
-        return ($this->cssComparableValue)($value);
     }
 
     /**

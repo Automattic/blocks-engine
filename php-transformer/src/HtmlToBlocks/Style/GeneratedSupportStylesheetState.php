@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+
 /** Per-transform CSS generated to bridge source styling into valid blocks. */
 final class GeneratedSupportStylesheetState
 {
@@ -172,7 +174,7 @@ final class GeneratedSupportStylesheetState
                 foreach ( preg_split('/\s+/', $className) ?: array() as $identity ) {
                     if ( '' !== $identity ) $identities[$identity] = true;
                 }
-                $collect(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array());
+                $collect(ArrayField::array($block, 'innerBlocks'));
             }
         };
         $collect($acceptedBlocks);

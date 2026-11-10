@@ -54,7 +54,25 @@ final class HtmlTagScanner
         return $attributes;
     }
 
-    /** @return list<array{tag:string,attributes:string,content:string,offset:int,end_offset:int,placement:string}> */
+    /**
+     * The 1-based occurrence of $search that starts at $offset in $markup, or 0
+     * when no occurrence starts there.
+     */
+    public static function occurrenceAtOffset(string $markup, string $search, int $offset): int
+    {
+        $occurrence = 0;
+        $cursor = 0;
+        while ( false !== ($found = strpos($markup, $search, $cursor)) ) {
+            ++$occurrence;
+            if ( $found === $offset ) {
+                return $occurrence;
+            }
+            $cursor = $found + strlen($search);
+        }
+
+        return 0;
+    }
+
     public static function scan(string $html, string $name): array
     {
         $tags = array();

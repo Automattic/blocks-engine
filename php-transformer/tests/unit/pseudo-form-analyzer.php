@@ -26,12 +26,8 @@ $elementFrom = static function (string $html): DOMElement {
     throw new RuntimeException('No element parsed');
 };
 
-$selector = static function (DOMElement $element): string {
-    $id = $element->getAttribute('id');
-    return '' !== $id ? '#' . $id : strtolower($element->tagName);
-};
-$metadataBuilder = new FormControlMetadataBuilder($selector);
-$analyzer = new PseudoFormAnalyzer($metadataBuilder, $selector);
+$metadataBuilder = new FormControlMetadataBuilder();
+$analyzer = new PseudoFormAnalyzer($metadataBuilder);
 
 $local = $elementFrom('<div id="signup"><label>Email<input name="email"></label><button type="submit">Join</button></div>');
 $assert($analyzer->isPseudoForm($local), 'labeled-entry-and-submit-is-pseudo-form');
@@ -57,7 +53,7 @@ $assert($inner instanceof DOMElement && $analyzer->isPseudoForm($inner), 'tighte
 $assert(! $analyzer->isPseudoForm($nested), 'ancestor-defers-to-tightest-container');
 
 $boundary = $inner instanceof DOMElement ? $analyzer->boundaryMetadata($inner) : array();
-$assert('#inner' === ($boundary['selector'] ?? ''), 'boundary-identifies-selected-container');
+$assert('div:nth-of-type(1) > div:nth-of-type(1)' === ($boundary['selector'] ?? ''), 'boundary-identifies-selected-container');
 $assert('contains_nested_coherent_form' === ($boundary['rejected_ancestors'][0]['reason'] ?? ''), 'boundary-explains-rejected-ancestor');
 
 $form = $elementFrom('<form><label>Email<input name="email"></label><button type="submit">Join</button></form>');

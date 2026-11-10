@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
@@ -701,17 +703,17 @@ JS;
         if ( '' !== $stageMinHeight ) {
             $styleDeclarations[] = '--blocks-engine-carousel-stage-min-height:' . htmlspecialchars($stageMinHeight, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         }
-        foreach (is_array($attributes['controlPresentation'] ?? null) ? $attributes['controlPresentation'] : array() as $property => $value) {
+        foreach (ArrayField::array($attributes, 'controlPresentation') as $property => $value) {
             if (is_string($property) && preg_match('/^[a-z-]+$/D', $property) && is_string($value) && ! preg_match('/[;{}<>]/', $value)) {
                 $styleDeclarations[] = '--blocks-engine-carousel-control-' . $property . ':' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
             }
         }
-        foreach (is_array($attributes['sourceCustomProperties'] ?? null) ? $attributes['sourceCustomProperties'] : array() as $name => $value) {
+        foreach (ArrayField::array($attributes, 'sourceCustomProperties') as $name => $value) {
             if (is_string($name) && preg_match('/^--[-_a-zA-Z0-9]+$/D', $name) && is_string($value) && ! preg_match('/[;{}<>]/', $value)) {
                 $styleDeclarations[] = $name . ':' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
             }
         }
-        foreach (is_array($attributes['sourceRootGeometry'] ?? null) ? $attributes['sourceRootGeometry'] : array() as $property => $value) {
+        foreach (ArrayField::array($attributes, 'sourceRootGeometry') as $property => $value) {
             if (in_array($property, self::ROOT_GEOMETRY_PROPERTIES, true) && is_string($value) && '' !== $this->safeCssGeometryValue($value)) {
                 $styleDeclarations[] = $property . ':' . htmlspecialchars($this->safeCssGeometryValue($value), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
             }
@@ -724,13 +726,13 @@ JS;
             'UTF-8'
         );
 
-        $stageWrappers = is_array($attributes['stageWrappers'] ?? null) ? $attributes['stageWrappers'] : array();
+        $stageWrappers = ArrayField::array($attributes, 'stageWrappers');
         $stageWrapperOpen = '<div class="blocks-engine-authored-carousel__source-stage">';
         foreach ($stageWrappers as $wrapper) {
             $className = is_array($wrapper) ? implode(' ', SourceDom::boundedClassTokens((string) ($wrapper['className'] ?? ''))) : '';
             $wrapperStyle = is_array($wrapper) ? $this->safeInlineStyle((string) ($wrapper['style'] ?? '')) : '';
             $wrapperAttributes = '';
-            foreach (is_array($wrapper['attributes'] ?? null) ? $wrapper['attributes'] : array() as $name => $value) {
+            foreach (ArrayField::array($wrapper, 'attributes') as $name => $value) {
                 if (is_string($name) && is_string($value) && preg_match('/^(?:id|tabindex|role|(?:data|aria)-[a-zA-Z0-9_-]+)$/D', $name) && !str_starts_with($name, 'data-wp-')) {
                     $wrapperAttributes .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
                 }
@@ -775,13 +777,13 @@ JS;
             if ('swipe' === $key ? !empty($attributes[$key]) : false === ($attributes[$key] ?? true)) $identityAttributes .= ' data-carousel-' . $name . '="' . ('swipe' === $key ? 'true' : 'false') . '"';
         }
         if (!empty($attributes['capturedViews'])) $identityAttributes .= ' data-carousel-views="' . htmlspecialchars(json_encode($attributes['capturedViews'], JSON_THROW_ON_ERROR), ENT_QUOTES) . '"';
-        foreach (is_array($attributes['sourceIdentityAttributes'] ?? null) ? $attributes['sourceIdentityAttributes'] : array() as $name => $value) {
+        foreach (ArrayField::array($attributes, 'sourceIdentityAttributes') as $name => $value) {
             if (is_string($name) && preg_match('/^(?:(?:data|aria)-[a-zA-Z0-9_-]+|id)$/D', $name) && is_string($value)) {
                 $identityAttributes .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
             }
         }
         $controlIdentityAttributes = '';
-        foreach (is_array($attributes['sourceControlAttributes'] ?? null) ? $attributes['sourceControlAttributes'] : array() as $name => $value) {
+        foreach (ArrayField::array($attributes, 'sourceControlAttributes') as $name => $value) {
             if (is_string($name) && preg_match('/^(?:data|aria)-[a-zA-Z0-9_-]+$/D', $name) && is_string($value)) {
                 $controlIdentityAttributes .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
             }
@@ -797,8 +799,8 @@ JS;
                 'closing' => '</div>' . $sourceTail . $status . '</div>',
             );
         }
-        $previousButton = $this->navigationButtonMarkup(false, (string) ($attributes['previousControlClasses'] ?? ''), (string) ($attributes['previousControlVisual'] ?? ''), is_array($attributes['previousControlPresentation'] ?? null) ? $attributes['previousControlPresentation'] : array(), null, is_array($attributes['previousControlOrientation'] ?? null) ? $attributes['previousControlOrientation'] : array());
-        $nextButton = $this->navigationButtonMarkup(true, (string) ($attributes['nextControlClasses'] ?? ''), (string) ($attributes['nextControlVisual'] ?? ''), is_array($attributes['nextControlPresentation'] ?? null) ? $attributes['nextControlPresentation'] : array(), null, is_array($attributes['nextControlOrientation'] ?? null) ? $attributes['nextControlOrientation'] : array());
+        $previousButton = $this->navigationButtonMarkup(false, (string) ($attributes['previousControlClasses'] ?? ''), (string) ($attributes['previousControlVisual'] ?? ''), ArrayField::array($attributes, 'previousControlPresentation'), null, ArrayField::array($attributes, 'previousControlOrientation'));
+        $nextButton = $this->navigationButtonMarkup(true, (string) ($attributes['nextControlClasses'] ?? ''), (string) ($attributes['nextControlVisual'] ?? ''), ArrayField::array($attributes, 'nextControlPresentation'), null, ArrayField::array($attributes, 'nextControlOrientation'));
         $controlTopology = $this->safeControlTopologyMarkup((string) ($attributes['sourceControlTopology'] ?? ''));
         $controlsMarkup = '' !== $controlTopology
             ? $controlTopology
@@ -1574,9 +1576,8 @@ JS;
         if ('' === trim($markup)) {
             return '';
         }
-        $previous = libxml_use_internal_errors(true);
         $document = new \DOMDocument('1.0', 'UTF-8');
-        $document->loadHTML('<?xml encoding="utf-8" ?><div>' . $markup . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><div>' . $markup . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
         $container = $document->getElementsByTagName('div')->item(0);
         $safe = '';
         if ($container instanceof DOMElement) {
@@ -1586,8 +1587,6 @@ JS;
                 }
             }
         }
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
         return $safe;
     }
 
@@ -1950,9 +1949,8 @@ JS;
         if (preg_match('/^[\t\n\f\r ]*$/D', $markup)) {
             return '';
         }
-        $previous = libxml_use_internal_errors(true);
         $document = new \DOMDocument('1.0', 'UTF-8');
-        $document->loadHTML('<?xml encoding="utf-8" ?><div>' . $markup . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><div>' . $markup . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
         $container = $document->getElementsByTagName('div')->item(0);
         $safe = '';
         if ($container instanceof DOMElement) {
@@ -1964,8 +1962,6 @@ JS;
                 }
             }
         }
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
         return $safe;
     }
 
@@ -2265,7 +2261,7 @@ JS;
         $layout = $pagerRoot instanceof DOMElement ? $this->commonAncestor(array($pagerRoot, $stageTrack)) : null;
         if ($layout instanceof DOMElement && SourceDom::elementContains($carouselRoot, $layout)) {
             $declarations = $styleResolver->structuralPresentationDeclarations($layout);
-            $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+            $display = CssValueInspector::declared($declarations, 'display');
             if (in_array($display, array('flex', 'inline-flex', 'grid', 'inline-grid'), true)) {
                 $flex = str_contains($display, 'flex');
                 $direction = trim((string) ($declarations[$flex ? 'flex-direction' : 'grid-auto-flow'] ?? 'row'));
@@ -2362,12 +2358,12 @@ JS;
             return $block;
         }
         $declarations = $styleResolver->sourceGeometryPresentationDeclarations($sourceItem);
-        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+        $display = CssValueInspector::declared($declarations, 'display');
         if (!in_array($display, array('flex', 'inline-flex'), true)) {
             return $block;
         }
-        $attributes = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
-        $layout = is_array($attributes['layout'] ?? null) ? $attributes['layout'] : array();
+        $attributes = ArrayField::array($block, 'attrs');
+        $layout = ArrayField::array($attributes, 'layout');
         $layout['type'] = 'flex';
         if (preg_match('/^column(?:-reverse)?$/i', trim((string) ($declarations['flex-direction'] ?? '')))) {
             $layout['orientation'] = 'vertical';
@@ -2652,7 +2648,7 @@ JS;
 
     private function isSlideStatus(DOMElement $element): bool
     {
-        return 'status' === strtolower(trim(SourceDom::attr($element, 'role')))
+        return 'status' === SourceDom::role($element)
             || 1 === preg_match('~^\s*[0-9]+\s*/\s*[0-9]+\s*$~', $element->textContent ?? '');
     }
 
@@ -2679,7 +2675,7 @@ JS;
             ) {
                 continue;
             }
-            if ( 'listitem' === strtolower(trim(SourceDom::attr($child, 'role'))) || 'li' === strtolower($child->tagName) ) {
+            if ( 'listitem' === SourceDom::role($child) || 'li' === strtolower($child->tagName) ) {
                 $items[] = $child;
                 continue;
             }

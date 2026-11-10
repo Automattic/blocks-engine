@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
@@ -187,7 +188,7 @@ final class HostBlockGapEncoder
 
         $group['innerBlocks'] = $children;
         if ( null !== $gap ) {
-            $group['attrs'] = $this->withBlockGap(is_array($group['attrs'] ?? null) ? $group['attrs'] : array(), self::cssLength($gap));
+            $group['attrs'] = $this->withBlockGap(ArrayField::array($group, 'attrs'), self::cssLength($gap));
         }
 
         return $group;
@@ -260,7 +261,7 @@ final class HostBlockGapEncoder
         $gap = abs($row - $column) < 0.001
             ? self::cssLength($row)
             : array( 'top' => self::cssLength($row), 'left' => self::cssLength($column) );
-        $group['attrs'] = $this->withBlockGap(is_array($group['attrs'] ?? null) ? $group['attrs'] : array(), $gap);
+        $group['attrs'] = $this->withBlockGap(ArrayField::array($group, 'attrs'), $gap);
 
         // Core zeroes flex and grid item margins; items keep the source's.
         $children = is_array($group['innerBlocks'] ?? null) ? array_values($group['innerBlocks']) : array();
@@ -297,6 +298,44 @@ final class HostBlockGapEncoder
         }
 
         return self::collapse($this->margins($previous, false)[1], $currentTop);
+    }
+
+    /** Whether removing an empty box would discard source block-axis spacing. */
+    public function hasContributingEmptyMargin(DOMElement $element): bool
+    {
+        $display = $this->display($element);
+        $position = CssValueInspector::comparable((string) ($this->declarationsOf($element)['position'] ?? ''));
+        if ( in_array($display, array( 'none', 'contents' ), true) || str_starts_with($display, 'inline')
+            || in_array($position, array( 'absolute', 'fixed' ), true) ) {
+            return false;
+        }
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement ) {
+            return false;
+        }
+        $authored = $this->sidesPx($element, $this->boxSides($element, 'margin', array( '0', '0' )));
+        if ( (null === $authored[0] || 0.0 === $authored[0]) && (null === $authored[1] || 0.0 === $authored[1]) ) {
+            return false;
+        }
+        $own = $this->ownMargins($element);
+        if ( $this->laysOutItems($parent) ) {
+            return (null !== $own[0] && 0.0 !== $own[0]) || (null !== $own[1] && 0.0 !== $own[1]);
+        }
+        $previous = $element->previousElementSibling;
+        $next = $element->nextElementSibling;
+        $before = $previous instanceof DOMElement ? $this->margins($previous, false)[1]
+            : ($this->collapsesThrough($parent, 'top') ? $this->ownMargins($parent)[0] : 0.0);
+        $after = $next instanceof DOMElement ? $this->margins($next, false)[0]
+            : ($this->collapsesThrough($parent, 'bottom') ? $this->ownMargins($parent)[1] : 0.0);
+        if ( null === $before || null === $after || null === $own[0] || null === $own[1] ) {
+            return false;
+        }
+        // A set of adjoining margins collapses to its largest positive plus
+        // most negative member; pairwise collapse loses that information.
+        $without = max(0.0, $before, $after) + min(0.0, $before, $after);
+        $with = max(0.0, $before, $after, $own[0], $own[1]) + min(0.0, $before, $after, $own[0], $own[1]);
+
+        return abs($with - $without) >= 0.001;
     }
 
     /** Whether a container lays its children out as flex or grid items rather than in block flow. */
@@ -679,7 +718,7 @@ final class HostBlockGapEncoder
      */
     private function withMargins(array $block, array $sides): array
     {
-        $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
+        $attrs = ArrayField::array($block, 'attrs');
         // The factory drops a group's blockGap (layout renders it, save does
         // not); carry the one this encoder wrote across the rebuild.
         $blockGap = $attrs['style']['spacing']['blockGap'] ?? null;
@@ -696,7 +735,7 @@ final class HostBlockGapEncoder
         }
         $rebuilt = $this->blockFactory->rebuild($block, $attrs);
         if ( null !== $blockGap ) {
-            $rebuilt['attrs'] = $this->withBlockGap(is_array($rebuilt['attrs'] ?? null) ? $rebuilt['attrs'] : array(), $blockGap);
+            $rebuilt['attrs'] = $this->withBlockGap(ArrayField::array($rebuilt, 'attrs'), $blockGap);
         }
 
         return $rebuilt;
@@ -726,8 +765,8 @@ final class HostBlockGapEncoder
      */
     private function withBlockGap(array $attrs, mixed $gap): array
     {
-        $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
-        $spacing = is_array($style['spacing'] ?? null) ? $style['spacing'] : array();
+        $style = ArrayField::array($attrs, 'style');
+        $spacing = ArrayField::array($style, 'spacing');
         $spacing['blockGap'] = $gap;
         $style['spacing'] = $spacing;
         $attrs['style'] = $style;

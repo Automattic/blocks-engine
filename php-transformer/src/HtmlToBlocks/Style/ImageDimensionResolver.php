@@ -174,7 +174,7 @@ final class ImageDimensionResolver
     /** Whether the emitted dimensions came only from the image file metadata. */
     private function imageDimensionsAreIntrinsicAttributes(DOMElement $image): bool
     {
-        $declarations = $this->styles->cssDeclarations(SourceDom::attr($image, 'style'));
+        $declarations = $this->styles->inlineDeclarations($image);
         foreach (array( 'width', 'height' ) as $property) {
             $value = trim(CssValueInspector::withoutImportant((string) ($declarations[$property] ?? '')));
             if ('' !== $value && !in_array(strtolower($value), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true)) {
@@ -186,7 +186,7 @@ final class ImageDimensionResolver
 
     public function imageDimensionIsIntrinsicAttribute(DOMElement $image, string $property): bool
     {
-        $declarations = $this->styles->cssDeclarations(SourceDom::attr($image, 'style'));
+        $declarations = $this->styles->inlineDeclarations($image);
         $inline = trim(CssValueInspector::withoutImportant((string) ($declarations[$property] ?? '')));
         return ('' === $inline || in_array(strtolower($inline), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true))
             && '' === $this->imageStylesheetDimension($image, $property)
@@ -195,7 +195,7 @@ final class ImageDimensionResolver
 
     private function imageHasNonPositiveDimension(DOMElement $image, string $property): bool
     {
-        $inline = trim(CssValueInspector::withoutImportant((string) ($this->styles->cssDeclarations(SourceDom::attr($image, 'style'))[ $property ] ?? '')));
+        $inline = trim(CssValueInspector::withoutImportant((string) ($this->styles->inlineDeclarations($image)[ $property ] ?? '')));
         $value = $inline;
         if ('' === $value || in_array(strtolower($value), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true)) {
             $value = trim(CssValueInspector::withoutImportant((string) ($this->styles->presentationDeclarations($image)[ $property ] ?? '')));
@@ -214,7 +214,7 @@ final class ImageDimensionResolver
 
     public function imageDisplayDimension(DOMElement $image, string $property): string
     {
-        $declarations = $this->styles->cssDeclarations(SourceDom::attr($image, 'style'));
+        $declarations = $this->styles->inlineDeclarations($image);
         $inline = trim(CssValueInspector::withoutImportant((string) ($declarations[ $property ] ?? '')));
         $other = 'width' === $property ? 'height' : 'width';
         $otherInline = trim(CssValueInspector::withoutImportant((string) ($declarations[ $other ] ?? '')));
@@ -472,12 +472,12 @@ final class ImageDimensionResolver
     /** @param array<string, string> $declarations */
     private function passesFillThrough(DOMElement $wrapper, array $declarations): bool
     {
-        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+        $display = CssValueInspector::declared($declarations, 'display');
         if ( '' === $display ) {
             $display = $this->styles->defaultTagDisplay($wrapper);
         }
-        $position = CssValueInspector::comparable((string) ($declarations['position'] ?? ''));
-        $float = CssValueInspector::comparable((string) ($declarations['float'] ?? ''));
+        $position = CssValueInspector::declared($declarations, 'position');
+        $float = CssValueInspector::declared($declarations, 'float');
         if ( ! in_array($display, array( 'block', 'flow-root', 'flex', 'grid', 'list-item' ), true)
             || in_array($position, array( 'absolute', 'fixed' ), true)
             || ! in_array($float, array( '', 'none' ), true) ) {
@@ -509,7 +509,7 @@ final class ImageDimensionResolver
 
     private function isZeroLength(string $value): bool
     {
-        foreach ( preg_split('/\s+/', trim($value)) ?: array() as $token ) {
+        foreach ( SourceDom::tokens($value) as $token ) {
             if ( '' !== $token && 1 !== preg_match('/^[+-]?0*(?:\.0+)?(?:[a-z]+|%)?$/', $token) ) {
                 return false;
             }
@@ -652,7 +652,7 @@ final class ImageDimensionResolver
 
     public function fillParentImageViewportPair(DOMElement $image): void
     {
-        $declarations = $this->styles->cssDeclarations(SourceDom::attr($image, 'style'));
+        $declarations = $this->styles->inlineDeclarations($image);
         $width = trim(CssValueInspector::withoutImportant((string) ($declarations['width'] ?? '')));
         $height = trim(CssValueInspector::withoutImportant((string) ($declarations['height'] ?? '')));
         if ( ! $this->imageViewportPairFillsParent($width, $height) ) {

@@ -13,9 +13,8 @@ use DOMElement;
  * Recognizes column / split-layout / documentation-sidebar containers and
  * converts them to a core/columns block of core/column children.
  *
- * Extracted verbatim from HtmlTransformer::columnsBlockFromElement() and its
- * private helpers. The matcher keeps its frozen callback contract while the
- * registry supplies recursive conversion through PatternTreeConverter:
+ * The matcher keeps a frozen callback contract while the registry supplies
+ * recursive conversion through PatternTreeConverter:
  *   - $convertChildren: convertChildren($child, $fallbacks, true) for wrapper
  *     columns (recursion that may emit fallbacks).
  *   - $convertElement:  convertElement($child, $fallbacks, true) for non-wrapper
@@ -133,7 +132,7 @@ final class ColumnsPattern implements PatternRecognizerInterface
         $columns = array();
         $columnFallbacks = array();
         foreach ( $elementChildren as $child ) {
-            $children = $this->isColumnWrapperElement($child)
+            $children = ShellLandmarkPolicy::isColumnsWrapperTag($child->tagName)
                 ? $convertChildren($child, $columnFallbacks, true)
                 : array_filter(array( $convertElement($child, $columnFallbacks, true) ));
             // Core saves width as an inline flex-basis, preserving authored
@@ -164,11 +163,6 @@ final class ColumnsPattern implements PatternRecognizerInterface
         }
 
         return $createBlock('core/columns', $attrs, $columns, $element);
-    }
-
-    private function isColumnWrapperElement(DOMElement $element): bool
-    {
-        return ShellLandmarkPolicy::isColumnsWrapperTag($element->tagName);
     }
 
     /**
@@ -229,7 +223,7 @@ final class ColumnsPattern implements PatternRecognizerInterface
         // Split-layout names describe two-pane structures. Multi-child content
         // stacks such as hero copy must stay groups so source CSS controls flow.
         return (bool) preg_match('/(?:^|\s)columns?(?:$|\s)/', $className)
-            || ( $this->looksLikeSplitLayout($element) && 2 === SourceDom::directElementChildCount($element) )
+            || ( $this->looksLikeSplitLayout($element) && 2 === SourceDom::childElementCount($element) )
             || ( $this->looksLikeDocumentationLayout($element) && $this->hasSidebarAndContentChildren($element, $referenceViewportStyle) )
             || $this->hasSidebarAndContentChildren($element, $referenceViewportStyle)
             || preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex/', $inlineStyle);

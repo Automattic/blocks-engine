@@ -12,10 +12,8 @@ use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
  * static script metadata, block-validity findings, and semantic-parity
  * findings) into the flat diagnostics array carried by TransformerResult.
  *
- * This is a behavior-preserving extraction of the inline projection that
- * previously lived in HtmlTransformer::transform(). It performs no DOM work and
- * no logic decisions — it only reshapes data the transformer already produced —
- * so the diagnostics output is byte-identical to the inline implementation.
+ * It performs no DOM work and no logic decisions: it only reshapes data the
+ * compilation already produced.
  */
 final class DiagnosticsCollector
 {

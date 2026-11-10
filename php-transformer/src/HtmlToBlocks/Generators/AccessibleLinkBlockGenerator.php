@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+
 /** Builds an editable link when core/button cannot retain its distinct accessible name. */
 final class AccessibleLinkBlockGenerator
 {
@@ -64,7 +66,7 @@ final class AccessibleLinkBlockGenerator
 } )( window.wp.blocks, window.wp.blockEditor, window.wp.components, window.wp.element );
 JS;
 
-        return array( 'index.js' => str_replace(array( '__BLOCK_NAME__', '__BLOCK_ATTRIBUTES__' ), array( $blockName, json_encode($this->blockJson(substr($blockName, 0, strrpos($blockName, '/')))['attributes'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES) ), $script) );
+        return array( 'index.js' => EditorScript::bind($script, $blockName, $this->blockJson(substr($blockName, 0, strrpos($blockName, '/')))['attributes']) );
     }
 
     /** @param array<string, mixed> $attrs */
@@ -72,7 +74,7 @@ JS;
     {
         $escape = static fn (mixed $value): string => htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $markup = '<a href="' . $escape($attrs['href'] ?? '') . '"';
-        $sourceAttributes = is_array($attrs['sourceAttributes'] ?? null) ? $attrs['sourceAttributes'] : array();
+        $sourceAttributes = ArrayField::array($attrs, 'sourceAttributes');
         ksort($sourceAttributes);
         foreach ( $sourceAttributes as $name => $value ) {
             $markup .= ' ' . $name . '="' . $escape($value) . '"';
@@ -91,7 +93,7 @@ JS;
         // child, so it keeps that wrapper's tag and selector attributes.
         $tag = self::contentTagName((string) ($attrs['contentTagName'] ?? ''));
         $wrapper = '<' . $tag;
-        $contentAttributes = is_array($attrs['contentAttributes'] ?? null) ? $attrs['contentAttributes'] : array();
+        $contentAttributes = ArrayField::array($attrs, 'contentAttributes');
         foreach ( self::contentAttributeNames($contentAttributes) as $name ) {
             $wrapper .= ' ' . $name . '="' . $escape($contentAttributes[$name]) . '"';
         }

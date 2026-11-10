@@ -62,9 +62,6 @@ final class ConversionFindingContract
     private const CODE_KEYS = array('code', 'diagnostic_code');
 
     /**
-     * Human-readable descriptor keys. Optional; type-checked when present.
-     */
-    /**
      * Well-known optional scalar string fields, validated for type only when
      * present. Unknown fields are tolerated.
      *

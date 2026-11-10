@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use DOMDocument;
@@ -283,7 +284,7 @@ final class SourceStyleResolutionState
                 if (! $control instanceof DOMElement || ! $control->hasAttribute('aria-expanded')) {
                     continue;
                 }
-                foreach (preg_split('/\s+/', trim($control->getAttribute('aria-controls'))) ?: array() as $controlledId) {
+                foreach (SourceDom::tokens($control->getAttribute('aria-controls')) as $controlledId) {
                     if ('' !== $controlledId) {
                         $controlled[$controlledId] = true;
                     }

@@ -17,10 +17,10 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceEle
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\PseudoFormAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeDomState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeSelectorState;
+use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 $assertions = 0;
@@ -43,21 +43,11 @@ $elementFrom = static function (string $html): DOMElement {
     throw new RuntimeException('No element parsed');
 };
 
-$descendants = static function (DOMElement $element): array {
-    $out = array();
-    foreach ($element->getElementsByTagName('*') as $node) {
-        if ($node instanceof DOMElement) {
-            $out[] = $node;
-        }
-    }
-    return $out;
-};
-
 /**
  * @param array<int,string> $domSelectors
  * @param array<int,string> $presentationalSelectors
  */
-$makeAnalyzer = static function (array $domSelectors = array(), array $presentationalSelectors = array(), array $overrides = array()) use ($descendants): RuntimeIslandAnalyzer {
+$makeAnalyzer = static function (array $domSelectors = array(), array $presentationalSelectors = array(), array $overrides = array()): RuntimeIslandAnalyzer {
     // Behavioral evidence mirrors the DOM selectors unless a selector is
     // declared presentational-only, which is exactly the distinction
     // isPresentationalRuntimeSelector() exists to make.
@@ -75,23 +65,16 @@ $makeAnalyzer = static function (array $domSelectors = array(), array $presentat
 
     $defaults = array(
         'attr'             => static fn (DOMElement $e, string $n): string => $e->getAttribute($n),
-        'descendants'      => $descendants,
-        'islandSelector'   => static fn (DOMElement $e): string => strtolower($e->tagName),
         'eventMetadata'    => static fn (DOMElement $e): array => array(),
-        'preservedRoot'    => static fn (string $h): ?DOMElement => null,
-        'hasWorkspace'     => static fn (DOMElement $e): bool => false,
         'dedupe'           => static fn (array $rows): array => array_values($rows),
     );
     $c = array_merge($defaults, $overrides);
     $session = $c['session'] ?? new HtmlTransformerSession(new Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()));
     $session->installRuntimeSelectorState($selectors);
 
-    $metadataBuilder = new FormControlMetadataBuilder($c['islandSelector']);
-    $pseudoFormAnalyzer = new PseudoFormAnalyzer($metadataBuilder, $c['islandSelector']);
-    return new RuntimeIslandAnalyzer($session, new SourceElementClassifier(), new RuntimeIslandContext(
-        $c['descendants'],
-        $c['preservedRoot'],
-        $c['hasWorkspace']), $pseudoFormAnalyzer);
+    $metadataBuilder = new FormControlMetadataBuilder();
+    $pseudoFormAnalyzer = new PseudoFormAnalyzer($metadataBuilder);
+    return new RuntimeIslandAnalyzer($session, new SourceElementClassifier(), $pseudoFormAnalyzer);
 };
 
 // An id or class named by a runtime selector is a DOM target.
@@ -108,14 +91,13 @@ $assert($byClass->isRuntimeDomTarget($elementFrom('<div class="a widget b"></div
 $presentational = $makeAnalyzer(array('.fade'), array('.fade'));
 $assert(! $presentational->isRuntimeDomTarget($elementFrom('<div class="fade"></div>')), 'presentational-only-selector-is-not-runtime-target');
 
-// Bounded selector grammar: shapes the analyzer will accept as runtime evidence.
-$grammar = $makeAnalyzer();
+// Bounded selector grammar: shapes accepted as runtime evidence.
 foreach (array('#app', '.panel', 'div.panel', '[data-widget]', 'div[data-widget]', 'canvas', 'svg', 'button') as $ok) {
-    $assert($grammar->isBoundedRuntimeSelector($ok), 'bounded-selector-' . $ok);
+    $assert(RuntimeSelectorVocabulary::isBoundedScriptSelector($ok), 'bounded-selector-' . $ok);
 }
-$assert($grammar->isBoundedRuntimeSelector('[data-x-stage][data-x-trigger]'), 'bounded-compound-data-selector');
+$assert(RuntimeSelectorVocabulary::isBoundedScriptSelector('[data-x-stage][data-x-trigger]'), 'bounded-compound-data-selector');
 foreach (array('div > span', '*', 'div:hover', '', 'div p') as $bad) {
-    $assert(! $grammar->isBoundedRuntimeSelector($bad), 'unbounded-selector-rejected-' . ($bad === '' ? 'empty' : $bad));
+    $assert(! RuntimeSelectorVocabulary::isBoundedScriptSelector($bad), 'unbounded-selector-rejected-' . ($bad === '' ? 'empty' : $bad));
 }
 
 // Attribute-selector matching drives data-attribute preservation, but never for

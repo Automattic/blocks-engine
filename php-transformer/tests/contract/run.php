@@ -5,6 +5,7 @@ require_once __DIR__ . '/../fixtures/captured-components.php';
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
 use Automattic\BlocksEngine\PhpTransformer\Contract\HtmlValidationOutcome;
@@ -752,7 +753,7 @@ $registry = new PatternRecognizerRegistry(array(
     },
 ));
 $registryContext = new PatternContext(
-    static fn (DOMElement $element): array => array()
+    new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array())
 );
 $assert($registryElement instanceof DOMElement, 'pattern registry fixture element parses');
 $assert('core/group' === ($registry->firstMatch($registryElement, $registryContext)?->block()['blockName'] ?? null), 'pattern registry returns the first recognizer match');
@@ -1583,7 +1584,7 @@ $selectorOverflowDeclaration = current(array_filter($selectorOverflowArtifact['s
 $assert(true === ($selectorOverflowGraph['truncated'] ?? null) && in_array('css_rule_or_selector_limit', $selectorOverflowGraph['diagnostics'] ?? array(), true) && !isset($selectorOverflowDeclaration['payload']['entities'][0]['layout_graph']), 'retained rule overflow remains explicit and incomplete graphs remain omitted from generic/forms/v1.');
 $scanOverflowCss = ''; for ( $index = 0; $index < 16385; ++$index ) $scanOverflowCss .= '.unrelated-' . $index . '{display:grid}';
 $scanOverflowGraph = (new HtmlTransformer())->transform($deepThreeColumnHtml, array('static_css' => $scanOverflowCss))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
-$assert(true === ($scanOverflowGraph['truncated'] ?? null) && in_array('css_selector_scan_limit', $scanOverflowGraph['diagnostics'] ?? array(), true) && !in_array('css_rule_or_selector_limit', $scanOverflowGraph['diagnostics'] ?? array(), true), 'unrelated selector scanning fails closed at its independent 16,384-selector work budget.');
+$assert(false === ($scanOverflowGraph['truncated'] ?? null) && !in_array('css_selector_scan_limit', $scanOverflowGraph['diagnostics'] ?? array(), true) && !in_array('css_rule_or_selector_limit', $scanOverflowGraph['diagnostics'] ?? array(), true), 'unrelated selectors do not consume the relevant cascade work budget.');
 $assert(is_int($cascadeVariant['precedence']['gap']['source_order'] ?? null) && is_int($cascadeVariant['precedence']['gap']['specificity'] ?? null) && is_bool($cascadeVariant['precedence']['gap']['important'] ?? null), 'conditional variants carry deterministic cascade precedence rather than implying independent winners.');
 $crossConditionGraph = (new HtmlTransformer())->transform('<form method="post" action="#" id="active" class="form"><input name="x"><button type="submit">Send</button></form>', array('static_css' => '.form{display:grid!important}@media (max-width:50rem){.form{display:flex}}@media (min-width:40rem){.form#active{display:flex!important}}'))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
 $crossConditionVariants = $crossConditionGraph['variants'] ?? array();
@@ -3190,9 +3191,9 @@ $emptyCoverCandidate = ( new HtmlTransformer() )->transform(
     '<div style="background-image:url(https://example.com/decor.png);background-size:cover;min-height:400px"></div>'
 )->toArray();
 $emptyCoverCandidateSerialized = (string) ($emptyCoverCandidate['serialized_blocks'] ?? '');
-$expectedEmptyCoverCandidateSerialized = '<!-- wp:group {"className":"be-inline-geometry-218c90ba931caddc be-inline-geometry-5462031491657489","style":{"dimensions":{"minHeight":"400px"}}} --><div class="wp-block-group be-inline-geometry-218c90ba931caddc be-inline-geometry-5462031491657489" style="min-height:400px"><!-- wp:image {"className":"blocks-engine-background-image blocks-engine-background-image-cover blocks-engine-synthetic-image-figure","scale":"cover"} --><figure class="wp-block-image blocks-engine-background-image blocks-engine-background-image-cover blocks-engine-synthetic-image-figure blocks-engine-image"><img src="https://example.com/decor.png" alt="" style="object-fit:cover"/></figure><!-- /wp:image --></div><!-- /wp:group -->';
+$expectedEmptyCoverCandidateSerialized = '<!-- wp:group {"className":"be-inline-geometry-218c90ba931caddc be-inline-geometry-5462031491657489","style":{"dimensions":{"minHeight":"400px"}}} --><div class="wp-block-group be-inline-geometry-218c90ba931caddc be-inline-geometry-5462031491657489" style="min-height:400px"><!-- wp:image {"className":"blocks-engine-background-image blocks-engine-background-image-cover be-inline-geometry-ace9edb3a4ef460a blocks-engine-synthetic-image-figure","scale":"cover"} --><figure class="wp-block-image blocks-engine-background-image blocks-engine-background-image-cover be-inline-geometry-ace9edb3a4ef460a blocks-engine-synthetic-image-figure blocks-engine-image"><img src="https://example.com/decor.png" alt="" style="object-fit:cover"/></figure><!-- /wp:image --></div><!-- /wp:group -->';
 $assert($expectedEmptyCoverCandidateSerialized === $emptyCoverCandidateSerialized, 'empty background container preserves exact tagged core/image serialization', $emptyCoverCandidateSerialized);
-$assert('core/image' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['blockName'] ?? null) && 'blocks-engine-background-image blocks-engine-background-image-cover blocks-engine-synthetic-image-figure' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['attrs']['className'] ?? null) && ! str_contains($emptyCoverCandidateSerialized, '<!-- wp:cover'), 'empty background container retains the tagged core/image path without core/cover');
+$assert('core/image' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['blockName'] ?? null) && 'blocks-engine-background-image blocks-engine-background-image-cover be-inline-geometry-ace9edb3a4ef460a blocks-engine-synthetic-image-figure' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['attrs']['className'] ?? null) && ! str_contains($emptyCoverCandidateSerialized, '<!-- wp:cover'), 'empty background container retains the tagged core/image path without core/cover');
 
 // A capture sentinel is not a drawable image. Keep the authored carrier box,
 // but do not turn its unavailable decorative paint into a broken core/image.
@@ -4075,6 +4076,13 @@ $assert('template_requires_runtime' === ($templateRuntimeIslands[0]['preservatio
 $assert('data_template' === ($templateRuntimeIslands[0]['template_role'] ?? ''), 'runtime HTML template island preserves source role metadata');
 $assert(! str_contains((string) ($runtimeTemplate['serialized_blocks'] ?? ''), '<!-- wp:html'), 'runtime HTML template does not emit raw HTML fallback blocks');
 $assert(! str_contains((string) ($runtimeTemplate['serialized_blocks'] ?? ''), '<template'), 'runtime HTML template does not serialize inert template markup into visual output');
+
+// An addressable template needs a page script to clone it; without one it is inert.
+foreach ( array( '' => 'html_template_metadata', '<script src="/search.js"></script>' => 'html_template_runtime_fallback' ) as $script => $expectedCode ) {
+    $addressable = ( new HtmlTransformer() )->transform('<main><template id="searchConfigInputsTemplate"><div class="search-param"><h4>Status</h4><label><input type="radio" name="activeOrSold"> Active</label></div></template>' . $script . '</main>')->toArray();
+    $codes = array_column($addressable['source_reports']['conversion_report']['fallback_diagnostics'] ?? array(), 'diagnostic_code');
+    $assert(in_array($expectedCode, $codes, true) && 1 === count(array_intersect($codes, array( 'html_template_metadata', 'html_template_runtime_fallback' ))), "addressable template with" . ('' === $script ? 'out' : '') . " a page script emits {$expectedCode}");
+}
 
 $controlOnlyDataTemplate = ( new HtmlTransformer() )->transform(
     '<main><form><p>Give today</p><template class="cadence-template" data-monthly-label="Monthly Donation" data-weekly-label="Weekly Donation"><fieldset class="form-item field select"><div class="dropdownWrapper"><select aria-label="Donation Frequency" class="dropdownSelect"><option value="ONE_TIME">One-Time Donation</option></select><span class="form-input-effects" aria-hidden="true"><span class="form-input-effects-border"></span></span><div class="accessoryIcon"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="12"><path d="M0.4 1.5L9 11.1Z"></path></svg></div></div></fieldset></template></form></main>'

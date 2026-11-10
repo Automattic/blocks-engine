@@ -285,6 +285,18 @@ final class EngineMarker
     }
 
     /**
+     * Markers on the document's `<html>` root class, where selector projection
+     * installs root-owned attribute states.
+     *
+     * @return list<string>
+     */
+    public static function onDocumentRoot(\DOMDocument $document): array
+    {
+        $root = $document->documentElement;
+        return $root instanceof DOMElement && 'html' === strtolower($root->tagName) ? self::all($root->getAttribute('class')) : array();
+    }
+
+    /**
      * Text with every marker reduced to its kind: `blocks-engine-control-<seed>-7`
      * becomes `blocks-engine-control`. Use it to derive an identity that must
      * agree for the same element compiled in different documents.

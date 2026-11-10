@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ImageLowering;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\EmptyVisualSpacerLowering;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\LayoutTableLowering;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ElementConversionPrelude;
@@ -18,9 +20,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CoverPattern;
 /**
  * Marker-class engine-support CSS gated on serialized block markup.
  *
- * Extracted from {@see HtmlCompilation::materializeAuthorStylesheet()}. No
- * HtmlCompilation `$this` — only marker classes in emitted markup. The
- * after-author methods tag their own
+ * It reads only marker classes in emitted markup. The after-author methods
+ * tag their own
  * {@see CascadeRule} layer, per {@see CascadeLayer}; the compiler only
  * collects and orders what it is handed, it does not decide where a
  * contribution belongs.
@@ -37,21 +38,21 @@ final class EngineSupportCss
         return ':root .' . $marker . ':has(.wp-block-navigation__responsive-container.is-menu-open){' . implode(';', $declarations) . '}';
     }
 
-    private const EMPTY_FLEX_ITEM_CLASS = 'blocks-engine-empty-flex-item';
+    private const EMPTY_FLEX_ITEM_CLASS = EmptyVisualSpacerLowering::EMPTY_FLEX_ITEM_CLASS;
 
-    private const EMPTY_FLEX_ITEM_COLUMN_CLASS = 'blocks-engine-empty-flex-column-item';
+    private const EMPTY_FLEX_ITEM_COLUMN_CLASS = EmptyVisualSpacerLowering::EMPTY_FLEX_ITEM_COLUMN_CLASS;
 
-    private const LAYOUT_TABLE_COLUMNS_CLASS = 'blocks-engine-layout-table-columns';
+    private const LAYOUT_TABLE_COLUMNS_CLASS = LayoutTableLowering::LAYOUT_TABLE_COLUMNS_CLASS;
 
     private const SLIDESHOW_GALLERY_CLASS = 'blocks-engine-slideshow-gallery';
 
     private const PROPAGATED_LINK_COLOR_CARRIER_CLASS = SourceBlockAttributeProjector::PROPAGATED_LINK_COLOR_CLASS;
 
-    private const CSS_OWNED_LAYOUT_CLASS = 'blocks-engine-css-owned-layout';
+    private const CSS_OWNED_LAYOUT_CLASS = AuthorLayoutOwnership::CSS_OWNED_LAYOUT_CLASS;
 
-    private const CSS_OWNED_FLOW_CLASS = 'blocks-engine-css-owned-flow';
+    private const CSS_OWNED_FLOW_CLASS = AuthorLayoutOwnership::CSS_OWNED_FLOW_CLASS;
 
-    private const CSS_OWNED_GRID_CLASS = 'blocks-engine-css-owned-grid';
+    private const CSS_OWNED_GRID_CLASS = AuthorLayoutOwnership::CSS_OWNED_GRID_CLASS;
 
 
     /**
@@ -227,8 +228,16 @@ final class EngineSupportCss
             // own box decides the size and the image never overflows it. core's
             // scale attribute only reaches the image when width and height are
             // saved, so the sized cases carry that contract here instead.
-            $parts[] = ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_CLASS . ') img{max-width:100%}'
+            // Author img selectors can newly match the synthetic leaf. Keep
+            // its stacking inside the background figure so it cannot rise
+            // above content that painted over the original background.
+            $parts[] = ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_CLASS . '){isolation:isolate!important}'
+                . "\n" . ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_CLASS . ') img{max-width:100%}'
                 . "\n" . ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'cover,.' . ImageLowering::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'contain){width:100%;height:100%}'
+                // A propagated link has no source box. Size Core's auto-height
+                // inline-block link to the figure (or the source host when the
+                // figure is display:contents) so the image percentages resolve.
+                . "\n" . ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'cover,.' . ImageLowering::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'contain)>a{display:block;width:100%;height:100%}'
                 . "\n" . ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'cover) img{width:100%;height:100%;object-fit:cover}'
                 . "\n" . ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'contain) img{width:100%;height:100%;object-fit:contain}';
         }
@@ -495,6 +504,13 @@ final class EngineSupportCss
     public function generatedMarkupRepairCss(string $serializedBlocks): array
     {
         $parts = array();
+        if (str_contains($serializedBlocks, \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPatternContext::CLIPPED_SUBMENU_CLASS)) {
+            // Closed in core's own terms: not hovered, not holding focus, not
+            // toggled open, not inside the open overlay. Open, the author's box returns.
+            $item = '.wp-block-navigation .wp-block-navigation-item.' . \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPatternContext::CLIPPED_SUBMENU_CLASS . ':not(:hover,:focus-within,.is-menu-open *)';
+            $parts[] = $item . '>.wp-block-navigation__submenu-container:not(.wp-block-navigation-submenu__toggle[aria-expanded="true"]~*)'
+                . '{padding-top:0!important;padding-bottom:0!important;border-top-width:0!important;border-bottom-width:0!important}';
+        }
         if (str_contains($serializedBlocks, 'blocks-engine-social-source-non-list')) {
             // Lowering a div/span to ul must not introduce UA list margins.
             // Zero specificity leaves every authored margin (including type
@@ -562,12 +578,6 @@ final class EngineSupportCss
         );
     }
 
-    /**
-     * Repairs to core/social-links' own rendering, independent of anything
-     * captured from the source — tagged {@see CascadeLayer::BLOCK_RENDER_REPAIR}.
-     *
-     * @return list<CascadeRule>
-     */
     /**
      * Mirrors the capture device visibility sheet for native blocks carrying
      * the class form of its markers. Without a selection the capture shows its

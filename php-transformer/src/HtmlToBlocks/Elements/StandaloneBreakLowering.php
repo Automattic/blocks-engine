@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssFontShorthand;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use DOMElement;
 
@@ -44,7 +47,9 @@ final class StandaloneBreakLowering
             }
             $bounds[] = $node;
         }
+        if ( null === $bounds[0] && null === $bounds[1] ) return null;
         foreach ( $bounds as $bound ) {
+            if ( null === $bound ) continue;
             if ( ! $bound instanceof DOMElement ) return null;
             $boundDisplay = strtolower($this->styleResolver->resolvedPresentationDeclarations($bound)['display'] ?? '');
             if ( '' === $boundDisplay ) {
@@ -54,8 +59,8 @@ final class StandaloneBreakLowering
         if ( $first !== $break ) return array();
         ++$count;
 
-        $leading = $this->styleResolver->authoredInheritedPropertyWinner($parent, 'line-height');
-        $font = $this->styleResolver->authoredInheritedPropertyWinner($parent, 'font-size');
+        $leading = $this->inheritedTypography($parent, 'line-height');
+        $font = $this->inheritedTypography($parent, 'font-size');
         $root = $this->styleResolver->documentRootFontSize($parent) ?? 16.0;
         $fontPx = '' === $font ? 16.0 : CssLength::toPx($font, $root);
         $height = CssLength::toPx($leading, $root, $fontPx);
@@ -65,7 +70,65 @@ final class StandaloneBreakLowering
             return array($this->blocks->createBlock('core/spacer', array('height' => CssLength::format($height * $count))));
         }
         $blocks = array();
-        for ( $i = 0; $i < $count; ++$i ) $blocks[] = $this->blocks->createBlock('core/paragraph', array('content' => ''));
+        for ( $i = 0; $i < $count; ++$i ) $blocks[] = $this->blocks->createBlock('core/paragraph', array('content' => '<br>'));
         return $blocks;
+    }
+
+    /**
+     * Inherited typography from the static cascade, or else from the cascade
+     * active at the reference viewport (stylesheets linked or imported under
+     * media conditions are absent from the static view).
+     */
+    private function inheritedTypography(DOMElement $element, string $property): string
+    {
+        $value = $this->styleResolver->authoredInheritedPropertyWinner($element, $property);
+        if ( '' !== $value ) return $value;
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $declarations = $this->styleResolver->referenceViewportAuthorDeclarations($node, array($property, 'font'));
+            $value = CssValueInspector::withoutImportant($declarations[$property] ?? '');
+            if ( '' === trim($value) && isset($declarations['font']) ) {
+                $value = CssFontShorthand::expand($this->styleResolver->resolveCssVariablesInValue(CssValueInspector::withoutImportant($declarations['font']), $node))[$property] ?? '';
+            }
+            $value = trim($this->styleResolver->resolveCssVariablesInValue(trim($value), $node));
+            $keyword = strtolower($value);
+            if ( in_array($keyword, array('', 'inherit', 'unset'), true) ) continue;
+            return in_array($keyword, array('initial', 'revert', 'revert-layer'), true) ? '' : $value;
+        }
+        return '';
+    }
+
+    /**
+     * The index of the last block when it is a synthetic paragraph standing
+     * for inline source content: it renders inline, so a `<br>` after the
+     * source run it stands for has to end the line inside it.
+     *
+     * @param array<int, array<string, mixed>> $blocks
+     */
+    public static function inlineParagraphIndex(array $blocks): ?int
+    {
+        $index = array_key_last($blocks);
+        $block = null === $index ? null : $blocks[$index];
+        if ( ! is_array($block) || 'core/paragraph' !== ($block['blockName'] ?? null) || ! str_ends_with((string) ($block['innerHTML'] ?? ''), '</p>') || array() !== ($block['innerBlocks'] ?? array()) ) {
+            return null;
+        }
+        $classes = preg_split('/\s+/', (string) ($block['attrs']['className'] ?? '')) ?: array();
+        return in_array(SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS, $classes, true) && ! in_array(SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS, $classes, true)
+            ? $index
+            : null;
+    }
+
+    /**
+     * @param array<string, mixed> $paragraph
+     * @return array<string, mixed>
+     */
+    public static function endLine(array $paragraph): array
+    {
+        $html = substr((string) $paragraph['innerHTML'], 0, -4) . '<br></p>';
+        $paragraph['innerHTML'] = $html;
+        $paragraph['innerContent'] = array( $html );
+        if ( isset($paragraph['attrs']['content']) ) {
+            $paragraph['attrs']['content'] .= '<br>';
+        }
+        return $paragraph;
     }
 }

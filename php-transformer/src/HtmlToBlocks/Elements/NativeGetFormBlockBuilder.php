@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
@@ -24,9 +25,8 @@ final class NativeGetFormBlockBuilder
 
     /**
      * @param Closure(DOMElement): array<string, mixed> $presentationAttributes
-     * @param Closure(): list<string> $documentHosts Hosts the source document declares as its own.
      */
-    public function __construct(private readonly PatternTreeConverter $tree, private readonly Closure $presentationAttributes, private readonly SourceBlockCreator $createBlock, private readonly HtmlTransformerSession $session, private readonly ?Closure $documentHosts = null)
+    public function __construct(private readonly PatternTreeConverter $tree, private readonly Closure $presentationAttributes, private readonly SourceBlockCreator $createBlock, private readonly HtmlTransformerSession $session)
     {
     }
 
@@ -145,7 +145,7 @@ final class NativeGetFormBlockBuilder
             return false;
         }
         $host = self::absoluteHttpHost(SourceDom::attr($form, 'action'));
-        if ( null === $host || in_array($host, null !== $this->documentHosts ? ($this->documentHosts)() : array(), true) ) {
+        if ( null === $host || in_array($host, $this->session->declaredDocumentHosts(), true) ) {
             return false;
         }
 
@@ -207,10 +207,7 @@ final class NativeGetFormBlockBuilder
             return array();
         }
         $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><head>' . $matches[1] . '</head>');
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
+        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><head>' . $matches[1] . '</head>');
         if ( ! $loaded ) {
             return array();
         }

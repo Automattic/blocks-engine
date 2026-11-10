@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use DOMElement;
 
@@ -16,7 +17,7 @@ final class CapturedListboxConverter implements ElementConverter
     /** @param array<int, array<string, mixed>> $fallbacks */
     public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
-        if ('listbox' === strtolower(trim($element->getAttribute('role')))
+        if ('listbox' === SourceDom::role($element)
             && '' !== trim($element->getAttribute(CaptureEvidence::LISTBOX_PANEL))) {
             return ConversionOutcome::handled(null);
         }

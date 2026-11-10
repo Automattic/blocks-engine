@@ -55,7 +55,7 @@ final class EmptyInteractiveFeatureShell
     private function hasAuthorInlineAlignment(DOMElement $element): bool
     {
         $declarations = $this->wrapperCoalescer->matchingAuthorDeclarations($element);
-        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+        $display = CssValueInspector::declared($declarations, 'display');
         $verticalAlign = strtolower(trim((string) ($declarations['vertical-align'] ?? '')));
         return in_array($display, array( 'inline', 'inline-block', 'inline-flex', 'inline-grid', 'inline-table' ), true)
             && ! in_array($verticalAlign, array( '', 'baseline', 'inherit', 'initial', 'revert', 'revert-layer', 'unset' ), true);

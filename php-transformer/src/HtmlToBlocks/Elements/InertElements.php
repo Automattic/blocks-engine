@@ -26,8 +26,11 @@ final class InertElements implements ElementConverter
     ) {
     }
 
-    /** Omits an inert runtime media placeholder: it renders nothing until a script fills it. */
-    /** @param array<int, array<string, mixed>> $fallbacks */
+    /**
+     * Omits an inert runtime media placeholder: it renders nothing until a script fills it.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     */
     public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
         return $this->isInertRuntimeMediaPlaceholder($element) ? ConversionOutcome::handled(null) : ConversionOutcome::unhandled();
@@ -42,7 +45,7 @@ final class InertElements implements ElementConverter
             return false;
         }
 
-        foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'))) as $candidate ) {
+        foreach ( SourceDom::subtreeElements($element) as $candidate ) {
             if ( ! $candidate instanceof DOMElement
                 || ! $this->runtimeIslands->isSafeTransparentCustomElement($candidate)
                 || '' !== trim(SourceDom::attr($candidate, 'role'))
@@ -104,7 +107,7 @@ final class InertElements implements ElementConverter
         }
 
         foreach ( $store->ownerDocument->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement || $this->sourceElementClassifier->isDescendantOf($candidate, $store) ) {
+            if ( ! $candidate instanceof DOMElement || SourceDom::elementContains($store, $candidate) ) {
                 continue;
             }
             foreach ( $candidate->attributes as $attribute ) {

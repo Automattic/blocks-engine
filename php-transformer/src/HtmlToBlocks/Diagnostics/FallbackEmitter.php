@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\ClassificationContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SubtreeClassifier;
@@ -23,8 +24,8 @@ use Automattic\BlocksEngine\PhpTransformer\Support\RenderEquivalentMarkup;
 use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 
 /**
- * Constructs the per-element fallback / behavior-loss emission entries that
- * previously lived inline in HtmlTransformer: the `capture*Fallback` family
+ * Constructs the per-element fallback / behavior-loss emission entries: the
+ * `capture*Fallback` family
  * (`html_inline_svg_fallback` / `html_unsafe_inline_svg`,
  * `html_canvas_runtime_fallback`, `html_script_fallback`,
  * `html_template_runtime_fallback` / `html_template_metadata`,
@@ -32,21 +33,13 @@ use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
  * (`preserved_runtime_island`) and the runtime-script requirement metadata
  * that backs those findings.
  *
- * This is a behavior-preserving extraction (slice 4 of #242): the bodies are
- * moved verbatim, so the emitted `FallbackDiagnostic`/runtime-island arrays are
- * byte-identical to the inline implementation.
- *
- * Decoupling notes:
- *  - Fallback and script accumulators stay owned by HtmlTransformer. Runtime
+ * Collaborators:
+ *  - Fallback and script accumulators are owned by the caller. Runtime
  *    island evidence is recorded through the per-transform RuntimeDomState.
  *  - Per-document configuration (`fallbackProvenance`, `runtimeScriptMetadata`,
  *    `RuntimeSelectorState`) is injected via {@see configure()} once per
  *    transform.
  *  - Source-context enrichment is supplied by SourceElementDescription.
- *  - Small shared leaves (`eventMetadata`, `isSafeSvgContent`, `dedupeArrayRows`,
- *    `runtimeIslandSelector`) are duplicated here (HtmlTransformer keeps its own
- *    copies for non-fallback callers) so this module needs no transformer
- *    reference, mirroring the slice-3 `safeNavigationUrl` duplication.
  *
  * Fallback HTML helpers come from {@see DomHelpersTrait}; stateless DOM
  * helpers are called on {@see SourceDom}.
@@ -163,7 +156,7 @@ final class FallbackEmitter
             }
         }
         $projected = $this->sourceTagProjectedClone($element);
-        $content = $this->sanitizeHtmlString(
+        $content = SourceDom::safeFallbackHtmlString(
             $projected instanceof DOMElement
                 ? ($preserveRoot ? SourceDom::outerHtml($projected) : SourceDom::innerHtml($projected))
                 : ($preserveRoot ? SourceDom::outerHtml($element) : SourceDom::innerHtml($element))
@@ -413,16 +406,6 @@ final class FallbackEmitter
         }
 
         return 'block';
-    }
-
-    /**
-     * Sanitize a raw HTML string for safe server-render storage, mirroring the
-     * stripping {@see DomHelpersTrait::safeFallbackHtml()} applies to elements
-     * (drop script/style bodies, inline event handlers, and javascript: URLs).
-     */
-    private function sanitizeHtmlString(string $html): string
-    {
-        return SourceDom::safeFallbackHtmlString($html);
     }
 
     /**
@@ -718,7 +701,7 @@ final class FallbackEmitter
             return true;
         }
 
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $class ) {
+        foreach ( SourceDom::tokens(SourceDom::attr($element, 'class')) as $class ) {
             if ( '' !== $class && $this->runtimeSelectors()->hasCanvas('.' . $class) ) {
                 return true;
             }
@@ -782,7 +765,7 @@ final class FallbackEmitter
     private function subtreeInlineCss(DOMElement $element): string
     {
         $parts = array();
-        foreach ( $this->subtreeElements($element) as $node ) {
+        foreach ( SourceDom::subtreeElements($element) as $node ) {
             $style = trim(SourceDom::attr($node, 'style'));
             if ( '' !== $style ) {
                 $parts[] = $style;
@@ -799,7 +782,7 @@ final class FallbackEmitter
     private function subtreeJsText(DOMElement $element): string
     {
         $parts = array();
-        foreach ( $this->subtreeElements($element) as $node ) {
+        foreach ( SourceDom::subtreeElements($element) as $node ) {
             if ( 'script' === strtolower($node->tagName) && '' === trim(SourceDom::attr($node, 'src')) ) {
                 $body = trim($node->textContent ?? '');
                 if ( '' !== $body ) {
@@ -818,21 +801,6 @@ final class FallbackEmitter
         }
 
         return implode("\n", $parts);
-    }
-
-    /**
-     * @return array<int, DOMElement>
-     */
-    private function subtreeElements(DOMElement $element): array
-    {
-        $out = array( $element );
-        foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement ) {
-                $out[] = $descendant;
-            }
-        }
-
-        return $out;
     }
 
     /**
@@ -861,12 +829,18 @@ final class FallbackEmitter
         return array_filter(array(
             'flags'  => $flags,
             'counts' => $counts,
-            'scores' => is_array($signals['scores'] ?? null) ? $signals['scores'] : array(),
+            'scores' => ArrayField::array($signals, 'scores'),
         ), static fn (mixed $value): bool => array() !== $value);
     }
 
     private function templateRequiresRuntimePreservation(DOMElement $element): bool
     {
+        // Template content renders only when a script clones it. With no
+        // runtime script on the page, the template is inert metadata.
+        if ( array() === $this->requiredScriptsForElement($element) ) {
+            return false;
+        }
+
         foreach ( array_keys(SourceDom::htmlAttributes($element)) as $name ) {
             $normalizedName = strtolower($name);
             if ( 'id' === $normalizedName || preg_match('/^(?:x-|v-|ng-|:|@)/', $normalizedName) ) {
@@ -911,7 +885,7 @@ final class FallbackEmitter
                 continue;
             }
             if ( in_array(strtolower($child->tagName), array( 'select', 'option', 'optgroup', 'input', 'textarea', 'button', 'datalist', 'svg', 'script', 'style' ), true)
-                || 'true' === strtolower(trim($child->getAttribute('aria-hidden'))) ) {
+                || SourceDom::isAriaHidden($child) ) {
                 continue;
             }
             if ( $this->templateHasReadableContent($child) ) {

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\NavigationBlockNormalizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
@@ -76,7 +77,7 @@ final class GlobalShellArtifacts
                 $wrapper = 1 === count($converted) && 'core/group' === ($converted[0]['blockName'] ?? null)
                     ? $converted[0]
                     : $this->blocks->createBlock('core/group', array(), $converted, $child);
-                $wrapperAttrs = is_array($wrapper['attrs'] ?? null) ? $wrapper['attrs'] : array();
+                $wrapperAttrs = ArrayField::array($wrapper, 'attrs');
                 $wrapperAttrs['tagName'] = $area;
                 $markup = $this->runtime->serializeBlocks(array($this->blocks->createBlock('core/group', $wrapperAttrs, $wrapper['innerBlocks'] ?? array(), $child)));
             }

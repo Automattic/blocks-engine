@@ -104,7 +104,7 @@ final class InlineSvgTextGroupLowering
         if ( in_array($tagName, array( 'b', 'strong' ), true) ) {
             $content = '<' . $tagName . '>' . $content . '</' . $tagName . '>';
         }
-        if ( '' === trim($this->runtime->stripAllTags($content)) || $this->richTextMaterializer->requiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
+        if ( ! $this->runtime->hasVisibleText($content) || $this->richTextMaterializer->requiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
             $this->session->assetMaterializationState()->restore($generatedAssets);
             return null;
         }

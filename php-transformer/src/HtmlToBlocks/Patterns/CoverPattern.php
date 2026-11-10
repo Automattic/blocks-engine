@@ -173,7 +173,7 @@ final class CoverPattern implements PatternRecognizerInterface
         }
         $this->removeConsumedDimensions($attrs);
         $declarations = $this->styleResolver->declarations($style);
-        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+        $display = CssValueInspector::declared($declarations, 'display');
         if ( in_array($display, array( 'flex', 'grid' ), true) ) {
             $column = 'grid' === $display || 'column' === ($declarations['flex-direction'] ?? 'row');
             $align = (string) ($declarations['align-items'] ?? 'stretch');
@@ -342,7 +342,7 @@ final class CoverPattern implements PatternRecognizerInterface
     private function columnsRejectionGate(DOMElement $element, string $style): ?string
     {
         $declarations = $this->styleResolver->declarations($style);
-        $display      = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+        $display      = CssValueInspector::declared($declarations, 'display');
         if ( in_array($display, array( 'grid', 'flex' ), true) ) {
             foreach ( array( 'align-items', 'justify-content' ) as $property ) {
                 if ( ! in_array((string) ($declarations[$property] ?? 'normal'), array( 'normal', 'stretch', 'start', 'end', 'flex-start', 'flex-end', 'center' ), true) ) {
@@ -362,7 +362,7 @@ final class CoverPattern implements PatternRecognizerInterface
         if ( ! in_array($direction, array( 'row', 'column' ), true) ) {
             return 'columns_layout';
         }
-        if ( 'row' === $direction && SourceDom::directElementChildCount($element) >= 2 && ! isset($declarations['justify-content']) ) {
+        if ( 'row' === $direction && SourceDom::childElementCount($element) >= 2 && ! isset($declarations['justify-content']) ) {
             return 'columns_layout';
         }
         return null;
@@ -411,7 +411,7 @@ final class CoverPattern implements PatternRecognizerInterface
             } catch ( Throwable ) {
                 continue;
             }
-            $zIndex = trim(CssValueInspector::comparable((string) ($declarations['z-index'] ?? '')));
+            $zIndex = trim(CssValueInspector::declared($declarations, 'z-index'));
             if ( ! preg_match('/^\+?\d+$/', $zIndex) ) {
                 continue;
             }

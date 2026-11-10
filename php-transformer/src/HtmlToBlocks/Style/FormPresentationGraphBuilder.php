@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssAnalysisLimits;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
@@ -237,7 +238,7 @@ final class FormPresentationGraphBuilder
         if (array_diff(array_keys($presentation), array('schema', 'styles', 'provenance', 'variants', 'truncated', 'diagnostics')) || !array_is_list($presentation['variants'] ?? null)) throw new InvalidArgumentException('Form element presentation envelope has unknown keys.');
         foreach ($presentation['variants'] as $variant) {
             if (!is_array($variant) || array_diff(array_keys($variant), array('condition', 'styles', 'precedence', 'provenance'))) throw new InvalidArgumentException('Form element presentation variant has unknown keys.');
-            foreach (is_array($variant['precedence'] ?? null) ? $variant['precedence'] : array() as $rank) if (!is_array($rank) || array_diff(array_keys($rank), array('source_order', 'specificity', 'important'))) throw new InvalidArgumentException('Form element presentation precedence has unknown keys.');
+            foreach (ArrayField::array($variant, 'precedence') as $rank) if (!is_array($rank) || array_diff(array_keys($rank), array('source_order', 'specificity', 'important'))) throw new InvalidArgumentException('Form element presentation precedence has unknown keys.');
         }
         if ('generic/form-element-presentation/v1' !== ($presentation['schema'] ?? null) || !is_array($presentation['styles'] ?? null) || !is_array($presentation['provenance'] ?? null) || !is_array($presentation['variants'] ?? null) || count($presentation['variants']) > self::MAX_RULES_PER_ROLE || !is_bool($presentation['truncated'] ?? null) || !is_array($presentation['diagnostics'] ?? null) || count($presentation['diagnostics']) > self::MAX_DIAGNOSTICS) throw new InvalidArgumentException('Form element presentation envelope is invalid.');
         if (!array_is_list($presentation['diagnostics']) || array_filter($presentation['diagnostics'], static fn (mixed $diagnostic): bool => !is_string($diagnostic) || '' === trim($diagnostic) || str_starts_with($diagnostic, 'unsupported_selector:'))) throw new InvalidArgumentException('Form element diagnostics must describe the element, not the stylesheet.');
@@ -624,24 +625,7 @@ final class FormPresentationGraphBuilder
                     // provider label that renders the text directly keeps it.
                     $carried = $this->carrierTypography($buttonCaption ? array() : $roles, $element, $analysis['rules'], $customPropertyAnalysis['rules'], $conditional, $buttonCaption && ! $this->hasPadding($styles));
                     if ( array() !== $carried ) {
-                        $overridden = array_map(static fn (string $key): string => str_replace('_', '-', $key), array_keys(array_intersect_key($styles, $carried['styles'])));
-                        foreach ( $provenance as $factIndex => $fact ) {
-                            $fact['properties'] = array_values(array_diff($fact['properties'], $overridden));
-                            if ( array() === $fact['properties'] ) {
-                                unset($provenance[$factIndex]);
-                            } else {
-                                $provenance[$factIndex] = $fact;
-                            }
-                        }
-                        $provenance = array_values($provenance);
-                        $styles = array_merge($styles, $carried['styles']);
-                        ksort($styles);
-                        $provenance = array_merge($provenance, $carried['provenance']);
-                        if ( count($provenance) > self::MAX_PROVENANCE ) {
-                            $provenance = array_slice($provenance, 0, self::MAX_PROVENANCE);
-                            $this->truncated = true;
-                            $this->diagnostics[] = 'provenance_limit';
-                        }
+                        [$styles, $provenance] = $this->withCarriedTypography($styles, $provenance, $carried);
                     }
                     foreach ( $carried['conditional'] ?? array() as $encoded => $patch ) {
                         $conditional[$encoded] ??= array();
@@ -870,21 +854,6 @@ final class FormPresentationGraphBuilder
     }
 
     /**
-     * A checkbox/radio label's visible text often lives in a dedicated carrier
-     * — `<label><div><p>Yes</p></div>…` — while the `<label>` itself declares
-     * no typography. The text inherits each typography property from the
-     * nearest element between it and the label that declares it — often an
-     * intermediate carrier (`<p>`) above the spans that hold the text — so each
-     * property is resolved where it is declared, walking from the deepest
-     * carrier up to (not including) the label. Base and condition-scoped facts
-     * are resolved at the same declaring element.
-     *
-     * @param array<string, mixed> $roles
-     * @param list<array<string, mixed>> $rules
-     * @param list<array<string, mixed>> $customPropertyRules
-     * @return array<string, mixed>
-     */
-    /**
      * The paint a button's sole caption carrier draws behind the caption, when
      * it paints one. The control keeps its own paint; this layer sits inside the
      * control's padding box, as the carrier does in the source. Conditions that
@@ -920,6 +889,30 @@ final class FormPresentationGraphBuilder
             }
         }
         return array( 'styles' => $styles, 'provenance' => $this->provenance($facts, null), 'variants' => $variants );
+    }
+
+    /** Carrier typography wins per property: overridden provenance is pruned, then its styles and provenance merge in. */
+    private function withCarriedTypography(array $styles, array $provenance, array $carried): array
+    {
+        $overridden = array_map(static fn (string $key): string => str_replace('_', '-', $key), array_keys(array_intersect_key($styles, $carried['styles'])));
+        foreach ( $provenance as $factIndex => $fact ) {
+            $fact['properties'] = array_values(array_diff($fact['properties'], $overridden));
+            if ( array() === $fact['properties'] ) {
+                unset($provenance[$factIndex]);
+            } else {
+                $provenance[$factIndex] = $fact;
+            }
+        }
+        $provenance = array_values($provenance);
+        $styles = array_merge($styles, $carried['styles']);
+        ksort($styles);
+        $provenance = array_merge($provenance, $carried['provenance']);
+        if ( count($provenance) > self::MAX_PROVENANCE ) {
+            $provenance = array_slice($provenance, 0, self::MAX_PROVENANCE);
+            $this->truncated = true;
+            $this->diagnostics[] = 'provenance_limit';
+        }
+        return array($styles, $provenance);
     }
 
     private function carrierTypography(array $roles, DOMElement $label, array $rules, array $customPropertyRules, array $labelConditional = array(), bool $captionBox = false): array
@@ -1255,7 +1248,7 @@ final class FormPresentationGraphBuilder
         $claimed = array();
         foreach ( $form->getElementsByTagName('*') as $element ) {
             if ( ! $element instanceof DOMElement ) continue;
-            if ( ! in_array(strtolower(trim($element->getAttribute('role'))), self::GROUP_ROLES, true) ) continue;
+            if ( ! in_array(SourceDom::role($element), self::GROUP_ROLES, true) ) continue;
             if ( FormControlClassifier::isControlElement($element) || $this->inertAncestor($element, $form) ) continue;
             $caption = $this->captionElement($element, $form);
             if ( null === $caption || isset($claimed[$caption->getNodePath()]) ) continue;
@@ -1290,24 +1283,7 @@ final class FormPresentationGraphBuilder
         $provenance = $this->provenance($base, null);
         $carried = $this->carrierTypography(array(), $caption, $rules, $customPropertyRules);
         if ( array() !== $carried ) {
-            $overridden = array_map(static fn (string $key): string => str_replace('_', '-', $key), array_keys(array_intersect_key($styles, $carried['styles'])));
-            foreach ( $provenance as $factIndex => $fact ) {
-                $fact['properties'] = array_values(array_diff($fact['properties'], $overridden));
-                if ( array() === $fact['properties'] ) {
-                    unset($provenance[$factIndex]);
-                } else {
-                    $provenance[$factIndex] = $fact;
-                }
-            }
-            $provenance = array_values($provenance);
-            $styles = array_merge($styles, $carried['styles']);
-            ksort($styles);
-            $provenance = array_merge($provenance, $carried['provenance']);
-            if ( count($provenance) > self::MAX_PROVENANCE ) {
-                $provenance = array_slice($provenance, 0, self::MAX_PROVENANCE);
-                $this->truncated = true;
-                $this->diagnostics[] = 'provenance_limit';
-            }
+            [$styles, $provenance] = $this->withCarriedTypography($styles, $provenance, $carried);
         }
         if ( array() === $styles ) return null;
 
@@ -1328,7 +1304,7 @@ final class FormPresentationGraphBuilder
     private function captionElement(DOMElement $group, DOMElement $form): ?DOMElement
     {
         $document = $group->ownerDocument;
-        foreach ( preg_split('/\s+/', trim($group->getAttribute('aria-labelledby'))) ?: array() as $id ) {
+        foreach ( SourceDom::tokens($group->getAttribute('aria-labelledby')) as $id ) {
             $target = '' !== $id && $document instanceof DOMDocument ? $document->getElementById($id) : null;
             if ( ! $target instanceof DOMElement || $target->isSameNode($group) ) continue;
             if ( FormControlClassifier::isControlElement($target) || array() !== FormControlClassifier::controlElements($target) ) continue;

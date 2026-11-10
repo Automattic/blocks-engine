@@ -18,7 +18,7 @@ $assert = static function (bool $ok, string $message, string $detail = '') use (
 };
 
 $ld = static fn (array $data, string $type = 'application/ld+json'): string => '<script type="' . $type . '">' . json_encode($data, JSON_UNESCAPED_SLASHES) . '</script>';
-$page = static fn (string $head, string $body = ''): string => '<!doctype html><html><head><title>Shop</title>' . $head . '</head><body><main><h1>Shop</h1>' . $body . '</main></body></html>';
+$page = static fn (string $head, string $body = ''): string => '<!doctype html><html><head><title>Shop</title>' . $head . '</head><body><a href="/cart/">Cart</a><main><h1>Shop</h1>' . $body . '</main></body></html>';
 $product = static fn (string $name, string $path, string $price, string $image): array => array('@type' => 'Product', 'name' => $name, 'url' => 'https://shop.example' . $path, 'image' => $image, 'offers' => array('@type' => 'Offer', 'price' => $price, 'priceCurrency' => 'EUR'));
 
 $files = array(

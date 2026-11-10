@@ -3,13 +3,14 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 
 /**
- * Staged prepare/compilePage/compose transport extracted from ArtifactCompiler.
+ * Staged prepare/compilePage/compose transport for ArtifactCompiler.
  *
  * ArtifactCompiler remains the public facade and owns canonical compile()
  * plus envelope finalize. Site-plan production is derived by
@@ -57,20 +58,7 @@ trait StagedTransport
             'limits' => $normalized['limits'],
             'diagnostics' => $normalized['diagnostics'],
             'summary' => array('file_count' => count($normalized['files']), 'bytes' => $normalized['bytes'], 'rejected_count' => $normalized['rejected_count']),
-            'analysis' => array_merge($this->sharedAnalysis($normalized, array_keys($partition['pages'])), array(
-                'entry_path' => $entryPath,
-                'generated_asset_root' => '.' === dirname($entryPath) ? '' : trim(dirname($entryPath), '/'),
-                'block_namespace' => (new CompanionPluginPayload())->blockNamespace($artifact),
-                'source_paths' => $partition['source_paths'],
-                // Preserve whole-artifact semantics before synthetic stylesheet
-                // occurrence records are introduced by page workers.
-                'canonical_source_hash' => $partition['canonical_source_hash'],
-                'canonical_bytes' => $partition['canonical_bytes'],
-                'canonical_diagnostics' => $partition['canonical_diagnostics'],
-                'canonical_rejected_count' => $partition['canonical_rejected_count'],
-                'captured_dialogs' => $partition['captured_dialogs'],
-                'source_css_bytes' => $partition['source_css_bytes'],
-            )),
+            'analysis' => $this->sharedPlanAnalysis($normalized, $partition, $entryPath, $artifact),
             'compiler_options' => $this->receiptCompilerOptions(),
         );
         $plan['shared_reduction'] = array(
@@ -269,7 +257,7 @@ trait StagedTransport
         $sharedArtifact = array_merge($sharedPlan['artifact'], array('files' => $this->sharedReductionFiles($sharedPlan, $payloadReader)));
         $this->retainSharedCssRuleTrees($sharedArtifact['files']);
         $pageArtifact = $this->materializePlanArtifact($pagePlan['artifact'], $payloadReader);
-        $pageLayoutGeometryProof = is_array($pagePlan['layout_geometry_proof'] ?? null) ? $pagePlan['layout_geometry_proof'] : array();
+        $pageLayoutGeometryProof = ArrayField::array($pagePlan, 'layout_geometry_proof');
         foreach ($pageArtifact['files'] as &$pageFile) {
             if ('html' === ($pageFile['kind'] ?? null)) $pageFile['layout_geometry_proof'] = $pageLayoutGeometryProof;
         }
@@ -605,7 +593,7 @@ trait StagedTransport
         $files = self::sortedBySourcePaths($files, $sourcePaths);
         $documents['documents'] = self::sortedBySourcePaths($documents['documents'], $sourcePaths, 'source_path');
         $documents['diagnostics'] = $this->dedupeDiagnostics(array_merge(...array_map(
-            static fn(array $document): array => is_array($document['diagnostics'] ?? null) ? $document['diagnostics'] : array(),
+            static fn(array $document): array => ArrayField::array($document, 'diagnostics'),
             $documents['documents']
         )));
         $compiledDocuments = self::orderedMapBySourcePaths($compiledDocuments, $sourcePaths);
@@ -629,7 +617,7 @@ trait StagedTransport
             'bytes' => $sharedPlan['analysis']['canonical_bytes'] ?? $bytes,
             'diagnostics' => $this->dedupeDiagnostics($diagnostics),
             'rejected_count' => $rejected,
-            'source_hash' => $sharedPlan['analysis']['canonical_source_hash'] ?? $this->normalizedSourceHash($files, $sharedArtifact['runtime_declarations']),
+            'source_hash' => $sharedPlan['analysis']['canonical_source_hash'] ?? ArtifactNormalizer::sourceHash($files, $sharedArtifact['runtime_declarations']),
         ));
         $artifact = $sharedArtifact;
         $artifact['files'] = $files;
@@ -722,7 +710,7 @@ trait StagedTransport
             'limits' => $normalized['limits'],
             'runtime_declarations' => $normalized['runtime_declarations'],
             'layout_geometry_proof' => $normalized['layout_geometry_proof'],
-            'schema' => is_string($artifact['schema'] ?? null) ? $artifact['schema'] : '',
+            'schema' => ArrayField::string($artifact, 'schema'),
             // Every stage re-normalizes its own envelope, so the report
             // declaration has to travel with it or a partition would budget a
             // declared report as page source.
@@ -766,7 +754,7 @@ trait StagedTransport
         if ('' !== $partition['schema']) {
             $artifact['schema'] = $partition['schema'];
         }
-        foreach (is_array($partition['identity'] ?? null) ? $partition['identity'] : array() as $key => $value) $artifact[$key] = $value;
+        foreach (ArrayField::array($partition, 'identity') as $key => $value) $artifact[$key] = $value;
         return $artifact;
     }
 
@@ -778,7 +766,7 @@ trait StagedTransport
             array_filter($files, static fn(array $file): bool => 'html' === ($file['kind'] ?? null))
         ), true);
         $reductions = array_values(array_filter(
-            is_array($proof['reductions'] ?? null) ? $proof['reductions'] : array(),
+            ArrayField::array($proof, 'reductions'),
             static fn(array $reduction): bool => isset($paths[(string) ($reduction['source_path'] ?? '')])
         ));
         return array() === $reductions ? array() : array('schema' => LayoutGeometryProof::SCHEMA, 'reductions' => $reductions);
@@ -787,7 +775,7 @@ trait StagedTransport
     /** @param array<string,mixed> $artifact */
     private function containsPayloadReferences(array $artifact): bool
     {
-        foreach (is_array($artifact['files'] ?? null) ? $artifact['files'] : array() as $file) {
+        foreach (ArrayField::array($artifact, 'files') as $file) {
             if (is_array($file) && isset($file['payload_reference'])) return true;
         }
         return false;
@@ -805,7 +793,7 @@ trait StagedTransport
         $references = array();
         $hydratedArtifact = $artifact;
         $hydratedArtifact['files'] = array();
-        foreach (is_array($artifact['files'] ?? null) ? $artifact['files'] : array() as $key => $file) {
+        foreach (ArrayField::array($artifact, 'files') as $key => $file) {
             if (!is_array($file)) continue;
             $path = is_string($file['path'] ?? null) ? $file['path'] : (is_string($key) ? $key : '');
             $ownership = $file['metadata']['compilation'] ?? null;
@@ -831,7 +819,7 @@ trait StagedTransport
         // payloads stay closed. Digest verification remains readPayload's job.
         $includeRoot = HtmlFragmentIncludes::virtualRoot($hydratedArtifact['files'], array_values(array_filter(array_merge(
             array($artifact['entrypoint'] ?? $artifact['entry'] ?? $artifact['main'] ?? ''),
-            is_array($artifact['entrypoints'] ?? null) ? $artifact['entrypoints'] : array()
+            ArrayField::array($artifact, 'entrypoints')
         ), static fn($path): bool => is_string($path) && '' !== $path)));
         $byPath = array();
         foreach ($hydratedArtifact['files'] as $index => $file) $byPath[$file['path']] = $index;
@@ -879,18 +867,7 @@ trait StagedTransport
         if ('shared' === $scope) {
             $this->retainSharedCssRuleTrees($normalized['files']);
             $entryPath = (string) ($partition['entrypoints'][0] ?? '');
-            $plan['analysis'] = array_merge($this->sharedAnalysis($normalized, array_keys($partition['pages'])), array(
-                'entry_path' => $entryPath,
-                'generated_asset_root' => '.' === dirname($entryPath) ? '' : trim(dirname($entryPath), '/'),
-                'block_namespace' => (new CompanionPluginPayload())->blockNamespace($hydratedArtifact),
-                'source_paths' => $partition['source_paths'],
-                'canonical_source_hash' => $partition['canonical_source_hash'],
-                'canonical_bytes' => $partition['canonical_bytes'],
-                'canonical_diagnostics' => $partition['canonical_diagnostics'],
-                'canonical_rejected_count' => $partition['canonical_rejected_count'],
-                'captured_dialogs' => $partition['captured_dialogs'],
-                'source_css_bytes' => $partition['source_css_bytes'],
-            ));
+            $plan['analysis'] = $this->sharedPlanAnalysis($normalized, $partition, $entryPath, $hydratedArtifact);
             $plan['shared_reduction'] = array(
                 'files' => $planArtifact['files'],
                 'component_facts' => $this->collectComponentFacts($planArtifact['files']),
@@ -963,7 +940,7 @@ trait StagedTransport
     /** Reject unbounded reference declarations before a reader can allocate. */
     private function assertReferenceLimits(array $artifact): void
     {
-        $requested = is_array($artifact['compiler_limits'] ?? null) ? $artifact['compiler_limits'] : array();
+        $requested = ArrayField::array($artifact, 'compiler_limits');
         $maxFile = min(ArtifactNormalizer::MAX_FILE_BYTES, max(1, (int) ($requested['max_file_bytes'] ?? ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES)));
         $maxTotal = min(ArtifactNormalizer::MAX_TOTAL_BYTES, max(1, (int) ($requested['max_total_bytes'] ?? ArtifactNormalizer::DEFAULT_MAX_TOTAL_BYTES)));
         $maxMediaFile = min(ArtifactNormalizer::MAX_MEDIA_FILE_BYTES, max(1, (int) ($requested['max_media_file_bytes'] ?? ArtifactNormalizer::DEFAULT_MAX_MEDIA_FILE_BYTES)));
@@ -974,7 +951,7 @@ trait StagedTransport
         $total = 0;
         $mediaTotal = 0;
         $reportTotal = 0;
-        foreach (is_array($artifact['files'] ?? null) ? $artifact['files'] : array() as $file) {
+        foreach (ArrayField::array($artifact, 'files') as $file) {
             if (!is_array($file) || !isset($file['payload_reference'])) continue;
             $reference = $this->payloadReference($file['payload_reference']);
             // Reference-backed media is never opened by a reader, so its bytes
@@ -1171,6 +1148,25 @@ trait StagedTransport
     private function isTerminalReceiptSchema(mixed $schema): bool
     {
         return self::COMPACT_RECEIPT_SCHEMA === $schema;
+    }
+
+    /** Shared-plan analysis: the normalized shared analysis plus the partition's entry and canonical facts. */
+    private function sharedPlanAnalysis(array $normalized, array $partition, string $entryPath, array $artifact): array
+    {
+        return array_merge($this->sharedAnalysis($normalized, array_keys($partition['pages'])), array(
+            'entry_path' => $entryPath,
+            'generated_asset_root' => '.' === dirname($entryPath) ? '' : trim(dirname($entryPath), '/'),
+            'block_namespace' => (new CompanionPluginPayload())->blockNamespace($artifact),
+            'source_paths' => $partition['source_paths'],
+            // Preserve whole-artifact semantics before synthetic stylesheet
+            // occurrence records are introduced by page workers.
+            'canonical_source_hash' => $partition['canonical_source_hash'],
+            'canonical_bytes' => $partition['canonical_bytes'],
+            'canonical_diagnostics' => $partition['canonical_diagnostics'],
+            'canonical_rejected_count' => $partition['canonical_rejected_count'],
+            'captured_dialogs' => $partition['captured_dialogs'],
+            'source_css_bytes' => $partition['source_css_bytes'],
+        ));
     }
 
     /** @param array<string,mixed> $normalized @return array<string,mixed> */

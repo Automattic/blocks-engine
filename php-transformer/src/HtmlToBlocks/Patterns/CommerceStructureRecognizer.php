@@ -129,7 +129,8 @@ final class CommerceStructureRecognizer
      * so no cart-control token is present in the card's own markup. The image
      * is required for this third path so a bare pricing-tier/plan card (see
      * `isRecurringPriceCard()`) is never treated as a product merely for
-     * pairing a name with a price.
+     * pairing a name with a price. This image path requires currency-formatted
+     * text; a price class with a bare numeric amount is not enough evidence.
      *
      * @return array<string, mixed>|null
      */
@@ -204,7 +205,12 @@ final class CommerceStructureRecognizer
             return null;
         }
 
-        $isCatalogImageCard = null !== $image && ! $this->isRecurringPriceCard($card);
+        // A price class also admits bare numeric amounts (e.g. menu prices).
+        // Only currency-formatted text corroborates the weaker image path;
+        // declared amounts remain valid with schema.org or purchase controls.
+        $isCatalogImageCard = null !== $image
+            && $this->looksLikePriceText($prices['price'])
+            && ! $this->isRecurringPriceCard($card);
         if ( ! $isSchemaProduct && ! $hasCart && ! $isCatalogImageCard ) {
             return null;
         }
@@ -294,7 +300,38 @@ final class CommerceStructureRecognizer
         return implode(' ', $parts);
     }
 
-    public function cartControlElement(DOMElement $card): ?DOMElement
+    /** Purchase evidence for a store, including navigation to its cart or checkout. */
+    public function hasPurchaseAffordance(DOMElement $root): bool
+    {
+        if ( null !== $this->cartControlElement($root, true) || array() !== $this->checkoutRegions($root) ) {
+            return true;
+        }
+        foreach ( $root->getElementsByTagName('form') as $form ) {
+            if ( 'commerce_add_to_cart' === \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeRequirementAnalyzer::formIntent($form) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Whether any source document supplies purchase evidence (schema alone does not). */
+    public static function sourceHasPurchaseAffordance(array $files): bool
+    {
+        $recognizer = new self();
+        foreach ( $files as $file ) {
+            if ( ! is_array($file) || ! is_string($file['content'] ?? null) || ! preg_match('/\.html?$/i', (string) ($file['path'] ?? '')) ) {
+                continue;
+            }
+            $document = new \DOMDocument();
+            @$document->loadHTML('<?xml encoding="UTF-8">' . $file['content'], LIBXML_NOERROR | LIBXML_NOWARNING);
+            if ( $document->documentElement instanceof DOMElement && $recognizer->hasPurchaseAffordance($document->documentElement) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public function cartControlElement(DOMElement $card, bool $includeNavigation = false): ?DOMElement
     {
         $tokens = array( 'cart', 'buy', 'purchase', 'checkout', 'order', 'addtocart', 'add-to-cart' );
         foreach ( $card->getElementsByTagName('*') as $descendant ) {
@@ -309,7 +346,7 @@ final class CommerceStructureRecognizer
             if ( ! $isControl || ('input' === $tagName && 'hidden' === strtolower(SourceDom::attr($descendant, 'type'))) ) {
                 continue;
             }
-            if ( $this->isInCardNavigation($descendant, $card) ) {
+            if ( ! $includeNavigation && $this->isInCardNavigation($descendant, $card) ) {
                 continue;
             }
 
@@ -319,6 +356,7 @@ final class CommerceStructureRecognizer
                 SourceDom::attr($descendant, 'name'),
                 SourceDom::attr($descendant, 'aria-label'),
                 SourceDom::attr($descendant, 'value'),
+                $includeNavigation ? SourceDom::attr($descendant, 'href') : '',
                 implode(' ', SourceDom::safeDataAttributes($descendant)),
                 $this->collapsedText($descendant),
             )));
@@ -326,8 +364,13 @@ final class CommerceStructureRecognizer
             // A link that navigates to a cart or checkout page ("view cart") is
             // navigation unless it also names a purchase action.
             $navigates = 'a' === $tagName && 'button' !== $role && $this->navigatesAway(SourceDom::attr($descendant, 'href'));
+            if ( $includeNavigation && $this->isInCardNavigation($descendant, $card)
+                && ! $this->classifier->hasTokenBoundary($haystack, 'cart')
+                && ! $this->classifier->hasTokenBoundary($haystack, 'checkout') ) {
+                continue;
+            }
             foreach ( $tokens as $token ) {
-                if ( $navigates && in_array($token, array( 'cart', 'checkout', 'order' ), true) && ! preg_match('/\b(?:add|buy|purchase)\b/', $haystack) ) {
+                if ( ! $includeNavigation && $navigates && in_array($token, array( 'cart', 'checkout', 'order' ), true) && ! preg_match('/\b(?:add|buy|purchase)\b/', $haystack) ) {
                     continue;
                 }
                 if ( $this->classifier->hasTokenBoundary($haystack, $token) ) {
@@ -508,7 +551,7 @@ final class CommerceStructureRecognizer
         if ( '' === $this->collapsedText($element) ) {
             return false;
         }
-        foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'))) as $node ) {
+        foreach ( SourceDom::subtreeElements($element) as $node ) {
             if ( $this->isPriceElement($node)
                 || $this->classifier->hasCommerceToken($node, array( 'badge', 'badges', 'cart', 'buy', 'purchase', 'quickview', 'quick', 'controls' ))
                 || in_array(strtolower($node->tagName), array( 'button', 'input', 'select', 'textarea' ), true)
@@ -553,7 +596,7 @@ final class CommerceStructureRecognizer
         }
 
         $declared = array();
-        foreach ( array_merge(array( $card ), iterator_to_array($card->getElementsByTagName('*'))) as $node ) {
+        foreach ( SourceDom::subtreeElements($card) as $node ) {
             if ( $this->classifier->hasCommerceToken($node, array( 'price', 'amount', 'cost' )) || 'price' === strtolower(SourceDom::attr($node, 'itemprop')) ) {
                 $declared[] = $node;
             }
@@ -1023,7 +1066,7 @@ final class CommerceStructureRecognizer
     {
         for ($node = $svg; $node instanceof DOMElement; $node = $node->parentNode) {
             if ($node->hasAttribute('hidden')
-                || 'true' === strtolower(trim(SourceDom::attr($node, 'aria-hidden')))
+                || SourceDom::isAriaHidden($node)
                 || in_array(strtolower($node->tagName), array('button', 'input', 'select', 'textarea'), true)
                 || in_array(strtolower(SourceDom::attr($node, 'role')), array('button', 'checkbox', 'switch'), true)
                 || $this->classifier->hasCommerceToken($node, array('cart', 'wishlist', 'quickview'))

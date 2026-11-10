@@ -108,6 +108,30 @@ final class TransformationProvenanceState
         return $this->sourceElements[$id] ?? null;
     }
 
+    /**
+     * Source elements of every $blockName block in $blocks, depth first.
+     *
+     * Reads the internal provenance IDs, so call it before
+     * {@see self::resolveBlockPaths()} consumes them.
+     *
+     * @param array<int, array<string, mixed>> $blocks
+     * @return list<\DOMElement>
+     */
+    public function sourceElementsOfBlockType(array $blocks, string $blockName): array
+    {
+        $elements = array();
+        foreach ( $blocks as $block ) {
+            if ( $blockName === ( $block['blockName'] ?? '' ) ) {
+                $element = $this->sourceElement((int) ( $block['_source_provenance_id'] ?? 0 ));
+                if ( $element instanceof \DOMElement ) {
+                    $elements[] = $element;
+                }
+            }
+            array_push($elements, ...$this->sourceElementsOfBlockType($block['innerBlocks'] ?? array(), $blockName));
+        }
+        return $elements;
+    }
+
     /** @param array<string, mixed> $evidence */
     public function addSourceEvidence(int $id, array $evidence): void
     {

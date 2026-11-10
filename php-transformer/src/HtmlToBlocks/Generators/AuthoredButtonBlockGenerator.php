@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use DOMDocument;
 use DOMElement;
 use DOMText;
@@ -22,7 +24,7 @@ final class AuthoredButtonBlockGenerator
     public static function isRoleButton(DOMElement $element): bool
     {
         return in_array(strtolower($element->tagName), array('div', 'span'), true)
-            ? ('button' === strtolower(trim(SourceDom::attr($element, 'role'))) || self::isCapturedGalleryDirectionControl($element))
+            ? ('button' === SourceDom::role($element) || self::isCapturedGalleryDirectionControl($element))
             : self::isCapturedDialogTriggerAnchor($element) || self::isCapturedDialogCloseIcon($element);
     }
 
@@ -34,7 +36,7 @@ final class AuthoredButtonBlockGenerator
     {
         return 'svg' === strtolower($element->tagName)
             && '' !== trim(SourceDom::attr($element, CaptureEvidence::DIALOG_CLOSE))
-            && in_array(strtolower(trim(SourceDom::attr($element, 'role'))), array('', 'button'), true);
+            && in_array(SourceDom::role($element), array('', 'button'), true);
     }
 
     /**
@@ -72,7 +74,7 @@ final class AuthoredButtonBlockGenerator
     {
         $key = trim(SourceDom::attr($element, CaptureEvidence::DIALOG_TRIGGER));
         return 'a' === strtolower($element->tagName)
-            && 'button' === strtolower(trim(SourceDom::attr($element, 'role')))
+            && 'button' === SourceDom::role($element)
             && '' !== $key
             && $key === trim(SourceDom::attr($element, 'aria-controls'));
     }
@@ -86,7 +88,7 @@ final class AuthoredButtonBlockGenerator
     {
         if (!in_array(strtolower($element->tagName), array('div', 'span'), true)
             || !in_array(trim(SourceDom::attr($element, CaptureEvidence::GALLERY_DIRECTION)), array('-1', '1'), true)
-            || !in_array(strtolower(trim(SourceDom::attr($element, 'role'))), array('', 'button'), true)
+            || !in_array(SourceDom::role($element), array('', 'button'), true)
         ) {
             return false;
         }
@@ -117,7 +119,7 @@ final class AuthoredButtonBlockGenerator
     public static function canRetainRoleButton(DOMElement $element): bool
     {
         if (!self::isRoleButton($element)) return false;
-        foreach (array_merge(array($element), iterator_to_array($element->getElementsByTagName('*'))) as $node) {
+        foreach (SourceDom::subtreeElements($element) as $node) {
             if (!$node instanceof DOMElement || array() !== SourceDom::eventMetadata($node) || ($node !== $element && in_array(strtolower($node->tagName), array('a', 'button', 'form', 'input', 'select', 'textarea', 'script', 'iframe', 'canvas'), true))) return false;
         }
         return true;
@@ -261,7 +263,7 @@ JS;
 JS;
 
         return array(
-            'index.js' => str_replace(array('__BLOCK_NAME__', '__BLOCK_ATTRIBUTES__', '__LABEL_TAGS__'), array($namespace . '/' . self::LOCAL_NAME, json_encode($this->blockJson($namespace)['attributes'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), json_encode(self::LABEL_TAGS, JSON_THROW_ON_ERROR)), $script),
+            'index.js' => EditorScript::bind($script, $namespace . '/' . self::LOCAL_NAME, $this->blockJson($namespace)['attributes'], array('__LABEL_TAGS__' => json_encode(self::LABEL_TAGS, JSON_THROW_ON_ERROR))),
             'view.js' => str_replace('__DIRECTION_ATTRIBUTE__', CaptureEvidence::GALLERY_DIRECTION, $view),
         );
     }
@@ -311,11 +313,11 @@ JS;
         }
 
         $label = $escape($attrs['text'] ?? '');
-        foreach (array_reverse(array_slice(is_array($attrs['labelWrappers'] ?? null) ? $attrs['labelWrappers'] : array(), 0, 16)) as $wrapper) {
+        foreach (array_reverse(array_slice(ArrayField::array($attrs, 'labelWrappers'), 0, 16)) as $wrapper) {
             $tag = strtolower((string) ($wrapper['tagName'] ?? ''));
             if (!in_array($tag, self::LABEL_TAGS, true)) continue;
             $opening = '<' . $tag;
-            foreach (is_array($wrapper['attributes'] ?? null) ? $wrapper['attributes'] : array() as $name => $value) {
+            foreach (ArrayField::array($wrapper, 'attributes') as $name => $value) {
                 if (1 === preg_match('/^(?:class|id|style|data-(?!wp-)[a-z0-9_.:-]+)$/', (string) $name)) {
                     $opening .= ' ' . $name . '="' . $escape($value) . '"';
                 }
@@ -329,7 +331,7 @@ JS;
     private function sourceAttributes(array $attrs): array
     {
         $attributes = array();
-        foreach ( is_array($attrs['sourceAttributes'] ?? null) ? $attrs['sourceAttributes'] : array() as $attribute ) {
+        foreach ( ArrayField::array($attrs, 'sourceAttributes') as $attribute ) {
             $name = strtolower((string) ($attribute['name'] ?? ''));
             if ( ! self::isSourceAttributeName($name) ) {
                 continue;
@@ -382,10 +384,7 @@ JS;
         ksort($candidates);
         $safeHtml = SourceDom::safeFallbackHtmlString('<b' . SourceDom::htmlAttributeString($candidates) . '></b>');
         $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $safeHtml . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
+        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . $safeHtml . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
         $node = $loaded ? $document->getElementsByTagName('b')->item(0) : null;
         if ( ! $node instanceof DOMElement ) {
             return array();
@@ -424,7 +423,7 @@ JS;
     /** @param array<string, mixed> $attrs @param callable(mixed): string $escape */
     private function contentPartsMarkup(array $attrs, callable $escape): ?string
     {
-        $parts = array_slice(is_array($attrs['contentParts'] ?? null) ? $attrs['contentParts'] : array(), 0, 32);
+        $parts = array_slice(ArrayField::array($attrs, 'contentParts'), 0, 32);
         if ( array() === $parts ) {
             return null;
         }
@@ -465,7 +464,7 @@ JS;
             return $inner;
         }
         $opening = '<' . $tag;
-        foreach ( is_array($part['attributes'] ?? null) ? $part['attributes'] : array() as $name => $value ) {
+        foreach ( ArrayField::array($part, 'attributes') as $name => $value ) {
             if ( 1 === preg_match('/^(?:class|id|style|data-(?!wp-)[a-z0-9_.:-]+)$/', (string) $name) ) {
                 $opening .= ' ' . $name . '="' . $escape($value) . '"';
             }

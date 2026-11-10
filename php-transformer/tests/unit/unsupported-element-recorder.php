@@ -38,14 +38,13 @@ $elementFrom = static function (string $html): DOMElement {
 $makeRecorder = static function (array $overrides = array()): UnsupportedElementRecorder {
     $defaults = array(
         'generatedBlock'  => static fn (array $g, DOMElement $e): array => array('blockName' => 'blocks-engine/generated', 'from' => $g),
-        'selector'        => static fn (DOMElement $e): string => strtolower($e->tagName) . '.sel',
         'sourceElementDescription' => new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()),
     );
     $c = array_merge($defaults, $overrides);
 
     $session = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession(new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime(), $c['sourceElementDescription']);
     $session->installGeneratedBlockRegistry(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry('fixture'));
-    $metadataBuilder = new FormControlMetadataBuilder($c['selector']);
+    $metadataBuilder = new FormControlMetadataBuilder();
     return new UnsupportedElementRecorder($session, new UnsupportedElementContext(
         $session,
         $c['generatedBlock'],
@@ -73,7 +72,7 @@ $assert(! array_key_exists('control', $row), 'non-control-fallback-omits-control
 // Form-control metadata is attached only when the element actually has it.
 $fallbacks = array();
 $makeRecorder()->record($elementFrom('<input aria-label="Email">'), 'input', $fallbacks);
-$assert(array('tag' => 'input', 'selector' => 'input.sel', 'type' => 'text', 'label' => 'Email', 'label_visible' => false) === ($fallbacks[0]['control'] ?? null), 'control-metadata-attached-when-present');
+$assert(array('tag' => 'input', 'selector' => 'input:nth-of-type(1)', 'type' => 'text', 'label' => 'Email', 'label_visible' => false) === ($fallbacks[0]['control'] ?? null), 'control-metadata-attached-when-present');
 
 if ($failures) {
     fwrite(STDERR, implode("\n", $failures) . "\n");

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use DOMElement;
@@ -520,7 +521,7 @@ JS;
         $attrs = array();
         if ('' !== ($node['className'] ?? '')) $attrs['class'] = $node['className'];
         if ('' !== ($node['id'] ?? '')) $attrs['id'] = $node['id'];
-        $style = $this->style(is_array($node['style'] ?? null) ? $node['style'] : array());
+        $style = $this->style(ArrayField::array($node, 'style'));
         if ('' !== $style) $attrs['style'] = $style;
         if ('' !== ($node['role'] ?? '')) $attrs['role'] = $node['role'];
         if ('' !== ($node['ariaLive'] ?? '')) $attrs['aria-live'] = $node['ariaLive'];

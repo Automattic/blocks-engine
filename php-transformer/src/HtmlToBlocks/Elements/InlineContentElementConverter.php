@@ -112,7 +112,7 @@ final class InlineContentElementConverter implements ElementConverter
             return ConversionOutcome::handled($inlineSvgTextGroup);
         }
 
-        if ( 0 < $element->getElementsByTagName('svg')->length && '' !== trim($this->runtime->stripAllTags(SourceDom::outerHtml($element))) ) {
+        if ( 0 < $element->getElementsByTagName('svg')->length && $this->runtime->hasVisibleText(SourceDom::outerHtml($element)) ) {
             $content = $this->richTextMaterializer->contentWithMaterializedSvgImages($element, SourceDom::outerHtml($element));
             if ( null === $content || $this->richTextMaterializer->requiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
                 return ConversionOutcome::handled($this->createBlock->htmlPreservationBlock($element));
@@ -130,7 +130,7 @@ final class InlineContentElementConverter implements ElementConverter
 
         if ( $this->context->hasAuthorSemanticMarker($element) ) {
             $content = SourceDom::innerHtml($element);
-            if ( '' !== trim($this->runtime->stripAllTags($content)) ) {
+            if ( $this->runtime->hasVisibleText($content) ) {
                 if ( $this->richTextMaterializer->hasStructuralHtml($content) ) {
                     $children = $this->context->convertChildren($element, $fallbacks);
                     if ( array() !== $children ) {
@@ -154,7 +154,7 @@ final class InlineContentElementConverter implements ElementConverter
             // Resolve descendants while their source ancestry still exists;
             // detached RichText normalization cannot match scoped author rules.
             $content = $this->richTextMaterializer->content($element);
-            if ( '' !== trim($this->runtime->stripAllTags($content)) ) {
+            if ( $this->runtime->hasVisibleText($content) ) {
                 // The carrier keeps the author's hooks, so a media rule keeps
                 // addressing it; an inline resting value would outrank that rule.
                 $declarations = $this->styleResolver->stripResponsiveClassOwnedDeclarations($element, $this->richTextMaterializer->inlineVisualDeclarations($element));
@@ -172,7 +172,7 @@ final class InlineContentElementConverter implements ElementConverter
                 $attrs = array(
                     'content' => '<mark style="' . htmlspecialchars($this->styleResolver->cssDeclarationString($declarations), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</mark>',
                 );
-                if ( 'none' === CssValueInspector::comparable((string) ($declarations['display'] ?? '')) ) {
+                if ( 'none' === CssValueInspector::declared($declarations, 'display') ) {
                     $attrs['className'] = SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS;
                 }
                 return ConversionOutcome::handled($this->createBlock->createBlock('core/paragraph', $attrs, array(), $element));
@@ -208,7 +208,7 @@ final class InlineContentElementConverter implements ElementConverter
         }
 
         $content = SourceDom::outerHtml($element);
-        if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+        if ( ! $this->runtime->hasVisibleText($content) ) {
             $children = $this->context->convertChildren($element, $fallbacks);
             if ( 1 === count($children) && array() === $this->styleResolver->presentationAttributes($element) ) {
                 return ConversionOutcome::handled($children[0]);
@@ -240,7 +240,7 @@ final class InlineContentElementConverter implements ElementConverter
      */
     private function sourceElementParagraph(DOMElement $element, string $content, bool $retainAlignment = false): array
     {
-        $listItem = $this->context->ancestorElement($element, 'li');
+        $listItem = SourceDom::ancestorElement($element, 'li');
         $sourceElement = $this->richTextMaterializer->hasStructuralHtml($content)
             || 0 < $element->getElementsByTagName('svg')->length
             || ($listItem instanceof DOMElement && $this->context->isStructuralListItem($listItem))

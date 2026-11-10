@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ImageDimensionResolver;
@@ -46,6 +47,18 @@ final class ImageLowering
     public function backgroundImageBlock(DOMElement $element): ?array
     {
         $declarations = $this->styleResolver->presentationDeclarations($element);
+        // The inline URL can be sized and positioned by author stylesheets,
+        // including link/import media conditions active at the reference viewport.
+        $author = $this->styleResolver->referenceViewportAuthorDeclarations($element, array('background-size', 'background-position'));
+        foreach (array('background-size', 'background-position') as $property) {
+            $value = $this->styleResolver->declaredPresentation($element, $property)->resolvedValue();
+            if ('' !== $value) {
+                $declarations[$property] = $value;
+            } elseif (isset($author[$property])) {
+                $declarations[$property] = $author[$property];
+            }
+        }
+        $declarations = array_replace($declarations, array_intersect_key($this->styleResolver->inlineDeclarations($element), array_flip(array('background-size', 'background-position'))));
         $url = $this->backgroundImageExtractor->urlFromStyle($this->styleResolver->mergedPresentationStyle($element));
         if ( '' === $url ) {
             return null;
@@ -73,17 +86,23 @@ final class ImageLowering
         if ( $sized ) {
             $className .= ' ' . self::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . $scale;
             $position = CssValueInspector::carriableDeclarationValue((string) ($declarations['background-position'] ?? ''));
-            if ( '' !== $position ) {
-                // core/image cannot save object-position itself. The figure
-                // carries the focal point and its img inherits it, agreeing with
-                // the image projection bridge's own `object-position:inherit`
-                // (same specificity) whichever stylesheet loads last.
-                $carrier = $this->session->layoutGeometryState()->allocateCarrier('background-image-position' . "\n" . $position);
-                $this->session->layoutGeometryState()->registerRule($carrier, '.' . $carrier . '{object-position:' . $position . '}.' . $carrier . '>img{object-position:inherit}');
-                $className .= ' ' . $carrier;
-            }
+            // Backgrounds default to top-left, whereas object-position defaults to center.
+            $position = '' !== $position ? $position : '0% 0%';
+            // core/image cannot save object-position itself. The figure
+            // carries the focal point and its img inherits it, agreeing with
+            // the image projection bridge's own `object-position:inherit`
+            // (same specificity) whichever stylesheet loads last.
+            $carrier = $this->session->layoutGeometryState()->allocateCarrier('background-image-position' . "\n" . $position);
+            $this->session->layoutGeometryState()->registerRule($carrier, '.' . $carrier . '{object-position:' . $position . '}.' . $carrier . '>img{object-position:inherit}');
+            $className .= ' ' . $carrier;
         }
 
+        // When the host survives below, only it owns the source identity.
+        // Its synthetic paint must not acquire the host's selector markers;
+        // it is still a figure the source never had.
+        if ( $sized ) {
+            $className .= ' ' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS;
+        }
         $image = $this->blocks->createBlock('core/image', array_filter(array(
             'url'       => $this->imageUrls->resolvedAssetUrl($url),
             'alt'       => $this->backgroundImageExtractor->altFromAttributes(SourceDom::htmlAttributes($element)),
@@ -93,7 +112,7 @@ final class ImageLowering
             'width'     => ! in_array(strtolower($width), array( '', 'auto' ), true) ? $width : '',
             'height'    => ! in_array(strtolower($height), array( '', 'auto' ), true) ? $height : '',
             'scale'     => $sized ? $scale : '',
-        ), static fn (string $value): bool => '' !== $value), array(), $element);
+        ), static fn (string $value): bool => '' !== $value), array(), $sized ? null : $element);
 
         if ( ! $sized ) {
             return $image;
@@ -245,7 +264,7 @@ final class ImageLowering
             }
 
             if ( 'core/image' === (string) ($block['blockName'] ?? '') ) {
-                $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
+                $attrs = ArrayField::array($block, 'attrs');
                 if ( '' === (string) ($attrs['href'] ?? '') ) {
                     $attrs['lightbox'] = array( 'enabled' => true );
                     $blocks[ $index ] = $this->blockFactory->rebuild($block, $attrs);
@@ -316,7 +335,7 @@ final class ImageLowering
             if ( $child instanceof \DOMText ) {
                 $nodes[] = $child;
             } elseif ( $child instanceof DOMElement && ! $child->isSameNode($excluded)
-                && ! $child->hasAttribute('hidden') && 'true' !== strtolower(trim(SourceDom::attr($child, 'aria-hidden')))
+                && ! $child->hasAttribute('hidden') && ! SourceDom::isAriaHidden($child)
                 && ! in_array(strtolower($child->tagName), array( 'script', 'style', 'template', 'noscript', 'svg' ), true) ) {
                 array_push($nodes, ...$this->textNodesOutside($child, $excluded));
             }
@@ -557,11 +576,11 @@ final class ImageLowering
 
         $selection = $this->authoredImageSelection($image, (string) $attrs['url']);
         if ( array() !== $selection ) {
-            $attrs['metadata'] = array_merge(is_array($attrs['metadata'] ?? null) ? $attrs['metadata'] : array(), array( 'blocksEngineImageSelection' => $selection ));
+            $attrs['metadata'] = array_merge(ArrayField::array($attrs, 'metadata'), array( 'blocksEngineImageSelection' => $selection ));
         }
 
         if ($figure instanceof DOMElement && $link instanceof DOMElement) {
-            $imagePresentation = $this->styleResolver->cssDeclarations(SourceDom::attr($image, 'style'));
+            $imagePresentation = $this->styleResolver->inlineDeclarations($image);
             foreach (array('display', 'vertical-align') as $property) {
                 if (! isset($imagePresentation[$property])) {
                     $value = $this->styleResolver->declaredPresentation($image, $property)->resolvedValue();
@@ -576,7 +595,7 @@ final class ImageLowering
                     // Core's bottom alignment would remove the source line-box strut.
                     $attrs['className'] = SourceDom::mergeClassNames((string) $attrs['className'], SourceBlockAttributeProjector::BASELINE_IMAGE_LEAF_CLASS);
                     if ($link instanceof DOMElement) {
-                        $linkPresentation = $this->styleResolver->cssDeclarations(SourceDom::attr($link, 'style'));
+                        $linkPresentation = $this->styleResolver->inlineDeclarations($link);
                         foreach (array('display', 'vertical-align') as $property) {
                             if (! isset($linkPresentation[$property])) {
                                 $value = $this->styleResolver->declaredPresentation($link, $property)->resolvedValue();
@@ -663,7 +682,7 @@ final class ImageLowering
                 SourceDom::attr($link, 'class'),
                 $this->styleResolver->inlineCustomPropertyCarrierClassName($link),
                 $this->styleResolver->inlineGeometryClassName($link, array_values(array_diff(
-                    array_keys($this->styleResolver->cssDeclarations(SourceDom::attr($link, 'style'))),
+                    array_keys($this->styleResolver->inlineDeclarations($link)),
                     array('display')
                 ))),
                 ...$this->session->authorSelectorProjectionState()->semanticMarkersForPath($link->getNodePath() ?? '')
@@ -710,11 +729,11 @@ final class ImageLowering
     /** @return array<string, string> */
     private function imagePresentationAttributes(DOMElement $image, ?DOMElement $figure): array
     {
-        $inlineImagePlacement = array_keys(array_filter($this->styleResolver->cssDeclarations(SourceDom::attr($image, 'style')), NativeImageLeafPresentation::isPlacementProperty(...), ARRAY_FILTER_USE_KEY));
+        $inlineImagePlacement = array_keys(array_filter($this->styleResolver->inlineDeclarations($image), NativeImageLeafPresentation::isPlacementProperty(...), ARRAY_FILTER_USE_KEY));
         $link = $image->parentNode;
         $syntheticLinkedFigure = ! $figure instanceof DOMElement && $link instanceof DOMElement && 'a' === strtolower($link->tagName);
         $imageBoxProperties = $syntheticLinkedFigure
-            ? array_keys(array_filter($this->styleResolver->cssDeclarations(SourceDom::attr($image, 'style')), NativeImageLeafPresentation::isBoxProperty(...), ARRAY_FILTER_USE_KEY))
+            ? array_keys(array_filter($this->styleResolver->inlineDeclarations($image), NativeImageLeafPresentation::isBoxProperty(...), ARRAY_FILTER_USE_KEY))
             : array();
         // A synthetic figure must not inherit the image's preferred ratio:
         // imageBoxConstraintClassName() carries it on the painting leaf instead.
@@ -773,7 +792,7 @@ final class ImageLowering
 
     private function nonCoreImageClassName(DOMElement $image): string
     {
-        $classes = array_filter(preg_split('/\s+/', trim(SourceDom::attr($image, 'class'))) ?: array(), static function (string $className): bool {
+        $classes = array_filter(SourceDom::tokens(SourceDom::attr($image, 'class')), static function (string $className): bool {
             return ! preg_match('/^(?:wp-image-\d+|size-[a-z0-9_-]+)$/i', $className);
         });
 
@@ -782,7 +801,7 @@ final class ImageLowering
 
     private function nonCoreImageFigureClassName(DOMElement $figure): string
     {
-        $classes = array_filter(preg_split('/\s+/', trim(SourceDom::attr($figure, 'class'))) ?: array(), static function (string $className): bool {
+        $classes = array_filter(SourceDom::tokens(SourceDom::attr($figure, 'class')), static function (string $className): bool {
             return ! preg_match('/^(?:wp-block-image|size-[a-z0-9_-]+)$/i', $className);
         });
 

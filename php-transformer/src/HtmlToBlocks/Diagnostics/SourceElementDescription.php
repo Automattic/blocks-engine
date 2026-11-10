@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -73,7 +74,7 @@ final class SourceElementDescription
     public function structureSignals(DOMElement $element, array $attrs = array()): array
     {
         $className = strtolower(trim(SourceDom::attr($element, 'class') . ' ' . (string) ($attrs['className'] ?? '')));
-        $style = strtolower(trim(SourceDom::attr($element, 'style') . ';' . (is_string($attrs['style'] ?? null) ? $attrs['style'] : '')));
+        $style = strtolower(trim(SourceDom::attr($element, 'style') . ';' . (ArrayField::string($attrs, 'style'))));
         $signals = array();
 
         if ( preg_match('/(?:^|[\s_-])(?:card|feature|service|provider|resource|post|project|stat|badge|tile|panel|item)(?:$|[\s_-])/', $className) || 'article' === strtolower($element->tagName) ) {

@@ -130,34 +130,47 @@ final class CssStylesheetTransformer
     }
 
     /**
-     * Concatenate stylesheets in order, dropping every rule that recurs later in
-     * the result with the same text inside the same conditional group rules.
-     *
-     * The later copy has the same selectors, specificity and declarations and
-     * comes after the earlier one, so the earlier copy can never win the cascade.
-     * Named block layers are grouping contexts whose rules dedupe like any
-     * other; layer statements and anonymous layers stay whole. The unit that
-     * first names a layer is always kept, because it fixes the layer's order.
-     * Malformed input is concatenated unchanged.
-     *
-     * @param list<string> $stylesheets
+     * The stylesheet without rules a later identical rule in the same
+     * conditional groups repeats: the later copy wins wherever the earlier
+     * one would, so the cascade is unchanged. Malformed input is returned
+     * unchanged.
      */
-    public function concatenateWithoutRedundantRules(array $stylesheets): string
+    public function compactStylesheet(string $css): string
     {
-        foreach ( $stylesheets as $stylesheet ) {
-            if ( ! $this->isWellFormedStylesheet($stylesheet) ) {
-                return implode("\n", $stylesheets);
+        if ( ! $this->isWellFormedStylesheet($css) ) {
+            return $css;
+        }
+        $units = array();
+        $this->collectRuleUnits($css, array(), $units);
+        return $this->serializeRuleUnits($this->withoutEarlierDuplicates(array($units)));
+    }
+
+    /**
+     * CSS with insignificant whitespace collapsed; quoted strings are kept
+     * verbatim. Space before a colon is a descendant combinator, so only the
+     * space after one goes.
+     */
+    private static function normalizedCss(string $css): string
+    {
+        $parts = preg_split('/("(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\')/s', trim($css), -1, PREG_SPLIT_DELIM_CAPTURE) ?: array( $css );
+        foreach ( $parts as $index => $part ) {
+            if ( 0 === $index % 2 ) {
+                $parts[ $index ] = preg_replace(array('/\s+/', '/\s*([{};,>])\s*/', '/:\s+/'), array(' ', '$1', ':'), $part) ?? $part;
             }
         }
+        return rtrim(str_replace(';}', '}', implode('', $parts)), ';');
+    }
 
-        $stylesheetUnits = array();
-        foreach ( $stylesheets as $stylesheet ) {
-            $units = array();
-            $this->collectRuleUnits($stylesheet, array(), $units);
-            $stylesheetUnits[] = $units;
-        }
-        // A layer's first appearance fixes its order, so the unit that first
-        // names a layer stays in place even when a later copy repeats it.
+    /**
+     * Units in order, without any dedupable unit a later one repeats in the
+     * same conditional groups. A layer's first appearance fixes its order, so
+     * the unit that first names a layer stays in place.
+     *
+     * @param list<list<array{context: list<string>, text: string, dedupable: bool}>> $stylesheetUnits
+     * @return list<array{context: list<string>, text: string, dedupable: bool}>
+     */
+    private function withoutEarlierDuplicates(array $stylesheetUnits): array
+    {
         $layerOrigins = array();
         $named = array();
         foreach ( $stylesheetUnits as $sheet => $units ) {
@@ -170,7 +183,6 @@ final class CssStylesheetTransformer
                 }
             }
         }
-
         $kept = array();
         $seen = array();
         foreach ( array_reverse($stylesheetUnits, true) as $sheet => $units ) {
@@ -185,8 +197,24 @@ final class CssStylesheetTransformer
                 $kept[] = $unit;
             }
         }
+        return array_reverse($kept);
+    }
 
-        return $this->serializeRuleUnits(array_reverse($kept));
+    public function concatenateWithoutRedundantRules(array $stylesheets): string
+    {
+        foreach ( $stylesheets as $stylesheet ) {
+            if ( ! $this->isWellFormedStylesheet($stylesheet) ) {
+                return implode("\n", $stylesheets);
+            }
+        }
+
+        $stylesheetUnits = array();
+        foreach ( $stylesheets as $stylesheet ) {
+            $units = array();
+            $this->collectRuleUnits($stylesheet, array(), $units);
+            $stylesheetUnits[] = $units;
+        }
+        return $this->serializeRuleUnits($this->withoutEarlierDuplicates($stylesheetUnits));
     }
 
     /**
@@ -718,13 +746,6 @@ final class CssStylesheetTransformer
     }
 
     /**
-     * Drop top-level @import rules that follow other rules. CSS ignores them,
-     * so they are inert on every route; concatenated sheets often repeat them.
-     *
-     * @param list<array{context:list<string>,text:string,dedupable:bool}> $units
-     * @return list<array{context:list<string>,text:string,dedupable:bool}>
-     */
-    /**
      * Align a route's unit keys with the shared ones by patience diff: match the
      * common prefix and suffix, anchor on the longest ordered run of keys unique
      * to both windows, and recurse between anchors. A key repeated later in the
@@ -890,12 +911,6 @@ final class CssStylesheetTransformer
         return $arms;
     }
 
-    /**
-     * Standalone enumerated scopes and validation probes. Prefix as an ancestor
-     * and retain a merged-root alternative for compounds that can match html.
-     * @param list<string> $arms
-     * @return list<string>|null
-     */
     /**
      * Gate selector arms to the documents whose root matches $scope (a
      * zero-weight `:where(:root...)`), or null when an arm cannot be gated.
@@ -1064,10 +1079,9 @@ final class CssStylesheetTransformer
     /** @param array{context: list<string>, text: string, dedupable: bool} $unit */
     private static function ruleUnitKey(array $unit): string
     {
-        return md5(implode("\0", $unit['context']) . "\0" . trim($unit['text']), true);
+        return md5(implode("\0", array_map(self::normalizedCss(...), $unit['context'])) . "\0" . self::normalizedCss($unit['text']), true);
     }
 
-    /** @param list<array{context: list<string>, text: string, dedupable: bool}> $units */
     /** The arm without a final `:not(:where(...))` (zero specificity), or the arm itself. */
     private static function withoutTrailingZeroWeightExclusion(string $arm): string
     {

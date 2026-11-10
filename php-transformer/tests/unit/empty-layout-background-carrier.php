@@ -10,7 +10,7 @@ declare(strict_types=1);
  * previously dropped the inline background declarations entirely:
  *
  * - a childless direct child of an author-owned layout lowers through
- *   HtmlCompilation::authorLayoutBlockFromElement(), and
+ *   AuthorLayoutBlockLowering::authorLayoutBlockFromElement(), and
  * - a childless box the source itself positions (absolute/fixed with an
  *   inset) preserves through the empty-visual spacer group.
  *

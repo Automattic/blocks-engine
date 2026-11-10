@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\InlineStackingClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\AssetMaterializationState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
@@ -272,10 +273,7 @@ final class LogoPattern implements PatternRecognizerInterface
     private function labelFragment(string $html): ?DOMElement
     {
         $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
+        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
         $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
 
         return $body instanceof DOMElement ? $body : null;
@@ -318,30 +316,6 @@ final class LogoPattern implements PatternRecognizerInterface
         }
 
         return $this->fragmentHtml($body);
-    }
-
-    private function unwrapPresentationalSpan(string $html): string
-    {
-        while ( preg_match('/^<span\b[^>]*>(.*)<\/span>$/is', $html, $matches) === 1 && $this->spanWrapsEntireContent($matches[1]) ) {
-            $html = trim($matches[1]);
-        }
-
-        return $html;
-    }
-
-    private function spanWrapsEntireContent(string $inner): bool
-    {
-        $depth = 0;
-        if ( preg_match_all('/<(\/?)span\b[^>]*>/i', $inner, $matches) ) {
-            foreach ( $matches[1] as $slash ) {
-                $depth += '' === $slash ? 1 : -1;
-                if ( $depth < 0 ) {
-                    return false;
-                }
-            }
-        }
-
-        return 0 === $depth;
     }
 
     private function plainText(string $html): string
@@ -419,7 +393,7 @@ final class LogoPattern implements PatternRecognizerInterface
         }
 
         foreach ( $anchor->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement || 'true' !== strtolower(trim($child->getAttribute('aria-hidden'))) ) {
+            if ( ! $child instanceof DOMElement || ! SourceDom::isAriaHidden($child) ) {
                 continue;
             }
 

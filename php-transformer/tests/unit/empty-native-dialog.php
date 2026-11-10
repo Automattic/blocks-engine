@@ -38,11 +38,12 @@ foreach (array(
 }
 
 // Text, elements without text, and nested empty elements are all content.
-// These unsupported native dialogs must not be silently reclassified as shells.
+// Closed native dialogs with content use the editable dialog container path.
 foreach (array('Text', '<h2>Tell us more</h2><form><label>Your name<input name="name"></label><button>Send</button></form>', '<img src="photo.jpg" alt="Photo">', '<span></span>') as $content) {
     $result = $transform('<dialog>' . $content . '</dialog>');
     $unsupported = array_filter($result['fallbacks'], static fn (array $finding): bool => 'html_unsupported_element' === ($finding['diagnostic_code'] ?? '') && 'dialog' === ($finding['tag'] ?? ''));
-    $assert(array() !== $unsupported, 'Dialog containing source content retains its unsupported conversion path');
+    $assert(array() === $unsupported, 'Closed dialog containing source content must not use unsupported fallback');
+    $assert(str_contains($result['serialized_blocks'], 'blocksEngineDialog'), 'Closed dialog content must retain its dialog shell');
 }
 
 echo "OK: empty native dialog shells\n";

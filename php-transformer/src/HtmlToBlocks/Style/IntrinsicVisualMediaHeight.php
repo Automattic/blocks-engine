@@ -16,7 +16,7 @@ final class IntrinsicVisualMediaHeight
     {
         $geometry = array();
         $presentation = $this->styleResolver->presentationDeclarations($element);
-        $inline = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
+        $inline = $this->styleResolver->inlineDeclarations($element);
         foreach ( array( 'height', 'min-height' ) as $property ) {
             if ( 'height' === $property && $unsafeFixedHeightTopologyChange ) {
                 continue;

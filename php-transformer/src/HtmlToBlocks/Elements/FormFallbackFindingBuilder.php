@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopologyBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
@@ -218,12 +219,12 @@ final class FormFallbackFindingBuilder
                 if ( ! is_array($choice) || ! is_int($choice['index'] ?? null) ) continue;
                 $choices[] = array_filter(array(
                     'index' => $choice['index'],
-                    'selector' => is_string($choice['selector'] ?? null) ? $choice['selector'] : '',
-                    'tag' => is_string($choice['tag'] ?? null) ? $choice['tag'] : '',
-                    'id' => is_string($choice['id'] ?? null) ? $choice['id'] : '',
-                    'role' => is_string($choice['role'] ?? null) ? $choice['role'] : '',
-                    'label' => is_string($choice['label'] ?? null) ? $choice['label'] : '',
-                    'observed_choice_key' => is_string($choice['observed_choice_key'] ?? null) ? $choice['observed_choice_key'] : '',
+                    'selector' => ArrayField::string($choice, 'selector'),
+                    'tag' => ArrayField::string($choice, 'tag'),
+                    'id' => ArrayField::string($choice, 'id'),
+                    'role' => ArrayField::string($choice, 'role'),
+                    'label' => ArrayField::string($choice, 'label'),
+                    'observed_choice_key' => ArrayField::string($choice, 'observed_choice_key'),
                     'source_value' => is_scalar($choice['source_value'] ?? null) ? $choice['source_value'] : null,
                 ), static fn (mixed $value): bool => null !== $value && '' !== $value);
                 if ( ! array_key_exists('source_value', $choices[array_key_last($choices)]) ) $choices[array_key_last($choices)]['source_value'] = null;

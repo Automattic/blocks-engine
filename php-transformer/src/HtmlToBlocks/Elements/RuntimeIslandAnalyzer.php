@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
@@ -11,6 +12,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBl
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveMediaBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
+use DOMDocument;
 use DOMElement;
 
 /**
@@ -19,14 +21,8 @@ use DOMElement;
  * Decides which elements carry a runtime contract the block output cannot
  * express natively — canvas and DOM targets, app-shell roots, workspace
  * surfaces, bounded data-attribute targets — and records the islands and
- * preservation fallbacks that follow.
- *
- * Previously `RuntimeIslandTrait`, whose own docblock recorded that it had been
- * "moved verbatim out of HtmlTransformer under #242". That move relocated the
- * code without changing anything: as a single-consumer trait every method still
- * resolved against the transformer's `$this`. Here the same logic runs against
- * an explicit {@see RuntimeIslandContext} and is exercised without a
- * transformer.
+ * preservation fallbacks that follow. It owns its DOM queries and is
+ * exercised without a transformer.
  */
 final class RuntimeIslandAnalyzer implements RuntimeDomTargets
 {
@@ -52,7 +48,6 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
     public function __construct(
         private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession $session,
         private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier $sourceElementClassifier,
-        private readonly RuntimeIslandContext $context,
         private readonly PseudoFormAnalyzer $pseudoFormAnalyzer
     ) {
     }
@@ -70,15 +65,6 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
         return $this->session->fallbackEmitter()->isRuntimeCanvasTarget($element);
     }
 
-    /**
-     * @param array<string, mixed> $options
-     * @return array<string, bool>
-     */
-    public function runtimeCanvasSelectorsFromOptions(array $options): array
-    {
-        return $this->runtimeSelectorsFromOptions($options, 'runtime_canvas_selectors');
-    }
-
     public function isRuntimeDomTarget(DOMElement $element): bool
     {
         if ('' !== trim(SourceDom::attr($element, CaptureEvidence::DIALOG_CLOSE))) return true;
@@ -87,7 +73,7 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
             return true;
         }
 
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $class ) {
+        foreach ( SourceDom::tokens(SourceDom::attr($element, 'class')) as $class ) {
             if ( '' !== $class && $this->session->runtimeSelectorState()->hasDom('.' . $class) && ! $this->isPresentationalRuntimeSelector('.' . $class) ) {
                 return true;
             }
@@ -135,7 +121,7 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
         $selectors = array();
         $id = trim(SourceDom::attr($element, 'id'));
         if ( '' !== $id && $this->session->runtimeSelectorState()->hasDom('#' . $id) ) $selectors[] = '#' . $id;
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $class ) if ( '' !== $class && $this->session->runtimeSelectorState()->hasDom('.' . $class) ) $selectors[] = '.' . $class;
+        foreach ( SourceDom::tokens(SourceDom::attr($element, 'class')) as $class ) if ( '' !== $class && $this->session->runtimeSelectorState()->hasDom('.' . $class) ) $selectors[] = '.' . $class;
         foreach ( array_keys($this->session->runtimeSelectorState()->domSelectors()) as $selector ) {
             if ( str_starts_with((string) $selector, '.') || str_starts_with((string) $selector, '#') || strtolower((string) $selector) === strtolower($element->tagName) ) continue;
             if ( ! $this->isPresentationalRuntimeSelector((string) $selector) && $this->elementMatchesRuntimeSelector($element, (string) $selector) ) $selectors[] = (string) $selector;
@@ -150,7 +136,7 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
             return false;
         }
 
-        foreach ( $this->context->descendantElements($element) as $descendant ) {
+        foreach ( SourceDom::descendantElements($element) as $descendant ) {
             if ( in_array(strtolower($descendant->tagName), array( 'thead', 'tbody', 'tfoot', 'tr' ), true)
                 && $this->isRuntimeDomTarget($descendant)
             ) {
@@ -159,6 +145,27 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
         }
 
         return false;
+    }
+
+    /**
+     * Records a client-rendered app shell as a runtime island when it must be
+     * preserved, so the caller keeps its markup.
+     */
+    public function recordRuntimeAppShell(DOMElement $element): bool
+    {
+        if ( ! $this->shouldPreserveRuntimeAppShell($element) ) {
+            return false;
+        }
+        $targets = $this->runtimeTargetsInSubtree($element, 8);
+        $this->recordRuntimeIsland($element, 'app_shell', 'runtime_app_shell', 'client_script_execution', array(
+            'events' => SourceDom::eventMetadata($element),
+            'target_count' => count($targets),
+            'targets' => $targets,
+            'app_shell_signals' => $this->runtimeAppShellSignals($element),
+            'required_scripts' => $this->session->fallbackEmitter()->requiredScriptsForElement($element),
+        ));
+
+        return true;
     }
 
     public function shouldPreserveRuntimeAppShell(DOMElement $element): bool
@@ -195,7 +202,7 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
     private function appShellRuntimeTargetCount(DOMElement $element, int $limit): int
     {
         $count = 0;
-        foreach ( $this->context->descendantElements($element) as $descendant ) {
+        foreach ( SourceDom::descendantElements($element) as $descendant ) {
             if ( $this->isRuntimeCanvasTarget($descendant)
                 || ( $this->isRuntimeDomTarget($descendant)
                     && ! $this->isCapturedAttributeRuntimeBinding($descendant)
@@ -271,7 +278,7 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
     public function runtimeTargetsInSubtree(DOMElement $element, int $limit): array
     {
         $targets = array();
-        foreach ( $this->context->descendantElements($element) as $descendant ) {
+        foreach ( SourceDom::descendantElements($element) as $descendant ) {
             if ( $this->isRuntimeDomTarget($descendant) || $this->isRuntimeCanvasTarget($descendant) ) {
                 $targets[] = array_filter(array(
                     'selector'   => SourceDom::runtimeIslandSelector($descendant),
@@ -302,7 +309,7 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
             return true;
         }
 
-        foreach ( $this->context->descendantElements($element) as $descendant ) {
+        foreach ( SourceDom::descendantElements($element) as $descendant ) {
             $tagName = strtolower($descendant->tagName);
             if ( 'form' === $tagName && FormControlClassifier::hasDataEntryControls($descendant) ) {
                 return true;
@@ -327,7 +334,7 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
 
             if ( 'core/html' === ($block['blockName'] ?? '') ) {
                 $content = is_array($block['attrs'] ?? null) && is_scalar($block['attrs']['content'] ?? null) ? (string) $block['attrs']['content'] : '';
-                $element = $this->context->preservedHtmlRootElement($content);
+                $element = $this->preservedHtmlRootElement($content);
                 if ( $element instanceof DOMElement && $this->shouldRecordRuntimeHtmlSubtreeIsland($element) ) {
                     $targets = $this->runtimeTargetsInSubtree($element, 8);
                     $this->recordRuntimeIsland($element, 'app_shell', 'runtime_html_subtree', 'client_script_execution', array(
@@ -355,7 +362,7 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
         if ( $this->hasRuntimeAppRootToken($element) ) {
             $signals[] = 'app_root_token';
         }
-        if ( $this->context->hasWorkspaceSurface($element) ) {
+        if ( $this->hasWorkspaceSurface($element) ) {
             $signals[] = 'workspace_surface';
         }
 
@@ -397,7 +404,7 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
 
     public function hasNonFormControlRuntimeTarget(DOMElement $element): bool
     {
-        foreach ( $this->context->descendantElements($element) as $descendant ) {
+        foreach ( SourceDom::descendantElements($element) as $descendant ) {
             if ( $this->isRuntimeDomTarget($descendant) && ! FormControlClassifier::isControlElement($descendant) ) {
                 return true;
             }
@@ -496,7 +503,7 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
     {
         $elements = array($element);
         if ($includeRichTextDescendants) {
-            foreach ($this->context->descendantElements($element) as $descendant) {
+            foreach (SourceDom::descendantElements($element) as $descendant) {
                 if ($this->sourceElementClassifier->isInlineContentElement(strtolower($descendant->tagName))) {
                     $elements[] = $descendant;
                 }
@@ -681,7 +688,7 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
             return false;
         }
 
-        foreach ($this->context->descendantElements($element) as $descendant) {
+        foreach (SourceDom::descendantElements($element) as $descendant) {
             $tagName = strtolower($descendant->tagName);
             if (in_array($tagName, array('canvas', 'form', 'template'), true)) {
                 return false;
@@ -700,52 +707,6 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
         return true;
     }
 
-
-    /**
-     * @param array<string, mixed> $options
-     * @return array<int, array<string, mixed>>
-     */
-    public function runtimeScriptMetadataFromOptions(array $options): array
-    {
-        $metadata = array();
-        foreach ( $options['runtime_script_metadata'] ?? array() as $script ) {
-            if ( ! is_array($script) ) {
-                continue;
-            }
-
-            $metadata[] = array_filter(array(
-                'path'               => is_string($script['path'] ?? null) ? $script['path'] : '',
-                'selector'           => is_string($script['selector'] ?? null) ? $script['selector'] : '',
-                'attributes'         => is_array($script['attributes'] ?? null) ? $script['attributes'] : array(),
-                'script_role'        => 'runtime',
-                'script_source_kind' => is_string($script['script_source_kind'] ?? null) ? $script['script_source_kind'] : 'external',
-            ), static fn (mixed $value): bool => '' !== $value && array() !== $value);
-        }
-
-        return SourceDom::dedupeArrayRows($metadata);
-    }
-
-    /**
-     * @param array<string, mixed> $options
-     * @return array<string, bool>
-     */
-    public function runtimeSelectorsFromOptions(array $options, string $key): array
-    {
-        $selectors = array();
-        foreach ( $options[$key] ?? array() as $selector ) {
-            if ( is_string($selector) && $this->isBoundedRuntimeSelector($selector) ) {
-                $selectors[$selector] = true;
-            }
-        }
-
-        return $selectors;
-    }
-
-    public function isBoundedRuntimeSelector(string $selector): bool
-    {
-        return 1 === preg_match('/^' . RuntimeSelectorVocabulary::scriptSelectorPattern() . '$/', $selector);
-    }
-
     public function isSafeTransparentCustomElement(DOMElement $element, bool $allowMotionStructure = false, bool $requireOrdinaryFlow = false): bool
     {
         if ( $requireOrdinaryFlow ) {
@@ -762,7 +723,7 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
                 return false;
             }
         }
-        foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'))) as $candidate ) {
+        foreach ( SourceDom::subtreeElements($element) as $candidate ) {
             if ( ! $candidate instanceof DOMElement ) {
                 continue;
             }
@@ -793,5 +754,61 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
         }
 
         return true;
+    }
+
+    private function hasWorkspaceSurface(DOMElement $element): bool
+    {
+        foreach ( SourceDom::descendantElements($element) as $descendant ) {
+            $tagName = strtolower($descendant->tagName);
+            // Templates and their contents are inert, not visitor workspaces.
+            if ( 'template' === $tagName || SourceDom::hasNonAuthoredAncestor($descendant) ) {
+                continue;
+            }
+            // A canvas hidden from assistive technology is a decorative backdrop,
+            // not a surface the visitor works in, so it does not make its wrapper
+            // an application shell.
+            if ( 'canvas' === $tagName && ! SourceDom::hasAriaHiddenAncestor($descendant) ) {
+                return true;
+            }
+            // An iframe loading a third-party document by https URL is a content
+            // embed. Inline (srcdoc), blank or relative-URL frames host an app surface.
+            if ( 'iframe' === $tagName && ( $descendant->hasAttribute('srcdoc') || ! $this->sourceElementClassifier->isSafeVisualIframeUrl(trim(SourceDom::attr($descendant, 'src'))) ) ) {
+                return true;
+            }
+            if ( 'textarea' === $tagName && $this->textareaIsRuntimeWorkspaceSurface($descendant, $element) ) {
+                return true;
+            }
+            if ( in_array(strtolower(trim(SourceDom::attr($descendant, 'contenteditable'))), array('true', 'plaintext-only'), true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function preservedHtmlRootElement(string $html): ?DOMElement
+    {
+        if ( '' === trim($html) ) {
+            return null;
+        }
+
+        $document = new DOMDocument();
+        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . SourceDom::normalizeHtml5VoidElements($html) . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        if ( ! $loaded ) {
+            return null;
+        }
+
+        $body = $document->getElementsByTagName('body')->item(0);
+        if ( ! $body instanceof DOMElement ) {
+            return null;
+        }
+
+        foreach ( $body->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                return $child;
+            }
+        }
+
+        return null;
     }
 }
