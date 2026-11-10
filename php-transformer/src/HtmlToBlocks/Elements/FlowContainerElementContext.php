@@ -15,106 +15,49 @@ final class FlowContainerElementContext
 {
     public function __construct(
         private readonly Closure $runtimeAppShellBlock,
-        private readonly Closure $isEmptyInteractiveFeatureShell,
-        private readonly Closure $capturePseudoFormFallback,
         private readonly PatternTreeConverter $tree,
-        private readonly Closure $flankedSeparatorBlock,
         private readonly Closure $canCaptureExternalSvgFragmentDependency,
         private readonly SourceElementClassifier $sourceElementClassifier,
-        private readonly Closure $responsiveMediaBlock,
         public readonly AuthorLayoutOwnership $authorLayoutOwnership,
-        private readonly Closure $authorLayoutBlock,
         private readonly Closure $hasMultipleRuntimeInlineTextTargets,
         private readonly Closure $paragraphBlockFromInlineContentWrapper,
         private readonly Closure $inlineAddressableRunGroupBlock,
-        private readonly Closure $isGeneratedComponentCandidate,
         private readonly Closure $proofBackedWrapperCoalescing,
-        private readonly Closure $shouldPreserveEmptyVisualElement,
         private readonly Closure $isInertEmptyElement,
         private readonly PatternContext $patternContext,
-        private readonly Closure $rememberAccordionDisclosureRoot,
-        private readonly Closure $metadataGridBlock,
         private readonly Closure $rememberNativeDisclosureRoot,
         private readonly Closure $rememberNativeTabControls,
-        private readonly Closure $mediaGalleryBlock,
-        private readonly Closure $namePriceRowBlock,
-        private readonly Closure $inlineTokenGroupBlock,
         private readonly Closure $visualTextWrapperBlock,
-        private readonly Closure $standaloneSearchBlock,
-        private readonly Closure $readableFormControlBlock,
-        private readonly Closure $cssAuthoredMarqueeBlock,
-        private readonly Closure $authoredCarouselBlock,
-        private readonly Closure $generatedComponentBlock,
-        private readonly Closure $textFlowBlock,
-        private readonly Closure $backgroundImageBlock,
         private readonly Closure $coalescedSingleGroupWrapper,
-        private readonly Closure $shouldPreserveWrapper,
-        private readonly Closure $emptyVisualSpacerBlock
+        private readonly Closure $shouldPreserveWrapper
     ) {
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed>|null */
     public function runtimeAppShellBlock(DOMElement $element, array &$fallbacks): ?array { return ($this->runtimeAppShellBlock)($element, $fallbacks); }
-    public function isEmptyInteractiveFeatureShell(DOMElement $element): bool { return ($this->isEmptyInteractiveFeatureShell)($element); }
-    /** @param array<int, array<string, mixed>> $fallbacks */
-    public function capturePseudoFormFallback(DOMElement $element, array &$fallbacks): void { ($this->capturePseudoFormFallback)($element, $fallbacks); }
     /** @param array<int, array<string, mixed>> $fallbacks @param array<int, class-string> $patterns @return array<string, mixed>|null */
     public function recognizePatterns(DOMElement $element, array &$fallbacks, array $patterns): ?array { return $this->tree->patterns($element, $fallbacks, $patterns); }
-    /** @return array<string, mixed>|null */
-    public function flankedSeparatorBlock(DOMElement $element): ?array { return ($this->flankedSeparatorBlock)($element); }
     public function hasExternalSvgFragmentDependencyBoundary(DOMElement $element): bool { return ($this->canCaptureExternalSvgFragmentDependency)($element) && $this->sourceElementClassifier->hasExternalSvgFragmentDependencyBoundary($element); }
 
-    /** @return array<string, mixed> */
-    public function responsiveMediaBlock(DOMElement $element): array { return ($this->responsiveMediaBlock)($element); }
-    /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed> */
-    public function authorLayoutBlock(DOMElement $element, array &$fallbacks): array { return ($this->authorLayoutBlock)($element, $fallbacks); }
     public function hasMultipleRuntimeInlineTextTargets(DOMElement $element): bool { return ($this->hasMultipleRuntimeInlineTextTargets)($element); }
     /** @return array<string, mixed>|null */
     public function paragraphBlockFromInlineContentWrapper(DOMElement $element): ?array { return ($this->paragraphBlockFromInlineContentWrapper)($element); }
     /** @return array<string, mixed>|null */
     public function inlineAddressableRunGroupBlock(DOMElement $element): ?array { return ($this->inlineAddressableRunGroupBlock)($element); }
-    public function isGeneratedComponentCandidate(DOMElement $element): bool { return ($this->isGeneratedComponentCandidate)($element); }
     /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed>|null */
     public function proofBackedWrapperCoalescing(DOMElement $element, array &$fallbacks): ?array { return ($this->proofBackedWrapperCoalescing)($element, $fallbacks); }
-    public function shouldPreserveEmptyVisualElement(DOMElement $element): bool { return ($this->shouldPreserveEmptyVisualElement)($element); }
     public function isInertEmptyElement(DOMElement $element): bool { return ($this->isInertEmptyElement)($element); }
 
     public function patternContext(): PatternContext { return $this->patternContext; }
-    /** @param array<string, mixed> $block @return array<string, mixed> */
-    public function rememberAccordionDisclosureRoot(array $block, DOMElement $element): array { return ($this->rememberAccordionDisclosureRoot)($block, $element); }
-    /** @return array<string, mixed>|null */
-    public function metadataGridBlock(DOMElement $element): ?array { return ($this->metadataGridBlock)($element); }
     public function rememberNativeDisclosureRoot(DOMElement $element): void { ($this->rememberNativeDisclosureRoot)($element); }
     public function rememberNativeTabControls(DOMElement $element): void { ($this->rememberNativeTabControls)($element); }
-    /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed>|null */
-    public function mediaGalleryBlock(DOMElement $element, array &$fallbacks): ?array { return ($this->mediaGalleryBlock)($element, $fallbacks); }
-    /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed>|null */
-    public function namePriceRowBlock(DOMElement $element, array &$fallbacks): ?array { return ($this->namePriceRowBlock)($element, $fallbacks); }
-    /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed>|null */
-    public function inlineTokenGroupBlock(DOMElement $element, array &$fallbacks): ?array { return ($this->inlineTokenGroupBlock)($element, $fallbacks); }
     /** @return array<string, mixed>|null */
     public function visualTextWrapperBlock(DOMElement $element): ?array { return ($this->visualTextWrapperBlock)($element); }
-    /** @return array<string, mixed>|null */
-    public function standaloneSearchBlock(DOMElement $element): ?array { return ($this->standaloneSearchBlock)($element); }
-    /** @return array<string, mixed>|null */
-    public function readableFormControlBlock(DOMElement $element): ?array { return ($this->readableFormControlBlock)($element); }
-    /** @return array<string, mixed>|null */
-    public function cssAuthoredMarqueeBlock(DOMElement $element): ?array { return ($this->cssAuthoredMarqueeBlock)($element); }
-    /** @return array<string, mixed>|null */
-    public function authoredCarouselBlock(DOMElement $element): ?array { return ($this->authoredCarouselBlock)($element); }
-    /** @return array<string, mixed>|null */
-    public function generatedComponentBlock(DOMElement $element, array &$fallbacks): ?array { return ($this->generatedComponentBlock)($element, $fallbacks); }
-    /** @return array<string, mixed>|null */
-    public function textFlowBlock(DOMElement $element): ?array { return ($this->textFlowBlock)($element); }
     /** @param array<int, array<string, mixed>> $fallbacks @return array<int, array<string, mixed>> */
     public function convertChildren(DOMElement $element, array &$fallbacks): array { return $this->tree->children($element, $fallbacks, true); }
 
-    /** @return array<string, mixed>|null */
-    public function backgroundImageBlock(DOMElement $element): ?array { return ($this->backgroundImageBlock)($element); }
     /** @param array<string, mixed> $child @return array<string, mixed>|null */
     public function coalescedSingleGroupWrapper(DOMElement $element, array $child): ?array { return ($this->coalescedSingleGroupWrapper)($element, $child); }
     public function shouldPreserveWrapper(DOMElement $element, ?string $asTag = null): bool { return ($this->shouldPreserveWrapper)($element, $asTag); }
 
-    /** @return array<string, mixed> */
-    public function emptyVisualSpacerBlock(DOMElement $element): array { return ($this->emptyVisualSpacerBlock)($element); }
 }

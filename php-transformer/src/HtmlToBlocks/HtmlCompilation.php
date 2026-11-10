@@ -944,25 +944,16 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 ));
                 return $this->htmlPreservationBlock($element);
             },
-            isEmptyInteractiveFeatureShell: fn (DOMElement $element): bool => $emptyFeatureShells->isEmptyInteractiveFeatureShell($element),
-            capturePseudoFormFallback: function (DOMElement $element, array &$fallbacks) use ($formDispatcher): void { $formDispatcher->capturePseudoFormFallback($element, $fallbacks); },
             tree: $this,
-            flankedSeparatorBlock: fn (DOMElement $element): ?array => $flankedSeparators->blockFromElement($element),
             canCaptureExternalSvgFragmentDependency: fn (DOMElement $element): bool => ! $this->runtimeIslands->isRuntimeDomTarget($element) && ! $this->runtimeIslands->hasRuntimeTargetInSubtree($element),
             sourceElementClassifier: $this->sourceElementClassifier,
-            responsiveMediaBlock: fn (DOMElement $element): array => $this->imageLowering->responsiveMediaBlock($element),
             authorLayoutOwnership: $this->authorLayoutOwnership,
-            authorLayoutBlock: fn (DOMElement $element, array &$fallbacks): array => $this->authorLayoutBlockFromElement($element, $fallbacks),
             hasMultipleRuntimeInlineTextTargets: fn (DOMElement $element): bool => $this->hasMultipleRuntimeInlineTextTargets($element),
             paragraphBlockFromInlineContentWrapper: fn (DOMElement $element): ?array => $this->paragraphBlockFromInlineContentWrapper($element),
             inlineAddressableRunGroupBlock: fn (DOMElement $element): ?array => $this->inlineAddressableRunGroupBlock($element),
-            isGeneratedComponentCandidate: $this->generatedComponents->isCandidate(...),
             proofBackedWrapperCoalescing: fn (DOMElement $element, array &$fallbacks): ?array => $this->proofBackedWrapperCoalescing($element, $fallbacks),
-            shouldPreserveEmptyVisualElement: fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element),
             isInertEmptyElement: fn (DOMElement $element): bool => $this->isInertOutOfFlowEmptyElement($element),
             patternContext: $this->patternContext,
-            rememberAccordionDisclosureRoot: $this->session->runtimeBehaviorState()->rememberAccordionDisclosureRoot(...),
-            metadataGridBlock: fn (DOMElement $element): ?array => $metadataGrid->convert($element),
             rememberNativeDisclosureRoot: function (DOMElement $element): void { $this->rememberNativeDisclosure($element); },
             rememberNativeTabControls: function (DOMElement $element): void {
                 foreach ( $element->childNodes as $child ) {
@@ -977,21 +968,28 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                     break;
                 }
             },
-            mediaGalleryBlock: fn (DOMElement $element, array &$fallbacks): ?array => $mediaGalleries->mediaGalleryBlockFromElement($element, $fallbacks),
-            namePriceRowBlock: fn (DOMElement $element, array &$fallbacks): ?array => $namePriceRows->namePriceRowBlockFromElement($element, $fallbacks),
-            inlineTokenGroupBlock: fn (DOMElement $element, array &$fallbacks): ?array => $inlineFlows->inlineTokenGroupBlockFromElement($element, $fallbacks),
             visualTextWrapperBlock: fn (DOMElement $element): ?array => $this->visualTextWrapperBlockFromElement($element),
-            standaloneSearchBlock: fn (DOMElement $element): ?array => $this->searchBlockConverter->searchBlockFromStandaloneControl($element),
-            readableFormControlBlock: fn (DOMElement $element): ?array => $this->readableFormControlBlockConverter->convert($element),
-            cssAuthoredMarqueeBlock: fn (DOMElement $element): ?array => $this->authoredMarqueeRecognizer->cssAuthoredMarqueeBlock($element),
-            authoredCarouselBlock: fn (DOMElement $element): ?array => $this->authoredCarouselGenerator->convert($element),
-            generatedComponentBlock: $this->generatedComponents->nativeOrGeneratedBlock(...),
-            textFlowBlock: fn (DOMElement $element): ?array => $inlineFlows->textFlowBlockFromElement($element),
-            backgroundImageBlock: fn (DOMElement $element): ?array => $this->imageLowering->backgroundImageBlock($element),
             coalescedSingleGroupWrapper: fn (DOMElement $element, array $child): ?array => $this->coalescedSingleGroupWrapper($element, $child),
-            shouldPreserveWrapper: fn (DOMElement $element, ?string $asTag = null): bool => $this->shouldPreserveWrapper($element, $asTag),
-            emptyVisualSpacerBlock: fn (DOMElement $element): array => $this->emptyVisualSpacers->emptyVisualSpacerBlock($element)
-        ));
+            shouldPreserveWrapper: fn (DOMElement $element, ?string $asTag = null): bool => $this->shouldPreserveWrapper($element, $asTag)
+        ),
+            $emptyFeatureShells,
+            $formDispatcher,
+            $flankedSeparators,
+            $this->imageLowering,
+            $this,
+            $this->generatedComponents,
+            $this,
+            $this->session->runtimeBehaviorState(),
+            $metadataGrid,
+            $mediaGalleries,
+            $namePriceRows,
+            $inlineFlows,
+            $this->searchBlockConverter,
+            $this->readableFormControlBlockConverter,
+            $this->authoredMarqueeRecognizer,
+            $this->authoredCarouselGenerator,
+            $this->emptyVisualSpacers
+        );
         $mediaDispatchConverter = new MediaDispatchElementConverter(new MediaDispatchElementContext(
             $this,
             fn (DOMElement $element): ?array => $this->imageLowering->convertImage($element),
