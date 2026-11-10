@@ -48,7 +48,8 @@ use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
  *    copies for non-fallback callers) so this module needs no transformer
  *    reference, mirroring the slice-3 `safeNavigationUrl` duplication.
  *
- * Shared DOM helpers come from {@see DomHelpersTrait}.
+ * Fallback HTML helpers come from {@see DomHelpersTrait}; stateless DOM
+ * helpers are called on {@see SourceDom}.
  */
 final class FallbackEmitter
 {
@@ -164,8 +165,8 @@ final class FallbackEmitter
         $projected = $this->sourceTagProjectedClone($element);
         $content = $this->sanitizeHtmlString(
             $projected instanceof DOMElement
-                ? ($preserveRoot ? $this->outerHtml($projected) : $this->innerHtml($projected))
-                : ($preserveRoot ? $this->outerHtml($element) : $this->innerHtml($element))
+                ? ($preserveRoot ? SourceDom::outerHtml($projected) : SourceDom::innerHtml($projected))
+                : ($preserveRoot ? SourceDom::outerHtml($element) : SourceDom::innerHtml($element))
         );
         if ( '' === trim($content) ) {
             return null;
@@ -421,7 +422,7 @@ final class FallbackEmitter
      */
     private function sanitizeHtmlString(string $html): string
     {
-        return $this->safeFallbackHtmlString($html);
+        return SourceDom::safeFallbackHtmlString($html);
     }
 
     /**
@@ -457,9 +458,9 @@ final class FallbackEmitter
      */
     public function captureInlineSvgFallback(DOMElement $element, array &$fallbacks): void
     {
-        $rawHtml = $this->outerHtml($element);
-        $safe = $this->isSafeSvgContent($rawHtml);
-        $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
+        $rawHtml = SourceDom::outerHtml($element);
+        $safe = SourceDom::isSafeSvgContent($rawHtml);
+        $boundedHtml = SourceDom::boundedFallbackHtml($this->safeFallbackHtml($element));
 
         $fallbacks[] = FallbackDiagnostic::build(array(
             'type'            => 'inline_svg',
@@ -468,13 +469,13 @@ final class FallbackEmitter
             'message'         => $safe ? 'Inline SVG was preserved as sanitized bounded fallback metadata.' : 'Inline SVG contains scriptable content and was preserved only as sanitized bounded fallback metadata.',
             'source_format'   => 'html',
             'tag'             => 'svg',
-            'selector'        => $this->elementSelector($element),
+            'selector'        => SourceDom::elementSelector($element),
             'attributes'      => $this->safeSvgAttributes($element),
             'context'         => $this->sourceElementDescription->sourceContext($element),
             'classification'  => $this->classifyFallbackSubtree($element),
             'events'          => SourceDom::eventMetadata($element),
             'text_length'     => strlen(trim($element->textContent ?? '')),
-            'child_count'     => $this->childElementCount($element),
+            'child_count'     => SourceDom::childElementCount($element),
             'html'            => $boundedHtml['html'],
             'html_bytes'      => $boundedHtml['bytes'],
             'html_truncated'  => $boundedHtml['truncated'],
@@ -490,8 +491,8 @@ final class FallbackEmitter
             return;
         }
 
-        $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
-        $id = trim($this->attr($element, 'id'));
+        $boundedHtml = SourceDom::boundedFallbackHtml($this->safeFallbackHtml($element));
+        $id = trim(SourceDom::attr($element, 'id'));
         $this->recordRuntimeIsland($element, 'canvas', 'canvas_requires_runtime', 'canvas_element_and_client_script_execution', array(
             'script_dependency_hint' => '' !== $id
                 ? 'Scripts may target #' . $id . ' and call canvas APIs such as getContext(); replacing it with a wrapper block changes runtime behavior.'
@@ -506,7 +507,7 @@ final class FallbackEmitter
             'message'         => 'Canvas HTML requires a native canvas element and client script runtime; core blocks cannot preserve it without raw HTML.',
             'source_format'   => 'html',
             'tag'             => 'canvas',
-            'selector'        => $this->elementSelector($element),
+            'selector'        => SourceDom::elementSelector($element),
             'attributes'      => $this->safeCanvasAttributes($element),
             'context'         => $this->sourceElementDescription->sourceContext($element),
             'classification'  => $this->classifyFallbackSubtree($element),
@@ -515,7 +516,7 @@ final class FallbackEmitter
                 ? 'Scripts may target #' . $id . ' and call canvas APIs such as getContext(); replacing it with a wrapper block changes runtime behavior.'
                 : 'Scripts may target this canvas by selector and call canvas APIs such as getContext(); replacing it with a wrapper block changes runtime behavior.',
             'text_length'            => strlen(trim($element->textContent ?? '')),
-            'child_count'            => $this->childElementCount($element),
+            'child_count'            => SourceDom::childElementCount($element),
             'html'                   => $boundedHtml['html'],
             'html_bytes'             => $boundedHtml['bytes'],
             'html_truncated'         => $boundedHtml['truncated'],
@@ -527,10 +528,10 @@ final class FallbackEmitter
      */
     public function captureScriptFallback(DOMElement $element, array &$fallbacks, RuntimeDomState $runtimeDom): void
     {
-        $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
-        $boundedBody = $this->boundedFallbackText(trim($element->textContent ?? ''));
+        $boundedHtml = SourceDom::boundedFallbackHtml($this->safeFallbackHtml($element));
+        $boundedBody = SourceDom::boundedFallbackText(trim($element->textContent ?? ''));
         $scriptRole = $this->scriptRole($element);
-        $scriptSourceKind = '' !== trim($this->attr($element, 'src')) ? 'external' : 'inline';
+        $scriptSourceKind = '' !== trim(SourceDom::attr($element, 'src')) ? 'external' : 'inline';
         $scriptIslandMetadata = array(
             'attributes'         => $this->safeScriptAttributes($element),
             'script_role'        => $scriptRole,
@@ -554,15 +555,15 @@ final class FallbackEmitter
             'message'         => 'Script HTML requires runtime behavior and was preserved as scoped safe fallback metadata.',
             'source_format'   => 'html',
             'tag'             => 'script',
-            'selector'        => $this->elementSelector($element),
+            'selector'        => SourceDom::elementSelector($element),
             'attributes'      => $this->safeScriptAttributes($element),
             'context'         => $this->sourceElementDescription->sourceContext($element),
             'classification'  => $this->classifyFallbackSubtree($element),
             'events'          => SourceDom::eventMetadata($element),
             'script_role'        => $scriptRole,
-            'script_source_kind' => '' !== trim($this->attr($element, 'src')) ? 'external' : 'inline',
+            'script_source_kind' => '' !== trim(SourceDom::attr($element, 'src')) ? 'external' : 'inline',
             'text_length'     => strlen(trim($element->textContent ?? '')),
-            'child_count'     => $this->childElementCount($element),
+            'child_count'     => SourceDom::childElementCount($element),
             'html'            => $boundedHtml['html'],
             'html_bytes'      => $boundedHtml['bytes'],
             'html_truncated'  => $boundedHtml['truncated'],
@@ -575,7 +576,7 @@ final class FallbackEmitter
     /** @return array<string, mixed>|null */
     public function staticScriptMetadata(DOMElement $element): ?array
     {
-        if ( '' !== trim($this->attr($element, 'src')) ) {
+        if ( '' !== trim(SourceDom::attr($element, 'src')) ) {
             return null;
         }
 
@@ -587,13 +588,13 @@ final class FallbackEmitter
             return null;
         }
 
-        $boundedBody = $this->boundedFallbackText(trim($element->textContent ?? ''));
+        $boundedBody = SourceDom::boundedFallbackText(trim($element->textContent ?? ''));
         return array(
             'type'               => 'script_metadata',
             'reason'             => 'script_static_metadata',
             'source_format'      => 'html',
             'tag'                => 'script',
-            'selector'           => $this->elementSelector($element),
+            'selector'           => SourceDom::elementSelector($element),
             'attributes'         => $this->safeScriptAttributes($element),
             'context'            => $this->sourceElementDescription->sourceContext($element),
             'script_role'        => $scriptRole,
@@ -610,8 +611,8 @@ final class FallbackEmitter
     public function captureTemplateFallback(DOMElement $element, array &$fallbacks, RuntimeDomState $runtimeDom): void
     {
         $runtimeTemplate = $this->templateRequiresRuntimePreservation($element);
-        $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
-        $boundedBody = $this->boundedFallbackHtml($this->innerHtml($element));
+        $boundedHtml = SourceDom::boundedFallbackHtml($this->safeFallbackHtml($element));
+        $boundedBody = SourceDom::boundedFallbackHtml(SourceDom::innerHtml($element));
         $attributes = $this->safeTemplateAttributes($element);
 
         if ( $runtimeTemplate ) {
@@ -634,13 +635,13 @@ final class FallbackEmitter
                 : 'HTML template content is inert and was preserved as bounded metadata without visual output.',
             'source_format'   => 'html',
             'tag'             => 'template',
-            'selector'        => $this->elementSelector($element),
+            'selector'        => SourceDom::elementSelector($element),
             'attributes'      => $attributes,
             'context'         => $this->sourceElementDescription->sourceContext($element),
             'classification'  => $this->classifyFallbackSubtree($element),
             'template_role'   => $this->templateRole($element),
             'text_length'     => strlen(trim($element->textContent ?? '')),
-            'child_count'     => $this->childElementCount($element),
+            'child_count'     => SourceDom::childElementCount($element),
             'html'            => $boundedHtml['html'],
             'html_bytes'      => $boundedHtml['bytes'],
             'html_truncated'  => $boundedHtml['truncated'],
@@ -655,10 +656,10 @@ final class FallbackEmitter
      */
     public function recordRuntimeIsland(DOMElement $element, string $kind, string $reason, string $runtimeRequirement, array $metadata, RuntimeDomState $runtimeDom): void
     {
-        $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
+        $boundedHtml = SourceDom::boundedFallbackHtml($this->safeFallbackHtml($element));
         $island = FallbackDiagnostic::withGenericFindingMetadata(array_filter(array_merge(array(
             'kind'                => $kind,
-            'selector'            => $this->runtimeIslandSelector($element),
+            'selector'            => SourceDom::runtimeIslandSelector($element),
             'tag'                 => strtolower($element->tagName),
             'diagnostic_code'     => 'preserved_runtime_island',
             'preservation_reason' => $reason,
@@ -669,7 +670,7 @@ final class FallbackEmitter
             'source_snippet'      => $boundedHtml['html'],
             'source_bytes'        => $boundedHtml['bytes'],
             'source_truncated'    => $boundedHtml['truncated'],
-            'attributes'          => $this->htmlAttributes($element),
+            'attributes'          => SourceDom::htmlAttributes($element),
             'context'             => $this->sourceElementDescription->sourceContext($element),
             'required_assets'     => array(),
             'required_scripts'    => array(),
@@ -700,24 +701,24 @@ final class FallbackEmitter
             }
 
             $scripts[] = array_filter(array(
-                'selector'           => $this->elementSelector($script),
+                'selector'           => SourceDom::elementSelector($script),
                 'attributes'         => $this->safeScriptAttributes($script),
                 'script_role'        => 'runtime',
-                'script_source_kind' => '' !== trim($this->attr($script, 'src')) ? 'external' : 'inline',
+                'script_source_kind' => '' !== trim(SourceDom::attr($script, 'src')) ? 'external' : 'inline',
             ), static fn (mixed $value): bool => '' !== $value && array() !== $value);
         }
 
-        return $this->dedupeArrayRows($scripts);
+        return SourceDom::dedupeArrayRows($scripts);
     }
 
     public function isRuntimeCanvasTarget(DOMElement $element): bool
     {
-        $id = trim($this->attr($element, 'id'));
+        $id = trim(SourceDom::attr($element, 'id'));
         if ( '' !== $id && $this->runtimeSelectors()->hasCanvas('#' . $id) ) {
             return true;
         }
 
-        foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) {
+        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $class ) {
             if ( '' !== $class && $this->runtimeSelectors()->hasCanvas('.' . $class) ) {
                 return true;
             }
@@ -782,7 +783,7 @@ final class FallbackEmitter
     {
         $parts = array();
         foreach ( $this->subtreeElements($element) as $node ) {
-            $style = trim($this->attr($node, 'style'));
+            $style = trim(SourceDom::attr($node, 'style'));
             if ( '' !== $style ) {
                 $parts[] = $style;
             }
@@ -799,7 +800,7 @@ final class FallbackEmitter
     {
         $parts = array();
         foreach ( $this->subtreeElements($element) as $node ) {
-            if ( 'script' === strtolower($node->tagName) && '' === trim($this->attr($node, 'src')) ) {
+            if ( 'script' === strtolower($node->tagName) && '' === trim(SourceDom::attr($node, 'src')) ) {
                 $body = trim($node->textContent ?? '');
                 if ( '' !== $body ) {
                     $parts[] = $body;
@@ -866,7 +867,7 @@ final class FallbackEmitter
 
     private function templateRequiresRuntimePreservation(DOMElement $element): bool
     {
-        foreach ( array_keys($this->htmlAttributes($element)) as $name ) {
+        foreach ( array_keys(SourceDom::htmlAttributes($element)) as $name ) {
             $normalizedName = strtolower($name);
             if ( 'id' === $normalizedName || preg_match('/^(?:x-|v-|ng-|:|@)/', $normalizedName) ) {
                 return true;
@@ -876,18 +877,18 @@ final class FallbackEmitter
             }
         }
 
-        $body = $this->innerHtml($element);
+        $body = SourceDom::innerHtml($element);
         return preg_match('/<\s*(?:script|canvas|iframe)\b/i', $body) === 1
             || preg_match('/\{\{|\$\{|<\s*slot\b/i', $body) === 1;
     }
 
     private function templateRole(DOMElement $element): string
     {
-        if ( '' !== trim($this->attr($element, 'id')) ) {
+        if ( '' !== trim(SourceDom::attr($element, 'id')) ) {
             return 'addressable_template';
         }
 
-        foreach ( $this->htmlAttributes($element) as $name => $value ) {
+        foreach ( SourceDom::htmlAttributes($element) as $name => $value ) {
             if ( str_starts_with(strtolower($name), 'data-') && '' !== trim($value) && $this->templateHasReadableContent($element) ) {
                 return 'data_template';
             }
@@ -927,7 +928,7 @@ final class FallbackEmitter
     private function safeTemplateAttributes(DOMElement $element): array
     {
         $safe = array();
-        foreach ( $this->htmlAttributes($element) as $name => $value ) {
+        foreach ( SourceDom::htmlAttributes($element) as $name => $value ) {
             if ( preg_match('/^on[a-z]+$/i', $name) || preg_match('/javascript\s*:/i', $value) ) {
                 continue;
             }
@@ -939,7 +940,7 @@ final class FallbackEmitter
 
     private function scriptRole(DOMElement $element): string
     {
-        $type = strtolower(trim($this->attr($element, 'type')));
+        $type = strtolower(trim(SourceDom::attr($element, 'type')));
         if ( '' === $type || in_array($type, array( 'text/javascript', 'application/javascript', 'module' ), true) ) {
             return 'runtime';
         }
@@ -962,7 +963,7 @@ final class FallbackEmitter
             return null;
         }
 
-        $type = strtolower(trim($this->attr($element, 'type')));
+        $type = strtolower(trim(SourceDom::attr($element, 'type')));
         if ( 'module' === $type && $this->scriptBodyContainsOnlyStaticImports($body) ) {
             return 'static_import';
         }
@@ -1001,7 +1002,7 @@ final class FallbackEmitter
     {
         $safe = array();
         $allowed = array_flip(array( 'async', 'class', 'defer', 'id', 'src', 'type' ));
-        foreach ( $this->htmlAttributes($element) as $name => $value ) {
+        foreach ( SourceDom::htmlAttributes($element) as $name => $value ) {
             if ( isset($allowed[$name]) && ! preg_match('/javascript\s*:/i', $value) ) {
                 $safe[$name] = strlen($value) > 300 ? mb_strcut($value, 0, 300, 'UTF-8') . '...' : $value;
             }
@@ -1017,7 +1018,7 @@ final class FallbackEmitter
     {
         $safe = array();
         $allowed = array_flip(array( 'aria-label', 'class', 'height', 'id', 'role', 'style', 'title', 'width' ));
-        foreach ( $this->htmlAttributes($element) as $name => $value ) {
+        foreach ( SourceDom::htmlAttributes($element) as $name => $value ) {
             if ( isset($allowed[$name]) ) {
                 $safe[$name] = strlen($value) > 300 ? mb_strcut($value, 0, 300, 'UTF-8') . '...' : $value;
             }
@@ -1032,7 +1033,7 @@ final class FallbackEmitter
     private function safeSvgAttributes(DOMElement $element): array
     {
         $attributes = array();
-        foreach ( $this->htmlAttributes($element) as $name => $value ) {
+        foreach ( SourceDom::htmlAttributes($element) as $name => $value ) {
             if ( preg_match('/^on[a-z]+$/i', $name) || preg_match('/javascript\s*:/i', $value) ) {
                 continue;
             }

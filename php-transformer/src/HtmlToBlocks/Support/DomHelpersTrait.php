@@ -2,19 +2,14 @@
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
-use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
-use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 use DOMElement;
-use DOMNode;
 
 /**
- * Shared low-level DOM/HTML/string helpers.
+ * Fallback HTML and label helpers that depend on the using class.
  *
- * These are broadly-shared, behavior-neutral utilities (DOM traversal,
- * selector computation, attribute/class access, bounded/safe HTML extraction,
- * and label normalization) extracted verbatim from HtmlTransformer so future
- * decomposition slices can depend on them without dragging HtmlTransformer
- * along. Pure move: no logic or signature changes.
+ * Safe fallback HTML honors the overridable source-tag marker, and label
+ * normalization uses the class's Runtime. Stateless DOM helpers are called
+ * on {@see SourceDom} directly.
  */
 trait DomHelpersTrait
 {
@@ -23,99 +18,14 @@ trait DomHelpersTrait
         return trim(preg_replace('/\s+/', ' ', html_entity_decode($this->runtime->stripAllTags($label), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? $label);
     }
 
-    private function innerHtml(DOMElement $element): string
-    {
-        return SourceDom::innerHtml($element);
-    }
-
-    private function innerHtmlPreservingWhitespace(DOMElement $element): string
-    {
-        return SourceDom::innerHtmlPreservingWhitespace($element);
-    }
-
-    private function outerHtml(DOMElement $element): string
-    {
-        return SourceDom::outerHtml($element);
-    }
-
-    private function canonicalizedSerializationClone(DOMElement $element): DOMElement
-    {
-        return SourceDom::canonicalizedSerializationClone($element);
-    }
-
-    private function canonicalizeLinkUrls(DOMElement $element): void
-    {
-        SourceDom::canonicalizeLinkUrls($element);
-    }
-
-    private function attr(DOMElement $element, string $name): string
-    {
-        return SourceDom::attr($element, $name);
-    }
-
-    private function safeAnchor(string $id): string
-    {
-        return SourceDom::safeAnchor($id);
-    }
-
-    private function hasClass(DOMElement $element, string $className): bool
-    {
-        return SourceDom::hasClass($element, $className);
-    }
-
-    private function elementSelector(DOMElement $element): string
-    {
-        return SourceDom::elementSelector($element);
-    }
-
-    private function htmlAttributes(DOMElement $element): array
-    {
-        return SourceDom::htmlAttributes($element);
-    }
-
-    private function ancestorTags(DOMElement $element): array
-    {
-        return SourceDom::ancestorTags($element);
-    }
-
-    private function classNames(DOMElement $element): array
-    {
-        return SourceDom::classNames($element);
-    }
-
-    private function childElementCount(DOMElement $element): int
-    {
-        return SourceDom::childElementCount($element);
-    }
-
-    private function closestTagName(DOMElement $element): ?string
-    {
-        return SourceDom::closestTagName($element);
-    }
-
-    private function firstChildElement(DOMElement $element, string $tagName): ?DOMElement
-    {
-        return SourceDom::firstChildElement($element, $tagName);
-    }
-
-    private function onlyChildElement(DOMElement $element, string $tagName): ?DOMElement
-    {
-        return SourceDom::onlyChildElement($element, $tagName);
-    }
-
-    private function innerHtmlWithoutTags(DOMElement $element, array $excludedTags): string
-    {
-        return SourceDom::innerHtmlWithoutTags($element, $excludedTags);
-    }
-
     private function safeFallbackHtml(DOMElement $element): string
     {
         $fallback = $this->sourceTagProjectedClone($element);
         if ( $fallback instanceof DOMElement ) {
-            return $this->safeFallbackHtmlString(trim($fallback->ownerDocument->saveHTML($fallback) ?: ''));
+            return SourceDom::safeFallbackHtmlString(trim($fallback->ownerDocument->saveHTML($fallback) ?: ''));
         }
 
-        return $this->safeFallbackHtmlString($this->outerHtml($element));
+        return SourceDom::safeFallbackHtmlString(SourceDom::outerHtml($element));
     }
 
     private function sourceTagProjectedClone(DOMElement $element): ?DOMElement
@@ -138,93 +48,13 @@ trait DomHelpersTrait
     {
         $marker = $this->fallbackSourceTagMarker(strtolower($element->tagName));
         if ( '' !== $marker ) {
-            $element->setAttribute('class', $this->mergeClassNames($this->attr($element, 'class'), $marker));
+            $element->setAttribute('class', SourceDom::mergeClassNames(SourceDom::attr($element, 'class'), $marker));
         }
     }
 
     protected function fallbackSourceTagMarker(string $tagName): string
     {
         return '';
-    }
-
-    private function safeFallbackHtmlString(string $html): string
-    {
-        return SourceDom::safeFallbackHtmlString($html);
-    }
-
-    private function isFallbackUrlAttribute(string $attribute): bool
-    {
-        return SourceDom::isFallbackUrlAttribute($attribute);
-    }
-
-    private function safeFallbackSrcset(string $srcset, string $tag = '', bool $insidePicture = false): string
-    {
-        return SourceDom::safeFallbackSrcset($srcset, $tag, $insidePicture);
-    }
-
-    private function safeFallbackUrl(string $url, string $attribute, string $tag = '', bool $insidePicture = false): bool
-    {
-        return SourceDom::safeFallbackUrl($url, $attribute, $tag, $insidePicture);
-    }
-
-    private function boundedFallbackHtml(string $html): array
-    {
-        return SourceDom::boundedFallbackHtml($html);
-    }
-
-    private function boundedFallbackText(string $text): array
-    {
-        return SourceDom::boundedFallbackText($text);
-    }
-
-    private function directElementChildCount(DOMElement $element): int
-    {
-        return SourceDom::directElementChildCount($element);
-    }
-
-    private function mergeClassNames(string ...$classNames): string
-    {
-        return SourceDom::mergeClassNames(...$classNames);
-    }
-
-    private function htmlAttributeString(array $attrs): string
-    {
-        return SourceDom::htmlAttributeString($attrs);
-    }
-
-    private function hasAncestorTag(DOMElement $element, array $tagNames): bool
-    {
-        return SourceDom::hasAncestorTag($element, $tagNames);
-    }
-
-    private function hasSourceNavigationSignal(DOMElement $element): bool
-    {
-        return SourceDom::hasSourceNavigationSignal($element);
-    }
-
-    private function safeNavigationUrl(string $url): string
-    {
-        return SourceDom::safeNavigationUrl($url);
-    }
-
-    private function runtimeIslandSelector(DOMElement $element): string
-    {
-        return SourceDom::runtimeIslandSelector($element);
-    }
-
-    private function isSafeSvgContent(string $content): bool
-    {
-        return SourceDom::isSafeSvgContent($content);
-    }
-
-    private function svgHasDrawableContent(DOMElement $element): bool
-    {
-        return SourceDom::svgHasDrawableContent($element);
-    }
-
-    private function isExternalSpriteUse(DOMElement $element): bool
-    {
-        return SourceDom::isExternalSpriteUse($element);
     }
 
     /**
@@ -275,13 +105,4 @@ trait DomHelpersTrait
         return trim($html);
     }
 
-    private function dedupeArrayRows(array $rows): array
-    {
-        return SourceDom::dedupeArrayRows($rows);
-    }
-
-    private function elementContains(DOMElement $container, DOMElement $element): bool
-    {
-        return SourceDom::elementContains($container, $element);
-    }
 }
