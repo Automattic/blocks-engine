@@ -7031,6 +7031,10 @@ PHP;
             $lines[] = "add_filter( 'style_loader_tag', static function ( string \$html, string \$handle ) use ( \$blocks_engine_stylesheet_attributes, \$blocks_engine_stylesheet_attribute_bodies ): string {";
             $lines[] = "    \$index = \$blocks_engine_stylesheet_attributes[ \$handle ] ?? null; if ( null === \$index ) return \$html; \$state = \$blocks_engine_stylesheet_attribute_bodies[ \$index ]; \$tag = new WP_HTML_Tag_Processor( \$html ); if ( \$tag->next_tag( 'LINK' ) ) { foreach ( \$state as \$attribute => \$value ) \$tag->set_attribute( \$attribute, \$value ); } return \$tag->get_updated_html();";
             $lines[] = "}, 10, 2 );";
+            // Concatenating hosts print one combined link per media group and
+            // skip style_loader_tag, which would drop the attributes above:
+            // device markers, stylesheet-set titles and disabled states.
+            $lines[] = "add_filter( 'css_do_concat', static function ( \$do_concat, \$handle ) use ( \$blocks_engine_stylesheet_attributes ) { return isset( \$blocks_engine_stylesheet_attributes[ \$handle ] ) ? false : \$do_concat; }, 10, 2 );";
         }
         $templateAssetTokens = array();
         foreach (array_merge($templates, $parts) as $document) if (str_contains((string) ($document['canonical_block_markup'] ?? ''), self::TOKEN_PREFIX)) foreach ($tokens as $token) if (is_string($token['token'] ?? null) && is_string($token['target_path'] ?? null)) $templateAssetTokens[self::TOKEN_PREFIX . $token['token'] . '}}'] = $token['target_path'];
