@@ -3278,6 +3278,7 @@ final class AuthorStylesheetProjector
             return '';
         }
         $box = array();
+        $minimum = array();
         foreach ( $declarations as $property => $declaration ) {
             if ( ! NativeImageLeafPresentation::isBoxProperty($property) ) {
                 continue;
@@ -3285,6 +3286,9 @@ final class AuthorStylesheetProjector
             $value = trim($declaration);
             if ( '' !== $value && 1 !== preg_match('~[{}<>;]|/\*~', $value) ) {
                 $box[] = $property . ':' . $value;
+                if ( in_array($property, array( 'min-width', 'min-height' ), true) ) {
+                    $minimum[] = $property . ':' . $value;
+                }
             }
         }
         if ( array() === $box ) {
@@ -3293,13 +3297,26 @@ final class AuthorStylesheetProjector
         // A listing card's image becomes core/post-featured-image, whose
         // figure keeps the same classes but not `.wp-block-image`.
         $selectors = array();
+        $linkSelectors = array();
         foreach ( CssValueSplitter::splitTopLevel($imagePrelude, array(',')) as $selector ) {
             foreach ( array( '.wp-block-image', '.wp-block-post-featured-image' ) as $figureClass ) {
-                $selectors[] = str_replace('.wp-block-image', $figureClass . ':where(.' . SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS . ')', $selector);
+                $selectors[] = $itemSelector = str_replace('.wp-block-image', $figureClass . ':where(.' . SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS . ')', $selector);
+                if ( 1 === preg_match('/^(.*>\s*a)\s*>\s*img$/s', trim($itemSelector), $link) ) {
+                    $linkSelectors[] = $link[1];
+                }
             }
         }
+        $rule = implode(',', $selectors) . '{' . implode(';', $box) . '}';
+        // A linked image's anchor, not the image, is the flex/grid item once
+        // the figure is display:contents. Its automatic minimum size comes from
+        // the image's natural size, so a `min-height:0` the author set to let
+        // the item shrink into its track would stop working (#5286). Carry the
+        // item's minimum size to the box that is now the item.
+        if ( array() !== $minimum && array() !== $linkSelectors ) {
+            $rule .= implode(',', $linkSelectors) . '{' . implode(';', $minimum) . '}';
+        }
 
-        return implode(',', $selectors) . '{' . implode(';', $box) . '}';
+        return $rule;
     }
 
     private function selectsFlexItemImage(string $prelude, AuthorStylesheetProjectionContext $context): bool

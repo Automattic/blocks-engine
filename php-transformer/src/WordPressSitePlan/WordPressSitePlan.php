@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
 use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlMarkupParser;
+use Automattic\BlocksEngine\PhpTransformer\Support\StepTimer;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Support\RenderEquivalentMarkup;
@@ -172,7 +173,11 @@ PHP;
      *        reference names a local file the artifact never packaged, instead
      *        of recovering it as an explicit placeholder and warning.
      */
-    public function __construct(private readonly bool $strictMissingMedia = false)
+    /**
+     * @param StepTimer|null $timer Receives one exclusive step per site-plan stage, so callers
+     *                             can always see where composition spends its time.
+     */
+    public function __construct(private readonly bool $strictMissingMedia = false, private readonly ?StepTimer $timer = null)
     {
         $this->shellExtraction = new ShellExtraction($this);
         $this->missingMedia = new MissingMediaRecovery($strictMissingMedia);
@@ -316,6 +321,7 @@ PHP;
         $runtimeDeclarations = $compiled['runtime_declarations'] ?? array();
         $runtimeRecords = RuntimeDeclarations::normalizeRecords($compiled['runtime_records'] ?? array());
         $runtimeDeclarations = RuntimeDeclarations::materialize($runtimeDeclarations, $runtimeRecords);
+        $this->timer?->start('compose.site_plan.documents');
         $runtimeScriptOwnership = $this->runtimeScriptOwnership($input->runtimeIslandPackage, $compiled['pages'] ?? array(), $runtimeDeclarations);
         $documents = $this->withoutOwnedRuntimeScripts($this->decideDocuments($compiled['pages'] ?? null), $runtimeScriptOwnership['documents']);
         $documentScriptAssets = $this->documentScriptAssets($documents);
@@ -332,8 +338,10 @@ PHP;
         // Button element styles are decided on the markup before binding,
         // which is what tells a button that renders through them apart from
         // one that never had the value.
+        $this->timer?->start('compose.site_plan.design_system');
         $this->designSystem = DesignSystem::fromUsage(self::designUsage($documents))?->withButtonElementsOwnedBy(array_values(array_filter(array_column($documents, 'block_markup'), 'is_string')));
         $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets, self::designUsage($documents));
+        $this->timer?->start('compose.site_plan.routes');
         $tokens = $this->tokens($assets);
         $surfaces = $this->templateSurfaces($documents);
         $documents = array_values(array_filter($documents, static fn(array $document): bool => !isset($document['template_surface'])));
@@ -362,6 +370,7 @@ PHP;
             $this->routeSources[$document['source_path']] = $target;
             $this->routeTargets['/' . trim($path, '/')] = $target;
         }
+        $this->timer?->start('compose.site_plan.pages');
         $this->routeLinkedFragments = $this->routeLinkedFragments($documents, $routeMap);
         $this->missingMedia = new MissingMediaRecovery($this->strictMissingMedia, array_column($assets, 'target_path'));
         $missingFonts = new MissingFontSourceRecovery($this->strictMissingMedia);
@@ -466,6 +475,7 @@ PHP;
         // Bindings anchor on the final canonical page markup before any shell
         // extraction. Asset and route projection can make source anchors equal,
         // so assign occurrences only after that shared projection is complete.
+        $this->timer?->start('compose.site_plan.entity_bindings');
         $bindingTemplates = $this->templates(array(), array(), $surfaces, $tokens, $references, $routeMap);
         $surfaceMarkup = array_column($surfaces, 'block_markup', 'source_path');
         foreach ($bindingTemplates as &$template) if (isset($surfaceMarkup[$template['source_path'] ?? ''])) $template['_projected_source_block_markup'] = $surfaceMarkup[$template['source_path']];
@@ -515,6 +525,7 @@ PHP;
             $metadata = $document['document_metadata'] ?? array();
             $rootDocuments[] = array('source_path' => $document['source_path'], 'reconciliation_identity' => self::identity('page', $document['source_path'], $document['source_path']), 'route' => array('path' => $path), 'document_metadata' => array_intersect_key($metadata, array('root_attributes' => true, 'body_attributes' => true)));
         }
+        $this->timer?->start('compose.site_plan.theme_json');
         $assets = $this->scopeAssets($assets, self::assetOwnerDocuments($assetPages, $rootDocuments));
         $projector = new ThemeJsonProjection();
         $themeProjection = $projector->project($assets, array_column($pages, 'source_path'), $this->designSystem);
@@ -523,6 +534,7 @@ PHP;
         // Entry shells remain in compiled-site/v1 for existing consumers; the
         // canonical plan rebuilds them from full page shell candidates.
         $compiledParts = is_array($compiled['template_parts'] ?? null) ? array_values(array_filter($compiled['template_parts'], static fn(mixed $part): bool => !is_array($part) || 'entry_shell' !== ($part['placement']['kind'] ?? null))) : null;
+        $this->timer?->start('compose.site_plan.shell_extraction');
         $existingParts = $this->documents($compiledParts, true, $tokens, $references, $routeMap);
         $explicitBindings = $this->shellExtraction->bindExplicitParts($pages, $existingParts, $runtimeDeclarations, $runtimeEntityRecords);
         $pages = $explicitBindings['pages'];
@@ -569,6 +581,7 @@ PHP;
         // Underscore keys are working state the plan does not emit, such as a
         // route's projected source markup from before its chrome was extracted.
         $emitted = static fn (array $rows): array => array_map(static fn (mixed $row): mixed => is_array($row) ? array_filter($row, static fn (int|string $key): bool => !is_string($key) || !str_starts_with($key, '_'), ARRAY_FILTER_USE_KEY) : $row, $rows);
+        $this->timer?->start('compose.site_plan.stylesheets');
         $liveElementMarkers = preg_match_all(self::ELEMENT_MARKER_PATTERN, (string) json_encode(array($emitted($pages), $emitted($parts), $frameParts, $shellFrames['frames'] ?? array(), $shells['runtime_declarations'] ?? array(), $runtimeEntityRecords)), $liveMatches) ? array_fill_keys($liveMatches[0], true) : array();
         $assets = self::projectSharedChromeStylesheets($assets, array_merge($parts, $frameParts), $pages, $references, $assetTargetCollisions, $liveElementMarkers);
         $assets = self::withoutDeadElementMarkerSelectors($assets, $liveElementMarkers);
@@ -601,6 +614,7 @@ PHP;
         $tokens = $this->tokens($assets);
         if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
         $runtimeDeclarations = $shells['runtime_declarations'];
+        $this->timer?->start('compose.site_plan.templates');
         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages, array_merge($parts, $bindingTemplates), $paginationOwners);
          self::assertEntityBindingsAnchored($runtimeDeclarations, $pages, array_merge($parts, $bindingTemplates), $assets);
          $navigation = NavigationEntityProjection::project($pages, $parts, $input->menus, $runtimeDeclarations, $runtimeEntityRecords);
@@ -702,6 +716,7 @@ PHP;
             continue 2;
         }
         unset($taxonomyEntity);
+        $this->timer?->start('compose.site_plan.asset_writes');
         $routes = $this->routesForPages($pages);
         $emittedMarkup = implode("\n", self::markups(array_merge($pages, $parts, $templates, $syncedPatterns)));
         $menus = array_values(array_filter($menus, static fn(array $menu): bool => !isset($menu['token']) || str_contains($emittedMarkup, self::NAVIGATION_TOKEN_PREFIX . $menu['token'] . '}}')));
@@ -739,6 +754,7 @@ PHP;
         // complete. Only the public plan needs the bounded record form.
         // Declarations still over a byte limit are dropped here with their
         // bindings, so their blocks stay static and each drop is a finding.
+        $this->timer?->start('compose.site_plan.plan_assembly');
         $factoredRuntimeDeclarations = RuntimeDeclarations::factor($runtimeDeclarations);
         $runtimeDeclarations = $factoredRuntimeDeclarations['declarations'];
         $runtimeRecords = $factoredRuntimeDeclarations['records'];
@@ -809,6 +825,7 @@ PHP;
             $plan['synced_patterns'] = $syncedPatterns;
             $plan['reference_semantics']['synced_patterns'] = SyncedPatternProjection::REFERENCE_CONTRACT;
         }
+        $this->timer?->start('compose.site_plan.asset_consumers');
         $consumers = AssetConsumers::inventory($plan);
         $unreferenced = array_merge(AssetConsumers::unreferencedImages($plan) ?? array(), self::unreferencedInlineScripts($plan));
         $fontEmbeddingSvgs = AssetConsumers::fontEmbeddingSvgs($plan);
