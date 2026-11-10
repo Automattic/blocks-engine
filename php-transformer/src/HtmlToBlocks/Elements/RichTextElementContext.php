@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Closure;
 use DOMElement;
 
@@ -26,7 +27,6 @@ final class RichTextElementContext
      * @param Closure(DOMElement, array<int, array<string, mixed>>): ?array<string, mixed>                   $mixedMediaLinkGroupFromParagraph
      * @param Closure(DOMElement): ?array<string, mixed>                                                     $compactLinkedIconTextRowFromParagraph
      * @param Closure(string): array<int, array<string, mixed>>                                              $convertText
-     * @param Closure(DOMElement, array<int, array<string, mixed>>, bool): array<int, array<string, mixed>>   $convertChildren
      * @param Closure(DOMElement, array<int, array<string, mixed>>): ?array<string, mixed>                   $emptyInlineGeometryBlock
      * @param Closure(DOMElement, array<int, array<string, mixed>>): ?array<string, mixed>                   $mediaBlockFromTextlessElement
      */
@@ -39,7 +39,7 @@ final class RichTextElementContext
         private readonly Closure $mixedMediaLinkGroupFromParagraph,
         private readonly Closure $compactLinkedIconTextRowFromParagraph,
         private readonly Closure $convertText,
-        private readonly Closure $convertChildren,
+        private readonly PatternTreeConverter $tree,
         private readonly ?Closure $emptyInlineGeometryBlock = null,
         private readonly ?Closure $nativeDisclosureBlock = null,
         private readonly ?Closure $decorativeSvgBlock = null,
@@ -117,7 +117,7 @@ final class RichTextElementContext
      */
     public function convertChildren(DOMElement $element, array &$fallbacks, bool $captureUnsupported = false): array
     {
-        return ($this->convertChildren)($element, $fallbacks, $captureUnsupported);
+        return $this->tree->children($element, $fallbacks, $captureUnsupported);
     }
 
     /**

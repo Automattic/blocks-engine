@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredNativeFormBlockGenerator;
@@ -21,10 +22,11 @@ final class NativeGetFormBlockBuilder
 {
     private int $depth = 0;
 
-    /** @param Closure(DOMElement, array<int, array<string, mixed>>&): array<int, array<string, mixed>> $convertChildren */
-    /** @param Closure(DOMElement): array<string, mixed> $presentationAttributes */
-    /** @param Closure(): list<string> $documentHosts Hosts the source document declares as its own. */
-    public function __construct(private readonly Closure $convertChildren, private readonly Closure $presentationAttributes, private readonly SourceBlockCreator $createBlock, private readonly HtmlTransformerSession $session, private readonly ?Closure $documentHosts = null)
+    /**
+     * @param Closure(DOMElement): array<string, mixed> $presentationAttributes
+     * @param Closure(): list<string> $documentHosts Hosts the source document declares as its own.
+     */
+    public function __construct(private readonly PatternTreeConverter $tree, private readonly Closure $presentationAttributes, private readonly SourceBlockCreator $createBlock, private readonly HtmlTransformerSession $session, private readonly ?Closure $documentHosts = null)
     {
     }
 
@@ -43,7 +45,7 @@ final class NativeGetFormBlockBuilder
         $children = array();
         ++$this->depth;
         try {
-            $children = ($this->convertChildren)($form, $fallbacks);
+            $children = $this->tree->children($form, $fallbacks, true);
         } finally {
             --$this->depth;
         }
