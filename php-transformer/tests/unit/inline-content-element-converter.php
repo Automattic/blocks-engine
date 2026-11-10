@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\RuntimeDomTargetsFixture;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentElementConverter;
@@ -35,7 +36,7 @@ $elementFrom = static function (string $html): DOMElement {
 $state = (object) array( 'mode' => 'plain' );
 $context = new InlineContentElementContext(
     new PatternTreeFixture(static fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => 'social' === $state->mode ? array( 'blockName' => 'core/social-links' ) : null),
-    static fn (DOMElement $element): bool => 'runtime' === $state->mode,
+    new RuntimeDomTargetsFixture(static fn (DOMElement $element): bool => 'runtime' === $state->mode),
     static fn (DOMElement $element): ?array => 'svg-text' === $state->mode ? array( 'blockName' => 'core/image' ) : null,
     static fn (DOMElement $element): bool => 'positioned' === $state->mode,
     static fn (DOMElement $element, array &$fallbacks): ?array => array( 'blockName' => 'core/group', 'attrs' => array( 'positioned' => true ) ),

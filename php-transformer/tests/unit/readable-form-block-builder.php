@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\RuntimeDomTargetsFixture;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\AuthoredFormControlBlockConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeIslandRecorder;
@@ -44,7 +45,7 @@ $createBlock = new SourceBlockCreatorFixture(static fn (string $name, array $att
     'innerBlocks' => $innerBlocks,
 ));
 $presentationAttributes = static fn (DOMElement $element): array => array( 'className' => 'presented-' . strtolower($element->tagName) );
-$isRuntimeDomTarget = static fn (DOMElement $element): bool => $element->hasAttribute('data-runtime');
+$runtimeDomTargets = new RuntimeDomTargetsFixture(static fn (DOMElement $element): bool => $element->hasAttribute('data-runtime'));
 $recorded = array();
 $echoStart = count($session->transformationEvidenceState()->formControlEchoTexts());
 $metadataBuilder = new FormControlMetadataBuilder(static fn (DOMElement $element): string => strtolower($element->tagName));
@@ -71,7 +72,7 @@ $controlConverter = new ReadableFormControlBlockConverter(
     $authoredConverter,
     $runtimeRecorder,
     new Runtime(),
-    $isRuntimeDomTarget,
+    $runtimeDomTargets,
     $presentationAttributes,
     $createBlock,
     $session
@@ -103,7 +104,7 @@ $builder = new ReadableFormBlockBuilder(
     $metadataBuilder,
     $controlConverter,
     $runtimeRecorder,
-    $isRuntimeDomTarget,
+    $runtimeDomTargets,
     $presentationAttributes,
     $ownership,
     new \Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture($presentationAttributes),

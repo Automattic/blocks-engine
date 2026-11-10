@@ -5,17 +5,15 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
-use Closure;
 use DOMElement;
 
 /** Determines whether a form depends on behavior that native blocks cannot retain. */
 final class FormRuntimeRequirementAnalyzer
 {
     /**
-     * @param Closure(DOMElement): bool                 $isRuntimeDomTarget
      */
     public function __construct(
-        private readonly Closure $isRuntimeDomTarget
+        private readonly RuntimeDomTargets $runtimeDomTargets
     ) {
     }
 
@@ -183,12 +181,12 @@ final class FormRuntimeRequirementAnalyzer
 
     private function hasRuntimeDomTargets(DOMElement $form): bool
     {
-        if ( ($this->isRuntimeDomTarget)($form) || $this->hasRuntimeClassSignal($form) ) {
+        if ( $this->runtimeDomTargets->isRuntimeDomTarget($form) || $this->hasRuntimeClassSignal($form) ) {
             return true;
         }
 
         foreach ( FormControlClassifier::controlElements($form) as $control ) {
-            if ( ($this->isRuntimeDomTarget)($control) || $this->hasRuntimeClassSignal($control) ) {
+            if ( $this->runtimeDomTargets->isRuntimeDomTarget($control) || $this->hasRuntimeClassSignal($control) ) {
                 return true;
             }
         }

@@ -16,7 +16,6 @@ use DOMElement;
 final class ReadableFormControlBlockConverter
 {
     /**
-     * @param Closure(DOMElement): bool                                                                     $isRuntimeDomTarget
      * @param Closure(DOMElement): array<string, mixed>                                                     $presentationAttributes
      */
     public function __construct(
@@ -24,7 +23,7 @@ final class ReadableFormControlBlockConverter
         private readonly AuthoredFormControlBlockConverter $authoredBlockConverter,
         private readonly FormRuntimeIslandRecorder $runtimeIslandRecorder,
         private readonly Runtime $runtime,
-        private readonly Closure $isRuntimeDomTarget,
+        private readonly RuntimeDomTargets $runtimeDomTargets,
         private readonly Closure $presentationAttributes,
         private readonly SourceBlockCreator $createBlock,
         private readonly HtmlTransformerSession $session
@@ -69,7 +68,7 @@ final class ReadableFormControlBlockConverter
             return null;
         }
 
-        if ( ($this->isRuntimeDomTarget)($element) ) {
+        if ( $this->runtimeDomTargets->isRuntimeDomTarget($element) ) {
             $this->runtimeIslandRecorder->recordControl($element);
             if ( 'input' === $tagName ) {
                 $inputBlock = $this->authoredBlockConverter->input($element, $label, true);
@@ -170,7 +169,7 @@ final class ReadableFormControlBlockConverter
                     return null;
                 }
 
-                if ( ($this->isRuntimeDomTarget)($control) ) {
+                if ( $this->runtimeDomTargets->isRuntimeDomTarget($control) ) {
                     $this->runtimeIslandRecorder->recordControl($control);
                     if ( 1 === count($controls) && 'input' === strtolower($control->tagName) ) {
                         $inputBlock = $this->authoredBlockConverter->input($control, $element, true);

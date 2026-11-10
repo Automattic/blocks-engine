@@ -159,7 +159,7 @@ final class AnchorLowering implements ButtonLinkLeftovers
             $this->imageUrls->sourceUrl(...),
             $this->imageUrls->resolvedAssetUrl(...),
             fn (string $url): int => (int) ($this->imageLowering->assetMetadataImageAttributes($url)['id'] ?? 0),
-            $this->runtimeIslands->isRuntimeDomTarget(...),
+            $this->runtimeIslands,
             fn (DOMElement $element): bool => array() !== SourceDom::eventMetadata($element),
             fn (DOMElement $element): bool => array() !== $this->sourceElementDescription->interactiveAttributes($element),
             SourceDom::hasRouteBearingDataAttributes(...),

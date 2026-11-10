@@ -11,7 +11,6 @@ final class SvgElementContext
 {
     /**
      * @param Closure(DOMElement): bool $isInertHiddenStorage
-     * @param Closure(DOMElement): bool $isRuntimeDomTarget
      * @param Closure(DOMElement): string $sanitizeMarkup
      * @param Closure(string): bool $isSafeContent
      * @param Closure(DOMElement): bool $hasDrawableContent
@@ -20,7 +19,7 @@ final class SvgElementContext
      */
     public function __construct(
         private readonly Closure $isInertHiddenStorage,
-        private readonly Closure $isRuntimeDomTarget,
+        private readonly RuntimeDomTargets $runtimeDomTargets,
         private readonly Closure $sanitizeMarkup,
         private readonly Closure $isSafeContent,
         private readonly Closure $hasDrawableContent,
@@ -42,7 +41,7 @@ final class SvgElementContext
 
     public function isRuntimeDomTarget(DOMElement $element): bool
     {
-        return ($this->isRuntimeDomTarget)($element);
+        return $this->runtimeDomTargets->isRuntimeDomTarget($element);
     }
 
     public function sanitizeMarkup(DOMElement $element): string

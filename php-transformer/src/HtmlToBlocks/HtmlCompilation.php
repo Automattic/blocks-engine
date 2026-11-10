@@ -608,7 +608,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->richTextConverter = new RichTextElementConverter($this, $this->styleResolver, $this->richTextMaterializer, $this->runtime, $this->createRichTextElementContext());
         $svgConverter = new SvgElementConverter($this, $this->sourceElementClassifier, $this->styleResolver, new SvgElementContext(
             fn (DOMElement $element): bool => $this->inertElements->isInertHiddenSvgStorage($element),
-            fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
+            $this->runtimeIslands,
             fn (DOMElement $element): string => $this->sanitizeInlineSvgMarkup($element),
             fn (string $html): bool => SourceDom::isSafeSvgContent($html),
             fn (DOMElement $element): bool => SourceDom::svgHasDrawableContent($element),
@@ -635,7 +635,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         ));
         $inlineContentConverter = new InlineContentElementConverter($this->sourceElementClassifier, $this, $this->richTextMaterializer, new InlineContentElementContext(
             $this,
-            fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
+            $this->runtimeIslands,
             fn (DOMElement $element): ?array => $inlineSvgTextGroups->fromElement($element),
             fn (DOMElement $element): bool => $this->ownsPositioningGeometry($element),
             fn (DOMElement $element, array &$fallbacks): ?array => $this->positionedInlineCarrierBlock($element, $fallbacks),
@@ -667,7 +667,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->session,
             $this,
             $this,
-            fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
+            $this->runtimeIslands,
             fn (DOMElement $element): string => $this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element))
         );
         $this->patternContext = $this->createPatternContext();
@@ -715,7 +715,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->authoredFormControlBlockConverter,
             $this->formRuntimeIslandRecorder,
             $this->runtime,
-            fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
+            $this->runtimeIslands,
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
             $this,
             $this->session
@@ -724,7 +724,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $formControlMetadataBuilder,
             $this->readableFormControlBlockConverter,
             $this->formRuntimeIslandRecorder,
-            fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
+            $this->runtimeIslands,
             fn (DOMElement $element): array => $this->authorLayoutOwnership->cssOwnedGroupAttributes($element),
             $this->authorLayoutOwnership,
             $this->styleResolver,
@@ -762,7 +762,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             fn (DOMElement $container, DOMElement $element): bool => $this->elementContains($container, $element)
         );
         $formRuntimeRequirementAnalyzer = new FormRuntimeRequirementAnalyzer(
-            fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element)
+            $this->runtimeIslands
         );
         $formSuccessPanelMetadataBuilder = new FormSuccessPanelMetadataBuilder(
             fn (DOMElement $element): string => SourceDom::elementSelector($element),
@@ -801,7 +801,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             fn (DOMElement $element): bool => $this->searchBlockConverter->isReplacedSearchClusterControl($element),
             $this,
             fn (DOMElement $element): ?array => $this->buttonLinkDispatcher->convertButton($element),
-            fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
+            $this->runtimeIslands,
             fn (DOMElement $element): ?array => $this->runtimeAuthoredButton($element),
             fn (DOMElement $element, array &$fallbacks): ?array => $this->convertButtonWrapperGroup($element, $fallbacks),
             fn (DOMElement $image): array => $this->imageDimensions->minimumPixelSize($image)
@@ -1250,7 +1250,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             fn (DOMElement $element): ?array => $this->authoredMarqueeRecognizer->authoredMarqueeBlock($element),
             fn (DOMElement $element): bool => $this->hasEmptyVisualInlineChild($element),
             fn (DOMElement $element): bool => $this->hasBoxChromeWrapperStyling($element),
-            fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
+            $this->runtimeIslands,
             fn (DOMElement $element): ?array => $this->paragraphImages->unwrappedParagraphImageBlock($element),
             function (DOMElement $element, array &$fallbacks): ?array {
                 return $this->anchors->mixedMediaLinkGroupFromParagraph($element, $fallbacks);
