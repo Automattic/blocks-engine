@@ -12,6 +12,23 @@ use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction;
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
 };
+// Keep the compiler's shared-shell output intact to exercise inline placement.
+// A varying tail prevents route-edge extraction from absorbing the overlay.
+$inlineFiles = array();
+foreach (array('index', 'about', 'team') as $slug) {
+    $inlineFiles[$slug . '.html'] = '<html><body><div class="site-frame"><header><p>Studio</p></header><main><h1>' . $slug . '</h1></main><footer><p>Copyright Studio</p></footer><div class="newsletter-overlay"><p>Shared newsletter overlay</p></div><p>Route-specific tail ' . $slug . '</p></div></body></html>';
+}
+$inlinePlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $inlineFiles))->toArray()['source_reports']['wordpress_site_plan'];
+$inlineFooters = array_values(array_filter($inlinePlan['template_parts'], static fn(array $part): bool => 'footer' === ($part['area'] ?? null)));
+$assert(1 === count($inlineFooters), 'The compiled routes share one footer part.');
+$assert('inline_shared_shell' === $inlineFooters[0]['placement']['kind'], 'The compiler fixture exercises inline_shared_shell placement.');
+$assert(1 === substr_count($inlineFooters[0]['canonical_block_markup'], 'Shared newsletter overlay'), 'The inline footer owns exactly one trailing overlay.');
+$assert(3 === count($inlinePlan['pages']), 'All three compiled routes are checked.');
+foreach ($inlinePlan['pages'] as $page) {
+    $assert(!str_contains($page['canonical_block_markup'], 'Shared newsletter overlay'), 'No compiled route retains the inline footer overlay.');
+}
+WordPressSitePlan::assertValid($inlinePlan);
+
 $files = array();
 $css = '';
 foreach (array('index', 'about', 'team') as $number => $slug) {
