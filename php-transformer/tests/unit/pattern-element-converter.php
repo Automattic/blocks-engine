@@ -6,9 +6,9 @@ require __DIR__ . '/../../vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ConversionOutcome;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\OrderedElementConverterRegistry;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\PatternElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\PatternElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ParameterTablePattern;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\PatternTreeFixture;
 
 $assertions = 0;
 $failures = array();
@@ -30,7 +30,7 @@ if ( ! $div instanceof DOMElement || ! $table instanceof DOMElement ) {
 $mode = 'match';
 $seenPatterns = array();
 $converter = new PatternElementConverter(
-    new PatternElementContext(
+    new PatternTreeFixture(
         static function (DOMElement $element, array &$fallbacks, array $patterns) use (&$mode, &$seenPatterns): ?array {
             $seenPatterns = $patterns;
             $fallbacks[] = array( 'pattern' => true );
@@ -74,7 +74,7 @@ $pattern = $registry->convert($div, 'div', $fallbacks);
 $assert($pattern->handled && 'core/table' === ($pattern->block['blockName'] ?? ''), 'non-table-reaches-pattern');
 
 try {
-    new PatternElementConverter(new PatternElementContext(static fn (): ?array => null), array());
+    new PatternElementConverter(new PatternTreeFixture(static fn (): ?array => null), array());
     $assert(false, 'empty-pattern-list-rejected');
 } catch (InvalidArgumentException) {
     $assert(true, 'empty-pattern-list-rejected');

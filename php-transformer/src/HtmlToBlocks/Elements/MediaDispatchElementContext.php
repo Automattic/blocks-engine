@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PlaceholderMediaPattern;
 use Closure;
 use DOMElement;
 
@@ -10,7 +12,7 @@ use DOMElement;
 final class MediaDispatchElementContext
 {
     public function __construct(
-        private readonly Closure $recognizePlaceholder,
+        private readonly PatternTreeConverter $tree,
         private readonly Closure $convertImage,
         private readonly Closure $convertPicture,
         private readonly Closure $convertIframe,
@@ -22,7 +24,7 @@ final class MediaDispatchElementContext
     /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed>|null */
     public function recognizePlaceholder(DOMElement $element, array &$fallbacks): ?array
     {
-        return ($this->recognizePlaceholder)($element, $fallbacks);
+        return $this->tree->patterns($element, $fallbacks, array( PlaceholderMediaPattern::class ));
     }
 
     /** @return array<string, mixed>|null */

@@ -10,6 +10,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\PatternTreeFixture;
 
 $assertions = 0;
 $failures = array();
@@ -39,9 +40,9 @@ $operations = array(
     'runtimeAppShellBlock' => static fn (): ?array => 'runtime' === $state->mode ? array( 'blockName' => 'core/html' ) : null,
     'isEmptyInteractiveFeatureShell' => static fn (): bool => 'interactive-empty' === $state->mode,
     'capturePseudoFormFallback' => static function () use ($state): void { ++$state->captures; },
-    'recognizePatterns' => static function (DOMElement $element, array &$fallbacks, array $patterns) use ($state): ?array {
+    'tree' => new PatternTreeFixture(static function (DOMElement $element, array &$fallbacks, array $patterns) use ($state): ?array {
         return 'spacer' === $state->mode && array( SpacerPattern::class ) === $patterns ? array( 'blockName' => 'core/spacer' ) : null;
-    },
+    }),
     'flankedSeparatorBlock' => $null,
     'canCaptureExternalSvgFragmentDependency' => static fn (): bool => true,
     'sourceElementClassifier' => new SourceElementClassifier(),
