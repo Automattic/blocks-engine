@@ -144,12 +144,16 @@ $dom->loadHTML('<html><body><style>body { color: red; }</style><div>Unrelated pa
 $recognized = (new Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ListingControlsRecognizer())->recognize($dom->getElementsByTagName('ul')->item(0), array(), array());
 $assert('color' === ($recognized['controls'][0]['key'] ?? null), 'Unlabeled facet key falls back to the final input name segment.');
 $assert(strlen($recognized['controls'][0]['label']) <= 40, 'Unlabeled facet never takes ancestor text.');
-// A request form asks for the visitor's details; its checkbox questions are
-// answers to submit, not facets of the page's empty collection.
-$request = '<form><label>Name <input type="text" name="name"></label><label>Email <input type="email" name="email"></label>'
+// Neither a request form's checkbox questions (answers to submit) nor a zero
+// counter elsewhere on the page ("0 Likes") makes an empty collection a listing.
+foreach (array(
+    'request form' => '<div id="wrap"><section>' . '<form><label>Name <input type="text" name="name"></label><label>Email <input type="email" name="email"></label>'
     . '<fieldset><legend>Do you need any of the following?</legend><label><input type="checkbox" name="extras" value="Keyboard">Keyboard</label><label><input type="checkbox" name="extras" value="Mouse">Mouse</label></fieldset>'
-    . '<label>Notes <textarea name="notes"></textarea></label><button type="submit">Send</button></form>';
-$transformed = (new Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer())->transform('<div id="wrap"><section>' . $request . '</section><div id="collection-page" class="layout empty"><div class="row"></div></div></div>')->toArray();
-$grids = array_filter($transformed['fallbacks'] ?? array(), static fn (array $finding): bool => 'html_product_grid_fallback' === ($finding['diagnostic_code'] ?? null));
-$assert(array() === $grids, 'A request form never facets an empty collection: ' . json_encode(array_column($grids, 'listing')));
+    . '<label>Notes <textarea name="notes"></textarea></label><button type="submit">Send</button></form>' . '</section><div id="collection-page" class="layout empty"><div class="row"></div></div></div>',
+    'zero counter' => '<div id="wrap"><section><article><h1>Updates</h1><p>Post body.</p><footer><span><span>0 Likes</span></span></footer></article></section><div id="collection-page" class="layout empty"><div class="row"></div></div></div>',
+) as $case => $html) {
+    $transformed = (new Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer())->transform($html)->toArray();
+    $grids = array_filter($transformed['fallbacks'] ?? array(), static fn (array $finding): bool => 'html_product_grid_fallback' === ($finding['diagnostic_code'] ?? null));
+    $assert(array() === $grids, 'An empty collection is not a listing (' . $case . '): ' . json_encode(array_column($grids, 'listing')));
+}
 echo "product-listing-small-catalog: ok\n";

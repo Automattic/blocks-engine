@@ -89,7 +89,10 @@ final class ListingControlsRecognizer
             $controls[] = $count;
         }
 
-        if ( array() === $controls ) {
+        // An empty collection's only evidence would be a zero count, and any
+        // "0 likes" or "0 comments" on the page reads the same; it needs a
+        // control that selects among products.
+        if ( array() === $controls || ( array() === $cards && array('result_count') === array_unique(array_column($controls, 'kind')) ) ) {
             return null;
         }
 
