@@ -5269,6 +5269,30 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Screen media stacks under which author rules on this element restate any
+     * of the properties (a `font` shorthand restates every font longhand).
+     *
+     * @param list<string> $properties
+     * @return list<list<string>>
+     */
+    public function screenMediaConditionsDeclaring(DOMElement $element, array $properties): array
+    {
+        $stacks = array();
+        foreach ($this->matchingStyleRules($element, 'conditional') as $rule) {
+            $conditions = $rule['conditions'] ?? array();
+            $declared = array_keys($rule['declarations'] ?? array());
+            if (isset($rule['pendingFont'])) $declared[] = 'font';
+            if (in_array('font', $declared, true)) array_push($declared, ...self::FONT_SHORTHAND_LONGHANDS);
+            if (array() === $conditions || array() === array_intersect($properties, $declared)) continue;
+            foreach ($conditions as $condition) {
+                if (!preg_match('/^@media\s*(.+)$/is', $condition, $match) || !CssCascade::mediaConditionTargetsScreen($match[1])) continue 2;
+            }
+            $stacks[serialize($conditions)] = $conditions;
+        }
+        return array_values($stacks);
+    }
+
+    /**
      * Expand pending font substitutions before choosing inherited longhands.
      * A shorthand that cannot be expanded still owns (and resets) its family:
      * it must not expose an ancestor's unrelated reset as an authored winner.
