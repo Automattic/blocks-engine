@@ -463,6 +463,7 @@ final class AuthorStylesheetProjector
         $navigationItemSpaceRule = $this->navigationItemSpaceRule($prelude, $declarations, $context)
             . $this->navigationListBoxRule($prelude, $declarations, $context)
             . $this->directNavigationDisplayRule($prelude, $declarations, $context)
+            . $this->navigationItemFlexItemRule($prelude, $declarations, $context)
             . $this->navigationToggleRowRule($prelude, $declarations, $context);
         if ( array() === $margins ) {
             $css = $this->rewriteStyleRule($prelude, $body, $context, $inConditional) . $imageRule . $imagePlacement['rules'] . $svgImageRule . $editorDocumentRootRule . $navigationItemSpaceRule;
@@ -3898,7 +3899,7 @@ final class AuthorStylesheetProjector
      *
      * @param array<string, mixed> $parsed
      */
-    private function projectNavigationItemAnchorSelector(string $selector, array $parsed, AuthorStylesheetProjectionContext $context): ?string
+    private function projectNavigationItemAnchorSelector(string $selector, array $parsed, AuthorStylesheetProjectionContext $context, bool $itemSubject = false): ?string
     {
         $span = $parsed['rightmost_compound_span'] ?? null;
         if ( ! is_array($span) ) {
@@ -3931,18 +3932,7 @@ final class AuthorStylesheetProjector
         if ( null === $split || '' === $split['structural'] ) {
             return null;
         }
-        // The type leads its compound; the rendered anchor's own class takes
-        // that place.
-        $subject = ':where(.wp-block-navigation-item__content)';
         $rest = $split['rest'];
-        if ( $typeLength > 0 ) {
-            $subject .= $this->typeSpecificityShim($context) . substr($rest, $typeLength);
-        } elseif ( str_starts_with($rest, '*') ) {
-            $subject .= substr($rest, 1);
-        } else {
-            $subject .= $rest;
-        }
-        $subject .= $trailingState;
         // Core renders a `<ul>` (and, for an overlay menu, more wrappers)
         // between the navigation and its items. A one-to-one menu has no
         // nested lists, so a child combinator before the anchor relaxes to a
@@ -3953,6 +3943,35 @@ final class AuthorStylesheetProjector
             $replaceStart = $start - strlen($childCombinator[0]);
             $lead = ' ';
         }
+        if ( $itemSubject ) {
+            // The item itself, for the declarations the source link owned as
+            // its parent's flex item. Only a subject the item fully carries
+            // (no anchor-only attribute or dynamic state) is addressed; the
+            // type keeps its weight through the shim, and the native-subject
+            // baseline of a rendered list item outranks Core's item defaults.
+            $anchorOnly = $typeLength > 0 ? substr($rest, $typeLength) : ltrim($rest, '*');
+            if ( '' !== $anchorOnly || '' !== $trailingState ) {
+                return null;
+            }
+            return $this->rewriteSourceTagTypes($selector, $parsed, $context, '', array(
+                $replaceStart => array(
+                    'end' => $end,
+                    'value' => $lead . '.wp-block-navigation-item' . str_repeat(':not(.' . $context->authorStyles->classSpecificityShim() . ')', 3)
+                        . $split['item'] . $split['structural'] . ( $typeLength > 0 ? $this->typeSpecificityShim($context) : '' ),
+                ),
+            ));
+        }
+        // The type leads its compound; the rendered anchor's own class takes
+        // that place.
+        $subject = ':where(.wp-block-navigation-item__content)';
+        if ( $typeLength > 0 ) {
+            $subject .= $this->typeSpecificityShim($context) . substr($rest, $typeLength);
+        } elseif ( str_starts_with($rest, '*') ) {
+            $subject .= substr($rest, 1);
+        } else {
+            $subject .= $rest;
+        }
+        $subject .= $trailingState;
         return $this->rewriteSourceTagTypes($selector, $parsed, $context, '', array(
             $replaceStart => array( 'end' => $end, 'value' => $lead . ':where(.wp-block-navigation-item)' . $split['item'] . $split['structural'] . '>' . $subject ),
         ));
@@ -4565,6 +4584,52 @@ final class AuthorStylesheetProjector
         }
 
         return implode(',', $carriers) . '{content:"\\a0"' . ( CssValueInspector::isImportant($display) ? '!important' : '' ) . '}';
+    }
+
+    /**
+     * A direct source link is its menu's flex item; core/navigation renders it
+     * inside `li.wp-block-navigation-item`, which is the flex item instead.
+     * Declarations that place or generate that box (`display`, `order`, the
+     * `flex` family, self-alignment) are restated on the item, so a link
+     * hidden at a breakpoint takes its item, and the item's gap, with it.
+     * Only box generation follows the source display: `none` and `contents`
+     * pass through, any other value restores Core's item display, and the
+     * authored value stays on the content anchor for its own inner layout.
+     * The restated properties are not cumulative, so the anchor copy is
+     * kept; margins are, and stay on the anchor, where they size the item.
+     *
+     * @param array<string, string> $declarations
+     */
+    private function navigationItemFlexItemRule(string $prelude, array $declarations, AuthorStylesheetProjectionContext $context): string
+    {
+        $item = array();
+        foreach ( $declarations as $name => $value ) {
+            if ( 'display' === $name ) {
+                $box = CssValueInspector::comparable($value);
+                $item[$name] = ( in_array($box, array( 'none', 'contents' ), true) ? $box : 'flex' ) . ( CssValueInspector::isImportant($value) ? '!important' : '' );
+            } elseif ( in_array($name, array( 'order', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis', 'align-self', 'justify-self', 'place-self' ), true) ) {
+                $item[$name] = $value;
+            }
+        }
+        if ( array() === $item ) {
+            return '';
+        }
+        $targets = array();
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+            $selector = trim($selector);
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            if ( ! $parsed['supported'] || ! $this->matchesOnlyNavigationRole($this->matchingSourceElements($selector, $parsed, $context), AuthorSelectorProjectionState::NAVIGATION_ANCHOR, $context) ) {
+                continue;
+            }
+            $anchor = $this->projectNavigationItemAnchorSelector($selector, $parsed, $context);
+            $target = $this->projectNavigationItemAnchorSelector($selector, $parsed, $context, true);
+            // Only where the authored rule itself landed on the rendered item.
+            if ( null !== $anchor && null !== $target && trim($this->rewriteSelectorPreludeOnce($selector, $context)) === $anchor ) {
+                $targets[] = $target;
+            }
+        }
+
+        return array() === $targets ? '' : implode(',', array_unique($targets)) . '{' . $this->styleResolver->cssDeclarationString($item) . '}';
     }
 
     /** One spelling for the initial value, so a reset restating it compares equal to no statement. */
