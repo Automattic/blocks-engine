@@ -3164,6 +3164,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return $linkBearingElement;
         }
 
+        if ( $this->renderNeutral->isRenderNeutralCustomFlowWrapper($element) ) {
+            return $this->flowContainerConverter->convertUnknownElement($element, $fallbacks)->block;
+        }
+
         $transparentCustomElement = $this->customBlockGenerator->convert($element, $fallbacks);
         if ( null !== $transparentCustomElement ) {
             return $transparentCustomElement;

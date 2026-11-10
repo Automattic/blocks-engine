@@ -48,6 +48,17 @@ final class CustomElementRuntimeDependency
         return array('disposition' => 'unproven', 'scripts' => array());
     }
 
+    /**
+     * Runtime evidence also applies to hosts with captured text content.
+     *
+     * @param array<int, array<string, mixed>> $scriptMetadata
+     * @param array<int, array<string, mixed>> $projectionAssets
+     */
+    public function hasProvenRuntimeDependency(DOMElement $element, array $scriptMetadata, array $projectionAssets): bool
+    {
+        return array() !== $this->provenScripts($element, strtolower($element->tagName), $scriptMetadata, $projectionAssets);
+    }
+
     /** An autonomous custom element name: only a script can define its behavior. */
     public static function isCustomElementTag(string $tag): bool
     {
