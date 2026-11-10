@@ -35,7 +35,6 @@ final class LinkedResponsiveContentProjector
      * @param Closure(DOMElement): string $imageUrl
      * @param Closure(string): string    $resolveUrl
      * @param Closure(string): int       $assetId
-     * @param Closure(DOMElement): bool  $isRuntimeTarget
      * @param Closure(DOMElement): bool  $hasEvents
      * @param Closure(DOMElement): bool  $hasInteractive
      * @param Closure(DOMElement): bool  $hasRouteData
@@ -45,7 +44,7 @@ final class LinkedResponsiveContentProjector
         private readonly Closure $imageUrl,
         private readonly Closure $resolveUrl,
         private readonly Closure $assetId,
-        private readonly Closure $isRuntimeTarget,
+        private readonly RuntimeDomTargets $runtimeDomTargets,
         private readonly Closure $hasEvents,
         private readonly Closure $hasInteractive,
         private readonly Closure $hasRouteData,
@@ -153,7 +152,7 @@ final class LinkedResponsiveContentProjector
             || '' === LinkUrlSanitizer::sanitize(SourceDom::attr($anchor, 'href'))
             || $anchor->hasAttribute('download')
             || '' !== SourceDom::attr($anchor, 'role')
-            || ($this->isRuntimeTarget)($anchor)
+            || $this->runtimeDomTargets->isRuntimeDomTarget($anchor)
             || ($this->hasEvents)($anchor)
             || ($this->hasInteractive)($anchor)
             || ($this->hasRouteData)($anchor)
@@ -194,7 +193,7 @@ final class LinkedResponsiveContentProjector
             && $label instanceof DOMElement
             && '' !== trim($label->textContent ?? '')
             && $this->labelIsEditable($label)
-            && ! ($this->isRuntimeTarget)($image)
+            && ! $this->runtimeDomTargets->isRuntimeDomTarget($image)
             && ! ($this->hasEvents)($image)
             && ! ($this->hasInteractive)($image)
             && ! ($this->hasRouteData)($image)

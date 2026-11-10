@@ -28,7 +28,7 @@ use DOMElement;
  * an explicit {@see RuntimeIslandContext} and is exercised without a
  * transformer.
  */
-final class RuntimeIslandAnalyzer
+final class RuntimeIslandAnalyzer implements RuntimeDomTargets
 {
     /**
      * Tags a bare runtime selector may name.

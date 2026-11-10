@@ -11,7 +11,6 @@ use DOMElement;
 final class InlineContentElementContext
 {
     /**
-     * @param Closure(DOMElement): bool $isRuntimeDomTarget
      * @param Closure(DOMElement): ?array<string, mixed> $inlineSvgTextGroupBlock
      * @param Closure(DOMElement): bool $ownsPositioningGeometry
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array<string, mixed> $positionedInlineCarrierBlock
@@ -27,7 +26,7 @@ final class InlineContentElementContext
      */
     public function __construct(
         private readonly PatternTreeConverter $tree,
-        private readonly Closure $isRuntimeDomTarget,
+        private readonly RuntimeDomTargets $runtimeDomTargets,
         private readonly Closure $inlineSvgTextGroupBlock,
         private readonly Closure $ownsPositioningGeometry,
         private readonly Closure $positionedInlineCarrierBlock,
@@ -45,7 +44,7 @@ final class InlineContentElementContext
 
     /** @param array<int, array<string, mixed>> $fallbacks @param array<int, class-string> $patterns @return array<string, mixed>|null */
     public function recognizePatterns(DOMElement $element, array &$fallbacks, array $patterns): ?array { return $this->tree->patterns($element, $fallbacks, $patterns); }
-    public function isRuntimeDomTarget(DOMElement $element): bool { return ($this->isRuntimeDomTarget)($element); }
+    public function isRuntimeDomTarget(DOMElement $element): bool { return $this->runtimeDomTargets->isRuntimeDomTarget($element); }
     public function retainsRuntimeTextLeafInRichText(DOMElement $element): bool { return null !== $this->retainsRuntimeTextLeafInRichText && ($this->retainsRuntimeTextLeafInRichText)($element); }
     /** @return array<string, mixed>|null */
     public function inlineSvgTextGroupBlock(DOMElement $element): ?array { return ($this->inlineSvgTextGroupBlock)($element); }

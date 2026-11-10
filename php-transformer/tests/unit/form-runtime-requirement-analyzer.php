@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\RuntimeDomTargetsFixture;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeRequirementAnalyzer;
 
 $assertions = 0;
@@ -25,7 +26,7 @@ $elementFrom = static function (string $html): DOMElement {
 };
 
 $analyzer = new FormRuntimeRequirementAnalyzer(
-    static fn (DOMElement $element): bool => $element->hasAttribute('data-runtime')
+    new RuntimeDomTargetsFixture(static fn (DOMElement $element): bool => $element->hasAttribute('data-runtime'))
 );
 
 $assert(! $analyzer->requiresPreservation($elementFrom('<form><input name="email"></form>')), 'plain-form-needs-no-runtime');
