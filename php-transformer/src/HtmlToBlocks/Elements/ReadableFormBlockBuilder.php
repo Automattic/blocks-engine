@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
@@ -71,7 +72,6 @@ final class ReadableFormBlockBuilder
      * @param Closure(DOMElement): array<string, mixed>                                                     $cssOwnedGroupAttributes
      * @param Closure(list<DOMElement>, list<array<string, mixed>>, DOMElement): array<string, mixed>       $layoutShellBlockForElements
      * @param Closure(list<DOMElement>): (array<string, mixed>|null)                                        $fieldBoxShell
-     * @param Closure(DOMElement, array<int, array<string, mixed>>&): list<array<string, mixed>>|null       $convertFlowContent
      */
     public function __construct(
         private readonly FormControlMetadataBuilder $metadataBuilder,
@@ -86,7 +86,7 @@ final class ReadableFormBlockBuilder
         private readonly Closure $layoutShellBlockForElements,
         private readonly Closure $fieldBoxShell,
         private readonly HtmlTransformerSession $session,
-        private readonly ?Closure $convertFlowContent = null
+        private readonly ?PatternTreeConverter $flowTree = null
     ) {
     }
 
@@ -226,7 +226,7 @@ final class ReadableFormBlockBuilder
                         $blocks[] = $legend;
                     }
                 } elseif ( $this->isFlowContent($node) ) {
-                    array_push($blocks, ...(($this->convertFlowContent)($node, $fallbacks)));
+                    $this->pushFlowContent($blocks, $node, $fallbacks);
                 }
                 continue;
             }
@@ -245,7 +245,7 @@ final class ReadableFormBlockBuilder
             $element = $entry['element'];
             if ( ! $this->holdsControl($entry['id'], $children) ) {
                 if ( $this->isFlowContent($element) ) {
-                    array_push($blocks, ...($this->convertFlowContent)($element, $fallbacks));
+                    $this->pushFlowContent($blocks, $element, $fallbacks);
                 }
                 continue;
             }
@@ -330,13 +330,25 @@ final class ReadableFormBlockBuilder
     }
 
     /**
+     * @param list<array<string, mixed>> $blocks
+     * @param list<array<string, mixed>> $fallbacks
+     */
+    private function pushFlowContent(array &$blocks, DOMElement $element, array &$fallbacks): void
+    {
+        $block = $this->flowTree?->element($element, $fallbacks, false);
+        if ( null !== $block ) {
+            $blocks[] = $block;
+        }
+    }
+
+    /**
      * Label text, wrapped or referenced, rides on the control it names. A
      * label that names no control (a caption over a row of fields) is
      * authored content like any other.
      */
     private function isFlowContent(DOMElement $element): bool
     {
-        if ( null === $this->convertFlowContent ) {
+        if ( null === $this->flowTree ) {
             return false;
         }
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {

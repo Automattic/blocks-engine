@@ -752,10 +752,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 return array() === $styled ? null : $this->layoutShells->blockForElements($styled, array(), $styled[0], true);
             },
             $this->session,
-            function (DOMElement $element, array &$fallbacks): array {
-                $block = $this->convertElement($element, $fallbacks);
-                return null === $block ? array() : array( $block );
-            }
+            $this
         );
         $nativeGetFormBlockBuilder = new NativeGetFormBlockBuilder(
             $this,
@@ -896,9 +893,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             // Carousel slides are editable native images inside authored
             // holders; the carousel owns slide presentation.
             fn (DOMElement $element): ?array => $this->imageLowering->convertImage($element, nativeImage: true),
-            function (DOMElement $element, array &$fallbacks): array {
-                return $this->convertChildren($element, $fallbacks, true);
-            }
+            $this
         );
         $visualIframeGenerator = new VisualIframeBlockGenerator(
             $this->sourceElementClassifier,
@@ -917,9 +912,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->styleResolver,
             $this,
             fn (DOMElement $element): bool => $this->runtimeIslands->isSafeTransparentCustomElement($element),
-            function (DOMElement $element, array &$fallbacks): array {
-                return $this->convertChildren($element, $fallbacks, true);
-            },
+            $this,
             fn (DOMElement $element): bool => $this->hasAuthorSemanticMarker($element),
             function (array $elements, array $innerBlocks, DOMElement $sourceElement): array {
                 return $this->layoutShells->blockForElements($elements, $innerBlocks, $sourceElement);

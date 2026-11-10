@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
@@ -33,7 +34,6 @@ final class AuthoredCarouselBlockGenerator
 
     /**
      * @param Closure(DOMElement): ?array<string, mixed> $convertImage
-     * @param Closure(DOMElement, array<int, array<string, mixed>>&): array<int, array<string, mixed>> $convertChildren
      */
     public function __construct(
         private readonly SourceElementClassifier $sourceElementClassifier = new SourceElementClassifier(),
@@ -43,7 +43,7 @@ final class AuthoredCarouselBlockGenerator
         private readonly ?Runtime $runtime = null,
         private readonly ?HtmlTransformerSession $session = null,
         private readonly ?Closure $convertImage = null,
-        private readonly ?Closure $convertChildren = null
+        private readonly ?PatternTreeConverter $tree = null
     ) {
         $this->recognitions = new SplObjectStorage();
     }
@@ -913,7 +913,7 @@ JS;
         $runtime = $this->runtime ?? throw new LogicException('AuthoredCarouselBlockGenerator was not wired for conversion.');
         $session = $this->session ?? throw new LogicException('AuthoredCarouselBlockGenerator was not wired for conversion.');
         $convertImage = $this->convertImage ?? throw new LogicException('AuthoredCarouselBlockGenerator was not wired for conversion.');
-        $convertChildren = $this->convertChildren ?? throw new LogicException('AuthoredCarouselBlockGenerator was not wired for conversion.');
+        $tree = $this->tree ?? throw new LogicException('AuthoredCarouselBlockGenerator was not wired for conversion.');
         $registry = $session->generatedBlockRegistry()
             ?? throw new LogicException('Generated block registry has not been prepared for this transform.');
 
@@ -924,7 +924,7 @@ JS;
             foreach ($element->childNodes as $item) {
                 if (!$item instanceof DOMElement) continue;
                 $fallbacks = array();
-                $children = $convertChildren($item, $fallbacks);
+                $children = $tree->children($item, $fallbacks, true);
                 if (1 === count($children)) $slides[] = $children[0];
                 else $slides[] = $createBlock->createBlock('core/group', array('layout' => array('type' => 'default')), $children, $item);
             }
@@ -1168,7 +1168,7 @@ JS;
                 $geometryStyles = $this->carrySourceGeometryIntoBlockTree($item, $styleResolver);
                 try {
                     $slideFallbacks = array();
-                    $children = $convertChildren($item, $slideFallbacks);
+                    $children = $tree->children($item, $slideFallbacks, true);
                     if ( array() === $children || array() !== $slideFallbacks ) {
                         if ( $temporary ) {
                             $item->parentNode?->removeChild($item);
