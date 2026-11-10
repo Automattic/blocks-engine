@@ -1502,6 +1502,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private function transformTimed(string $html, array $options, \Automattic\BlocksEngine\PhpTransformer\Support\StepTimer $timer): TransformerResult
     {
         $timer->start('transform.source_preparation');
+        $this->blockMaterializer->configureDeviceVisibility((string) ($options['declarative_state_html'] ?? $html));
         $validationEvidence = \Automattic\BlocksEngine\PhpTransformer\Contract\ValidationEvidencePolicy::fromOptions($options);
         $context = TransformationOptions::context($options);
         $startedAt = hrtime(true);

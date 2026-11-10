@@ -56,9 +56,9 @@ final class EngineMarker
         );
     }
 
-    /** Fallback class for a device-only marker whose profile core block visibility cannot express. */
+    /** Class for a device-only marker controlled by document selection rather than core viewports. */
     public const DEVICE_ONLY_CLASS_PREFIX = 'blocks-engine-device-only-';
-    /** Fallback class for a device-hide marker whose profile core block visibility cannot express. */
+    /** Class for a device-hide marker controlled by document selection rather than core viewports. */
     public const DEVICE_HIDE_CLASS_PREFIX = 'blocks-engine-device-hide-';
     private const CORE_VIEWPORTS = array('mobile', 'tablet', 'desktop');
 
@@ -67,8 +67,9 @@ final class EngineMarker
      *
      * @return array<string, false>
      */
-    public static function deviceViewportVisibility(DOMElement $element): array
+    public static function deviceViewportVisibility(DOMElement $element, bool $selectedDocument = false): array
     {
+        if ($selectedDocument) return array();
         $hidden = array_intersect(self::CORE_VIEWPORTS, self::deviceHideProfiles($element));
         $only = trim($element->getAttribute(CaptureEvidence::DEVICE_ONLY));
         if (in_array($only, self::CORE_VIEWPORTS, true)) {
@@ -78,17 +79,17 @@ final class EngineMarker
     }
 
     /**
-     * Fallback classes for device profiles outside core's mobile, tablet and desktop viewports.
+     * Classes for profiles outside core's viewports, or any profile selected by document identity.
      *
      * @return list<string>
      */
-    public static function deviceVisibilityClasses(DOMElement $element): array
+    public static function deviceVisibilityClasses(DOMElement $element, bool $selectedDocument = false): array
     {
         $classes = array();
         $only = trim($element->getAttribute(CaptureEvidence::DEVICE_ONLY));
-        if (self::isCustomDeviceProfile($only)) $classes[] = self::DEVICE_ONLY_CLASS_PREFIX . $only;
+        if (self::isDeviceClassProfile($only, $selectedDocument)) $classes[] = self::DEVICE_ONLY_CLASS_PREFIX . $only;
         foreach (self::deviceHideProfiles($element) as $hidden) {
-            if (self::isCustomDeviceProfile($hidden)) $classes[] = self::DEVICE_HIDE_CLASS_PREFIX . $hidden;
+            if (self::isDeviceClassProfile($hidden, $selectedDocument)) $classes[] = self::DEVICE_HIDE_CLASS_PREFIX . $hidden;
         }
         return $classes;
     }
@@ -99,9 +100,19 @@ final class EngineMarker
         return preg_split('/\s+/', trim($element->getAttribute(CaptureEvidence::DEVICE_HIDE)), -1, PREG_SPLIT_NO_EMPTY) ?: array();
     }
 
-    private static function isCustomDeviceProfile(string $profile): bool
+    private static function isDeviceClassProfile(string $profile, bool $selectedDocument): bool
     {
-        return 1 === preg_match('/^[a-z][a-z0-9_-]{0,63}$/D', $profile) && ! in_array($profile, self::CORE_VIEWPORTS, true);
+        return 1 === preg_match('/^[a-z][a-z0-9_-]{0,63}$/D', $profile) && ($selectedDocument || ! in_array($profile, self::CORE_VIEWPORTS, true));
+    }
+
+    /** The capture's live document gate, not a profile's spelling, owns visibility. */
+    public static function usesSelectedDocumentVisibility(string $html): bool
+    {
+        foreach (StyleTagScanner::scan($html) as $style) {
+            if (array_key_exists(CaptureEvidence::DEVICE_VISIBILITY, HtmlTagScanner::attributes($style['attributes']))
+                && str_contains($style['content'], CaptureEvidence::SELECTED_DOCUMENT)) return true;
+        }
+        return false;
     }
 
     public static function deviceScopeValue(DOMElement $element): string
