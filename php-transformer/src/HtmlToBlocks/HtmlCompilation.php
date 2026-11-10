@@ -307,6 +307,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly Elements\ListItemLowering $listItemLowering;
     private readonly Elements\StructuredInlineItemLowering $structuredInlineItemLowering;
     private readonly Elements\SyntheticImageFigureFlow $syntheticImageFigureFlow;
+    private readonly Elements\DefinitionListLowering $definitionLists;
     private readonly Elements\CustomImageHostLowering $customImageHosts;
     private readonly Elements\AnchorLowering $anchors;
     private readonly Elements\RenderNeutralElements $renderNeutral;
@@ -624,6 +625,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this
         );
         $this->syntheticImageFigureFlow = new Elements\SyntheticImageFigureFlow($this->styleResolver, $this->sourceElementClassifier, $this->tableClassificationPolicy, $this->layoutTables);
+        $this->definitionLists = new Elements\DefinitionListLowering($this, $this->runtime, $this->styleResolver);
         $this->structuredCardLists = new Elements\StructuredCardListLowering(
             $this,
             $this->styleResolver,
@@ -991,7 +993,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $descriptionListConverter = new DescriptionListElementConverter($this->sourceElementClassifier, $this, $this->styleResolver, $this->richTextMaterializer, new DescriptionListElementContext(
             fn (DOMElement $element): ?array => $this->descriptionListGenerator->convert($element),
             fn (DOMElement $element): ?array => $metadataGrid->convert($element),
-            fn (DOMElement $element): array => $this->definitionListItems($element),
+            fn (DOMElement $element): array => $this->definitionLists->definitionListItems($element),
             $this->authorLayoutOwnership,
             function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
                 return $this->convertChildren($element, $fallbacks, $captureUnsupported);
@@ -5178,41 +5180,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return $block;
         };
         return array_map($strip, $blocks);
-    }
-
-    /**
-     * @return array<int, array<string, mixed>>
-     */
-    private function definitionListItems(DOMElement $list): array
-    {
-        $items = array();
-        $term = '';
-
-        foreach ( $list->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-
-            $tagName = strtolower($child->tagName);
-            if ( 'dt' === $tagName ) {
-                $term = $this->styleResolver->innerHtml($child);
-                continue;
-            }
-
-            if ( 'dd' === $tagName ) {
-                $description = $this->styleResolver->innerHtml($child);
-                if ( '' === trim($this->runtime->stripAllTags($term . $description)) ) {
-                    continue;
-                }
-
-                $prefix = '' !== trim($term) ? '<strong>' . $term . '</strong>' : '';
-                $items[] = $this->createBlock('core/list-item', array_merge($this->styleResolver->presentationAttributes($child), array(
-                    'content' => trim($prefix . ( '' !== $prefix && '' !== trim($description) ? ' ' : '' ) . $description),
-                )), array(), $child);
-            }
-        }
-
-        return $items;
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed> */
