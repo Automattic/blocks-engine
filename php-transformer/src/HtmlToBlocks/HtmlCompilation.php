@@ -935,7 +935,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             },
             tree: $this,
             authorLayoutOwnership: $this->authorLayoutOwnership,
-            hasMultipleRuntimeInlineTextTargets: fn (DOMElement $element): bool => $this->hasMultipleRuntimeInlineTextTargets($element),
+            runtimeDomTargets: $this->runtimeIslands,
+            sourceElementClassifier: $this->sourceElementClassifier,
             paragraphBlockFromInlineContentWrapper: fn (DOMElement $element): ?array => $this->paragraphBlockFromInlineContentWrapper($element),
             inlineAddressableRunGroupBlock: fn (DOMElement $element): ?array => $this->inlineAddressableRunGroupBlock($element),
             proofBackedWrapperCoalescing: fn (DOMElement $element, array &$fallbacks): ?array => $this->proofBackedWrapperCoalescing($element, $fallbacks),
@@ -994,7 +995,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element)
             ),
             $this->projectedNavigation,
-            new PhrasingSvgConverter($this->svgMaterializer, $this, fn (DOMElement $element): bool => $this->inertElements->isInertHiddenSvgStorage($element)),
+            new PhrasingSvgConverter($this->svgMaterializer, $this, $this->inertElements),
              $capturedDialogConverter,
              new CapturedChoiceGroupConverter(
                  $this->session,
@@ -1131,8 +1132,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private function createNavigationToggleSuppressionContext(): NavigationToggleSuppressionContext
     {
         return new NavigationToggleSuppressionContext(
-            fn (DOMElement $element): bool => $this->sourceVisibility->startsHidden($element),
-            fn (DOMElement $element): bool => $this->sourceVisibility->orAncestorStartsHidden($element),
+            $this->sourceVisibility,
             PatternRecognizerRegistry::createDefault(new ProbeBlockCreator(), $this->runtime, $this->sourceElementClassifier, $this->richTextMaterializer),
             $this->patternProbeContext
         );
@@ -3874,25 +3874,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
         $paragraph = $this->createBlock('core/paragraph', array('className' => self::INLINE_LAYOUT_CARRIER_CLASS, 'content' => $content));
         return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), array($paragraph), $element);
-    }
-
-    private function hasMultipleRuntimeInlineTextTargets(DOMElement $element): bool
-    {
-        if ( ! ShellLandmarkPolicy::isInlineContentWrapperTag($element->tagName) || ! $this->sourceElementClassifier->hasOnlyPhrasingChildren($element) ) {
-            return false;
-        }
-
-        $targets = 0;
-        foreach ( $element->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-            if ( $this->runtimeIslands->isRuntimeDomTarget($child) ) {
-                ++$targets;
-            }
-        }
-
-        return 1 < $targets;
     }
 
     private function hasAuthorSemanticMarkedChild(DOMElement $element): bool

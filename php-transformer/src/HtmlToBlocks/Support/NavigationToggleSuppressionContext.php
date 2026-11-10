@@ -5,24 +5,17 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerRegistry;
-use Closure;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceElementVisibility;
 use DOMElement;
 
 /**
  * Explicit collaborator surface for {@see NavigationToggleSuppressor}.
- *
- * Per-transform state is read from the compilation's typed session. Closures
- * remain only for transformer-owned operations.
+
  */
 final class NavigationToggleSuppressionContext
 {
-    /**
-     * @param Closure(DOMElement): bool $sourceElementStartsHidden
-     * @param Closure(DOMElement): bool $sourceElementOrAncestorStartsHidden
-     */
     public function __construct(
-        private readonly Closure $sourceElementStartsHidden,
-        private readonly Closure $sourceElementOrAncestorStartsHidden,
+        private readonly SourceElementVisibility $sourceVisibility,
         private readonly PatternRecognizerRegistry $patternRecognizers,
         private readonly PatternContext $probePatternContext
     ) {
@@ -30,7 +23,7 @@ final class NavigationToggleSuppressionContext
 
     public function sourceElementStartsHidden(DOMElement $element): bool
     {
-        return ($this->sourceElementStartsHidden)($element);
+        return $this->sourceVisibility->startsHidden($element);
     }
 
     /**
@@ -43,7 +36,7 @@ final class NavigationToggleSuppressionContext
      */
     public function sourceElementOrAncestorStartsHidden(DOMElement $element): bool
     {
-        return ($this->sourceElementOrAncestorStartsHidden)($element);
+        return $this->sourceVisibility->orAncestorStartsHidden($element);
     }
 
     public function patternRecognizers(): PatternRecognizerRegistry
