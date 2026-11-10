@@ -99,6 +99,55 @@ unset($asset);
 $unequal = (new WordPressSitePlan())->fromCompilerResult($unequalInput);
 foreach ($unequal['pages'] as $page) $assert(str_contains($page['canonical_block_markup'], 'yui-popup-container-node'), 'Different typography rules keep the overlay route-owned.');
 
+// Force document-seeded markers at the compiler boundary, independently of
+// whether this small source fixture happens to allocate the same context seed.
+$markerCases = array(
+    'control separate rules' => array('control', 'equal', true),
+    'control grouped rule' => array('control', 'grouped', true),
+    'control unequal declarations' => array('control', 'unequal', false),
+    'control missing evidence' => array('control', 'missing', false),
+    'control different media' => array('control', 'media', false),
+    'control different container' => array('control', 'container', false),
+    'semantic equivalent' => array('semantic', 'equal', true),
+    'richtext equivalent' => array('richtext', 'equal', true),
+    'source kind equivalent' => array('source-button', 'equal', true),
+);
+foreach ($markerCases as $name => [$kind, $mode, $moves]) {
+    $markerInput = $input;
+    $markerClasses = array();
+    $markerRules = '';
+    foreach ($markerInput['source_reports']['compiled_site']['pages'] as $number => &$document) {
+        $class = 'blocks-engine-' . $kind . '-' . substr(hash('sha256', 'marker-route-' . $number), 0, 12) . '-' . $number;
+        $markerClasses[] = $class;
+        $document['block_markup'] = str_replace('yui-popup-container-node', 'yui-popup-container-node ' . $class, $document['block_markup']);
+        if ('missing' === $mode || 'grouped' === $mode) continue;
+        $width = 'media' === $mode && 2 === $number ? '900px' : '700px';
+        $container = 'container' === $mode && 2 === $number ? '600px' : '500px';
+        $display = 'unequal' === $mode && 2 === $number ? 'flex' : 'inline-flex';
+        $markerRules .= '@media(min-width:' . $width . '){@container(min-width:' . $container . '){.' . $class . '{display:' . $display . ';align-items:center}}}';
+    }
+    unset($document);
+    if ('grouped' === $mode) $markerRules = '.' . implode(',.', $markerClasses) . '{display:inline-flex;align-items:center}';
+    foreach ($markerInput['source_reports']['compiled_site']['assets'] as &$asset) {
+        if ('css' !== ($asset['kind'] ?? null) || !str_contains($asset['content'] ?? '', $generatedRules)) continue;
+        $asset['content'] .= $markerRules;
+        $asset['hash'] = hash('sha256', $asset['content']);
+        $asset['bytes'] = strlen($asset['content']);
+    }
+    unset($asset);
+    $markerPlan = (new WordPressSitePlan())->fromCompilerResult($markerInput);
+    WordPressSitePlan::assertValid($markerPlan);
+    $markerFooters = implode('', array_column(array_filter($markerPlan['template_parts'], static fn(array $part): bool => 'footer' === ($part['area'] ?? null)), 'canonical_block_markup'));
+    $assert(($moves ? 1 : 0) === substr_count($markerFooters, '<div id="yui_'), $name . ': footer owns exactly one overlay only with equivalent evidence.');
+    foreach ($markerPlan['pages'] as $page) {
+        $assert($moves !== str_contains($page['canonical_block_markup'], 'yui-popup-container-node'), $name . ': route ownership follows rule equivalence.');
+    }
+    if ($moves) {
+        $assert(str_contains($markerFooters, $markerClasses[0]), $name . ': the moved copy keeps its original marker.');
+        $assert(str_contains(implode("\n", array_column($markerPlan['assets'], 'content')), '.' . $markerClasses[0]), $name . ': emitted CSS still addresses the moved copy.');
+    }
+}
+
 $files['fourth.html'] = str_replace('Newsletter dispatch', 'Different authored newsletter', $files['team.html']);
 $varying = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray()['source_reports']['wordpress_site_plan'];
 foreach ($varying['pages'] as $page) $assert(str_contains($page['canonical_block_markup'], 'yui-popup-container-node'), 'Authored differences keep trailing overlays route-owned.');

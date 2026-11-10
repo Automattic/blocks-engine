@@ -310,7 +310,7 @@ final class ShellExtraction
                             if ($bindings['blocked']) continue;
                             $content = substr($markup, $range['offset'], $range['length']);
                             $identity = self::documentChromeIdentity($content, $markup);
-                            $identity = self::typographyChromeIdentity($identity, $original['source_path'], $assets);
+                            $identity = self::engineMarkerChromeIdentity($identity, $original['source_path'], $assets);
                             $evidence[$scope][$tailPosition][$identity][$original['source_path']] = array('content' => $content, 'refs' => $bindings['refs']);
                         }
                     }
@@ -398,25 +398,33 @@ final class ShellExtraction
     }
 
     /**
-     * Compare generated typography by its emitted rules, including conditional
+     * Compare generated markers by their emitted rules, including conditional
      * context. Missing evidence keeps the class significant. The emitted copy
      * keeps its original class, so support-CSS projection still sees its rules.
      */
-    private static function typographyChromeIdentity(string $markup, string $source, array $assets): string
+    private static function engineMarkerChromeIdentity(string $markup, string $source, array $assets): string
     {
-        preg_match_all('/\bblocks-engine-responsive-typography-[a-f0-9]+\b/', $markup, $matches);
-        foreach (array_unique($matches[0]) as $class) {
+        preg_match_all('/\bblocks-engine-responsive-typography-[a-f0-9]+\b/', $markup, $typography);
+        $classes = array_unique(array_merge(EngineMarker::all($markup), $typography[0]));
+        $replacements = array();
+        foreach ($classes as $class) {
+            $kind = EngineMarker::withoutDocumentSeeds($class);
+            if ($kind === $class) $kind = 'blocks-engine-responsive-typography';
             $rules = array();
             foreach ($assets as $asset) {
                 if ('css' !== ($asset['kind'] ?? null) || !StylesheetActivation::active($asset) || !self::stylesheetAppliesToPages($asset, array($source))) continue;
-                (new CssStylesheetTransformer())->visitStyleRules((string) ($asset['content'] ?? ''), static function (string $selector, string $body, array $ancestors) use ($class, &$rules): void {
-                    if (!preg_match('/\.' . preg_quote($class, '/') . '(?![\w-])/', $selector)) return;
-                    $rules[] = array($ancestors, str_replace($class, 'typography', trim($selector)), trim($body));
+                (new CssStylesheetTransformer())->visitStyleRules((string) ($asset['content'] ?? ''), static function (string $selector, string $body, array $ancestors) use ($class, $kind, &$rules): void {
+                    // A grouped rule can name several documents' copies. Compare
+                    // only the arms emitted for this marker, not its neighbours.
+                    foreach (CssStylesheetTransformer::splitSelectorList($selector) ?? array() as $arm) {
+                        if (!preg_match('/\.' . preg_quote($class, '/') . '(?![\w-])/', $arm)) continue;
+                        $rules[] = array($ancestors, str_replace($class, $kind, trim($arm)), trim($body));
+                    }
                 });
             }
-            if (array() !== $rules) $markup = str_replace($class, 'typography-' . RuntimeDeclarations::hash($rules), $markup);
+            if (array() !== $rules) $replacements[$class] = $kind . '-' . RuntimeDeclarations::hash($rules);
         }
-        return $markup;
+        return strtr($markup, $replacements);
     }
 
     /** @var array<string,array<int,array<string,mixed>>> Entities of this call's manifest declarations, by payload hash. */
