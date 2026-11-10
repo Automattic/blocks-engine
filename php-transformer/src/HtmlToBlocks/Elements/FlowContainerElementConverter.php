@@ -43,11 +43,16 @@ final class FlowContainerElementConverter implements ElementConverter
     /** @param array<int, array<string, mixed>> $fallbacks */
     public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
     {
-        if ( ! $this->handles($tagName) ) {
+        // Autonomous dialog hosts have the same light-DOM container semantics
+        // as div[role=dialog]. Keep them in the ordinary recognizer order rather
+        // than flattening their children through transparent-wrapper lowering.
+        $isCustomDialog = CustomElementRuntimeDependency::isCustomElementTag($tagName)
+            && 'dialog' === strtolower(trim(SourceDom::attr($element, 'role')));
+        if ( ! $this->handles($tagName) && ! $isCustomDialog ) {
             return ConversionOutcome::unhandled();
         }
 
-        return $this->lower($element, $tagName, $fallbacks);
+        return $this->lower($element, $isCustomDialog ? 'div' : $tagName, $fallbacks);
     }
 
     /**
