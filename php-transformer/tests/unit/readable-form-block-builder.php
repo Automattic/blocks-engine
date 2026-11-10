@@ -45,7 +45,8 @@ $createBlock = new SourceBlockCreatorFixture(static fn (string $name, array $att
     'attrs' => $attrs,
     'innerBlocks' => $innerBlocks,
 ));
-$presentation = new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array( 'className' => 'presented-' . strtolower($element->tagName) ));
+$presentationAttributes = static fn (DOMElement $element): array => array( 'className' => 'presented-' . strtolower($element->tagName) );
+$presentation = new ElementPresentationResolverFixture($presentationAttributes);
 $runtimeDomTargets = new RuntimeDomTargetsFixture(static fn (DOMElement $element): bool => $element->hasAttribute('data-runtime'));
 $recorded = array();
 $echoStart = count($session->transformationEvidenceState()->formControlEchoTexts());
@@ -106,7 +107,7 @@ $builder = new ReadableFormBlockBuilder(
     $controlConverter,
     $runtimeRecorder,
     $runtimeDomTargets,
-    $presentation,
+    $presentationAttributes,
     $ownership,
     $presentation,
     $createBlock,
