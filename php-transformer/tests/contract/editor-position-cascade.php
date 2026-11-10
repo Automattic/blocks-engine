@@ -12,8 +12,9 @@ $assert = static function (bool $condition, string $message): void {
 
 // A broad source rule positions every section absolutely while a more
 // specific source rule restores the flow of the rows. The editor mirror must
-// reproduce that cascade: the copies share one `:root .editor-styles-wrapper`
-// prefix, so without importance the specific `relative` copy keeps winning.
+// reproduce that cascade for every editor identity: the copies share one
+// `:root .editor-styles-wrapper` prefix, and id selectors also reach their
+// editor-anchor form, so the specific `relative` copy keeps winning.
 // An element matched only by the broad rule keeps its absolute editor copy.
 $html = '<!doctype html><html><head><meta charset="utf-8"><title>Editor important</title><style>'
     . '[data-kind]{position:absolute}'
