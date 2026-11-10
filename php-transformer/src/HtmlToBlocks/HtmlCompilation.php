@@ -22,9 +22,6 @@ use Automattic\BlocksEngine\PhpTransformer\WordPress\CoreBlockCapabilityMatrix;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CoreHtmlFallbackEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformationOptions;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\ContentRoundTripReporter;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\DeadProjectedSelectorReporter;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceMediaRetentionReporter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthorLayoutBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredCarouselBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
@@ -123,9 +120,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElemen
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\GutenbergGaps;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\InteractionFallbackReporter;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\TypographyParityAnalyzer;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\DiagnosticsCollector;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SemanticParityReporter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\AccordionPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CoverPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonPatternContext;
@@ -202,7 +196,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\TransformOptions
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ImageUrlResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializationContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer;
-use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use DOMDocument;
 use DOMElement;
@@ -382,13 +375,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly Diagnostics\FallbackBindingFinalizer $fallbackBindings;
     private readonly NavigationBlockNormalizer $navigationBlockNormalizer;
 
-    private readonly DiagnosticsCollector $diagnosticsCollector;
+    private readonly Diagnostics\CompilationValidation $validation;
 
-    private readonly SemanticParityReporter $semanticParityReporter;
 
-    private readonly ContentRoundTripReporter $contentRoundTripReporter;
-    private readonly SourceMediaRetentionReporter $sourceMediaRetentionReporter;
-    private readonly DeadProjectedSelectorReporter $deadProjectedSelectorReporter;
 
     /** @var list<array{authored: string, projected: string, stylesheet: string, scope: string}> */
     private array $projectedSelectorBindings = array();
@@ -462,14 +451,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $backgroundImageExtractor = new BackgroundImageExtractor();
         $this->tableClassificationPolicy = new TableClassificationPolicy();
         $this->navigationBlockNormalizer = new NavigationBlockNormalizer(fn (string $label): string => $this->normalizedNavigationLabel($label));
-        $this->diagnosticsCollector = new DiagnosticsCollector();
-        $this->semanticParityReporter = new SemanticParityReporter(
-            $this->runtime,
-            new TypographyParityAnalyzer(new FontMaterializationPlanBuilder($this->analysisCache->cssFontAnalysis))
-        );
-        $this->contentRoundTripReporter = new ContentRoundTripReporter();
-        $this->sourceMediaRetentionReporter = new SourceMediaRetentionReporter();
-        $this->deadProjectedSelectorReporter = new DeadProjectedSelectorReporter();
+        $this->validation = new Diagnostics\CompilationValidation($this->runtime, $this->session, $this->analysisCache->cssFontAnalysis);
         $this->reusableComponentRecognizer = new ReusableComponentRecognizer();
         $this->styleResolver = new StyleResolver($this->session, $this->createStyleResolutionContext(), $this->analysisCache);
         $this->sourceInterItemSpaces = new SourceInterItemSpaces($this->styleResolver, $this->sourceElementClassifier);
@@ -1783,66 +1765,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $reusableComponentRecognition = $classIdentity->rewrite($reusableComponentRecognition, $classReplacements);
         $this->projectedSelectorBindings = $classIdentity->rewrite($this->projectedSelectorBindings, $classReplacements);
         $this->session->assetMaterializationState()->restore($classIdentity->rewrite($assets, $classReplacements));
-        $timer->start('transform.validation.block_validity');
-        $blockValidityEvaluation = $this->runtime->evaluateBlockSerialization($blocks);
-        $blockValidityReport = $blockValidityEvaluation->report();
-        $timer->start('transform.validation.semantic_parity');
-        $semanticParityEvaluation = $this->semanticParityReporter->evaluate($body, $blocks, $sourceProvenance, $html, (string) ($options['static_css'] ?? ''));
-        $semanticParityReport = $semanticParityEvaluation->report($validationEvidence);
-        $timer->start('transform.validation.content_round_trip');
-        $contentRoundTripEvaluation = $this->contentRoundTripReporter->evaluate($serializedBlocks, $html, $this->session->transformationEvidenceState()->formControlEchoTexts());
-        $contentRoundTripReport = $contentRoundTripEvaluation->report();
-        // The round-trip check runs output ⊆ source to catch invented copy. This
-        // runs the other way for media, which nothing did: an image demoted to
-        // its own `alt` text is not absent, so every loss counter stayed at zero
-        // while the page lost its pictures.
-        $timer->start('transform.validation.media_retention');
-        $sourceMediaRetentionReport = $this->sourceMediaRetentionReporter->evaluate(
-            $html,
-            $serializedBlocks,
-            array_map(
-                static fn (array $asset): string => (string) ( $asset['content'] ?? '' ),
-                array_filter(
-                    $this->session->assetMaterializationState()->assets(),
-                    static fn (mixed $asset): bool => is_array($asset) && 'css' === ( $asset['kind'] ?? '' )
-                )
-            )
-        )->report();
-        $timer->start('transform.validation.dead_selectors');
-        $deadProjectedSelectorHaystack = $serializedBlocks;
-        foreach ( $shellArtifacts as $shellArtifact ) {
-            $deadProjectedSelectorHaystack .= "\n" . (string) ( $shellArtifact['block_markup'] ?? '' );
-        }
-        $deadProjectedSelectorEvaluation = $this->deadProjectedSelectorReporter->evaluate(
-            $this->projectedSelectorBindings,
-            array($this->currentSourcePath => $deadProjectedSelectorHaystack),
-            array($this->currentSourcePath => $html)
-        );
-        $deadProjectedSelectorsReport = $deadProjectedSelectorEvaluation->report();
-        $timer->start('transform.diagnostics');
-        $validationOutcome = \Automattic\BlocksEngine\PhpTransformer\Contract\HtmlValidationOutcome::fromValidationFacts(
-            $blockValidityEvaluation->status,
-            $blockValidityEvaluation->findings,
-            $semanticParityEvaluation->status(),
-            $semanticParityEvaluation->findings,
-            $contentRoundTripEvaluation->status(),
-            $contentRoundTripEvaluation->findings
-        );
-        $diagnostics = $this->diagnosticsCollector->collect(
-            HtmlTransformer::class,
-            $this->session->runtimeBehaviorState()->scriptMetadata(),
-            $fallbacks,
-            $this->session->runtimeDomState()->islands(),
-            $this->session->runtimeDomState()->preservations(),
-            $this->session->runtimeDomState()->fallbacks(),
-            $validationOutcome
-        );
-        foreach ( $deadProjectedSelectorEvaluation->findings as $finding ) {
-            $diagnostics[] = ConversionFindingContract::withClassification(array_merge($finding, array(
-                'source'  => HtmlTransformer::class,
-                'message' => (string) ($finding['summary'] ?? ''),
-            )));
-        }
+        $validation = $this->validation->validate($timer, $body, $blocks, $serializedBlocks, $sourceProvenance, $shellArtifacts, $fallbacks, $html, (string) ($options['static_css'] ?? ''), $validationEvidence, $this->projectedSelectorBindings, $this->currentSourcePath);
+        $validationOutcome = $validation->outcome;
+        $diagnostics = $validation->diagnostics;
         foreach ( $this->glyphColorUndecodable as $finding ) {
             $diagnostics[] = ConversionFindingContract::withClassification($finding);
         }
@@ -1914,11 +1839,11 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             'head_metadata' => $headMetadata,
             'runtime_dom_contracts' => $this->session->runtimeDomState()->preservations(),
             'runtime_dom_fallbacks' => $this->session->runtimeDomState()->fallbacks(),
-            'block_validity_report' => $blockValidityReport,
-            'semantic_parity_report' => $semanticParityReport,
-            'content_round_trip_report' => $contentRoundTripReport,
-            'source_media_retention_report' => $sourceMediaRetentionReport,
-            'dead_projected_selectors_report' => $deadProjectedSelectorsReport,
+            'block_validity_report' => $validation->blockValidityReport,
+            'semantic_parity_report' => $validation->semanticParityReport,
+            'content_round_trip_report' => $validation->contentRoundTripReport,
+            'source_media_retention_report' => $validation->sourceMediaRetentionReport,
+            'dead_projected_selectors_report' => $validation->deadProjectedSelectorsReport,
             'presentation_signals' => $this->session->transformationProvenanceState()->presentationSignals(),
             'frozen_hidden_state' => $this->session->transformationEvidenceState()->frozenHiddenStateFindings(),
             'dropped_link_wrappers' => $this->session->transformationEvidenceState()->droppedLinkWrapperFindings(),
