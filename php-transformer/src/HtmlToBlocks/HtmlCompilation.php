@@ -308,6 +308,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly Elements\StructuredInlineItemLowering $structuredInlineItemLowering;
     private readonly Elements\SyntheticImageFigureFlow $syntheticImageFigureFlow;
     private readonly Elements\DefinitionListLowering $definitionLists;
+    private readonly Elements\EmptyInteractiveFeatureShell $emptyFeatureShells;
     private readonly Elements\CustomImageHostLowering $customImageHosts;
     private readonly Elements\AnchorLowering $anchors;
     private readonly Elements\RenderNeutralElements $renderNeutral;
@@ -602,6 +603,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->runtime,
             $this->listStructure
         );
+        $this->emptyFeatureShells = new Elements\EmptyInteractiveFeatureShell($this->runtimeIslands, $this->wrapperCoalescer);
         $this->customVideoHosts = new Elements\CustomVideoHostLowering($this->session, $this->styleResolver, $this->imageUrls, $this->runtimeIslands, $this->mediaLowering, $this->imageLowering, $this->layoutShells);
         $this->listItemLowering = new Elements\ListItemLowering($this, $this, $this->runtime, $this->session, $this->styleResolver, $this->listStructure, $this->richTextMaterializer);
         $this->structuredInlineItemLowering = new Elements\StructuredInlineItemLowering($this, $this->runtime, $this->sourceElementClassifier, $this->styleResolver, $this->inlineSvgTextGroups);
@@ -1024,7 +1026,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 ));
                 return $this->htmlPreservationBlock($element);
             },
-            isEmptyInteractiveFeatureShell: fn (DOMElement $element): bool => $this->isEmptyInteractiveFeatureShell($element),
+            isEmptyInteractiveFeatureShell: fn (DOMElement $element): bool => $this->emptyFeatureShells->isEmptyInteractiveFeatureShell($element),
             capturePseudoFormFallback: function (DOMElement $element, array &$fallbacks): void { $this->formDispatcher->capturePseudoFormFallback($element, $fallbacks); },
             recognizePatterns: fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => $this->recognizePatterns($element, $fallbacks, $patterns),
             flankedSeparatorBlock: fn (DOMElement $element): ?array => $this->flankedSeparators->blockFromElement($element),
@@ -4387,47 +4389,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             }
         }
         return false;
-    }
-
-    /**
-     * Empty search and cart shells are dead platform chrome, not authored layout.
-     * Content, controls, media, links, and runtime bindings keep their existing
-     * native or capability-owned conversion path.
-     */
-    private function isEmptyInteractiveFeatureShell(DOMElement $element): bool
-    {
-        $identity = strtolower(trim($this->attr($element, 'class') . ' ' . $this->attr($element, 'id') . ' ' . $this->attr($element, 'role')));
-        if ( ! preg_match('/(?:^|[^a-z0-9])(?:search|cart)(?:[^a-z0-9]|$)/', $identity)
-            || '' !== SourceDom::renderedTextContent($element)
-            || $this->runtimeIslands->isRuntimeDomTarget($element)
-            || $this->wrapperCoalescer->isDirectChildOfStructuralLayout($element)
-            || $this->hasAuthorInlineAlignment($element)
-        ) {
-            return false;
-        }
-
-        foreach ( array( 'a', 'audio', 'button', 'canvas', 'iframe', 'img', 'input', 'object', 'picture', 'select', 'svg', 'textarea', 'video' ) as $tagName ) {
-            if ( 0 < $element->getElementsByTagName($tagName)->length ) {
-                return false;
-            }
-        }
-
-        foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement && $this->runtimeIslands->isRuntimeDomTarget($descendant) ) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private function hasAuthorInlineAlignment(DOMElement $element): bool
-    {
-        $declarations = $this->wrapperCoalescer->matchingAuthorDeclarations($element);
-        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
-        $verticalAlign = strtolower(trim((string) ($declarations['vertical-align'] ?? '')));
-        return in_array($display, array( 'inline', 'inline-block', 'inline-flex', 'inline-grid', 'inline-table' ), true)
-            && ! in_array($verticalAlign, array( '', 'baseline', 'inherit', 'initial', 'revert', 'revert-layer', 'unset' ), true);
     }
 
     private function preservesScriptStateWrapper(DOMElement $element): bool
