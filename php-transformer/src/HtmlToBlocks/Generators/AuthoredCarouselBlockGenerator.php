@@ -2393,18 +2393,19 @@ JS;
     /** Preserve authored responsive image holders below the runtime slide. */
     private function imageSlideContainers(array $imageBlock, DOMElement $image, DOMElement $item, StyleResolver $styleResolver, SourceBlockCreator $createBlock): array
     {
+        $positions = $styleResolver->authorDeclaredValuesAtAnyViewport($image, array('position'))['position'] ?? array();
+        $outOfFlow = in_array('absolute', array_map(static fn (string $value): string => strtolower(trim(CssValueInspector::withoutImportant($value))), $positions), true);
         $containers = array();
         for ( $node = $image->parentNode; $node instanceof DOMElement && $node !== $item; $node = $node->parentNode ) {
             if ( ! in_array(strtolower($node->tagName), array('div', 'span'), true)
                 || 1 !== $node->getElementsByTagName('img')->length
                 || '' !== trim($node->textContent ?? '')
             ) {
-                return $imageBlock;
+                return $outOfFlow ? $this->withoutSourceAttributeMarkers($imageBlock, $image, $styleResolver, $createBlock) : $imageBlock;
             }
             $containers[] = $node;
         }
-        $positions = $styleResolver->authorDeclaredValuesAtAnyViewport($image, array('position'))['position'] ?? array();
-        if ( array() !== $containers && in_array('absolute', array_map(static fn (string $value): string => strtolower(trim(CssValueInspector::withoutImportant($value))), $positions), true) ) {
+        if ( array() !== $containers && $outOfFlow ) {
             // The source crop contains an out-of-flow image, not a figure.
             // Keep unowned native figure margins from adding flow height under
             // authored figure resets; use core/image's native spacing contract.
@@ -2423,7 +2424,32 @@ JS;
             }
             $block = $createBlock->createBlock('core/group', $styleResolver->presentationAttributes($container), array($block), $container);
         }
-        return $block === $imageBlock ? $imageBlock : $createBlock->createBlock('core/group', array(), array($block));
+        if ( $block === $imageBlock ) {
+            return $outOfFlow ? $this->withoutSourceAttributeMarkers($imageBlock, $image, $styleResolver, $createBlock) : $imageBlock;
+        }
+        return $createBlock->createBlock('core/group', array(), array($block));
+    }
+
+    /**
+     * A flattened image slide drops the source boxes its out-of-flow image was
+     * placed in. Attribute-marker rules re-target an author selector whose
+     * ancestry named those boxes; carried onto the bare image they would place
+     * every slide against the shared track, so they stay with the dropped boxes.
+     */
+    private function withoutSourceAttributeMarkers(array $imageBlock, DOMElement $image, StyleResolver $styleResolver, SourceBlockCreator $createBlock): array
+    {
+        $markers = $styleResolver->sourceAttributeSelectorMarkers($image);
+        $classes = SourceDom::boundedClassTokens((string) ($imageBlock['attrs']['className'] ?? ''));
+        $kept = array_values(array_diff($classes, $markers));
+        if ( $kept === $classes ) {
+            return $imageBlock;
+        }
+        $attributes = $imageBlock['attrs'];
+        $attributes['className'] = implode(' ', $kept);
+        if ( '' === $attributes['className'] ) {
+            unset($attributes['className']);
+        }
+        return $createBlock->createBlock('core/image', $attributes);
     }
 
     /**
