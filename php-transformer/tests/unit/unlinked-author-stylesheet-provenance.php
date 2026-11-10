@@ -27,7 +27,7 @@ $bootstrap = '';
 foreach ($plan['writes'] as $write) {
     if ('functions.php' === ($write['target_path'] ?? null)) $bootstrap = BootstrapStyles::expand((string) $write['payload']['data']);
 }
-foreach (array('is_front_page()', "'about' === trim( get_page_uri( \$blocks_engine_page_id ), '/'") as $route) {
+foreach (array('is_front_page()', "'about' === \$blocks_engine_page_uri") as $route) {
     $inRoute = false;
     $linked = false;
     foreach (explode("\n", $bootstrap) as $line) {

@@ -136,12 +136,12 @@ final class AssetReferenceCanonicalizer
     {
         if (str_contains($content, '\\"')) {
             $content = self::replaceRegex('~(\b(?:src|href|poster)\s*=\s*\\\\")((?:\\\\/|[^"\\\\])*)(\\\\")~is', static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => $replace($value, '', self::attributeName($match[1]))) . $match[3], $content);
-            $content = self::replaceRegex('~(\bsrcset\s*=\s*\\\\")((?:\\\\/|[^"\\\\])*)(\\\\")~is', static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => self::srcset($value, static fn(string $reference): string => $replace($reference, '', 'srcset'))) . $match[3], $content);
+            $content = self::replaceRegex('~(\bsrcset\s*=\s*\\\\")((?:\\\\/|[^"\\\\])*)(\\\\")~is', static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => SrcsetParser::rewrite($value, static fn(string $reference): string => $replace($reference, '', 'srcset'))) . $match[3], $content);
             $content = self::replaceRegex('~(\bstyle\s*=\s*\\\\")((?:\\\\/|[^"\\\\])*)(\\\\")~is', static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => self::css($value, $replace)) . $match[3], $content);
         }
         if (str_contains($content, '\\u0022')) {
             $content = self::replaceDelimited('~(\b(?:src|href|poster)\s*=\s*\\\\u0022)~i', '\\u0022', $content, static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => $replace($value, '', self::attributeName($match[1]))) . $match[3]);
-            $content = self::replaceDelimited('~(\bsrcset\s*=\s*\\\\u0022)~i', '\\u0022', $content, static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => self::srcset($value, static fn(string $reference): string => $replace($reference, '', 'srcset'))) . $match[3]);
+            $content = self::replaceDelimited('~(\bsrcset\s*=\s*\\\\u0022)~i', '\\u0022', $content, static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => SrcsetParser::rewrite($value, static fn(string $reference): string => $replace($reference, '', 'srcset'))) . $match[3]);
             $content = self::replaceDelimited('~(\bstyle\s*=\s*\\\\u0022)~i', '\\u0022', $content, static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => self::css($value, $replace)) . $match[3]);
         }
         return $content;
@@ -316,7 +316,7 @@ final class AssetReferenceCanonicalizer
             if (CaptureEvidence::GALLERY_SEQUENCE === $name) {
                 $value = self::gallerySequence($original, static fn(string $reference): string => $replace($reference, $element, $name));
             } else {
-                $value = 'style' === $name ? self::css($original, $replace, $element) : ('srcset' === $name ? self::srcset($original, static fn(string $reference): string => $replace($reference, $element, $name)) : $replace($original, $element, $name));
+                $value = 'style' === $name ? self::css($original, $replace, $element) : ('srcset' === $name ? SrcsetParser::rewrite($original, static fn(string $reference): string => $replace($reference, $element, $name)) : $replace($original, $element, $name));
             }
             $chunks[] = substr($tag, $copied, $start - $copied);
             $chunks[] = $value;
@@ -366,7 +366,7 @@ final class AssetReferenceCanonicalizer
                         } elseif ( is_string($value) && 'style' === $field ) {
                             $values[$key] = self::css($value, $replace);
                         } elseif ( is_string($value) && 'srcset' === $field ) {
-                            $values[$key] = self::srcset($value, static fn(string $reference): string => $replace($reference, '', 'srcset'));
+                            $values[$key] = SrcsetParser::rewrite($value, static fn(string $reference): string => $replace($reference, '', 'srcset'));
                         } elseif ( is_string($value) && in_array($field, array('url', 'src', 'href', 'poster', 'action'), true) ) {
                             $attribute = ($route && 'url' === $field) || in_array($field, array('href', 'action'), true) ? 'route_' . $field : $field;
                             $values[$key] = $replace($value, '', 'json:' . $attribute);
@@ -395,7 +395,7 @@ final class AssetReferenceCanonicalizer
             $field = strtolower($match[2]);
             $attribute = 'json:' . (($route && 'url' === $field) || in_array($field, array('href', 'action'), true) ? 'route_' . $field : $field);
             $jsonReplace = static fn(string $reference): string => self::escapedJsonValue($reference, static fn(string $value): string => $replace($value, '', $attribute));
-            $value = 'srcset' === strtolower($match[2]) ? self::srcset($match[3], $jsonReplace) : $jsonReplace($match[3]);
+            $value = 'srcset' === strtolower($match[2]) ? SrcsetParser::rewrite($match[3], $jsonReplace) : $jsonReplace($match[3]);
             return $match[1] . $value . (str_contains($match[0], '\\u0022') ? '\\u0022' : '"');
         }, $comment);
     }
@@ -412,12 +412,6 @@ final class AssetReferenceCanonicalizer
         $normalized = str_replace('\\/', '/', $value);
         $rewritten = $rewrite($normalized);
         return $normalized === $rewritten ? $value : $rewritten;
-    }
-
-    /** @param callable(string):string $replace */
-    private static function srcset(string $value, callable $replace): string
-    {
-        return SrcsetParser::rewrite($value, $replace);
     }
 
     private static function relativeIdentity(string $reference, string $origin): string

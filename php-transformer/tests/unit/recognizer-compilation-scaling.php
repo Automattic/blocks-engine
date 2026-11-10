@@ -36,9 +36,7 @@ foreach (array_keys($expected) as $n) {
     if ($expected[$n] !== $hash) throw new RuntimeException('Recognizer output changed for ' . $n . ' sections: ' . $hash);
     printf("%d sections: %.3fs; hash %s\n", $n, $times[$n], $hash);
 }
-// PHP 8.2 walks a DOMNodeList quadratically, so every whole-document scan
-// grows with page size there regardless of recognizer reuse.
-if (PHP_VERSION_ID >= 80300 && $times[128] / 128 > 2.0 * $times[8] / 8) {
+if ($times[128] / 128 > 2.0 * $times[8] / 8) {
     throw new RuntimeException('Recognizer per-section cost grew superlinearly: ' . json_encode($times));
 }
 fwrite(STDOUT, "Recognizer compile scaling regression passed.\n");

@@ -39,7 +39,7 @@ final class CapturedChoiceGroupConverter implements ElementConverter
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */
-    public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
         if ('true' !== SourceDom::attr($element, 'data-blocks-engine-choice-group')) {
             return ConversionOutcome::unhandled();

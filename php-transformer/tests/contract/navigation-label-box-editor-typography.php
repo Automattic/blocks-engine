@@ -12,8 +12,9 @@ $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 
 $frontend = array('blocks' => $result['serialized_blocks'], 'assets' => array_values(array_filter($result['assets'], static fn(array $asset): bool => 'editor' !== ($asset['stylesheet_target'] ?? 'both'))));
 // Baseline after navigation target sharing: equivalent links and retained
 // label boxes share markers and structural selectors instead of enumerating positions.
+// Duplicate subject removal also removes a redundant single-arm :is().
 // Keep serialized runtime metadata and every non-editor asset byte-locked.
-if ('37bcabce32c151be72163b427766f37399be4b36475b6e2542c7b962bc0ce824' !== hash('sha256', json_encode($frontend))) {
+if ('f14a327af4f0a5aecfc5840bb356f7924d07af6a93c3cf65641c2ba83617b551' !== hash('sha256', json_encode($frontend))) {
     throw new RuntimeException('Frontend markup or stylesheet output changed.');
 }
 $native = StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($result['serialized_blocks']);

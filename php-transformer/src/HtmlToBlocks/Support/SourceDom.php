@@ -315,6 +315,11 @@ final class SourceDom
                 continue;
             }
 
+            if ( self::hasBlankHref($anchor) ) {
+                $anchor->setAttribute('href', '');
+                continue;
+            }
+
             $href = LinkUrlSanitizer::sanitize($anchor->getAttribute('href'));
             if ( '' === $href ) {
                 $anchor->removeAttribute('href');
@@ -324,6 +329,16 @@ final class SourceDom
                 $anchor->setAttribute('href', $href);
             }
         }
+    }
+
+    /**
+     * A present but blank `href` is a same-document reference, which is not
+     * the same thing as a missing or unsafe destination. Script-driven
+     * controls commonly use it, and it keeps the link focusable.
+     */
+    public static function hasBlankHref(DOMElement $element): bool
+    {
+        return $element->hasAttribute('href') && '' === trim($element->getAttribute('href'), " \t\n\r\f");
     }
 
     public static function attr(DOMElement $element, string $name): string
@@ -801,6 +816,16 @@ final class SourceDom
         }
     }
 
+    public static function ancestorElement(DOMElement $element, string $tagName): ?DOMElement
+    {
+        for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+            if ( $tagName === strtolower($parent->tagName) ) {
+                return $parent;
+            }
+        }
+        return null;
+    }
+
     /**
      * @return array<int, string>
      */
@@ -916,6 +941,29 @@ final class SourceDom
         return in_array(strtolower($element->tagName), array( 'span', 'font', 'strong', 'em', 'b', 'i', 'small', 'mark', 'sub', 'sup', 'u', 's', 'del', 'ins', 'abbr', 'cite', 'code', 'kbd', 'samp', 'time', 'var' ), true)
             && ! $element->hasAttribute('role')
             && self::hasOnlySafeFallbackAttributes($element);
+    }
+
+    /**
+     * An element with `role="img"` whose content is only images is one named
+     * graphic (ARIA makes its descendants presentational), not phrasing
+     * content: it becomes a group of native images carrying the accessible
+     * name, never inline RichText.
+     */
+    public static function isImageOnlyNamedGraphic(DOMElement $element): bool
+    {
+        if ( 'img' !== strtolower(trim(self::attr($element, 'role'))) || 'img' === strtolower($element->tagName) || '' !== trim($element->textContent ?? '') ) {
+            return false;
+        }
+
+        $images = 0;
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( 'img' !== strtolower($descendant->tagName) ) {
+                return false;
+            }
+            ++$images;
+        }
+
+        return 0 < $images;
     }
 
     /**

@@ -21,6 +21,15 @@ final class ScopedAnchorSelectorProjection
             // that hidden copy; the dialog carries the id as its anchor class.
             if (array() !== $source->sourceElementsByClass(EngineMarker::editorAnchorClass($id))) { $ids[$id] = true; continue; }
             $elements = $source->sourceElementsById($id);
+            // A capture may already have renamed a variant's copy to the
+            // variant suffix (`#x--data-blocks-engine-capture-mobile`) and
+            // aliased its rules as `:is(#x,#x--…)`. Both names stay one scoped
+            // identity; counting each as unique would replay every such rule.
+            foreach ($elements as $element) {
+                $suffix = SourceDom::documentVariantIdSuffix($element);
+                $base = '' !== $suffix && str_ends_with($id, $suffix) ? substr($id, 0, -strlen($suffix)) : '';
+                if ('' !== $base && array() !== $source->sourceElementsById($base)) { $ids[$id] = $ids[$base] = true; continue 2; }
+            }
             if (count($elements) < 2) continue;
             foreach ($elements as $element) {
                 $root = SourceDom::documentVariantRoot($element);

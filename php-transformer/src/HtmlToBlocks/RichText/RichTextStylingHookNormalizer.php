@@ -371,6 +371,11 @@ final class RichTextStylingHookNormalizer
         while ( null !== $element->firstChild ) {
             $mark->appendChild($element->firstChild);
         }
+        // RichText discards an empty element unless it matches a registered
+        // format, and core's inline color format is `mark.has-inline-color`.
+        if ( '' === trim($mark->textContent ?? '') && 0 === $mark->getElementsByTagName('img')->length ) {
+            $mark->setAttribute('class', SourceDom::mergeClassNames($mark->getAttribute('class'), 'has-inline-color'));
+        }
 
         $parent = $element->parentNode;
         if ( ! $parent instanceof DOMNode ) {

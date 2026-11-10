@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ImageLowering;
 use DOMElement;
 
 use Closure;
@@ -25,7 +26,7 @@ final class PatternContext
      * @param QuotePatternContext|null $quoteContext
      * @param CodeWindowPatternContext|null $codeWindowContext
      * @param LogoPatternContext|null $logoContext
-     * @param GalleryPatternContext|null $galleryContext
+     * @param ImageLowering|null $images
      * @param Closure(DOMElement): bool|null $sourceElementStartsHidden
      * @param Closure(string, string): void|null $glyphColorUndecodable
      * @param Closure(DOMElement): string|null $capturedGlyphColor
@@ -43,7 +44,7 @@ final class PatternContext
         private readonly ?QuotePatternContext $quoteContext = null,
         private readonly ?CodeWindowPatternContext $codeWindowContext = null,
         private readonly ?LogoPatternContext $logoContext = null,
-        private readonly ?GalleryPatternContext $galleryContext = null,
+        private readonly ?ImageLowering $images = null,
         private readonly ?Closure $sourceElementStartsHidden = null,
         private readonly ?DisclosureControlPresentation $disclosure = null,
         private readonly ?StyleResolver $styles = null,
@@ -141,7 +142,7 @@ final class PatternContext
     public function quoteContext(): ?QuotePatternContext { return $this->quoteContext; }
     public function codeWindowContext(): ?CodeWindowPatternContext { return $this->codeWindowContext; }
     public function logoContext(): ?LogoPatternContext { return $this->logoContext; }
-    public function galleryContext(): ?GalleryPatternContext { return $this->galleryContext; }
+    public function images(): ?ImageLowering { return $this->images; }
     public function sourceElementStartsHidden(DOMElement $element): bool
     {
         if ( null !== $this->sourceElementStartsHidden ) {

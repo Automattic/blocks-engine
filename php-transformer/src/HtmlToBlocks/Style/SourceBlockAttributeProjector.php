@@ -37,6 +37,8 @@ final class SourceBlockAttributeProjector
     public const CSS_OWNED_INLINE_FLOW_CLASS = 'blocks-engine-css-owned-inline-flow';
     public const CSS_OWNED_LAYOUT_ITEM_CLASS = 'blocks-engine-css-owned-layout-item';
     public const LAYOUT_NEUTRAL_BUTTONS_CLASS = 'blocks-engine-layout-neutral-buttons';
+    /** A group standing in for an inline wrapper around flow content; it generates no box. */
+    public const INLINE_FLOW_WRAPPER_CLASS = 'blocks-engine-inline-flow-wrapper';
     public const LAYOUT_NEUTRAL_BUTTON_CLASS = 'blocks-engine-layout-child-button';
 
     private const SYNTHETIC_HEADER_ANCHOR_CLASS_PREFIX = 'blocks-engine-synthetic-header-anchor-';
@@ -417,7 +419,10 @@ final class SourceBlockAttributeProjector
     public function sourceProjectionClassName(DOMElement $element, SourceBlockAttributeProjectionContext $context, string $className = ''): string
     {
         if ( '' !== $context->authorStyles->combinedCss() ) {
-            foreach ( SourceDom::boundedClassTokens(SourceDom::attr($element, 'class')) as $class ) {
+            // The stylesheet projector rewrites every authored class selector
+            // to its marker, whatever the token's length or position, so every
+            // class on the element must carry its marker too.
+            foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class')), -1, PREG_SPLIT_NO_EMPTY) ?: array() as $class ) {
                 $marker = $context->authorStyles->sourceClassMarker($class);
                 if ( '' !== $marker ) {
                     $className = SourceDom::mergeClassNames($className, $marker);
@@ -625,7 +630,7 @@ final class SourceBlockAttributeProjector
                         $this->generatedStyleProjector->registerDirectFlexButton($controlMarker, $logicalControl, $context->generatedStyles);
                     }
                     if ( ! $childOwnedOffsets ) {
-                        $this->registerButtonWidth($attrs, $controlMarker, $logicalControl, $context);
+                        $this->registerButtonWidth($attrs, $controlMarker, $logicalControl, $context, $participation instanceof LayoutParticipation && $participation->neutralizeButtonWrapper());
                     }
                 }
             }
@@ -657,7 +662,7 @@ final class SourceBlockAttributeProjector
                 : 'blocks-engine-native-button-alignment-' . $nativeButtonTextAlignment;
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $nativeButtonMarker);
             $this->generatedStyleProjector->registerNativeButtonStyleRule($nativeButtonMarker, $hasNativeButtonColor ? $attrs : array(), $context->generatedStyles, $nativeButtonTextAlignment);
-            $this->registerButtonWidth($attrs, $nativeButtonMarker, $logicalControl, $context);
+            $this->registerButtonWidth($attrs, $nativeButtonMarker, $logicalControl, $context, $participation instanceof LayoutParticipation && $participation->neutralizeButtonWrapper());
         }
         if ( 'core/button' === $name
             && 1 === preg_match('/(?:^|\s)(blocks-engine-native-button-alignment-(?:start|end|left|center|right))(?:\s|$)/', (string) ($attrs['className'] ?? ''), $alignmentMarker)
@@ -768,7 +773,7 @@ final class SourceBlockAttributeProjector
      *
      * @param array<string, mixed> $attrs
      */
-    private function registerButtonWidth(array $attrs, string $marker, DOMElement $sourceControl, SourceBlockAttributeProjectionContext $context): void
+    private function registerButtonWidth(array $attrs, string $marker, DOMElement $sourceControl, SourceBlockAttributeProjectionContext $context, bool $wrappersNeutralized): void
     {
         $buttonWidth = (int) ($attrs['width'] ?? 0);
         if ( ! in_array($buttonWidth, array( 25, 50, 75, 100 ), true) ) {
@@ -781,7 +786,7 @@ final class SourceBlockAttributeProjector
                 }
             }
         }
-        $this->generatedStyleProjector->registerButtonWidth($marker, $buttonWidth, $context->generatedStyles);
+        $this->generatedStyleProjector->registerButtonWidth($marker, $buttonWidth, $context->generatedStyles, $wrappersNeutralized);
     }
 
     /** @param array<int, array<string, mixed>> $innerBlocks */

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Closure;
 use DOMElement;
 
@@ -12,7 +13,7 @@ final class DetailsElementContext
     public function __construct(
         private readonly Closure $capturedDisclosureDialog,
         private readonly Closure $capturedDialogBlock,
-        private readonly Closure $recognizePatterns
+        private readonly PatternTreeConverter $tree
     ) {
     }
 
@@ -34,6 +35,6 @@ final class DetailsElementContext
      */
     public function recognizePatterns(DOMElement $element, array &$fallbacks, array $patterns): ?array
     {
-        return ($this->recognizePatterns)($element, $fallbacks, $patterns);
+        return $this->tree->patterns($element, $fallbacks, $patterns);
     }
 }

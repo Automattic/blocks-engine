@@ -43,7 +43,7 @@ if ( ! $anchor instanceof DOMElement ) {
 $fallbacks = array();
 $assert(false === $context->isRuntimeDomTarget($anchor), 'null runtime-island checker is not a runtime target');
 $assert('core/html' === ($context->htmlPreservationBlock($anchor)['blockName'] ?? ''), 'null createBlock still preserves HTML');
-$assert(null === $context->recognizePatterns($anchor, $fallbacks, array()), 'null registry yields no pattern match');
+$assert(null === $context->recognizePatterns($anchor, $fallbacks, array()), 'null pattern tree yields no pattern match');
 $assert(null === $context->imageBlockFromAnchor($anchor), 'null leftovers yield no linked image');
 $assert(null === $context->convertLinkWrapperGroup($anchor, $fallbacks), 'null leftovers yield no link wrapper');
 $assert('/x' === $context->safeLinkUrl('/x'), 'safe link URLs are sanitized without a closure');

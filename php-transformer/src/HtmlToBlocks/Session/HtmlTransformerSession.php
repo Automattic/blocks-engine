@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackEmitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProjectionState;
@@ -13,6 +15,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\PresentationResolu
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceStyleResolutionState;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription;
+use DOMElement;
 
 /**
  * Mutable data accumulated while converting one HTML document.
@@ -70,6 +73,13 @@ final class HtmlTransformerSession
     {
         return $this->authorStyleAnalysis
             ?? throw new \LogicException('Author styles have not been prepared for this transform.');
+    }
+
+    public function authorStyleRuleCandidates(DOMElement $element, ?CssSelectorMatchCache $selectorCache = null): array
+    {
+        $index = $this->authorStyleAnalysis()->styleRuleCandidateIndex();
+        $selectorCache ??= $this->sourceStyleResolutionState()->selectorMatchCache;
+        return $selectorCache->styleRuleCandidates($element, 'author-rules', $index);
     }
 
     public function installLayoutGeometryState(LayoutGeometryState $state): void
@@ -163,6 +173,36 @@ final class HtmlTransformerSession
     public function runtimeBehaviorState(): RuntimeBehaviorState
     {
         return $this->runtimeBehaviorState;
+    }
+
+    /** Records a native disclosure root and supersedes the local-disclosure runtime selectors inside it. */
+    public function rememberNativeDisclosure(DOMElement $root): void
+    {
+        $this->runtimeBehaviorState->rememberNativeDisclosureRoot($root->getNodePath() ?? '');
+        foreach ( array_merge(array( $root ), iterator_to_array($root->getElementsByTagName('*'), false)) as $node ) {
+            if ( $node instanceof DOMElement && 'true' === strtolower($node->getAttribute(CaptureEvidence::LOCAL_DISCLOSURE)) ) {
+                $this->runtimeSelectorState()->supersede('[' . CaptureEvidence::LOCAL_DISCLOSURE . ']');
+                if ( '' !== $node->getAttribute('id') ) {
+                    $this->runtimeSelectorState()->supersede('#' . $node->getAttribute('id'));
+                }
+            }
+        }
+    }
+
+    /** Records the tab controls of the first tablist inside a native tabs root. */
+    public function rememberNativeTabControls(DOMElement $tabsRoot): void
+    {
+        foreach ( $tabsRoot->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || 'tablist' !== strtolower(trim($child->getAttribute('role'))) ) {
+                continue;
+            }
+            foreach ( $child->getElementsByTagName('*') as $candidate ) {
+                if ( $candidate instanceof DOMElement && 'tab' === strtolower(trim($candidate->getAttribute('role'))) ) {
+                    $this->runtimeBehaviorState->rememberNativeTabControl($candidate->getNodePath() ?? '');
+                }
+            }
+            break;
+        }
     }
 
     public function navigationProjectionState(): NavigationProjectionState

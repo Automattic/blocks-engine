@@ -19,6 +19,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\PatternTreeFixture;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
@@ -54,10 +55,10 @@ $createBlock = new SourceBlockCreatorFixture(static fn (string $name, array $att
 $builder = null;
 $sawInside = false;
 $builder = new NativeGetFormBlockBuilder(
-    static function (DOMElement $form, array &$fallbacks) use (&$builder, &$sawInside): array {
+    new PatternTreeFixture(children: static function (DOMElement $form, array &$fallbacks) use (&$builder, &$sawInside): array {
         $sawInside = $builder instanceof NativeGetFormBlockBuilder && $builder->isInside();
         return array( array( 'blockName' => 'core/paragraph' ) );
-    },
+    }),
     static fn (DOMElement $element): array => array(),
     $createBlock,
     $session

@@ -5,7 +5,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssFontShorthand;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssFontShorthand;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 
 $assert = static function (bool $ok, string $message): void {
@@ -50,6 +50,14 @@ foreach (array('caption', 'menu', 'inherit', 'initial', 'unset', 'revert', 'reve
 $expanded = CssFontShorthand::expand('italic small-caps bold 18px "PT Sans",Arial,sans-serif!important');
 foreach (array('font-style' => 'italic', 'font-variant' => 'small-caps', 'font-weight' => 'bold', 'font-size' => '18px', 'line-height' => 'normal', 'font-family' => '"PT Sans",Arial,sans-serif') as $property => $value) {
     $assert($value . ' !important' === ($expanded[$property] ?? null), 'expand ' . $property);
+}
+foreach (array(
+    '  italic  700 18px / 1.6em "Example Light", Example, sans-serif',
+    'normal normal normal 18px/1.6em Example Light,Example,sans-serif',
+) as $shorthand) {
+    $font = CssFontShorthand::expand($shorthand, false, $familyOffset);
+    $assert(isset($font['font-family']) && null !== $familyOffset, 'ordinary shorthands expose a family offset');
+    $assert(str_starts_with(substr($shorthand, $familyOffset), '"Example Light"') || str_starts_with(substr($shorthand, $familyOffset), 'Example Light'), 'family offset preserves the original prefix bytes');
 }
 // The same block is read by both authored projection and cascade consumers.
 $resolver = (new ReflectionClass(StyleResolver::class))->newInstanceWithoutConstructor();

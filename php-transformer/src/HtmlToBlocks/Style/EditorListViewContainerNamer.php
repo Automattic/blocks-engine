@@ -25,14 +25,6 @@ final class EditorListViewContainerNamer
     /** @var array<int, string> */
     private const NESTED_SECTIONING_TAGS = array( 'article', 'aside', 'nav', 'section' );
 
-    /** @var array<string, string> */
-    private const LANDMARK_LABELS = array(
-        'header' => 'Header',
-        'nav'    => 'Navigation',
-        'main'   => 'Main',
-        'footer' => 'Footer',
-    );
-
     private const MAX_NAME_LENGTH = 80;
 
     /**
@@ -71,8 +63,8 @@ final class EditorListViewContainerNamer
         $tag  = strtolower((string) ($attrs['tagName'] ?? $sourceElement->tagName));
         $role = strtolower(SourceDom::attr($sourceElement, 'role'));
         $landmark = ShellLandmarkPolicy::landmarkKind($tag, $role);
-        if ( isset(self::LANDMARK_LABELS[ $landmark ]) ) {
-            return self::LANDMARK_LABELS[ $landmark ];
+        if ( isset(ShellLandmarkPolicy::LANDMARK_LABELS[ $landmark ]) ) {
+            return ShellLandmarkPolicy::LANDMARK_LABELS[ $landmark ];
         }
         if ( 'aside' === $tag || 'complementary' === $role ) {
             return 'Aside';

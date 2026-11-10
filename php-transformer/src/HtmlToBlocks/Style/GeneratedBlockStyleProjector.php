@@ -706,11 +706,17 @@ final class GeneratedBlockStyleProjector
             $controlStyle,
             $this->styleResolver->authorStructuralDeclarations($control)
         ) ? '' : ';min-width:0';
+        // Core's link `word-break:break-word` turns every character into a soft
+        // wrap opportunity, so the wrapper's min-content contribution collapses
+        // to one glyph and a squeezed row stacks the label letter by letter.
+        // Restore the initial value at Core's weight; this sheet follows Core's,
+        // and an authored word-break projected onto the link still outranks it.
         $generatedStyles->registerDirectFlexButton(
             $marker,
             $wrapper . '{display:block!important;gap:0!important' . $wrapperFloor . '}'
                 . $button . '{display:block!important;margin:0!important;min-width:0' . ($stretchesCrossAxis ? ';width:100%!important' : '') . '}'
                 . $link . '{box-sizing:border-box' . ($stretchesCrossAxis ? ';width:100%!important' : '') . '}'
+                . $button . '>.wp-block-button__link{word-break:normal}'
                 . ($hasWidth || ! $isFlex ? '' : $wrapper . '{width:auto!important}')
                 . ($isGrid ? $button . '{width:100%}' : '')
                 . ($isFlex ? $button . '{width:100%!important;height:100%}' . $link . '{' . ($hasWidth ? '' : 'width:100%!important;') . 'height:100%}' : '')
@@ -795,16 +801,24 @@ final class GeneratedBlockStyleProjector
         return true;
     }
 
-    public function registerButtonWidth(string $marker, int $width, GeneratedSupportStylesheetState $generatedStyles): void
+    /**
+     * Neutralized wrappers are `display:contents`, so the link is the box that
+     * participates in the source layout and carries the width itself. Restating
+     * `display:block` on those wrappers would reinstate boxes the source never
+     * had and stop the link from stretching across its grid or flex line.
+     */
+    public function registerButtonWidth(string $marker, int $width, GeneratedSupportStylesheetState $generatedStyles, bool $wrappersNeutralized = false): void
     {
         $wrapper = ':where(.' . $marker . '.wp-block-buttons)';
         $button = ':where(.' . $marker . '.wp-block-buttons)>:where(.' . $marker . '.wp-block-button)';
         $link = $button . '>:where(.wp-block-button__link)';
-        $rule = 100 !== $width
+        $rule = $wrappersNeutralized
+            ? $link . '{box-sizing:border-box;width:' . (string) $width . '%!important}'
+            : ( 100 !== $width
             ? $button . '{width:' . (string) $width . '%!important}' . $link . '{box-sizing:border-box;width:100%!important}'
             : $wrapper . '{display:block!important;gap:0!important;width:100%!important}'
                 . $button . '{display:block!important;margin:0!important;width:100%!important}'
-                . $link . '{box-sizing:border-box;width:100%!important}';
+                . $link . '{box-sizing:border-box;width:100%!important}' );
         $generatedStyles->registerButtonWidth($marker, $rule);
     }
 

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ImageUrlResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ImageDimensionResolver;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
@@ -23,7 +25,7 @@ use DOMElement;
  * block, keeping the host's box as a layout shell when its presentation needs
  * one, and decides when an image-only custom element can be promoted.
  */
-final class CustomImageHostLowering
+final class CustomImageHostLowering implements ElementConverter
 {
     public function __construct(
         private readonly SourceBlockCreator $blocks,
@@ -35,8 +37,32 @@ final class CustomImageHostLowering
         private readonly ImageLowering $imageLowering,
         private readonly LayoutShellLowering $layoutShells,
         private readonly RuntimeIslandAnalyzer $runtimeIslands,
-        private readonly AuthorLayoutOwnership $authorLayoutOwnership
+        private readonly AuthorLayoutOwnership $authorLayoutOwnership,
+        private readonly ImageDimensionResolver $imageDimensions,
+        private readonly ImageUrlResolver $imageUrls
     ) {
+    }
+
+    /** Lowers an image-only custom element host (a lone image inside a custom tag). */
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
+    {
+        $customImage = SourceDom::imageOnlyCustomElement($element);
+        if ( ! $customImage instanceof DOMElement ) {
+            return ConversionOutcome::unhandled();
+        }
+        $this->imageDimensions->fillParentImageViewportPair($customImage);
+        if ('' === $this->imageUrls->sourceUrl($customImage) && !$customImage->hasAttribute('srcset')) {
+            return ConversionOutcome::handled(null);
+        }
+        if ( ! $this->canPromoteImageOnly($element, $customImage) ) {
+            return ConversionOutcome::handled($this->nativeImageIn($element, $customImage) ?? $this->imageLowering->responsiveMediaBlock($element));
+        }
+        $picture = $customImage->parentNode;
+        return ConversionOutcome::handled($this->imageLowering->convertImage(
+            $customImage,
+            $element,
+            $picture instanceof DOMElement && 'picture' === strtolower($picture->tagName) ? $picture : null
+        ));
     }
 
     /** Retain a static host box around independently editable native media. */
@@ -47,7 +73,7 @@ final class CustomImageHostLowering
         // interactive hosts must keep their original inline control topology.
         if (!$this->runtimeIslands->isSafeTransparentCustomElement($host)
             || ($this->hasBlockFigureDisplay($host) && !$host->hasAttribute('data-image-info'))
-            || $this->authorLayoutOwnership->ancestorElement($host, 'button') instanceof DOMElement
+            || SourceDom::ancestorElement($host, 'button') instanceof DOMElement
             || $this->runtimeIslands->isRuntimeDomTarget($host)
             || array() !== $this->sourceElementDescription->interactiveAttributes($host)
             || array() !== $this->session->authorSelectorProjectionState()->semanticMarkersForElement($host)) {
@@ -99,9 +125,8 @@ final class CustomImageHostLowering
             && ! $this->canGroupPicturelessImageHost($host, $image, $link)) {
             return $this->layoutShells->blockForElements($wrappers, array($block), $host);
         }
-        // These static boxes have no source-selection behavior. CSS-owned
-        // groups preserve their geometry and selector identity independently
-        // of the editable image.
+        // These boxes have no source-selection behavior. Expose each as a
+        // native container rather than coalescing the chain into a companion.
         foreach (array_reverse($wrappers) as $wrapper) {
             $attrs = $this->authorLayoutOwnership->cssOwnedGroupAttributes($wrapper);
             $attrs['tagName'] = $wrapper === $host ? 'div' : 'picture';

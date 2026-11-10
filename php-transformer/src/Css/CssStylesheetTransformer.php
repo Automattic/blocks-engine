@@ -134,9 +134,10 @@ final class CssStylesheetTransformer
      * the result with the same text inside the same conditional group rules.
      *
      * The later copy has the same selectors, specificity and declarations and
-     * comes after the earlier one, so the earlier copy can never win the cascade:
-     * dropping it leaves every computed value unchanged. `@layer` rules are kept
-     * whole and never dropped, because a layer's first appearance fixes its order.
+     * comes after the earlier one, so the earlier copy can never win the cascade.
+     * Named block layers are grouping contexts whose rules dedupe like any
+     * other; layer statements and anonymous layers stay whole. The unit that
+     * first names a layer is always kept, because it fixes the layer's order.
      * Malformed input is concatenated unchanged.
      *
      * @param list<string> $stylesheets
@@ -149,15 +150,34 @@ final class CssStylesheetTransformer
             }
         }
 
-        $kept = array();
-        $seen = array();
-        foreach ( array_reverse($stylesheets) as $stylesheet ) {
+        $stylesheetUnits = array();
+        foreach ( $stylesheets as $stylesheet ) {
             $units = array();
             $this->collectRuleUnits($stylesheet, array(), $units);
-            foreach ( array_reverse($units) as $unit ) {
+            $stylesheetUnits[] = $units;
+        }
+        // A layer's first appearance fixes its order, so the unit that first
+        // names a layer stays in place even when a later copy repeats it.
+        $layerOrigins = array();
+        $named = array();
+        foreach ( $stylesheetUnits as $sheet => $units ) {
+            foreach ( $units as $index => $unit ) {
+                foreach ( self::layerNames($unit) as $name ) {
+                    if ( ! isset($named[ $name ]) ) {
+                        $named[ $name ] = true;
+                        $layerOrigins[ $sheet ][ $index ] = true;
+                    }
+                }
+            }
+        }
+
+        $kept = array();
+        $seen = array();
+        foreach ( array_reverse($stylesheetUnits, true) as $sheet => $units ) {
+            foreach ( array_reverse($units, true) as $index => $unit ) {
                 if ( $unit['dedupable'] ) {
                     $key = self::ruleUnitKey($unit);
-                    if ( isset($seen[ $key ]) ) {
+                    if ( isset($seen[ $key ]) && ! isset($layerOrigins[ $sheet ][ $index ]) ) {
                         continue;
                     }
                     $seen[ $key ] = true;
@@ -167,6 +187,32 @@ final class CssStylesheetTransformer
         }
 
         return $this->serializeRuleUnits(array_reverse($kept));
+    }
+
+    /**
+     * The qualified layer names a unit declares, outermost first: each named
+     * block layer around it, then the names of a layer statement it is.
+     *
+     * @param array{context: list<string>, text: string, dedupable: bool} $unit
+     * @return list<string>
+     */
+    private static function layerNames(array $unit): array
+    {
+        $path = array();
+        $names = array();
+        foreach ( $unit['context'] as $prelude ) {
+            if ( 'layer' === self::atRuleName($prelude) ) {
+                $path[] = trim(substr(trim(CssSyntaxScanner::withoutComments($prelude)), strlen('@layer')));
+                $names[] = implode('.', $path);
+            }
+        }
+        $statement = trim(CssSyntaxScanner::withoutComments($unit['text']));
+        if ( 'layer' === self::atRuleName($statement) && str_ends_with($statement, ';') ) {
+            foreach ( explode(',', substr($statement, strlen('@layer'), -1)) as $name ) {
+                $names[] = implode('.', array_merge($path, array( trim($name) )));
+            }
+        }
+        return $names;
     }
 
     /**
@@ -521,23 +567,16 @@ final class CssStylesheetTransformer
         $allRoutes[$baseOwner] = true;
         if (null !== $sharedMarkup) $markup[$baseOwner] = $sharedMarkup;
         $carriers = self::markerCarriers($markup);
-        $emitArms = function (array $units, array $prototype) use (&$output, &$unionOutput, &$armLists, &$parsedArms, $routeClass, $routeSetClass, $allRoutes, $baseOwner, $carriers, $markup, $matchIndex): void {
-            [$lead, $rule] = self::splitLeadingComments($prototype['text']);
-            $brace = (int) $this->nextRuleBoundary($rule, 0);
-            $body = substr($rule, $brace);
-            $members = array();
-            foreach ($units as $owner => $unit) {
-                if (null === $unit) continue;
-                $text = $unit['text'];
-                if (!isset($armLists[$text])) {
-                    [, $rule] = self::splitLeadingComments($text);
-                    $start = (int) $this->nextRuleBoundary($rule, 0);
-                    $armLists[$text] = (array) self::splitSelectorList(CssSelectorListCompactor::expand(CssSyntaxScanner::withoutComments(substr($rule, 0, $start))));
-                }
-                foreach ($armLists[$text] as $arm) {
-                    $members[trim($arm)][$owner] = true;
-                }
-            }
+        // Adjacent contributions with one context and byte-identical
+        // declarations are scoped together: an arm's gate is the union of
+        // the routes that carry it across the run, so complementary route
+        // sets collapse to one ungated arm. Order within such a run cannot
+        // change any cascade result.
+        $pending = null;
+        $flush = function () use (&$pending, &$output, &$parsedArms, $routeClass, $routeSetClass, $allRoutes, $baseOwner, $carriers, $markup, $matchIndex): void {
+            if (null === $pending) return;
+            ['members' => $members, 'prototype' => $prototype, 'lead' => $lead, 'body' => $body] = $pending;
+            $pending = null;
             $groups = array();
             foreach ($members as $arm => $routes) {
                 $outside = array_diff_key($allRoutes, $routes);
@@ -579,9 +618,15 @@ final class CssStylesheetTransformer
                 }
                 $groups[$scope][] = $arm;
             }
-            $union = $prototype;
-            $union['text'] = $lead . implode(',', array_keys($members)) . $body;
-            $unionOutput[] = $union;
+            // A gated arm that differs from an ungated arm of this run only
+            // by a zero-weight exclusion matches a subset of it with the same
+            // declarations and weight, so it changes nothing.
+            $ungated = array_fill_keys($groups[''] ?? array(), true);
+            foreach ($groups as $scope => $arms) {
+                if ('' === $scope || array() === $ungated) continue;
+                $groups[$scope] = array_values(array_filter($arms, static fn (string $arm): bool => !isset($ungated[self::withoutTrailingZeroWeightExclusion($arm)])));
+                if (array() === $groups[$scope]) unset($groups[$scope]);
+            }
             foreach ($groups as $scope => $arms) {
                 $unit = $prototype;
                 if ('' !== $scope) {
@@ -595,7 +640,35 @@ final class CssStylesheetTransformer
                 $lead = '';
             }
         };
+        $emitArms = function (array $units, array $prototype) use (&$pending, &$unionOutput, &$armLists, $flush): void {
+            [$lead, $rule] = self::splitLeadingComments($prototype['text']);
+            $brace = (int) $this->nextRuleBoundary($rule, 0);
+            $body = substr($rule, $brace);
+            $members = array();
+            foreach ($units as $owner => $unit) {
+                if (null === $unit) continue;
+                $text = $unit['text'];
+                if (!isset($armLists[$text])) {
+                    [, $rule] = self::splitLeadingComments($text);
+                    $start = (int) $this->nextRuleBoundary($rule, 0);
+                    $armLists[$text] = (array) self::splitSelectorList(CssSelectorListCompactor::expand(CssSyntaxScanner::withoutComments(substr($rule, 0, $start))));
+                }
+                foreach ($armLists[$text] as $arm) {
+                    $members[trim($arm)][$owner] = true;
+                }
+            }
+            $union = $prototype;
+            $union['text'] = $lead . implode(',', array_keys($members)) . $body;
+            $unionOutput[] = $union;
+            if (null !== $pending && '' === $lead && $pending['prototype']['context'] === $prototype['context'] && $pending['body'] === $body) {
+                foreach ($members as $arm => $routes) $pending['members'][$arm] = ($pending['members'][$arm] ?? array()) + $routes;
+                return;
+            }
+            $flush();
+            $pending = array('members' => $members, 'prototype' => $prototype, 'lead' => $lead, 'body' => $body);
+        };
         for ($i = 0; $i <= count($base); ++$i) {
+            if (isset($siteInsertions[$i])) $flush();
             foreach ($siteInsertions[$i] ?? array() as $unit) { $output[] = $unit; $unionOutput[] = $unit; }
             $groups = array();
             foreach ($insertions[$i] ?? array() as $owner => $units) foreach ($units as $ordinal => $unit) {
@@ -607,11 +680,12 @@ final class CssStylesheetTransformer
             uasort($groups, static fn (array $a, array $b): int => $a['ordinal'] <=> $b['ordinal']);
             foreach ($groups as $group) $emitArms($group['routes'], $group['unit']);
             if ($i === count($base)) break;
-            if (empty($changes[$i])) { $output[] = $base[$i]; $unionOutput[] = $base[$i]; continue; }
+            if (empty($changes[$i])) { $flush(); $output[] = $base[$i]; $unionOutput[] = $base[$i]; continue; }
             $units = array();
             foreach ($allRoutes as $owner => $_) $units[$owner] = array_key_exists($owner, $changes[$i]) ? $changes[$i][$owner] : $base[$i];
             $emitArms($units, $base[$i]);
         }
+        $flush();
         $stylesheet = $this->serializeRuleUnits($output);
         // Match ArtifactCompiler's final serialization, not the expanded arms:
         // identical scope prefixes can ship once for an entire selector group.
@@ -737,6 +811,8 @@ final class CssStylesheetTransformer
         $name = self::atRuleName($rule);
         // A late @charset is ignored; dedupe it by text, never conflict.
         if ('charset' === $name) return '@charset ' . $rule;
+        // A layer order statement names layers the same way on every route.
+        if ('layer' === $name && str_ends_with($rule, ';')) return '@layer ' . $rule;
         $brace = $this->nextRuleBoundary($rule, 0);
         if (null === $brace || '{' !== $rule[$brace] || !str_ends_with($rule, '}')) return null;
         $prelude = trim(substr($rule, strlen($name) + 1, $brace - strlen($name) - 1));
@@ -977,6 +1053,21 @@ final class CssStylesheetTransformer
     }
 
     /** @param list<array{context: list<string>, text: string, dedupable: bool}> $units */
+    /** The arm without a final `:not(:where(...))` (zero specificity), or the arm itself. */
+    private static function withoutTrailingZeroWeightExclusion(string $arm): string
+    {
+        if (!str_ends_with($arm, '))')) return $arm;
+        $depth = 0;
+        for ($index = strlen($arm) - 1; $index >= 0; --$index) {
+            if (')' === $arm[$index]) ++$depth;
+            elseif ('(' === $arm[$index] && 0 === --$depth) {
+                $start = $index - 4;
+                return $start > 0 && str_starts_with(substr($arm, $start), ':not(:where(') ? substr($arm, 0, $start) : $arm;
+            }
+        }
+        return $arm;
+    }
+
     private function serializeRuleUnits(array $units): string
     {
         $output = '';
@@ -1016,7 +1107,9 @@ final class CssStylesheetTransformer
             ['start' => $start, 'boundary' => $boundary, 'end' => $end] = $rule;
             $prelude = substr($css, $start, $boundary - $start);
             $atRule = $this->isAtRule($prelude) ? self::atRuleName($prelude) : '';
-            if ('{' === $css[$boundary] && '' !== $atRule && 'layer' !== $atRule && $this->walksNestedRules($prelude)) {
+            $layerPrelude = 'layer' === $atRule ? trim(CssSyntaxScanner::withoutComments($prelude)) : '';
+            $anonymousLayer = 'layer' === $atRule && '' === trim(substr($layerPrelude, strlen('@layer')));
+            if ('{' === $css[$boundary] && '' !== $atRule && $this->walksNestedRules($prelude) && !$anonymousLayer) {
                 $nested = $context;
                 $nested[] = trim($prelude);
                 $this->collectTreeUnits($tree, $boundary, $nested, $units);

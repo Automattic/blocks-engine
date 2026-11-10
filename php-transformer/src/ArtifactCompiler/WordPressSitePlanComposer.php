@@ -40,7 +40,7 @@ final class WordPressSitePlanComposer
         if ( array() === $identityFailures && ( 'failed' !== $status || 'failed' === ($editabilityPolicy['status'] ?? null) ) ) {
             try {
                 $timer?->start('compose.from_compiler_input');
-                $wordpressSitePlan = ( new WordPressSitePlan() )->fromResult($envelope);
+                $wordpressSitePlan = ( new WordPressSitePlan(false, $timer) )->fromResult($envelope);
                 $timer?->start('compose.result_composition');
                 $editabilityReport = (new EditabilityReport())->withTemplateSurfaceSelection($editabilityReport, $wordpressSitePlan['templates']);
                 $editabilityReport = (new EditabilityReport())->withDesignSystem($editabilityReport, is_array($wordpressSitePlan['theme']['design_system'] ?? null) ? $wordpressSitePlan['theme']['design_system'] : array());

@@ -14,6 +14,16 @@ inside the part remains unchanged, including its tag and sticky/fixed rules.
 The editor retains Core's selection element. Generated PHP no longer strips
 outer HTML using a slug allowlist.
 
+A headingless, footer-only page can also move its wrapper chain to the
+template when every captured route proves the same frame. This requires a
+sole-child Group chain ending in content siblings followed by the footer
+reference; differing chains, ambiguous references and runtime-bound frames keep
+in-place transport. The existing frame-content marker removes Core's extra
+post-content element at render time, so the sections remain direct flex/grid
+items rather than acquiring another layout box. This addresses #5213 without
+reviving slug-based template-part unwrapping. The public compiler contract is
+`route-invariant-footer-frame.php`.
+
 When the source has no area landmark, extraction adds a semantic header/footer
 Group marked `blocks-engine-shell-landmark`. The same frontend-only transport
 stylesheet makes this synthetic landmark boxless too: source children remain

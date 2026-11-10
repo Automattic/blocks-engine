@@ -8,10 +8,11 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 // A bound captured control's artwork is a core image inside selectable core
 // boxes. The native button must not be an opaque contentParts companion.
 $result = (new HtmlTransformer())->transform(
-    '<button id="opener" type="button" class="opener" aria-label="Menu" aria-controls="panel" '
+    '<div class="control-wrapper"><button id="opener" type="button" class="opener" aria-label="Menu" aria-controls="panel" '
+    . 'data-blocks-engine-capture-dialog-ancestor-state="[]" '
     . 'data-blocks-engine-capture-dialog-trigger="panel"><div class="icon"><div>'
     . '<svg viewBox="0 0 20 20" width="20" height="20"><path d="M0 0h20v2H0z"/></svg>'
-    . '</div></div></button><div id="panel" data-blocks-engine-captured-dialog="true" data-blocks-engine-triggers="opener" hidden>Menu contents</div>',
+    . '</div></div></button></div><div id="panel" data-blocks-engine-captured-dialog="true" data-blocks-engine-triggers="opener" hidden>Menu contents</div>',
     array('runtime_dom_selectors' => array('[data-blocks-engine-capture-dialog-trigger]'))
 )->toArray();
 $markup = (string) $result['serialized_blocks'];
@@ -19,7 +20,8 @@ $checks = array(
     !str_contains($markup, '/authored-button'),
     !str_contains($markup, '<!-- wp:html'),
     str_contains($markup, '<!-- wp:group '),
-    str_contains($markup, '"tagName":"button"'),
+    str_contains($markup, '"blocksEngineControlBox":{"id":"opener","type":"button"'),
+    !str_contains($markup, '/layout-shell'),
     str_contains($markup, 'blocksEngineControlBox'),
     str_contains($markup, '<!-- wp:image '),
     str_contains($markup, 'blocksEngineInlineSvg'),

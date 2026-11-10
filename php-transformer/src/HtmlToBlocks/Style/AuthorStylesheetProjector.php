@@ -425,7 +425,7 @@ final class AuthorStylesheetProjector
         $svgImagePrelude = $this->projectAuthorImageSelectorPrelude($prelude, $context, 'svg', $declarations);
         $imageRule = '' === $imagePrelude
             ? ''
-            : $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations) . '}';
+            : $this->imageProjectionBridgeRule($prelude, $imagePrelude, $declarations, $context);
         if ('' !== $imagePrelude) {
             // The generic Image bridge introduces block display and responsive
             // shrinkage. An inline source image in an auto table must instead
@@ -463,6 +463,7 @@ final class AuthorStylesheetProjector
         $navigationItemSpaceRule = $this->navigationItemSpaceRule($prelude, $declarations, $context)
             . $this->navigationListBoxRule($prelude, $declarations, $context)
             . $this->directNavigationDisplayRule($prelude, $declarations, $context)
+            . $this->navigationItemFlexItemRule($prelude, $declarations, $context)
             . $this->navigationToggleRowRule($prelude, $declarations, $context);
         if ( array() === $margins ) {
             $css = $this->rewriteStyleRule($prelude, $body, $context, $inConditional) . $imageRule . $imagePlacement['rules'] . $svgImageRule . $editorDocumentRootRule . $navigationItemSpaceRule;
@@ -518,7 +519,7 @@ final class AuthorStylesheetProjector
     {
         $css .= $this->visuallyHiddenSourceSelectorRule($prelude, $css, $body);
 
-        $css .= $this->editorOverrideRules($css);
+        $css .= $this->editorOverrideRules($css, $context);
 
         return $css . $this->editorShellChildCombinatorVariants($css, $context->emittedMarkup) . $this->editorEmptyRichTextVariants($css);
     }
@@ -585,11 +586,12 @@ final class AuthorStylesheetProjector
         return preg_replace('/\s+/', ' ', trim($selector)) ?? trim($selector);
     }
 
-    private function editorOverrideRules(string $css): string
+    private function editorOverrideRules(string $css, AuthorStylesheetProjectionContext $context): string
     {
+        $ids = array_fill_keys($context->authorStyles->sourceElementIds(), true);
         return ( new CssStylesheetTransformer() )->transformStyleRules(
             $css,
-            function (string $prelude, string $body): string {
+            function (string $prelude, string $body) use ($ids): string {
                 $declarations = $this->styleResolver->cssDeclarations($body);
                 $position = trim((string) ($declarations['position'] ?? ''));
                 $whiteSpace = strtolower(trim(preg_replace('/\s*!important\s*$/i', '', $declarations['white-space'] ?? '') ?? ''));
@@ -603,6 +605,12 @@ final class AuthorStylesheetProjector
                     $selector = trim($selector);
                     if ( '' === $selector || str_starts_with($selector, ':host') || str_contains($selector, '.editor-styles-wrapper') ) {
                         continue;
+                    }
+                    // Block ids become client ids in the canvas. Give every
+                    // position copy an anchor alternative with the same source
+                    // specificity, not only copies of static-state repairs.
+                    if ( '' !== $position ) {
+                        $selector = ScopedAnchorSelectorProjection::selector($selector, $ids);
                     }
                     if ( 1 === preg_match('/^body(?=$|[.#:\[])/', $selector) ) {
                         $editorSelectors[] = preg_replace('/^body/', ':root body.editor-styles-wrapper', $selector, 1) ?? $selector;
@@ -1667,6 +1675,17 @@ final class AuthorStylesheetProjector
         return implode(';', $collapsed);
     }
 
+    private static function canMatchSyntheticImageFigure(string $selector): bool
+    {
+        $compounds = CssSelectorMatcher::parse($selector)['compounds'] ?? array();
+        $subject = end($compounds);
+        if ( ! is_array($subject) ) {
+            return true;
+        }
+        $type = strtolower((string) ($subject['type'] ?? ''));
+        return '' === $type || in_array($type, array( 'figure', 'img' ), true);
+    }
+
     /**
      * A source img's percentage transforms reference its own used image box.
      * The synthetic native figure may have zero height and a different origin;
@@ -1690,7 +1709,12 @@ final class AuthorStylesheetProjector
             }
         }
         $original = CssStylesheetTransformer::splitSelectorList($this->rewriteSelectorPrelude($prelude, $context)) ?? array();
-        $original = array_map(static fn (string $selector): string => rtrim($selector) . ':not(:where(.' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS . '))', $original);
+        // Only an arm whose subject can be the synthetic figure (a figure,
+        // an untyped compound, or an image whose identity moved to it) needs
+        // the guard; a typed `body`/`p` subject never matches that wrapper.
+        $original = array_map(static fn (string $selector): string => self::canMatchSyntheticImageFigure($selector)
+            ? rtrim($selector) . ':not(:where(.' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS . '))'
+            : rtrim($selector), $original);
         $leaves = array();
         foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
             $parsed = $context->sourceStyles->parsedSelector($selector);
@@ -2007,6 +2031,7 @@ final class AuthorStylesheetProjector
             }
 
             $otherSubjects = array();
+            $navigationSubjects = array();
             foreach ($matches as $element) {
                 $target = $context->selectorProjections->navigationSubject($element->getNodePath() ?? '');
                 $subject = CssSelectorCompoundInspector::rightmost($parsed['compounds']);
@@ -2035,8 +2060,12 @@ final class AuthorStylesheetProjector
                 $stateSelector = substr($selector, 0, null === $parsed['pseudo_state_suffix_span'] ? null : $parsed['pseudo_state_suffix_span']['start']);
                 if ($context->selectorProjections->selectsCurrentNavigationState($stateSelector)) $target = AuthorSelectorProjectionState::currentNavigationSubject($target);
                 elseif ($context->selectorProjections->selectsRestingNavigationState($stateSelector)) $target = AuthorSelectorProjectionState::restingNavigationSubject($target);
-                $rewritten[] = ':root ' . $target . $this->selectorSpecificityShims($parsed, $context) . $suffix;
+                // Many source items share one recorded marker target. Emit
+                // that subject once per source rule, not once per matching item.
+                $navigationProjection = ':root ' . $target . $this->selectorSpecificityShims($parsed, $context) . $suffix;
+                $navigationSubjects[$navigationProjection] = true;
             }
+            array_push($rewritten, ...array_keys($navigationSubjects));
             if (array() === $otherSubjects) continue;
             $matches = $otherSubjects;
 
@@ -2344,7 +2373,7 @@ final class AuthorStylesheetProjector
                 $rewritten[] = $this->projectInlineLayoutCarrierSelector($selector, $parsed, $addressableInlineCarriers);
             }
         }
-        $projected = implode(',', $rewritten);
+        $projected = implode(',', array_values(array_unique($rewritten)));
         if ( $projected !== $prelude && EngineMarker::matchesAny($projected) ) {
             $context->bindings->record($prelude, $projected);
         }
@@ -3265,6 +3294,7 @@ final class AuthorStylesheetProjector
             return '';
         }
         $box = array();
+        $minimum = array();
         foreach ( $declarations as $property => $declaration ) {
             if ( ! NativeImageLeafPresentation::isBoxProperty($property) ) {
                 continue;
@@ -3272,6 +3302,9 @@ final class AuthorStylesheetProjector
             $value = trim($declaration);
             if ( '' !== $value && 1 !== preg_match('~[{}<>;]|/\*~', $value) ) {
                 $box[] = $property . ':' . $value;
+                if ( in_array($property, array( 'min-width', 'min-height' ), true) ) {
+                    $minimum[] = $property . ':' . $value;
+                }
             }
         }
         if ( array() === $box ) {
@@ -3280,13 +3313,26 @@ final class AuthorStylesheetProjector
         // A listing card's image becomes core/post-featured-image, whose
         // figure keeps the same classes but not `.wp-block-image`.
         $selectors = array();
+        $linkSelectors = array();
         foreach ( CssValueSplitter::splitTopLevel($imagePrelude, array(',')) as $selector ) {
             foreach ( array( '.wp-block-image', '.wp-block-post-featured-image' ) as $figureClass ) {
-                $selectors[] = str_replace('.wp-block-image', $figureClass . ':where(.' . SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS . ')', $selector);
+                $selectors[] = $itemSelector = str_replace('.wp-block-image', $figureClass . ':where(.' . SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS . ')', $selector);
+                if ( 1 === preg_match('/^(.*>\s*a)\s*>\s*img$/s', trim($itemSelector), $link) ) {
+                    $linkSelectors[] = $link[1];
+                }
             }
         }
+        $rule = implode(',', $selectors) . '{' . implode(';', $box) . '}';
+        // A linked image's anchor, not the image, is the flex/grid item once
+        // the figure is display:contents. Its automatic minimum size comes from
+        // the image's natural size, so a `min-height:0` the author set to let
+        // the item shrink into its track would stop working (#5286). Carry the
+        // item's minimum size to the box that is now the item.
+        if ( array() !== $minimum && array() !== $linkSelectors ) {
+            $rule .= implode(',', $linkSelectors) . '{' . implode(';', $minimum) . '}';
+        }
 
-        return implode(',', $selectors) . '{' . implode(';', $box) . '}';
+        return $rule;
     }
 
     private function selectsFlexItemImage(string $prelude, AuthorStylesheetProjectionContext $context): bool
@@ -3330,8 +3376,44 @@ final class AuthorStylesheetProjector
             . ( isset($declarations['vertical-align']) ? ';vertical-align:' . $declarations['vertical-align'] : '' ) . '}';
     }
 
+    /**
+     * The bridge lets the native image follow the figure that now carries the
+     * source rule. A selector whose subject is a bare `img` has nothing that
+     * moves to the figure, so the source rule still paints the image itself:
+     * inheriting the figure's corners there would replace the image's own
+     * radius at the same specificity, later in the cascade.
+     *
+     * @param array<string, string> $declarations
+     */
+    private function imageProjectionBridgeRule(string $prelude, string $imagePrelude, array $declarations, AuthorStylesheetProjectionContext $context): string
+    {
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude) ?? array();
+        $moved = array_values(array_filter($selectors, fn (string $selector): bool => ! $this->subjectStaysOnImage($selector, $context)));
+        if ( count($moved) === count($selectors) ) {
+            return $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations) . '}';
+        }
+        $rule = $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, false, false) . '}';
+        $movedPrelude = array() === $moved ? '' : $this->projectAuthorImageSelectorPrelude(implode(',', $moved), $context);
+
+        return '' === $movedPrelude ? $rule : $rule . $movedPrelude . '{border-radius:inherit}';
+    }
+
+    private function subjectStaysOnImage(string $selector, AuthorStylesheetProjectionContext $context): bool
+    {
+        $parsed = $context->sourceStyles->parsedSelector($selector);
+        if ( ! $parsed['supported'] ) {
+            return false;
+        }
+        $subject = CssSelectorCompoundInspector::rightmost($parsed['compounds']);
+
+        return 'img' === strtolower((string) ($subject['type'] ?? ''))
+            && array() === ($subject['classes'] ?? array())
+            && array() === ($subject['ids'] ?? array())
+            && array() === ($subject['attributes'] ?? array());
+    }
+
     /** @param array<string, string> $declarations */
-    private function imageProjectionBridgeDeclarations(array $declarations, bool $preserveObjectFit = false): string
+    private function imageProjectionBridgeDeclarations(array $declarations, bool $preserveObjectFit = false, bool $inheritRadius = true): string
     {
         $bridge = array( 'display:block' );
         $position = strtolower(trim((string) ($declarations['position'] ?? '')));
@@ -3357,7 +3439,9 @@ final class AuthorStylesheetProjector
         $objectFit = $this->explicitObjectFit($declarations);
         $bridge[] = 'object-fit:' . ($preserveObjectFit && '' !== $objectFit ? $objectFit : 'inherit');
         $bridge[] = 'object-position:inherit';
-        $bridge[] = 'border-radius:inherit';
+        if ( $inheritRadius ) {
+            $bridge[] = 'border-radius:inherit';
+        }
         return implode(';', $bridge);
     }
 
@@ -3620,7 +3704,7 @@ final class AuthorStylesheetProjector
     /** @param array<string, mixed> $parsed */
     private function projectTableDescendantSelector(string $selector, array $parsed, DOMElement $element, AuthorStylesheetProjectionContext $context): ?string
     {
-        $table = 'table' === strtolower($element->tagName) ? $element : $this->ancestorElement($element, 'table');
+        $table = 'table' === strtolower($element->tagName) ? $element : SourceDom::ancestorElement($element, 'table');
         if (in_array(strtolower($element->tagName), array('table', 'tr', 'td'), true)
             && $table instanceof DOMElement
             && (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\TableClassificationPolicy())->lowersToColumns($table)
@@ -3637,7 +3721,7 @@ final class AuthorStylesheetProjector
         ) {
             return null;
         }
-        $table = $this->ancestorElement($element, 'table');
+        $table = SourceDom::ancestorElement($element, 'table');
         $marker = $table instanceof DOMElement ? $context->selectorProjections->tableMarker($table->getNodePath() ?? '') : '';
         $path = $table instanceof DOMElement ? $this->serializedTableDescendantPath($table, $element, $context) : '';
         if ( '' === $marker || '' === $path ) {
@@ -3691,7 +3775,7 @@ final class AuthorStylesheetProjector
         if ( ! in_array(strtolower($element->tagName), array( 'td', 'th' ), true) ) {
             return null;
         }
-        $table = $this->ancestorElement($element, 'table');
+        $table = SourceDom::ancestorElement($element, 'table');
         if ( ! $table instanceof DOMElement ) {
             return null;
         }
@@ -3795,9 +3879,9 @@ final class AuthorStylesheetProjector
 
     private function serializedTableSection(DOMElement $element): string
     {
-        return $this->ancestorElement($element, 'thead') instanceof DOMElement
+        return SourceDom::ancestorElement($element, 'thead') instanceof DOMElement
             ? 'thead'
-            : ($this->ancestorElement($element, 'tfoot') instanceof DOMElement ? 'tfoot' : 'tbody');
+            : (SourceDom::ancestorElement($element, 'tfoot') instanceof DOMElement ? 'tfoot' : 'tbody');
     }
 
     private function belongsToTable(DOMElement $element, DOMElement $table): bool
@@ -3808,16 +3892,6 @@ final class AuthorStylesheetProjector
             }
         }
         return false;
-    }
-
-    private function ancestorElement(DOMElement $element, string $tagName): ?DOMElement
-    {
-        for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
-            if ( $tagName === strtolower($parent->tagName) ) {
-                return $parent;
-            }
-        }
-        return null;
     }
 
     /** @param array<string, mixed> $parsed */
@@ -3903,7 +3977,7 @@ final class AuthorStylesheetProjector
      *
      * @param array<string, mixed> $parsed
      */
-    private function projectNavigationItemAnchorSelector(string $selector, array $parsed, AuthorStylesheetProjectionContext $context): ?string
+    private function projectNavigationItemAnchorSelector(string $selector, array $parsed, AuthorStylesheetProjectionContext $context, bool $itemSubject = false): ?string
     {
         $span = $parsed['rightmost_compound_span'] ?? null;
         if ( ! is_array($span) ) {
@@ -3936,18 +4010,7 @@ final class AuthorStylesheetProjector
         if ( null === $split || '' === $split['structural'] ) {
             return null;
         }
-        // The type leads its compound; the rendered anchor's own class takes
-        // that place.
-        $subject = ':where(.wp-block-navigation-item__content)';
         $rest = $split['rest'];
-        if ( $typeLength > 0 ) {
-            $subject .= $this->typeSpecificityShim($context) . substr($rest, $typeLength);
-        } elseif ( str_starts_with($rest, '*') ) {
-            $subject .= substr($rest, 1);
-        } else {
-            $subject .= $rest;
-        }
-        $subject .= $trailingState;
         // Core renders a `<ul>` (and, for an overlay menu, more wrappers)
         // between the navigation and its items. A one-to-one menu has no
         // nested lists, so a child combinator before the anchor relaxes to a
@@ -3958,6 +4021,35 @@ final class AuthorStylesheetProjector
             $replaceStart = $start - strlen($childCombinator[0]);
             $lead = ' ';
         }
+        if ( $itemSubject ) {
+            // The item itself, for the declarations the source link owned as
+            // its parent's flex item. Only a subject the item fully carries
+            // (no anchor-only attribute or dynamic state) is addressed; the
+            // type keeps its weight through the shim, and the native-subject
+            // baseline of a rendered list item outranks Core's item defaults.
+            $anchorOnly = $typeLength > 0 ? substr($rest, $typeLength) : ltrim($rest, '*');
+            if ( '' !== $anchorOnly || '' !== $trailingState ) {
+                return null;
+            }
+            return $this->rewriteSourceTagTypes($selector, $parsed, $context, '', array(
+                $replaceStart => array(
+                    'end' => $end,
+                    'value' => $lead . '.wp-block-navigation-item' . str_repeat(':not(.' . $context->authorStyles->classSpecificityShim() . ')', 3)
+                        . $split['item'] . $split['structural'] . ( $typeLength > 0 ? $this->typeSpecificityShim($context) : '' ),
+                ),
+            ));
+        }
+        // The type leads its compound; the rendered anchor's own class takes
+        // that place.
+        $subject = ':where(.wp-block-navigation-item__content)';
+        if ( $typeLength > 0 ) {
+            $subject .= $this->typeSpecificityShim($context) . substr($rest, $typeLength);
+        } elseif ( str_starts_with($rest, '*') ) {
+            $subject .= substr($rest, 1);
+        } else {
+            $subject .= $rest;
+        }
+        $subject .= $trailingState;
         return $this->rewriteSourceTagTypes($selector, $parsed, $context, '', array(
             $replaceStart => array( 'end' => $end, 'value' => $lead . ':where(.wp-block-navigation-item)' . $split['item'] . $split['structural'] . '>' . $subject ),
         ));
@@ -4570,6 +4662,52 @@ final class AuthorStylesheetProjector
         }
 
         return implode(',', $carriers) . '{content:"\\a0"' . ( CssValueInspector::isImportant($display) ? '!important' : '' ) . '}';
+    }
+
+    /**
+     * A direct source link is its menu's flex item; core/navigation renders it
+     * inside `li.wp-block-navigation-item`, which is the flex item instead.
+     * Declarations that place or generate that box (`display`, `order`, the
+     * `flex` family, self-alignment) are restated on the item, so a link
+     * hidden at a breakpoint takes its item, and the item's gap, with it.
+     * Only box generation follows the source display: `none` and `contents`
+     * pass through, any other value restores Core's item display, and the
+     * authored value stays on the content anchor for its own inner layout.
+     * The restated properties are not cumulative, so the anchor copy is
+     * kept; margins are, and stay on the anchor, where they size the item.
+     *
+     * @param array<string, string> $declarations
+     */
+    private function navigationItemFlexItemRule(string $prelude, array $declarations, AuthorStylesheetProjectionContext $context): string
+    {
+        $item = array();
+        foreach ( $declarations as $name => $value ) {
+            if ( 'display' === $name ) {
+                $box = CssValueInspector::comparable($value);
+                $item[$name] = ( in_array($box, array( 'none', 'contents' ), true) ? $box : 'flex' ) . ( CssValueInspector::isImportant($value) ? '!important' : '' );
+            } elseif ( in_array($name, array( 'order', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis', 'align-self', 'justify-self', 'place-self' ), true) ) {
+                $item[$name] = $value;
+            }
+        }
+        if ( array() === $item ) {
+            return '';
+        }
+        $targets = array();
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+            $selector = trim($selector);
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            if ( ! $parsed['supported'] || ! $this->matchesOnlyNavigationRole($this->matchingSourceElements($selector, $parsed, $context), AuthorSelectorProjectionState::NAVIGATION_ANCHOR, $context) ) {
+                continue;
+            }
+            $anchor = $this->projectNavigationItemAnchorSelector($selector, $parsed, $context);
+            $target = $this->projectNavigationItemAnchorSelector($selector, $parsed, $context, true);
+            // Only where the authored rule itself landed on the rendered item.
+            if ( null !== $anchor && null !== $target && trim($this->rewriteSelectorPreludeOnce($selector, $context)) === $anchor ) {
+                $targets[] = $target;
+            }
+        }
+
+        return array() === $targets ? '' : implode(',', array_unique($targets)) . '{' . $this->styleResolver->cssDeclarationString($item) . '}';
     }
 
     /** One spelling for the initial value, so a reset restating it compares equal to no statement. */

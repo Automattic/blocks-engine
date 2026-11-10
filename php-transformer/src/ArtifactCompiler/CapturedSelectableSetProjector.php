@@ -101,7 +101,7 @@ final class CapturedSelectableSetProjector
                 $diagnostics[] = $this->diagnostic('captured_selectable_set_page_invalid', 'warning', 'A captured interaction page was ignored because its source URL or components are invalid.');
                 continue;
             }
-            $path = $routes[$this->normalizedUrl($page['sourceUrl'])] ?? '';
+            $path = $routes[CaptureReceiptRoutes::normalizedUrl($page['sourceUrl'])] ?? '';
             $sets = $this->groupedSets(CapturedComponentStates::evidence($page['components'], array('tabs')), $page['sourceUrl'], $path, $diagnostics);
             if (count($sets) > self::MAX_SETS_PER_PAGE) {
                 $diagnostics[] = $this->diagnostic('captured_selectable_set_limit_exceeded', 'warning', 'A captured interaction page exceeded the selectable-set limit.', array('source_url' => $page['sourceUrl'], 'max_sets' => self::MAX_SETS_PER_PAGE));
@@ -141,7 +141,7 @@ final class CapturedSelectableSetProjector
         }
         $routes = CaptureReceiptRoutes::resolve($files, $receipt);
         foreach (($report['pages'] ?? array()) as $page) {
-            $path = $routes[$this->normalizedUrl((string) ($page['sourceUrl'] ?? ''))] ?? '';
+            $path = $routes[CaptureReceiptRoutes::normalizedUrl((string) ($page['sourceUrl'] ?? ''))] ?? '';
             foreach ($files as &$file) {
                 if ('' === $path || $path !== ($file['path'] ?? null) || !is_string($file['content'] ?? null)) continue;
                 $document = new DOMDocument('1.0', 'UTF-8');
@@ -1187,12 +1187,6 @@ final class CapturedSelectableSetProjector
         }
 
         return iterator_to_array($wrapper->childNodes);
-    }
-
-    /** @param array<int, array<string, mixed>> $files @return array<string, mixed>|null */
-    private function normalizedUrl(string $url): string
-    {
-        return CaptureReceiptRoutes::normalizedUrl($url);
     }
 
     /** @return array<string, mixed> */

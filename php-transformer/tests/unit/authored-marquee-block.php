@@ -100,6 +100,16 @@ $maximumMarkup = ( new AuthoredMarqueeBlockGenerator() )->markup(array( 'content
 $invalidDirectionMarkup = ( new AuthoredMarqueeBlockGenerator() )->markup(array( 'content' => 'Bounded', 'direction' => 'up', 'duration' => 40 ));
 $assert(str_contains($maximumMarkup, 'data-direction="right"') && str_contains($maximumMarkup, '--blocks-engine-marquee-duration:600s') && str_contains($maximumMarkup, 'aria-hidden="true" inert=""') && str_contains($invalidDirectionMarkup, 'data-direction="left"'), 'the frontend markup bounds direction and duration and keeps duplicate content inaccessible');
 
+$generator = new AuthoredMarqueeBlockGenerator();
+$plainAttributes = array( 'content' => 'Legacy' );
+$plainMarkup = $generator->markup($plainAttributes);
+$assert($plainMarkup === $generator->markup($plainAttributes + array( 'sourceClassName' => '' )), 'empty source classes do not change legacy serialization');
+$assert($plainMarkup === $generator->markup($plainAttributes + array( 'sourceClassName' => 'bad:token <unsafe>' )), 'invalid source classes do not alter the wrapper');
+$safeMarkup = $generator->markup($plainAttributes + array( 'sourceClassName' => " Marquee\tsecond-class  bad:token _third <unsafe> " ));
+$assert(str_contains($safeMarkup, 'class="blocks-engine-authored-marquee Marquee second-class _third"'), 'source classes use the same safe token filtering as item classes');
+$assert(str_contains($editor, 'sourceClassName = safeTokenList( attributes.sourceClassName )') && str_contains($editor, "sourceClassName: { type: 'string', default: '' }"), 'the JS save registers and sanitizes source classes too');
+$assert(!isset($block['attrs']['sourceClassName']), 'recognition without source classes adds no serialized attribute');
+
 $payload = ( new CompanionPluginPayload() )->fromBlockTypes(array(), array(), array(), array( $definition ));
 $payloadBlock = $payload['blocks'][0] ?? array();
 $assets = $payloadBlock['assets'] ?? array();

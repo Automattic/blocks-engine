@@ -36,6 +36,10 @@ final class TabsPattern implements PatternRecognizerInterface
         if ( count($controls) < 2 || count($controls) !== count($panels) ) {
             return null;
         }
+        $siblings = $this->unconsumedSiblings($element, $tabList, $panels);
+        if ( null === $siblings ) {
+            return null;
+        }
 
         $labels = array();
         $activeIndex = null;
@@ -84,18 +88,69 @@ final class TabsPattern implements PatternRecognizerInterface
             $tabListAttributes['ariaLabel'] = $ariaLabel;
         }
 
-        $tabsAttributes = $context->presentationAttributes($element);
+        $wrapped = array() !== $siblings['leading'] || array() !== $siblings['trailing'];
+        $tabsAttributes = $wrapped ? array() : $context->presentationAttributes($element);
         if ( null !== $activeIndex && 0 !== $activeIndex ) {
             $tabsAttributes['activeTabIndex'] = $activeIndex;
         }
+        $tabs = $this->createBlock->createBlock('core/tabs', $tabsAttributes, array(
+            $this->createBlock->createBlock('core/tab-list', $tabListAttributes, array(), $tabListSource),
+            $this->createBlock->createBlock('core/tab-panels', array(), $panelBlocks),
+        ), $wrapped ? null : $element);
+        if ( ! $wrapped ) {
+            return new PatternRecognitionResult($tabs, $fallbacks);
+        }
+
+        // Siblings such as a heading before the tablist stay ordinary blocks
+        // around the tabs; the container keeps its presentation.
+        $blocks = array();
+        foreach ( $siblings['leading'] as $sibling ) {
+            $blocks[] = $converter->element($sibling, $fallbacks, true);
+        }
+        $blocks[] = $tabs;
+        foreach ( $siblings['trailing'] as $sibling ) {
+            $blocks[] = $converter->element($sibling, $fallbacks, true);
+        }
 
         return new PatternRecognitionResult(
-            $this->createBlock->createBlock('core/tabs', $tabsAttributes, array(
-                $this->createBlock->createBlock('core/tab-list', $tabListAttributes, array(), $tabListSource),
-                $this->createBlock->createBlock('core/tab-panels', array(), $panelBlocks),
-            ), $element),
+            $this->createBlock->createBlock('core/group', $context->presentationAttributes($element), array_values(array_filter($blocks)), $element),
             $fallbacks
         );
+    }
+
+    /**
+     * Direct children the tabs do not consume. core/tabs renders its list
+     * before its panels, so only siblings before or after both keep their
+     * order; one between them declines the pattern.
+     *
+     * @param list<DOMElement> $panels
+     * @return array{leading: list<DOMElement>, trailing: list<DOMElement>}|null
+     */
+    private function unconsumedSiblings(DOMElement $element, ?DOMElement $tabList, array $panels): ?array
+    {
+        $siblings = array( 'leading' => array(), 'trailing' => array() );
+        if ( ! $tabList instanceof DOMElement ) {
+            return $siblings;
+        }
+        $consumed = false;
+        $pending = array();
+        foreach ( $this->directChildElements($element) as $child ) {
+            if ( $child->isSameNode($tabList) || in_array($child, $panels, true) ) {
+                if ( $consumed && array() !== $pending ) {
+                    return null;
+                }
+                $consumed = true;
+                continue;
+            }
+            if ( $consumed ) {
+                $pending[] = $child;
+            } else {
+                $siblings['leading'][] = $child;
+            }
+        }
+        $siblings['trailing'] = $pending;
+
+        return $siblings;
     }
 
     private function tabListElement(DOMElement $element): ?DOMElement
