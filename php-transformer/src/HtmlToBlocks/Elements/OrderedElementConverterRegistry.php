@@ -14,10 +14,10 @@ final class OrderedElementConverterRegistry implements ElementConverter
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */
-    public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
         foreach ( $this->converters as $converter ) {
-            $outcome = $converter->convert($element, $tagName, $fallbacks);
+            $outcome = $converter->convert($element, $tagName, $fallbacks, $captureUnsupported);
             if ( $outcome->handled ) {
                 return $outcome;
             }

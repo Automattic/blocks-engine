@@ -41,7 +41,7 @@ final class FlowContainerElementConverter implements ElementConverter
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */
-    public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
         // Autonomous dialog hosts have the same light-DOM container semantics
         // as div[role=dialog]. Keep them in the ordinary recognizer order rather

@@ -56,7 +56,7 @@ $lateConverter = new class($lateCalls) implements ElementConverter {
         $this->calls =& $calls;
     }
 
-    public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
         ++$this->calls;
         return 'figure' === $tagName
