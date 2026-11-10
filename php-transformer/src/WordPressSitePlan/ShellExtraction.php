@@ -597,6 +597,11 @@ final class ShellExtraction
                 continue;
             }
             $chrome = substr($markup, $chromeRange['offset'], $chromeRange['length']);
+            // The navigation child holds the page itself when it also holds
+            // the main landmark; its sibling is then a trailing layer.
+            if (self::containsMainLandmark($chrome)) {
+                continue;
+            }
             $content = substr($markup, $contentRange['offset'], $contentRange['length']);
             $opening = self::blockOpeningMarkup($wrapper);
             if (null === $opening) {
@@ -895,7 +900,8 @@ final class ShellExtraction
         return str_contains($markup, '"tagName":"main"')
             || str_contains($markup, '<main ')
             || str_contains($markup, '<main>')
-            || str_contains($markup, '<!-- wp:post-content');
+            || str_contains($markup, '<!-- wp:post-content')
+            || ShellLandmarkPolicy::containsNamedMainLandmark($markup);
     }
 
     private static function isEmptyVisualGroup(string $markup): bool

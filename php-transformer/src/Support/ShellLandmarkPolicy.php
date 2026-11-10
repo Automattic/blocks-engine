@@ -19,6 +19,18 @@ final class ShellLandmarkPolicy
         'navigation-overlay' => 'div',
     );
 
+    /**
+     * The List View name each landmark kind carries (`metadata.name`).
+     *
+     * @var array<string, string>
+     */
+    public const LANDMARK_LABELS = array(
+        'header' => 'Header',
+        'nav'    => 'Navigation',
+        'main'   => 'Main',
+        'footer' => 'Footer',
+    );
+
     /** @var array<int, string> */
     private const GLOBAL_SHELL_LANDMARK_TAGS = array( 'header', 'footer', 'nav' );
 
@@ -131,6 +143,28 @@ final class ShellLandmarkPolicy
     public static function isInlineContentWrapperTag(string $tagName): bool
     {
         return in_array(strtolower($tagName), self::INLINE_CONTENT_WRAPPER_TAGS, true);
+    }
+
+    /**
+     * Whether a group records a landmark only through its List View name: the
+     * source said `role="main"` (or banner, navigation, contentinfo) on a
+     * generic element, and the saved tag does not carry the landmark.
+     *
+     * @param array<string, mixed> $attrs
+     */
+    public static function namesRoleOnlyLandmark(array $attrs): bool
+    {
+        $kind = array_search($attrs['metadata']['name'] ?? null, self::LANDMARK_LABELS, true);
+        return false !== $kind && $kind !== self::landmarkKind((string) ($attrs['tagName'] ?? 'div'));
+    }
+
+    /**
+     * Whether block markup holds a group named as the main landmark. This is
+     * the only trace a `role="main"` region leaves (see namesRoleOnlyLandmark()).
+     */
+    public static function containsNamedMainLandmark(string $markup): bool
+    {
+        return 1 === preg_match('/"metadata":\{(?:[^{}]|\{[^{}]*\})*"name":"' . self::LANDMARK_LABELS['main'] . '"/', $markup);
     }
 
     public static function landmarkKind(string $tagName, string $role = '', bool $insideContentLocalCitation = false): string
