@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../fixtures/captured-components.php';
+require_once __DIR__ . '/../fixtures/render-core-dialogs.php';
 
 /**
  * A captured dropdown menu panel is not a modal. The user agent paints a bare
@@ -49,20 +50,21 @@ $compile = static function (?string $presentation, string $rootClass = 'menu-pan
 };
 
 $dropdown = $compile('dropdown');
-$blocks = (string) ($dropdown['serialized_blocks'] ?? '');
+$savedBlocks = (string) ($dropdown['serialized_blocks'] ?? '');
+$blocks = render_core_dialogs($savedBlocks);
 $assert(1 === preg_match('/<dialog[^>]*data-blocks-engine-presentation="dropdown"[^>]*data-blocks-engine-placement="under-header"/', $blocks), 'a dropdown panel keeps its presentation and drops under its header', $blocks);
-$assert(str_contains($blocks, '"presentation":"dropdown"') && str_contains($blocks, '"placement":"under-header"'), 'the dropdown presentation and placement are saved as block attributes so the editor round trips them', $blocks);
+$assert(str_contains($savedBlocks, '"data-blocks-engine-presentation":"dropdown"') && str_contains($savedBlocks, '"data-blocks-engine-placement":"under-header"'), 'the dropdown presentation and placement are saved as block attributes so the editor round trips them', $blocks);
 $assert(! str_contains($blocks, 'data-blocks-engine-dialog-close') && ! str_contains($blocks, '"addCloseButton"'), 'a dropdown gets no generated Close control: its source trigger stays reachable', $blocks);
 
 $placed = $compile('dropdown', 'absolute top-full left-0');
-$placedBlocks = (string) ($placed['serialized_blocks'] ?? '');
+$placedBlocks = render_core_dialogs((string) ($placed['serialized_blocks'] ?? ''));
 $assert(str_contains($placedBlocks, 'data-blocks-engine-presentation="dropdown"') && str_contains($placedBlocks, 'data-blocks-engine-placement="source"'), 'a dropdown panel that positions itself is still a dropdown and keeps its own placement', $placedBlocks);
 
 $modal = $compile(null);
-$modalBlocks = (string) ($modal['serialized_blocks'] ?? '');
+$modalBlocks = render_core_dialogs((string) ($modal['serialized_blocks'] ?? ''));
 $assert(! str_contains($modalBlocks, 'data-blocks-engine-presentation') && ! str_contains($modalBlocks, 'data-blocks-engine-placement'), 'a dialog without a dropdown presentation is left alone', $modalBlocks);
-$assert(str_contains($modalBlocks, 'data-blocks-engine-dialog-close="true"') && str_contains($modalBlocks, '"addCloseButton":true'), 'a modal without a source close control still gets the generated Close control', $modalBlocks);
-$explicitModal = (string) ($compile('modal')['serialized_blocks'] ?? '');
+$assert(str_contains($modalBlocks, 'data-blocks-engine-dialog-close="true"') && str_contains((string) $modal['serialized_blocks'], '"addCloseButton":true'), 'a modal without a source close control still gets the generated Close control', $modalBlocks);
+$explicitModal = render_core_dialogs((string) ($compile('modal')['serialized_blocks'] ?? ''));
 $assert($explicitModal === $modalBlocks, 'an observed modal presentation keeps exactly the existing modal output', $explicitModal);
 
 // A capture can instead wire the panel in place beside its trigger and mark it
@@ -90,15 +92,15 @@ $compileWired = static function (string $panelClass, string $ancestorJson, bool 
         ),
     ))->toArray();
 };
-$wired = (string) ($compileWired('px-5 data-blocks-engine-capture-dialog data-blocks-engine-capture-dropdown', json_encode($ancestorState))['serialized_blocks'] ?? '');
+$wired = render_core_dialogs((string) ($compileWired('px-5 data-blocks-engine-capture-dialog data-blocks-engine-capture-dropdown', json_encode($ancestorState))['serialized_blocks'] ?? ''));
 $assert(1 === preg_match('/<dialog[^>]*data-blocks-engine-presentation="dropdown"/', $wired), 'an in-place wired data-blocks-engine-capture-dropdown panel keeps its dropdown presentation', $wired);
-$assert(str_contains($wired, '"ancestorState":[{"tag":"header","closed":{"class":"top bg-transparent"},"opened":{"class":"top bg-dark"}}]'), 'the recorded ancestor open state is saved on the dialog block without source-DOM paths', $wired);
+$assert(str_contains(html_entity_decode($wired, ENT_QUOTES), 'data-blocks-engine-ancestor-state="[{"tag":"header","closed":{"class":"top bg-transparent"},"opened":{"class":"top bg-dark"}}]"'), 'the recorded ancestor open state is saved on the dialog block without source-DOM paths', $wired);
 $assert(1 === preg_match('/<dialog[^>]*data-blocks-engine-ancestor-state="\[\{&quot;tag&quot;:&quot;header&quot;/', $wired), 'the dialog markup carries the ancestor open state for the view script', $wired);
 $assert(! str_contains($wired, 'data-blocks-engine-dialog-close'), 'a wired dropdown gets no generated Close control', $wired);
 $inPlaceResult = $compileWired('px-5 data-blocks-engine-capture-dialog data-blocks-engine-capture-dropdown', json_encode($ancestorState), true);
-$inPlace = (string) ($inPlaceResult['serialized_blocks'] ?? '');
+$inPlace = render_core_dialogs((string) ($inPlaceResult['serialized_blocks'] ?? ''));
 $assert(1 === preg_match('/<header[^>]*>.*<dialog[^>]*data-blocks-engine-placement="in-place".*<\/dialog>.*<\/header>/s', $inPlace), 'a dropdown at its observed source place stays inside its source parent', $inPlace);
-$wiredModal = (string) ($compileWired('data-blocks-engine-capture-dialog', '[]')['serialized_blocks'] ?? '');
+$wiredModal = render_core_dialogs((string) ($compileWired('data-blocks-engine-capture-dialog', '[]')['serialized_blocks'] ?? ''));
 $assert(str_contains($wiredModal, '<dialog') && ! str_contains($wiredModal, 'data-blocks-engine-presentation') && ! str_contains($wiredModal, 'ancestor-state'), 'a wired modal panel without the dropdown marker or ancestor state is left alone', $wiredModal);
 $unsafe = $ancestorState;
 $unsafe[0]['opened'] = array('onclick' => 'alert(1)');
@@ -180,7 +182,7 @@ file_put_contents(sys_get_temp_dir() . '/captured-dialog-dropdown-panel.json', j
     'css' => $css . $fixtureCss,
     'script' => $view,
     'inPlace' => $inPlace,
-    'underHeader' => (string) ($compileWired('px-5 data-blocks-engine-capture-dialog data-blocks-engine-capture-dropdown', json_encode($ancestorState))['serialized_blocks'] ?? ''),
+    'underHeader' => render_core_dialogs((string) ($compileWired('px-5 data-blocks-engine-capture-dialog data-blocks-engine-capture-dropdown', json_encode($ancestorState))['serialized_blocks'] ?? '')),
     'modal' => $modalBlocks,
 ), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
 

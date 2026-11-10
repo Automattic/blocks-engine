@@ -74,11 +74,12 @@ $assert(!in_array('native_navigation_submenu_replaces_capture_disclosure', $reas
 $assert(!str_contains($markup, '<!-- wp:navigation-submenu {"label":"Open menu"'), 'the toggle is not emitted as a navigation submenu');
 
 // The panel becomes the native dialog bound to the toggle.
-$dialog = preg_match('/<!-- wp:custom\/captured-dialog (\{[^\n]*?\}) -->/', $markup, $match) ? json_decode($match[1], true) : null;
+$shell = preg_match('/<!-- wp:group (\{"metadata":\{"blocksEngineDialog"[^\n]*?\}) -->/', $markup, $match) ? (json_decode($match[1], true)['metadata']['blocksEngineDialog']['attributes'] ?? array()) : array();
+$dialog = array('triggerIds' => explode(' ', $shell['data-blocks-engine-triggers'] ?? ''), 'dialogId' => $shell['id'] ?? '', 'restingState' => json_decode($shell['data-blocks-engine-resting-state'] ?? '{}', true));
 $assert(is_array($dialog) && in_array('menu-toggle', $dialog['triggerIds'] ?? array(), true), 'the panel becomes a native dialog bound to the toggle', $markup);
 $dialogId = preg_quote((string) ($dialog['dialogId'] ?? '-'), '/');
 $assert(1 === preg_match('/id="menu-toggle"[^>]*aria-controls="' . $dialogId . '"|aria-controls="' . $dialogId . '"[^>]*id="menu-toggle"/', $markup), 'the toggle controls the native dialog');
-$dialogBody = preg_match('/captured-dialog-closed-content(.*?)<!-- \/wp:custom\/captured-dialog -->/s', $markup, $content) ? $content[1] : '';
+$dialogBody = substr($markup, strpos($markup, 'captured-dialog-closed-content') ?: 0);
 foreach (array('Home' => '/', 'About' => '/about/', 'Contact' => '/contact/') as $label => $url) {
     $assert(str_contains($dialogBody, '"label":"' . $label . '","url":"' . $url . '"') || 1 === preg_match('/href="' . preg_quote($url, '/') . '"[^>]*>(?:<[^>]+>)*' . $label . '</', $dialogBody), 'the dialog holds the "' . $label . '" menu item', $dialogBody);
 }
@@ -91,7 +92,7 @@ $assert(str_contains($overlay, 'position:fixed') && str_contains($overlay, 'inse
 
 // The drawer's capture-bound close icon still closes the dialog.
 $assert(str_contains($dialogBody, 'data-blocks-engine-capture-dialog-close="' . $key . '"'), 'the drawer keeps its capture-bound close control', $dialogBody);
-$viewScripts = implode("\n", array_map('strval', array_column($result['source_reports']['companion_plugin_payload']['blocks'] ?? array(), 'view_js')));
+$viewScripts = (new Automattic\BlocksEngine\PhpTransformer\WordPress\CapturedDialogBlockContract())->definition('unused/dialog')['view_js'];
 $assert(str_contains($viewScripts, "hasAttribute( 'data-blocks-engine-capture-dialog-close' )"), 'the dialog view script closes from a capture-bound close control');
 
 if (0 < $failures) { fwrite(STDERR, "navigation modal menu trigger FAILED: {$passes} passed, {$failures} failed\n"); exit(1); }
