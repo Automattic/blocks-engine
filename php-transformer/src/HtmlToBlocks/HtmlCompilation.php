@@ -650,7 +650,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             fn (DOMElement $element): bool => $this->ownsPositioningGeometry($element),
             fn (DOMElement $element, array &$fallbacks): ?array => $this->positionedInlineCarrierBlock($element, $fallbacks),
             fn (DOMElement $element): bool => $this->hasAuthorSemanticMarker($element),
-            fn (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array => $this->convertChildren($element, $fallbacks, $captureUnsupported),
             fn (DOMElement $element): string => $this->richTextMarkerForElement($element),
             fn (DOMElement $element): ?string => $this->dynamicTextContent($element),
             fn (DOMElement $element, string $tagName): ?DOMElement => SourceDom::ancestorElement($element, $tagName),
@@ -758,9 +757,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             }
         );
         $nativeGetFormBlockBuilder = new NativeGetFormBlockBuilder(
-            function (DOMElement $element, array &$fallbacks): array {
-                return $this->convertChildren($element, $fallbacks, true);
-            },
+            $this,
             function (DOMElement $element): array {
                 $attrs = $this->styleResolver->presentationAttributes($element);
                 $alignment = $this->styleResolver->inheritedTextAlignmentDeclaration($element);
@@ -775,9 +772,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         );
         $formCompositionPlanner = new FormCompositionPlanner(
             $this->session,
-            function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
-                return $this->convertChildren($element, $fallbacks, $captureUnsupported);
-            },
+            $this,
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
             $this,
             fn (DOMElement $container, DOMElement $element): bool => $this->elementContains($container, $element)
@@ -821,9 +816,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->buttonLinkDispatcher = new ButtonLinkDispatcher($this->sourceElementClassifier, $this->createButtonLinkDispatchContext());
         $buttonConverter = new ButtonElementConverter($this->sourceElementClassifier, $this, $this->styleResolver, new ButtonElementContext(
             fn (DOMElement $element): bool => $this->searchBlockConverter->isReplacedSearchClusterControl($element),
-            function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
-                return $this->convertChildren($element, $fallbacks, $captureUnsupported);
-            },
+            $this,
             fn (DOMElement $element): ?array => $this->buttonLinkDispatcher->convertButton($element),
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
             fn (DOMElement $element): ?array => $this->runtimeAuthoredButton($element),
@@ -943,9 +936,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             fn (DOMElement $element): ?array => $metadataGrid->convert($element),
             fn (DOMElement $element): array => $definitionLists->definitionListItems($element),
             $this->authorLayoutOwnership,
-            function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
-                return $this->convertChildren($element, $fallbacks, $captureUnsupported);
-            },
+            $this,
             fn (string $html): bool => '' !== trim($this->runtime->stripAllTags($html))
         ));
         $this->structuralContentConverters = new OrderedElementConverterRegistry(array(
@@ -1013,7 +1004,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             authoredCarouselBlock: fn (DOMElement $element): ?array => $this->authoredCarouselGenerator->convert($element),
             generatedComponentBlock: fn (DOMElement $element, array &$fallbacks): ?array => $this->nativeOrGeneratedComponentBlock($element, $fallbacks),
             textFlowBlock: fn (DOMElement $element): ?array => $inlineFlows->textFlowBlockFromElement($element),
-            convertChildren: fn (DOMElement $element, array &$fallbacks): array => $this->convertChildren($element, $fallbacks, true),
             backgroundImageBlock: fn (DOMElement $element): ?array => $this->imageLowering->backgroundImageBlock($element),
             coalescedSingleGroupWrapper: fn (DOMElement $element, array $child): ?array => $this->coalescedSingleGroupWrapper($element, $child),
             shouldPreserveWrapper: fn (DOMElement $element, ?string $asTag = null): bool => $this->shouldPreserveWrapper($element, $asTag),
@@ -1284,9 +1274,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 return $this->linkedIconTextRows->fromParagraph($element);
             },
             fn (string $text): array => $this->convertText($text),
-            function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
-                return $this->convertChildren($element, $fallbacks, $captureUnsupported);
-            },
+            $this,
             function (DOMElement $element, array &$fallbacks): ?array {
                 return $this->emptyInlineGeometry->emptyInlineGeometryBlock($element, $fallbacks);
             },
@@ -1334,9 +1322,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     {
         return new TextLeafElementContext(
             $this->codePresentation ??= new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CodePresentation($this->styleResolver),
-            function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
-                return $this->convertChildren($element, $fallbacks, $captureUnsupported);
-            }
+            $this
         );
     }
 

@@ -519,7 +519,7 @@ final class AuthorStylesheetProjector
     {
         $css .= $this->visuallyHiddenSourceSelectorRule($prelude, $css, $body);
 
-        $css .= $this->editorOverrideRules($css);
+        $css .= $this->editorOverrideRules($css, $context);
 
         return $css . $this->editorShellChildCombinatorVariants($css, $context->emittedMarkup) . $this->editorEmptyRichTextVariants($css);
     }
@@ -586,11 +586,12 @@ final class AuthorStylesheetProjector
         return preg_replace('/\s+/', ' ', trim($selector)) ?? trim($selector);
     }
 
-    private function editorOverrideRules(string $css): string
+    private function editorOverrideRules(string $css, AuthorStylesheetProjectionContext $context): string
     {
+        $ids = array_fill_keys($context->authorStyles->sourceElementIds(), true);
         return ( new CssStylesheetTransformer() )->transformStyleRules(
             $css,
-            function (string $prelude, string $body): string {
+            function (string $prelude, string $body) use ($ids): string {
                 $declarations = $this->styleResolver->cssDeclarations($body);
                 $position = trim((string) ($declarations['position'] ?? ''));
                 $whiteSpace = strtolower(trim(preg_replace('/\s*!important\s*$/i', '', $declarations['white-space'] ?? '') ?? ''));
@@ -604,6 +605,12 @@ final class AuthorStylesheetProjector
                     $selector = trim($selector);
                     if ( '' === $selector || str_starts_with($selector, ':host') || str_contains($selector, '.editor-styles-wrapper') ) {
                         continue;
+                    }
+                    // Block ids become client ids in the canvas. Give every
+                    // position copy an anchor alternative with the same source
+                    // specificity, not only copies of static-state repairs.
+                    if ( '' !== $position ) {
+                        $selector = ScopedAnchorSelectorProjection::selector($selector, $ids);
                     }
                     if ( 1 === preg_match('/^body(?=$|[.#:\[])/', $selector) ) {
                         $editorSelectors[] = preg_replace('/^body/', ':root body.editor-styles-wrapper', $selector, 1) ?? $selector;

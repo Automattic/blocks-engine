@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorLayoutOwnership;
 use Closure;
 use DOMElement;
@@ -14,7 +15,6 @@ final class DescriptionListElementContext
      * @param Closure(DOMElement): ?array<string, mixed> $descriptionListBlock
      * @param Closure(DOMElement): ?array<string, mixed> $metadataGridBlock
      * @param Closure(DOMElement): array<int, array<string, mixed>> $definitionListItems
-     * @param Closure(DOMElement, array<int, array<string, mixed>>&, bool): array<int, array<string, mixed>> $convertChildren
      * @param Closure(string): bool $hasVisibleText
      */
     public function __construct(
@@ -22,7 +22,7 @@ final class DescriptionListElementContext
         private readonly Closure $metadataGridBlock,
         private readonly Closure $definitionListItems,
         public readonly AuthorLayoutOwnership $authorLayoutOwnership,
-        private readonly Closure $convertChildren,
+        private readonly PatternTreeConverter $tree,
         private readonly Closure $hasVisibleText
     ) {
     }
@@ -48,7 +48,7 @@ final class DescriptionListElementContext
     /** @param array<int, array<string, mixed>> $fallbacks @return array<int, array<string, mixed>> */
     public function convertChildren(DOMElement $element, array &$fallbacks, bool $captureUnsupported): array
     {
-        return ($this->convertChildren)($element, $fallbacks, $captureUnsupported);
+        return $this->tree->children($element, $fallbacks, $captureUnsupported);
     }
 
     public function hasVisibleText(string $html): bool
