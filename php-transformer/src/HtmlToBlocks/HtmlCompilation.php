@@ -1179,7 +1179,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->sourceElementClassifier,
             $this->styleResolver,
             $this,
-            $this->patternRecognizers,
+            $this,
             $this->patternContext,
             $this->runtimeIslands,
             $this->formRuntimeIslandRecorder,
