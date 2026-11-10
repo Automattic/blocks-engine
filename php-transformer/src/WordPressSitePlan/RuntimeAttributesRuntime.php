@@ -17,6 +17,10 @@ final class RuntimeAttributesRuntime
     {
         return str_replace(array('__DEVICE_INLINE__', '__VIEWPORT_ENTRANCE__', '__RESPONSIVE_FRAGMENT__'), array(CaptureEvidence::DEVICE_INLINE, CaptureEvidence::VIEWPORT_ENTRANCE, CaptureEvidence::RESPONSIVE_FRAGMENT), <<<'PHP'
 add_filter( 'render_block', static function ( string $content, array $block ): string {
+    // The label is editable core RichText; the source button owns its box.
+    if ( 'core/paragraph' === ( $block['blockName'] ?? '' ) && true === ( $block['attrs']['metadata']['blocksEngineControlLabel'] ?? false ) ) {
+        return preg_replace( '~^\\s*<p\\b[^>]*>(.*?)</p>\\s*$~s', '$1', $content ) ?? $content;
+    }
     // Core containers own CSS-drawn control boxes in the editor. On the
     // front end keep their authored box attributes, not group layout chrome.
     $box = $block['attrs']['metadata']['blocksEngineControlBox'] ?? null;
@@ -28,7 +32,13 @@ add_filter( 'render_block', static function ( string $content, array $block ): s
             foreach ( $box as $name => $value ) {
                 if ( is_string( $name ) && is_string( $value ) && preg_match( '/^(?:class|style|id|type|name|title|tabindex|disabled|hidden|role|data-(?!wp-)[a-z0-9_.:-]+|aria-[a-z-]+)$/D', $name ) ) $processor->set_attribute( $name, $value );
             }
-            return $processor->get_updated_html();
+            $html = $processor->get_updated_html();
+            $tag = $block['attrs']['metadata']['blocksEngineControlTag'] ?? null;
+            if ( is_string( $tag ) && in_array( $tag, array( 'button', 'span', 'i', 'b', 'em', 'strong', 'small', 'div' ), true ) ) {
+                $html = preg_replace( '~^(\\s*)<[a-z0-9]+\\b~i', '$1<' . $tag, $html ) ?? $html;
+                $html = preg_replace( '~</[a-z0-9]+>(\\s*)$~i', '</' . $tag . '>$1', $html ) ?? $html;
+            }
+            return $html;
         }
     }
     $attributes = $block['attrs']['metadata']['blocksEngineRuntimeAttributes'] ?? null;

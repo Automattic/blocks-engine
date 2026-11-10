@@ -19,7 +19,7 @@ final class BlockFactory
      *
      * @var array<int, string>
      */
-    private const GROUP_TAG_NAMES = array( 'div', 'header', 'nav', 'section', 'article', 'aside', 'footer', 'main', 'search', 'ul', 'ol', 'menu', 'li', 'form', 'picture' );
+    private const GROUP_TAG_NAMES = array( 'div', 'header', 'nav', 'section', 'article', 'aside', 'footer', 'main', 'search', 'ul', 'ol', 'menu', 'li', 'form', 'picture', 'button', 'span', 'i', 'b', 'em', 'strong', 'small' );
 
     /** Wrapper elements core/cover's HTML element control offers. */
     public const COVER_TAG_NAMES = array( 'div', 'header', 'main', 'section', 'article', 'aside', 'footer' );

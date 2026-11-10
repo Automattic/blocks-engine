@@ -204,7 +204,8 @@ final class WrapperCoalescer
     private function hasIndependentWrapperOwnership(array $block): bool
     {
         $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
-        return !empty($block['_editability_runtime_owned'])
+        return isset($attrs['metadata']['blocksEngineControlBox'])
+            || !empty($block['_editability_runtime_owned'])
             || !empty($block['_editability_visual_owned'])
             || !empty($attrs['backgroundColor'])
             || !empty($attrs['gradient'])

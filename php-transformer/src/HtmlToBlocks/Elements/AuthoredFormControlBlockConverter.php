@@ -419,12 +419,17 @@ final class AuthoredFormControlBlockConverter
     /** @return array<string, mixed> */
     public function runtimeButton(DOMElement $button): array
     {
+        // Captured close controls have a plain editable label, not an opaque
+        // companion content tree. Keep the source box around core RichText.
+        if ('button' === strtolower($button->tagName) && $button->hasAttribute(CaptureEvidence::DIALOG_CLOSE) && $button->ownerDocument?->getElementById($button->getAttribute(CaptureEvidence::DIALOG_CLOSE)) instanceof DOMElement && array() === SourceDom::eventMetadata($button) && 0 === $button->childElementCount) {
+            return $this->cssDrawnControlGroup($button);
+        }
         // SVG controls have no RichText label. Model their artwork as core
         // images and containers rather than an opaque contentParts tree.
-        // Inline-only icons and CSS-painted controls still use the native
-        // authored button. Only block-container artwork needs a container tree;
-        // inline content already belongs to the button's editable label path.
-        if ('button' === strtolower($button->tagName) && SourceDom::isBoundCapturedDialogTrigger($button) && $button->getElementsByTagName('div')->length > 0 && $button->getElementsByTagName('svg')->length > 0 && $this->isCssDrawnControl($button)) {
+        // Explicit capture triggers may also own CSS-painted spans or empty
+        // pseudo-element hosts. Inferred native-dialog controls retain their
+        // existing native owner unless they need the block artwork tree.
+        if ('button' === strtolower($button->tagName) && SourceDom::isBoundCapturedDialogTrigger($button) && ($button->hasAttribute(CaptureEvidence::DIALOG_TRIGGER) || ($button->getElementsByTagName('div')->length > 0 && $button->getElementsByTagName('svg')->length > 0)) && $this->isCssDrawnControl($button)) {
             return $this->cssDrawnControlGroup($button);
         }
 
@@ -473,6 +478,12 @@ final class AuthoredFormControlBlockConverter
         $children = array();
         foreach ($element->childNodes as $child) {
             if ($child instanceof DOMElement) $children[] = $this->cssDrawnControlGroup($child);
+            elseif ($child instanceof \DOMText && '' !== $child->nodeValue) {
+                $children[] = $this->createBlock->createBlock('core/paragraph', array(
+                    'content' => htmlspecialchars($child->nodeValue, ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                    'metadata' => array('blocksEngineControlLabel' => true),
+                ), array(), $element);
+            }
         }
         $attributes = array();
         foreach ($element->attributes as $attribute) {
@@ -482,7 +493,7 @@ final class AuthoredFormControlBlockConverter
         return $this->createBlock->createBlock('core/group', array(
             'tagName' => strtolower($element->tagName),
             'className' => SourceDom::attr($element, 'class'),
-            'metadata' => array('blocksEngineControlBox' => $attributes),
+            'metadata' => array('blocksEngineControlBox' => $attributes, 'blocksEngineControlTag' => strtolower($element->tagName)),
         ), $children, $element);
     }
 

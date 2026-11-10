@@ -34,18 +34,19 @@ foreach ($checks as $index => $ok) {
         exit(1);
     }
 }
-// The SVG path must not absorb CSS-only artwork: it needs a native saved
-// button even before WordPress front-end render filters are applied.
+// CSS-only artwork also has a selectable core tree with native source tags.
 $painted = (new HtmlTransformer())->transform(
     '<button id="painted" aria-label="Menu" aria-controls="panel" '
     . 'data-blocks-engine-capture-dialog-trigger="panel"><span class="bars"></span></button>'
     . '<div id="panel" data-blocks-engine-captured-dialog="true" data-blocks-engine-triggers="painted" hidden>Menu</div>',
     array('runtime_dom_selectors' => array('[data-blocks-engine-capture-dialog-trigger]'))
 )->toArray();
-$document = new DOMDocument();
-@$document->loadHTML((string) $painted['serialized_blocks']);
-$xpath = new DOMXPath($document);
-if (1 !== $xpath->query('//button[@id="painted"][@aria-label="Menu"]/span[@class="bars"]')->length) {
-    throw new RuntimeException('CSS-painted controls retain their native saved button and artwork.');
+$paintedMarkup = (string) $painted['serialized_blocks'];
+if (str_contains($paintedMarkup, '/authored-button')
+    || !str_contains($paintedMarkup, '"blocksEngineControlTag":"button"')
+    || !str_contains($paintedMarkup, '"blocksEngineControlTag":"span"')
+    || !str_contains($paintedMarkup, '"class":"bars"')
+    || !preg_match('/<button\\b[^>]*>.*<span\\b/s', $paintedMarkup)) {
+    throw new RuntimeException('CSS-painted controls retain editable core boxes and source tag metadata.');
 }
 echo "Captured icon control: " . (count($checks) + 1) . " assertions passed\n";
