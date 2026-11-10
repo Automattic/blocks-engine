@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorLayoutOwnership;
 use Closure;
@@ -16,8 +15,6 @@ final class FlowContainerElementContext
     public function __construct(
         private readonly Closure $runtimeAppShellBlock,
         private readonly PatternTreeConverter $tree,
-        private readonly Closure $canCaptureExternalSvgFragmentDependency,
-        private readonly SourceElementClassifier $sourceElementClassifier,
         public readonly AuthorLayoutOwnership $authorLayoutOwnership,
         private readonly Closure $hasMultipleRuntimeInlineTextTargets,
         private readonly Closure $paragraphBlockFromInlineContentWrapper,
@@ -25,8 +22,6 @@ final class FlowContainerElementContext
         private readonly Closure $proofBackedWrapperCoalescing,
         private readonly Closure $isInertEmptyElement,
         private readonly PatternContext $patternContext,
-        private readonly Closure $rememberNativeDisclosureRoot,
-        private readonly Closure $rememberNativeTabControls,
         private readonly Closure $visualTextWrapperBlock,
         private readonly Closure $coalescedSingleGroupWrapper,
         private readonly Closure $shouldPreserveWrapper
@@ -37,7 +32,6 @@ final class FlowContainerElementContext
     public function runtimeAppShellBlock(DOMElement $element, array &$fallbacks): ?array { return ($this->runtimeAppShellBlock)($element, $fallbacks); }
     /** @param array<int, array<string, mixed>> $fallbacks @param array<int, class-string> $patterns @return array<string, mixed>|null */
     public function recognizePatterns(DOMElement $element, array &$fallbacks, array $patterns): ?array { return $this->tree->patterns($element, $fallbacks, $patterns); }
-    public function hasExternalSvgFragmentDependencyBoundary(DOMElement $element): bool { return ($this->canCaptureExternalSvgFragmentDependency)($element) && $this->sourceElementClassifier->hasExternalSvgFragmentDependencyBoundary($element); }
 
     public function hasMultipleRuntimeInlineTextTargets(DOMElement $element): bool { return ($this->hasMultipleRuntimeInlineTextTargets)($element); }
     /** @return array<string, mixed>|null */
@@ -49,8 +43,6 @@ final class FlowContainerElementContext
     public function isInertEmptyElement(DOMElement $element): bool { return ($this->isInertEmptyElement)($element); }
 
     public function patternContext(): PatternContext { return $this->patternContext; }
-    public function rememberNativeDisclosureRoot(DOMElement $element): void { ($this->rememberNativeDisclosureRoot)($element); }
-    public function rememberNativeTabControls(DOMElement $element): void { ($this->rememberNativeTabControls)($element); }
     /** @return array<string, mixed>|null */
     public function visualTextWrapperBlock(DOMElement $element): ?array { return ($this->visualTextWrapperBlock)($element); }
     /** @param array<int, array<string, mixed>> $fallbacks @return array<int, array<string, mixed>> */
