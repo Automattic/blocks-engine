@@ -5524,6 +5524,11 @@ PHP;
             return $empty;
         }
         if (null !== $contentRange && $range === $contentRange) {
+            // An id names one post's element. A shared template would repeat
+            // it on every post, so an anchored container moves with its body.
+            if (isset(self::listingBlockAttributes($slice)['anchor'])) {
+                return array('template' => '<!-- wp:post-content /-->', 'body' => $slice, 'title' => false, 'date' => false, 'shared' => false, 'content' => true, 'retained' => array(array('offset' => $range['offset'], 'length' => $range['length'])));
+            }
             $children = $index->children($range);
             $start = $children[0]['offset'];
             $last = $children[count($children) - 1];
