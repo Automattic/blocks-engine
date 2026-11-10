@@ -896,6 +896,21 @@ final class CssStylesheetTransformer
      * @param list<string> $arms
      * @return list<string>|null
      */
+    /**
+     * Gate selector arms to the documents whose root matches $scope (a
+     * zero-weight `:where(:root...)`), or null when an arm cannot be gated.
+     *
+     * @param list<string> $arms
+     * @return list<string>|null
+     */
+    public static function routeScopedArms(array $arms, string $scope): ?array
+    {
+        $reason = null;
+        $parsed = array();
+        $scoped = self::scopeRouteArms($arms, $scope, $reason, $parsed);
+        return null === $reason ? $scoped : null;
+    }
+
     private static function scopeRouteArms(array $arms, string $scope, ?string &$reason, array &$parsedArms): ?array
     {
         $rootAlternatives = array();
