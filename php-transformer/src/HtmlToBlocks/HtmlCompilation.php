@@ -315,8 +315,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private array $retainedCustomWrapperHooks = array();
 
     private readonly ElementConversionPrelude $elementPrelude;
-    /** Leading element conversion steps, in dispatch order. */
-    private readonly OrderedElementConverterRegistry $elementHead;
+    /** Element conversion steps, in dispatch order. */
+    private readonly OrderedElementConverterRegistry $elementConverters;
 
     private readonly WrapperCoalescer $wrapperCoalescer;
 
@@ -646,7 +646,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             fn (DOMElement $element): bool => $this->listStructure->isStructuralListItem($element),
             fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element),
             fn (DOMElement $element): array => $this->emptyVisualSpacers->emptyVisualSpacerBlock($element),
-            function (DOMElement $element): void { $this->rememberNativeDisclosure($element); },
+            $this->session->rememberNativeDisclosure(...),
             fn (DOMElement $element): bool => $this->runtimeIslands->retainsRuntimeTextLeafInRichText($element)
         ), $this->styleResolver, $this->runtime, $this->sourceBlockAttributeProjector);
         $this->authoredFormControlBlockConverter = new AuthoredFormControlBlockConverter(
@@ -945,8 +945,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 return $this->htmlPreservationBlock($element);
             },
             tree: $this,
-            canCaptureExternalSvgFragmentDependency: fn (DOMElement $element): bool => ! $this->runtimeIslands->isRuntimeDomTarget($element) && ! $this->runtimeIslands->hasRuntimeTargetInSubtree($element),
-            sourceElementClassifier: $this->sourceElementClassifier,
             authorLayoutOwnership: $this->authorLayoutOwnership,
             hasMultipleRuntimeInlineTextTargets: fn (DOMElement $element): bool => $this->hasMultipleRuntimeInlineTextTargets($element),
             paragraphBlockFromInlineContentWrapper: fn (DOMElement $element): ?array => $this->paragraphBlockFromInlineContentWrapper($element),
@@ -954,20 +952,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             proofBackedWrapperCoalescing: fn (DOMElement $element, array &$fallbacks): ?array => $this->proofBackedWrapperCoalescing($element, $fallbacks),
             isInertEmptyElement: fn (DOMElement $element): bool => $this->isInertOutOfFlowEmptyElement($element),
             patternContext: $this->patternContext,
-            rememberNativeDisclosureRoot: function (DOMElement $element): void { $this->rememberNativeDisclosure($element); },
-            rememberNativeTabControls: function (DOMElement $element): void {
-                foreach ( $element->childNodes as $child ) {
-                    if ( ! $child instanceof DOMElement || 'tablist' !== strtolower(trim($this->attr($child, 'role'))) ) {
-                        continue;
-                    }
-                    foreach ( $child->getElementsByTagName('*') as $candidate ) {
-                        if ( $candidate instanceof DOMElement && 'tab' === strtolower(trim($this->attr($candidate, 'role'))) ) {
-                            $this->session->runtimeBehaviorState()->rememberNativeTabControl($candidate->getNodePath() ?? '');
-                        }
-                    }
-                    break;
-                }
-            },
             visualTextWrapperBlock: fn (DOMElement $element): ?array => $this->visualTextWrapperBlockFromElement($element),
             coalescedSingleGroupWrapper: fn (DOMElement $element, array $child): ?array => $this->coalescedSingleGroupWrapper($element, $child),
             shouldPreserveWrapper: fn (DOMElement $element, ?string $asTag = null): bool => $this->shouldPreserveWrapper($element, $asTag)
@@ -979,7 +963,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this,
             $this->generatedComponents,
             $this,
-            $this->session->runtimeBehaviorState(),
+            $this->session,
+            $this->runtimeIslands,
             $metadataGrid,
             $mediaGalleries,
             $namePriceRows,
@@ -1103,7 +1088,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 $this
             )
         );
-        $this->elementHead = new OrderedElementConverterRegistry(array(
+        $this->elementConverters = new OrderedElementConverterRegistry(array(
             new Elements\PostNavigationLinkConverter($this->styleResolver, $this),
             new AuthoredMotionMarkerConverter($this->session, $this),
             $this->elementPrelude,
@@ -1260,19 +1245,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
      * local-disclosure panels it absorbed no longer exist as DOM targets, so the
      * capture runtime selectors that addressed them are superseded by the block.
      */
-    private function rememberNativeDisclosure(DOMElement $root): void
-    {
-        $this->session->runtimeBehaviorState()->rememberNativeDisclosureRoot($root->getNodePath() ?? '');
-        foreach ( array_merge(array( $root ), iterator_to_array($root->getElementsByTagName('*'), false)) as $node ) {
-            if ( $node instanceof DOMElement && 'true' === strtolower($node->getAttribute(CaptureEvidence::LOCAL_DISCLOSURE)) ) {
-                $this->session->runtimeSelectorState()->supersede('[' . CaptureEvidence::LOCAL_DISCLOSURE . ']');
-                if ( '' !== $node->getAttribute('id') ) {
-                    $this->session->runtimeSelectorState()->supersede('#' . $node->getAttribute('id'));
-                }
-            }
-        }
-    }
-
     /**
      * Collaborator surface for {@see RichTextElementConverter}.
      */
@@ -1298,7 +1270,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             function (DOMElement $element, array &$fallbacks): ?array {
                 $block = $this->patterns($element, $fallbacks, array( DetailsPattern::class ));
                 if ( null !== $block ) {
-                    $this->rememberNativeDisclosure($element);
+                    $this->session->rememberNativeDisclosure($element);
                 }
                 return $block;
             },
@@ -2688,9 +2660,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return $block;
         }
 
-        $head = $this->elementHead->convert($element, $tagName, $fallbacks, $captureUnsupported);
-        if ( $head->handled ) {
-            return $head->block;
+        $outcome = $this->elementConverters->convert($element, $tagName, $fallbacks, $captureUnsupported);
+        if ( $outcome->handled ) {
+            return $outcome->block;
         }
 
         // Last disposition before the unsupported gate: a custom element whose

@@ -5,7 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredCarouselBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredMarqueeRecognizer;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeBehaviorState;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\AccordionPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonsContainerPattern;
@@ -39,7 +39,8 @@ final class FlowContainerElementConverter implements ElementConverter
         private readonly AuthorLayoutLowering $authorLayout,
         private readonly GeneratedComponentLowering $generatedComponents,
         private readonly EmptyVisualRetention $emptyVisualRetention,
-        private readonly RuntimeBehaviorState $runtimeBehavior,
+        private readonly HtmlTransformerSession $session,
+        private readonly RuntimeIslandAnalyzer $runtimeIslands,
         private readonly MetadataGridConverter $metadataGrid,
         private readonly MediaGalleryLowering $mediaGalleries,
         private readonly NamePriceRowLowering $namePriceRows,
@@ -135,7 +136,7 @@ final class FlowContainerElementConverter implements ElementConverter
         $this->formDispatcher->capturePseudoFormFallback($element, $fallbacks);
         $block = $this->context->recognizePatterns($element, $fallbacks, array( TabsPattern::class ));
         if ( null !== $block ) {
-            $this->context->rememberNativeTabControls($element);
+            $this->session->rememberNativeTabControls($element);
             return ConversionOutcome::handled($block);
         }
         $block = $this->context->recognizePatterns($element, $fallbacks, array( SpacerPattern::class ));
@@ -153,7 +154,12 @@ final class FlowContainerElementConverter implements ElementConverter
         if ( null !== $block ) {
             return ConversionOutcome::handled($block);
         }
-        if ( $this->context->hasExternalSvgFragmentDependencyBoundary($element) ) {
+        // A runtime-owned subtree keeps its SVG references live; only a static
+        // one can be captured as media.
+        if ( ! $this->runtimeIslands->isRuntimeDomTarget($element)
+            && ! $this->runtimeIslands->hasRuntimeTargetInSubtree($element)
+            && $this->sourceElementClassifier->hasExternalSvgFragmentDependencyBoundary($element)
+        ) {
             return ConversionOutcome::handled($this->imageLowering->responsiveMediaBlock($element));
         }
 
@@ -288,7 +294,7 @@ final class FlowContainerElementConverter implements ElementConverter
             }
             $block = $this->context->recognizePatterns($element, $fallbacks, $patterns);
             if ( null !== $block ) {
-                return ConversionOutcome::handled($this->runtimeBehavior->rememberAccordionDisclosureRoot($block, $element));
+                return ConversionOutcome::handled($this->session->runtimeBehaviorState()->rememberAccordionDisclosureRoot($block, $element));
             }
         }
 
@@ -299,7 +305,7 @@ final class FlowContainerElementConverter implements ElementConverter
             }
             $block = $this->context->recognizePatterns($element, $fallbacks, array( DetailsPattern::class ));
             if ( null !== $block ) {
-                $this->context->rememberNativeDisclosureRoot($element);
+                $this->session->rememberNativeDisclosure($element);
                 return ConversionOutcome::handled($block);
             }
             $block = $this->context->recognizePatterns($element, $fallbacks, array( CoverPattern::class ));
@@ -570,7 +576,7 @@ final class FlowContainerElementConverter implements ElementConverter
         }
         $block = $this->context->recognizePatterns($element, $fallbacks, array( DetailsPattern::class ));
         if ( null !== $block ) {
-            $this->context->rememberNativeDisclosureRoot($element);
+            $this->session->rememberNativeDisclosure($element);
             return ConversionOutcome::handled($block);
         }
         return null;
@@ -583,7 +589,7 @@ final class FlowContainerElementConverter implements ElementConverter
             return null;
         }
         $block = $this->context->recognizePatterns($element, $fallbacks, array( AccordionPattern::class ));
-        return null === $block ? null : ConversionOutcome::handled($this->runtimeBehavior->rememberAccordionDisclosureRoot($block, $element));
+        return null === $block ? null : ConversionOutcome::handled($this->session->runtimeBehaviorState()->rememberAccordionDisclosureRoot($block, $element));
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */
@@ -599,7 +605,7 @@ final class FlowContainerElementConverter implements ElementConverter
             return null;
         }
 
-        return ConversionOutcome::handled($this->runtimeBehavior->rememberAccordionDisclosureRoot($block, $element));
+        return ConversionOutcome::handled($this->session->runtimeBehaviorState()->rememberAccordionDisclosureRoot($block, $element));
     }
 
     /** @param array<int, array<string, mixed>> $children @return array<string, mixed> */
