@@ -290,8 +290,8 @@ final class ShellExtraction
         unset($declaration);
         $this->resolveManifestEntities($declarations, $records);
         foreach ($parts as $partIndex => $part) {
-            if ('footer' !== ($part['area'] ?? null) || 'shared_shell' !== ($part['placement']['kind'] ?? null)) continue;
-            $sources = array_keys($part['provenance']['sources'] ?? array());
+            if ('footer' !== ($part['area'] ?? null) || !in_array($part['placement']['kind'] ?? null, array('shared_shell', 'inline_shared_shell'), true)) continue;
+            $sources = 'inline_shared_shell' === $part['placement']['kind'] ? ($part['placement']['source_paths'] ?? array()) : array_keys($part['provenance']['sources'] ?? array());
             $evidence = array();
             foreach ($originals as $original) {
                 if (!in_array($original['source_path'], $sources, true)) continue;
