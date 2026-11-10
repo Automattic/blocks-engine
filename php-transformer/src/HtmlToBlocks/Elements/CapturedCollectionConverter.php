@@ -14,7 +14,7 @@ final class CapturedCollectionConverter implements ElementConverter
 {
     public function __construct(private readonly HtmlTransformerSession $session, private readonly PatternTreeConverter $tree) {}
 
-    public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
         if ($element->hasAttribute('data-blocks-engine-collection-target')) {
             // A hidden empty-state sibling must not prevent recognition of the

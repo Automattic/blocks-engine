@@ -14,7 +14,7 @@ final class CapturedListboxConverter implements ElementConverter
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */
-    public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
         if ('listbox' === strtolower(trim($element->getAttribute('role')))
             && '' !== trim($element->getAttribute(CaptureEvidence::LISTBOX_PANEL))) {

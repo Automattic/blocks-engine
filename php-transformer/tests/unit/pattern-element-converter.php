@@ -57,7 +57,7 @@ $nativeTable = new class($nativeCalls) implements ElementConverter {
         $this->calls =& $calls;
     }
 
-    public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
         if ( 'table' !== $tagName ) {
             return ConversionOutcome::unhandled();

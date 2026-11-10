@@ -38,7 +38,7 @@ $converter = static function (string $name, ConversionOutcome $outcome) use (&$c
             $this->calls =& $calls;
         }
 
-        public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
+        public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
         {
             $this->calls[] = $this->name;
             $fallbacks[] = array( 'converter' => $this->name );
