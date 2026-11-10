@@ -20,6 +20,13 @@ final class BlockMaterializer
         private readonly RuntimeIslandAnalyzer $runtimeIslands
     ) {}
 
+    private bool $selectedDocumentVisibility = false;
+
+    public function configureDeviceVisibility(string $sourceHtml): void
+    {
+        $this->selectedDocumentVisibility = EngineMarker::usesSelectedDocumentVisibility($sourceHtml);
+    }
+
     /**
      * @param array<string, mixed>              $attrs
      * @param array<int, array<string, mixed>> $innerBlocks
@@ -50,11 +57,11 @@ final class BlockMaterializer
                 $attrs['metadata'][self::RUNTIME_ATTRIBUTES_KEY] = $runtimeAttributes;
             }
             if (str_starts_with($name, 'core/') && 'core/html' !== $name) {
-                $viewports = EngineMarker::deviceViewportVisibility($sourceFacts->sourceElement);
+                $viewports = EngineMarker::deviceViewportVisibility($sourceFacts->sourceElement, $this->selectedDocumentVisibility);
                 if (array() !== $viewports) {
                     $attrs['metadata']['blockVisibility']['viewport'] = $viewports;
                 }
-                $deviceClasses = EngineMarker::deviceVisibilityClasses($sourceFacts->sourceElement);
+                $deviceClasses = EngineMarker::deviceVisibilityClasses($sourceFacts->sourceElement, $this->selectedDocumentVisibility);
                 if (array() !== $deviceClasses) {
                     $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), implode(' ', $deviceClasses));
                 }
