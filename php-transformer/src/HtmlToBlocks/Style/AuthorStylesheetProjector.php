@@ -3078,6 +3078,12 @@ final class AuthorStylesheetProjector
             foreach ( $ordinaryImages as $element ) {
                 $marker = $context->selectorProjections->imageWrapperMarker($element->getNodePath() ?? '');
                 if ( '' === $marker ) {
+                    // The image's figure stands in for the paragraph or heading
+                    // that held it, so ancestry naming that element ends at the
+                    // figure: reach the leaf through the figure's marker.
+                    $marker = $context->selectorProjections->unwrappedImageCarrierMarker($element->getNodePath() ?? '');
+                }
+                if ( '' === $marker ) {
                     // A static data predicate is not carried to the native image;
                     // its attribute marker moves to the figure, so reach the leaf
                     // through that marker, as the figure's own box rule does.

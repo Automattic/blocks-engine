@@ -122,6 +122,9 @@ final class AuthorSelectorProjectionState
     /** @var array<string, string> */
     private array $imageWrapperMarkers = array();
 
+    /** @var array<string, string> Source image path => semantic marker of the ancestor its figure stands in for. */
+    private array $unwrappedImageCarriers = array();
+
     /** @var array<string, string> */
     private array $imageLinkMarkers = array();
 
@@ -734,6 +737,23 @@ final class AuthorSelectorProjectionState
     public function imageWrapperMarker(string $path): string
     {
         return $this->imageWrapperMarkers[$path] ?? '';
+    }
+
+    /**
+     * Record that the image at `$path` now renders in the figure an ancestor
+     * (a paragraph or heading holding only that image) was unwrapped into,
+     * so the figure carries the ancestor's semantic marker, not one of its own.
+     */
+    public function recordUnwrappedImageCarrier(string $path, string $marker): void
+    {
+        if ( '' !== $path && '' !== $marker ) {
+            $this->unwrappedImageCarriers[$path] = $marker;
+        }
+    }
+
+    public function unwrappedImageCarrierMarker(string $path): string
+    {
+        return $this->unwrappedImageCarriers[$path] ?? '';
     }
 
     public function ensureSemanticMarker(string $path): string
