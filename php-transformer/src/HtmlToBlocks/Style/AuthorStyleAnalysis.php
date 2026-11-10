@@ -657,17 +657,13 @@ final class AuthorStyleAnalysis
                 if ( ! ($parsed['supported'] ?? false) && ! ($selector['direct_child_parsed']['supported'] ?? false) ) {
                     continue;
                 }
-                [$target, $key] = \Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex::bucket($parsed, true);
+                $buckets = \Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex::buckets($parsed, true);
                 $entry = array(
                     'order' => $rule['order'],
                     'sequence' => $sequence++,
                     'rule' => array_merge($selector, array('declarations' => $rule['declarations'], 'rule_order' => $rule['order'], 'key' => $rule['order'] . ':' . $selectorIndex, 'source_path' => $rule['source_path'] ?? '', 'source_hash' => $rule['source_hash'] ?? '')),
                 );
-                if ( 'universal' === $target ) {
-                    $index['universal'][] = $entry;
-                } else {
-                    $index[$target][$key][] = $entry;
-                }
+                \Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex::insert($index, $buckets, $entry);
                 ++$index['total'];
             }
         }

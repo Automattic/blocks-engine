@@ -26,6 +26,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\DeclarationCascade;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\Support\NativeListItemFallbackReconciler;
@@ -2499,10 +2500,13 @@ PHP;
                 if (array() === $declarations) return;
                 foreach (CssStylesheetTransformer::splitSelectorList($selector) ?? array($selector) as $item) {
                     $key = trim($item) . "\0" . $body;
-                    if (!isset($rules[$key])) $rules[$key] = array(CssSelectorMatcher::parse(trim($item)), $declarations);
+                    if (!isset($rules[$key])) $rules[$key] = array('parsed_selector' => CssSelectorMatcher::parse(trim($item)), 'declarations' => $declarations);
                 }
             });
         }
+        // Each hooked element repeats on every page; only rules whose subject
+        // compound can match it need the full matcher.
+        $index = CssSubjectIndex::build(array_values($rules));
         $result = array();
         foreach ($pages as $page) {
             $document = new \DOMDocument();
@@ -2515,7 +2519,7 @@ PHP;
                 }
                 if ('' === $hook) continue;
                 $declarationSets = array(CssRuleAnalyzer::declarations($element->getAttribute('style'), $properties));
-                foreach ($rules as [$selector, $declarations]) if (CssSelectorMatcher::matches($element, $selector, true)['matches']) $declarationSets[] = $declarations;
+                foreach (CssSubjectIndex::entries($element, $index) as $entry) if (CssSelectorMatcher::matches($element, $entry['rule']['parsed_selector'], true)['matches']) $declarationSets[] = $entry['rule']['declarations'];
                 $absolute = false; $unsafe = false;
                 foreach ($declarationSets as $declarations) {
                     foreach ($declarations as $declaration) {
