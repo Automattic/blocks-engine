@@ -521,23 +521,16 @@ final class CssStylesheetTransformer
         $allRoutes[$baseOwner] = true;
         if (null !== $sharedMarkup) $markup[$baseOwner] = $sharedMarkup;
         $carriers = self::markerCarriers($markup);
-        $emitArms = function (array $units, array $prototype) use (&$output, &$unionOutput, &$armLists, &$parsedArms, $routeClass, $routeSetClass, $allRoutes, $baseOwner, $carriers, $markup, $matchIndex): void {
-            [$lead, $rule] = self::splitLeadingComments($prototype['text']);
-            $brace = (int) $this->nextRuleBoundary($rule, 0);
-            $body = substr($rule, $brace);
-            $members = array();
-            foreach ($units as $owner => $unit) {
-                if (null === $unit) continue;
-                $text = $unit['text'];
-                if (!isset($armLists[$text])) {
-                    [, $rule] = self::splitLeadingComments($text);
-                    $start = (int) $this->nextRuleBoundary($rule, 0);
-                    $armLists[$text] = (array) self::splitSelectorList(CssSelectorListCompactor::expand(CssSyntaxScanner::withoutComments(substr($rule, 0, $start))));
-                }
-                foreach ($armLists[$text] as $arm) {
-                    $members[trim($arm)][$owner] = true;
-                }
-            }
+        // Adjacent contributions with one context and byte-identical
+        // declarations are scoped together: an arm's gate is the union of
+        // the routes that carry it across the run, so complementary route
+        // sets collapse to one ungated arm. Order within such a run cannot
+        // change any cascade result.
+        $pending = null;
+        $flush = function () use (&$pending, &$output, &$parsedArms, $routeClass, $routeSetClass, $allRoutes, $baseOwner, $carriers, $markup, $matchIndex): void {
+            if (null === $pending) return;
+            ['members' => $members, 'prototype' => $prototype, 'lead' => $lead, 'body' => $body] = $pending;
+            $pending = null;
             $groups = array();
             foreach ($members as $arm => $routes) {
                 $outside = array_diff_key($allRoutes, $routes);
@@ -579,9 +572,15 @@ final class CssStylesheetTransformer
                 }
                 $groups[$scope][] = $arm;
             }
-            $union = $prototype;
-            $union['text'] = $lead . implode(',', array_keys($members)) . $body;
-            $unionOutput[] = $union;
+            // A gated arm that differs from an ungated arm of this run only
+            // by a zero-weight exclusion matches a subset of it with the same
+            // declarations and weight, so it changes nothing.
+            $ungated = array_fill_keys($groups[''] ?? array(), true);
+            foreach ($groups as $scope => $arms) {
+                if ('' === $scope || array() === $ungated) continue;
+                $groups[$scope] = array_values(array_filter($arms, static fn (string $arm): bool => !isset($ungated[self::withoutTrailingZeroWeightExclusion($arm)])));
+                if (array() === $groups[$scope]) unset($groups[$scope]);
+            }
             foreach ($groups as $scope => $arms) {
                 $unit = $prototype;
                 if ('' !== $scope) {
@@ -595,7 +594,35 @@ final class CssStylesheetTransformer
                 $lead = '';
             }
         };
+        $emitArms = function (array $units, array $prototype) use (&$pending, &$unionOutput, &$armLists, $flush): void {
+            [$lead, $rule] = self::splitLeadingComments($prototype['text']);
+            $brace = (int) $this->nextRuleBoundary($rule, 0);
+            $body = substr($rule, $brace);
+            $members = array();
+            foreach ($units as $owner => $unit) {
+                if (null === $unit) continue;
+                $text = $unit['text'];
+                if (!isset($armLists[$text])) {
+                    [, $rule] = self::splitLeadingComments($text);
+                    $start = (int) $this->nextRuleBoundary($rule, 0);
+                    $armLists[$text] = (array) self::splitSelectorList(CssSelectorListCompactor::expand(CssSyntaxScanner::withoutComments(substr($rule, 0, $start))));
+                }
+                foreach ($armLists[$text] as $arm) {
+                    $members[trim($arm)][$owner] = true;
+                }
+            }
+            $union = $prototype;
+            $union['text'] = $lead . implode(',', array_keys($members)) . $body;
+            $unionOutput[] = $union;
+            if (null !== $pending && '' === $lead && $pending['prototype']['context'] === $prototype['context'] && $pending['body'] === $body) {
+                foreach ($members as $arm => $routes) $pending['members'][$arm] = ($pending['members'][$arm] ?? array()) + $routes;
+                return;
+            }
+            $flush();
+            $pending = array('members' => $members, 'prototype' => $prototype, 'lead' => $lead, 'body' => $body);
+        };
         for ($i = 0; $i <= count($base); ++$i) {
+            if (isset($siteInsertions[$i])) $flush();
             foreach ($siteInsertions[$i] ?? array() as $unit) { $output[] = $unit; $unionOutput[] = $unit; }
             $groups = array();
             foreach ($insertions[$i] ?? array() as $owner => $units) foreach ($units as $ordinal => $unit) {
@@ -607,11 +634,12 @@ final class CssStylesheetTransformer
             uasort($groups, static fn (array $a, array $b): int => $a['ordinal'] <=> $b['ordinal']);
             foreach ($groups as $group) $emitArms($group['routes'], $group['unit']);
             if ($i === count($base)) break;
-            if (empty($changes[$i])) { $output[] = $base[$i]; $unionOutput[] = $base[$i]; continue; }
+            if (empty($changes[$i])) { $flush(); $output[] = $base[$i]; $unionOutput[] = $base[$i]; continue; }
             $units = array();
             foreach ($allRoutes as $owner => $_) $units[$owner] = array_key_exists($owner, $changes[$i]) ? $changes[$i][$owner] : $base[$i];
             $emitArms($units, $base[$i]);
         }
+        $flush();
         $stylesheet = $this->serializeRuleUnits($output);
         // Match ArtifactCompiler's final serialization, not the expanded arms:
         // identical scope prefixes can ship once for an entire selector group.
@@ -977,6 +1005,21 @@ final class CssStylesheetTransformer
     }
 
     /** @param list<array{context: list<string>, text: string, dedupable: bool}> $units */
+    /** The arm without a final `:not(:where(...))` (zero specificity), or the arm itself. */
+    private static function withoutTrailingZeroWeightExclusion(string $arm): string
+    {
+        if (!str_ends_with($arm, '))')) return $arm;
+        $depth = 0;
+        for ($index = strlen($arm) - 1; $index >= 0; --$index) {
+            if (')' === $arm[$index]) ++$depth;
+            elseif ('(' === $arm[$index] && 0 === --$depth) {
+                $start = $index - 4;
+                return $start > 0 && str_starts_with(substr($arm, $start), ':not(:where(') ? substr($arm, 0, $start) : $arm;
+            }
+        }
+        return $arm;
+    }
+
     private function serializeRuleUnits(array $units): string
     {
         $output = '';
