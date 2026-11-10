@@ -71,7 +71,7 @@ final class ButtonDeclarationRouting
             if ( $places ) {
                 $placement[] = $declaration;
             } elseif ( $owned ) {
-                $geometry[] = $declaration;
+                $geometry[] = $this->withLinkBoxFlexBasis($name, $value, $declaration, $body, $controls);
             } else {
                 $inner[] = $declaration;
             }
@@ -103,7 +103,7 @@ final class ButtonDeclarationRouting
             if ( $this->declarationPlacesTheButton($name, $placementVars)
                 || ( $this->isButtonWrapperLayoutProperty($name) && ! $this->isButtonControlBoxSize($name, $value, $controls) )
             ) {
-                $layout[] = $declaration;
+                $layout[] = $this->withLinkBoxFlexBasis($name, $value, $declaration, $body, $controls);
             } else {
                 if ( $this->releasesButtonWrapperWidth($name, $value, $controls) ) {
                     $layout[] = $declaration;
@@ -321,6 +321,120 @@ final class ButtonDeclarationRouting
         }
 
         return $referenced;
+    }
+
+
+    /**
+     * A flex item's padding and border count toward its hypothetical main
+     * size: `flex:1 0 0` siblings with `padding:16px 24px` split a row evenly
+     * because each starts from its 48px padding box. A lowered button moves
+     * that padding to its link while the core/buttons wrapper takes the flex
+     * declaration, so the wrapper would start from zero. Restate the basis on
+     * the wrapper as the source item's outer basis.
+     *
+     * @param list<DOMElement> $controls
+     */
+    private function withLinkBoxFlexBasis(string $name, string $value, string $declaration, string $body, array $controls): string
+    {
+        if ( ! in_array($name, array( 'flex', 'flex-basis' ), true) || array() === $controls ) {
+            return $declaration;
+        }
+        $basis = 'flex' === $name ? self::flexShorthandBasis(CssValueInspector::withoutImportant($value)) : CssValueInspector::withoutImportant($value);
+        if ( null === $basis || 1 !== preg_match('/^(?:-?[0-9.]+[a-z%]*|calc\(.*\))$/i', $basis) ) {
+            return $declaration;
+        }
+        $restated = null;
+        foreach ( $controls as $control ) {
+            $participation = LayoutParticipation::resolve($control, $this->styleResolver);
+            if ( LayoutParticipation::FLEX_ITEM !== $participation->context || LayoutParticipation::BOX_BUTTONS_WRAPPER !== $participation->participatingBox() ) {
+                return $declaration;
+            }
+            $outer = $this->outerFlexBasis($control, $basis, $body);
+            if ( null === $outer || ( null !== $restated && $restated !== $outer ) ) {
+                return $declaration;
+            }
+            $restated = $outer;
+        }
+        return $declaration . ';flex-basis:' . $restated . ( CssValueInspector::isImportant($value) ? '!important' : '' );
+    }
+
+    /** The basis a `flex` shorthand sets, or null for keywords that keep the item's size. */
+    private static function flexShorthandBasis(string $value): ?string
+    {
+        $parts = CssValueSplitter::splitTopLevelWhitespace(trim($value));
+        $numbers = array_values(array_filter($parts, static fn (string $part): bool => 1 === preg_match('/^[0-9.]+$/', $part)));
+        $lengths = array_values(array_diff($parts, $numbers));
+        if ( 1 === count($lengths) && count($parts) <= 3 ) {
+            return $lengths[0];
+        }
+        // `flex: <grow> [<shrink>]` sets a zero basis; three unitless numbers
+        // end in an explicit zero basis.
+        return array() === $lengths && in_array(count($parts), array( 1, 2, 3 ), true) ? ( 3 === count($parts) ? $parts[2] : '0%' ) : null;
+    }
+
+    /** The control's basis plus the main-axis padding and border its link now paints. */
+    private function outerFlexBasis(DOMElement $control, string $basis, string $body): ?string
+    {
+        $resolved = $this->styleResolver->resolvedSourceStateDeclarations($control);
+        $parent = $control->parentNode;
+        $flow = $parent instanceof DOMElement ? $this->styleResolver->resolvedSourceStateDeclarations($parent) : array();
+        $direction = strtolower(($flow['flex-direction'] ?? '') . ' ' . ($flow['flex-flow'] ?? ''));
+        $sides = str_contains($direction, 'column') ? array( 0, 2 ) : array( 3, 1 );
+        $declared = array();
+        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $item ) {
+            $colon = strpos($item, ':');
+            if ( false !== $colon ) {
+                $declared[strtolower(trim(substr($item, 0, $colon)))] = trim(substr($item, $colon + 1));
+            }
+        }
+        $source = array_merge($resolved, $declared);
+        $padding = CssValueInspector::expandBoxShorthand(CssValueInspector::withoutImportant($source['padding'] ?? '0'));
+        $border = array( '0', '0', '0', '0' );
+        foreach ( array( 'top', 'right', 'bottom', 'left' ) as $index => $side ) {
+            if ( isset($source['padding-' . $side]) ) {
+                $padding[$index] = CssValueInspector::withoutImportant($source['padding-' . $side]);
+            }
+            $width = null;
+            $style = 'none';
+            foreach ( array( 'border', 'border-' . $side ) as $shorthand ) {
+                foreach ( CssValueSplitter::splitTopLevelWhitespace(CssValueInspector::withoutImportant($source[$shorthand] ?? '')) as $token ) {
+                    if ( CssValueInspector::isBorderWidthToken($token) ) {
+                        $width = $token;
+                    } elseif ( 1 === preg_match('/^(none|hidden|solid|dashed|dotted|double|groove|ridge|inset|outset)$/i', $token) ) {
+                        $style = strtolower($token);
+                    }
+                }
+            }
+            $width = isset($source['border-width']) ? CssValueInspector::expandBoxShorthand(CssValueInspector::withoutImportant($source['border-width']))[$index] : $width;
+            $width = $source['border-' . $side . '-width'] ?? $width;
+            $style = isset($source['border-style']) ? strtolower(CssValueInspector::expandBoxShorthand(CssValueInspector::withoutImportant($source['border-style']))[$index]) : $style;
+            $style = strtolower($source['border-' . $side . '-style'] ?? $style);
+            if ( null !== $width && ! in_array($style, array( 'none', 'hidden' ), true) ) {
+                $border[$index] = CssValueInspector::withoutImportant($width);
+            }
+        }
+        $terms = array();
+        foreach ( $sides as $index ) {
+            foreach ( array( $padding[$index], $border[$index] ) as $length ) {
+                $length = trim($length);
+                if ( '' === $length || 1 === preg_match('/^0(?:[a-z%]+)?$/i', $length) ) {
+                    continue;
+                }
+                if ( 1 !== preg_match('/^(?:[0-9.]+[a-z%]+|calc\(.*\))$/i', $length) ) {
+                    return null;
+                }
+                $terms[] = $length;
+            }
+        }
+        if ( array() === $terms ) {
+            return null;
+        }
+        $box = implode(' + ', $terms);
+        $zero = 1 === preg_match('/^0(?:[a-z%]+)?$/i', $basis);
+        if ( 'border-box' === strtolower(trim($source['box-sizing'] ?? '')) ) {
+            return $zero ? 'calc(' . $box . ')' : 'max(' . $basis . ', calc(' . $box . '))';
+        }
+        return 'calc(' . ( $zero ? '' : $basis . ' + ' ) . $box . ')';
     }
 
     /** @param array<string, true> $placementVars */
