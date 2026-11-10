@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session;
 
+use DOMElement;
+
 final class RuntimeBehaviorState
 {
     /** @var list<array<string, mixed>> */
@@ -83,6 +85,24 @@ final class RuntimeBehaviorState
     public function rememberNativeDisclosureRoot(string $path): void
     {
         $this->nativeDisclosureRootPaths[$path] = true;
+    }
+
+    /**
+     * Record a source element whose subtree converted to the native
+     * `core/accordion` block, so its toggle controls are not later flagged as
+     * interactive-control behavior loss. Returns the block unchanged for use as
+     * a passthrough at recognizer call sites.
+     *
+     * @param array<string, mixed> $block
+     * @return array<string, mixed>
+     */
+    public function rememberAccordionDisclosureRoot(array $block, DOMElement $element): array
+    {
+        if ( 'core/accordion' === ( $block['blockName'] ?? '' ) ) {
+            $this->rememberNativeDisclosureRoot($element->getNodePath() ?? '');
+        }
+
+        return $block;
     }
 
     public function hasNativeDisclosureRoots(): bool

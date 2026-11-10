@@ -118,7 +118,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElemen
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\GutenbergGaps;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\InteractionFallbackReporter;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\AccordionPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CoverPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CodeWindowPatternContext;
@@ -128,7 +127,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructu
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\LogoPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\MarkupPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\MediaPatternContext;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ParameterTablePattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
@@ -136,7 +134,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecogniz
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ProbeBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\QuotePatternContext;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SocialLinksPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorSemanticContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorSemanticPreparer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleRuleProjector;
@@ -857,7 +854,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $quoteConverter = new QuoteElementConverter($this);
         $listConverter = new ListElementConverter($this->styleResolver, $this, new ListElementContext(
             $this,
-            fn (array $block, DOMElement $element): array => $this->rememberAccordionDisclosureRoot($block, $element),
+            $this->session->runtimeBehaviorState()->rememberAccordionDisclosureRoot(...),
             fn (DOMElement $element): bool => $structuredCardLists->isStructuredCardList($element),
             function (DOMElement $element, array &$fallbacks) use ($structuredCardLists): ?array {
                 return $structuredCardLists->decomposeStructuredCardList($element, $fallbacks);
@@ -964,7 +961,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             shouldPreserveEmptyVisualElement: fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element),
             isInertEmptyElement: fn (DOMElement $element): bool => $this->isInertOutOfFlowEmptyElement($element),
             patternContext: $this->patternContext,
-            rememberAccordionDisclosureRoot: fn (array $block, DOMElement $element): array => $this->rememberAccordionDisclosureRoot($block, $element),
+            rememberAccordionDisclosureRoot: $this->session->runtimeBehaviorState()->rememberAccordionDisclosureRoot(...),
             metadataGridBlock: fn (DOMElement $element): ?array => $metadataGrid->convert($element),
             rememberNativeDisclosureRoot: function (DOMElement $element): void { $this->rememberNativeDisclosure($element); },
             rememberNativeTabControls: function (DOMElement $element): void {
@@ -1129,6 +1126,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             // These delegates own disjoint tags; their declaration order is the
             // pre-existing precedence before form, navigation, and flow dispatch.
             $postStructuralElementConverters,
+            new Elements\NavigationElementConverter($this, $this->session, $this->sourceElementClassifier, $this->authorLayoutOwnership, $this->richTextMaterializer, $this->runtime, $this->sourceBlockAttributeProjector, $this->styleResolver, $this),
+            $this->flowContainerConverter,
+            new Elements\AuthoredCarouselElementConverter($this->authoredCarouselGenerator, $this->runtimeIslands, $this->styleResolver, $this, $this),
+            new Elements\NavigationHostConverter($this, $this->layoutShells, $this),
         ));
     }
 
@@ -2759,44 +2760,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return $head->block;
         }
 
-        if ( 'nav' === $tagName ) {
-            $navigation = $this->patterns($element, $fallbacks, array(AccordionPattern::class, SocialLinksPattern::class, NavigationPattern::class));
-            if ( null !== $navigation ) {
-                return $this->rememberAccordionDisclosureRoot($navigation, $element);
-            }
-
-            $inlineNavigation = $this->inlineNavigationGroupBlockFromElement($element);
-            if ( null !== $inlineNavigation ) {
-                return $inlineNavigation;
-            }
-        }
-
-        $flowContainerDispatch = $this->flowContainerConverter->convert($element, $tagName, $fallbacks);
-        if ( $flowContainerDispatch->handled ) {
-            return $flowContainerDispatch->block;
-        }
-
-        // Autoplay cannot change a single slide. Keep its complete light DOM
-        // (including responsive images and links), not the image-only slide path.
-        if ( $this->authoredCarouselGenerator->isStaticSingleSlideCarousel($element)
-            && $this->runtimeIslands->isSafeTransparentCustomElement($element, true)
-        ) {
-            return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $this->convertChildren($element, $fallbacks, $captureUnsupported), $element);
-        }
-
-        $carousel = $this->authoredCarouselGenerator->convert($element);
-        if ( null !== $carousel ) {
-            return $carousel;
-        }
-
-        // A custom-element menu host is not a component. Recognize its landmark
-        // before generated-component capture freezes paragraph-wrapped labels
-        // into a companion content attribute.
-        $navigationHost = $this->recognizedNavigationHostBlock($element, $fallbacks);
-        if ( null !== $navigationHost ) {
-            return $navigationHost;
-        }
-
         if ( $this->isGeneratedComponentCandidate($element) ) {
             $component = $this->nativeOrGeneratedComponentBlock($element, $fallbacks);
             if ( null !== $component ) {
@@ -2972,33 +2935,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
         return ! $parent instanceof DOMElement || ! in_array(strtolower($parent->tagName), array( 'ul', 'ol', 'menu' ), true);
     }
-
-    /**
-     * Lower a custom-element host of a navigation landmark to that landmark's
-     * native navigation, keeping host identity CSS can still address.
-     *
-     * @param array<int, array<string, mixed>> $fallbacks
-     * @return array<string, mixed>|null
-     */
-    private function recognizedNavigationHostBlock(DOMElement $element, array &$fallbacks): ?array
-    {
-        $landmark = ( new NavigationPattern($this) )->hostedNavigationLandmark($element);
-        if ( ! $landmark instanceof DOMElement ) {
-            return null;
-        }
-
-        $navigation = $this->patterns($landmark, $fallbacks, array( AccordionPattern::class, SocialLinksPattern::class, NavigationPattern::class ));
-        if ( null === $navigation ) {
-            return null;
-        }
-
-        if ( '' === trim($this->attr($element, 'id') . $this->attr($element, 'class') . $this->attr($element, 'style')) ) {
-            return $navigation;
-        }
-
-        return $this->layoutShells->blockForElements(array( $element ), array( $navigation ), $element);
-    }
-
 
     /**
      * @return array<int, array<string, mixed>>
@@ -4313,31 +4249,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return 1 < $targets;
     }
 
-    private function inlineNavigationGroupBlockFromElement(DOMElement $element): ?array
-    {
-        if ( ! $this->sourceElementClassifier->hasOnlyPhrasingChildren($element) ) {
-            return null;
-        }
-
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && $this->authorLayoutOwnership->requiresStandaloneInlineLayoutLeaf($child) ) {
-                return null;
-            }
-        }
-
-        $content = $this->richTextMaterializer->content($element);
-        $inlineSvgContent = $this->richTextMaterializer->contentWithMaterializedSvgImages($element, $content);
-        if ( null !== $inlineSvgContent ) {
-            $content = $inlineSvgContent;
-        }
-        if ( '' === trim($this->runtime->stripAllTags($content)) || $this->richTextMaterializer->requiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
-            return null;
-        }
-
-        $paragraph = $this->createBlock('core/paragraph', array_merge($this->sourceBlockAttributeProjector->syntheticInlineParagraphAttributes($element), array( 'content' => $content )));
-        return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), array( $paragraph ), $element);
-    }
-
     private function hasAuthorSemanticMarkedChild(DOMElement $element): bool
     {
         foreach ( $element->childNodes as $child ) {
@@ -4461,24 +4372,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $supersededRuntimeSelectors = array_values(array_unique(array_filter($supersededRuntimeSelectors, static fn(mixed $selector): bool => is_string($selector) && '' !== trim($selector))));
         if ( array() !== $supersededRuntimeSelectors ) $binding['superseded_runtime_selectors'] = $supersededRuntimeSelectors;
         return $binding;
-    }
-
-    /**
-     * Record a source element whose subtree converted to the native
-     * `core/accordion` block, so its toggle controls are not later flagged as
-     * interactive-control behavior loss. Returns the block unchanged for use as
-     * a passthrough at recognizer call sites.
-     *
-     * @param array<string, mixed> $block
-     * @return array<string, mixed>
-     */
-    private function rememberAccordionDisclosureRoot(array $block, DOMElement $element): array
-    {
-        if ( 'core/accordion' === ( $block['blockName'] ?? '' ) ) {
-            $this->session->runtimeBehaviorState()->rememberNativeDisclosureRoot($element->getNodePath() ?? '');
-        }
-
-        return $block;
     }
 
     private function citationFromElement(DOMElement $element): string
