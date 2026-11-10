@@ -5,6 +5,8 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ConversionOutcome;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -36,7 +38,7 @@ use LogicException;
  *  - Pure: no I/O, no global state; the same inputs always yield the same
  *    definition.
  */
-final class CustomBlockGenerator
+final class CustomBlockGenerator implements ElementConverter
 {
     /**
      * Block-editor category for generated blocks. `widgets` is the generic
@@ -154,9 +156,19 @@ JS;
      * Explicit ARIA list topology is retained with semantic Group wrappers.
      *
      * @param array<int, array<string, mixed>> $fallbacks
+     */
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
+    {
+        $block = $this->transparentBlock($element, $fallbacks);
+
+        return null === $block ? ConversionOutcome::unhandled() : ConversionOutcome::handled($block);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
      */
-    public function convert(DOMElement $element, array &$fallbacks): ?array
+    private function transparentBlock(DOMElement $element, array &$fallbacks): ?array
     {
         $sourceElementClassifier = $this->sourceElementClassifier ?? throw new LogicException('CustomBlockGenerator was not wired for conversion.');
         $presentationResolver = $this->presentationResolver ?? throw new LogicException('CustomBlockGenerator was not wired for conversion.');

@@ -116,9 +116,10 @@ final class WrapperCoalescer
         $candidate = $this->collectWrapperChain($block, $depth);
         $chain = $candidate['chain'];
         $terminal = $candidate['terminal'];
-        // Native div wrappers remain editable independently of their terminal.
-        // Neither a companion child nor diagnostic nesting depth requires
-        // converting the ancestors into another generated companion.
+        // The terminal's editing surface does not own its div ancestors.
+        // They already have an exact native representation, even around an
+        // empty or generated terminal. Depth is diagnostic-only in the policy;
+        // folding these Groups adds editing debt without changing their DOM.
         $nativeGroupTree = array() === array_filter($chain, static fn (array $entry): bool => 'div' !== ($entry['descriptor']['tagName'] ?? null));
         $terminalIsShell = $this->sourceElementClassifier->isLayoutShellBlock($terminal);
         if (!$nativeGroupTree && (2 <= count($chain) || (array() !== $chain && $terminalIsShell))) {

@@ -86,7 +86,7 @@ $unwiredCustom = new CustomBlockGenerator();
 $threw = false;
 $fallbacks = array();
 try {
-    $unwiredCustom->convert($elementFrom('<vendor-card><p>Hi</p></vendor-card>'), $fallbacks);
+    $unwiredCustom->convert($elementFrom('<vendor-card><p>Hi</p></vendor-card>'), 'vendor-card', $fallbacks);
 } catch (LogicException $exception) {
     $threw = str_contains($exception->getMessage(), 'not wired for conversion');
 }
@@ -108,7 +108,7 @@ $transparent = new CustomBlockGenerator(
     static fn (): array => array( 'blockName' => 'custom/layout-shell' )
 );
 $fallbacks = array();
-$lowered = $transparent->convert($elementFrom('<vendor-card><p>Hello</p></vendor-card>'), $fallbacks);
+$lowered = $transparent->convert($elementFrom('<vendor-card><p>Hello</p></vendor-card>'), 'vendor-card', $fallbacks)->block;
 $assert('core/paragraph' === ($lowered['blockName'] ?? null), 'transparent-custom-element-flattens-single-child');
 $assert(array() === $fallbacks, 'transparent-custom-element-emits-no-fallbacks');
 
