@@ -111,7 +111,7 @@ final class ButtonStyleResolver
             $style['color']['text'] = $text;
         }
 
-        $border = ArrayField::array($mapped, 'border');
+        $border = $this->mapper->paintedBorder($declarations);
         if ( array() !== $border ) {
             $style['border'] = $border;
         }
@@ -144,6 +144,12 @@ final class ButtonStyleResolver
         }
 
         return array( 'style' => $style );
+    }
+
+    /** Resolve button border paint without losing declaration order. @return array<string, mixed> */
+    public function paintedBorder(string $resolvedStyle): array
+    {
+        return $this->mapper->paintedBorder($this->declarations($resolvedStyle));
     }
 
     /**
@@ -277,6 +283,7 @@ final class ButtonStyleResolver
             }
             $value = CssValueInspector::withoutImportant(preg_replace('/\s+/', ' ', $value) ?? $value);
             foreach ( $this->physicalPaddingDeclarations($name, $value) as $physicalName => $physicalValue ) {
+                unset($declarations[ $physicalName ]);
                 $declarations[ $physicalName ] = $physicalValue;
             }
         }

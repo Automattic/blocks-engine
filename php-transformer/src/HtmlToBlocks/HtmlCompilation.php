@@ -730,9 +730,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $pseudoFormAnalyzer
         );
         $searchBlockConverter = new SearchBlockConverter($this->styleResolver, $this->session, $this, $this->svgMaterializer, $this->runtimeIslands, $this->createSearchBlockConversionContext(), $formControlMetadataBuilder, $pseudoFormAnalyzer);
-        $loginBlockConverter = new LoginBlockConverter(
-            fn (DOMElement $element): array => $this->createBlock('core/loginout', array( 'displayLoginAsForm' => true ), array(), $element)
-        );
+        $loginBlockConverter = new LoginBlockConverter($this);
         $formDispatcher = new FormDispatcher(new FormDispatchContext(
             $loginBlockConverter->loginBlockFromForm(...),
             $searchBlockConverter->searchBlockFromForm(...),
@@ -1271,6 +1269,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DocumentReferenceIndex::install($document, $this->documentAuthorCss);
         \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\InteractiveSurface::indexDocument($document);
         try {
+            FormRuntimeRequirementAnalyzer::indexSourceBehavior($document, (string) ($options['declarative_state_html'] ?? ''));
             $interactionCandidates = $this->interactionFallbackReporter->interactionCandidates($body);
             $this->navigationToggleSuppressor->collectProjectedNavigationRelationships($body);
             $this->navigationToggleSuppressor->collectSupersededNavToggleSelectors($body);
@@ -1279,6 +1278,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $shellArtifacts = !array_key_exists('extract_global_shell', $options) || !empty($options['extract_global_shell']) ? $this->globalShellArtifacts->globalShellArtifacts($body, (string) ($options['source'] ?? 'html'), false, max(0, (int) ($options['global_shell_context_depth'] ?? 0))) : array();
             $blocks = $this->navigationBlockNormalizer->normalize($this->convertChildren($body, $fallbacks, true), $this->session->transformationProvenanceState()->sources(), $this->session->transformationProvenanceState()->sourceBaseHiddenStates(), $this->session->transformationProvenanceState()->sourceCollapsedWrapperHiddenStates());
         } finally {
+            FormRuntimeRequirementAnalyzer::releaseSourceBehavior($document);
             \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\InteractiveSurface::releaseDocument($document);
             \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DocumentReferenceIndex::release($document);
         }

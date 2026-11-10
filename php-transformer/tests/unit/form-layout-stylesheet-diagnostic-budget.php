@@ -20,7 +20,7 @@ $strip = static function (array $value) use (&$strip): array {
     return $value;
 };
 $hash = hash('sha256', json_encode($strip($result), JSON_THROW_ON_ERROR));
-if ('c5a905d09871f64fd199103beeb94076a0c5a628adcd719d529fdb7941c18dd3' !== $hash) throw new RuntimeException('Non-diagnostic output must retain the control-row presentation baseline: ' . $hash);
+if ('256483006a14569eeb3942264acdf0a9a5dcb2e52922d8316d038bfce7190f3a' !== $hash) throw new RuntimeException('Non-diagnostic output must retain form intent and the control-row presentation baseline: ' . $hash);
 $invalid = $graph;
 $invalid['diagnostics'][] = 'unsupported_selector::host(.extra)';
 try {

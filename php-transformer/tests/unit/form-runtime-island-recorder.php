@@ -44,6 +44,7 @@ $formRecord = $recorded[0] ?? array();
 $formMetadata = $formRecord['metadata'] ?? array();
 $assert('form' === ($formRecord['kind'] ?? ''), 'form-kind');
 $assert('form_requires_runtime' === ($formRecord['reason'] ?? ''), 'form-reason');
+$assert('unknown' === ($formMetadata['form_intent'] ?? ''), 'form-intent');
 $assert('server_or_client_form_handler' === ($formRecord['capability'] ?? ''), 'form-capability');
 $assert('signup' === ($formMetadata['form']['id'] ?? '') && '/join' === ($formMetadata['form']['action'] ?? ''), 'form-metadata');
 $assert(2 === ($formMetadata['control_count'] ?? 0) && 2 === count($formMetadata['controls'] ?? array()), 'form-control-count');

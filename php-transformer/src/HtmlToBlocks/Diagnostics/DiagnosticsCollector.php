@@ -129,6 +129,7 @@ final class DiagnosticsCollector
                 'controls'                        => $island['controls'] ?? null,
                 'control'                         => $island['control'] ?? null,
                 'form'                            => $island['form'] ?? null,
+                'form_intent'                     => $island['form_intent'] ?? null,
             ), static fn (mixed $value): bool => null !== $value && '' !== $value);
         }
 
