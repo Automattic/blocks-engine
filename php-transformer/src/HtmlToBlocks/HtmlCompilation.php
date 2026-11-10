@@ -327,6 +327,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly Elements\MediaGalleryLowering $mediaGalleries;
     private readonly Elements\ParagraphImageUnwrapping $paragraphImages;
     private readonly Elements\TextlessMediaLowering $textlessMedia;
+    private readonly Support\StyledSourceClassBoundary $styledClassBoundaries;
     private readonly SourceProvenance $sourceProvenance;
 
     private readonly RuntimeResourceElementConverter $runtimeResourceConverter;
@@ -981,6 +982,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->sourceElementDescription
         );
         $this->textlessMedia = new Elements\TextlessMediaLowering($this->visualIframeGenerator, $this->paragraphImages);
+        $this->styledClassBoundaries = new Support\StyledSourceClassBoundary($this->session);
         $this->customBlockGenerator = new CustomBlockGenerator(
             $this->sourceElementClassifier,
             $this->styleResolver,
@@ -4063,48 +4065,14 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $child = 1 === SourceDom::childElementCount($element) ? $element->firstElementChild : null;
         if ('div' === strtolower($tag) && '' === trim($this->attr($element, 'id'))
             && $child instanceof DOMElement && 'div' === strtolower($child->tagName)
-            && !$this->hasAuthorSemanticMarker($element) && !$this->hasStyledSourceClassBoundary($element)
+            && !$this->hasAuthorSemanticMarker($element) && !$this->styledClassBoundaries->hasStyledSourceClassBoundary($element)
             && $this->renderNeutral->isRenderNeutralWrapper($element) && $this->renderNeutral->isRenderNeutralWrapper($child)
             && $this->containsGeneratedComponentCandidate($element)
         ) {
             return false;
         }
 
-        return ( ShellLandmarkPolicy::isWrapperPreservingTag($tag) || RichTextInlineTags::isUnknownHtmlElement($element) ) && ( $this->runtimeIslands->isRuntimeDomTarget($element) || $this->hasAuthorSemanticMarker($element) || array() !== $this->styleResolver->presentationAttributes($element) || array() !== $this->sourceElementDescription->structureSignals($element, array()) || $this->hasStyledSourceClassBoundary($element) );
-    }
-
-    /**
-     * Presentation attributes omit class-owned CSS. A wrapper can therefore
-     * look empty while still owning inherited declarations or the ancestor
-     * boundary needed by a descendant rule.
-     */
-    private function hasStyledSourceClassBoundary(DOMElement $element): bool
-    {
-        $classes = SourceDom::classNames($element);
-        if (array() === $classes) return false;
-
-        $nodes = array($element);
-        foreach ($element->getElementsByTagName('*') as $descendant) {
-            $nodes[] = $descendant;
-        }
-        foreach ($nodes as $node) {
-            foreach ($this->session->authorStyleRuleCandidates($node) as $candidate) {
-                if (array() === $candidate['declarations'] || ! ($candidate['parsed']['supported'] ?? false)) continue;
-                $compounds = $candidate['parsed']['compounds'];
-                // On descendants the source class must be an ancestor, not
-                // merely another class on the selector's subject.
-                if ($node !== $element) array_pop($compounds);
-                $namesClass = false;
-                foreach ($compounds as $compound) {
-                    if (array() !== array_intersect($classes, $compound['classes'])) {
-                        $namesClass = true;
-                        break;
-                    }
-                }
-                if ($namesClass && $this->session->sourceStyleResolutionState()->selectorMatchCache->matches($node, $candidate['selector'], $candidate['parsed'])['matches']) return true;
-            }
-        }
-        return false;
+        return ( ShellLandmarkPolicy::isWrapperPreservingTag($tag) || RichTextInlineTags::isUnknownHtmlElement($element) ) && ( $this->runtimeIslands->isRuntimeDomTarget($element) || $this->hasAuthorSemanticMarker($element) || array() !== $this->styleResolver->presentationAttributes($element) || array() !== $this->sourceElementDescription->structureSignals($element, array()) || $this->styledClassBoundaries->hasStyledSourceClassBoundary($element) );
     }
 
     /**
