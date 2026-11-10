@@ -16,7 +16,6 @@ use DOMElement;
 final class ReadableFormControlBlockConverter
 {
     /**
-     * @param Closure(DOMElement): array<string, mixed>                                                     $eventMetadata
      * @param Closure(DOMElement): bool                                                                     $isRuntimeDomTarget
      * @param Closure(DOMElement): array<string, mixed>                                                     $presentationAttributes
      */
@@ -25,7 +24,6 @@ final class ReadableFormControlBlockConverter
         private readonly AuthoredFormControlBlockConverter $authoredBlockConverter,
         private readonly FormRuntimeIslandRecorder $runtimeIslandRecorder,
         private readonly Runtime $runtime,
-        private readonly Closure $eventMetadata,
         private readonly Closure $isRuntimeDomTarget,
         private readonly Closure $presentationAttributes,
         private readonly SourceBlockCreator $createBlock,
@@ -66,7 +64,7 @@ final class ReadableFormControlBlockConverter
 
         if ( ! FormControlClassifier::isControlElement($element)
             || ! FormControlClassifier::isReadableControl($element)
-            || array() !== ($this->eventMetadata)($element)
+            || array() !== SourceDom::eventMetadata($element)
         ) {
             return null;
         }
@@ -168,7 +166,7 @@ final class ReadableFormControlBlockConverter
         if ( array() !== $controls ) {
             $blocks = array();
             foreach ( $controls as $control ) {
-                if ( ! FormControlClassifier::isReadableControl($control) || array() !== ($this->eventMetadata)($control) ) {
+                if ( ! FormControlClassifier::isReadableControl($control) || array() !== SourceDom::eventMetadata($control) ) {
                     return null;
                 }
 

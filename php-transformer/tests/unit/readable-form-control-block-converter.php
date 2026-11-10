@@ -48,7 +48,6 @@ $runtimeRecorder = new FormRuntimeIslandRecorder(
     static function (DOMElement $element, string $kind, string $reason, string $capability, array $metadata) use (&$recorded): void {
         $recorded[] = compact('kind', 'reason', 'capability', 'metadata');
     },
-    static fn (DOMElement $element): array => array(),
     $session
 );
 $authoredRegistry = $session->requireGeneratedBlockRegistry();
@@ -67,7 +66,6 @@ $converter = new ReadableFormControlBlockConverter(
     $authoredConverter,
     $runtimeRecorder,
     new Runtime(),
-    static fn (DOMElement $element): array => $element->hasAttribute('data-event') ? array( 'change' => true ) : array(),
     static fn (DOMElement $element): bool => $element->hasAttribute('data-runtime'),
     $presentationAttributes,
     $createBlock,
@@ -88,7 +86,7 @@ $assert('core/group' === ($multiControl['blockName'] ?? ''), 'multi-control-labe
 $assert(2 === count($multiControl['innerBlocks'] ?? array()), 'multi-control-label-retains-each-summary');
 $assert('presented' === ($multiControl['attrs']['className'] ?? ''), 'multi-control-label-retains-presentation');
 
-$eventLabel = $converter->convert($elementFrom('<label>Email<input data-event></label>', 'label'));
+$eventLabel = $converter->convert($elementFrom('<label>Email<input onchange="handle()"></label>', 'label'));
 $assert(null === $eventLabel, 'eventful-wrapped-control-declines-readable-block');
 
 $recorded = array();
@@ -131,7 +129,7 @@ $assert('core/paragraph' === ($legend['blockName'] ?? ''), 'group-caption-become
 $assert('Your details' === ($legend['attrs']['content'] ?? ''), 'group-caption-retains-its-text');
 
 $assert(null === $converter->convert($elementFrom('<div>Not a control</div>', 'div')), 'non-control-is-declined');
-$assert(null === $converter->convert($elementFrom('<input data-event name="email">', 'input')), 'eventful-control-is-declined');
+$assert(null === $converter->convert($elementFrom('<input onchange="handle()" name="email">', 'input')), 'eventful-control-is-declined');
 
 if ( $failures ) {
     fwrite(STDERR, implode("\n", $failures) . "\n");
