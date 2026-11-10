@@ -583,11 +583,11 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->authorSelectorSemanticPreparer = new AuthorSelectorSemanticPreparer($this->sourceElementClassifier,
             new AuthorSelectorSemanticContext(
                 $this->authorLayoutOwnership,
-                fn (DOMElement $element): bool => $this->listStructure->isStructuralListItem($element),
+                $this->listStructure,
                 fn (DOMElement $element): bool => $this->requiresIndependentSemanticWrapper($element),
                 $this->session,
                 $this->tableClassificationPolicy,
-                fn (DOMElement $element): bool => 'p' === strtolower($element->tagName) && $this->paragraphImages->paragraphImageChild($element) instanceof DOMElement
+                $this->paragraphImages
             ),
             $this->stylesheetAnalysisComposer,
             $this->styleResolver,
