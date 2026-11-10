@@ -32,8 +32,9 @@ final class NavigationEntityProjection
                 // semantically equal entity can carry another scope's classes.
                 $sourcePanels = array_values(array_filter((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup))->ranges(), static function (array $range) use ($markup): bool {
                     $block = substr($markup, $range['offset'], $range['length']);
-                    return 1 === preg_match('/^<!--\s*wp:[^\s]+\/captured-dialog\s+(\{.*?\})\s*-->/s', $block, $match)
-                        && 'in-place' === (json_decode($match[1], true)['placement'] ?? null);
+                    if (1 !== preg_match('/^<!--\s*wp:group\s+(\{.*?\})\s*-->/s', $block, $match)) return false;
+                    $shell = json_decode($match[1], true)['metadata']['blocksEngineDialog'] ?? array();
+                    return 'in-place' === ($shell['attributes']['data-blocks-engine-placement'] ?? null);
                 }));
                 foreach (self::navigationBlocks($markup) as $block) {
                     // Provider-owned ancestors and descendants keep their exact

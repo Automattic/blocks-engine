@@ -26,7 +26,7 @@ foreach (array(false, true) as $observed) {
     if (!str_contains($markup, 'Fallback')) throw new RuntimeException('The panel-less desktop scope must still use report fallback.');
     $plan = $result['source_reports']['wordpress_site_plan'];
     $mobile = array_values(array_filter($plan['pages'], static fn(array $page): bool => 'index.html' === $page['source_path']))[0]['canonical_block_markup'];
-    if (!$observed && !preg_match('/wp:[^\s]+\/captured-dialog[^>]*-->.*?wp:navigation[^>]*-->.*?wp:navigation-link/s', $mobile)) throw new RuntimeException('Source-placed panel navigation retains its source-owned item style subjects rather than a shared entity copy.');
+    if (!$observed && !preg_match('/wp:group [^>]*"blocksEngineDialog"[^>]*-->.*?wp:navigation[^>]*-->.*?wp:navigation-link/s', $mobile)) throw new RuntimeException('Source-placed panel navigation retains its source-owned item style subjects rather than a shared entity copy.');
     $definition = (new Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CapturedDialogBlockGenerator())->definition('custom/captured-dialog');
     $result['browser_markup'] = StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($markup);
     $result['browser_style'] = $definition['assets']['style.css'];

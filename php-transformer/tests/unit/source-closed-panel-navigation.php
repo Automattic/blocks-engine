@@ -84,7 +84,9 @@ $assert(1 === substr_count($blocks, '"url":"/services/two/"'), 'the dropdown lin
 
 // 2. The whole mixed-content popover is closed on load at every viewport: it
 // is one captured dialog (no `open`), whose closed rule carries no media query.
-$drawerMatched = 1 === preg_match('/<!-- wp:([a-z0-9-]+\/captured-dialog) (\{.*?\}) -->(<dialog[^>]*>)(.*?)<\/dialog><!-- \/wp:\1 -->/s', $blocks, $drawer);
+require_once __DIR__ . '/../fixtures/render-core-dialogs.php';
+$drawer = core_dialog_match($blocks);
+$drawerMatched = array() !== $drawer;
 $assert($drawerMatched, 'the popover becomes one captured dialog', $blocks);
 $drawerAttrs = (array) json_decode($drawer[2] ?? '{}', true);
 $dialogTag = $drawer[3] ?? '';
@@ -93,7 +95,7 @@ $assert('m' === ($drawerAttrs['dialogId'] ?? null) && str_contains($dialogTag, '
 foreach (array('Brand', 'Servicios', '"url":"/contact/"', '"url":"tel:+1"') as $content) {
     $assert(str_contains($drawerBody, $content), 'the closed dialog holds the popover content: ' . $content, $drawerBody);
 }
-$assert(! str_contains($blocks, '"anchor":"m"') && ! str_contains($blocks, 'wp:group {"anchor":"m"'), 'no open group copy of the popover renders', $blocks);
+$assert(1 === substr_count($blocks, '"anchor":"m"'), 'no open group copy of the popover renders', $blocks);
 $assert(1 === substr_count($blocks, 'Reservar cita') && 1 === substr_count($blocks, 'tel:+1') && 1 === substr_count($blocks, 'href="/a/"'), 'the popover content is emitted once, inside the closed dialog', $blocks);
 $assert(str_contains($generatedAssets, 'dialog[data-blocks-engine-triggers]:not([open]){display:none!important}') && ! preg_match('/@media[^{]*\{\s*dialog\[data-blocks-engine-triggers\]:not/', $generatedAssets), 'the closed rule applies at every viewport (390 and 1440 alike)', '');
 
@@ -113,7 +115,7 @@ $assert(1 === preg_match('/<!-- wp:button \{"anchor":"' . preg_quote((string) ($
 $assert(str_contains($generatedAssets, 'data-blocks-engine-closers'), 'the dialog view script closes from its declared closers', '');
 // The bound close needs no English label: a Spanish label and non-× glyph still bind.
 $spanish = $compile($dropdown . str_replace('aria-label="Cerrar menú">×', 'aria-label="Cerrar menú">Cerrar', $popoverDrawer));
-$assert(1 === preg_match('/data-blocks-engine-closers="([^"]+)"/', $spanish, $spanishCloser) && str_contains($spanish, 'id="' . $spanishCloser[1] . '"'), 'a hide control with no English label or glyph is still bound', $spanish);
+$assert(1 === preg_match('/data-blocks-engine-closers="([^"]+)"/', render_core_dialogs($spanish), $spanishCloser) && str_contains($spanish, 'id="' . $spanishCloser[1] . '"'), 'a hide control with no English label or glyph is still bound', $spanish);
 
 // 6. The captured shape Data Liberation really emits: the drawer's inner
 // `<nav>` is itself a hidden captured dialog panel whose capture trigger IS
@@ -130,7 +132,8 @@ $compileCaptured = static function (string $html): string {
     return (string) ($result['serialized_blocks'] ?? '');
 };
 $captured = $compileCaptured($capturedFixture);
-$capturedMatched = 1 === preg_match('/<!-- wp:([a-z0-9-]+\/captured-dialog) (\{.*?\}) -->(<dialog[^>]*>)(.*?)<\/dialog><!-- \/wp:\1 -->/s', $captured, $capturedDrawer);
+$capturedDrawer = core_dialog_match($captured);
+$capturedMatched = array() !== $capturedDrawer;
 $assert($capturedMatched, 'the captured popover becomes one captured dialog', $captured);
 $capturedAttrs = (array) json_decode($capturedDrawer[2] ?? '{}', true);
 $capturedTag = $capturedDrawer[3] ?? '';
@@ -153,7 +156,7 @@ $innerToggle = $compileCaptured(str_replace(
     '<button type="button" aria-controls="inner-list" aria-expanded="false" aria-label="Expand"><svg></svg></button><ul id="inner-list" role="list" class="mobile-menu__main"><li><a href="/">Home</a></li>',
     $capturedFixture
 ));
-$innerBody = 1 === preg_match('/<dialog[^>]*>(.*?)<\/dialog>/s', $innerToggle, $innerDrawer) ? $innerDrawer[1] : '';
+$innerBody = core_dialog_match($innerToggle)[4] ?? '';
 $assert(str_contains($innerBody, '"label":"Contact"') && ! preg_match('/"overlayMenu":"(?:mobile|always)"/', $innerBody) && ! str_contains($innerBody, 'blocks-engine-native-responsive-navigation'), 'captured dialog content never becomes a responsive overlay navigation', $innerBody);
 
 if (0 !== $failures) {

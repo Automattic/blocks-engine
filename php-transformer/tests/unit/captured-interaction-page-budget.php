@@ -86,7 +86,7 @@ $compiled = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\Artifa
     'entrypoint' => 'website/route-138.html', 'files' => $files,
 ))->toArray();
 $headerParts = $compiled['source_reports']['compiled_site']['template_parts'] ?? array();
-if (!$headerParts || !str_contains(json_encode($headerParts), 'triggerIds') || !str_contains(json_encode($headerParts), '<dialog')) $failures[] = 'Shared header part lost captured trigger or panel';
+if (!$headerParts || !str_contains(json_encode($headerParts), 'data-blocks-engine-triggers') || !str_contains(json_encode($headerParts), 'blocksEngineDialog')) $failures[] = 'Shared header part lost captured trigger or panel';
 
 // Projected accordion title buttons are editable controls, not RichText HTML.
 $heading = '<h3 class="bde-accordion__title-tag"><button type="button" class="bde-accordion__button" aria-controls="accordion-panel-150" disabled data-blocks-engine-collection-choice="{&quot;index&quot;:1,&quot;active&quot;:{},&quot;inactive&quot;:{}}">Title</button></h3>';

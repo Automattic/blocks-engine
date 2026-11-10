@@ -65,8 +65,8 @@ $assert(2 === count($pages), 'both routes compile to pages', (string) json_encod
 $headerParts = array_values(array_filter($plan['template_parts'] ?? array(), static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
 $assert(1 === count($headerParts), 'the header with a captured dialog menu becomes one template part', (string) json_encode(array_column($plan['template_parts'] ?? array(), 'area')));
 $headerMarkup = (string) ($headerParts[0]['canonical_block_markup'] ?? $headerParts[0]['content'] ?? '');
-$assert(1 === substr_count($headerMarkup, '<dialog'), 'the header part carries the captured dialog once', $headerMarkup);
-$assert(!str_contains($pageMarkup, '<dialog') && !str_contains($pageMarkup, 'site-header'), 'no page keeps an inline copy of the header or its dialog', $pageMarkup);
+$assert(1 === substr_count($headerMarkup, '"blocksEngineDialog"'), 'the header part carries the captured dialog once', $headerMarkup);
+$assert(!str_contains($pageMarkup, '"blocksEngineDialog"') && !str_contains($pageMarkup, 'site-header'), 'no page keeps an inline copy of the header or its dialog', $pageMarkup);
 
 fwrite(STDOUT, "Captured dialog shared header: {$passes} passed, {$failures} failed\n");
 exit($failures ? 1 : 0);

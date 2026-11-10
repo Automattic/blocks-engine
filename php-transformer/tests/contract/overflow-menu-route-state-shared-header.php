@@ -113,10 +113,10 @@ foreach ($underlines as $selector) {
 // The compact menu travels with the part: its trigger opens the dialog, and
 // neither the producer's panel snapshot nor a served link's look stays behind.
 $part = (string) $headers[0]['canonical_block_markup'];
-$assert(1 === preg_match('/<!-- wp:custom\/captured-dialog (\{.*?\}) -->/', $part, $dialog), 'The header part keeps the captured dialog.');
+$assert(1 === preg_match('/<!-- wp:group (\{"metadata":\{"blocksEngineDialog".*?\}) -->/', $part, $dialog), 'The header part keeps the captured dialog.');
 $dialogAttrs = json_decode($dialog[1], true);
 $assert(1 === preg_match('/<a\b[^>]*data-blocks-engine-capture-dialog-trigger[^>]*>/', $part, $trigger), 'The header part keeps the dialog trigger.');
-$assert(str_contains($trigger[0], 'aria-controls="' . $dialogAttrs['dialogId'] . '"'), 'The trigger controls the dialog: ' . $trigger[0]);
+$assert(str_contains($trigger[0], 'aria-controls="' . $dialogAttrs['metadata']['blocksEngineDialog']['attributes']['id'] . '"'), 'The trigger controls the dialog: ' . $trigger[0]);
 $assert(!str_contains($part, 'data-blocks-engine-capture-dialog-panel-state'), 'No captured panel snapshot stays on the trigger.');
 $document = new DOMDocument();
 $previous = libxml_use_internal_errors(true);
