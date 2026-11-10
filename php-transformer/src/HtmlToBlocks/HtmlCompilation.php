@@ -22,9 +22,6 @@ use Automattic\BlocksEngine\PhpTransformer\WordPress\CoreBlockCapabilityMatrix;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CoreHtmlFallbackEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformationOptions;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\ContentRoundTripReporter;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\DeadProjectedSelectorReporter;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceMediaRetentionReporter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthorLayoutBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredCarouselBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
@@ -121,9 +118,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElemen
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\GutenbergGaps;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\InteractionFallbackReporter;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\TypographyParityAnalyzer;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\DiagnosticsCollector;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SemanticParityReporter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\AccordionPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CoverPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonPatternContext;
@@ -198,7 +192,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\TransformOptions
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ImageUrlResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializationContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer;
-use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use DOMDocument;
 use DOMElement;
@@ -278,7 +271,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly RichTextMaterializer $richTextMaterializer;
     private readonly Style\SourceElementVisibility $sourceVisibility;
     private readonly Elements\StandaloneBreakLowering $standaloneBreaks;
-    private readonly Elements\StructuredCardListLowering $structuredCardLists;
     private readonly AuthoredMarqueeRecognizer $authoredMarqueeRecognizer;
 
     private readonly OrderedElementConverterRegistry $structuralContentConverters;
@@ -292,7 +284,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly RuntimeIslandAnalyzer $runtimeIslands;
     private readonly Elements\LayoutShellLowering $layoutShells;
     private readonly Elements\CustomVideoHostLowering $customVideoHosts;
-    private readonly Elements\ListItemLowering $listItemLowering;
     private readonly Elements\StructuredInlineItemLowering $structuredInlineItemLowering;
     private readonly Elements\SyntheticImageFigureFlow $syntheticImageFigureFlow;
     private readonly Support\SourceDocumentEnvelope $documentEnvelope;
@@ -308,7 +299,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly Elements\InlineCheckableControlLowering $inlineCheckableControls;
     private readonly Elements\GlobalShellArtifacts $globalShellArtifacts;
     private readonly Elements\LinkCarrierLowering $linkCarriers;
-    private readonly Elements\MediaGalleryLowering $mediaGalleries;
     private readonly Elements\ParagraphImageUnwrapping $paragraphImages;
     private readonly Elements\TextlessMediaLowering $textlessMedia;
     private readonly Support\StyledSourceClassBoundary $styledClassBoundaries;
@@ -326,12 +316,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
     private readonly ReadableFormControlBlockConverter $readableFormControlBlockConverter;
 
-    private readonly ReadableFormBlockBuilder $readableFormBlockBuilder;
-
-    private readonly FormCompositionPlanner $formCompositionPlanner;
 
 
-    private readonly FormDispatcher $formDispatcher;
+
 
     /** @var list<string> Hosts the current source document declares as its own. */
     private array $sourceDocumentHosts = array();
@@ -378,13 +365,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly Diagnostics\FallbackBindingFinalizer $fallbackBindings;
     private readonly NavigationBlockNormalizer $navigationBlockNormalizer;
 
-    private readonly DiagnosticsCollector $diagnosticsCollector;
+    private readonly Diagnostics\CompilationValidation $validation;
 
-    private readonly SemanticParityReporter $semanticParityReporter;
 
-    private readonly ContentRoundTripReporter $contentRoundTripReporter;
-    private readonly SourceMediaRetentionReporter $sourceMediaRetentionReporter;
-    private readonly DeadProjectedSelectorReporter $deadProjectedSelectorReporter;
 
     /** @var list<array{authored: string, projected: string, stylesheet: string, scope: string}> */
     private array $projectedSelectorBindings = array();
@@ -458,14 +441,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $backgroundImageExtractor = new BackgroundImageExtractor();
         $this->tableClassificationPolicy = new TableClassificationPolicy();
         $this->navigationBlockNormalizer = new NavigationBlockNormalizer(fn (string $label): string => $this->normalizedNavigationLabel($label));
-        $this->diagnosticsCollector = new DiagnosticsCollector();
-        $this->semanticParityReporter = new SemanticParityReporter(
-            $this->runtime,
-            new TypographyParityAnalyzer(new FontMaterializationPlanBuilder($this->analysisCache->cssFontAnalysis))
-        );
-        $this->contentRoundTripReporter = new ContentRoundTripReporter();
-        $this->sourceMediaRetentionReporter = new SourceMediaRetentionReporter();
-        $this->deadProjectedSelectorReporter = new DeadProjectedSelectorReporter();
+        $this->validation = new Diagnostics\CompilationValidation($this->runtime, $this->session, $this->analysisCache->cssFontAnalysis);
         $this->reusableComponentRecognizer = new ReusableComponentRecognizer();
         $this->styleResolver = new StyleResolver($this->session, $this->createStyleResolutionContext(), $this->analysisCache);
         $this->sourceInterItemSpaces = new SourceInterItemSpaces($this->styleResolver, $this->sourceElementClassifier);
@@ -586,7 +562,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->generatedComponentCandidates = new Support\GeneratedComponentCandidates($this->session, $this->sourceElementClassifier);
         $this->documentEnvelope = new Support\SourceDocumentEnvelope($this->styleResolver);
         $this->customVideoHosts = new Elements\CustomVideoHostLowering($this->session, $this->styleResolver, $this->imageUrls, $this->runtimeIslands, $this->mediaLowering, $this->imageLowering, $this->layoutShells);
-        $this->listItemLowering = new Elements\ListItemLowering($this, $this, $this->runtime, $this->session, $this->styleResolver, $this->listStructure, $this->richTextMaterializer);
+        $listItemLowering = new Elements\ListItemLowering($this, $this, $this->runtime, $this->session, $this->styleResolver, $this->listStructure, $this->richTextMaterializer);
         $this->structuredInlineItemLowering = new Elements\StructuredInlineItemLowering($this, $this->runtime, $this->sourceElementClassifier, $this->styleResolver, $inlineSvgTextGroups);
         $this->renderNeutral = new Elements\RenderNeutralElements($this->session, $this->styleResolver, $this->sourceElementClassifier, $this->sourceElementDescription, $this->runtimeIslands, $this->emptyElementFootprint);
         $this->inertElements = new Elements\InertElements($this->styleResolver, $this->sourceElementClassifier, $this->sourceVisibility, $this->runtimeIslands);
@@ -598,7 +574,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->globalShellArtifacts = new Elements\GlobalShellArtifacts($this, $this, $this->runtime, $this->session, $this->navigationBlockNormalizer);
         $this->linkCarriers = new Elements\LinkCarrierLowering($this, $this, $this->runtime, $this->styleResolver, $this->runtimeIslands, $this->layoutShells);
         $namePriceRows = new Elements\NamePriceRowLowering($this, $this, $this->styleResolver, $this->sourceElementDescription);
-        $this->mediaGalleries = new Elements\MediaGalleryLowering($this->sourceElementClassifier, $this->styleResolver, $this->imageLowering, $this);
+        $mediaGalleries = new Elements\MediaGalleryLowering($this->sourceElementClassifier, $this->styleResolver, $this->imageLowering, $this);
         $this->customImageHosts = new Elements\CustomImageHostLowering($this, $this->blockFactory, $this->styleResolver, $this->session, $this->sourceElementClassifier, $this->sourceElementDescription, $this->imageLowering, $this->layoutShells, $this->runtimeIslands, $this->authorLayoutOwnership);
         $this->anchors = new Elements\AnchorLowering($this, $this, $this->styleResolver, $this->session, $this->sourceElementClassifier, $this->sourceElementDescription, $this->imageLowering, $this->imageUrls, $this->layoutShells, $linkWrapperPropagator, $this->runtimeIslands, $this->customImageHosts);
         $this->layoutTables = new Elements\LayoutTableLowering(
@@ -611,7 +587,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->syntheticImageFigureFlow = new Elements\SyntheticImageFigureFlow($this->styleResolver, $this->sourceElementClassifier, $this->tableClassificationPolicy, $this->layoutTables);
         $definitionLists = new Elements\DefinitionListLowering($this, $this->runtime, $this->styleResolver);
         $this->paragraphImages = new Elements\ParagraphImageUnwrapping($this->session, $this->styleResolver, $this->blockFactory, $this->imageLowering, $this->anchors, fn (DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array => $this->convertPictureElement($picture, $figure, $link));
-        $this->structuredCardLists = new Elements\StructuredCardListLowering(
+        $structuredCardLists = new Elements\StructuredCardListLowering(
             $this,
             $this->styleResolver,
             $this->authorLayoutOwnership,
@@ -758,7 +734,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this,
             $this->session
         );
-        $this->readableFormBlockBuilder = new ReadableFormBlockBuilder(
+        $readableFormBlockBuilder = new ReadableFormBlockBuilder(
             $formControlMetadataBuilder,
             $this->readableFormControlBlockConverter,
             $this->formRuntimeIslandRecorder,
@@ -798,7 +774,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->session,
             fn (): array => $this->sourceDocumentHosts
         );
-        $this->formCompositionPlanner = new FormCompositionPlanner(
+        $formCompositionPlanner = new FormCompositionPlanner(
             $this->session,
             function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
                 return $this->convertChildren($element, $fallbacks, $captureUnsupported);
@@ -826,19 +802,19 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $loginBlockConverter = new LoginBlockConverter(
             fn (DOMElement $element): array => $this->createBlock('core/loginout', array( 'displayLoginAsForm' => true ), array(), $element)
         );
-        $this->formDispatcher = new FormDispatcher(new FormDispatchContext(
+        $formDispatcher = new FormDispatcher(new FormDispatchContext(
             fn (DOMElement $element): ?array => $loginBlockConverter->loginBlockFromForm($element),
             fn (DOMElement $element): ?array => $this->searchBlockConverter->searchBlockFromForm($element),
             fn (DOMElement $element, array &$fallbacks): ?array => $nativeGetFormBlockBuilder->build($element, $fallbacks),
-            function (DOMElement $element, array &$fallbacks): ?array {
-                return $this->formCompositionPlanner->compose($element, $fallbacks);
+            function (DOMElement $element, array &$fallbacks) use ($formCompositionPlanner): ?array {
+                return $formCompositionPlanner->compose($element, $fallbacks);
             },
-            fn (DOMElement $element, ?array $readableFormBlock, ?array $bindingBlock = null): array => $formFallbackFindingBuilder->build($element, $readableFormBlock, $bindingBlock, $this->readableFormBlockBuilder->layoutGraph()),
+            fn (DOMElement $element, ?array $readableFormBlock, ?array $bindingBlock = null): array => $formFallbackFindingBuilder->build($element, $readableFormBlock, $bindingBlock, $readableFormBlockBuilder->layoutGraph()),
             function (DOMElement $element, ?array $readableFormBlock): void {
                 $this->formRuntimeIslandRecorder->recordForm($element, $readableFormBlock);
             },
-            function (DOMElement $element, bool $allowFormEvents, array &$fallbacks): ?array {
-                return $this->readableFormBlockBuilder->build($element, $allowFormEvents, $fallbacks);
+            function (DOMElement $element, bool $allowFormEvents, array &$fallbacks) use ($readableFormBlockBuilder): ?array {
+                return $readableFormBlockBuilder->build($element, $allowFormEvents, $fallbacks);
             },
             fn (DOMElement $element): bool => $formRuntimeRequirementAnalyzer->requiresPreservation($element),
             fn (DOMElement $element): bool => $pseudoFormAnalyzer->isProviderPseudoForm($element)
@@ -883,8 +859,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $runtimeResourceConverter,
         ));
         $figureConverter = new FigureElementConverter($this, $this->styleResolver, new FigureElementContext(
-            function (DOMElement $element, array &$fallbacks): ?array {
-                return $this->mediaGalleries->mediaGalleryBlockFromElement($element, $fallbacks);
+            function (DOMElement $element, array &$fallbacks) use ($mediaGalleries): ?array {
+                return $mediaGalleries->mediaGalleryBlockFromElement($element, $fallbacks);
             },
             $this,
             fn (DOMElement $figure): ?DOMElement => $this->figureLinkedMediaAnchor($figure),
@@ -900,16 +876,16 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $listConverter = new ListElementConverter($this->styleResolver, $this, new ListElementContext(
             $this,
             fn (array $block, DOMElement $element): array => $this->rememberAccordionDisclosureRoot($block, $element),
-            fn (DOMElement $element): bool => $this->structuredCardLists->isStructuredCardList($element),
-            function (DOMElement $element, array &$fallbacks): ?array {
-                return $this->structuredCardLists->decomposeStructuredCardList($element, $fallbacks);
+            fn (DOMElement $element): bool => $structuredCardLists->isStructuredCardList($element),
+            function (DOMElement $element, array &$fallbacks) use ($structuredCardLists): ?array {
+                return $structuredCardLists->decomposeStructuredCardList($element, $fallbacks);
             },
             fn (DOMElement $element): bool => $this->listStructure->listContainsStructuralItemContent($element),
             function (DOMElement $element, array &$fallbacks): ?array {
                 return $this->decomposeStructuralList($element, $fallbacks);
             },
-            function (DOMElement $element, array &$fallbacks): array {
-                return $this->listItemLowering->listItems($element, $fallbacks);
+            function (DOMElement $element, array &$fallbacks) use ($listItemLowering): array {
+                return $listItemLowering->listItems($element, $fallbacks);
             },
             $this->authorLayoutOwnership
         ));
@@ -996,7 +972,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 return $this->htmlPreservationBlock($element);
             },
             isEmptyInteractiveFeatureShell: fn (DOMElement $element): bool => $emptyFeatureShells->isEmptyInteractiveFeatureShell($element),
-            capturePseudoFormFallback: function (DOMElement $element, array &$fallbacks): void { $this->formDispatcher->capturePseudoFormFallback($element, $fallbacks); },
+            capturePseudoFormFallback: function (DOMElement $element, array &$fallbacks) use ($formDispatcher): void { $formDispatcher->capturePseudoFormFallback($element, $fallbacks); },
             tree: $this,
             flankedSeparatorBlock: fn (DOMElement $element): ?array => $flankedSeparators->blockFromElement($element),
             canCaptureExternalSvgFragmentDependency: fn (DOMElement $element): bool => ! $this->runtimeIslands->isRuntimeDomTarget($element) && ! $this->runtimeIslands->hasRuntimeTargetInSubtree($element),
@@ -1028,7 +1004,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                     break;
                 }
             },
-            mediaGalleryBlock: fn (DOMElement $element, array &$fallbacks): ?array => $this->mediaGalleries->mediaGalleryBlockFromElement($element, $fallbacks),
+            mediaGalleryBlock: fn (DOMElement $element, array &$fallbacks): ?array => $mediaGalleries->mediaGalleryBlockFromElement($element, $fallbacks),
             namePriceRowBlock: fn (DOMElement $element, array &$fallbacks): ?array => $namePriceRows->namePriceRowBlockFromElement($element, $fallbacks),
             inlineTokenGroupBlock: fn (DOMElement $element, array &$fallbacks): ?array => $inlineFlows->inlineTokenGroupBlockFromElement($element, $fallbacks),
             visualTextWrapperBlock: fn (DOMElement $element): ?array => $this->visualTextWrapperBlockFromElement($element),
@@ -1137,7 +1113,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 }
             ),
             new CopyToClipboardConverter($this->session),
-            $this->formDispatcher,
+            $formDispatcher,
             $this->searchBlockConverter,
             $this->runtimeIslands,
             $this->styleResolver,
@@ -1759,66 +1735,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $reusableComponentRecognition = $classIdentity->rewrite($reusableComponentRecognition, $classReplacements);
         $this->projectedSelectorBindings = $classIdentity->rewrite($this->projectedSelectorBindings, $classReplacements);
         $this->session->assetMaterializationState()->restore($classIdentity->rewrite($assets, $classReplacements));
-        $timer->start('transform.validation.block_validity');
-        $blockValidityEvaluation = $this->runtime->evaluateBlockSerialization($blocks);
-        $blockValidityReport = $blockValidityEvaluation->report();
-        $timer->start('transform.validation.semantic_parity');
-        $semanticParityEvaluation = $this->semanticParityReporter->evaluate($body, $blocks, $sourceProvenance, $html, (string) ($options['static_css'] ?? ''));
-        $semanticParityReport = $semanticParityEvaluation->report($validationEvidence);
-        $timer->start('transform.validation.content_round_trip');
-        $contentRoundTripEvaluation = $this->contentRoundTripReporter->evaluate($serializedBlocks, $html, $this->session->transformationEvidenceState()->formControlEchoTexts());
-        $contentRoundTripReport = $contentRoundTripEvaluation->report();
-        // The round-trip check runs output ⊆ source to catch invented copy. This
-        // runs the other way for media, which nothing did: an image demoted to
-        // its own `alt` text is not absent, so every loss counter stayed at zero
-        // while the page lost its pictures.
-        $timer->start('transform.validation.media_retention');
-        $sourceMediaRetentionReport = $this->sourceMediaRetentionReporter->evaluate(
-            $html,
-            $serializedBlocks,
-            array_map(
-                static fn (array $asset): string => (string) ( $asset['content'] ?? '' ),
-                array_filter(
-                    $this->session->assetMaterializationState()->assets(),
-                    static fn (mixed $asset): bool => is_array($asset) && 'css' === ( $asset['kind'] ?? '' )
-                )
-            )
-        )->report();
-        $timer->start('transform.validation.dead_selectors');
-        $deadProjectedSelectorHaystack = $serializedBlocks;
-        foreach ( $shellArtifacts as $shellArtifact ) {
-            $deadProjectedSelectorHaystack .= "\n" . (string) ( $shellArtifact['block_markup'] ?? '' );
-        }
-        $deadProjectedSelectorEvaluation = $this->deadProjectedSelectorReporter->evaluate(
-            $this->projectedSelectorBindings,
-            array($this->currentSourcePath => $deadProjectedSelectorHaystack),
-            array($this->currentSourcePath => $html)
-        );
-        $deadProjectedSelectorsReport = $deadProjectedSelectorEvaluation->report();
-        $timer->start('transform.diagnostics');
-        $validationOutcome = \Automattic\BlocksEngine\PhpTransformer\Contract\HtmlValidationOutcome::fromValidationFacts(
-            $blockValidityEvaluation->status,
-            $blockValidityEvaluation->findings,
-            $semanticParityEvaluation->status(),
-            $semanticParityEvaluation->findings,
-            $contentRoundTripEvaluation->status(),
-            $contentRoundTripEvaluation->findings
-        );
-        $diagnostics = $this->diagnosticsCollector->collect(
-            HtmlTransformer::class,
-            $this->session->runtimeBehaviorState()->scriptMetadata(),
-            $fallbacks,
-            $this->session->runtimeDomState()->islands(),
-            $this->session->runtimeDomState()->preservations(),
-            $this->session->runtimeDomState()->fallbacks(),
-            $validationOutcome
-        );
-        foreach ( $deadProjectedSelectorEvaluation->findings as $finding ) {
-            $diagnostics[] = ConversionFindingContract::withClassification(array_merge($finding, array(
-                'source'  => HtmlTransformer::class,
-                'message' => (string) ($finding['summary'] ?? ''),
-            )));
-        }
+        $validation = $this->validation->validate($timer, $body, $blocks, $serializedBlocks, $sourceProvenance, $shellArtifacts, $fallbacks, $html, (string) ($options['static_css'] ?? ''), $validationEvidence, $this->projectedSelectorBindings, $this->currentSourcePath);
+        $validationOutcome = $validation->outcome;
+        $diagnostics = $validation->diagnostics;
         foreach ( $this->glyphColorUndecodable as $finding ) {
             $diagnostics[] = ConversionFindingContract::withClassification($finding);
         }
@@ -1890,11 +1809,11 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             'head_metadata' => $headMetadata,
             'runtime_dom_contracts' => $this->session->runtimeDomState()->preservations(),
             'runtime_dom_fallbacks' => $this->session->runtimeDomState()->fallbacks(),
-            'block_validity_report' => $blockValidityReport,
-            'semantic_parity_report' => $semanticParityReport,
-            'content_round_trip_report' => $contentRoundTripReport,
-            'source_media_retention_report' => $sourceMediaRetentionReport,
-            'dead_projected_selectors_report' => $deadProjectedSelectorsReport,
+            'block_validity_report' => $validation->blockValidityReport,
+            'semantic_parity_report' => $validation->semanticParityReport,
+            'content_round_trip_report' => $validation->contentRoundTripReport,
+            'source_media_retention_report' => $validation->sourceMediaRetentionReport,
+            'dead_projected_selectors_report' => $validation->deadProjectedSelectorsReport,
             'presentation_signals' => $this->session->transformationProvenanceState()->presentationSignals(),
             'frozen_hidden_state' => $this->session->transformationEvidenceState()->frozenHiddenStateFindings(),
             'dropped_link_wrappers' => $this->session->transformationEvidenceState()->droppedLinkWrapperFindings(),
