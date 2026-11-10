@@ -7,7 +7,6 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ResponsiveCorrespondence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssFontShorthand;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockMaterializer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
@@ -2091,7 +2090,7 @@ final class PresetBinding
      */
     private function deviceOverriddenProperties(\stdClass $attributes, array $declarations): array
     {
-        $evidence = $attributes->metadata->{BlockMaterializer::RUNTIME_ATTRIBUTES_KEY}->{CaptureEvidence::DEVICE_INLINE} ?? null;
+        $evidence = $attributes->metadata->blocksEngineRuntimeAttributes->{CaptureEvidence::DEVICE_INLINE} ?? null;
         $devices = is_string($evidence) ? json_decode($evidence, true) : null;
         if (!is_array($devices)) return array();
         $base = array_column($declarations, 1, 0);
