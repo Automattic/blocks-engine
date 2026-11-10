@@ -2402,22 +2402,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 $this->svgMaterializer,
                 $this->projectedNavigation
             ),
-            new MediaPatternContext(
-                fn (DOMElement $sourceElement): string => $this->styleResolver->coverPresentationStyle($sourceElement),
-                fn (string $url): string => $this->imageUrls->resolvedAssetUrl($url),
-                fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => array_merge(
-                    $this->styleResolver->mediaTextPresentationAttributes($sourceElement, $excludedGeometryProperties),
-                    array( 'mediaTextImageMarker' => '' === $this->session->authorStyleAnalysis()->combinedCss()
-                        ? ''
-                        : $this->session->authorSelectorProjectionState()->ensureMediaTextImageMarker($sourceElement->getNodePath() ?? '') )
-                ),
-                $this->styleResolver,
-                fn (DOMElement $image): array => $this->imageDimensions->fixedPixelSize($image)
-            ),
-            new ColumnsPatternContext(
-                fn (DOMElement $sourceElement): string => $this->styleResolver->cssDeclarationString($this->styleResolver->structuralPresentationDeclarations($sourceElement)),
-                $this->styleResolver
-            ),
+            new MediaPatternContext($this->styleResolver, $this->imageUrls, $this->imageDimensions, $this->session),
+            new ColumnsPatternContext($this->styleResolver),
             new MarkupPatternContext(
                 $this->session
             ),
@@ -2435,9 +2421,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 function (DOMElement $element, array &$fallbacks): void { $this->captureInlineSvgFallback($element, $fallbacks); }
             ),
             $this->imageLowering,
-            fn (DOMElement $sourceElement): bool => $sourceElement->hasAttribute('hidden')
-                || 'true' === strtolower(trim(SourceDom::attr($sourceElement, 'aria-hidden')))
-                || $this->sourceVisibility->startsHidden($sourceElement),
+            $this->sourceVisibility,
             new DisclosureControlPresentation(
                 $this->styleResolver,
                 $this->session->generatedSupportStylesheetState(),
@@ -2527,9 +2511,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 $this->styleResolver
             ),
             images: $this->imageLowering,
-            sourceElementStartsHidden: fn (DOMElement $sourceElement): bool => $sourceElement->hasAttribute('hidden')
-                || 'true' === strtolower(trim(SourceDom::attr($sourceElement, 'aria-hidden')))
-                || $this->sourceVisibility->startsHidden($sourceElement),
+            visibility: $this->sourceVisibility,
              disclosure: new DisclosureControlPresentation(
                  $this->styleResolver,
                  $this->session->generatedSupportStylesheetState(),
