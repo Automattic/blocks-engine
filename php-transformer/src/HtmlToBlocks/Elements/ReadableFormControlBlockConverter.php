@@ -3,20 +3,19 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
-use Closure;
 use DOMElement;
 
 /** Converts labels, group captions, and native controls into readable editable blocks. */
 final class ReadableFormControlBlockConverter
 {
     /**
-     * @param Closure(DOMElement): array<string, mixed>                                                     $presentationAttributes
      */
     public function __construct(
         private readonly FormControlMetadataBuilder $metadataBuilder,
@@ -24,7 +23,7 @@ final class ReadableFormControlBlockConverter
         private readonly FormRuntimeIslandRecorder $runtimeIslandRecorder,
         private readonly Runtime $runtime,
         private readonly RuntimeDomTargets $runtimeDomTargets,
-        private readonly Closure $presentationAttributes,
+        private readonly ElementPresentationResolver $presentation,
         private readonly SourceBlockCreator $createBlock,
         private readonly HtmlTransformerSession $session
     ) {
@@ -155,7 +154,7 @@ final class ReadableFormControlBlockConverter
             return null;
         }
 
-        return $this->createBlock->createBlock('core/paragraph', array_merge(($this->presentationAttributes)($element), array( 'content' => $summary )), array(), $element);
+        return $this->createBlock->createBlock('core/paragraph', array_merge($this->presentation->presentationAttributes($element), array( 'content' => $summary )), array(), $element);
     }
 
     /** @return array<string, mixed>|null */
@@ -197,7 +196,7 @@ final class ReadableFormControlBlockConverter
             }
 
             return array() !== $blocks
-                ? $this->createBlock->createBlock('core/group', ($this->presentationAttributes)($element), $blocks, $element)
+                ? $this->createBlock->createBlock('core/group', $this->presentation->presentationAttributes($element), $blocks, $element)
                 : null;
         }
 
@@ -214,7 +213,7 @@ final class ReadableFormControlBlockConverter
         }
 
         return '' !== $label
-            ? $this->createBlock->createBlock('core/paragraph', array_merge(($this->presentationAttributes)($element), array( 'content' => $label )), array(), $element)
+            ? $this->createBlock->createBlock('core/paragraph', array_merge($this->presentation->presentationAttributes($element), array( 'content' => $label )), array(), $element)
             : null;
     }
 

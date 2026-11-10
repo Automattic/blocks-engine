@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
@@ -48,7 +49,7 @@ final class FormControlMetadataBuilder
      */
     public function __construct(
         private readonly Closure $elementSelector,
-        private readonly ?Closure $presentationAttributes = null,
+        private readonly ?ElementPresentationResolver $presentation = null,
         private readonly ?Closure $typographyStyles = null,
         private readonly ?Closure $paintStyles = null,
         private readonly ?Closure $hiddenState = null,
@@ -482,8 +483,8 @@ final class FormControlMetadataBuilder
                     }
                 }
             }
-            if ( null !== $this->presentationAttributes ) {
-                $presentation = ($this->presentationAttributes)($control);
+            if ( null !== $this->presentation ) {
+                $presentation = $this->presentation->presentationAttributes($control);
                 if ( is_array($presentation['style'] ?? null) && array() !== $presentation['style'] ) {
                     $metadata['presentation'] = array( 'style' => $presentation['style'] );
                 }

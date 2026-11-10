@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormFallbackFindingBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormFallbackFindingContext;
@@ -35,9 +36,9 @@ $session = new HtmlTransformerSession(new Runtime(), new \Automattic\BlocksEngin
 $selector = static fn (DOMElement $element): string => '#' . ($element->getAttribute('id') ?: strtolower($element->tagName));
 $metadataBuilder = new FormControlMetadataBuilder(
     $selector,
-    static fn (DOMElement $element): array => 'button' === strtolower($element->tagName)
+    new ElementPresentationResolverFixture(static fn (DOMElement $element): array => 'button' === strtolower($element->tagName)
         ? array( 'style' => array( 'spacing' => array( 'padding' => array( 'top' => '11px', 'bottom' => '11px' ) ) ) )
-        : array()
+        : array())
 );
 $successBuilder = new FormSuccessPanelMetadataBuilder(
     $selector,

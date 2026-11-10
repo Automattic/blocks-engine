@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
@@ -14,13 +15,12 @@ use DOMElement;
 final class FormCompositionPlanner
 {
     /**
-     * @param Closure(DOMElement): array<string, mixed>                                                     $presentationAttributes
      * @param Closure(DOMElement, DOMElement): bool                                                         $elementContains
      */
     public function __construct(
         private readonly HtmlTransformerSession $session,
         private readonly PatternTreeConverter $tree,
-        private readonly Closure $presentationAttributes,
+        private readonly ElementPresentationResolver $presentation,
         private readonly SourceBlockCreator $createBlock,
         private readonly Closure $elementContains
     ) {
@@ -51,7 +51,7 @@ final class FormCompositionPlanner
         }
 
         return array(
-            'block' => $this->createBlock->createBlock('core/group', ($this->presentationAttributes)($form), $children, $form),
+            'block' => $this->createBlock->createBlock('core/group', $this->presentation->presentationAttributes($form), $children, $form),
             'slot'  => $slotBlock,
         );
     }
