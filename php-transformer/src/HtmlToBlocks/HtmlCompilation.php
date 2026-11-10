@@ -4004,6 +4004,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $captionHtml = $this->styleResolver->innerHtml($caption);
             if ( '' !== trim($this->runtime->stripAllTags($captionHtml)) ) {
                 $children[] = $this->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($caption), array( 'content' => $captionHtml )), array(), $caption);
+            } elseif ( $this->shouldPreserveEmptyVisualElement($caption) ) {
+                // An empty caption can still hold space (padding, border,
+                // height) that the content after its figure depends on.
+                $children[] = $this->emptyVisualSpacers->emptyVisualSpacerBlock($caption);
             }
         }
 
