@@ -83,4 +83,21 @@ foreach (array(false, true) as $shared) {
     }
 }
 
+// The layout graph's node bound limits serialized evidence, not the readable
+// tree: every control of a long form keeps its form_control_index.
+$rows = '';
+for ($i = 0; $i < 42; $i++) {
+    $rows .= '<div class="field"><label for="f' . $i . '">F' . $i . '</label><input id="f' . $i . '" name="f' . $i . '" type="text"></div>';
+}
+$long = (new HtmlTransformer())->transform('<form><div class="list">' . $rows . '</div><button type="submit">Send</button></form>')->toArray()['fallbacks'][0] ?? array();
+$indexes = array();
+$walk = static function (array $block) use (&$walk, &$indexes): void {
+    if (isset($block['form_control_index'])) $indexes[] = $block['form_control_index'];
+    foreach ($block['innerBlocks'] ?? array() as $inner) $walk($inner);
+};
+foreach ($long['readable_blocks'] ?? array() as $block) $walk($block);
+sort($indexes);
+$assert(43 === count($long['controls'] ?? array()) && range(0, 42) === $indexes, 'Every control of a long form is indexed exactly once in the readable tree.', json_encode($indexes));
+$assert(true === ($long['layout_graph']['truncated'] ?? null) && count($long['layout_graph']['nodes']) <= $long['layout_graph']['limits']['nodes'], 'The serialized layout graph keeps its node bound.');
+
 echo 'Readable form flow content tests: ' . $assertions . ' passed' . PHP_EOL;
