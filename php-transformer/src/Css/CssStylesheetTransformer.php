@@ -134,9 +134,10 @@ final class CssStylesheetTransformer
      * the result with the same text inside the same conditional group rules.
      *
      * The later copy has the same selectors, specificity and declarations and
-     * comes after the earlier one, so the earlier copy can never win the cascade:
-     * dropping it leaves every computed value unchanged. `@layer` rules are kept
-     * whole and never dropped, because a layer's first appearance fixes its order.
+     * comes after the earlier one, so the earlier copy can never win the cascade.
+     * Named block layers are grouping contexts whose rules dedupe like any
+     * other; layer statements and anonymous layers stay whole. The unit that
+     * first names a layer is always kept, because it fixes the layer's order.
      * Malformed input is concatenated unchanged.
      *
      * @param list<string> $stylesheets
@@ -149,15 +150,34 @@ final class CssStylesheetTransformer
             }
         }
 
-        $kept = array();
-        $seen = array();
-        foreach ( array_reverse($stylesheets) as $stylesheet ) {
+        $stylesheetUnits = array();
+        foreach ( $stylesheets as $stylesheet ) {
             $units = array();
             $this->collectRuleUnits($stylesheet, array(), $units);
-            foreach ( array_reverse($units) as $unit ) {
+            $stylesheetUnits[] = $units;
+        }
+        // A layer's first appearance fixes its order, so the unit that first
+        // names a layer stays in place even when a later copy repeats it.
+        $layerOrigins = array();
+        $named = array();
+        foreach ( $stylesheetUnits as $sheet => $units ) {
+            foreach ( $units as $index => $unit ) {
+                foreach ( self::layerNames($unit) as $name ) {
+                    if ( ! isset($named[ $name ]) ) {
+                        $named[ $name ] = true;
+                        $layerOrigins[ $sheet ][ $index ] = true;
+                    }
+                }
+            }
+        }
+
+        $kept = array();
+        $seen = array();
+        foreach ( array_reverse($stylesheetUnits, true) as $sheet => $units ) {
+            foreach ( array_reverse($units, true) as $index => $unit ) {
                 if ( $unit['dedupable'] ) {
                     $key = self::ruleUnitKey($unit);
-                    if ( isset($seen[ $key ]) ) {
+                    if ( isset($seen[ $key ]) && ! isset($layerOrigins[ $sheet ][ $index ]) ) {
                         continue;
                     }
                     $seen[ $key ] = true;
@@ -167,6 +187,32 @@ final class CssStylesheetTransformer
         }
 
         return $this->serializeRuleUnits(array_reverse($kept));
+    }
+
+    /**
+     * The qualified layer names a unit declares, outermost first: each named
+     * block layer around it, then the names of a layer statement it is.
+     *
+     * @param array{context: list<string>, text: string, dedupable: bool} $unit
+     * @return list<string>
+     */
+    private static function layerNames(array $unit): array
+    {
+        $path = array();
+        $names = array();
+        foreach ( $unit['context'] as $prelude ) {
+            if ( 'layer' === self::atRuleName($prelude) ) {
+                $path[] = trim(substr(trim(CssSyntaxScanner::withoutComments($prelude)), strlen('@layer')));
+                $names[] = implode('.', $path);
+            }
+        }
+        $statement = trim(CssSyntaxScanner::withoutComments($unit['text']));
+        if ( 'layer' === self::atRuleName($statement) && str_ends_with($statement, ';') ) {
+            foreach ( explode(',', substr($statement, strlen('@layer'), -1)) as $name ) {
+                $names[] = implode('.', array_merge($path, array( trim($name) )));
+            }
+        }
+        return $names;
     }
 
     /**
@@ -765,6 +811,8 @@ final class CssStylesheetTransformer
         $name = self::atRuleName($rule);
         // A late @charset is ignored; dedupe it by text, never conflict.
         if ('charset' === $name) return '@charset ' . $rule;
+        // A layer order statement names layers the same way on every route.
+        if ('layer' === $name && str_ends_with($rule, ';')) return '@layer ' . $rule;
         $brace = $this->nextRuleBoundary($rule, 0);
         if (null === $brace || '{' !== $rule[$brace] || !str_ends_with($rule, '}')) return null;
         $prelude = trim(substr($rule, strlen($name) + 1, $brace - strlen($name) - 1));
@@ -1059,7 +1107,9 @@ final class CssStylesheetTransformer
             ['start' => $start, 'boundary' => $boundary, 'end' => $end] = $rule;
             $prelude = substr($css, $start, $boundary - $start);
             $atRule = $this->isAtRule($prelude) ? self::atRuleName($prelude) : '';
-            if ('{' === $css[$boundary] && '' !== $atRule && 'layer' !== $atRule && $this->walksNestedRules($prelude)) {
+            $layerPrelude = 'layer' === $atRule ? trim(CssSyntaxScanner::withoutComments($prelude)) : '';
+            $anonymousLayer = 'layer' === $atRule && '' === trim(substr($layerPrelude, strlen('@layer')));
+            if ('{' === $css[$boundary] && '' !== $atRule && $this->walksNestedRules($prelude) && !$anonymousLayer) {
                 $nested = $context;
                 $nested[] = trim($prelude);
                 $this->collectTreeUnits($tree, $boundary, $nested, $units);
