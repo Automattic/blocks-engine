@@ -102,6 +102,33 @@ final class RuntimeIslandAnalyzer
         return false;
     }
 
+    public function hasRuntimeTargetInSubtree(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && $this->isDeclaredRuntimeDomTarget($descendant) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function isDeclaredRuntimeDomTarget(DOMElement $element): bool
+    {
+        foreach (array_keys($this->session->runtimeSelectorState()->domSelectors()) as $selector) {
+            if (str_starts_with((string) $selector, '#') && substr((string) $selector, 1) === SourceDom::attr($element, 'id')) {
+                return true;
+            }
+            if (str_starts_with((string) $selector, '.') && in_array(substr((string) $selector, 1), SourceDom::classNames($element), true)) {
+                return true;
+            }
+            if ($this->elementMatchesRuntimeSelector($element, (string) $selector)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /** @return array<int,string> */
     public function runtimeDomSelectorsForElement(DOMElement $element): array
     {
