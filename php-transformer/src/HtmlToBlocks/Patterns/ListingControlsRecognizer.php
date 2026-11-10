@@ -227,6 +227,11 @@ final class ListingControlsRecognizer
             }
             $options[] = $option;
         }
+        // A group whose only options reset the listing selects nothing, such
+        // as a lone valueless disclosure checkbox.
+        if ( array() === array_filter($options, static fn (array $option): bool => ! isset($option['reset'])) ) {
+            return null;
+        }
         // Explicit checkbox filters remain meaningful on a one-item or empty
         // collection, where partitioning two cards is impossible.
         $explicitFacet = 'checkboxes' === $group['shape'];
