@@ -65,7 +65,6 @@ final class ElementConversionPrelude
 
     /**
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array<string, mixed> $linkedRuntimeControl
-     * @param Closure(DOMElement, array<int, array<string, mixed>>&, array<int, class-string>): ?array<string, mixed> $recognizePatterns
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array<string, mixed> $proofBackedWrapperCoalescing
      * @param Closure(DOMElement): ?array<string, mixed> $layoutGeometryProofFor
      */
@@ -92,7 +91,6 @@ final class ElementConversionPrelude
         private readonly TransformationProvenanceState $provenance,
         private readonly PatternTreeConverter $tree,
         private readonly Closure $linkedRuntimeControl,
-        private readonly Closure $recognizePatterns,
         private readonly AuthorLayoutOwnership $authorLayoutOwnership,
         private readonly Closure $proofBackedWrapperCoalescing,
         private readonly Closure $layoutGeometryProofFor,
@@ -276,7 +274,7 @@ final class ElementConversionPrelude
             // A script-addressed menu stays a native navigation block; its hooks
             // render with it. Anything the pattern cannot claim stays an island.
             if ( 'nav' === $tagName ) {
-                $navigation = ($this->recognizePatterns)($element, $fallbacks, array( NavigationPattern::class ));
+                $navigation = $this->tree->patterns($element, $fallbacks, array( NavigationPattern::class ));
                 if ( 'core/navigation' === ($navigation['blockName'] ?? null) ) {
                     if ( 'mobile' !== ($navigation['attrs']['overlayMenu'] ?? 'never') ) {
                         $navigation['attrs']['className'] = SourceDom::mergeClassNames((string) ($navigation['attrs']['className'] ?? ''), self::SCRIPT_NAVIGATION_CLASS);
@@ -307,7 +305,7 @@ final class ElementConversionPrelude
             return ConversionOutcome::handled($standaloneSearchTrigger);
         }
 
-        $mathBlock = ($this->recognizePatterns)($element, $fallbacks, array(MathPattern::class));
+        $mathBlock = $this->tree->patterns($element, $fallbacks, array(MathPattern::class));
         if ( null !== $mathBlock ) {
             return ConversionOutcome::handled($mathBlock);
         }

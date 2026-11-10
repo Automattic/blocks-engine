@@ -11,6 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListElementConv
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\RichTextMaterializationFixture;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\PatternTreeFixture;
 
 $assertions = 0;
 $failures = array();
@@ -42,7 +43,7 @@ $compilation->transform('<p>Initialize layout state</p>');
 $ownership = (new ReflectionProperty($compilation, 'authorLayoutOwnership'))->getValue($compilation);
 $state = (object) array( 'mode' => 'native' );
 $listContext = new ListElementContext(
-    static fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => 'pattern' === $state->mode ? array( 'blockName' => 'core/navigation' ) : null,
+    new PatternTreeFixture(static fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => 'pattern' === $state->mode ? array( 'blockName' => 'core/navigation' ) : null),
     static fn (array $block, DOMElement $element): array => array_merge($block, array( 'remembered' => true )),
     static fn (DOMElement $element): bool => 'structured' === $state->mode,
     static fn (DOMElement $element, array &$fallbacks): ?array => array( 'blockName' => 'core/columns' ),

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
@@ -22,14 +23,11 @@ use DOMElement;
 /** Promotes a menu toggle onto its projected navigation, or suppresses the control. */
 final class ProjectedNavigationConverter implements ElementConverter
 {
-    /**
-     * @param Closure(DOMElement, array<int, array<string, mixed>>&, array<int, class-string>): ?array<string, mixed> $recognizePatterns
-     */
     public function __construct(
         private readonly NavigationToggleSuppressor $navigationToggleSuppressor,
         private readonly StyleResolver $styleResolver,
         private readonly HtmlTransformerSession $session,
-        private readonly Closure $recognizePatterns,
+        private readonly PatternTreeConverter $tree,
         private readonly SourceBlockCreator $createBlock,
         private readonly ?Closure $isRuntimeDomTarget = null,
         private readonly ?Closure $svgMarkup = null
@@ -69,7 +67,7 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
         $projectedNavigation ??= $this->navigationToggleSuppressor->projectedNavigationTargetForControl($element);
         if ( $projectedNavigation instanceof DOMElement ) {
-            $block = ($this->recognizePatterns)($projectedNavigation, $fallbacks, array(NavigationPattern::class));
+            $block = $this->tree->patterns($projectedNavigation, $fallbacks, array(NavigationPattern::class));
             // A landmark carrier is the panel's own box around its menu. The
             // control's slot takes only that menu; Core's overlay is the panel.
             if ( null !== $block && $this->navigationToggleSuppressor->isNavigationCarrier($projectedNavigation)

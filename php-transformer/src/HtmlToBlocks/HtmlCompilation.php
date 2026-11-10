@@ -79,9 +79,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListStructure;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\MediaDispatchElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\MediaDispatchElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\OrderedElementConverterRegistry;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\PatternElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\PatternElementConverter;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\QuoteElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\QuoteElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DescriptionListElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DescriptionListElementConverter;
@@ -137,9 +135,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ParameterTableP
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PlaceholderMediaPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ProbeBlockCreator;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\QuotePattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\QuotePatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SocialLinksPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorSemanticContext;
@@ -578,7 +574,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->globalShellArtifacts = new Elements\GlobalShellArtifacts($this, $this, $this->runtime, $this->session, $this->navigationBlockNormalizer);
         $this->linkCarriers = new Elements\LinkCarrierLowering($this, $this, $this->runtime, $this->styleResolver, $this->runtimeIslands, $this->layoutShells);
         $namePriceRows = new Elements\NamePriceRowLowering($this, $this, $this->styleResolver, $this->sourceElementDescription);
-        $mediaGalleries = new Elements\MediaGalleryLowering($this->sourceElementClassifier, $this->styleResolver, $this->imageLowering, fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => $this->recognizePatterns($element, $fallbacks, $patterns));
+        $mediaGalleries = new Elements\MediaGalleryLowering($this->sourceElementClassifier, $this->styleResolver, $this->imageLowering, $this);
         $this->customImageHosts = new Elements\CustomImageHostLowering($this, $this->blockFactory, $this->styleResolver, $this->session, $this->sourceElementClassifier, $this->sourceElementDescription, $this->imageLowering, $this->layoutShells, $this->runtimeIslands, $this->authorLayoutOwnership);
         $this->anchors = new Elements\AnchorLowering($this, $this, $this->styleResolver, $this->session, $this->sourceElementClassifier, $this->sourceElementDescription, $this->imageLowering, $this->imageUrls, $this->layoutShells, $linkWrapperPropagator, $this->runtimeIslands, $this->customImageHosts);
         $this->layoutTables = new Elements\LayoutTableLowering(
@@ -649,7 +645,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->session
         ));
         $inlineContentConverter = new InlineContentElementConverter($this->sourceElementClassifier, $this, $this->richTextMaterializer, new InlineContentElementContext(
-            fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => $this->recognizePatterns($element, $fallbacks, $patterns),
+            $this,
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
             fn (DOMElement $element): ?array => $inlineSvgTextGroups->fromElement($element),
             fn (DOMElement $element): bool => $this->ownsPositioningGeometry($element),
@@ -681,7 +677,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->navigationToggleSuppressor,
             $this->styleResolver,
             $this->session,
-            fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => $this->recognizePatterns($element, $fallbacks, $patterns),
+            $this,
             $this,
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
             fn (DOMElement $element): string => $this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element))
@@ -840,9 +836,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             function (DOMElement $element, array &$fallbacks): array {
                 return $this->capturedDialogBlock($element, $fallbacks);
             },
-            function (DOMElement $element, array &$fallbacks, array $patterns): ?array {
-                return $this->recognizePatterns($element, $fallbacks, $patterns);
-            }
+            $this
         ));
         $specializedElementConverters = new OrderedElementConverterRegistry(array(
             $detailsConverter,
@@ -851,11 +845,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         ));
         $tableConverter = new TableElementConverter($this->styleResolver, $this, $this->createTableElementContext());
         $parameterTableConverter = new PatternElementConverter(
-            new PatternElementContext(
-                function (DOMElement $element, array &$fallbacks, array $patterns): ?array {
-                    return $this->recognizePatterns($element, $fallbacks, $patterns);
-                }
-            ),
+            $this,
             array( ParameterTablePattern::class )
         );
         $tableConverters = new OrderedElementConverterRegistry(array(
@@ -872,9 +862,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             function (DOMElement $element, array &$fallbacks) use ($mediaGalleries): ?array {
                 return $mediaGalleries->mediaGalleryBlockFromElement($element, $fallbacks);
             },
-            function (DOMElement $element, array &$fallbacks, array $patterns): ?array {
-                return $this->recognizePatterns($element, $fallbacks, $patterns);
-            },
+            $this,
             fn (DOMElement $figure): ?DOMElement => $this->figureLinkedMediaAnchor($figure),
             fn (DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array => $this->convertPictureElement($picture, $figure, $link),
             fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->imageLowering->convertImage($image, $figure, $picture, $link),
@@ -884,15 +872,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             },
             fn (string $html): bool => '' !== trim($this->runtime->stripAllTags($html))
         ));
-        $quoteConverter = new QuoteElementConverter(new QuoteElementContext(
-            function (DOMElement $element, array &$fallbacks): ?array {
-                return $this->recognizePatterns($element, $fallbacks, array( QuotePattern::class ));
-            }
-        ));
+        $quoteConverter = new QuoteElementConverter($this);
         $listConverter = new ListElementConverter($this->styleResolver, $this, new ListElementContext(
-            function (DOMElement $element, array &$fallbacks, array $patterns): ?array {
-                return $this->recognizePatterns($element, $fallbacks, $patterns);
-            },
+            $this,
             fn (array $block, DOMElement $element): array => $this->rememberAccordionDisclosureRoot($block, $element),
             fn (DOMElement $element): bool => $structuredCardLists->isStructuredCardList($element),
             function (DOMElement $element, array &$fallbacks) use ($structuredCardLists): ?array {
@@ -991,7 +973,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             },
             isEmptyInteractiveFeatureShell: fn (DOMElement $element): bool => $emptyFeatureShells->isEmptyInteractiveFeatureShell($element),
             capturePseudoFormFallback: function (DOMElement $element, array &$fallbacks) use ($formDispatcher): void { $formDispatcher->capturePseudoFormFallback($element, $fallbacks); },
-            recognizePatterns: fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => $this->recognizePatterns($element, $fallbacks, $patterns),
+            tree: $this,
             flankedSeparatorBlock: fn (DOMElement $element): ?array => $flankedSeparators->blockFromElement($element),
             canCaptureExternalSvgFragmentDependency: fn (DOMElement $element): bool => ! $this->runtimeIslands->isRuntimeDomTarget($element) && ! $this->runtimeIslands->hasRuntimeTargetInSubtree($element),
             sourceElementClassifier: $this->sourceElementClassifier,
@@ -1039,9 +1021,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             emptyVisualSpacerBlock: fn (DOMElement $element): array => $this->emptyVisualSpacers->emptyVisualSpacerBlock($element)
         ));
         $this->mediaDispatchConverter = new MediaDispatchElementConverter(new MediaDispatchElementContext(
-            function (DOMElement $element, array &$fallbacks): ?array {
-                return $this->recognizePatterns($element, $fallbacks, array( PlaceholderMediaPattern::class ));
-            },
+            $this,
             fn (DOMElement $element): ?array => $this->imageLowering->convertImage($element),
             fn (DOMElement $element): ?array => $this->convertPictureElement($element),
             fn (DOMElement $element, array &$fallbacks): ?array => $visualIframeGenerator->convert($element, $fallbacks),
@@ -1049,9 +1029,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             fn (DOMElement $element): ?array => $this->anchors->imageBlockFromAnchor($element)
         ));
         $this->unsupportedRecorder = new UnsupportedElementRecorder($this->session, $this->createUnsupportedElementContext(), $formControlMetadataBuilder);
-        $recognizePatterns = function (DOMElement $element, array &$fallbacks, array $patterns): ?array {
-            return $this->recognizePatterns($element, $fallbacks, $patterns);
-        };
         $capturedDialogConverter = new CapturedDialogConverter(
             $this->session,
             $this,
@@ -1147,7 +1124,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->session->transformationProvenanceState(),
             $this,
             fn (DOMElement $element, array &$fallbacks): ?array => $this->linkCarriers->linkedRuntimeControlBlockFromAnchor($element, $fallbacks),
-            $recognizePatterns,
             $this->authorLayoutOwnership,
             fn (DOMElement $element, array &$fallbacks): ?array => $this->proofBackedWrapperCoalescing($element, $fallbacks),
             fn (DOMElement $element): ?array => $this->wrapperCoalescer->layoutGeometryProofFor($element),
@@ -1316,7 +1292,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 return $this->emptyInlineGeometry->emptyInlineGeometryBlock($element, $fallbacks);
             },
             function (DOMElement $element, array &$fallbacks): ?array {
-                $block = $this->recognizePatterns($element, $fallbacks, array( DetailsPattern::class ));
+                $block = $this->patterns($element, $fallbacks, array( DetailsPattern::class ));
                 if ( null !== $block ) {
                     $this->rememberNativeDisclosure($element);
                 }
@@ -2717,8 +2693,12 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $blocks;
     }
 
-    /** @param list<class-string<\Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerInterface>> $allowed */
-    private function recognizePatterns(DOMElement $element, array &$fallbacks, array $allowed): ?array
+    /**
+     * @param list<array<string, mixed>> $fallbacks
+     * @param list<class-string<\Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerInterface>> $allowed
+     * @return array<string, mixed>|null
+     */
+    public function patterns(DOMElement $element, array &$fallbacks, array $allowed): ?array
     {
         if ( $this->runtimeIslands->retainsDataAttributeRuntimeTargetInShell($element) ) {
             return null;
@@ -3003,7 +2983,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         if ( 'nav' === $tagName ) {
-            $navigation = $this->recognizePatterns($element, $fallbacks, array(AccordionPattern::class, SocialLinksPattern::class, NavigationPattern::class));
+            $navigation = $this->patterns($element, $fallbacks, array(AccordionPattern::class, SocialLinksPattern::class, NavigationPattern::class));
             if ( null !== $navigation ) {
                 return $this->rememberAccordionDisclosureRoot($navigation, $element);
             }
@@ -3243,7 +3223,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return null;
         }
 
-        $navigation = $this->recognizePatterns($landmark, $fallbacks, array( AccordionPattern::class, SocialLinksPattern::class, NavigationPattern::class ));
+        $navigation = $this->patterns($landmark, $fallbacks, array( AccordionPattern::class, SocialLinksPattern::class, NavigationPattern::class ));
         if ( null === $navigation ) {
             return null;
         }
