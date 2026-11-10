@@ -10,14 +10,22 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use DOMElement;
 
 /** Lowers independently authored portable runtime markers to editable blocks. */
-final class AuthoredMotionMarkerConverter
+final class AuthoredMotionMarkerConverter implements ElementConverter
 {
     public function __construct(private readonly HtmlTransformerSession $session, private readonly SourceBlockCreator $createBlock)
     {
     }
 
+    /** @param array<int, array<string, mixed>> $fallbacks */
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
+    {
+        $block = $this->markerBlock($element);
+
+        return null === $block ? ConversionOutcome::unhandled() : ConversionOutcome::handled($block);
+    }
+
     /** @return array<string, mixed>|null */
-    public function convert(DOMElement $element): ?array
+    private function markerBlock(DOMElement $element): ?array
     {
         if ('span' !== strtolower($element->tagName) || !$element->hasAttribute('hidden') || '' !== trim($element->textContent ?? '')) return null;
         foreach (array(

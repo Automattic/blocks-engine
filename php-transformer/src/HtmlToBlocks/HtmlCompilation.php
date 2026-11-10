@@ -197,7 +197,7 @@ use DOMElement;
 use DOMNode;
 
 /** Run-scoped compiler for one HTML document. */
-final class HtmlCompilation extends SourceBlockCreator implements RichTextInlinePolicy, PatternTreeConverter
+final class HtmlCompilation extends SourceBlockCreator implements RichTextInlinePolicy, PatternTreeConverter, Elements\EmptyVisualRetention
 {
     use DomHelpersTrait;
 
@@ -272,17 +272,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly Elements\StandaloneBreakLowering $standaloneBreaks;
     private readonly AuthoredMarqueeRecognizer $authoredMarqueeRecognizer;
 
-    private readonly OrderedElementConverterRegistry $structuralContentConverters;
-
-
-    /** Existing post-structural delegates in their conversion precedence order. */
-    private readonly OrderedElementConverterRegistry $postStructuralElementConverters;
-
     private readonly NavigationToggleSuppressor $navigationToggleSuppressor;
 
     private readonly RuntimeIslandAnalyzer $runtimeIslands;
     private readonly Elements\LayoutShellLowering $layoutShells;
-    private readonly Elements\CustomVideoHostLowering $customVideoHosts;
     private readonly Elements\StructuredInlineItemLowering $structuredInlineItemLowering;
     private readonly Elements\SyntheticImageFigureFlow $syntheticImageFigureFlow;
     private readonly Support\SourceDocumentEnvelope $documentEnvelope;
@@ -295,7 +288,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly Elements\CustomWrapperConventions $wrapperConventions;
     private readonly Elements\EmptyVisualSpacerLowering $emptyVisualSpacers;
     private readonly Diagnostics\FallbackReconciliation $fallbackReconciliation;
-    private readonly Elements\InlineCheckableControlLowering $inlineCheckableControls;
     private readonly Elements\GlobalShellArtifacts $globalShellArtifacts;
     private readonly Elements\LinkCarrierLowering $linkCarriers;
     private readonly Elements\ParagraphImageUnwrapping $paragraphImages;
@@ -326,6 +318,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private array $retainedCustomWrapperHooks = array();
 
     private readonly ElementConversionPrelude $elementPrelude;
+    /** Leading element conversion steps, in dispatch order. */
+    private readonly OrderedElementConverterRegistry $elementHead;
 
     private readonly WrapperCoalescer $wrapperCoalescer;
 
@@ -339,7 +333,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
     private readonly FlowContainerElementConverter $flowContainerConverter;
 
-    private readonly MediaDispatchElementConverter $mediaDispatchConverter;
 
     private readonly AuthoredCarouselBlockGenerator $authoredCarouselGenerator;
 
@@ -560,7 +553,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $emptyFeatureShells = new Elements\EmptyInteractiveFeatureShell($this->runtimeIslands, $this->wrapperCoalescer);
         $this->generatedComponentCandidates = new Support\GeneratedComponentCandidates($this->session, $this->sourceElementClassifier);
         $this->documentEnvelope = new Support\SourceDocumentEnvelope($this->styleResolver);
-        $this->customVideoHosts = new Elements\CustomVideoHostLowering($this->session, $this->styleResolver, $this->imageUrls, $this->runtimeIslands, $this->mediaLowering, $this->imageLowering, $this->layoutShells);
+        $customVideoHosts = new Elements\CustomVideoHostLowering($this->session, $this->styleResolver, $this->imageUrls, $this->runtimeIslands, $this->mediaLowering, $this->imageLowering, $this->layoutShells, $this);
         $listItemLowering = new Elements\ListItemLowering($this, $this, $this->runtime, $this->session, $this->styleResolver, $this->listStructure, $this->richTextMaterializer);
         $this->structuredInlineItemLowering = new Elements\StructuredInlineItemLowering($this, $this->runtime, $this->sourceElementClassifier, $this->styleResolver, $inlineSvgTextGroups);
         $this->renderNeutral = new Elements\RenderNeutralElements($this->session, $this->styleResolver, $this->sourceElementClassifier, $this->sourceElementDescription, $this->runtimeIslands, $this->emptyElementFootprint);
@@ -569,12 +562,12 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->wrapperConventions = new Elements\CustomWrapperConventions($this->styleResolver);
         $this->emptyVisualSpacers = new Elements\EmptyVisualSpacerLowering($this, $this, $this->session, $this->styleResolver, $this->emptyElementFootprint, $this->runtimeIslands);
         $this->fallbackReconciliation = new Diagnostics\FallbackReconciliation($this->runtimeIslands);
-        $this->inlineCheckableControls = new Elements\InlineCheckableControlLowering($this, $this->runtime, $this->session, $this->sourceElementClassifier, $this->richTextMaterializer, $authoredStateButtons, $this->runtimeIslands, $this->layoutShells);
+        $inlineCheckableControls = new Elements\InlineCheckableControlLowering($this, $this->runtime, $this->session, $this->sourceElementClassifier, $this->richTextMaterializer, $authoredStateButtons, $this->runtimeIslands, $this->layoutShells);
         $this->globalShellArtifacts = new Elements\GlobalShellArtifacts($this, $this, $this->runtime, $this->session, $this->navigationBlockNormalizer);
         $this->linkCarriers = new Elements\LinkCarrierLowering($this, $this, $this->runtime, $this->styleResolver, $this->runtimeIslands, $this->layoutShells);
         $namePriceRows = new Elements\NamePriceRowLowering($this, $this, $this->styleResolver, $this->sourceElementDescription);
         $mediaGalleries = new Elements\MediaGalleryLowering($this->sourceElementClassifier, $this->styleResolver, $this->imageLowering, $this);
-        $this->customImageHosts = new Elements\CustomImageHostLowering($this, $this->blockFactory, $this->styleResolver, $this->session, $this->sourceElementClassifier, $this->sourceElementDescription, $this->imageLowering, $this->layoutShells, $this->runtimeIslands, $this->authorLayoutOwnership);
+        $this->customImageHosts = new Elements\CustomImageHostLowering($this, $this->blockFactory, $this->styleResolver, $this->session, $this->sourceElementClassifier, $this->sourceElementDescription, $this->imageLowering, $this->layoutShells, $this->runtimeIslands, $this->authorLayoutOwnership, $this->imageDimensions, $this->imageUrls);
         $this->anchors = new Elements\AnchorLowering($this, $this, $this->styleResolver, $this->session, $this->sourceElementClassifier, $this->sourceElementDescription, $this->imageLowering, $this->imageUrls, $this->layoutShells, $linkWrapperPropagator, $this->runtimeIslands, $this->customImageHosts);
         $this->layoutTables = new Elements\LayoutTableLowering(
             $this,
@@ -841,7 +834,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $tableConverter,
             $parameterTableConverter,
         ));
-        $this->postStructuralElementConverters = new OrderedElementConverterRegistry(array(
+        $postStructuralElementConverters = new OrderedElementConverterRegistry(array(
             $this->textLeafConverter,
             $tableConverters,
             $specializedElementConverters,
@@ -932,7 +925,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this,
             fn (string $html): bool => '' !== trim($this->runtime->stripAllTags($html))
         ));
-        $this->structuralContentConverters = new OrderedElementConverterRegistry(array(
+        $structuralContentConverters = new OrderedElementConverterRegistry(array(
             $inlineContentConverter,
             $listConverter,
             $descriptionListConverter,
@@ -1002,7 +995,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             shouldPreserveWrapper: fn (DOMElement $element, ?string $asTag = null): bool => $this->shouldPreserveWrapper($element, $asTag),
             emptyVisualSpacerBlock: fn (DOMElement $element): array => $this->emptyVisualSpacers->emptyVisualSpacerBlock($element)
         ));
-        $this->mediaDispatchConverter = new MediaDispatchElementConverter(new MediaDispatchElementContext(
+        $mediaDispatchConverter = new MediaDispatchElementConverter(new MediaDispatchElementContext(
             $this,
             fn (DOMElement $element): ?array => $this->imageLowering->convertImage($element),
             $this->imageLowering->convertPicture(...),
@@ -1115,6 +1108,28 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 $this
             )
         );
+        $this->elementHead = new OrderedElementConverterRegistry(array(
+            new Elements\PostNavigationLinkConverter($this->styleResolver, $this),
+            new AuthoredMotionMarkerConverter($this->session, $this),
+            $this->elementPrelude,
+            $inlineCheckableControls,
+            $this->richTextConverter,
+            new Elements\TagScopedElementConverter(array( 'address' ), $this->textLeafConverter),
+            new Elements\ShellLandmarkConverter($this->session, $this->styleResolver, $this, $this),
+            $this->searchBlockConverter,
+            $this->customImageHosts,
+            $customVideoHosts,
+            new Elements\ImagelessPictureConverter($this->sourceElementClassifier, $this->flowContainerConverter),
+            $mediaDispatchConverter,
+            new Elements\FocusRevealedSkipLinkConverter($this->styleResolver, $this->session),
+            new Elements\ReducedModeButtonConverter($this->session, $this->styleResolver, $this->sourceElementClassifier, $this->runtime, $this),
+            new Elements\AnchorElementConverter($this->buttonLinkDispatcher, $this->emptyVisualSpacers, $this, $this->unsupportedRecorder),
+            $structuralContentConverters,
+            new Elements\LabelElementConverter($this->readableFormControlBlockConverter, $this->flowContainerConverter),
+            // These delegates own disjoint tags; their declaration order is the
+            // pre-existing precedence before form, navigation, and flow dispatch.
+            $postStructuralElementConverters,
+        ));
     }
 
 
@@ -2739,217 +2754,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return $block;
         }
 
-        // WordPress post navigation is a dynamic post primitive, not a menu.
-        $classes = preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array();
-        if (in_array('wp-block-post-navigation-link', $classes, true)) {
-            foreach ($element->getElementsByTagName('a') as $link) {
-                if (!in_array($link->getAttribute('rel'), array('prev', 'next'), true)) continue;
-                $title = null;
-                $label = '';
-                foreach ($link->childNodes as $child) {
-                    $class = $child instanceof DOMElement ? $child->getAttribute('class') : '';
-                    if (str_contains($class, 'post-navigation-link__title')) { $title = $child; continue; }
-                    if (str_contains($class, 'post-navigation-link__arrow')) continue;
-                    $label .= $child->textContent;
-                }
-                // The arrow modifier sits on the arrow span; older markup carries it on the wrapper.
-                $arrow = 'none';
-                foreach (array_merge(array($element), iterator_to_array($element->getElementsByTagName('span'))) as $node) {
-                    $nodeClasses = preg_split('/\s+/', trim($node->getAttribute('class'))) ?: array();
-                    if ($node !== $element && array() === preg_grep('/^wp-block-post-navigation-link__arrow-/', $nodeClasses)) continue;
-                    if (in_array('is-arrow-arrow', $nodeClasses, true)) $arrow = 'arrow';
-                    elseif (in_array('is-arrow-chevron', $nodeClasses, true)) $arrow = 'chevron';
-                }
-                // A captured label sits inside the link (core's linkLabel); that
-                // is also the only label placement core keeps alongside an arrow.
-                // Keep the wrapper's own presentation (inline typography, source
-                // classes) so authored rules still reach the native block.
-                $attrs = $this->styleResolver->presentationAttributes($element);
-                $type = 'prev' === $link->getAttribute('rel') ? 'previous' : 'next';
-                $ownClasses = array_diff(preg_split('/\s+/', trim(($attrs['className'] ?? '') . ' ' . implode(' ', $classes))) ?: array(), array('', 'wp-block-post-navigation-link', 'post-navigation-link-' . $type, 'is-arrow-arrow', 'is-arrow-chevron'));
-                unset($attrs['className']);
-                if (array() !== $ownClasses) $attrs['className'] = implode(' ', array_unique($ownClasses));
-                return $this->createBlock('core/post-navigation-link', array_merge($attrs, array('type' => $type, 'showTitle' => null !== $title, 'arrow' => $arrow, 'label' => trim($label)), null !== $title && '' !== trim($label) ? array('linkLabel' => true) : array()), array(), $element);
-            }
-        }
-
-        $authoredMotion = (new AuthoredMotionMarkerConverter($this->session, $this))->convert($element);
-        if (null !== $authoredMotion) return $authoredMotion;
-
-        $prelude = $this->elementPrelude->convert($element, $tagName, $fallbacks, $captureUnsupported);
-        if ( $prelude->handled ) {
-            return $prelude->block;
-        }
-
-        $checkable = $this->inlineCheckableControls->inlineCheckableControlBlock($element);
-        if (null !== $checkable) return $checkable;
-
-        if ( $this->richTextConverter->handles($tagName) ) {
-            return $this->richTextConverter->convert($element, $tagName, $fallbacks)->block;
-        }
-
-        if ( 'address' === $tagName ) {
-            return $this->textLeafConverter->convert($element, $tagName, $fallbacks)->block;
-        }
-
-        // Plain wrappers are transport, not sectioning content. Lower document
-        // landmarks consistently so shared-shell identity does not depend on them.
-        $documentLandmark = ! $this->hasAncestorTag($element, array('main', 'section', 'aside', 'nav'));
-        if ( $this->session->preservesShellLandmarks()
-            && in_array(ShellLandmarkPolicy::landmarkKind($tagName, $this->attr($element, 'role')), array('header', 'footer'), true)
-            && ($documentLandmark || $this->hasAncestorTag($element, array('article')) || ($this->hasAncestorTag($element, array('main', 'section')) && ShellLandmarkPolicy::isDocumentEdgeLandmark($element)))
-        ) {
-            $children = $this->convertChildren($element, $fallbacks, true);
-            if ( array() !== $children ) {
-                $attrs = $this->styleResolver->presentationAttributes($element);
-                if ($this->hasAncestorTag($element, array('main', 'section')) && ShellLandmarkPolicy::isDocumentEdgeLandmark($element)) {
-                    // Hoisting loses inherited text colour and the transparent
-                    // landmark's ancestor backdrop. Keep that paint on the part.
-                    foreach (array('text', 'background') as $paint) {
-                        if (isset($attrs['style']['color'][$paint])) continue;
-                        for ($ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
-                            // Read resolved source paint before class-owned backgrounds
-                            // are deferred to selectors that won't follow the detached part.
-                            $context = $this->styleResolver->styleAttributeMapper()->map(
-                                $this->styleResolver->presentationDeclarations($ancestor),
-                                fn (string $value): string => $this->styleResolver->resolveCssVariablesInValue($value, $ancestor)
-                            );
-                            if (!isset($context['style']['color'][$paint])) continue;
-                            $attrs['style']['color'][$paint] = $context['style']['color'][$paint];
-                            break;
-                        }
-                    }
-                }
-                return $this->createBlock('core/group', $attrs, $children, $element);
-            }
-        }
-
-        $wrappedSearchBlock = $this->searchBlockConverter->searchBlockFromWrapper($element);
-        if ( null !== $wrappedSearchBlock ) {
-            return $wrappedSearchBlock;
-        }
-
-        $customImage = SourceDom::imageOnlyCustomElement($element);
-        if ( $customImage instanceof DOMElement ) {
-            $this->imageDimensions->fillParentImageViewportPair($customImage);
-            if ('' === $this->imageUrls->sourceUrl($customImage) && !$customImage->hasAttribute('srcset')) {
-                return null;
-            }
-            if ( ! $this->customImageHosts->canPromoteImageOnly($element, $customImage) ) {
-                return $this->customImageHosts->nativeImageIn($element, $customImage) ?? $this->imageLowering->responsiveMediaBlock($element);
-            }
-            $picture = $customImage->parentNode;
-            return $this->imageLowering->convertImage(
-                $customImage,
-                $element,
-                $picture instanceof DOMElement && 'picture' === strtolower($picture->tagName) ? $picture : null
-            );
-        }
-
-        $customVideo = $this->customVideoHosts->customVideoElement($element);
-        if ( $customVideo instanceof DOMElement ) {
-            $video = $this->mediaLowering->fromElement($customVideo);
-            if ( $this->customVideoHosts->hasTransparentCustomVideoHostPresentation($element) ) {
-                return $video;
-            }
-
-            // The host has a presentation box. Retain it as a core wrapper
-            // instead of moving its geometry onto the video element.
-            return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), array($video), $element);
-        }
-
-        $videoPoster = $this->customVideoHosts->customVideoPosterBlock($element);
-        if (null !== $videoPoster) return $videoPoster;
-
-        // A `picture` with no image candidate (no `img`, no `source[srcset]`)
-        // is not media: authors use it as a plain styled box. Lower it the way
-        // a generic container lowers so its children and author CSS survive
-        // instead of the media dispatch dropping the subtree.
-        if ( 'picture' === $tagName && ! $this->sourceElementClassifier->hasPictureImageCandidate($element) ) {
-            return $this->flowContainerConverter->convertGenericContainer($element, $fallbacks)->block;
-        }
-
-        $mediaDispatch = $this->mediaDispatchConverter->convert($element, $tagName, $fallbacks);
-        if ( $mediaDispatch->handled ) {
-            return $mediaDispatch->block;
-        }
-
-        // Core owns the template's keyboard skip control, including in reduced mode.
-        if ( 'a' === $tagName && $this->styleResolver->isFocusRevealedSkipLink($element, $this->currentSourcePath) ) {
-            return null;
-        }
-
-        if ($this->session->usesFallbackReductionMode() && ( 'button' === $tagName || ( 'a' === $tagName && ! $this->sourceElementClassifier->hasBlockLevelDescendant($element) && '' === trim($this->attr($element, 'aria-label')) ) )) {
-            $text = $this->styleResolver->innerHtml($element);
-            if ('' !== trim($this->runtime->stripAllTags($text))) {
-                $attrs = array_merge($this->styleResolver->presentationAttributes($element), array('text' => $text));
-                if ('a' === $tagName && '' !== trim($this->attr($element, 'href'))) {
-                    $attrs['url'] = $this->attr($element, 'href');
-                }
-                return $this->createBlock('core/buttons', array(), array($this->createBlock('core/button', $attrs, array(), $element)), $element);
-            }
-        }
-
-        // Anchors are phrasing content, but button-like anchors must be offered
-        // to the button dispatcher before generic inline lowering splits their
-        // label and decorative SVG into separate paragraph blocks.
-        if ( 'a' === $tagName ) {
-            $fragmentTarget = $this->emptyNamedFragmentTargetBlock($element);
-            if ( null !== $fragmentTarget ) {
-                return $fragmentTarget;
-            }
-            if ( SourceDom::isEmptyNamedFragmentTarget($element) ) {
-                return null;
-            }
-            $anchorBlock = $this->buttonLinkDispatcher->convertAnchor($element, $fallbacks);
-            if ( null !== $anchorBlock ) {
-                return $anchorBlock;
-            }
-
-            // A null here used to end the anchor's conversion outright: no
-            // block, no fallback, no finding — the subtree simply disappeared,
-            // and nothing downstream could count what was lost. Hand it to the
-            // same terminal recorder every other unconvertible element reaches,
-            // so it is either generated as a custom block or recorded as an
-            // unsupported-element fallback the import report can account for.
-            //
-            // An anchor that neither navigates nor renders anything is not
-            // that loss. It is the same non-rendering inline scaffolding as
-            // the empty `<span>` a widget usually leaves beside it, so it
-            // follows the empty-inline disposition: carried only when authored
-            // styles give its box something to show, never counted as an
-            // unsupported-element fallback.
-            if ( SourceDom::isEmptyNonNavigatingAnchor($element) ) {
-                return $this->shouldPreserveEmptyVisualElement($element)
-                    ? $this->emptyVisualSpacers->emptyVisualSpacerBlock($element)
-                    : null;
-            }
-
-            return $captureUnsupported ? $this->unsupportedRecorder->record($element, $tagName, $fallbacks) : null;
-        }
-
-        $structuralContentDispatch = $this->structuralContentConverters->convert($element, $tagName, $fallbacks);
-        if ( $structuralContentDispatch->handled ) {
-            return $structuralContentDispatch->block;
-        }
-
-        if ( 'label' === $tagName ) {
-            $label = $this->readableFormControlBlockConverter->convert($element);
-            // A label wrapping a control the page cannot represent (a hidden
-            // file picker, say) is still the visible box around its content.
-            // Lower it as that container: its content stays native blocks and
-            // the control reports through standalone control handling.
-            if ( (null !== $label && 'core/html' !== ($label['blockName'] ?? null)) || ! $this->wrapsUnrepresentableControl($element) ) {
-                return $label;
-            }
-            return $this->flowContainerConverter->convertGenericContainer($element, $fallbacks)->block;
-        }
-
-        // These delegates own disjoint tags; their declaration order is the
-        // pre-existing precedence before form, navigation, and flow dispatch.
-        $postStructuralDispatch = $this->postStructuralElementConverters->convert($element, $tagName, $fallbacks);
-        if ( $postStructuralDispatch->handled ) {
-            return $postStructuralDispatch->block;
+        $head = $this->elementHead->convert($element, $tagName, $fallbacks, $captureUnsupported);
+        if ( $head->handled ) {
+            return $head->block;
         }
 
         if ( 'nav' === $tagName ) {
@@ -3153,19 +2960,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         return $this->commercePattern->isCheckoutRegion($element);
-    }
-
-    /** Whether the label wraps a control with no page representation: unrendered or without a readable summary. */
-    private function wrapsUnrepresentableControl(DOMElement $element): bool
-    {
-        foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( FormControlClassifier::isControlElement($descendant)
-                && (FormControlClassifier::isNonAuthoredControl($descendant) || ! FormControlClassifier::isReadableControl($descendant)) ) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /** A `li` whose parent is not a list: invalid markup the list converter never reaches. */
@@ -4037,7 +3831,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $this->wrapperCoalescer->selectorMatchingSurvivesWrapperCoalescing($element, $child, $exact);
     }
 
-    private function shouldPreserveEmptyVisualElement(DOMElement $element): bool { return $this->emptyElementFootprint->shouldPreserveEmptyVisualElement($element, $this->emptyVisualRetentionPolicy($element)); }
+    public function shouldPreserveEmptyVisualElement(DOMElement $element): bool { return $this->emptyElementFootprint->shouldPreserveEmptyVisualElement($element, $this->emptyVisualRetentionPolicy($element)); }
 
     /** Non-style retention decisions, evaluated only when the footprint query needs them. */
     private function emptyVisualRetentionPolicy(DOMElement $element): iterable
@@ -4183,32 +3977,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             && '' === trim($this->attr($element, 'role'))
             && array() === $this->sourceElementDescription->interactiveAttributes($element)
             && array() === SourceDom::safeDataAttributes($element);
-    }
-
-    /**
-     * An empty href-less named `<a>` is a fragment target. Preserve its
-     * identifier on a native block HTML anchor rather than recording it as
-     * unsupported HTML. Returns null when the element is not that shape, or
-     * when the identifier already exists elsewhere in the document.
-     *
-     * @return array<string, mixed>|null
-     */
-    private function emptyNamedFragmentTargetBlock(DOMElement $element): ?array
-    {
-        if ( ! SourceDom::isEmptyNamedFragmentTarget($element) ) {
-            return null;
-        }
-
-        $id = SourceDom::namedFragmentTargetId($element);
-        if ( SourceDom::documentHasOtherFragmentTarget($element, $id) ) {
-            return null;
-        }
-
-        if ( '' === trim(SourceDom::attr($element, 'id')) ) {
-            $element->setAttribute('id', $id);
-        }
-
-        return $this->emptyVisualSpacers->emptyVisualSpacerBlock($element);
     }
 
     private function hasEmptyVisualInlineChild(DOMElement $element): bool
