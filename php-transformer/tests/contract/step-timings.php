@@ -83,7 +83,12 @@ $check($result->serializedBlocks === $untimedResult->serializedBlocks, 'Receipt 
 $assertTimings($result, array('compose.receipt_validation', 'compose.receipt_reduction',
     'compose.author_stylesheet_projections', 'compose.author_stylesheet_projections.route_documents',
     'compose.author_stylesheet_projections.route_variants', 'compose.author_stylesheet_projections.route_budget',
-    'compose.compaction', 'compose.serialization', 'compose.from_compiler_input', 'compose.result_composition'));
+    'compose.compaction', 'compose.serialization', 'compose.from_compiler_input', 'compose.result_composition',
+    // Site-plan composition reports each stage, so the largest compose step is never opaque.
+    'compose.site_plan.documents', 'compose.site_plan.design_system', 'compose.site_plan.routes',
+    'compose.site_plan.pages', 'compose.site_plan.entity_bindings', 'compose.site_plan.theme_json',
+    'compose.site_plan.shell_extraction', 'compose.site_plan.stylesheets', 'compose.site_plan.templates',
+    'compose.site_plan.asset_writes', 'compose.site_plan.plan_assembly', 'compose.site_plan.asset_consumers'));
 $again = $compiler->compose($shared, $pages);
 $check($result->serializedBlocks === $again->serializedBlocks, 'Compose markup changed');
 $plan = new WordPressSitePlan();
