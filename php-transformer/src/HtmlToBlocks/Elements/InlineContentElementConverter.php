@@ -240,7 +240,7 @@ final class InlineContentElementConverter implements ElementConverter
      */
     private function sourceElementParagraph(DOMElement $element, string $content, bool $retainAlignment = false): array
     {
-        $listItem = $this->context->ancestorElement($element, 'li');
+        $listItem = SourceDom::ancestorElement($element, 'li');
         $sourceElement = $this->richTextMaterializer->hasStructuralHtml($content)
             || 0 < $element->getElementsByTagName('svg')->length
             || ($listItem instanceof DOMElement && $this->context->isStructuralListItem($listItem))

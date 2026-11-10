@@ -17,8 +17,6 @@ final class InlineContentElementContext
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array<string, mixed> $positionedInlineCarrierBlock
      * @param Closure(DOMElement): bool $hasAuthorSemanticMarker
      * @param Closure(DOMElement): string $richTextMarker
-     * @param Closure(DOMElement, string): ?DOMElement $ancestorElement
-     * @param Closure(DOMElement): bool $isStructuralListItem
      * @param Closure(DOMElement): bool $shouldPreserveEmptyVisualElement
      * @param Closure(DOMElement): array<string, mixed> $emptyVisualSpacerBlock
      * @param (Closure(DOMElement): void)|null $rememberNativeDisclosureRoot
@@ -32,8 +30,7 @@ final class InlineContentElementContext
         private readonly Closure $positionedInlineCarrierBlock,
         private readonly Closure $hasAuthorSemanticMarker,
         private readonly Closure $richTextMarker,
-        private readonly Closure $ancestorElement,
-        private readonly Closure $isStructuralListItem,
+        private readonly ListStructure $listStructure,
         private readonly Closure $shouldPreserveEmptyVisualElement,
         private readonly Closure $emptyVisualSpacerBlock,
         private readonly ?Closure $rememberNativeDisclosureRoot = null,
@@ -74,8 +71,7 @@ final class InlineContentElementContext
 
         return SourceDom::attr($element, 'data-prefix') . $value . SourceDom::attr($element, 'data-suffix');
     }
-    public function ancestorElement(DOMElement $element, string $tagName): ?DOMElement { return ($this->ancestorElement)($element, $tagName); }
-    public function isStructuralListItem(DOMElement $element): bool { return ($this->isStructuralListItem)($element); }
+    public function isStructuralListItem(DOMElement $element): bool { return $this->listStructure->isStructuralListItem($element); }
     public function shouldPreserveEmptyVisualElement(DOMElement $element): bool { return ($this->shouldPreserveEmptyVisualElement)($element); }
     /** @return array<string, mixed> */
     public function emptyVisualSpacerBlock(DOMElement $element): array { return ($this->emptyVisualSpacerBlock)($element); }
