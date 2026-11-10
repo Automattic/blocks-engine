@@ -10,6 +10,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\AuthoredFormControlBlockConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\NativeGetFormBlockBuilder;
@@ -76,7 +77,7 @@ $metadataBuilder = new FormControlMetadataBuilder(static fn (DOMElement $element
 $authored = new AuthoredFormControlBlockConverter(
     $metadataBuilder,
     static fn (DOMElement $element): array => array(),
-    static fn (DOMElement $element): array => array(),
+    new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array()),
     $createBlock,
     $session,
     $runtime,

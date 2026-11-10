@@ -496,7 +496,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->tableAttributesBuilder = new TableAttributesBuilder($this->styleResolver, $this->navigationToggleSuppressor, $this->session);
         $formControlMetadataBuilder = new FormControlMetadataBuilder(
             fn (DOMElement $element): string => SourceDom::elementSelector($element),
-            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            $this->styleResolver,
             fn (DOMElement $element): array => $this->formContextTypography($element),
             fn (DOMElement $element): array => $this->formContextPaint($element),
             fn (DOMElement $element, DOMElement $boundary): ?array => $this->formContextHiddenState($element, $boundary),
@@ -652,7 +652,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->authoredFormControlBlockConverter = new AuthoredFormControlBlockConverter(
             $formControlMetadataBuilder,
             fn (DOMElement $element): array => $this->styleResolver->authoredPresentationDeclarations($element),
-            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            $this->styleResolver,
             $this,
             $this->session,
             $this->runtime,
@@ -716,7 +716,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->formRuntimeIslandRecorder,
             $this->runtime,
             $this->runtimeIslands,
-            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            $this->styleResolver,
             $this,
             $this->session
         );
@@ -757,7 +757,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $formCompositionPlanner = new FormCompositionPlanner(
             $this->session,
             $this,
-            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            $this->styleResolver,
             $this,
             fn (DOMElement $container, DOMElement $element): bool => $this->elementContains($container, $element)
         );

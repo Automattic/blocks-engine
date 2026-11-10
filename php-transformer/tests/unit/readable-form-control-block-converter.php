@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\RuntimeDomTargetsFixture;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\AuthoredFormControlBlockConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
@@ -40,7 +41,7 @@ $createBlock = new SourceBlockCreatorFixture(static fn (string $name, array $att
     'attrs' => $attrs,
     'innerBlocks' => $innerBlocks,
 ));
-$presentationAttributes = static fn (DOMElement $element): array => array( 'className' => 'presented' );
+$presentation = new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array( 'className' => 'presented' ));
 $echoStart = count($session->transformationEvidenceState()->formControlEchoTexts());
 $recorded = array();
 $metadataBuilder = new FormControlMetadataBuilder(static fn (DOMElement $element): string => strtolower($element->tagName));
@@ -55,7 +56,7 @@ $authoredRegistry = $session->requireGeneratedBlockRegistry();
 $authoredConverter = new AuthoredFormControlBlockConverter(
     $metadataBuilder,
     static fn (DOMElement $element): array => $element->hasAttribute('data-styled') ? array( 'display' => 'block' ) : array(),
-    $presentationAttributes,
+    $presentation,
     $createBlock,
     $session,
     new Runtime(),
@@ -68,7 +69,7 @@ $converter = new ReadableFormControlBlockConverter(
     $runtimeRecorder,
     new Runtime(),
     new RuntimeDomTargetsFixture(static fn (DOMElement $element): bool => $element->hasAttribute('data-runtime')),
-    $presentationAttributes,
+    $presentation,
     $createBlock,
     $session
 );

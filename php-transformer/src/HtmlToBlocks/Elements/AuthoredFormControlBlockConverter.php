@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
@@ -30,7 +31,6 @@ final class AuthoredFormControlBlockConverter
 
     /**
      * @param Closure(DOMElement): array<string, mixed>                                                     $authoredPresentationDeclarations
-     * @param Closure(DOMElement): array<string, mixed>                                                     $presentationAttributes
      * @param Closure(string): string                                                                       $safeAnchor
      * @param Closure(DOMElement): ?DOMElement                                                               $projectSourceTags
      * @param Closure(DOMElement): string|null                                                                $richTextLabelContent
@@ -39,7 +39,7 @@ final class AuthoredFormControlBlockConverter
     public function __construct(
         private readonly FormControlMetadataBuilder $metadataBuilder,
         private readonly Closure $authoredPresentationDeclarations,
-        private readonly Closure $presentationAttributes,
+        private readonly ElementPresentationResolver $presentation,
         private readonly SourceBlockCreator $createBlock,
         private readonly HtmlTransformerSession $session,
         private readonly Runtime $runtime,
@@ -129,7 +129,7 @@ final class AuthoredFormControlBlockConverter
                 $optionBlocks[] = $this->createBlock->createBlock('core/list-item', array( 'content' => $this->runtime->escapeHtml($optionLabel) ));
             }
 
-            return $this->createBlock->createBlock('core/group', ($this->presentationAttributes)($select), array(
+            return $this->createBlock->createBlock('core/group', $this->presentation->presentationAttributes($select), array(
                 $this->createBlock->createBlock('core/paragraph', array( 'content' => $this->runtime->escapeHtml($label) ), array(), $select),
                 $this->createBlock->createBlock('core/list', array(), $optionBlocks, $select),
             ), $select);

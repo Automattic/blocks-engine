@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\RuntimeDomTargetsFixture;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\AuthoredFormControlBlockConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
@@ -45,6 +46,7 @@ $createBlock = new SourceBlockCreatorFixture(static fn (string $name, array $att
     'innerBlocks' => $innerBlocks,
 ));
 $presentationAttributes = static fn (DOMElement $element): array => array( 'className' => 'presented-' . strtolower($element->tagName) );
+$presentation = new ElementPresentationResolverFixture($presentationAttributes);
 $runtimeDomTargets = new RuntimeDomTargetsFixture(static fn (DOMElement $element): bool => $element->hasAttribute('data-runtime'));
 $recorded = array();
 $echoStart = count($session->transformationEvidenceState()->formControlEchoTexts());
@@ -60,7 +62,7 @@ $authoredRegistry = $session->requireGeneratedBlockRegistry();
 $authoredConverter = new AuthoredFormControlBlockConverter(
     $metadataBuilder,
     static fn (DOMElement $element): array => $element->hasAttribute('data-styled') ? array( 'display' => 'block' ) : array(),
-    $presentationAttributes,
+    $presentation,
     $createBlock,
     $session,
     new Runtime(),
@@ -73,7 +75,7 @@ $controlConverter = new ReadableFormControlBlockConverter(
     $runtimeRecorder,
     new Runtime(),
     $runtimeDomTargets,
-    $presentationAttributes,
+    $presentation,
     $createBlock,
     $session
 );
@@ -107,7 +109,7 @@ $builder = new ReadableFormBlockBuilder(
     $runtimeDomTargets,
     $presentationAttributes,
     $ownership,
-    new \Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture($presentationAttributes),
+    $presentation,
     $createBlock,
     $layoutShellBlockForElements,
     static fn (array $elements): array => array(
