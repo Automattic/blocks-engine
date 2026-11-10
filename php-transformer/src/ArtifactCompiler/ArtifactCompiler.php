@@ -3088,11 +3088,7 @@ final class ArtifactCompiler
     {
         $file['provenance']['projected_from_bytes'] ??= (int) ($file['bytes'] ?? strlen((string) ($file['content'] ?? '')));
         $file['path'] = $path;
-        $file['content'] = $content;
-        unset($file['content_base64']);
-        $file['bytes'] = strlen($content);
-        $file['encoding'] = 'text';
-        $file['binary'] = false;
+        $file = ArtifactNormalizer::withTextPayload($file, $content);
         $file['provenance']['projected_from_hash'] = $file['provenance']['hash'] ?? '';
         $file['provenance']['hash'] = hash('sha256', $content);
         return $file;
@@ -3165,12 +3161,7 @@ final class ArtifactCompiler
                 $paths[] = $this->stylesheetChunkPath((string) $file['path'], $index + 1, $reserved);
             }
             $chunkPaths[(string) $file['path']] = $paths;
-            $loader = $file;
-            $loader['content'] = implode('', array_map(static fn (string $path): string => '@import url("' . basename($path) . '");', $paths));
-            unset($loader['content_base64']);
-            $loader['bytes'] = strlen($loader['content']);
-            $loader['encoding'] = 'text';
-            $loader['binary'] = false;
+            $loader = ArtifactNormalizer::withTextPayload($file, implode('', array_map(static fn (string $path): string => '@import url("' . basename($path) . '");', $paths)));
             $loader['provenance']['hash'] = hash('sha256', $loader['content']);
             $output[] = $loader;
             $continuationPreamble = $chunker->continuationPreamble($file['content']);
@@ -3226,11 +3217,7 @@ final class ArtifactCompiler
             if ( $content === $file['content'] ) {
                 continue;
             }
-            $file['content'] = $content;
-            unset($file['content_base64']);
-            $file['bytes'] = strlen($content);
-            $file['encoding'] = 'text';
-            $file['binary'] = false;
+            $file = ArtifactNormalizer::withTextPayload($file, $content);
             $file['provenance']['projected_from_hash'] = $file['provenance']['hash'] ?? '';
             $file['provenance']['hash'] = hash('sha256', $content);
         }

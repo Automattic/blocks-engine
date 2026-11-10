@@ -1732,7 +1732,7 @@ final class ShellExtraction
                 }
                 continue;
             }
-            $candidates = array(); $clusters = array(); $excluded = array(); $overrides = array();
+            $candidates = array(); $clusters = array(); $excluded = array();
             $templateSlugs = array(); $excludedTemplateSlugs = array();
             // Aligned edges have already replaced equivalent wrapper contracts.
             // Distinct authored wrappers still need the inner-copy fallback.
@@ -1899,28 +1899,13 @@ final class ShellExtraction
                 if (count(array_unique($variantIdentities)) > 1 || str_contains($pages[$index]['canonical_block_markup'], CaptureEvidence::DOCUMENT_SCOPE)) { $inlineShell = false; break; }
             }
             foreach ($applicable as $index => $page) if (!in_array($index, $cluster['indexes'], true)) $excluded[$index] = isset($candidates[$index]) ? 'non_equivalent' : 'missing';
-            // 'search' is never an applicable page in its own right (WordPress
-            // synthesizes it), so it rides along wherever 'index' is bound: both
-            // are the site's generic, non-singular fallback templates.
-            $templateSlugs = count($cluster['indexes']) === count($applicable) ? WordPressSitePlan::NATIVE_TEMPLATE_SLUGS : WordPressSitePlan::NATIVE_QUERY_TEMPLATE_SLUGS;
-            if (count($cluster['indexes']) !== count($applicable)) foreach ($applicable as $index => $page) {
-                $selected = in_array($index, $cluster['indexes'], true);
-                if (!empty($page['entrypoint'])) { if ($selected) $templateSlugs[] = 'front-page'; continue; }
-                // The generic fallback templates always carry the dominant
-                // shell; excluded routes get their own override templates.
-                $templateSlugs[] = 'page' === ($page['post_type'] ?? null) ? 'page' : 'single';
-                if (!$selected) {
-                    $slug = WordPressSitePlan::routeTemplateKey($page);
-                    if (isset($overrides[$slug])) {
-                        $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'info', 'message' => "{$area} shell exclusions cannot be assigned distinct route templates.", 'area' => $area, 'provenance' => $this->shellProvenance($area, 'retained', 'route_template_ambiguous', $candidates));
-                        continue 2;
-                    }
-                    $overrides[$slug] = $index;
-                }
+            $assignment = self::shellTemplateSlugs($applicable, array_flip($cluster['indexes']));
+            if (null === $assignment) {
+                $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'info', 'message' => "{$area} shell exclusions cannot be assigned distinct route templates.", 'area' => $area, 'provenance' => $this->shellProvenance($area, 'retained', 'route_template_ambiguous', $candidates));
+                continue;
             }
+            [$templateSlugs, $excludedTemplateSlugs] = $assignment;
             if ($entryOnly) $templateSlugs = array('front-page');
-            $templateSlugs = array_values(array_unique($templateSlugs));
-            $excludedTemplateSlugs = array_keys($overrides ?? array());
             $withoutShells = array();
             $retainedForRuntimeBinding = false;
             foreach ($cluster['indexes'] as $index) {
@@ -2012,39 +1997,13 @@ final class ShellExtraction
                 continue;
             }
             if (is_array($absorbed)) {
-                $withoutShells = $absorbed['pages'];
-                foreach (array_keys($excluded) as $index) {
-                    if ($this->variantLandmarksContainRuntimeBinding($pages[$index], $area, $runtimeDeclarations)) continue;
-                    $adopted = $this->stripMatchingVariantLandmarks($pages[$index]['canonical_block_markup'], $area, $absorbed['identities'], true);
-                    if (null === $adopted || $this->retainsResponsiveVariantLandmark($adopted, $area)) continue;
-                    $withoutShells[$index] = $adopted;
-                    unset($excluded[$index]);
+                [$withoutShells, $excluded] = $this->withAdoptedVariantShells($pages, $absorbed['pages'], $excluded, $area, $absorbed['identities'], $runtimeDeclarations);
+                $assignment = self::shellTemplateSlugs($applicable, $withoutShells);
+                if (null === $assignment) {
+                    $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'info', 'message' => "{$area} shell exclusions cannot be assigned distinct route templates.", 'area' => $area, 'provenance' => $this->shellProvenance($area, 'retained', 'route_template_ambiguous', $candidates));
+                    continue;
                 }
-                $templateSlugs = array();
-                $excludedTemplateSlugs = array();
-                $overrides = array();
-                if (count($withoutShells) === count($applicable)) {
-                    $templateSlugs = WordPressSitePlan::NATIVE_TEMPLATE_SLUGS;
-                } else {
-                    $templateSlugs = WordPressSitePlan::NATIVE_QUERY_TEMPLATE_SLUGS;
-                    foreach ($applicable as $index => $page) {
-                        $selected = isset($withoutShells[$index]);
-                        if (!empty($page['entrypoint'])) { if ($selected) $templateSlugs[] = 'front-page'; continue; }
-                        // The generic fallback templates always carry the dominant
-                        // shell; excluded routes get their own override templates.
-                        $templateSlugs[] = 'page' === ($page['post_type'] ?? null) ? 'page' : 'single';
-                        if (!$selected) {
-                            $slug = WordPressSitePlan::routeTemplateKey($page);
-                            if (isset($overrides[$slug])) {
-                                $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'info', 'message' => "{$area} shell exclusions cannot be assigned distinct route templates.", 'area' => $area, 'provenance' => $this->shellProvenance($area, 'retained', 'route_template_ambiguous', $candidates));
-                                continue 2;
-                            }
-                            $overrides[$slug] = $index;
-                        }
-                    }
-                    $templateSlugs = array_values(array_unique($templateSlugs));
-                    $excludedTemplateSlugs = array_keys($overrides);
-                }
+                [$templateSlugs, $excludedTemplateSlugs] = $assignment;
             }
             $singlePage = 1 === count($applicable) && 1 === count($cluster['indexes']);
             if (null !== $bindingHoist && $singlePage) {
@@ -3064,38 +3023,11 @@ final class ShellExtraction
         foreach ($indexes as $index) $applicable[$index] = $pages[$index];
         $absorbed = $this->absorbResponsiveVariantLandmarks($pages, $indexes, $area, array(), array(), $runtimeDeclarations);
         if (!is_array($absorbed)) return null;
-        $withoutShells = $absorbed['pages'];
-        $excluded = array();
-        foreach ($applicable as $index => $page) if (!isset($withoutShells[$index])) $excluded[$index] = 'non_equivalent';
-        foreach (array_keys($excluded) as $index) {
-            if ($this->variantLandmarksContainRuntimeBinding($pages[$index], $area, $runtimeDeclarations)) continue;
-            $adopted = $this->stripMatchingVariantLandmarks($pages[$index]['canonical_block_markup'], $area, $absorbed['identities'], true);
-            if (null === $adopted || $this->retainsResponsiveVariantLandmark($adopted, $area)) continue;
-            $withoutShells[$index] = $adopted;
-            unset($excluded[$index]);
-        }
-        $templateSlugs = array();
-        $excludedTemplateSlugs = array();
-        $overrides = array();
-        if (count($withoutShells) === count($applicable)) {
-            $templateSlugs = WordPressSitePlan::NATIVE_TEMPLATE_SLUGS;
-        } else {
-            $templateSlugs = WordPressSitePlan::NATIVE_QUERY_TEMPLATE_SLUGS;
-            foreach ($applicable as $index => $page) {
-                $selected = isset($withoutShells[$index]);
-                if (!empty($page['entrypoint'])) { if ($selected) $templateSlugs[] = 'front-page'; continue; }
-                // The generic fallback templates always carry the dominant
-                // shell; excluded routes get their own override templates.
-                $templateSlugs[] = 'page' === ($page['post_type'] ?? null) ? 'page' : 'single';
-                if (!$selected) {
-                    $slug = WordPressSitePlan::routeTemplateKey($page);
-                    if (isset($overrides[$slug])) return null;
-                    $overrides[$slug] = $index;
-                }
-            }
-            $templateSlugs = array_values(array_unique($templateSlugs));
-            $excludedTemplateSlugs = array_keys($overrides);
-        }
+        $excluded = array_fill_keys(array_keys(array_diff_key($applicable, $absorbed['pages'])), 'non_equivalent');
+        [$withoutShells, $excluded] = $this->withAdoptedVariantShells($pages, $absorbed['pages'], $excluded, $area, $absorbed['identities'], $runtimeDeclarations);
+        $assignment = self::shellTemplateSlugs($applicable, $withoutShells);
+        if (null === $assignment) return null;
+        [$templateSlugs, $excludedTemplateSlugs] = $assignment;
         foreach ($runtimeDeclarations as &$declaration) unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']);
         unset($declaration);
         $runtimeDeclarations = RuntimeDeclarations::normalizeForComposition($runtimeDeclarations);
@@ -3107,6 +3039,54 @@ final class ShellExtraction
         $part = array('source_path' => $sourcePath . '#' . $area, 'slug' => $partSlug, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => 'div', 'placement' => array_filter(array('kind' => 'shared_shell', 'source_path' => $sourcePath, 'template_slugs' => $templateSlugs, 'excluded_template_slugs' => $excludedTemplateSlugs), static fn(mixed $value): bool => array() !== $value && null !== $value), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', 'responsive_variant_partition', $provenanceCandidates, hash('sha256', implode("\0", $absorbed['identities']))), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $partSlug . '.html'), 'content_hash' => WordPressSitePlan::contentHash($partMarkup)) + (is_array($ancestorContext) ? array('ancestor_context' => $ancestorContext) : array());
         $diagnostic = array('code' => 'wordpress_site_plan_shell_extracted', 'severity' => 'info', 'message' => "Extracted the dominant semantically equivalent {$area} shell cluster.", 'area' => $area, 'page_count' => count($withoutShells), 'applicable_page_count' => count($applicable), 'exclusions' => array_map(static fn(int $index, string $reason): array => array('source_path' => $pages[$index]['source_path'], 'reason' => $reason), array_keys($excluded), $excluded));
         return array('pages' => $withoutShells, 'part' => $part, 'diagnostic' => $diagnostic, 'runtime_declarations' => $runtimeDeclarations);
+    }
+
+    /**
+     * The generic fallback templates always carry the dominant shell; excluded
+     * routes get their own override templates. 'search' is never an applicable
+     * page in its own right (WordPress synthesizes it), so it rides along
+     * wherever 'index' is bound: both are the site's generic, non-singular
+     * fallback templates. Null when two excluded routes need one override.
+     *
+     * @param array<int,array<string,mixed>> $applicable
+     * @param array<int,mixed> $selected Applicable pages that carry the shell, by index.
+     * @return array{0:list<string>,1:list<string>}|null Template slugs and excluded template slugs.
+     */
+    private static function shellTemplateSlugs(array $applicable, array $selected): ?array
+    {
+        if (count($selected) === count($applicable)) return array(WordPressSitePlan::NATIVE_TEMPLATE_SLUGS, array());
+        $templateSlugs = WordPressSitePlan::NATIVE_QUERY_TEMPLATE_SLUGS;
+        $overrides = array();
+        foreach ($applicable as $index => $page) {
+            $carries = isset($selected[$index]);
+            if (!empty($page['entrypoint'])) { if ($carries) $templateSlugs[] = 'front-page'; continue; }
+            $templateSlugs[] = 'page' === ($page['post_type'] ?? null) ? 'page' : 'single';
+            if ($carries) continue;
+            $slug = WordPressSitePlan::routeTemplateKey($page);
+            if (isset($overrides[$slug])) return null;
+            $overrides[$slug] = true;
+        }
+        return array(array_values(array_unique($templateSlugs)), array_keys($overrides));
+    }
+
+    /**
+     * Excluded pages whose responsive variants still match the absorbed shell
+     * identities adopt it too, unless a variant landmark carries a runtime binding.
+     *
+     * @param array<int,array<string,mixed>> $pages @param array<int,string> $withoutShells @param array<int,string> $excluded Exclusion reasons by index.
+     * @param array<int,string> $identities @param array<int,array<string,mixed>> $runtimeDeclarations
+     * @return array{0:array<int,string>,1:array<int,string>} Pages without shells, and the exclusions that remain.
+     */
+    private function withAdoptedVariantShells(array $pages, array $withoutShells, array $excluded, string $area, array $identities, array $runtimeDeclarations): array
+    {
+        foreach (array_keys($excluded) as $index) {
+            if ($this->variantLandmarksContainRuntimeBinding($pages[$index], $area, $runtimeDeclarations)) continue;
+            $adopted = $this->stripMatchingVariantLandmarks($pages[$index]['canonical_block_markup'], $area, $identities, true);
+            if (null === $adopted || $this->retainsResponsiveVariantLandmark($adopted, $area)) continue;
+            $withoutShells[$index] = $adopted;
+            unset($excluded[$index]);
+        }
+        return array($withoutShells, $excluded);
     }
 
     private function retainsResponsiveVariantLandmark(string $markup, string $area): bool
