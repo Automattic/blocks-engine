@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
 use DOMElement;
@@ -160,11 +161,36 @@ final class FormRuntimeRequirementAnalyzer
         // that buys, registers, or searches, so those stay unknown.
         if ( $onlyChoices && $hasSubmit && ! $select && ! $email && ! $search && ! $hiddenItem
             && ! self::hasCommerceSubmissionSignal($form)
+            && ! self::hasSourceBehavior($form)
             && array() !== array_filter($choiceGroupSizes, static fn (int $size): bool => $size > 1) ) {
             return 'choice_submission';
         }
 
         return 'unknown';
+    }
+
+    /**
+     * Scripts, embedded documents, event handlers and non-web link schemes
+     * anywhere in the form keep it on the source fallback, which already owns
+     * that markup.
+     */
+    private static function hasSourceBehavior(DOMElement $form): bool
+    {
+        $elements = array( $form, ...iterator_to_array($form->getElementsByTagName('*'), false) );
+        foreach ( $elements as $element ) {
+            if ( in_array(strtolower($element->tagName), array( 'script', 'iframe', 'frame', 'object', 'embed' ), true)
+                || array() !== SourceDom::eventMetadata($element) ) {
+                return true;
+            }
+            foreach ( array( 'action', 'formaction', 'href', 'src', 'xlink:href' ) as $attribute ) {
+                $url = trim(SourceDom::attr($element, $attribute));
+                if ( '' !== $url && '' === LinkUrlSanitizer::sanitize($url) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private static function hasDonationSubmitSemantics(DOMElement $control): bool
@@ -187,14 +213,14 @@ final class FormRuntimeRequirementAnalyzer
 
     private static function hasCommerceSubmissionSignal(DOMElement $form, bool $addToCartOnly = false): bool
     {
+        $host = strtolower((string) parse_url(SourceDom::attr($form, 'action'), PHP_URL_HOST));
+        $paymentDestination = ! $addToCartOnly && 1 === preg_match('/(?:^|\.)paypal\.com$/', $host);
         foreach ( $form->getElementsByTagName('*') as $control ) {
             if ( ! FormControlClassifier::isSubmitLikeControl($control) ) {
                 continue;
             }
 
-            $host = strtolower((string) parse_url(SourceDom::attr($form, 'action'), PHP_URL_HOST));
-            if ( ! $addToCartOnly && 'image' === FormControlClassifier::controlType($control)
-                && 1 === preg_match('/(?:^|\.)paypal\.com$/', $host) ) {
+            if ( $paymentDestination ) {
                 return true;
             }
 
@@ -209,7 +235,7 @@ final class FormRuntimeRequirementAnalyzer
                 SourceDom::attr($control, 'title'),
             )));
 
-            $semantics = $addToCartOnly ? 'add[ _-]*(?:to[ _-]*)?cart' : 'add to cart|cart|checkout|payment|paypal|purchase|buy|order|register|registration|ticket';
+            $semantics = $addToCartOnly ? 'add[ _-]*(?:to[ _-]*)?cart' : 'add to cart|cart|checkout|pay|payment|paypal|purchase|buy|order|register|registration|ticket';
             if ( preg_match('/(?:^|[^a-z0-9])(?:' . $semantics . ')(?:[^a-z0-9]|$)/', $haystack) ) {
                 return true;
             }

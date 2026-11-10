@@ -34,6 +34,11 @@ $cases = array(
     'radios with neutral image' => array('post', '<input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B"><input type="image" src="send.png" alt="Send">', 'choice_submission', false),
     'radios with buy button' => array('post', '<input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B"><button>Buy now</button>', 'unknown', true),
     'radios with register button' => array('post', '<input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B"><button>Register</button>', 'unknown', true),
+    'radios with pay button' => array('post', '<input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B"><button>Pay now</button>', 'unknown', true),
+    'radios with label handler' => array('post', '<label><input type="radio" name="choice" value="A">A<img src="a.png" onerror="void 0"></label><input type="radio" name="choice" value="B"><button>Send</button>', 'unknown', true),
+    'radios with script link' => array('post', '<input type="radio" name="choice" value="A"><label><input type="radio" name="choice" value="B"><a href="javascript:void 0">B</a></label><button>Send</button>', 'unknown', false),
+    'radios with embedded frame' => array('post', '<label><input type="radio" name="choice" value="A">A<iframe srcdoc="&lt;p&gt;A&lt;/p&gt;"></iframe></label><input type="radio" name="choice" value="B"><button>Send</button>', 'unknown', true),
+    'radios with embedded object' => array('post', '<label><input type="radio" name="choice" value="A">A<object data="a.svg"></object></label><input type="radio" name="choice" value="B"><button>Send</button>', 'unknown', true),
     'radios with hidden product' => array('post', '<input type="hidden" name="product_id" value="9"><input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B"><button>Send</button>', 'unknown', true),
     'choice with custom radio widget' => array('post', '<button type="button" role="radio"><input type="radio" name="choice" value="A">A</button>', 'unknown', true),
     'choice with type=button' => array('post', $select . '<button type="button">Apply</button>', 'preference', false),
@@ -79,9 +84,20 @@ foreach ( $cases as $label => [$method, $controls, $intent, $fallback] ) {
     }
 }
 foreach ( array( 'www.paypal.com' => 'unknown', 'paypal.com.example.org' => 'choice_submission' ) as $host => $intent ) {
+    foreach ( array( '<input type="image" src="send.png" alt="Send">', '<input type="submit" value="Send">' ) as $submit ) {
+        $dom = new DOMDocument();
+        $dom->loadHTML('<form method="post" action="https://' . $host . '/cgi-bin/webscr"><input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B">' . $submit . '</form>');
+        $assert($intent === FormRuntimeRequirementAnalyzer::formIntent($dom->getElementsByTagName('form')->item(0)), $host . ' payment destination intent for ' . $submit);
+    }
+}
+$choices = '<input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B"><button>Send</button>';
+foreach ( array( 'form handler' => '<form required onsubmit="void 0">', 'script action' => '<form required action="javascript:void 0">' ) as $label => $open ) {
+    $sourceForm = '<!doctype html><html><head><title>Question</title></head><body><main>' . $open . $choices . '</form></main></body></html>';
     $dom = new DOMDocument();
-    $dom->loadHTML('<form method="post" action="https://' . $host . '/cgi-bin/webscr"><input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B"><input type="image" src="pay.png" alt="Pay"></form>');
-    $assert($intent === FormRuntimeRequirementAnalyzer::formIntent($dom->getElementsByTagName('form')->item(0)), $host . ' payment destination intent');
+    $dom->loadHTML($open . $choices . '</form>');
+    $assert('unknown' === FormRuntimeRequirementAnalyzer::formIntent($dom->getElementsByTagName('form')->item(0)), $label . ' keeps unknown intent');
+    $sourceResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $sourceForm)))->toArray();
+    $assert(1 === count($sourceResult['fallbacks'] ?? array()), $label . ' retains unsupported fallback');
 }
 $eventForm = '<!doctype html><html><head><title>Question</title></head><body><main><form><h3>Keep this question</h3><label><input type="radio" name="question" value="A" onclick="void 0">Yes</label><label><input type="radio" name="question" value="B">No</label><button>Send</button></form></main></body></html>';
 $eventResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $eventForm)))->toArray();
