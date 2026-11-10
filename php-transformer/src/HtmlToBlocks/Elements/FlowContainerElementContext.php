@@ -46,7 +46,6 @@ final class FlowContainerElementContext
         private readonly Closure $authoredCarouselBlock,
         private readonly Closure $generatedComponentBlock,
         private readonly Closure $textFlowBlock,
-        private readonly Closure $convertChildren,
         private readonly Closure $backgroundImageBlock,
         private readonly Closure $coalescedSingleGroupWrapper,
         private readonly Closure $shouldPreserveWrapper,
@@ -108,7 +107,7 @@ final class FlowContainerElementContext
     /** @return array<string, mixed>|null */
     public function textFlowBlock(DOMElement $element): ?array { return ($this->textFlowBlock)($element); }
     /** @param array<int, array<string, mixed>> $fallbacks @return array<int, array<string, mixed>> */
-    public function convertChildren(DOMElement $element, array &$fallbacks): array { return ($this->convertChildren)($element, $fallbacks); }
+    public function convertChildren(DOMElement $element, array &$fallbacks): array { return $this->tree->children($element, $fallbacks, true); }
 
     /** @return array<string, mixed>|null */
     public function backgroundImageBlock(DOMElement $element): ?array { return ($this->backgroundImageBlock)($element); }

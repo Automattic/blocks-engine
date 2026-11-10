@@ -7,15 +7,18 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConv
 use Closure;
 use DOMElement;
 
-/** Pattern tree whose pattern recognition is a test closure; subtree conversion yields nothing. */
+/** Pattern tree whose pattern recognition and child conversion are test closures; unset ones yield nothing. */
 final class PatternTreeFixture implements PatternTreeConverter
 {
-    /** @param Closure(DOMElement, array<int, array<string, mixed>>&, array<int, class-string>): ?array<string, mixed> $patterns */
-    public function __construct(private readonly Closure $patterns) {}
+    /**
+     * @param (Closure(DOMElement, array<int, array<string, mixed>>&, array<int, class-string>): ?array<string, mixed>)|null $patterns
+     * @param (Closure(DOMElement, array<int, array<string, mixed>>&, bool): array<int, array<string, mixed>>)|null $children
+     */
+    public function __construct(private readonly ?Closure $patterns = null, private readonly ?Closure $children = null) {}
 
     public function children(DOMElement $element, array &$fallbacks, bool $captureUnsupported, bool $preserveLinkContainers = false): array
     {
-        return array();
+        return null === $this->children ? array() : ($this->children)($element, $fallbacks, $captureUnsupported);
     }
 
     public function element(DOMElement $element, array &$fallbacks, bool $captureUnsupported): ?array
@@ -30,6 +33,6 @@ final class PatternTreeFixture implements PatternTreeConverter
 
     public function patterns(DOMElement $element, array &$fallbacks, array $allowed): ?array
     {
-        return ($this->patterns)($element, $fallbacks, $allowed);
+        return null === $this->patterns ? null : ($this->patterns)($element, $fallbacks, $allowed);
     }
 }

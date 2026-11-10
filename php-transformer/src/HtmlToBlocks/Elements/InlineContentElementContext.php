@@ -16,7 +16,6 @@ final class InlineContentElementContext
      * @param Closure(DOMElement): bool $ownsPositioningGeometry
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array<string, mixed> $positionedInlineCarrierBlock
      * @param Closure(DOMElement): bool $hasAuthorSemanticMarker
-     * @param Closure(DOMElement, array<int, array<string, mixed>>&, bool): array<int, array<string, mixed>> $convertChildren
      * @param Closure(DOMElement): string $richTextMarker
      * @param Closure(DOMElement): ?string $dynamicTextContent
      * @param Closure(DOMElement, string): ?DOMElement $ancestorElement
@@ -33,7 +32,6 @@ final class InlineContentElementContext
         private readonly Closure $ownsPositioningGeometry,
         private readonly Closure $positionedInlineCarrierBlock,
         private readonly Closure $hasAuthorSemanticMarker,
-        private readonly Closure $convertChildren,
         private readonly Closure $richTextMarker,
         private readonly Closure $dynamicTextContent,
         private readonly Closure $ancestorElement,
@@ -57,7 +55,7 @@ final class InlineContentElementContext
     public function hasAuthorSemanticMarker(DOMElement $element): bool { return ($this->hasAuthorSemanticMarker)($element); }
 
     /** @param array<int, array<string, mixed>> $fallbacks @return array<int, array<string, mixed>> */
-    public function convertChildren(DOMElement $element, array &$fallbacks): array { return ($this->convertChildren)($element, $fallbacks, true); }
+    public function convertChildren(DOMElement $element, array &$fallbacks): array { return $this->tree->children($element, $fallbacks, true); }
 
     public function richTextMarker(DOMElement $element): string { return ($this->richTextMarker)($element); }
 
