@@ -305,6 +305,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly Elements\CustomVideoHostLowering $customVideoHosts;
     private readonly Elements\ListItemLowering $listItemLowering;
     private readonly Elements\StructuredInlineItemLowering $structuredInlineItemLowering;
+    private readonly Elements\SyntheticImageFigureFlow $syntheticImageFigureFlow;
     private readonly Elements\CustomImageHostLowering $customImageHosts;
     private readonly Elements\AnchorLowering $anchors;
     private readonly Elements\RenderNeutralElements $renderNeutral;
@@ -617,6 +618,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->blockFactory,
             $this
         );
+        $this->syntheticImageFigureFlow = new Elements\SyntheticImageFigureFlow($this->styleResolver, $this->sourceElementClassifier, $this->tableClassificationPolicy, $this->layoutTables);
         $this->structuredCardLists = new Elements\StructuredCardListLowering(
             $this,
             $this->styleResolver,
@@ -3819,7 +3821,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                     $preserveGeneratedStyle,
                     'core/image' === $name
                         && 'figure' !== $sourceTagName
-                        && $this->syntheticImageFigureFollowsInlineFlow($sourceElement)
+                        && $this->syntheticImageFigureFlow->syntheticImageFigureFollowsInlineFlow($sourceElement)
                 ),
                 $this->sourceBlockAttributeProjectionContext()
             );
@@ -5897,63 +5899,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
      * @param array<string, mixed> $attrs
      * @return array<string, mixed>
      */
-    /**
-     * Whether a synthesized image figure must be transparent to inline flow
-     * and percentage sizing. A block source image keeps its ordinary figure;
-     * its own box, rather than inline alignment, determines its placement.
-     */
-    private function syntheticImageFigureFollowsInlineFlow(DOMElement $element): bool
-    {
-        $display = $this->styleResolver->resolvedDeclaration($element, 'display');
-        if ( '' !== $display && ! in_array($display, array( 'inline', 'inline-block' ), true) ) {
-            return false;
-        }
-
-        // An inline source wrapper is transparent to percentage sizing. Do
-        // not introduce a figure containing block when lowering its image.
-        $parent = $element->parentNode;
-        if ($parent instanceof DOMElement
-            && $this->sourceElementClassifier->isInlineSourceElement(strtolower($parent->tagName))
-            && in_array($this->styleResolver->resolvedDeclaration($parent, 'display'), array('', 'inline'), true)) {
-            return true;
-        }
-
-        // An inline-block wrapper (a link, a span) is a line-level box around
-        // an inline image. Blockifying the image would leave the wrapper with
-        // no line box, so its baseline moves to the margin edge and the strut
-        // adds descent below.
-        if ($parent instanceof DOMElement
-            && 'inline-block' === $this->styleResolver->resolvedDeclaration($parent, 'display')) {
-            return true;
-        }
-
-        // A link that is a flex or grid item is the item itself. Its in-flow
-        // image still sits on the link's own line, so the strut sizes the link.
-        if ($parent instanceof DOMElement && 'a' === strtolower($parent->tagName) && $this->styleResolver->imageIsFlexOrGridItem($parent)
-            && ! in_array($this->styleResolver->resolvedDeclaration($element, 'position'), array( 'absolute', 'fixed' ), true)
-            && in_array($this->styleResolver->resolvedDeclaration($element, 'float'), array( '', 'none' ), true)) {
-            return true;
-        }
-
-        $table = SourceDom::ancestorElement($element, 'table');
-        if ($table instanceof DOMElement && $this->tableClassificationPolicy->lowersToColumns($table) && $this->layoutTables->layoutTableUsesAutoTracks($table)) {
-            return true;
-        }
-
-        // text-align inherits, so the alignment that governs this image can be
-        // declared on any ancestor above the inline wrappers it sits in.
-        $node = $element->parentNode;
-        for ( $depth = 0; $depth < 8 && $node instanceof DOMElement; ++$depth ) {
-            $align = $this->styleResolver->resolvedDeclaration($node, 'text-align');
-            if ( '' !== $align ) {
-                return in_array($align, array( 'right', 'center', 'end' ), true);
-            }
-            $node = $node->parentNode;
-        }
-
-        return false;
-    }
-
     /**
      * @param array<string, mixed> $options
      * @return array<string, array<string, mixed>>
