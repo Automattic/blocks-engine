@@ -98,7 +98,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ReadableFormCon
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ReadableFormBlockBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\PseudoFormAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeResourceElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TableElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TableElementConverter;
@@ -515,7 +514,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->styleResolver
         );
         $pseudoFormAnalyzer = new PseudoFormAnalyzer($formControlMetadataBuilder, fn (DOMElement $element): string => SourceDom::elementSelector($element));
-        $this->runtimeIslands = new RuntimeIslandAnalyzer($this->session, $this->sourceElementClassifier, $this->createRuntimeIslandContext(), $pseudoFormAnalyzer);
+        $this->runtimeIslands = new RuntimeIslandAnalyzer($this->session, $this->sourceElementClassifier, $pseudoFormAnalyzer);
         $this->generatedComponents = new Elements\GeneratedComponentLowering($this->session, $this->runtimeIslands, $this, $this);
         $this->layoutShells = new Elements\LayoutShellLowering($this, $this->session, $this->styleResolver, $this->runtimeIslands);
         $this->sourceProvenance = new SourceProvenance(
@@ -1188,16 +1187,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         );
     }
 
-    /** Collaborator surface for {@see RuntimeIslandAnalyzer}. */
-    private function createRuntimeIslandContext(): RuntimeIslandContext
-    {
-        return new RuntimeIslandContext(
-            fn (DOMElement $element): iterable => SourceDom::descendantElements($element),
-            fn (string $html): ?DOMElement => $this->preservedHtmlRootElement($html),
-            fn (DOMElement $element): bool => $this->hasWorkspaceSurface($element)
-        );
-    }
-
     /**
      * Collaborator surface for {@see TableElementConverter}.
      */
@@ -1417,7 +1406,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $sourceBodyClasses = $this->documentEnvelope->documentBodyClassNames($html);
         $this->sourceDocumentHosts = NativeGetFormBlockBuilder::declaredDocumentHosts($html);
         $normalizedHtml = CaptureReplayScripts::withoutReplayScripts(
-            $this->normalizeHtml5VoidElements($this->documentEnvelope->documentBodyHtml($this->documentEnvelope->normalizeExplicitPlaintextElements($html)))
+            SourceDom::normalizeHtml5VoidElements($this->documentEnvelope->documentBodyHtml($this->documentEnvelope->normalizeExplicitPlaintextElements($html)))
         );
         $document = new DOMDocument();
         $previous = libxml_use_internal_errors(true);
@@ -2227,11 +2216,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $id,
             fn (): bool => (bool) $this->tableClassificationPolicy->classify($table)['representable']
         );
-    }
-
-    private function normalizeHtml5VoidElements(string $html): string
-    {
-        return preg_replace('/<source\b([^>]*?)(?<!\/)\s*>/i', '<source$1></source>', $html) ?? $html;
     }
 
     /**
@@ -4205,65 +4189,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private function captureInlineSvgFallback(DOMElement $element, array &$fallbacks): void
     {
         $this->session->fallbackEmitter()->captureInlineSvgFallback($element, $fallbacks);
-    }
-
-    private function preservedHtmlRootElement(string $html): ?DOMElement
-    {
-        if ( '' === trim($html) ) {
-            return null;
-        }
-
-        $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $this->normalizeHtml5VoidElements($html) . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
-        if ( ! $loaded ) {
-            return null;
-        }
-
-        $body = $document->getElementsByTagName('body')->item(0);
-        if ( ! $body instanceof DOMElement ) {
-            return null;
-        }
-
-        foreach ( $body->childNodes as $child ) {
-            if ( $child instanceof DOMElement ) {
-                return $child;
-            }
-        }
-
-        return null;
-    }
-
-    private function hasWorkspaceSurface(DOMElement $element): bool
-    {
-        foreach ( SourceDom::descendantElements($element) as $descendant ) {
-            $tagName = strtolower($descendant->tagName);
-            // Templates and their contents are inert, not visitor workspaces.
-            if ( 'template' === $tagName || SourceDom::hasNonAuthoredAncestor($descendant) ) {
-                continue;
-            }
-            // A canvas hidden from assistive technology is a decorative backdrop,
-            // not a surface the visitor works in, so it does not make its wrapper
-            // an application shell.
-            if ( 'canvas' === $tagName && ! SourceDom::hasAriaHiddenAncestor($descendant) ) {
-                return true;
-            }
-            // An iframe loading a third-party document by https URL is a content
-            // embed. Inline (srcdoc), blank or relative-URL frames host an app surface.
-            if ( 'iframe' === $tagName && ( $descendant->hasAttribute('srcdoc') || ! $this->sourceElementClassifier->isSafeVisualIframeUrl(trim(SourceDom::attr($descendant, 'src'))) ) ) {
-                return true;
-            }
-            if ( 'textarea' === $tagName && $this->runtimeIslands->textareaIsRuntimeWorkspaceSurface($descendant, $element) ) {
-                return true;
-            }
-            if ( in_array(strtolower(trim(SourceDom::attr($descendant, 'contenteditable'))), array('true', 'plaintext-only'), true) ) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
 
