@@ -132,7 +132,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CodeWindowPatte
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ColumnsPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\GalleryPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\GalleryPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\LogoPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\MarkupPatternContext;
@@ -320,6 +319,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly Elements\GlobalShellArtifacts $globalShellArtifacts;
     private readonly Elements\LinkCarrierLowering $linkCarriers;
     private readonly Elements\NamePriceRowLowering $namePriceRows;
+    private readonly Elements\MediaGalleryLowering $mediaGalleries;
     private readonly SourceProvenance $sourceProvenance;
 
     private readonly RuntimeResourceElementConverter $runtimeResourceConverter;
@@ -613,6 +613,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->globalShellArtifacts = new Elements\GlobalShellArtifacts($this, $this, $this->runtime, $this->session, $this->navigationBlockNormalizer);
         $this->linkCarriers = new Elements\LinkCarrierLowering($this, $this, $this->runtime, $this->styleResolver, $this->runtimeIslands, $this->layoutShells);
         $this->namePriceRows = new Elements\NamePriceRowLowering($this, $this, $this->styleResolver, $this->sourceElementDescription);
+        $this->mediaGalleries = new Elements\MediaGalleryLowering($this->sourceElementClassifier, $this->styleResolver, $this->imageLowering, fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => $this->recognizePatterns($element, $fallbacks, $patterns));
         $this->customImageHosts = new Elements\CustomImageHostLowering($this, $this->blockFactory, $this->styleResolver, $this->session, $this->sourceElementClassifier, $this->sourceElementDescription, $this->imageLowering, $this->layoutShells, $this->runtimeIslands, $this->authorLayoutOwnership);
         $this->anchors = new Elements\AnchorLowering($this, $this, $this->styleResolver, $this->session, $this->sourceElementClassifier, $this->sourceElementDescription, $this->imageLowering, $this->imageUrls, $this->layoutShells, $this->linkWrapperPropagator, $this->runtimeIslands, $this->customImageHosts);
         $this->layoutTables = new Elements\LayoutTableLowering(
@@ -902,7 +903,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         ));
         $figureConverter = new FigureElementConverter($this, $this->styleResolver, new FigureElementContext(
             function (DOMElement $element, array &$fallbacks): ?array {
-                return $this->mediaGalleryBlockFromElement($element, $fallbacks);
+                return $this->mediaGalleries->mediaGalleryBlockFromElement($element, $fallbacks);
             },
             function (DOMElement $element, array &$fallbacks, array $patterns): ?array {
                 return $this->recognizePatterns($element, $fallbacks, $patterns);
@@ -1052,7 +1053,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                     break;
                 }
             },
-            mediaGalleryBlock: fn (DOMElement $element, array &$fallbacks): ?array => $this->mediaGalleryBlockFromElement($element, $fallbacks),
+            mediaGalleryBlock: fn (DOMElement $element, array &$fallbacks): ?array => $this->mediaGalleries->mediaGalleryBlockFromElement($element, $fallbacks),
             namePriceRowBlock: fn (DOMElement $element, array &$fallbacks): ?array => $this->namePriceRows->namePriceRowBlockFromElement($element, $fallbacks),
             inlineTokenGroupBlock: fn (DOMElement $element, array &$fallbacks): ?array => $this->inlineFlows->inlineTokenGroupBlockFromElement($element, $fallbacks),
             visualTextWrapperBlock: fn (DOMElement $element): ?array => $this->visualTextWrapperBlockFromElement($element),
@@ -3459,62 +3460,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $this->layoutShells->blockForElements(array( $element ), array( $navigation ), $element);
     }
 
-
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function mediaGalleryBlockFromElement(DOMElement $element, array &$fallbacks): ?array
-    {
-        if ( $this->sourceElementClassifier->isImageOnlySlideshowCollection($element) ) {
-            return $this->recognizePatterns($element, $fallbacks, array(GalleryPattern::class));
-        }
-
-        if ( ! $this->isGalleryCompatibleMediaLayout($element) ) {
-            return null;
-        }
-
-        if ( $this->sourceElementClassifier->hasResponsiveImageSources($element) ) {
-            // GalleryPattern probes child conversions before it knows whether it
-            // has enough images. Keep independent img srcsets out of the gallery
-            // recognizer, but let each image lower natively in its own group.
-            return $this->sourceElementClassifier->hasResponsiveMediaAlternatives($element)
-                && $this->sourceElementClassifier->hasGalleryMediaItems($element)
-                ? $this->imageLowering->responsiveMediaBlock($element) : null;
-        }
-
-        return $this->recognizePatterns($element, $fallbacks, array(GalleryPattern::class));
-    }
-
-    private function isGalleryCompatibleMediaLayout(DOMElement $element): bool
-    {
-        foreach ( $element->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement || 'figcaption' === strtolower($child->tagName) ) {
-                continue;
-            }
-
-            $layoutElements = array( $child );
-            foreach ( $child->getElementsByTagName('*') as $descendant ) {
-                if ( $descendant instanceof DOMElement ) {
-                    $layoutElements[] = $descendant;
-                }
-            }
-
-            foreach ( $layoutElements as $layoutElement ) {
-                $declarations = $this->styleResolver->structuralPresentationDeclarations($layoutElement);
-                $position = strtolower(trim((string) ($declarations['position'] ?? '')));
-                if ( in_array($position, array( 'absolute', 'fixed', 'sticky' ), true) ) {
-                    return false;
-                }
-
-                $zIndex = strtolower(trim((string) ($declarations['z-index'] ?? '')));
-                if ( '' !== $zIndex && 'auto' !== $zIndex ) {
-                    return false;
-                }
-            }
-        }
-
-        return true;
-    }
 
     /**
      * @return array<int, array<string, mixed>>
