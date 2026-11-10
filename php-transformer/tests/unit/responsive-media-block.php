@@ -201,7 +201,7 @@ $assert('core/html' === ($inlineFlow['blocks'][0]['blockName'] ?? null) && str_c
 
 $wrappedSource = '<a class="profile-link" href="/profile" target="_blank" rel="noopener"><media-frame class="profile-frame" data-image-info="bounded"><img class="profile-image" src="profile.png" width="30" height="30" alt="Profile"></media-frame></a>';
 $wrapped = ( new HtmlTransformer() )->transform($wrappedSource)->toArray();
-$assert('custom/layout-shell' === ($wrapped['blocks'][0]['blockName'] ?? null) && str_contains($wrapped['serialized_blocks'], 'href="/profile"') && str_contains($wrapped['serialized_blocks'], 'profile.png'), 'a linked custom image wrapper retains its link around native image content');
+$assert('core/group' === ($wrapped['blocks'][0]['blockName'] ?? null) && str_contains($wrapped['serialized_blocks'], 'href="/profile"') && str_contains($wrapped['serialized_blocks'], 'profile.png'), 'a linked custom image wrapper retains its link around native image content');
 
 $nestedWrappedSource = '<a href="/profile"><div class="crop" style="overflow:hidden"><media-frame data-image-info="bounded"><img src="profile.png" width="30" height="30" alt="Profile"></media-frame></div></a>';
 $nestedWrapped = ( new HtmlTransformer() )->transform($nestedWrappedSource)->toArray();

@@ -118,10 +118,11 @@ final class CustomImageHostLowering implements ElementConverter
         if ($picture instanceof DOMElement && $picture !== $host) {
             $wrappers[] = $picture;
         }
-        // Picture-less hosts may use a native group only when the boundary is
-        // inert. Linked thumbnails and geometry-bearing media still need the
-        // presentation carrier (including its intrinsic-height folding).
-        if (count($wrappers) === 1 && ! $this->canGroupPicturelessImageHost($host, $image, $link)) {
+        // Captured metadata describes a retained CSS-owned box. Uncaptured
+        // geometry still needs the presentation carrier's intrinsic-height
+        // folding when its visual layer is positioned out of flow.
+        if (count($wrappers) === 1 && ! $host->hasAttribute('data-image-info')
+            && ! $this->canGroupPicturelessImageHost($host, $image, $link)) {
             return $this->layoutShells->blockForElements($wrappers, array($block), $host);
         }
         // These boxes have no source-selection behavior. Expose each as a
