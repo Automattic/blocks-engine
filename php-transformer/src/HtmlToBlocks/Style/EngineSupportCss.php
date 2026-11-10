@@ -74,6 +74,10 @@ final class EngineSupportCss
     public function beforeAuthorCss(string $serializedBlocks): array
     {
         $parts = array();
+        if (str_contains($serializedBlocks, 'blocks-engine-stacked-buttons')) {
+            // Preserve normal block flow even when the authored bar is inline-block.
+            $parts[] = '.wp-block-buttons.blocks-engine-stacked-buttons>.wp-block-button{display:block;margin:0}';
+        }
         if (str_contains($serializedBlocks, 'blocks-engine-decorated-text')) {
             $parts[] = '.blocks-engine-decorated-text{position:relative}.blocks-engine-decorated-text>[data-type$="/svg-artwork"]{position:static;margin:0}';
         }

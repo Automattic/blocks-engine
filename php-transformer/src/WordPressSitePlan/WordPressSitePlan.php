@@ -7210,7 +7210,7 @@ PHP;
         $referenced = array();
         foreach (array_merge($templates, $parts, $pages) as $document) if (preg_match_all('/' . preg_quote(self::TOKEN_PREFIX, '/') . '([^}]+)\}\}/', (string) ($document['canonical_block_markup'] ?? ''), $matches)) $referenced += array_fill_keys($matches[1], true);
         $templateAssetTokens = array();
-        foreach ($tokens as $token) if (isset($referenced[$token['token'] ?? null]) && is_string($token['target_path'] ?? null)) $templateAssetTokens[self::TOKEN_PREFIX . $token['token'] . '}}'] = $token['target_path'];
+        foreach ($tokens as $token) if (isset($referenced[$token['token'] ?? null]) && is_string($token['target_path'] ?? null)) $templateAssetTokens[$token['token']] = $token['target_path'];
         if (array() !== $templateAssetTokens) {
             $lines[] = '$blocks_engine_template_asset_tokens = ' . var_export($templateAssetTokens, true) . ';';
             $lines[] = '$blocks_engine_template_attachment_ids = array();';
@@ -7221,7 +7221,10 @@ PHP;
             // and 404s on others once the server URL-decodes the request path.
             // Percent-encode every segment in the emitted URL only, leaving the
             // on-disk path -- and therefore the theme-file lookup -- untouched.
-            $lines[] = "    \$references = array(); foreach ( \$blocks_engine_template_asset_tokens as \$token => \$path ) { if ( isset( \$blocks_engine_template_attachment_ids[ \$token ] ) ) { \$references[ \$token ] = wp_get_attachment_url( \$blocks_engine_template_attachment_ids[ \$token ] ) ?: ''; continue; } \$uri = get_theme_file_uri( \$path ); \$references[ \$token ] = str_ends_with( \$uri, \$path ) ? substr( \$uri, 0, -strlen( \$path ) ) . implode( '/', array_map( 'rawurlencode', explode( '/', \$path ) ) ) : \$uri; }";
+            // Runtime lookup keys are identifiers, not publication placeholders.
+            // Reconstruct the marker only at runtime: importers must not attempt
+            // to materialize this PHP literal as an unresolved asset reference.
+            $lines[] = "    \$references = array(); foreach ( \$blocks_engine_template_asset_tokens as \$token => \$path ) { \$reference = '{{wordpress-' . 'site-plan:asset:' . \$token . '}}'; if ( isset( \$blocks_engine_template_attachment_ids[ \$token ] ) ) { \$references[ \$reference ] = wp_get_attachment_url( \$blocks_engine_template_attachment_ids[ \$token ] ) ?: ''; continue; } \$uri = get_theme_file_uri( \$path ); \$references[ \$reference ] = str_ends_with( \$uri, \$path ) ? substr( \$uri, 0, -strlen( \$path ) ) . implode( '/', array_map( 'rawurlencode', explode( '/', \$path ) ) ) : \$uri; }";
             $lines[] = '    return strtr( $content, $references );';
             $lines[] = '};';
             $lines[] = "add_filter( 'get_block_file_template', static function ( \$template, string \$id, string \$type ) use ( \$blocks_engine_resolve_template_assets ) { if ( \$template instanceof WP_Block_Template && \$template->has_theme_file && get_stylesheet() === \$template->theme ) \$template->content = \$blocks_engine_resolve_template_assets( \$template->content ); return \$template; }, 10, 3 );";

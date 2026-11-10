@@ -144,6 +144,14 @@ jobs:
         working-directory: php-transformer
         run: PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/php-transformer/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/details-control-presentation-browser.mjs
 
+      - name: Verify standalone line breaks keep source line spacing
+        working-directory: php-transformer
+        run: php tests/unit/standalone-break-spacing.php
+
+      - name: Verify block-anchor control bars stay stacked and sized
+        working-directory: php-transformer
+        run: PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/php-transformer/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/icon-anchor-bar-browser.mjs
+
       - name: Verify native collection search semantics
         working-directory: php-transformer
         run: |
@@ -185,6 +193,10 @@ jobs:
       - name: Verify orphan list-item marker and pixel preservation
         working-directory: php-transformer
         run: PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/php-transformer/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/orphan-list-item-browser.mjs
+
+      - name: Verify lowered background images keep their position when linked
+        working-directory: php-transformer
+        run: PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/php-transformer/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/background-image-position-browser.mjs
 
       - name: Verify slideshow slides with inline images stack in one stage
         working-directory: php-transformer

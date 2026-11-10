@@ -147,6 +147,35 @@ final class ButtonStyleResolver
     }
 
     /**
+     * A non-flex container whose only children are two or more `display:block`
+     * anchors stacks them in normal flow, and has no per-anchor outer wrapper
+     * to carry their size.
+     *
+     * @param callable(\DOMElement): array<string, string> $declarations
+     */
+    public static function stacksBlockAnchors(\DOMElement $container, callable $declarations): bool
+    {
+        if (in_array(CssValueInspector::declared($declarations($container), 'display'), array('flex', 'inline-flex', 'grid', 'inline-grid'), true)) return false;
+        $count = 0;
+        foreach ($container->childNodes as $child) {
+            if ($child instanceof \DOMElement) {
+                if ('a' !== strtolower($child->tagName) || 'block' !== CssValueInspector::declared($declarations($child), 'display')) return false;
+                ++$count;
+            } elseif ('' !== trim($child->textContent ?? '')) {
+                return false;
+            }
+        }
+        return $count > 1;
+    }
+
+    /** Whether a control is one of the anchors a container stacks in normal flow. */
+    public static function sharesAnchorContainer(\DOMElement $element, \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver $resolver): bool
+    {
+        return $element->parentNode instanceof \DOMElement
+            && self::stacksBlockAnchors($element->parentNode, static fn (\DOMElement $node): array => $resolver->cssDeclarations($resolver->controlSurfaceResolvedStyle($node)));
+    }
+
+    /**
      * Out-of-flow controls own their definite height: their auto-height
      * carriers cannot supply a percentage-height resolution chain.
      * Padding/borders impose a floor under border-box, but add to a

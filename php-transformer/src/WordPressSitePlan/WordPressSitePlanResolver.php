@@ -173,7 +173,7 @@ final class WordPressSitePlanResolver
             if (array() === $attachments) return $content;
             // Publish only IDs: the generated runtime looks up URLs on the current host.
             $ids = array();
-            foreach ($attachments as $token => $attachment) $ids[WordPressSitePlan::TOKEN_PREFIX . $token . '}}'] = $attachment['id'];
+            foreach ($attachments as $token => $attachment) $ids[$token] = $attachment['id'];
             return str_replace('$blocks_engine_template_attachment_ids = array();', '$blocks_engine_template_attachment_ids = ' . var_export($ids, true) . ';', $content);
         }
         if (str_starts_with($targetPath, 'templates/') || str_starts_with($targetPath, 'parts/')) return $content;

@@ -5,6 +5,7 @@ require_once dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanResolver;
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
@@ -33,7 +34,22 @@ $targets = array_column($plan['reference_tokens'], 'target_path', 'source_path')
 $tokens = array_column($plan['reference_tokens'], 'token', 'source_path');
 $assert(isset($tokens['media/mug.png']) && str_contains(implode('', array_column($plan['pages'], 'canonical_block_markup')), WordPressSitePlan::TOKEN_PREFIX . $tokens['media/mug.png'] . '}}'), 'The page keeps the photo as an asset token.');
 $assert(str_contains($functions, '$blocks_engine_template_asset_tokens'), 'Page asset tokens publish the template-asset resolver.');
-$assert(str_contains($functions, var_export(WordPressSitePlan::TOKEN_PREFIX . $tokens['media/mug.png'] . '}}', true) . ' => ' . var_export($targets['media/mug.png'], true)), 'The resolver maps the page photo token to its theme file.');
+$assert(str_contains($functions, var_export($tokens['media/mug.png'], true) . ' => ' . var_export($targets['media/mug.png'], true)), 'The resolver maps the page photo token to its theme file.');
+// Exercise the published bootstrap through the public write resolver. Runtime
+// lookup tables must not look like pending references to the materializer.
+function get_theme_file_uri(string $path): string { return 'https://example.test/theme/' . $path; }
+function wp_get_attachment_url(int $id): string { return 'https://example.test/uploads/' . $id . '.png'; }
+$reference = WordPressSitePlan::TOKEN_PREFIX . $tokens['media/mug.png'] . '}}';
+foreach (array(array(), array($tokens['media/mug.png'] => array('id' => 42, 'url' => 'https://example.test/uploads/42.png'))) as $attachments) {
+    $published = WordPressSitePlanResolver::resolveWritePayload($functions, $plan['reference_tokens'], 'https://example.test/theme', 'functions.php', $attachments);
+    $assert(!str_contains($published, '{{wordpress-site-plan:'), 'Published PHP contains no unresolved site-plan markers, including partial markers.');
+    $start = strpos($published, '$blocks_engine_template_asset_tokens =');
+    $end = strpos($published, "\n};", $start);
+    $assert(false !== $start && false !== $end, 'The runtime asset resolver is emitted.');
+    eval(substr($published, $start, $end + 3 - $start));
+    $expected = array() === $attachments ? get_theme_file_uri($targets['media/mug.png']) : wp_get_attachment_url(42);
+    $assert($expected === $blocks_engine_resolve_template_assets($reference), 'The runtime resolves the original token to its theme or attachment URL.');
+}
 // Stylesheet-only references resolve when the stylesheet is written; mapping
 // them would ship every plan asset in functions.php.
 $assert(isset($tokens['media/hero.png']) && !str_contains($functions, $tokens['media/hero.png']), 'The resolver maps only tokens the documents reference.');
