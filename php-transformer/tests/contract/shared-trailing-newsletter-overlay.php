@@ -104,6 +104,10 @@ foreach ($unequal['pages'] as $page) $assert(str_contains($page['canonical_block
 $markerCases = array(
     'control separate rules' => array('control', 'equal', true),
     'control grouped rule' => array('control', 'grouped', true),
+    'control unrelated grouped arm' => array('control', 'unrelated', true),
+    'control matching ancestor arm' => array('control', 'ancestor', false),
+    'control unevaluable state arm' => array('control', 'state', false),
+    'control unsupported arm' => array('control', 'unsupported', false),
     'control unequal declarations' => array('control', 'unequal', false),
     'control missing evidence' => array('control', 'missing', false),
     'control different media' => array('control', 'media', false),
@@ -119,12 +123,18 @@ foreach ($markerCases as $name => [$kind, $mode, $moves]) {
     foreach ($markerInput['source_reports']['compiled_site']['pages'] as $number => &$document) {
         $class = 'blocks-engine-' . $kind . '-' . substr(hash('sha256', 'marker-route-' . $number), 0, 12) . '-' . $number;
         $markerClasses[] = $class;
-        $document['block_markup'] = str_replace('yui-popup-container-node', 'yui-popup-container-node ' . $class, $document['block_markup']);
+        $document['block_markup'] = str_replace('sqs-slide-layer-content', 'sqs-slide-layer-content ' . $class, $document['block_markup']);
         if ('missing' === $mode || 'grouped' === $mode) continue;
         $width = 'media' === $mode && 2 === $number ? '900px' : '700px';
         $container = 'container' === $mode && 2 === $number ? '600px' : '500px';
         $display = 'unequal' === $mode && 2 === $number ? 'flex' : 'inline-flex';
-        $markerRules .= '@media(min-width:' . $width . '){@container(min-width:' . $container . '){.' . $class . '{display:' . $display . ';align-items:center}}}';
+        $arm = '.' . $class;
+        if ('unrelated' === $mode && 2 === $number) $arm .= ',.header-nav-item :where(.' . $class . ')';
+        if (2 === $number) {
+            $context = array('ancestor' => '.yui-popup-container-node', 'state' => '.header-nav-item:hover', 'unsupported' => '.header-nav-item::before');
+            if (isset($context[$mode])) $markerRules .= $context[$mode] . ' :where(.' . $class . '){display:flex}';
+        }
+        $markerRules .= '@media(min-width:' . $width . '){@container(min-width:' . $container . '){' . $arm . '{display:' . $display . ';align-items:center}}}';
     }
     unset($document);
     if ('grouped' === $mode) $markerRules = '.' . implode(',.', $markerClasses) . '{display:inline-flex;align-items:center}';

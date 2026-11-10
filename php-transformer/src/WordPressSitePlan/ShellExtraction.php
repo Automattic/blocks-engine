@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
 use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
@@ -310,7 +311,7 @@ final class ShellExtraction
                             if ($bindings['blocked']) continue;
                             $content = substr($markup, $range['offset'], $range['length']);
                             $identity = self::documentChromeIdentity($content, $markup);
-                            $identity = self::engineMarkerChromeIdentity($identity, $original['source_path'], $assets);
+                            $identity = self::engineMarkerChromeIdentity($identity, $original['source_path'], $assets, substr_replace($markup, '<!--engine-chrome-start-->' . $content . '<!--engine-chrome-end-->', $range['offset'], $range['length']));
                             $evidence[$scope][$tailPosition][$identity][$original['source_path']] = array('content' => $content, 'refs' => $bindings['refs']);
                         }
                     }
@@ -402,23 +403,35 @@ final class ShellExtraction
      * context. Missing evidence keeps the class significant. The emitted copy
      * keeps its original class, so support-CSS projection still sees its rules.
      */
-    private static function engineMarkerChromeIdentity(string $markup, string $source, array $assets): string
+    private static function engineMarkerChromeIdentity(string $markup, string $source, array $assets, string $documentMarkup): string
     {
         preg_match_all('/\bblocks-engine-responsive-typography-[a-f0-9]+\b/', $markup, $typography);
         $classes = array_unique(array_merge(EngineMarker::all($markup), $typography[0]));
         $replacements = array();
+        // Read the original copy, not its normalized identity, with its document
+        // ancestors intact. Boundary comments add no selector-visible wrapper.
+        $document = new \DOMDocument();
+        $document->loadHTML('<?xml encoding="UTF-8"><html><body>' . $documentMarkup . '</body></html>', LIBXML_NOERROR | LIBXML_NOWARNING);
+        $elements = (new \DOMXPath($document))->query('//*[preceding::comment()[.="engine-chrome-start"] and following::comment()[.="engine-chrome-end"]]');
         foreach ($classes as $class) {
             $kind = EngineMarker::withoutDocumentSeeds($class);
             if ($kind === $class) $kind = 'blocks-engine-responsive-typography';
             $rules = array();
             foreach ($assets as $asset) {
                 if ('css' !== ($asset['kind'] ?? null) || !StylesheetActivation::active($asset) || !self::stylesheetAppliesToPages($asset, array($source))) continue;
-                (new CssStylesheetTransformer())->visitStyleRules((string) ($asset['content'] ?? ''), static function (string $selector, string $body, array $ancestors) use ($class, $kind, &$rules): void {
+                (new CssStylesheetTransformer())->visitStyleRules((string) ($asset['content'] ?? ''), static function (string $selector, string $body, array $ancestors) use ($class, $kind, $elements, &$rules): void {
                     // A grouped rule can name several documents' copies. Compare
                     // only the arms emitted for this marker, not its neighbours.
                     foreach (CssStylesheetTransformer::splitSelectorList($selector) ?? array() as $arm) {
                         if (!preg_match('/\.' . preg_quote($class, '/') . '(?![\w-])/', $arm)) continue;
-                        $rules[] = array($ancestors, str_replace($class, $kind, trim($arm)), trim($body));
+                        $parsed = CssSelectorMatcher::parse($arm);
+                        $applies = !$parsed['supported'] || null !== $parsed['pseudo_state_suffix_span'];
+                        foreach ($elements ?: array() as $element) {
+                            if ($applies) break;
+                            $match = CssSelectorMatcher::matches($element, $parsed);
+                            $applies = !$match['supported'] || $match['matches'];
+                        }
+                        if ($applies) $rules[] = array($ancestors, str_replace($class, $kind, trim($arm)), trim($body));
                     }
                 });
             }
