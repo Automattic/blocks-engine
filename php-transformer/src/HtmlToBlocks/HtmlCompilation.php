@@ -211,8 +211,6 @@ use DOMNode;
 /** Run-scoped compiler for one HTML document. */
 final class HtmlCompilation extends SourceBlockCreator implements RichTextInlinePolicy, PatternTreeConverter
 {
-    private const GENERATED_COMPONENT_MIN_SOURCE_DEPTH = 14;
-
     use DomHelpersTrait;
 
     private readonly AuthorLayoutOwnership $authorLayoutOwnership;
@@ -313,6 +311,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly Elements\DefinitionListLowering $definitionLists;
     private readonly Elements\EmptyInteractiveFeatureShell $emptyFeatureShells;
     private readonly Support\SourceDocumentEnvelope $documentEnvelope;
+    private readonly Support\GeneratedComponentCandidates $generatedComponentCandidates;
     private readonly Elements\CustomImageHostLowering $customImageHosts;
     private readonly Elements\AnchorLowering $anchors;
     private readonly Elements\RenderNeutralElements $renderNeutral;
@@ -609,6 +608,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->listStructure
         );
         $this->emptyFeatureShells = new Elements\EmptyInteractiveFeatureShell($this->runtimeIslands, $this->wrapperCoalescer);
+        $this->generatedComponentCandidates = new Support\GeneratedComponentCandidates($this->session, $this->sourceElementClassifier);
         $this->documentEnvelope = new Support\SourceDocumentEnvelope($this->styleResolver);
         $this->customVideoHosts = new Elements\CustomVideoHostLowering($this->session, $this->styleResolver, $this->imageUrls, $this->runtimeIslands, $this->mediaLowering, $this->imageLowering, $this->layoutShells);
         $this->listItemLowering = new Elements\ListItemLowering($this, $this, $this->runtime, $this->session, $this->styleResolver, $this->listStructure, $this->richTextMaterializer);
@@ -1688,7 +1688,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->navigationToggleSuppressor->collectProjectedNavigationRelationships($body);
             $this->navigationToggleSuppressor->collectSupersededNavToggleSelectors($body);
             $this->navigationToggleSuppressor->collectSupersededCapturedSubmenuSelectors($body);
-            $this->collectGeneratedComponentCandidates($body);
+            $this->generatedComponentCandidates->collectGeneratedComponentCandidates($body);
             $shellArtifacts = !array_key_exists('extract_global_shell', $options) || !empty($options['extract_global_shell']) ? $this->globalShellArtifacts->globalShellArtifacts($body, (string) ($options['source'] ?? 'html'), false, max(0, (int) ($options['global_shell_context_depth'] ?? 0))) : array();
             $blocks = $this->navigationBlockNormalizer->normalize($this->convertChildren($body, $fallbacks, true), $this->session->transformationProvenanceState()->sources(), $this->session->transformationProvenanceState()->sourceBaseHiddenStates(), $this->session->transformationProvenanceState()->sourceCollapsedWrapperHiddenStates());
         } finally {
@@ -2138,25 +2138,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private function authoredCssText(string $html, string $staticCss): string
     {
         return $this->stylesheetAnalysisComposer->combinedAuthorStylesheet($html, $staticCss);
-    }
-
-    private function collectGeneratedComponentCandidates(DOMElement $element, int $depth = 0): void
-    {
-        if (self::GENERATED_COMPONENT_MIN_SOURCE_DEPTH <= $depth
-            && ('div' === strtolower($element->tagName) || str_contains(strtolower($element->tagName), '-'))
-            && ($this->sourceElementClassifier->hasRepeatedDirectChildTags($element) || str_contains(strtolower($element->tagName), '-'))
-            && ($this->session->fallbackEmitter()->isRepeatableContentComponent($element) || $this->session->fallbackEmitter()->isSafeCustomElementHost($element))
-            && ! $this->session->fallbackEmitter()->containsProductGrid($element)
-        ) {
-            $this->session->reusableComponentState()->markGeneratedCandidate((string) $element->getNodePath());
-            return;
-        }
-
-        foreach ($element->childNodes as $child) {
-            if ($child instanceof DOMElement) {
-                $this->collectGeneratedComponentCandidates($child, $depth + 1);
-            }
-        }
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */
