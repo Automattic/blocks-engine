@@ -335,7 +335,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
 
 
-    private readonly CustomBlockGenerator $customBlockGenerator;
 
     private readonly UnsupportedElementRecorder $unsupportedRecorder;
 
@@ -897,7 +896,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         );
         $this->textlessMedia = new Elements\TextlessMediaLowering($visualIframeGenerator, $this->paragraphImages);
         $this->styledClassBoundaries = new Support\StyledSourceClassBoundary($this->session);
-        $this->customBlockGenerator = new CustomBlockGenerator(
+        $customBlockGenerator = new CustomBlockGenerator(
             $this->sourceElementClassifier,
             $this->styleResolver,
             $this,
@@ -1132,6 +1131,11 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             new Elements\AuthoredCarouselElementConverter($this->authoredCarouselGenerator, $this->runtimeIslands, $this->styleResolver, $this, $this),
             new Elements\NavigationHostConverter($this, $this->layoutShells, $this),
             $this->generatedComponents,
+            new Elements\StandaloneFormControlConverter($this->readableFormControlBlockConverter, $this->formRuntimeIslandRecorder),
+            $this->linkCarriers,
+            new Elements\RenderNeutralFlowWrapperConverter($this->renderNeutral, $this->flowContainerConverter),
+            $customBlockGenerator,
+            $this->inertElements,
         ));
     }
 
@@ -2685,33 +2689,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $head = $this->elementHead->convert($element, $tagName, $fallbacks, $captureUnsupported);
         if ( $head->handled ) {
             return $head->block;
-        }
-
-        $readableControlBlock = $this->readableFormControlBlockConverter->convert($element);
-        if ( null !== $readableControlBlock ) {
-            return $readableControlBlock;
-        }
-
-        if ( $this->formRuntimeIslandRecorder->preserveStandaloneControl($element) ) {
-            return null;
-        }
-
-        $linkBearingElement = $this->linkCarriers->linkBearingElementBlock($element);
-        if ( null !== $linkBearingElement ) {
-            return $linkBearingElement;
-        }
-
-        if ( $this->renderNeutral->isRenderNeutralCustomFlowWrapper($element) ) {
-            return $this->flowContainerConverter->convertUnknownElement($element, $fallbacks)->block;
-        }
-
-        $transparentCustomElement = $this->customBlockGenerator->convert($element, $fallbacks);
-        if ( null !== $transparentCustomElement ) {
-            return $transparentCustomElement;
-        }
-
-        if ( $this->inertElements->isInertRuntimeMediaPlaceholder($element) ) {
-            return null;
         }
 
         if ( $this->isOrphanListItem($element) && $this->runtimeIslands->isSafeTransparentCustomElement($element) ) {

@@ -16,7 +16,7 @@ use DOMElement;
  * placeholders that never paint, and hidden SVG sprite stores that only
  * other SVG content consumes.
  */
-final class InertElements
+final class InertElements implements ElementConverter
 {
     public function __construct(
         private readonly StyleResolver $styleResolver,
@@ -24,6 +24,13 @@ final class InertElements
         private readonly SourceElementVisibility $sourceVisibility,
         private readonly RuntimeIslandAnalyzer $runtimeIslands
     ) {
+    }
+
+    /** Omits an inert runtime media placeholder: it renders nothing until a script fills it. */
+    /** @param array<int, array<string, mixed>> $fallbacks */
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
+    {
+        return $this->isInertRuntimeMediaPlaceholder($element) ? ConversionOutcome::handled(null) : ConversionOutcome::unhandled();
     }
 
     public function isInertRuntimeMediaPlaceholder(DOMElement $element): bool
