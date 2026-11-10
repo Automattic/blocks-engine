@@ -419,7 +419,10 @@ final class SourceBlockAttributeProjector
     public function sourceProjectionClassName(DOMElement $element, SourceBlockAttributeProjectionContext $context, string $className = ''): string
     {
         if ( '' !== $context->authorStyles->combinedCss() ) {
-            foreach ( SourceDom::boundedClassTokens(SourceDom::attr($element, 'class')) as $class ) {
+            // The stylesheet projector rewrites every authored class selector
+            // to its marker, whatever the token's length or position, so every
+            // class on the element must carry its marker too.
+            foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class')), -1, PREG_SPLIT_NO_EMPTY) ?: array() as $class ) {
                 $marker = $context->authorStyles->sourceClassMarker($class);
                 if ( '' !== $marker ) {
                     $className = SourceDom::mergeClassNames($className, $marker);
