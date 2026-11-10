@@ -51,16 +51,24 @@ foreach (array(
     }
 }
 
-// Shared template fragments must use the same lowering as route-local hosts.
-$result = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => array(
-    'website/index.html' => '<html><head><style>.media{display:block;width:138px;height:26px}</style></head><body><!--#include virtual="/parts/footer.html" --></body></html>',
-    'website/parts/footer.html' => '<footer>' . $host . '</footer>',
-)))->toArray();
+// Plan shared fragments and route-owned styles together, not just a reduced page.
+$files = array('website/parts/footer.html' => '<footer>' . $host . '</footer>');
+foreach (array('index', 'about', 'accessibility-statement') as $route) {
+    $files['website/' . $route . '.html'] = '<html><head><style>.media{display:block;width:138px;height:26px}</style></head><body>'
+        . '<main><h1>' . $route . '</h1>' . ('about' === $route ? $host : '') . '</main>'
+        . '<!--#include virtual="/parts/footer.html" --></body></html>';
+}
+$result = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => $files))->toArray();
 $plan = (new WordPressSitePlan())->fromCompilerResult($result);
-$markup = $plan['pages'][0]['canonical_block_markup'];
-if (str_contains($markup, '/layout-shell') || str_contains($markup, '<!-- wp:html')
-    || !str_contains($markup, '<!-- wp:group ') || !str_contains($markup, '<!-- wp:image ')) {
-    throw new RuntimeException('Shared captured image hosts must remain core-editable: ' . $markup);
+WordPressSitePlan::assertValid($plan);
+if (3 !== count($plan['pages'])) {
+    throw new RuntimeException('The regression must compile all three routes together.');
+}
+foreach (array_merge($plan['pages'], $plan['template_parts']) as $document) {
+    $markup = $document['canonical_block_markup'];
+    if (str_contains($markup, '/layout-shell') || str_contains($markup, '<!-- wp:html')) {
+        throw new RuntimeException('Shared and route-local captured image hosts must remain core-editable: ' . $markup);
+    }
 }
 
 // Native captured boxes must not disable the uncaptured visual-layer carrier's
