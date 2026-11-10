@@ -30,6 +30,8 @@ final class AuthoredCarouselBlockGenerator
     private SplObjectStorage $recognitions;
 
     public const LOCAL_NAME = 'authored-carousel';
+    // The root attribute scopes the rule to opted-in block instances only.
+    private const THUMBNAIL_VISIBILITY_CSS = '@media(max-width:__MAX__px){.blocks-engine-authored-carousel[data-carousel-thumbnails-hidden-below="__BREAKPOINT__"]{grid-template-columns:minmax(0,1fr)!important;grid-template-rows:auto!important;gap:0!important;--blocks-engine-carousel-stage-width:100%!important;--blocks-engine-carousel-height:auto!important;--blocks-engine-carousel-stage-min-height:0!important}.blocks-engine-authored-carousel[data-carousel-thumbnails-hidden-below="__BREAKPOINT__"]>.blocks-engine-authored-carousel__thumbnails{display:none!important}.blocks-engine-authored-carousel[data-carousel-thumbnails-hidden-below="__BREAKPOINT__"]>.blocks-engine-authored-carousel__source-stage{grid-column:1/-1!important;grid-row:1!important;width:100%;max-width:none}.blocks-engine-authored-carousel[data-carousel-thumbnails-hidden-below="__BREAKPOINT__"] .blocks-engine-authored-carousel__previous{left:1rem}.blocks-engine-authored-carousel[data-carousel-thumbnails-hidden-below="__BREAKPOINT__"] .blocks-engine-authored-carousel__next{right:1rem}}';
     private const ROOT_GEOMETRY_PROPERTIES = array('margin', 'margin-bottom', 'margin-top', 'margin-inline', 'margin-left', 'margin-right');
     private const SLIDE_INDEX_ATTRIBUTES = array('data-slide', 'data-slide-index', 'data-carousel-index', 'data-slideshow-item', 'data-uk-slideshow-item');
     private const GEOMETRY_VALUE_PATTERN = '^[0-9a-zA-Z.%()+*/,_ -]+(?:\\s*!important)?$';
@@ -95,6 +97,7 @@ final class AuthoredCarouselBlockGenerator
             'fullBleed' => array('type' => 'boolean', 'default' => false),
             'thumbnails' => array('type' => 'array', 'default' => array()),
             'thumbnailPosition' => array('type' => 'string', 'default' => 'right'),
+            'thumbnailsHiddenBelow' => array('type' => 'integer'),
             'thumbnailWidth' => array('type' => 'string', 'default' => ''),
             'thumbnailGap' => array('type' => 'string', 'default' => ''),
             'stageGap' => array('type' => 'string', 'default' => ''),
@@ -155,6 +158,7 @@ final class AuthoredCarouselBlockGenerator
         var carouselClasses = 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' + items + ' blocks-engine-authored-carousel--' + presentation + ( attributes.fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '' ) + thumbnailModifier + ( aspect ? ' blocks-engine-authored-carousel--stage-aspect' : '' ) + ' blocks-engine-authored-carousel--transition-' + normalizedTransition( attributes.transitionStyle );
         if ( 'src-swap' === presentation ) carouselClasses = 'blocks-engine-authored-carousel--src-swap';
         var props = { className: carouselClasses + ( attributes.sourcePresentationClasses ? ' ' + attributes.sourcePresentationClasses : '' ), style: style, role: 'region', 'aria-label': attributes.ariaLabel || 'Carousel', 'aria-roledescription': 'carousel', 'data-wrap': false === attributes.wrap ? 'false' : 'true', 'data-wp-interactive': 'blocks-engine/carousel', 'data-wp-context': JSON.stringify( { index: initial, wrap: false !== attributes.wrap, count: 0, visible: items, presentation: presentation, autoplayInterval: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ), paused: false, playing: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ) > 0 } ), 'data-wp-init': 'callbacks.init', 'data-wp-on--mouseenter': 'actions.pause', 'data-wp-on--mouseleave': 'actions.resume', 'data-wp-on--focusin': 'actions.pause', 'data-wp-on--focusout': 'actions.resume' };
+        if ( attributes.thumbnailsHiddenBelow > 0 ) props[ 'data-carousel-thumbnails-hidden-below' ] = String( Math.round( attributes.thumbnailsHiddenBelow ) );
         if ( false === attributes.showArrows ) props[ 'data-carousel-arrows' ] = 'false';
         if ( false === attributes.keyboard ) props[ 'data-carousel-keyboard' ] = 'false';
         if ( attributes.swipe ) props[ 'data-carousel-swipe' ] = 'true';
@@ -168,6 +172,10 @@ final class AuthoredCarouselBlockGenerator
         Object.keys( attributes.sourceCustomProperties || {} ).forEach( function( name ) { props.style = props.style || {}; props.style[ name ] = attributes.sourceCustomProperties[ name ]; } );
         Object.keys( attributes.sourceRootGeometry || {} ).forEach( function( name ) { var value = attributes.sourceRootGeometry[ name ]; if ( -1 === rootGeometryProperties.indexOf( name ) || 'string' !== typeof value || ! geometryValuePattern.test( value.trim() ) ) return; var key = name.replace( /-([a-z])/g, function( _, letter ) { return letter.toUpperCase(); } ); props.style[ key ] = value.trim(); } );
         return props;
+    }
+    function thumbnailVisibilityStyle( attributes ) {
+        var breakpoint = Math.max( 0, Math.round( Number( attributes.thumbnailsHiddenBelow ) || 0 ) );
+        return breakpoint > 0 ? createElement( 'style', null, __THUMBNAIL_VISIBILITY_CSS__.replaceAll( '__BREAKPOINT__', String( breakpoint ) ).replaceAll( '__MAX__', String( breakpoint - 1 ) ) ) : null;
     }
     blocks.registerBlockType( '__BLOCK_NAME__', {
         attributes: __ATTRIBUTES__,
@@ -274,6 +282,7 @@ final class AuthoredCarouselBlockGenerator
                 return createElement.apply( null, [ 'div', rootProps( props.attributes ) ].concat( authoredChildren ) );
             }
             return createElement( 'div', rootProps( props.attributes ),
+                thumbnailVisibilityStyle( props.attributes ),
                 controls,
                 stage,
                 dotCount > 0 ? createElement( 'div', { className: 'blocks-engine-authored-carousel__dots', role: 'group', 'aria-label': 'Choose slide' }, dots ) : null,
@@ -641,7 +650,7 @@ JS;
                 'supports' => array('html' => false, 'customClassName' => false, 'interactivity' => true),
             ),
             'assets' => array(
-                'index.js' => str_replace(array('__BLOCK_NAME__', '__ATTRIBUTES__', '__ROOT_GEOMETRY_PROPERTIES__', '__GEOMETRY_VALUE_PATTERN__'), array($blockName, json_encode($attributes, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), json_encode(self::ROOT_GEOMETRY_PROPERTIES, JSON_THROW_ON_ERROR), json_encode(self::GEOMETRY_VALUE_PATTERN, JSON_THROW_ON_ERROR)), $editor),
+                'index.js' => str_replace(array('__BLOCK_NAME__', '__ATTRIBUTES__', '__ROOT_GEOMETRY_PROPERTIES__', '__GEOMETRY_VALUE_PATTERN__', '__THUMBNAIL_VISIBILITY_CSS__'), array($blockName, json_encode($attributes, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), json_encode(self::ROOT_GEOMETRY_PROPERTIES, JSON_THROW_ON_ERROR), json_encode(self::GEOMETRY_VALUE_PATTERN, JSON_THROW_ON_ERROR), json_encode(self::THUMBNAIL_VISIBILITY_CSS, JSON_THROW_ON_ERROR)), $editor),
                 'style.css' => $style,
             ),
             'view_js' => str_replace('__GALLERY_SLOT__', CaptureEvidence::GALLERY_SLOT, $view),
@@ -763,8 +772,12 @@ JS;
                 . ( 0 < $autoplayInterval ? 'Pause' : 'Play' ) . '</button>'
             : '';
         $rail = '';
+        $hiddenBelow = max(0, (int) ($attributes['thumbnailsHiddenBelow'] ?? 0));
+        if ( $hiddenBelow > 0 ) {
+            $rail .= '<style>' . str_replace(array('__BREAKPOINT__', '__MAX__'), array((string) $hiddenBelow, (string) ($hiddenBelow - 1)), self::THUMBNAIL_VISIBILITY_CSS) . '</style>';
+        }
         if ( 1 < count($thumbnails) ) {
-            $rail = '<div class="blocks-engine-authored-carousel__thumbnails" role="group" aria-label="Choose slide">';
+            $rail .= '<div class="blocks-engine-authored-carousel__thumbnails" role="group" aria-label="Choose slide">';
             foreach ( $thumbnails as $index => $thumbnail ) {
                 $rail .= '<button type="button" class="blocks-engine-authored-carousel__thumbnail" aria-label="Show slide ' . ($index + 1) . '" data-carousel-index="' . $index . '" data-wp-on--click="actions.goTo">'
                     . '<img src="' . htmlspecialchars($thumbnail['url'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '" alt="' . htmlspecialchars($thumbnail['alt'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '" loading="lazy" decoding="async"></button>';
@@ -772,7 +785,7 @@ JS;
             $rail .= '</div>';
         }
 
-        $identityAttributes = '';
+        $identityAttributes = $hiddenBelow > 0 ? ' data-carousel-thumbnails-hidden-below="' . $hiddenBelow . '"' : '';
         foreach (array('showArrows' => 'arrows', 'keyboard' => 'keyboard', 'swipe' => 'swipe') as $key => $name) {
             if ('swipe' === $key ? !empty($attributes[$key]) : false === ($attributes[$key] ?? true)) $identityAttributes .= ' data-carousel-' . $name . '="' . ('swipe' === $key ? 'true' : 'false') . '"';
         }
@@ -1335,6 +1348,14 @@ JS;
 
         $status = $this->slideStatus($list);
         $registry->register(self::class, $this->definition($registry->namespace()));
+        if ( array() !== $thumbnails ) {
+            for ( $node = $this->commonAncestor($pagerItems); $node instanceof DOMElement && ! $node->isSameNode($element); $node = $node->parentNode ) {
+                $breakpoint = $styleResolver->displayHiddenBelow($node);
+                if ( null !== $breakpoint ) {
+                    $thumbnailGeometry['thumbnailsHiddenBelow'] = max($thumbnailGeometry['thumbnailsHiddenBelow'] ?? 0, $breakpoint);
+                }
+            }
+        }
         $attributes = $thumbnailGeometry + array(
             'ariaLabel' => trim(SourceDom::attr($element, 'aria-label')) ?: 'Carousel',
             'sourceControlTopology' => $controlsTopology,

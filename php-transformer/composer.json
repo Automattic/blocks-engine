@@ -102,6 +102,7 @@
     "test:scripts": [
       "Composer\\Config::disableProcessTimeout",
       "php tests/run.php",
+      "php tests/unit/carousel-responsive-thumbnails.php",
       "php tests/contract/shared-trailing-newsletter-overlay.php"
     ],
     "test:parity": "php tests/parity/run.php",
