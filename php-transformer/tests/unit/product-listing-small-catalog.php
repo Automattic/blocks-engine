@@ -144,4 +144,12 @@ $dom->loadHTML('<html><body><style>body { color: red; }</style><div>Unrelated pa
 $recognized = (new Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ListingControlsRecognizer())->recognize($dom->getElementsByTagName('ul')->item(0), array(), array());
 $assert('color' === ($recognized['controls'][0]['key'] ?? null), 'Unlabeled facet key falls back to the final input name segment.');
 $assert(strlen($recognized['controls'][0]['label']) <= 40, 'Unlabeled facet never takes ancestor text.');
+// A request form asks for the visitor's details; its checkbox questions are
+// answers to submit, not facets of the page's empty collection.
+$request = '<form><label>Name <input type="text" name="name"></label><label>Email <input type="email" name="email"></label>'
+    . '<fieldset><legend>Do you need any of the following?</legend><label><input type="checkbox" name="extras" value="Keyboard">Keyboard</label><label><input type="checkbox" name="extras" value="Mouse">Mouse</label></fieldset>'
+    . '<label>Notes <textarea name="notes"></textarea></label><button type="submit">Send</button></form>';
+$result = $compile('<section>' . $request . '</section><div id="collection-page" class="layout empty"><div class="row"></div></div>');
+$assert(array() === $entities($result, 'product_grids') && array() === $entities($result, 'product_listings'), 'A request form never becomes a product listing: ' . json_encode($entities($result, 'product_listings')));
+$assert(1 === count($entities($result, 'forms')), 'The request form stays a form.');
 echo "product-listing-small-catalog: ok\n";
