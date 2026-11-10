@@ -708,7 +708,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             function (DOMElement $element, string $kind, string $reason, string $capability, array $metadata): void {
                 $this->runtimeIslands->recordRuntimeIsland($element, $kind, $reason, $capability, $metadata);
             },
-            fn (DOMElement $element): array => $this->eventMetadata($element),
             $this->session
         );
         $this->readableFormControlBlockConverter = new ReadableFormControlBlockConverter(
@@ -716,7 +715,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->authoredFormControlBlockConverter,
             $this->formRuntimeIslandRecorder,
             $this->runtime,
-            fn (DOMElement $element): array => $this->eventMetadata($element),
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
             $this,
@@ -726,7 +724,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $formControlMetadataBuilder,
             $this->readableFormControlBlockConverter,
             $this->formRuntimeIslandRecorder,
-            fn (DOMElement $element): array => $this->eventMetadata($element),
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
             fn (DOMElement $element): array => $this->authorLayoutOwnership->cssOwnedGroupAttributes($element),
             $this->authorLayoutOwnership,
@@ -765,7 +762,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             fn (DOMElement $container, DOMElement $element): bool => $this->elementContains($container, $element)
         );
         $formRuntimeRequirementAnalyzer = new FormRuntimeRequirementAnalyzer(
-            fn (DOMElement $element): array => $this->eventMetadata($element),
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element)
         );
         $formSuccessPanelMetadataBuilder = new FormSuccessPanelMetadataBuilder(
@@ -936,7 +932,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 }
                 $targets = $this->runtimeIslands->runtimeTargetsInSubtree($element, 8);
                 $this->runtimeIslands->recordRuntimeIsland($element, 'app_shell', 'runtime_app_shell', 'client_script_execution', array(
-                    'events' => $this->eventMetadata($element),
+                    'events' => SourceDom::eventMetadata($element),
                     'target_count' => count($targets),
                     'targets' => $targets,
                     'app_shell_signals' => $this->runtimeIslands->runtimeAppShellSignals($element),
@@ -3534,7 +3530,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $id = SourceDom::namedFragmentTargetId($element);
         yield 'block' => $this->runtimeIslands->isRuntimeDomTarget($element)
             || ( '' !== $id && SourceDom::documentReferencesFragmentId($element, $id) )
-            || array() !== $this->eventMetadata($element)
+            || array() !== SourceDom::eventMetadata($element)
             || array() !== $this->sourceElementDescription->structureSignals($element, array());
         yield 'keep' => $this->hasStaticPseudoElementRule($element);
         yield 'viewport' => $this->emptyVisualTopologyEvidence($element);

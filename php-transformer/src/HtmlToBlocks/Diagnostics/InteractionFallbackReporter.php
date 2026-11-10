@@ -84,7 +84,7 @@ final class InteractionFallbackReporter
         $data = SourceDom::safeDataAttributes($element);
         $dataText = strtolower(implode(' ', array_merge(array_keys($data), array_values($data))));
         $nameText = trim($classes . ' ' . $id . ' ' . $dataText);
-        $events = $this->eventMetadata($element);
+        $events = SourceDom::eventMetadata($element);
         $actionDataAttributes = array_keys(array_filter($data, static fn (string $value, string $name): bool => preg_match('/^data-(?:action|on|event)$/i', $name) && '' !== trim($value), ARRAY_FILTER_USE_BOTH));
         $hasAriaControl = '' !== trim($this->attr($element, 'aria-controls')) || '' !== trim($this->attr($element, 'aria-expanded'));
         $candidates = array();
@@ -171,7 +171,7 @@ final class InteractionFallbackReporter
             // ARIA state and inert data attributes describe a possible control,
             // not executable behavior. Report loss only when source code actually
             // supplies a handler or an available script targets the control.
-            if ( array() === $this->eventMetadata($element)
+            if ( array() === SourceDom::eventMetadata($element)
                 && ! $this->runtimeBehavior()->hasRuntimeScriptMetadata() ) {
                 continue;
             }
@@ -196,7 +196,7 @@ final class InteractionFallbackReporter
                 'selector'            => $this->elementSelector($element),
                 'attributes'          => $this->htmlAttributes($element),
                 'context'             => $this->sourceElementDescription->sourceContext($element),
-                'events'              => $this->eventMetadata($element),
+                'events'              => SourceDom::eventMetadata($element),
                 'interaction_signals' => $signals,
                 'controlled_target'   => $this->controlledTarget($element),
                 'html'                => $boundedHtml['html'],
@@ -269,7 +269,7 @@ final class InteractionFallbackReporter
         $tagName = strtolower($element->tagName);
         $evidence = array();
 
-        foreach ( $this->eventMetadata($element) as $event ) {
+        foreach ( SourceDom::eventMetadata($element) as $event ) {
             $attribute = (string) ($event['attribute'] ?? '');
             if ( '' !== $attribute ) {
                 $evidence[] = $attribute;

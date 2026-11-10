@@ -37,11 +37,10 @@ $recorder = new FormRuntimeIslandRecorder(
     static function (DOMElement $element, string $kind, string $reason, string $capability, array $metadata) use (&$recorded): void {
         $recorded[] = compact('element', 'kind', 'reason', 'capability', 'metadata');
     },
-    static fn (DOMElement $element): array => $element->hasAttribute('data-event') ? array( 'submit' => 'handle' ) : array(),
     $session
 );
 
-$form = $elementFrom('<form id="signup" action="/join" data-event data-script><input name="email" required><select name="plan"><option>Free</option></select></form>', 'form');
+$form = $elementFrom('<form id="signup" action="/join" onsubmit="handle()" data-script><input name="email" required><select name="plan"><option>Free</option></select></form>', 'form');
 $readableBlock = array( 'blockName' => 'core/group' );
 $recorder->recordForm($form, $readableBlock);
 $formRecord = $recorded[0] ?? array();
@@ -52,7 +51,7 @@ $assert('server_or_client_form_handler' === ($formRecord['capability'] ?? ''), '
 $assert('signup' === ($formMetadata['form']['id'] ?? '') && '/join' === ($formMetadata['form']['action'] ?? ''), 'form-metadata');
 $assert(2 === ($formMetadata['control_count'] ?? 0) && 2 === count($formMetadata['controls'] ?? array()), 'form-control-count');
 $assert('email' === ($formMetadata['controls'][0]['name'] ?? '') && true === ($formMetadata['controls'][0]['required'] ?? false), 'form-control-metadata');
-$assert(array( 'submit' => 'handle' ) === ($formMetadata['events'] ?? array()), 'form-events');
+$assert(array( array( 'type' => 'submit', 'attribute' => 'onsubmit' ) ) === ($formMetadata['events'] ?? array()), 'form-events');
 $assert(array( $readableBlock ) === ($formMetadata['readable_blocks'] ?? array()), 'form-readable-block');
 $assert(array( array( 'src' => '/form.js' ) ) === ($formMetadata['required_scripts'] ?? array()), 'form-required-scripts');
 
@@ -64,20 +63,20 @@ $assert('dialog' === ($popupControls[1]['aria_haspopup'] ?? '') && 'date-label' 
 $recorder->recordForm($form, null);
 $assert(array() === ($recorded[1]['metadata']['readable_blocks'] ?? null), 'form-without-readable-block');
 
-$control = $elementFrom('<input id="runtime-email" name="email" data-event data-script>', 'input');
+$control = $elementFrom('<input id="runtime-email" name="email" onsubmit="handle()" data-script>', 'input');
 $recorder->recordControl($control);
 $controlRecord = $recorded[2] ?? array();
 $controlMetadata = $controlRecord['metadata'] ?? array();
 $assert('control' === ($controlRecord['kind'] ?? '') && 'runtime_dom_target' === ($controlRecord['reason'] ?? ''), 'runtime-control-classification');
 $assert('client_script_execution' === ($controlRecord['capability'] ?? ''), 'runtime-control-capability');
 $assert('#runtime-email' === ($controlMetadata['control']['selector'] ?? '') && 'email' === ($controlMetadata['control']['name'] ?? ''), 'runtime-control-metadata');
-$assert(array( 'submit' => 'handle' ) === ($controlMetadata['events'] ?? array()), 'runtime-control-events');
+$assert(array( array( 'type' => 'submit', 'attribute' => 'onsubmit' ) ) === ($controlMetadata['events'] ?? array()), 'runtime-control-events');
 $assert(array( array( 'src' => '/form.js' ) ) === ($controlMetadata['required_scripts'] ?? array()), 'runtime-control-scripts');
 
-$nonControl = $elementFrom('<div data-event></div>', 'div');
+$nonControl = $elementFrom('<div onsubmit="handle()"></div>', 'div');
 $assert(! $recorder->preserveStandaloneControl($nonControl) && 3 === count($recorded), 'non-control-is-not-preserved');
 
-$standalone = $elementFrom('<textarea name="message" data-event></textarea>', 'textarea');
+$standalone = $elementFrom('<textarea name="message" onsubmit="handle()"></textarea>', 'textarea');
 $assert($recorder->preserveStandaloneControl($standalone), 'standalone-control-is-preserved');
 $standaloneRecord = $recorded[3] ?? array();
 $assert('form_control_requires_runtime' === ($standaloneRecord['reason'] ?? ''), 'standalone-control-reason');

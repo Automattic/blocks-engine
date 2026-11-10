@@ -212,11 +212,6 @@ trait DomHelpersTrait
         return SourceDom::runtimeIslandSelector($element);
     }
 
-    private function eventMetadata(DOMElement $element): array
-    {
-        return SourceDom::eventMetadata($element);
-    }
-
     private function isSafeSvgContent(string $content): bool
     {
         return SourceDom::isSafeSvgContent($content);
