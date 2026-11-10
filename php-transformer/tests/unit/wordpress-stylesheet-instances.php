@@ -86,4 +86,19 @@ foreach (array(CaptureEvidence::DEVICE_STYLE, CaptureEvidence::SOURCE_MEDIA) as 
 foreach ($devicePlan['assets'] as $asset) if ('plain.css' === $asset['source_path']) foreach ($asset['stylesheet_instances'] as $instance) {
     if (isset($instance[CaptureEvidence::DEVICE_STYLE]) || isset($instance[CaptureEvidence::SOURCE_MEDIA])) throw new RuntimeException('Ordinary instances have no device markers.');
 }
+// A route's inline <style> that @imports a root-relative sheet loads it there,
+// under the import's media; no other route publishes it, and the importing
+// route does not publish an unconditional second copy.
+$importPage = static fn(string $head): string => '<html><head><link rel="stylesheet" href="/site.css">' . $head . '</head><body><main><p>Text <strong>bold</strong></p></main></body></html>';
+$importPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => array(
+    'website/site.css' => '.c{color:#2460a0}',
+    'website/en.css' => 'mark{padding:.2em}',
+    'website/index.html' => $importPage(''),
+    'website/en/index.html' => $importPage('<style media="all">@import url("/en.css") (max-width:767px);</style>'),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$importSheets = static fn(string $document): array => array_map(static fn(array $row): string => basename($row['target_path']), WordPressSitePlan::documentStylesheets($importPlan, $document));
+if (in_array('en.css', $importSheets('website/index.html'), true)) throw new RuntimeException('A sheet imported by one route\'s inline style is not published on other routes.');
+if (in_array('en.css', $importSheets('website/en/index.html'), true)) throw new RuntimeException('The importing route loads the sheet through its inline style, not as an unconditional second copy.');
+$importer = array_values(array_filter($importPlan['assets'], static fn(array $asset): bool => str_starts_with($asset['source_path'], 'inline/') && str_contains((string) ($asset['content'] ?? ''), '@import')));
+if (1 !== count($importer) || !str_contains((string) $importer[0]['content'], '(max-width:767px)') || !in_array(basename($importer[0]['target_path']), $importSheets('website/en/index.html'), true)) throw new RuntimeException('The importing inline style stays on its route with the import media.');
 echo "WordPress stylesheet instances: unique resources, ordered routes, media and validation passed\n";

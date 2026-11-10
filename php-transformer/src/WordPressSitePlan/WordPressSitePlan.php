@@ -7476,11 +7476,25 @@ PHP;
                 if (!is_array($reference)) continue;
                 if ('link' === ($reference['element'] ?? null)) $linked = true;
                 $importer = (string) ($reference['source_path'] ?? '');
-                if ('css-import' === ($reference['context'] ?? null) && isset($stylesheets[$importer]) && $importer !== $asset['source_path'] && $asset['source_path'] === ArtifactPath::resolveRelativePath((string) ($reference['url'] ?? ''), $importer)) $imported = true;
+                if ('css-import' === ($reference['context'] ?? null) && isset($stylesheets[$importer]) && $importer !== $asset['source_path'] && self::importResolvesTo((string) ($reference['url'] ?? ''), $importer, (string) $asset['source_path'])) $imported = true;
             }
             if ($imported && !$linked) $importLoaded[(string) $asset['target_path']] = true;
         }
         return $importLoaded;
+    }
+
+    /**
+     * A root-relative import names a path under the artifact root, not under
+     * its importer: an inline `<style>` asset lives at a virtual `inline/`
+     * path, so `@import "/en.css"` reaches a capture's `website/en.css`.
+     * Match it the way root-relative stylesheet links resolve, by suffix.
+     */
+    private static function importResolvesTo(string $url, string $importer, string $sourcePath): bool
+    {
+        $url = ArtifactPath::stripQueryAndFragment($url);
+        if (!str_starts_with($url, '/') || str_starts_with($url, '//')) return $sourcePath === ArtifactPath::resolveRelativePath($url, $importer);
+        $relative = ArtifactPath::resolveRelativePath(ltrim($url, '/'));
+        return '' !== $relative && ($sourcePath === $relative || str_ends_with($sourcePath, '/' . $relative));
     }
     /**
      * The post the current request renders as a document: the queried post on
