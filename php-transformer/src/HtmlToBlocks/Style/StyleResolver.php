@@ -3900,7 +3900,12 @@ final class StyleResolver implements ElementPresentationResolver
         // data hooks may be shared by otherwise independent components.
         // Keep source IDs as identity too, since author selectors may depend on
         // them, but never use a source-specific attribute as the restatement key.
-        $scopeToken = substr(hash('sha256', (string) ($element->getNodePath() ?? '') . "\n" . (string) $element->ownerDocument?->saveHTML($element)), 0, 16);
+        // The node path keeps instances in one document apart; the declarations
+        // are all the scope binds. Hashing the element's markup instead would
+        // fold descendant content (product photos, copy) into an otherwise
+        // shared template's identity.
+        ksort($scopedDeclarations, SORT_STRING);
+        $scopeToken = substr(hash('sha256', (string) ($element->getNodePath() ?? '') . "\n" . serialize(array_values($scopedDeclarations))), 0, 16);
         $scopeAttribute = 'data-be-source-scope';
         $scopeValue = 'scope-' . $scopeToken;
         $attributes[$scopeAttribute] = $scopeValue;
