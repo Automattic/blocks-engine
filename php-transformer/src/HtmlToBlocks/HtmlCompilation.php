@@ -309,6 +309,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly Elements\SyntheticImageFigureFlow $syntheticImageFigureFlow;
     private readonly Elements\DefinitionListLowering $definitionLists;
     private readonly Elements\EmptyInteractiveFeatureShell $emptyFeatureShells;
+    private readonly Support\SourceDocumentEnvelope $documentEnvelope;
     private readonly Elements\CustomImageHostLowering $customImageHosts;
     private readonly Elements\AnchorLowering $anchors;
     private readonly Elements\RenderNeutralElements $renderNeutral;
@@ -605,6 +606,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->listStructure
         );
         $this->emptyFeatureShells = new Elements\EmptyInteractiveFeatureShell($this->runtimeIslands, $this->wrapperCoalescer);
+        $this->documentEnvelope = new Support\SourceDocumentEnvelope($this->styleResolver);
         $this->customVideoHosts = new Elements\CustomVideoHostLowering($this->session, $this->styleResolver, $this->imageUrls, $this->runtimeIslands, $this->mediaLowering, $this->imageLowering, $this->layoutShells);
         $this->listItemLowering = new Elements\ListItemLowering($this, $this, $this->runtime, $this->session, $this->styleResolver, $this->listStructure, $this->richTextMaterializer);
         $this->structuredInlineItemLowering = new Elements\StructuredInlineItemLowering($this, $this->runtime, $this->sourceElementClassifier, $this->styleResolver, $this->inlineSvgTextGroups);
@@ -1555,7 +1557,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             }
         }
         $staticCss = (string) ($options['static_css'] ?? '');
-        $this->capturedRootTheme = $this->documentRootTheme($html);
+        $this->capturedRootTheme = $this->documentEnvelope->documentRootTheme($html);
         $styleAnalysis = $this->stylesheetAnalysisComposer->composedStyleAnalysis(
             $this->stylesheetAnalysisComposer->stylesheetPayloads($html, $staticCss, $options)
         );
@@ -1578,10 +1580,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         );
 
         $timer->start('transform.source_parse');
-        $sourceBodyClasses = $this->documentBodyClassNames($html);
+        $sourceBodyClasses = $this->documentEnvelope->documentBodyClassNames($html);
         $this->sourceDocumentHosts = NativeGetFormBlockBuilder::declaredDocumentHosts($html);
         $normalizedHtml = CaptureReplayScripts::withoutReplayScripts(
-            $this->normalizeHtml5VoidElements($this->documentBodyHtml($this->normalizeExplicitPlaintextElements($html)))
+            $this->normalizeHtml5VoidElements($this->documentEnvelope->documentBodyHtml($this->documentEnvelope->normalizeExplicitPlaintextElements($html)))
         );
         $document = new DOMDocument();
         $previous = libxml_use_internal_errors(true);
@@ -2547,81 +2549,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private function normalizeHtml5VoidElements(string $html): string
     {
         return preg_replace('/<source\b([^>]*?)(?<!\/)\s*>/i', '<source$1></source>', $html) ?? $html;
-    }
-
-    private function normalizeExplicitPlaintextElements(string $html): string
-    {
-        $html = preg_replace_callback(
-            '/<plaintext\b([^>]*)>(.*?)<\/plaintext\s*>/is',
-            static fn (array $matches): string => '<pre' . $matches[1] . '>' . str_replace('<', '&lt;', $matches[2]) . '</pre>',
-            $html
-        ) ?? $html;
-
-        // A real (unclosed) plaintext element consumes everything to EOF,
-        // including entities and apparent closing body/html tags. Normalize it
-        // before serializing and reparsing the document body: libxml's saved
-        // </plaintext> would otherwise become extra visible text on that pass.
-        return preg_replace_callback(
-            '/<plaintext\b([^>]*)>(.*)\z/is',
-            static fn (array $matches): string => '<pre' . $matches[1] . '>' . htmlspecialchars($matches[2], ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</pre>',
-            $html
-        ) ?? $html;
-    }
-
-    private function documentBodyHtml(string $html): string
-    {
-        if ( ! preg_match('/<(?:!doctype|html|head|body)\b/i', $html) ) {
-            return $html;
-        }
-
-        $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $loaded   = $document->loadHTML('<?xml encoding="utf-8" ?>' . $html);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
-
-        if ( ! $loaded ) {
-            return $html;
-        }
-
-        $body = $document->getElementsByTagName('body')->item(0);
-        if ( ! $body instanceof DOMElement ) {
-            return $html;
-        }
-
-        return $this->styleResolver->innerHtml($body);
-    }
-
-    private function documentRootTheme(string $html): string
-    {
-        if ( ! preg_match('/<html\b[^>]*\bclass\s*=\s*(["\'])(.*?)\1/is', $html, $match) ) {
-            return '';
-        }
-        $classes = preg_split('/\s+/', trim(html_entity_decode($match[2], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'))) ?: array();
-        if ( in_array('dark', $classes, true) ) {
-            return 'dark';
-        }
-        return in_array('light', $classes, true) ? 'light' : '';
-    }
-
-    /** @return list<string> */
-    private function documentBodyClassNames(string $html): array
-    {
-        if ( ! preg_match('/<body\b/i', $html) ) {
-            return array();
-        }
-
-        $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?>' . $html);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
-        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
-        if ( ! $body instanceof DOMElement ) {
-            return array();
-        }
-
-        return array_values(array_filter(array_unique(preg_split('/\s+/', trim($this->attr($body, 'class'))) ?: array())));
     }
 
     /**
