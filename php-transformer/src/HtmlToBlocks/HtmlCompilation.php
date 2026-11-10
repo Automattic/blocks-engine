@@ -1136,6 +1136,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             new Elements\RenderNeutralFlowWrapperConverter($this->renderNeutral, $this->flowContainerConverter),
             $customBlockGenerator,
             $this->inertElements,
+            new Elements\OrphanListItemConverter($this->runtimeIslands, $this->sourceElementClassifier, $this->richTextMaterializer, $this, $this->layoutShells, $this),
+            new Elements\ScriptOwnedCheckoutRegionConverter($this->commercePattern, $this),
+            new Elements\TransparentUnknownElementConverter($this->renderNeutral, $this->session, $this->generatedComponents, $this->flowContainerConverter),
+            new Elements\CustomElementRuntimeConverter($this->session, $this->styleResolver, $this->sourceElementDescription, $this->runtimeIslands, $this->generatedComponents, $this),
         ));
     }
 
@@ -2691,45 +2695,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return $head->block;
         }
 
-        if ( $this->isOrphanListItem($element) && $this->runtimeIslands->isSafeTransparentCustomElement($element) ) {
-            // Invalid list ancestry does not remove browser marker rendering or
-            // author `li` selectors. Keep the source root on the existing exact
-            // wrapper carrier while its children remain native editable blocks.
-            $children = $this->sourceElementClassifier->hasOnlyPhrasingChildren($element)
-                ? array($this->createBlock('core/paragraph', array('content' => $this->richTextMaterializer->content($element), 'className' => self::SYNTHETIC_PARAGRAPH_CLASS)))
-                : $this->convertChildren($element, $fallbacks, $captureUnsupported);
-            return $this->layoutShells->blockForElements(array($element), $children, $element);
-        }
-
-        if ( $this->isScriptOwnedCheckoutRegion($element) ) {
-            // A checkout view region the commerce recognizer claims is
-            // script-owned commerce rendering the engine cannot convert.
-            // Preserve its source markup whole so the checkout view binding
-            // anchors on the block a shop provider replaces.
-            $block = $this->htmlPreservationBlock($element);
-            $block['_editability_runtime_owned'] = true;
-
-            return $block;
-        }
-
-        if ( $this->renderNeutral->isTransparentUnknownElement($element) ) {
-            // A hyphenated custom element is an authored component: when the
-            // classifier calls its subtree a cohesive custom block, it still
-            // becomes the generated block the unsupported recorder produced.
-            // An unknown non-hyphenated name (`bdt`) is never a component.
-            $generated = str_contains($element->tagName, '-') ? $this->session->fallbackEmitter()->maybeGenerateCustomBlock($element, $this->session->requireGeneratedBlockRegistry()) : null;
-            if ( null !== $generated ) {
-                return $this->generatedComponents->generatedBlock($generated, $element);
-            }
-
-            return $this->flowContainerConverter->convertUnknownElement($element, $fallbacks)->block;
-        }
-
-        $customElementRuntime = $this->customElementRuntimeDisposition($element, $tagName, $fallbacks);
-        if ( $customElementRuntime['handled'] ) {
-            return $customElementRuntime['block'];
-        }
-
         // Last disposition before the unsupported gate: a custom element whose
         // whole subtree renders nothing is transport scaffolding, not lost
         // content, so omit it without recording a fallback downstream importers
@@ -2743,94 +2708,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         return null;
-    }
-
-    /**
-     * Preserve a textless custom element only when captured script content proves
-     * it defines that tag. A configuration-bearing element without that proof
-     * stays an explicit missing-functional-content finding rather than a silent
-     * drop or a generic unsupported-element silence.
-     *
-     * @param array<int, array<string, mixed>> $fallbacks
-     * @return array{handled: bool, block: array<string, mixed>|null}
-     */
-    private function customElementRuntimeDisposition(DOMElement $element, string $tagName, array &$fallbacks): array
-    {
-        $decision = ( new CustomElementRuntimeDependency() )->classify(
-            $element,
-            $this->session->runtimeBehaviorState()->runtimeScriptMetadata(),
-            $this->session->runtimeBehaviorState()->runtimeProjectionScriptAssets()
-        );
-        if ( 'preserve' !== $decision['disposition'] && 'unproven' !== $decision['disposition'] ) {
-            return array( 'handled' => false, 'block' => null );
-        }
-        if ( 'unproven' === $decision['disposition'] ) {
-            // A host the source cascade hides at every viewport renders
-            // nothing there, so omitting it loses no content or behavior.
-            if ( $this->styleResolver->isDisplayNoneAtEveryViewport($element) ) {
-                return array( 'handled' => true, 'block' => null );
-            }
-            $fallbacks[] = FallbackDiagnostic::build(array(
-                'type'            => 'missing_functional_content',
-                'reason'          => CustomElementRuntimeDependency::UNPROVEN_REASON,
-                'diagnostic_code' => CustomElementRuntimeDependency::UNPROVEN_CODE,
-                'message'         => 'A functional custom element was not preserved because no captured script proves it defines that element.',
-                'source_format'   => 'html',
-                'tag'             => $tagName,
-                'selector'        => SourceDom::elementSelector($element),
-                'attributes'      => SourceDom::htmlAttributes($element),
-                'context'         => $this->sourceElementDescription->sourceContext($element),
-                'html'            => SourceDom::safeFallbackHtml($element, $this->session->authorSelectorProjectionState()->tagMarkers()),
-            ), $this->session->transformationProvenanceState()->fallback());
-
-            return array( 'handled' => true, 'block' => null );
-        }
-
-        $this->runtimeIslands->recordRuntimeIsland(
-            $element,
-            'custom_element',
-            'custom_element_requires_defining_script',
-            'client_script_execution',
-            array(
-                'required_scripts'      => $decision['scripts'],
-                'preservation_strategy' => 'sanitized_embed_markup',
-            )
-        );
-        $generated = $this->session->fallbackEmitter()->maybeGenerateCustomBlock($element, $this->session->requireGeneratedBlockRegistry(), true, true);
-        $block = null !== $generated
-            ? $this->generatedComponents->generatedBlock($generated, $element)
-            : $this->htmlPreservationBlock($element);
-        $block['_editability_runtime_owned'] = true;
-
-        return array( 'handled' => true, 'block' => $block );
-    }
-
-    /**
-     * Whether `$element` is the script-owned region a checkout view binding
-     * anchors on: a custom element (script-defined by name) holding the
-     * checkout view's customer, address, payment and summary roles, and
-     * passing the same preservation safety bar as a proven custom element.
-     * Native checkout regions (a `form` or `div` root) convert natively and
-     * never reach the custom-element disposition, so they need no preservation.
-     */
-    private function isScriptOwnedCheckoutRegion(DOMElement $element): bool
-    {
-        if ( ! CustomElementRuntimeDependency::isCustomElementTag(strtolower($element->tagName)) || ! ( new CustomElementRuntimeDependency() )->isSafe($element) ) {
-            return false;
-        }
-
-        return $this->commercePattern->isCheckoutRegion($element);
-    }
-
-    /** A `li` whose parent is not a list: invalid markup the list converter never reaches. */
-    private function isOrphanListItem(DOMElement $element): bool
-    {
-        if ( 'li' !== strtolower($element->tagName) ) {
-            return false;
-        }
-        $parent = $element->parentNode;
-
-        return ! $parent instanceof DOMElement || ! in_array(strtolower($parent->tagName), array( 'ul', 'ol', 'menu' ), true);
     }
 
     /**
