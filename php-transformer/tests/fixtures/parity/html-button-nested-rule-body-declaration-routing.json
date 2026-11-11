@@ -1,0 +1,55 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-button-nested-rule-body-declaration-routing",
+  "description": "A button rule whose body nests a style rule keeps that nested rule whole. Button declaration routing splits a flat body at ';' and lifts placement declarations such as transform onto a separate rule; applied to a body with nested rules it cut the nested block mid-way and left stray closing braces. The truncated stylesheet hid later rules from class-identity coalescing, so a RichText marker scoped to `.label.hidden-copy` was merged with every plain `.label` and its display:none hid every button label.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-button-nested-rule-body-declaration-routing.json",
+    "notes": "Product-neutral fixture: site builders ship native CSS nesting under button selectors."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<style>.btn{display:inline-block;background:#1d7e19;color:#fff;padding:10px 20px;text-decoration:none}.btn .label{display:inline-block;font-size:18px}.btn{& .label{&:before{content:\"\";border-top-width:2px;transform:scaleX(0)}}}.btn .label.hidden-copy{display:none!important}</style><main><p><a class=\"btn\" href=\"tel:5551234\"><span class=\"label\">555-1234</span><span class=\"label hidden-copy\">555-1234</span></a></p><p><a class=\"btn\" href=\"/contact/\"><span class=\"label\">reach out now</span></a></p></main>"
+  },
+  "expect": [
+    {
+      "path": "status",
+      "assert": "equals",
+      "value": "success"
+    },
+    {
+      "path": "source_reports.author_stylesheet_projections.0.content",
+      "assert": "contains",
+      "value": "{& .label{&:before{content:\"\";border-top-width:2px;transform:scaleX(0)}}}"
+    },
+    {
+      "path": "source_reports.author_stylesheet_projections.0.content",
+      "assert": "not_contains",
+      "value": "{transform:scaleX(0)}}}"
+    },
+    {
+      "path": "source_reports.author_stylesheet_projections.0.content",
+      "assert": "contains",
+      "value": ".btn .label.hidden-copy:not(:where(.blocks-engine-role-richtext))"
+    }
+  ],
+  "expected_blocks": [
+    {
+      "path": "blocks.0",
+      "name": "core/buttons"
+    },
+    {
+      "path": "blocks.0.innerBlocks.0",
+      "name": "core/button"
+    },
+    {
+      "path": "blocks.0.innerBlocks.1",
+      "name": "core/button"
+    }
+  ],
+  "expected_fallbacks": []
+}
