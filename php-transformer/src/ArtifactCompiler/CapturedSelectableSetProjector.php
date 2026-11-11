@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use DOMDocument;
@@ -454,7 +455,7 @@ final class CapturedSelectableSetProjector
             return;
         }
         foreach (iterator_to_array($parent->childNodes) as $sibling) {
-            if (! $sibling instanceof DOMElement || $sibling->isSameNode($region) || 'tabpanel' !== strtolower(trim($sibling->getAttribute('role')))) {
+            if (! $sibling instanceof DOMElement || $sibling->isSameNode($region) || 'tabpanel' !== SourceDom::role($sibling)) {
                 continue;
             }
             $labelledBy = trim($sibling->getAttribute('aria-labelledby'));

@@ -963,7 +963,7 @@ final class NavigationPatternContext
             $classes = preg_split('/\s+/', trim($node->getAttribute('class'))) ?: array();
             $classes = array_values(array_filter($classes, static fn(string $class): bool => '' !== $class && !str_starts_with($class, 'blocks-engine-') && !$projections->isCurrentNavigationClass($class, $node) && !$projections->selectsCurrentNavigationState('.' . $class, $node)));
             sort($classes);
-            $role = strtolower(trim($node->getAttribute('role')));
+            $role = SourceDom::role($node);
             $identity[] = array($tag, $node->getAttribute('id'), $classes, $role);
             if (in_array($tag, array('header', 'footer'), true) || in_array($role, array('banner', 'contentinfo'), true)) break;
         }

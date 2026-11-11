@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use DOMDocument;
 use DOMElement;
@@ -41,7 +42,7 @@ final class InteractiveSurface
             if ($element->hasAttribute($attribute)) return array('kind' => $kind, 'source' => 'evidence');
         }
         if ('true' === $element->getAttribute('data-blocks-engine-captured-dialog')) return array('kind' => 'dialog', 'source' => 'evidence');
-        $role = strtolower(trim($element->getAttribute('role')));
+        $role = SourceDom::role($element);
         $description = strtolower(trim($element->getAttribute('aria-roledescription')));
         $kind = match (true) {
             'carousel' === $description, 'group' === $role && 'slide' === $description => 'carousel',

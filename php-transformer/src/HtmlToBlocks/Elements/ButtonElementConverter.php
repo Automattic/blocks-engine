@@ -154,7 +154,7 @@ final class ButtonElementConverter implements ElementConverter
                 return false;
             }
             if ( 'svg' === strtolower($child->tagName)
-                && ( 'true' !== strtolower(trim(SourceDom::attr($child, 'aria-hidden')))
+                && ( ! SourceDom::isAriaHidden($child)
                     || '' === trim(SourceDom::attr($child, 'viewbox'))
                     || 0 === SourceDom::childElementCount($child) ) ) {
                 return false;

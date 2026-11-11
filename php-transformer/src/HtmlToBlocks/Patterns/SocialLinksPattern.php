@@ -400,7 +400,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
     private static function hasOtherSemanticOwner(DOMElement $element): bool
     {
         return in_array(strtolower($element->tagName), array('nav', 'form', 'label', 'button', 'fieldset'), true)
-            || in_array(strtolower(trim($element->getAttribute('role'))), array('navigation', 'form', 'button', 'menu', 'menubar', 'listbox'), true)
+            || in_array(SourceDom::role($element), array('navigation', 'form', 'button', 'menu', 'menubar', 'listbox'), true)
             || MenuVocabulary::containsUnconditionalMenuToken($element->getAttribute('class') . ' ' . $element->getAttribute('id'));
     }
 

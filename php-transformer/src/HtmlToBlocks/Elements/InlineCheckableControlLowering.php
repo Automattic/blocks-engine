@@ -69,7 +69,7 @@ final class InlineCheckableControlLowering implements ElementConverter
         if (!$supports($element, 0)) return null;
         $controls = array();
         foreach ($buttons as $button) {
-            if ('checkbox' !== strtolower(trim(SourceDom::attr($button, 'role'))) || '' === trim(SourceDom::attr($button, 'aria-label') . SourceDom::attr($button, 'title')) || $this->runtimeIslands->isRuntimeDomTarget($button)) return null;
+            if ('checkbox' !== SourceDom::role($button) || '' === trim(SourceDom::attr($button, 'aria-label') . SourceDom::attr($button, 'title')) || $this->runtimeIslands->isRuntimeDomTarget($button)) return null;
             $block = $this->authoredStateButtons->fromElement($button);
             if (null === $block) return null;
             $controls[$button->getNodePath()] = $block;

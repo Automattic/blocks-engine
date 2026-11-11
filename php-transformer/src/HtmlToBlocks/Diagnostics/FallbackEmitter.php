@@ -902,7 +902,7 @@ final class FallbackEmitter
                 continue;
             }
             if ( in_array(strtolower($child->tagName), array( 'select', 'option', 'optgroup', 'input', 'textarea', 'button', 'datalist', 'svg', 'script', 'style' ), true)
-                || 'true' === strtolower(trim($child->getAttribute('aria-hidden'))) ) {
+                || SourceDom::isAriaHidden($child) ) {
                 continue;
             }
             if ( $this->templateHasReadableContent($child) ) {

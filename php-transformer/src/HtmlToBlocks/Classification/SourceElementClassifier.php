@@ -69,7 +69,7 @@ final class SourceElementClassifier
     public function isDependentRuntimeMediaMask(DOMElement $element): bool
     {
         if ( '' !== trim(SourceDom::attr($element, 'aria-label'))
-            || in_array(strtolower(trim(SourceDom::attr($element, 'role'))), array( 'img', 'graphics-document', 'graphics-symbol' ), true)
+            || in_array(SourceDom::role($element), array( 'img', 'graphics-document', 'graphics-symbol' ), true)
             || 0 < $element->getElementsByTagName('title')->length
             || 0 < $element->getElementsByTagName('desc')->length
         ) {
@@ -976,7 +976,7 @@ final class SourceElementClassifier
 
     public function isCarouselList(DOMElement $element): bool
     {
-        if ( 'list' === strtolower(trim(SourceDom::attr($element, 'role')))
+        if ( 'list' === SourceDom::role($element)
             || in_array(strtolower($element->tagName), array('ol', 'ul'), true)
         ) {
             return true;
@@ -1027,7 +1027,7 @@ final class SourceElementClassifier
     public function isCarouselControl(DOMElement $element, DOMElement $root): bool
     {
         return (in_array(strtolower($element->tagName), array('a', 'button'), true)
-            || ('button' === strtolower(trim(SourceDom::attr($element, 'role')))
+            || ('button' === SourceDom::role($element)
                 && '' !== trim(SourceDom::attr($element, 'aria-label')))
             || ('' === trim(SourceDom::attr($element, 'role'))
                 && 1 === preg_match('/^\d+$/D', trim(SourceDom::attr($element, 'tabindex')))
@@ -1049,7 +1049,7 @@ final class SourceElementClassifier
      */
     private static function isDocumentNavigationLink(DOMElement $element): bool
     {
-        if ('a' !== strtolower($element->tagName) || 'button' === strtolower(trim(SourceDom::attr($element, 'role')))) {
+        if ('a' !== strtolower($element->tagName) || 'button' === SourceDom::role($element)) {
             return false;
         }
         $href = trim(SourceDom::attr($element, 'href'));
@@ -1140,7 +1140,7 @@ final class SourceElementClassifier
                 if ('dialog' === $surface['kind']) return true;
                 if ('carousel' === $surface['kind']) continue;
             }
-            if ( $ancestor->hasAttribute('hidden') || 'true' === strtolower(trim(SourceDom::attr($ancestor, 'aria-hidden'))) ) {
+            if ( $ancestor->hasAttribute('hidden') || SourceDom::isAriaHidden($ancestor) ) {
                 return true;
             }
             $identity = strtolower(implode(' ', array(
@@ -1410,7 +1410,7 @@ final class SourceElementClassifier
 
     public function isCarouselSlideChild(DOMElement $child): bool
     {
-        if ( 'listitem' === strtolower(trim(SourceDom::attr($child, 'role'))) || 'li' === strtolower($child->tagName) ) {
+        if ( 'listitem' === SourceDom::role($child) || 'li' === strtolower($child->tagName) ) {
             return true;
         }
 

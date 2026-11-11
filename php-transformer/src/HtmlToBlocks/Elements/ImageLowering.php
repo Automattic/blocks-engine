@@ -328,7 +328,7 @@ final class ImageLowering
             if ( $child instanceof \DOMText ) {
                 $nodes[] = $child;
             } elseif ( $child instanceof DOMElement && ! $child->isSameNode($excluded)
-                && ! $child->hasAttribute('hidden') && 'true' !== strtolower(trim(SourceDom::attr($child, 'aria-hidden')))
+                && ! $child->hasAttribute('hidden') && ! SourceDom::isAriaHidden($child)
                 && ! in_array(strtolower($child->tagName), array( 'script', 'style', 'template', 'noscript', 'svg' ), true) ) {
                 array_push($nodes, ...$this->textNodesOutside($child, $excluded));
             }

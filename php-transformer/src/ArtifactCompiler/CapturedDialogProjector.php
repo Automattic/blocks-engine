@@ -1658,7 +1658,7 @@ final class CapturedDialogProjector
         if ('input' === $tag && in_array(strtolower($element->getAttribute('type')), array('button', 'submit'), true)) {
             return true;
         }
-        if ('button' === strtolower(trim($element->getAttribute('role')))) {
+        if ('button' === SourceDom::role($element)) {
             return true;
         }
         return in_array(strtolower(trim($element->getAttribute('aria-haspopup'))), array('dialog', 'menu', 'true'), true);

@@ -101,7 +101,7 @@ final class InertScaffoldingSuppressor implements ElementConverter
     public static function isMeasurementCopy(DOMElement $element, ?callable $isDisplayNoneAtEveryViewport = null): bool
     {
         if ( ! in_array(strtolower($element->tagName), array( 'div', 'span' ), true)
-            || 'true' !== strtolower(trim(SourceDom::attr($element, 'aria-hidden')))
+            || ! SourceDom::isAriaHidden($element)
             || ! self::duplicatesVisibleSiblingText($element) ) {
             return false;
         }
@@ -135,7 +135,7 @@ final class InertScaffoldingSuppressor implements ElementConverter
         $visibleText = '';
         foreach ( $element->parentNode->childNodes as $sibling ) {
             if ( $sibling === $element
-                || ( $sibling instanceof DOMElement && 'true' === strtolower(trim(SourceDom::attr($sibling, 'aria-hidden'))) ) ) {
+                || ( $sibling instanceof DOMElement && SourceDom::isAriaHidden($sibling) ) ) {
                 continue;
             }
             $visibleText .= ' ' . $sibling->textContent;
@@ -359,7 +359,7 @@ final class InertScaffoldingSuppressor implements ElementConverter
     private function isHiddenPresentationScaffolding(DOMElement $element): bool
     {
         $declarations = $this->styleResolver->authorStructuralDeclarations($element);
-        $hiddenOutOfFlow = 'true' === strtolower(trim(SourceDom::attr($element, 'aria-hidden')))
+        $hiddenOutOfFlow = SourceDom::isAriaHidden($element)
             && 'hidden' === CssValueInspector::comparable($declarations['visibility'] ?? '')
             && in_array(CssValueInspector::comparable($declarations['position'] ?? ''), array( 'absolute', 'fixed' ), true);
         if ( ! in_array(strtolower($element->tagName), array( 'div', 'span' ), true)
@@ -405,7 +405,7 @@ final class InertScaffoldingSuppressor implements ElementConverter
                     }
                 }
             }
-            if ( 'svg' === strtolower($candidate->tagName) && 'true' !== strtolower(trim(SourceDom::attr($candidate, 'aria-hidden'))) ) {
+            if ( 'svg' === strtolower($candidate->tagName) && ! SourceDom::isAriaHidden($candidate) ) {
                 return false;
             }
             foreach ( $candidate->attributes as $attribute ) {
@@ -457,7 +457,7 @@ final class InertScaffoldingSuppressor implements ElementConverter
         if ( ! $liveRegion instanceof DOMElement
             || 0 !== SourceDom::childElementCount($liveRegion)
             || ! in_array(strtolower($liveRegion->tagName), array( 'div', 'p', 'span' ), true)
-            || ! in_array(strtolower(trim(SourceDom::attr($liveRegion, 'role'))), array( 'alert', 'log', 'status' ), true)
+            || ! in_array(SourceDom::role($liveRegion), array( 'alert', 'log', 'status' ), true)
             || ! in_array(strtolower(trim(SourceDom::attr($liveRegion, 'aria-live'))), array( 'assertive', 'polite' ), true)
             || ! $this->isVisuallyClippedLiveRegion($liveRegion)
             || array() !== SourceDom::safeDataAttributes($liveRegion) ) {

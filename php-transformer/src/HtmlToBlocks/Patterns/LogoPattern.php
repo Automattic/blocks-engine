@@ -395,7 +395,7 @@ final class LogoPattern implements PatternRecognizerInterface
         }
 
         foreach ( $anchor->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement || 'true' !== strtolower(trim($child->getAttribute('aria-hidden'))) ) {
+            if ( ! $child instanceof DOMElement || ! SourceDom::isAriaHidden($child) ) {
                 continue;
             }
 

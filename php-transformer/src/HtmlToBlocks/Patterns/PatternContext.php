@@ -141,12 +141,12 @@ final class PatternContext
     {
         if ( null !== $this->visibility ) {
             return $element->hasAttribute('hidden')
-                || 'true' === strtolower(trim(SourceDom::attr($element, 'aria-hidden')))
+                || SourceDom::isAriaHidden($element)
                 || $this->visibility->startsHidden($element);
         }
 
         return $element->hasAttribute('hidden')
-            || 'true' === strtolower(trim($element->getAttribute('aria-hidden')))
+            || SourceDom::isAriaHidden($element)
             || 1 === preg_match('/(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)(?:\s*!important)?\s*(?:;|$)/i', $element->getAttribute('style'));
     }
 

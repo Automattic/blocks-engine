@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use DOMElement;
 use InvalidArgumentException;
@@ -315,7 +316,7 @@ final class FormControlTopologyBuilder
         // An ARIA group is the same named control group a captioned fieldset is,
         // built from generic elements. Its accessible name is the group's only
         // caption, so it travels with the role, bounded like a legend.
-        $role = strtolower(trim($element->getAttribute('role')));
+        $role = SourceDom::role($element);
         if ( in_array($role, self::GROUP_ROLES, true) ) {
             $presentation['group_role'] = $role;
             $label = $this->accessibleName($element);

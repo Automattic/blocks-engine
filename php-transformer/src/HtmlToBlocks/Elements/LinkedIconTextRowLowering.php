@@ -77,7 +77,7 @@ final class LinkedIconTextRowLowering
         }
         if ( ! $icon instanceof DOMElement
             || ( 'svg' === strtolower($icon->tagName)
-                && 'true' !== strtolower(trim($icon->getAttribute('aria-hidden')))
+                && ! SourceDom::isAriaHidden($icon)
                 && '' === trim(SourceDom::attr($icon, 'aria-label'))
                 && '' === trim(SourceDom::attr($icon, 'title')) )
             || '' === trim($span->textContent ?? '')

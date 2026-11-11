@@ -67,7 +67,7 @@ final class FlowContainerElementConverter implements ElementConverter
         // as div[role=dialog]. Keep them in the ordinary recognizer order rather
         // than flattening their children through transparent-wrapper lowering.
         $isCustomDialog = CustomElementRuntimeDependency::isCustomElementTag($tagName)
-            && 'dialog' === strtolower(trim(SourceDom::attr($element, 'role')));
+            && 'dialog' === SourceDom::role($element);
         if ( ! $this->handles($tagName) && ! $isCustomDialog ) {
             return ConversionOutcome::unhandled();
         }

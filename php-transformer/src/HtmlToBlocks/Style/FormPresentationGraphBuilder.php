@@ -1240,7 +1240,7 @@ final class FormPresentationGraphBuilder
         $claimed = array();
         foreach ( $form->getElementsByTagName('*') as $element ) {
             if ( ! $element instanceof DOMElement ) continue;
-            if ( ! in_array(strtolower(trim($element->getAttribute('role'))), self::GROUP_ROLES, true) ) continue;
+            if ( ! in_array(SourceDom::role($element), self::GROUP_ROLES, true) ) continue;
             if ( FormControlClassifier::isControlElement($element) || $this->inertAncestor($element, $form) ) continue;
             $caption = $this->captionElement($element, $form);
             if ( null === $caption || isset($claimed[$caption->getNodePath()]) ) continue;

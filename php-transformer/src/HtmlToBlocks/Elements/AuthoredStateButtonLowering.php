@@ -62,7 +62,7 @@ final class AuthoredStateButtonLowering
         if ( '' !== $pressed && ! in_array($pressed, array( 'true', 'false', 'mixed' ), true) ) {
             return null;
         }
-        $role = strtolower(trim(SourceDom::attr($element, 'role')));
+        $role = SourceDom::role($element);
         $checked = strtolower(trim(SourceDom::attr($element, 'aria-checked')));
         if ('' !== $role && 'checkbox' !== $role) return null;
         if ('checkbox' === $role && (!in_array($checked, array('true', 'false'), true) || '' !== $pressed || FormControlClassifier::hasFormAncestor($element))) return null;

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
@@ -190,7 +191,7 @@ final class RouteStateProjector
                 // core/navigation), so its links carry their route state like a label.
                 $dialog = false;
                 if ('nav' !== strtolower($navigation->tagName)) {
-                    for ($cursor = $navigation; $cursor instanceof DOMElement; $cursor = $cursor->parentNode) $dialog = $dialog || 'dialog' === strtolower($cursor->tagName) || 'dialog' === strtolower(trim($cursor->getAttribute('role')));
+                    for ($cursor = $navigation; $cursor instanceof DOMElement; $cursor = $cursor->parentNode) $dialog = $dialog || 'dialog' === strtolower($cursor->tagName) || 'dialog' === SourceDom::role($cursor);
                 }
                 $self = self::labelRoute($target) === self::labelRoute((string) ($file['path'] ?? ''));
                 $menus[$menu][$index]['self'] = ($menus[$menu][$index]['self'] ?? 0) + (int) $self;
@@ -307,7 +308,7 @@ final class RouteStateProjector
 
     private static function isNavigationLandmark(DOMElement $element): bool
     {
-        return 'nav' === strtolower($element->tagName) || 'navigation' === strtolower(trim($element->getAttribute('role')));
+        return 'nav' === strtolower($element->tagName) || 'navigation' === SourceDom::role($element);
     }
 
     /** Use the same route identity for self-target evidence and replay bindings. */
@@ -770,7 +771,7 @@ final class RouteStateProjector
 
     private static function isChromeLandmark(DOMElement $element): bool
     {
-        return in_array(strtolower($element->tagName), array('header', 'footer'), true) || in_array(strtolower(trim($element->getAttribute('role'))), array('banner', 'contentinfo'), true);
+        return in_array(strtolower($element->tagName), array('header', 'footer'), true) || in_array(SourceDom::role($element), array('banner', 'contentinfo'), true);
     }
 
     /**

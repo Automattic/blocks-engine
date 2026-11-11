@@ -99,7 +99,7 @@ final class PseudoFormAnalyzer
 
     public function hasStandaloneSearchSignal(DOMElement $element, DOMElement $input): bool
     {
-        if ( 'search' === FormControlClassifier::controlType($input) || 'search' === strtolower(trim(SourceDom::attr($element, 'role'))) ) {
+        if ( 'search' === FormControlClassifier::controlType($input) || 'search' === SourceDom::role($element) ) {
             return true;
         }
 

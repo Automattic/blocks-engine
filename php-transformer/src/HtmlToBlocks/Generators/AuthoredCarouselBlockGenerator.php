@@ -2652,7 +2652,7 @@ JS;
 
     private function isSlideStatus(DOMElement $element): bool
     {
-        return 'status' === strtolower(trim(SourceDom::attr($element, 'role')))
+        return 'status' === SourceDom::role($element)
             || 1 === preg_match('~^\s*[0-9]+\s*/\s*[0-9]+\s*$~', $element->textContent ?? '');
     }
 
@@ -2679,7 +2679,7 @@ JS;
             ) {
                 continue;
             }
-            if ( 'listitem' === strtolower(trim(SourceDom::attr($child, 'role'))) || 'li' === strtolower($child->tagName) ) {
+            if ( 'listitem' === SourceDom::role($child) || 'li' === strtolower($child->tagName) ) {
                 $items[] = $child;
                 continue;
             }
