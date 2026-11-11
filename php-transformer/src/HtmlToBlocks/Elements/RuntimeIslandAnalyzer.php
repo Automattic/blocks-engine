@@ -728,7 +728,7 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
                 return false;
             }
         }
-        foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'))) as $candidate ) {
+        foreach ( SourceDom::subtreeElements($element) as $candidate ) {
             if ( ! $candidate instanceof DOMElement ) {
                 continue;
             }

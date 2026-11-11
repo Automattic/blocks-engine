@@ -48,7 +48,7 @@ final class InlineCheckableControlLowering implements ElementConverter
         if (!in_array(strtolower($element->tagName), array('div', 'span', 'button'), true)) return null;
         $buttons = 'button' === strtolower($element->tagName) ? array($element) : iterator_to_array($element->getElementsByTagName('button'));
         if (array() === $buttons || 16 < count($buttons) || 64 < $element->getElementsByTagName('*')->length) return null;
-        foreach (array_merge(array($element), iterator_to_array($element->getElementsByTagName('*'))) as $node) {
+        foreach (SourceDom::subtreeElements($element) as $node) {
             if ($this->runtimeIslands->isRuntimeDomTarget($node) || array() !== SourceDom::eventMetadata($node) || $node->hasAttribute('data-action') || $node->hasAttribute('jsaction')) return null;
             foreach ($node->attributes as $attribute) if (str_starts_with(strtolower($attribute->name), 'data-wp-')) return null;
         }

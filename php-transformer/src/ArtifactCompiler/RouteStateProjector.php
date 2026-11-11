@@ -166,7 +166,7 @@ final class RouteStateProjector
                 $label = $link;
                 while ($label->parentNode instanceof DOMElement && !self::isNavigationLandmark($label->parentNode) && 'label' !== strtolower($label->tagName) && 1 === $label->parentNode->getElementsByTagName('a')->length) $label = $label->parentNode;
                 $nodes = array(); $shape = array(); $current = false;
-                foreach (array_merge(array($label), iterator_to_array($label->getElementsByTagName('*'))) as $node) {
+                foreach (SourceDom::subtreeElements($label) as $node) {
                     if ('input' === strtolower($node->tagName)) continue;
                     $nodes[] = $node; $shape[] = $node->tagName;
                     foreach ($node->attributes as $attribute) {

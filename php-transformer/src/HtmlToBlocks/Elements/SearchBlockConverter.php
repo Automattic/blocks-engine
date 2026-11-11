@@ -85,7 +85,7 @@ final class SearchBlockConverter implements ElementConverter
             $candidate = $this->nextElementSibling($textInput);
             if ( $candidate instanceof DOMElement && 'span' === strtolower($candidate->tagName)
                 && '' === trim($candidate->textContent) && array() === SourceDom::eventMetadata($candidate) ) {
-                foreach ( array_merge(array( $candidate ), iterator_to_array($candidate->getElementsByTagName('*'))) as $part ) {
+                foreach ( SourceDom::subtreeElements($candidate) as $part ) {
                     $declarations = $this->context->presentationDeclarations($part);
                     if ( 1 === preg_match('/url\(/i', ($declarations['background'] ?? '') . ($declarations['background-image'] ?? '')) ) {
                         $paintedSibling = $candidate;

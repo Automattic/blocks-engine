@@ -51,7 +51,7 @@ final class AuthoredMarqueeRecognizer
             return null;
         }
 
-        $children = $this->authoredMarqueeElementChildren($element);
+        $children = SourceDom::elementElementChildren($element);
         $count = count($children);
         if ( 0 === $count || 0 !== $count % 2 ) {
             return null;
@@ -124,17 +124,6 @@ final class AuthoredMarqueeRecognizer
     }
 
     /**
-     * @return list<DOMElement>
-     */
-    private function authoredMarqueeElementChildren(DOMElement $element): array
-    {
-        return array_values(array_filter(
-            iterator_to_array($element->childNodes),
-            static fn (mixed $child): bool => $child instanceof DOMElement
-        ));
-    }
-
-    /**
      * @param list<DOMElement> $children
      * @return list<DOMElement>|null
      */
@@ -151,7 +140,7 @@ final class AuthoredMarqueeRecognizer
             return array_slice($children, 0, $half);
         }
         if ( 2 === count($children) && 0 < $children[0]->childElementCount ) {
-            $items = $this->authoredMarqueeElementChildren($children[0]);
+            $items = SourceDom::elementElementChildren($children[0]);
             return array() === $items ? null : $items;
         }
 

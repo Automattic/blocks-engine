@@ -1578,7 +1578,7 @@ final class NavigationToggleSuppressor
         }
         $targets = array();
         foreach ( $navigation->getElementsByTagName('a') as $anchor ) {
-            if ( $this->isNavigationDestinationAnchor($anchor) ) {
+            if ( SourceDom::navigatesToDestination($anchor) ) {
                 $targets[] = trim(SourceDom::attr($anchor, 'href'));
             }
         }
@@ -1985,7 +1985,7 @@ final class NavigationToggleSuppressor
         foreach ( $navigation->getElementsByTagName('a') as $anchor ) {
             if ( $anchor instanceof DOMElement
                 && '' !== trim($anchor->textContent ?? '')
-                && $this->isNavigationDestinationAnchor($anchor)
+                && SourceDom::navigatesToDestination($anchor)
             ) {
                 $links[] = strtolower(trim($anchor->textContent ?? '')) . '|' . trim(SourceDom::attr($anchor, 'href'));
             }
@@ -2296,20 +2296,6 @@ final class NavigationToggleSuppressor
         ))));
 
         return $this->namesMenu($accessibleName);
-    }
-
-    private function isNavigationDestinationAnchor(DOMElement $anchor): bool
-    {
-        if ( $anchor->hasAttribute('aria-controls') || $anchor->hasAttribute('aria-expanded') ) {
-            return false;
-        }
-
-        $href = trim(SourceDom::attr($anchor, 'href'));
-        if ( '' === $href || str_starts_with($href, '#') ) {
-            return false;
-        }
-
-        return ! str_starts_with(strtolower($href), 'javascript:');
     }
 
 

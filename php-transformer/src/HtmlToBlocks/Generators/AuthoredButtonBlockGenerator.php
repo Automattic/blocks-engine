@@ -118,7 +118,7 @@ final class AuthoredButtonBlockGenerator
     public static function canRetainRoleButton(DOMElement $element): bool
     {
         if (!self::isRoleButton($element)) return false;
-        foreach (array_merge(array($element), iterator_to_array($element->getElementsByTagName('*'))) as $node) {
+        foreach (SourceDom::subtreeElements($element) as $node) {
             if (!$node instanceof DOMElement || array() !== SourceDom::eventMetadata($node) || ($node !== $element && in_array(strtolower($node->tagName), array('a', 'button', 'form', 'input', 'select', 'textarea', 'script', 'iframe', 'canvas'), true))) return false;
         }
         return true;
