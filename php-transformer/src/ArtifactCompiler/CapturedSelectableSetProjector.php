@@ -788,60 +788,7 @@ final class CapturedSelectableSetProjector
         if (null !== $id) {
             return $this->descendantsWithId($scope, $id);
         }
-        if ('' === $selector || str_contains($selector, ',') || ! str_contains($selector, '>')) {
-            return array();
-        }
-        $parts = preg_split('/\s*>\s*/', $selector);
-        if (! is_array($parts) || array() === $parts) {
-            return array();
-        }
-        if ('body' === strtolower($parts[0])) {
-            array_shift($parts);
-        }
-        if (array() === $parts) {
-            return array();
-        }
-        if (1 === preg_match('/^([a-z][a-z0-9]*)/i', $parts[0], $scopeToken) && strtolower($scope->tagName) === strtolower($scopeToken[1])) {
-            array_shift($parts);
-        }
-        if (array() === $parts) {
-            return array($scope);
-        }
-        $current = array($scope);
-        foreach ($parts as $part) {
-            if (1 !== preg_match('/^([a-z][a-z0-9]*)(#([A-Za-z][A-Za-z0-9_.:-]*))?(:nth-of-type\((\d+)\))?$/i', $part, $tokens)) {
-                return array();
-            }
-            $tag = strtolower($tokens[1]);
-            $id = $tokens[3] ?? '';
-            $nth = isset($tokens[5]) && '' !== $tokens[5] ? (int) $tokens[5] : 0;
-            $next = array();
-            foreach ($current as $node) {
-                $seen = array();
-                foreach ($node->childNodes as $child) {
-                    if (! $child instanceof DOMElement) {
-                        continue;
-                    }
-                    $childTag = strtolower($child->tagName);
-                    $seen[$childTag] = ($seen[$childTag] ?? 0) + 1;
-                    if ($childTag !== $tag) {
-                        continue;
-                    }
-                    if ('' !== $id && $child->getAttribute('id') !== $id) {
-                        continue;
-                    }
-                    if ($nth > 0 && ($seen[$tag] ?? 0) !== $nth) {
-                        continue;
-                    }
-                    $next[] = $child;
-                }
-            }
-            if (array() === $next) {
-                return array();
-            }
-            $current = $next;
-        }
-        return $current;
+        return CapturedSelectorPath::matches($scope, $selector, skipsScopeTag: true);
     }
 
     /** @param array<string, mixed> $state */
