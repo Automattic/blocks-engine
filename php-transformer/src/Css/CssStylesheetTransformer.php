@@ -142,22 +142,48 @@ final class CssStylesheetTransformer
      *
      * @param list<string> $stylesheets
      */
-    public function concatenateWithoutRedundantRules(array $stylesheets): string
+    /**
+     * The stylesheet without rules a later identical rule in the same
+     * conditional groups repeats: the later copy wins wherever the earlier
+     * one would, so the cascade is unchanged. Malformed input is returned
+     * unchanged.
+     */
+    public function compactStylesheet(string $css): string
     {
-        foreach ( $stylesheets as $stylesheet ) {
-            if ( ! $this->isWellFormedStylesheet($stylesheet) ) {
-                return implode("\n", $stylesheets);
+        if ( ! $this->isWellFormedStylesheet($css) ) {
+            return $css;
+        }
+        $units = array();
+        $this->collectRuleUnits($css, array(), $units);
+        return $this->serializeRuleUnits($this->withoutEarlierDuplicates(array($units)));
+    }
+
+    /**
+     * CSS with insignificant whitespace collapsed; quoted strings are kept
+     * verbatim. Space before a colon is a descendant combinator, so only the
+     * space after one goes.
+     */
+    private static function normalizedCss(string $css): string
+    {
+        $parts = preg_split('/("(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\')/s', trim($css), -1, PREG_SPLIT_DELIM_CAPTURE) ?: array( $css );
+        foreach ( $parts as $index => $part ) {
+            if ( 0 === $index % 2 ) {
+                $parts[ $index ] = preg_replace(array('/\s+/', '/\s*([{};,>])\s*/', '/:\s+/'), array(' ', '$1', ':'), $part) ?? $part;
             }
         }
+        return rtrim(str_replace(';}', '}', implode('', $parts)), ';');
+    }
 
-        $stylesheetUnits = array();
-        foreach ( $stylesheets as $stylesheet ) {
-            $units = array();
-            $this->collectRuleUnits($stylesheet, array(), $units);
-            $stylesheetUnits[] = $units;
-        }
-        // A layer's first appearance fixes its order, so the unit that first
-        // names a layer stays in place even when a later copy repeats it.
+    /**
+     * Units in order, without any dedupable unit a later one repeats in the
+     * same conditional groups. A layer's first appearance fixes its order, so
+     * the unit that first names a layer stays in place.
+     *
+     * @param list<list<array{context: list<string>, text: string, dedupable: bool}>> $stylesheetUnits
+     * @return list<array{context: list<string>, text: string, dedupable: bool}>
+     */
+    private function withoutEarlierDuplicates(array $stylesheetUnits): array
+    {
         $layerOrigins = array();
         $named = array();
         foreach ( $stylesheetUnits as $sheet => $units ) {
@@ -170,7 +196,6 @@ final class CssStylesheetTransformer
                 }
             }
         }
-
         $kept = array();
         $seen = array();
         foreach ( array_reverse($stylesheetUnits, true) as $sheet => $units ) {
@@ -185,8 +210,24 @@ final class CssStylesheetTransformer
                 $kept[] = $unit;
             }
         }
+        return array_reverse($kept);
+    }
 
-        return $this->serializeRuleUnits(array_reverse($kept));
+    public function concatenateWithoutRedundantRules(array $stylesheets): string
+    {
+        foreach ( $stylesheets as $stylesheet ) {
+            if ( ! $this->isWellFormedStylesheet($stylesheet) ) {
+                return implode("\n", $stylesheets);
+            }
+        }
+
+        $stylesheetUnits = array();
+        foreach ( $stylesheets as $stylesheet ) {
+            $units = array();
+            $this->collectRuleUnits($stylesheet, array(), $units);
+            $stylesheetUnits[] = $units;
+        }
+        return $this->serializeRuleUnits($this->withoutEarlierDuplicates($stylesheetUnits));
     }
 
     /**
@@ -1064,7 +1105,7 @@ final class CssStylesheetTransformer
     /** @param array{context: list<string>, text: string, dedupable: bool} $unit */
     private static function ruleUnitKey(array $unit): string
     {
-        return md5(implode("\0", $unit['context']) . "\0" . trim($unit['text']), true);
+        return md5(implode("\0", array_map(self::normalizedCss(...), $unit['context'])) . "\0" . self::normalizedCss($unit['text']), true);
     }
 
     /** @param list<array{context: list<string>, text: string, dedupable: bool}> $units */

@@ -737,6 +737,15 @@ PHP;
         unset($asset);
         // Asset payloads are the last canonicalization pass, so the placeholder
         // backing recovered media is declared once every reference is known.
+        // Every emitted stylesheet is serialized once, at its smallest
+        // cascade-equivalent size.
+        $compactor = new CssStylesheetTransformer();
+        foreach ($assets as &$asset) {
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
+            $compacted = $compactor->compactStylesheet($asset['content']);
+            if ($compacted !== $asset['content']) $asset = self::withRewrittenTextContent($asset, $compacted);
+        }
+        unset($asset);
         $assetWrites = $this->assetWrites($assets, $references);
         foreach ($assets as &$asset) unset($asset['reference_origin']); unset($asset);
         $placeholderAssets = $this->assets($this->missingMedia->assets());
