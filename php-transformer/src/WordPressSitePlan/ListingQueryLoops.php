@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlMarkupParser;
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
 
 /**
  * Turns a listing page's repeated post cards into a core query loop.
