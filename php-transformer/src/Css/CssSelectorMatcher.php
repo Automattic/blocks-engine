@@ -52,6 +52,7 @@ final class CssSelectorMatcher
         $selector = trim($selector);
         if (1 !== preg_match('/(:{1,2}(?:before|after))$/i', $selector, $suffix)) return null;
         $host = substr($selector, 0, -strlen($suffix[1]));
+        if ('' === trim($host)) $host = '*';
         $parsed = self::parse($host);
         if (!$parsed['supported'] || null !== $parsed['pseudo_state_suffix_span']) return null;
         return array('selector' => $host, 'suffix' => $suffix[1], 'parsed' => $parsed);
