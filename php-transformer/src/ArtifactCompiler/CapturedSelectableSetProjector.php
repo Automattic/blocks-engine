@@ -722,16 +722,6 @@ final class CapturedSelectableSetProjector
         return array('status' => 'matched', 'elements' => $elements);
     }
 
-    private function isResponsiveDocumentWrapper(DOMElement $element): bool
-    {
-        foreach (SourceDom::tokens($element->getAttribute('class')) as $class) {
-            if (str_starts_with($class, 'site-document-variant-') || in_array($class, array(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, CaptureEvidence::MOBILE_DOCUMENT_CLASS), true)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     /**
      * Capture names an element that has a unique id by that id alone, with the
      * id CSS-escaped (`#radix-\:r1\:-content`). Returns the unescaped id, or

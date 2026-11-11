@@ -6,6 +6,7 @@ require_once __DIR__ . '/../fixtures/captured-components.php';
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CapturedChoiceGroupProjector;
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 
 $failures = 0;
 $passes = 0;
@@ -52,6 +53,18 @@ $assert(str_contains($markup, 'data-blocks-engine-choice-group="true"'), 'projec
 $assert(str_contains($markup, 'data-blocks-engine-choice-config='), 'projected group carries bounded replay configuration');
 $assert(! str_contains($markup, 'data-blocks-engine-capture-choice-index'), 'capture-only choice markers do not ship');
 $assert(str_contains($markup, 'fill:gold') && str_contains($markup, 'fill:none'), 'the initial transition preserves source visual state');
+
+// Each device document is its own scope, whether it is marked by a variant class or declared by the capture.
+$main = substr($source, strlen('<html><body>'), -strlen('</body></html>'));
+$declared = static fn(string $device): string => CaptureEvidence::DOCUMENT_SCOPE . '="' . $device . '" ' . CaptureEvidence::DEVICE_DOCUMENT . '="' . $device . '"';
+foreach (array(
+    'variant classes' => '<div class="site-document-variant-desktop">' . $main . '</div><div class="site-document-variant-mobile">' . $main . '</div>',
+    'declared scopes' => '<div ' . $declared('desktop') . '>' . $main . '</div><div ' . $declared('mobile') . '>' . $main . '</div>',
+) as $label => $body) {
+    $scopedFiles = $files;
+    $scopedFiles[0]['content'] = '<html><body>' . $body . '</body></html>';
+    $assert(2 === ((new CapturedChoiceGroupProjector())->project($scopedFiles)['projected_count'] ?? 0), $label . ' project one group per device document');
+}
 
 $sourcePreserved = '<html><body><main><form><label>Rating</label><div class="choices"><button type="button">Saved source label</button><button type="button">Two</button><button type="button">Three</button></div></form></main></body></html>';
 $sourcePreservedFiles = $files;
