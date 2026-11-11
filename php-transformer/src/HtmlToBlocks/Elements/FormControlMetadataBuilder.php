@@ -188,6 +188,11 @@ final class FormControlMetadataBuilder
             if ( $labelElement instanceof DOMElement ) {
                 $claimedLabels[] = $labelElement;
             }
+            // When the label element is missing or empty, the control's name
+            // comes from its aria-labelledby targets, so their copy is claimed too.
+            if ( ! $labelElement instanceof DOMElement || '' === $this->labelText($labelElement) ) {
+                array_push($claimedLabels, ...$this->labelledByElements($node));
+            }
             $description = $this->describeControl($node, $labelElement);
             // Only a resolved description is carried by the control manifest.
             // Ambiguous candidates stay unattributed, so they may still
@@ -710,26 +715,27 @@ final class FormControlMetadataBuilder
 
     private function labelledByText(DOMElement $control): string
     {
-        $ids = preg_split('/\s+/', trim(SourceDom::attr($control, 'aria-labelledby'))) ?: array();
+        $parts = array_filter(array_map(fn (DOMElement $target): string => $this->labelText($target), $this->labelledByElements($control)), static fn (string $part): bool => '' !== $part);
+
+        return trim(implode(' ', $parts));
+    }
+
+    /** @return array<int, DOMElement> The elements a control's aria-labelledby names. */
+    private function labelledByElements(DOMElement $control): array
+    {
         $document = $control->ownerDocument;
         if ( ! $document instanceof \DOMDocument ) {
-            return '';
+            return array();
         }
-        $parts = array();
-        foreach ( $ids as $id ) {
-            if ( '' === $id ) {
-                continue;
-            }
-            $target = $document->getElementById($id);
+        $targets = array();
+        foreach ( preg_split('/\s+/', trim(SourceDom::attr($control, 'aria-labelledby'))) ?: array() as $id ) {
+            $target = '' === $id ? null : $document->getElementById($id);
             if ( $target instanceof DOMElement ) {
-                $part = $this->labelText($target);
-                if ( '' !== $part ) {
-                    $parts[] = $part;
-                }
+                $targets[] = $target;
             }
         }
 
-        return trim(implode(' ', $parts));
+        return $targets;
     }
 
     /**
