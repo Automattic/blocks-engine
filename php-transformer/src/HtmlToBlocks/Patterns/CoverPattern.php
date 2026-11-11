@@ -362,7 +362,7 @@ final class CoverPattern implements PatternRecognizerInterface
         if ( ! in_array($direction, array( 'row', 'column' ), true) ) {
             return 'columns_layout';
         }
-        if ( 'row' === $direction && SourceDom::directElementChildCount($element) >= 2 && ! isset($declarations['justify-content']) ) {
+        if ( 'row' === $direction && SourceDom::childElementCount($element) >= 2 && ! isset($declarations['justify-content']) ) {
             return 'columns_layout';
         }
         return null;

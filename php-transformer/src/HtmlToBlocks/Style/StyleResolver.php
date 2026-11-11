@@ -3004,7 +3004,7 @@ final class StyleResolver implements ElementPresentationResolver
      */
     private function inlineInheritedTextAlignDeclaration(DOMElement $element, array $declarations, array $excludedProperties): array
     {
-        if ( in_array('text-align', $excludedProperties, true) || 0 === SourceDom::directElementChildCount($element) ) {
+        if ( in_array('text-align', $excludedProperties, true) || 0 === SourceDom::childElementCount($element) ) {
             return array();
         }
 

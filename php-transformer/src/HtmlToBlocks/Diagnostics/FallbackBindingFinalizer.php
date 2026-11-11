@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
 
 /**
  * The post-serialization pass that settles fallback bindings: groups qualified
@@ -97,7 +98,7 @@ final class FallbackBindingFinalizer
                 $search = substr($markup, $range['offset'], $range['length']);
                 if (is_string($search) && '' !== $search) {
                     $binding['search_block_markup'] = $search;
-                    $binding['occurrence'] = $this->occurrenceAtOffset($markup, $search, $range['offset']);
+                    $binding['occurrence'] = HtmlTagScanner::occurrenceAtOffset($markup, $search, $range['offset']);
                     $binding['position'] = array('schema' => 'blocks-engine/runtime-binding-position/v1', 'block_index' => $blockIndex, 'offset' => $range['offset'], 'length' => $range['length']);
                 } else {
                     $binding = array();
@@ -244,10 +245,4 @@ final class FallbackBindingFinalizer
         return array_values(array_filter($ranges, static fn(array $range): bool => 0 < $range['length']));
     }
 
-    private function occurrenceAtOffset(string $markup, string $search, int $offset): int
-    {
-        $occurrence = 0; $cursor = 0;
-        while (false !== ($found = strpos($markup, $search, $cursor))) { ++$occurrence; if ($found === $offset) return $occurrence; $cursor = $found + strlen($search); }
-        return 0;
-    }
 }

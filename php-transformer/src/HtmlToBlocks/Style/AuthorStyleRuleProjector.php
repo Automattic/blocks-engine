@@ -1329,17 +1329,7 @@ final class AuthorStyleRuleProjector
         $parent = $element->parentNode;
         return $parent instanceof DOMElement
             && $parent->parentNode === $authorStyles->sourceBody()
-            && $this->elementChildCount($parent) > 1;
+            && SourceDom::childElementCount($parent) > 1;
     }
 
-    private function elementChildCount(DOMElement $element): int
-    {
-        $count = 0;
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement ) {
-                ++$count;
-            }
-        }
-        return $count;
-    }
 }

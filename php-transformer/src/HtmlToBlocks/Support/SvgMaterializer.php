@@ -923,7 +923,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             if ( 'auto' === $alignment ) {
                 $alignment = CssValueInspector::comparable((string) ($parentPresentation['align-items'] ?? 'stretch'));
             }
-            if ( $parent instanceof DOMElement && 1 === SourceDom::directElementChildCount($parent)
+            if ( $parent instanceof DOMElement && 1 === SourceDom::childElementCount($parent)
                 && CssValueInspector::hasDefiniteWidth($parentStyle) && CssValueInspector::hasDefiniteHeight($parentStyle)
                 && in_array($alignment, array( 'stretch', 'normal' ), true)
                 && ! isset($presentation['flex']) && ! isset($presentation['flex-shrink'])
