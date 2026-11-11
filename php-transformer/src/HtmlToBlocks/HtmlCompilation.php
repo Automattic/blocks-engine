@@ -508,7 +508,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->renderNeutral = new Elements\RenderNeutralElements($this->session, $this->styleResolver, $this->sourceElementClassifier, $this->sourceElementDescription, $this->runtimeIslands, $this->emptyElementFootprint);
         $this->inertElements = new Elements\InertElements($this->styleResolver, $this->sourceElementClassifier, $this->sourceVisibility, $this->runtimeIslands);
         $this->emptyInlineGeometry = new Elements\EmptyInlineGeometryLowering($this, $this->session, $this->sourceElementClassifier, $this->emptyElementFootprint, $authoredStateButtons, $this->layoutShells, $this->runtimeIslands);
-        $this->wrapperConventions = new Elements\CustomWrapperConventions($this->styleResolver);
+        $this->wrapperConventions = new Elements\CustomWrapperConventions($this->styleResolver, $this->renderNeutral);
         $this->emptyVisualSpacers = new Elements\EmptyVisualSpacerLowering($this, $this, $this->session, $this->styleResolver, $this->emptyElementFootprint, $this->runtimeIslands);
         $this->fallbackReconciliation = new Diagnostics\FallbackReconciliation($this->runtimeIslands);
         $inlineCheckableControls = new Elements\InlineCheckableControlLowering($this, $this->runtime, $this->session, $this->sourceElementClassifier, $this->richTextMaterializer, $authoredStateButtons, $this->runtimeIslands, $this->layoutShells);
@@ -1462,7 +1462,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // prepared, so style projection and component promotion both observe the
         // content rather than the source's wrapping convention.
         $this->documentAuthorCss = $this->stylesheetAnalysisComposer->combinedAuthorStylesheet($html, $staticCss);
-        $this->unwrapRenderNeutralCustomElements($body, $this->documentAuthorCss);
+        $this->retainedCustomWrapperHooks = $this->wrapperConventions->unwrapConventionWrappers($body, $this->documentAuthorCss);
         $timer->start('transform.author_selector_preparation');
         $this->authorSelectorSemanticPreparer->prepare($html, $staticCss, $body, $options, $this->session);
         $this->session->fallbackEmitter()->configure($this->session->transformationProvenanceState()->fallback(), $this->session->runtimeBehaviorState()->runtimeScriptMetadata(), $this->session->runtimeSelectorState(), $this->session->authorSelectorProjectionState()->tagMarkers());
@@ -1841,44 +1841,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         return $blocks;
-    }
-
-    /**
-     * Remove custom elements a source uses as a wrapping convention.
-     *
-     * Site builders wrap ordinary content in presentation-only custom elements.
-     * A custom element tag is not evidence that its subtree needs a generated
-     * block, so leaving those wrappers in place freezes headings and copy into
-     * opaque markup. A tag is treated as a convention when it recurs across the
-     * document while the content it wraps diverges: a genuine component repeats
-     * its internal structure, a wrapper does not.
-     */
-    private function unwrapRenderNeutralCustomElements(DOMElement $body, string $staticCss): void
-    {
-        $this->retainedCustomWrapperHooks = array();
-        $instances = array();
-        foreach ( $body->getElementsByTagName('*') as $element ) {
-            if ( $element instanceof DOMElement && str_contains(strtolower($element->tagName), '-') ) {
-                $instances[strtolower($element->tagName)][] = $element;
-            }
-        }
-
-        $attributeSelectors = null;
-        foreach ( $instances as $tag => $elements ) {
-            if ( ! $this->wrapperConventions->isWrapperConventionTag($tag, $elements, $staticCss) ) {
-                continue;
-            }
-            $attributeSelectors ??= $this->wrapperConventions->authorDataAttributeSelectors($staticCss);
-            foreach ( $elements as $element ) {
-                if ( $this->renderNeutral->isRenderNeutralWrapper($element, false) ) {
-                    if ( $this->wrapperConventions->authorAttributeSelectorAddresses($element, $attributeSelectors) ) {
-                        $this->retainedCustomWrapperHooks[] = $element;
-                    } else {
-                        $this->richTextStylingHooks()->unwrapElement($element);
-                    }
-                }
-            }
-        }
     }
 
     /**
