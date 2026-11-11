@@ -598,4 +598,46 @@ final class RichTextStylingHookNormalizer
 
         return $only instanceof DOMElement && $this->isStylingHookSpan($only) ? $only : null;
     }
+
+    /**
+     * Inline content as the standalone RichText a block's own content
+     * attribute carries — a control label, an in-form introduction, a lowered
+     * wrapper paragraph: the materialized source markup, with styling hooks
+     * lowered to semantic carriers inline rather than hoisted onto the host.
+     */
+    public function inlineContent(DOMElement $element): string
+    {
+        $content = $this->richTextMaterializer->content($element);
+        if ('' === $content) return '';
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $content . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
+        if (!$body instanceof DOMElement) return $content;
+        $this->normalize($body);
+        return SourceDom::innerHtml($body);
+    }
+
+    /**
+     * In-form copy — an introduction above the fields, a note between them —
+     * as the paragraph/heading RichText the page conversion keeps, so the form
+     * contract carries the copy's formatting instead of its flattened text.
+     * Copy without inline markup, and markup a paragraph cannot hold (structure
+     * a RichText attribute rejects, or an object the fallback gate reserves for
+     * the page's own conversion), returns '': the item's plain text, styles and
+     * classes stay the contract there.
+     */
+    public function formContextContent(DOMElement $element): string
+    {
+        $content = trim($this->inlineContent($element));
+        if ( '' === $content || ! preg_match('/<[a-zA-Z]/', $content)
+            || $this->richTextMaterializer->hasStructuralHtml($content)
+            || $this->richTextMaterializer->requiresHtmlFallback($content) ) {
+            return '';
+        }
+
+        return $content;
+    }
 }
