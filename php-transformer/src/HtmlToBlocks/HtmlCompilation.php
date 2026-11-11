@@ -111,6 +111,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SearchBlockConv
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\LoginBlockConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TextLeafElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TextLeafElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\BlockBindingBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\CommerceFallbackReporter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic;
@@ -672,11 +673,12 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->session,
             $this->sourceElementDescription
         );
+        $blockBindings = new BlockBindingBuilder($this->runtime, $this->session->transformationProvenanceState());
         $formFallbackContext = new FormFallbackFindingContext(
             $this->session,
             fn (DOMElement $element): array => $this->runtimeIslands->runtimeDomSelectorsForElement($element),
             $this->sourceElementDescription,
-            fn (array $block, string $role, array $supersededRuntimeSelectors, ?DOMElement $anchorElement): array => $this->blockBinding($block, $role, $supersededRuntimeSelectors, $anchorElement),
+            $blockBindings->binding(...),
             fn (DOMElement $element, string $value): string => $this->styleResolver->resolveCssVariablesInValue($value, $element),
             fn (DOMElement $element): string => $this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element))
         );
@@ -688,7 +690,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->sourceElementDescription,
             $formControlMetadataBuilder,
             $this->session,
-            $formFallbackContext
+            $formFallbackContext,
+            $blockBindings
         );
         $this->fallbackBindings = new Diagnostics\FallbackBindingFinalizer($this, $this->session, $this->commerceReporter);
         $this->blockMaterializer = new BlockMaterializer($this->blockFactory, $this->runtimeIslands);
@@ -3909,34 +3912,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             }
         }
         return null;
-    }
-
-    /**
-     * A binding resolves against the emitted block tree in
-     * `finalizeFallbackBindings()`. `$block` is the preferred anchor when the
-     * caller owns a block that the page actually emits. `$anchorElement` is the
-     * source element whose own emitted block anchors the binding when the
-     * caller only has a separately synthesized representation of the subtree.
-     *
-     * @return array<string,mixed>
-     */
-    private function blockBinding(array $block, string $role, array $supersededRuntimeSelectors = array(), ?DOMElement $anchorElement = null): array
-    {
-        $provenanceId = $block['_source_provenance_id'] ?? null;
-        $markup = array() !== $block ? $this->runtime->serializeBlocks(array($block)) : '';
-        $anchorSelector = null !== $anchorElement ? SourceDom::elementSelector($anchorElement) : '';
-        if ( ( '' === trim($markup) || ! is_int($provenanceId) ) && '' === $anchorSelector ) {
-            return array();
-        }
-        $binding = array('schema' => 'generic/block-binding/v1', 'search_block_markup' => $markup, 'occurrence' => 1, 'role' => $role);
-        if ( is_int($provenanceId) ) {
-            $binding['_binding_provenance_id'] = $provenanceId;
-            $this->session->transformationProvenanceState()->markBindingAnchor($provenanceId);
-        }
-        if ( '' !== $anchorSelector ) $binding['_binding_anchor_selector'] = $anchorSelector;
-        $supersededRuntimeSelectors = array_values(array_unique(array_filter($supersededRuntimeSelectors, static fn(mixed $selector): bool => is_string($selector) && '' !== trim($selector))));
-        if ( array() !== $supersededRuntimeSelectors ) $binding['superseded_runtime_selectors'] = $supersededRuntimeSelectors;
-        return $binding;
     }
 
     /**

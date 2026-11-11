@@ -52,7 +52,8 @@ final class CommerceFallbackReporter
         private readonly SourceElementDescription $sourceElementDescription,
         private readonly FormControlMetadataBuilder $metadataBuilder,
         private readonly HtmlTransformerSession $session,
-        private readonly FormFallbackFindingContext $formFallbackContext
+        private readonly FormFallbackFindingContext $formFallbackContext,
+        private readonly BlockBindingBuilder $blockBindings
     ) {
     }
 
@@ -202,7 +203,7 @@ final class CommerceFallbackReporter
                 // loop here retires that redraw. The item template that loop
                 // repeats is built from the cards' final block markup in
                 // `itemTemplate()` once the page is serialized.
-                'binding'           => $this->blockBinding(array(), 'commerce_product_grid', $this->runtimeIslands->runtimeDomSelectorsForElement($element), $element),
+                'binding'           => $this->blockBindings->binding(array(), 'commerce_product_grid', $this->runtimeIslands->runtimeDomSelectorsForElement($element), $element),
                 'listing'           => $listing,
             ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->provenance->fallback());
             ++$emitted;
@@ -277,7 +278,7 @@ final class CommerceFallbackReporter
             $element = $control['element'];
             unset($control['element']);
             $control['selector'] = SourceDom::elementSelector($element);
-            $control['binding'] = $this->blockBinding(array(), 'commerce_listing_control', $this->runtimeIslands->runtimeDomSelectorsForElement($element), $element);
+            $control['binding'] = $this->blockBindings->binding(array(), 'commerce_listing_control', $this->runtimeIslands->runtimeDomSelectorsForElement($element), $element);
             $controls[] = $control;
             if ( 'facet' !== $control['kind'] ) {
                 continue;
@@ -301,7 +302,7 @@ final class CommerceFallbackReporter
         return array(
             'schema'   => 'generic/listing-controls/v1',
             'selector' => SourceDom::elementSelector($recognized['region']),
-            'binding'  => $this->blockBinding(array(), 'commerce_listing', array(), $recognized['region']),
+            'binding'  => $this->blockBindings->binding(array(), 'commerce_listing', array(), $recognized['region']),
             'controls' => $controls,
         );
     }
@@ -996,7 +997,7 @@ final class CommerceFallbackReporter
             }
         }
         foreach ( array_slice(array_replace($regions, $optionRegions), 0, self::MAX_CANDIDATES) as $element ) {
-            $binding = $this->blockBinding(array(), 'commerce_add_to_cart_form', $this->runtimeIslands->runtimeDomSelectorsForElement($element), $element);
+            $binding = $this->blockBindings->binding(array(), 'commerce_add_to_cart_form', $this->runtimeIslands->runtimeDomSelectorsForElement($element), $element);
             // A details column may be the smallest common ancestor without
             // being a purchase-only wrapper. Anchor its contiguous control run,
             // not the heading, price or prose alongside it.
@@ -1137,7 +1138,7 @@ final class CommerceFallbackReporter
                 'placement'         => $this->cartViewPlacement($scope),
                 'runtime_selectors' => $runtimeSelectors,
                 'context'           => $this->sourceElementDescription->sourceContext($scope, includeStructureSignals: false, retainLinkTabindex: true),
-                'binding'           => $this->blockBinding(array(), 'commerce_cart', $runtimeSelectors, $scope),
+                'binding'           => $this->blockBindings->binding(array(), 'commerce_cart', $runtimeSelectors, $scope),
             ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->provenance->fallback());
         }
     }
@@ -1187,7 +1188,7 @@ final class CommerceFallbackReporter
                 'selector'          => $region['selector'],
                 'runtime_selectors' => $region['runtime_selectors'],
                 'context'           => $this->sourceElementDescription->sourceContext($region['element'], includeStructureSignals: false, retainLinkTabindex: true),
-                'binding'           => $this->blockBinding(array(), 'commerce_checkout', $region['runtime_selectors'], $region['element']),
+                'binding'           => $this->blockBindings->binding(array(), 'commerce_checkout', $region['runtime_selectors'], $region['element']),
             ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->provenance->fallback());
         }
     }
@@ -1291,7 +1292,7 @@ final class CommerceFallbackReporter
                 }
                 $binding = $this->commerceBindingForCard($child, $blocks);
                 if ( array() === $binding ) {
-                    $collectionBinding ??= $this->blockBinding(array(), 'commerce_collection', array(), $container);
+                    $collectionBinding ??= $this->blockBindings->binding(array(), 'commerce_collection', array(), $container);
                     $binding = $collectionBinding;
                 }
                 if ( array() !== $binding ) {
@@ -1321,7 +1322,7 @@ final class CommerceFallbackReporter
         if ( null === $block ) {
             return array();
         }
-        return $this->blockBinding($block, 'commerce_controls', $this->runtimeIslands->runtimeDomSelectorsForElement($control));
+        return $this->blockBindings->binding($block, 'commerce_controls', $this->runtimeIslands->runtimeDomSelectorsForElement($control));
     }
 
     /**
@@ -1357,45 +1358,6 @@ final class CommerceFallbackReporter
             }
         }
         return null;
-    }
-
-    /**
-     * `$block` is the preferred anchor when the caller owns a block the page
-     * actually emits (the per-card cart-control path). `$anchorElement` is the
-     * source element whose own emitted block anchors the binding when the
-     * caller has no such block (a card with no cart control at all, so every
-     * card in the grid shares its container's anchor instead). The anchor
-     * selector is resolved against the page's actual emitted block tree during
-     * fallback-binding finalization, exactly like the div-pseudo-form anchor
-     * (blocks-engine#718/#1975) — see that finalization step's docblock for
-     * why an anchor selector, not a synthesized block, is what keeps a binding
-     * page-owned. A container shared by many cards resolves to exactly one
-     * canonical position; the site-plan composer recognizes the
-     * `commerce_collection` role as a single anchor legitimately shared by
-     * many entities, rather than N entities racing for one position.
-     *
-     * @return array<string,mixed>
-     */
-    private function blockBinding(array $block, string $role, array $supersededRuntimeSelectors = array(), ?DOMElement $anchorElement = null): array
-    {
-        $provenanceId = $block['_source_provenance_id'] ?? null;
-        $markup = array() !== $block ? $this->runtime->serializeBlocks(array($block)) : '';
-        $anchorSelector = null !== $anchorElement ? SourceDom::elementSelector($anchorElement) : '';
-        if ( ( '' === trim($markup) || ! is_int($provenanceId) ) && '' === $anchorSelector ) {
-            return array();
-        }
-        $binding = array('schema' => 'generic/block-binding/v1', 'search_block_markup' => $markup, 'occurrence' => 1, 'role' => $role);
-        if ( is_int($provenanceId) ) {
-            $binding['_binding_provenance_id'] = $provenanceId;
-        }
-        if ( '' !== $anchorSelector ) {
-            $binding['_binding_anchor_selector'] = $anchorSelector;
-        }
-        $supersededRuntimeSelectors = array_values(array_unique(array_filter($supersededRuntimeSelectors, static fn(mixed $selector): bool => is_string($selector) && '' !== trim($selector))));
-        if ( array() !== $supersededRuntimeSelectors ) {
-            $binding['superseded_runtime_selectors'] = $supersededRuntimeSelectors;
-        }
-        return $binding;
     }
 
 }
