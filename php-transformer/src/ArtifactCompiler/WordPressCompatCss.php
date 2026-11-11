@@ -12,6 +12,7 @@ use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSpecificityProjection;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysis;
@@ -604,6 +605,11 @@ final class WordPressCompatCss
         $mapped = preg_replace('/(^|\s*[>+~]\s*|\s+)a(?![A-Za-z0-9_-])/', '$1.wp-block-navigation-item__content', (string) $mapped);
         $mapped = $this->withoutNavigationLabelSpan((string) $mapped);
 
+        $itemWrapper = $this->mapNavigationPositionalWrapper($mapped, $prefix);
+        if (null !== $itemWrapper) {
+            return array($itemWrapper);
+        }
+
         $selectors = array();
         $directWrapper = $this->addNavigationClassToLastPrefixCompound($mapped, $anchorStart);
         if ( null !== $directWrapper ) {
@@ -819,6 +825,27 @@ final class WordPressCompatCss
             }
         }
         return true;
+    }
+
+    /**
+     * A positioned wrapper directly under nav becomes an item, not part of
+     * the navigation container. Keep its sibling constraint on that item.
+     */
+    private function mapNavigationPositionalWrapper(string $selector, string $prefix): ?string
+    {
+        $parent = rtrim((string) preg_replace('/[\s>+~]+$/', '', $prefix));
+        $tokens = CssSelectorTokenizer::tokenize($parent);
+        $last = count($tokens['compounds']) - 1;
+        if (!$tokens['supported'] || $last < 1 || '>' !== $tokens['combinators'][$last - 1]
+            || !preg_match('/^nav(?=$|[.#:\[])/i', $tokens['compounds'][$last - 1])
+            || !preg_match('/^(?:div|li)(?<position>(?::(?:first-child|last-child|nth-child\([^()]*\)))+)$/i', $tokens['compounds'][$last], $match)) {
+            return null;
+        }
+
+        $container = rtrim(substr($parent, 0, $tokens['compound_spans'][$last]['start']), " \t\n\r\f>");
+        $tail = ltrim((string) preg_replace('/^[\s>]+/', '', substr($selector, strlen($prefix))));
+        return $container . ' .wp-block-navigation .wp-block-navigation__container > .wp-block-navigation-item'
+            . $match['position'] . ' > ' . $tail;
     }
 
     private function insertNavigationDescendantWrapper(string $selector, string $prefix): ?string
