@@ -53,6 +53,12 @@ final class BlockMaterializer
                     $runtimeAttributes[$evidenceAttribute] = $sourceFacts->sourceElement->getAttribute($evidenceAttribute);
                 }
             }
+            // Preserve native hidden state without changing the block identity.
+            // The generic render filter restores it on the materialized root,
+            // where page scripts can remove it again.
+            if ('core/group' === $name && 'form' === ($attrs['tagName'] ?? '') && $sourceFacts->sourceElement->hasAttribute('hidden')) {
+                $runtimeAttributes['hidden'] = $sourceFacts->sourceElement->getAttribute('hidden');
+            }
             if ( array() !== $runtimeAttributes ) {
                 $attrs['metadata'][self::RUNTIME_ATTRIBUTES_KEY] = $runtimeAttributes;
             }
