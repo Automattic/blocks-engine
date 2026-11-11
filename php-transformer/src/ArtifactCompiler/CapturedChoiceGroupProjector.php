@@ -601,16 +601,6 @@ final class CapturedChoiceGroupProjector
         return array('status' => array() === $elements ? 'unmatched' : 'matched', 'elements' => $elements);
     }
 
-    private function isResponsiveDocumentWrapper(DOMElement $element): bool
-    {
-        foreach (SourceDom::tokens($element->getAttribute('class')) as $class) {
-            if (str_starts_with($class, 'site-document-variant-') || in_array($class, array(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, CaptureEvidence::MOBILE_DOCUMENT_CLASS), true)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     private function safeHtml(string $html): ?string
     {
         $document = HtmlSerialization::parseFragment('<div data-choice-root="true">' . $html . '</div>');

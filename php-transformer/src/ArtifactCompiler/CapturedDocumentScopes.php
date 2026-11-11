@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
 use DOMDocument;
 use DOMElement;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 
 trait CapturedDocumentScopes
 {
@@ -17,7 +18,7 @@ trait CapturedDocumentScopes
         }
         $scopes = array();
         foreach ($body->childNodes as $child) {
-            if ($child instanceof DOMElement && $this->isResponsiveDocumentWrapper($child)) {
+            if ($child instanceof DOMElement && SourceDom::isDocumentVariantRoot($child)) {
                 $scopes[] = $child;
             }
         }

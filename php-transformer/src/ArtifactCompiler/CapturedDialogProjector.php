@@ -1395,11 +1395,6 @@ final class CapturedDialogProjector
         return array('status' => 'matched', 'elements' => $elements);
     }
 
-    private function isResponsiveDocumentWrapper(DOMElement $element): bool
-    {
-        return \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom::isDocumentVariantRoot($element);
-    }
-
     /**
      * @param array<string, mixed> $trigger
      * @return array<int, DOMElement>
