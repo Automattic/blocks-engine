@@ -39,6 +39,11 @@ final class MathPattern implements PatternRecognizerInterface
             return true;
         }
 
+        // Headings retain their semantics, including when they contain inline math.
+        if ( in_array(strtolower($element->tagName), array( 'h1', 'h2', 'h3', 'h4', 'h5', 'h6' ), true) ) {
+            return false;
+        }
+
         if ( $this->hasMathSignal($element) ) {
             return true;
         }
@@ -48,15 +53,15 @@ final class MathPattern implements PatternRecognizerInterface
 
     private function hasMathSignal(DOMElement $element): bool
     {
-        $signals = strtolower(trim(implode(' ', array(
-            SourceDom::attr($element, 'class'),
-            SourceDom::attr($element, 'id'),
-            SourceDom::attr($element, 'data-math'),
-            SourceDom::attr($element, 'data-latex'),
-            SourceDom::attr($element, 'data-tex'),
-        ))));
+        foreach ( array( 'data-math', 'data-latex', 'data-tex' ) as $attribute ) {
+            if ( $element->hasAttribute($attribute) ) {
+                return true;
+            }
+        }
 
-        return (bool) preg_match('/(?:^|[\s_-])(?:math|latex|tex|katex|mathjax)(?:$|[\s_-])/', $signals);
+        // IDs are authored anchors; only complete class tokens signal math.
+        $classes = preg_split('/\s+/', strtolower(trim(SourceDom::attr($element, 'class')))) ?: array();
+        return array() !== array_intersect($classes, array( 'math', 'katex', 'katex-display', 'katex-html', 'mathjax', 'mjx-container', 'latex', 'tex', 'arithmatex' ));
     }
 
     /**
