@@ -15,6 +15,7 @@ final class CssRuleAnalyzer
      * @param list<array<string, mixed>> $stylesheets
      * @param list<string> $properties
      * @param callable(array<string, mixed>, string): bool|null $retainSelector Called with the parsed selector and its source text, so a retention filter can memoize matches per selector without re-deriving a key.
+     * @param int|null $maxScannedSelectors Work budget for selectors accepted by the retention filter; rejected selectors are bounded by stylesheet bytes instead.
      * @return array{rules: list<array<string, mixed>>, diagnostics: list<string>, truncated: bool}
      */
     public function analyze(array $stylesheets, string $inlineCss, array $properties, int $maxCssBytes, int $maxRules, int $maxSelectors, int $maxConditionDepth, ?callable $retainSelector = null, ?int $maxScannedSelectors = null): array
@@ -119,14 +120,16 @@ final class CssRuleAnalyzer
                 ++$index;
                 continue;
             }
+            // Unrelated rules must not exhaust a consumer's cascade budget.
+            // Parsing the full stream remains bounded by maxCssBytes.
+            if ( null !== $retainSelector && ! $retainSelector($entry['parsed_selector'], $entry['selector']) ) {
+                ++$index;
+                continue;
+            }
             if ( ++$counters['scanned'] > $counters['max_scanned'] ) {
                 $result['truncated'] = true;
                 $result['diagnostics'][] = 'css_selector_scan_limit';
                 return false;
-            }
-            if ( null !== $retainSelector && ! $retainSelector($entry['parsed_selector'], $entry['selector']) ) {
-                ++$index;
-                continue;
             }
             if ( $counters['retained'] >= $maxSelectors || count($result['rules']) >= $maxRules ) {
                 $result['truncated'] = true;
