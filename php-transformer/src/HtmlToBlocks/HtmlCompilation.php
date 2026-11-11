@@ -959,7 +959,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 $this->styleResolver,
                 $this->runtimeIslands,
                 $this->sourceElementClassifier,
-                fn (DOMElement $element): ?DOMElement => $this->soleElementChild($element),
+                $this->emptyVisualRetention->soleElementChild(...),
                 $this->emptyVisualRetention->shouldPreserveEmptyVisualElement(...)
             ),
             $this->projectedNavigation,
@@ -2778,6 +2778,12 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     }
 
     /** Read lazily: closures built before the retention policy call it. */
+    /** Lazy: WrapperCoalescer is built before the empty-visual policy. */
+    private function soleElementChild(DOMElement $element): ?DOMElement
+    {
+        return $this->emptyVisualRetention->soleElementChild($element);
+    }
+
     private function shouldPreserveEmptyVisualElement(DOMElement $element): bool
     {
         return $this->emptyVisualRetention->shouldPreserveEmptyVisualElement($element);
@@ -2864,38 +2870,13 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         if (null === $proof || $this->runtimeIslands->isRuntimeDomTarget($element) || '' !== trim(SourceDom::attr($element, 'id')) || '' !== trim(SourceDom::attr($element, 'role')) || array() !== $this->sourceElementDescription->interactiveAttributes($element) || $this->sourceElementClassifier->hasMotionStructureToken($element)) return null;
         $children = $this->convertChildren($element, $fallbacks, true);
         if (1 !== count($children) || !in_array($children[0]['blockName'] ?? null, array('core/group', 'core/image'), true) || $this->session->transformationProvenanceState()->isBindingAnchor($children[0]['_source_provenance_id'] ?? null)) return null;
-        $sourceChild = $this->soleElementChild($element);
+        $sourceChild = $this->emptyVisualRetention->soleElementChild($element);
         if (!$sourceChild instanceof DOMElement || SourceDom::elementSelector($sourceChild) !== ($proof['target_selector'] ?? null)) return null;
         $childAttrs = is_array($children[0]['attrs'] ?? null) ? $children[0]['attrs'] : array();
         $childAttrs['className'] = SourceDom::mergeClassNames((string) ($childAttrs['className'] ?? ''), $this->wrapperCoalescer->layoutGeometryProofCarrier($proof));
         $childAttrs = array_filter($childAttrs, static fn (mixed $value): bool => !is_string($value) || '' !== trim($value));
         $this->session->layoutGeometryState()->recordProof($proof);
         return $this->createBlock((string) $children[0]['blockName'], $childAttrs, $children[0]['innerBlocks'] ?? array(), $sourceChild);
-    }
-
-    private function soleElementChild(DOMElement $element): ?DOMElement
-    {
-        $child = null;
-        foreach ( $element->childNodes as $node ) {
-            if ( XML_TEXT_NODE === $node->nodeType && '' === trim($node->textContent ?? '') ) {
-                continue;
-            }
-            // Source comments carry no rendered, selector, or runtime boundary.
-            // Treating them as transparent lets generated exports shed an otherwise
-            // inert authoring wrapper without interpreting product-specific markup.
-            if ( XML_COMMENT_NODE === $node->nodeType ) {
-                continue;
-            }
-            if ( $node instanceof DOMElement && ($this->emptyVisualRetention->isInertHiddenEmptyElement($node) || $this->isExplicitlyDisplayNoneEmptyElement($node)) ) {
-                continue;
-            }
-            if ( ! $node instanceof DOMElement || $child instanceof DOMElement ) {
-                return null;
-            }
-            $child = $node;
-        }
-
-        return $child;
     }
 
     /** @return list<array{key: string, selector: string, parsed: array<string, mixed>, direct_child_parsed: array<string, mixed>, declarations: array<string, string>, rule_order: int}> */
@@ -2916,18 +2897,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             }
         }
         return false;
-    }
-
-    private function isExplicitlyDisplayNoneEmptyElement(DOMElement $element): bool
-    {
-        return 0 === SourceDom::childElementCount($element)
-            && '' === trim($element->textContent ?? '')
-            && 'none' === CssValueInspector::comparable((string) ($this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'))['display'] ?? ''))
-            && '' === trim(SourceDom::attr($element, 'class'))
-            && '' === trim(SourceDom::attr($element, 'id'))
-            && '' === trim(SourceDom::attr($element, 'role'))
-            && array() === $this->sourceElementDescription->interactiveAttributes($element)
-            && array() === SourceDom::safeDataAttributes($element);
     }
 
     private function hasEmptyVisualInlineChild(DOMElement $element): bool
