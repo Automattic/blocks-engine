@@ -148,6 +148,10 @@ jobs:
         working-directory: php-transformer
         run: php tests/unit/standalone-break-spacing.php
 
+      - name: Verify block-anchor control bars stay stacked and sized
+        working-directory: php-transformer
+        run: PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/php-transformer/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/icon-anchor-bar-browser.mjs
+
       - name: Verify native collection search semantics
         working-directory: php-transformer
         run: |

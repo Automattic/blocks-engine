@@ -348,7 +348,10 @@ final class GeneratedBlockStyleProjector
             }
             $rootFontSize = $this->styleResolver->documentRootFontSize($sourceControl) ?? 16.0;
             $controlOwnsHeight = (new ButtonStyleResolver())->heightNeedsControlBox($resolvedBox, CssLength::toPx($height, $rootFontSize) ?? INF, $rootFontSize);
-            if ( $controlOwnsHeight ) {
+            if (ButtonStyleResolver::sharesAnchorContainer($sourceControl, $this->styleResolver)) {
+                // The shared bar cannot provide an individual percentage height.
+                $declarations[] = 'box-sizing:' . $sourceBoxSizing;
+            } elseif ( $controlOwnsHeight ) {
                 // The positioned or padded control owns this size, not its carriers.
                 $declarations[] = 'box-sizing:' . $sourceBoxSizing;
             } elseif ( LayoutParticipation::resolve($sourceControl, $this->styleResolver)->neutralizeButtonWrapper() ) {
