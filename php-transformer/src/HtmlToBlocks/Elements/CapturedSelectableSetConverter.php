@@ -10,7 +10,6 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CapturedSelectableSe
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
-use Closure;
 use DOMElement;
 
 /** Materializes a captured selectable set into the core/tabs family. */
@@ -21,16 +20,10 @@ final class CapturedSelectableSetConverter implements ElementConverter
     public const FLOW_CLASS = 'blocks-engine-tabs-flow';
     public const FLOW_LIST_LAST_CLASS = 'blocks-engine-tabs-flow-list-last';
 
-    /**
-     * @param Closure(): string $visuallyHiddenClassName
-     * @param Closure(bool): string $flowClassName Registers and returns the class that lets the tab-list and tab-panels lay out as the source's trigger row and region did.
-     */
     public function __construct(
         private readonly SourceBlockCreator $createBlock,
         private readonly ElementPresentationResolver $presentation,
         private readonly PatternTreeConverter $tree,
-        private readonly Closure $visuallyHiddenClassName,
-        private readonly Closure $flowClassName,
         private readonly HtmlTransformerSession $session
     ) {
     }
@@ -182,7 +175,7 @@ final class CapturedSelectableSetConverter implements ElementConverter
             $tabListAttributes['ariaLabel'] = $ariaLabel;
         }
         if ($hidden) {
-            $hiddenClass = trim(($this->visuallyHiddenClassName)());
+            $hiddenClass = trim($this->visuallyHiddenClassName());
             if ('' !== $hiddenClass) {
                 $tabListAttributes['className'] = trim((string) ($tabListAttributes['className'] ?? '') . ' ' . $hiddenClass);
             }
@@ -194,7 +187,7 @@ final class CapturedSelectableSetConverter implements ElementConverter
         }
         $flow = SourceDom::attr($element, CapturedSelectableSetProjector::FLOW_ATTRIBUTE);
         if (in_array($flow, array(CapturedSelectableSetProjector::FLOW_INLINE, CapturedSelectableSetProjector::FLOW_LIST_LAST), true) && ! $hidden) {
-            $tabsAttributes['className'] = trim(($this->flowClassName)(CapturedSelectableSetProjector::FLOW_LIST_LAST === $flow));
+            $tabsAttributes['className'] = trim($this->flowClassName(CapturedSelectableSetProjector::FLOW_LIST_LAST === $flow));
         }
 
         return $this->createBlock->createBlock('core/tabs', $tabsAttributes, array(
@@ -591,5 +584,29 @@ final class CapturedSelectableSetConverter implements ElementConverter
         }
 
         return null;
+    }
+
+    /** Registers and returns the class that visually hides a captured tab list. */
+    private function visuallyHiddenClassName(): string
+    {
+        $className = self::VISUALLY_HIDDEN_TABLIST_CLASS;
+        $this->session->layoutGeometryState()->registerRule($className, self::visuallyHiddenTabListCss($className));
+
+        return $className;
+    }
+
+    /**
+     * Registers and returns the class that lets the tab-list and tab-panels
+     * lay out as the source's trigger row and region did.
+     */
+    private function flowClassName(bool $listLast): string
+    {
+        $this->session->layoutGeometryState()->registerRule(self::FLOW_CLASS, self::flowCss());
+        if (! $listLast) {
+            return self::FLOW_CLASS;
+        }
+        $this->session->layoutGeometryState()->registerRule(self::FLOW_LIST_LAST_CLASS, self::flowListLastCss());
+
+        return self::FLOW_CLASS . ' ' . self::FLOW_LIST_LAST_CLASS;
     }
 }
