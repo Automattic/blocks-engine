@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssAnalysisLimits;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
@@ -120,10 +121,10 @@ final class FormPresentationGraphBuilder
         'text-align', 'text-decoration', 'text-indent', 'text-transform', 'vertical-align', 'width',
         'align-self', 'bottom', 'flex', 'flex-basis', 'flex-grow', 'flex-shrink', 'inset', 'justify-self',
         'left', 'margin-block', 'margin-inline', 'order', 'position', 'right', 'top', 'transform', 'z-index',
-        'flex-direction', 'flex-wrap', 'flex-flow', 'align-items', 'justify-content', 'gap'
+        'flex-direction', 'flex-wrap', 'flex-flow', 'align-items', 'justify-content', 'gap', 'column-gap'
     );
     /** Row distribution facts only; element presentation keeps the shared vocabulary. */
-    private const ROW_ONLY_PROPERTIES = array('column-gap', 'grid-template-columns');
+    private const ROW_ONLY_PROPERTIES = array('grid-template-columns');
 
     private array $diagnostics = array();
     /** @var array<string,true> Stylesheet facts, separate from the current element's limits. */
@@ -630,6 +631,9 @@ final class FormPresentationGraphBuilder
                     foreach ( $carried['conditional'] ?? array() as $encoded => $patch ) {
                         $conditional[$encoded] ??= array();
                     }
+                }
+                if ( 'required_marker' === $role ) {
+                    $this->carryMarkerGap($styles, $provenance, $element, $analysis['rules'], $customPropertyAnalysis['rules']);
                 }
                 if ( array() !== $styles || 'required_marker' === $role ) {
                     $row[$role] = array( 'styles' => $styles, 'provenance' => $provenance );
@@ -1652,6 +1656,64 @@ final class FormPresentationGraphBuilder
         }
         ksort($result);
         return $result;
+    }
+
+    /** Carry a horizontal flex gap across the flattened caption/marker boundary. */
+    private function carryMarkerGap(array &$styles, array &$provenance, DOMElement $marker, array $rules, array $customRules): void
+    {
+        $container = $marker->parentNode;
+        if ( ! $container instanceof DOMElement || ! $marker->previousElementSibling ) {
+            return;
+        }
+        $matched = $this->matched($container, $rules);
+        $containerStyles = $this->styles($matched['base'], $container, null, $customRules, true);
+        if ( ! in_array($containerStyles['display'] ?? '', array( 'flex', 'inline-flex' ), true)
+            || 'row' !== ($containerStyles['flex_direction'] ?? 'row')
+        ) {
+            return;
+        }
+        $property = isset($matched['base']['column-gap']) ? 'column-gap' : 'gap';
+        $gap = $containerStyles[self::key($property)] ?? '';
+        $parts = CssValueSplitter::splitTopLevelWhitespace($gap);
+        $gap = $parts[1] ?? $parts[0] ?? '';
+        if ( '' === $gap || 'normal' === $gap ) {
+            return;
+        }
+        // Font-relative lengths must use the gap container's font, not the
+        // smaller indicator's. Scale ex/ch without guessing font metrics.
+        if ( 1 === preg_match('/^([0-9.]+)(em|ex|ch)$/D', $gap, $length) ) {
+            $containerFont = $this->fontPixels($container, $rules, $customRules);
+            $markerFont = $this->fontPixels($marker, $rules, $customRules);
+            if ( 'em' === $length[2] ) {
+                $gap = CssLength::format((float) $length[1] * $containerFont);
+            } elseif ( $markerFont > 0 && $containerFont !== $markerFont ) {
+                $ratio = rtrim(rtrim(number_format($containerFont / $markerFont, 6, '.', ''), '0'), '.');
+                $gap = 'calc(' . $gap . ' * ' . $ratio . ')';
+            }
+        }
+        $styles['margin_left'] = isset($styles['margin_left']) ? 'calc(' . $styles['margin_left'] . ' + ' . $gap . ')' : $gap;
+        $provenance = array_merge($provenance, $this->provenance(array( 'margin-left' => $matched['base'][$property] ), null));
+    }
+
+    /** Resolve inherited font sizes against their own parent, not the marker. */
+    private function fontPixels(DOMElement $element, array $rules, array $customRules): float
+    {
+        $chain = array();
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $chain[] = $node;
+        }
+        $font = 16.0;
+        $root = 16.0;
+        foreach ( array_reverse($chain) as $index => $node ) {
+            $matched = $this->matched($node, $rules);
+            $styles = $this->styles(array_intersect_key($matched['base'], array( 'font-size' => true )), $node, null, $customRules, true);
+            $value = $styles['font_size'] ?? '';
+            $font = str_ends_with($value, '%') ? $font * (float) $value / 100 : (CssLength::FONT_SIZE_KEYWORDS[$value] ?? CssLength::toPx($value, $root, $font) ?? $font);
+            if ( 0 === $index ) {
+                $root = $font;
+            }
+        }
+        return $font;
     }
 
     private static function declarationKey(array $fact, string $property): string { return $fact['path'] . "\n" . $fact['selector'] . "\n" . $property; }
