@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\PublicationDate;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
 $assert = static function (bool $condition, string $message): void {
@@ -32,7 +33,6 @@ foreach (array('collection/one/index.html', 'collection/two/index.html', 'collec
 }
 WordPressSitePlan::assertValid($plan);
 
-$parse = new ReflectionMethod(WordPressSitePlan::class, 'parseVisiblePublicationTimestamp');
 $cases = array(
     'Sep 11, 2023' => '2023-09-11', '11 septembre 2023' => '2023-09-11',
     '11 sept. 2023' => '2023-09-11', '12 de julio de 2024' => '2024-07-12',
@@ -67,7 +67,7 @@ foreach ($months as $index => $forms) {
     }
 }
 foreach ($cases as $input => $expected) {
-    $actual = $parse->invoke(null, $input);
+    $actual = PublicationDate::fromVisibleText($input);
     $assert((null === $expected ? null : $expected . 'T00:00:00Z') === $actual, "Visible month: {$input}");
 }
 fwrite(STDOUT, "wordpress site plan visible month tests: passed\n");
