@@ -66,8 +66,11 @@ $assert(SvgArtworkBlockGenerator::RENDERER === ($svgPayload['blocks'][0]['render
 $source = '<a class="social" href="/profile" target="_blank" rel="noopener" aria-label="Profile"><picture class="hero"><source media="(min-width: 800px)" type="image/webp" srcset="hero,wide.webp 1200w, hero.webp 600w" sizes="100vw"><img class="avatar" src="hero.jpg" srcset="hero.jpg 1x, hero-2x.jpg 2x" sizes="100vw" width="44" height="44" alt="Profile"></picture></a>';
 $result = ( new HtmlTransformer() )->transform($source)->toArray();
 $assert('custom/responsive-media' === ($result['blocks'][0]['blockName'] ?? null), 'linked responsive media uses the companion');
-$linkedImage = ( new HtmlTransformer() )->transform('<a href="/item"><img src="item.jpg" alt="Item 1"></a>')->toArray();
-$assert('core/image' === ($linkedImage['blocks'][0]['blockName'] ?? null) && '/item' === ($linkedImage['blocks'][0]['attrs']['href'] ?? null) && 'custom' === ($linkedImage['blocks'][0]['attrs']['linkDestination'] ?? null), 'a plain image-only link promotes to core/image with its native destination');
+// Without srcset, `sizes` selects nothing, so it is no reason to leave native lowering.
+foreach (array('<a href="/item"><img src="item.jpg" alt="Item 1"></a>', '<a href="/item"><img sizes="(max-width: 600px) 100vw, 300px" src="item.jpg" alt="Item 1"></a>') as $linkedSource) {
+    $linked = ( new HtmlTransformer() )->transform($linkedSource)->toArray();
+    $assert('core/image' === ($linked['blocks'][0]['blockName'] ?? null) && '/item' === ($linked['blocks'][0]['attrs']['href'] ?? null) && 'custom' === ($linked['blocks'][0]['attrs']['linkDestination'] ?? null), 'a plain image-only link promotes to core/image with its native destination: ' . $linkedSource);
+}
 foreach (array(
     '<figure><img src="fallback.jpg" srcset="first,w_320.jpg, second,w_640.jpg" alt="Descriptorless"><figcaption>Caption</figcaption></figure>',
 ) as $plainSource) {
