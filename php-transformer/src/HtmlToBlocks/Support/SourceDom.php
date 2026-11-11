@@ -783,6 +783,43 @@ final class SourceDom
         $parent->removeChild($element);
     }
 
+    public static function hasDirectText(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @return list<string> */
+    public static function directChildTags(DOMElement $element): array
+    {
+        $tags = array();
+        foreach ($element->childNodes as $child) {
+            if (! $child instanceof DOMElement) continue;
+            $tag = strtolower($child->tagName);
+            $tags[] = 'svg' === $tag ? 'img' : $tag;
+        }
+        return $tags;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<int, array<string, mixed>>
+     */
+    public static function hasWordPressTemplateParts(DOMElement $root): bool
+    {
+        $areas = array();
+        foreach ($root->childNodes as $child) {
+            if (!$child instanceof DOMElement) continue;
+            if (in_array('wp-block-template-part', preg_split('/\s+/', trim($child->getAttribute('class'))) ?: array(), true)) $areas[strtolower($child->tagName)] = true;
+        }
+        return isset($areas['header'], $areas['footer']);
+    }
+
     /**
      * Unwraps links whose only content is line breaks: an image link whose
      * image was deleted (`<a href="photo.jpg"><br></a>`, common in Blogger
