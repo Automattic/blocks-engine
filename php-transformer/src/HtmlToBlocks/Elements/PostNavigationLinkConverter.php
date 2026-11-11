@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use DOMElement;
@@ -17,7 +18,7 @@ final class PostNavigationLinkConverter implements ElementConverter
     /** @param array<int, array<string, mixed>> $fallbacks */
     public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
-        $classes = preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array();
+        $classes = SourceDom::tokens($element->getAttribute('class'));
         if (in_array('wp-block-post-navigation-link', $classes, true)) {
             foreach ($element->getElementsByTagName('a') as $link) {
                 if (!in_array($link->getAttribute('rel'), array('prev', 'next'), true)) continue;
@@ -32,7 +33,7 @@ final class PostNavigationLinkConverter implements ElementConverter
                 // The arrow modifier sits on the arrow span; older markup carries it on the wrapper.
                 $arrow = 'none';
                 foreach (array_merge(array($element), iterator_to_array($element->getElementsByTagName('span'))) as $node) {
-                    $nodeClasses = preg_split('/\s+/', trim($node->getAttribute('class'))) ?: array();
+                    $nodeClasses = SourceDom::tokens($node->getAttribute('class'));
                     if ($node !== $element && array() === preg_grep('/^wp-block-post-navigation-link__arrow-/', $nodeClasses)) continue;
                     if (in_array('is-arrow-arrow', $nodeClasses, true)) $arrow = 'arrow';
                     elseif (in_array('is-arrow-chevron', $nodeClasses, true)) $arrow = 'chevron';
@@ -43,7 +44,7 @@ final class PostNavigationLinkConverter implements ElementConverter
                 // classes) so authored rules still reach the native block.
                 $attrs = $this->styleResolver->presentationAttributes($element);
                 $type = 'prev' === $link->getAttribute('rel') ? 'previous' : 'next';
-                $ownClasses = array_diff(preg_split('/\s+/', trim(($attrs['className'] ?? '') . ' ' . implode(' ', $classes))) ?: array(), array('', 'wp-block-post-navigation-link', 'post-navigation-link-' . $type, 'is-arrow-arrow', 'is-arrow-chevron'));
+                $ownClasses = array_diff(SourceDom::tokens(($attrs['className'] ?? '') . ' ' . implode(' ', $classes)), array('', 'wp-block-post-navigation-link', 'post-navigation-link-' . $type, 'is-arrow-arrow', 'is-arrow-chevron'));
                 unset($attrs['className']);
                 if (array() !== $ownClasses) $attrs['className'] = implode(' ', array_unique($ownClasses));
                 return ConversionOutcome::handled($this->createBlock->createBlock('core/post-navigation-link', array_merge($attrs, array('type' => $type, 'showTitle' => null !== $title, 'arrow' => $arrow, 'label' => trim($label)), null !== $title && '' !== trim($label) ? array('linkLabel' => true) : array()), array(), $element));

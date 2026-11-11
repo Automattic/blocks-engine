@@ -27,7 +27,7 @@ final class SourceElementVisibility
     private function capturedDialogHasReachableTrigger(DOMElement $dialog): bool
     {
         $document = $dialog->ownerDocument;
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($dialog, 'data-blocks-engine-triggers'))) ?: array() as $id ) {
+        foreach ( SourceDom::tokens(SourceDom::attr($dialog, 'data-blocks-engine-triggers')) as $id ) {
             $trigger = '' !== $id && null !== $document ? $document->getElementById($id) : null;
             if ( ! $trigger instanceof DOMElement ) {
                 continue;

@@ -98,7 +98,7 @@ final class NavigationToggleSuppressor
                 continue;
             }
 
-            foreach ( preg_split('/\s+/', trim(SourceDom::attr($control, 'aria-controls'))) ?: array() as $controlledId ) {
+            foreach ( SourceDom::tokens(SourceDom::attr($control, 'aria-controls')) as $controlledId ) {
                 $target = $elementsById[ltrim($controlledId, '#')] ?? null;
                 if ( ! $target instanceof DOMElement || $this->isInsideOwnDisclosurePanel($control, $target) ) {
                     continue;
@@ -602,7 +602,7 @@ final class NavigationToggleSuppressor
         if ( ! $toggle instanceof DOMElement ) {
             return array();
         }
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($toggle, 'aria-controls'))) ?: array() as $controlledId ) {
+        foreach ( SourceDom::tokens(SourceDom::attr($toggle, 'aria-controls')) as $controlledId ) {
             $panel = '' === trim($controlledId) ? null : $this->elementWithId($toggle, ltrim(trim($controlledId), '#'));
             if ( ! $panel instanceof DOMElement || $panel->isSameNode($navigation) || ! SourceDom::elementContains($panel, $navigation) ) {
                 continue;
@@ -651,7 +651,7 @@ final class NavigationToggleSuppressor
         }
 
         $controlledPanels = array();
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($control, 'aria-controls'))) ?: array() as $controlledId ) {
+        foreach ( SourceDom::tokens(SourceDom::attr($control, 'aria-controls')) as $controlledId ) {
             $target = '' === trim($controlledId) ? null : $this->elementWithId($control, trim($controlledId));
             if ( $target instanceof DOMElement && ! $target->isSameNode($control) ) {
                 $controlledPanels[] = $target;
@@ -930,7 +930,7 @@ final class NavigationToggleSuppressor
     {
         $this->recordSupersededSelectorsForElement($toggle);
 
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($toggle, 'aria-controls'))) ?: array() as $controlledId ) {
+        foreach ( SourceDom::tokens(SourceDom::attr($toggle, 'aria-controls')) as $controlledId ) {
             $controlledId = ltrim(trim($controlledId), '#');
             if ( '' === $controlledId ) {
                 continue;
@@ -1012,7 +1012,7 @@ final class NavigationToggleSuppressor
             $this->session->runtimeSelectorState()->supersede('#' . $id);
         }
 
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $class ) {
+        foreach ( SourceDom::tokens(SourceDom::attr($element, 'class')) as $class ) {
             if ( '' !== $class ) {
                 $this->session->runtimeSelectorState()->supersede('.' . $class);
             }
@@ -1066,7 +1066,7 @@ final class NavigationToggleSuppressor
         // Explicit ownership outranks icon shape and nearby menus. A search
         // expander (or any other non-navigation disclosure) must not borrow a
         // sibling menu merely because its button has no visible text.
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'aria-controls'))) ?: array() as $controlledId ) {
+        foreach ( SourceDom::tokens(SourceDom::attr($element, 'aria-controls')) as $controlledId ) {
             $panel = '' === $controlledId ? null : $this->elementWithId($element, $controlledId);
             if ( $panel instanceof DOMElement && ! $panel->isSameNode($element) && ! $this->panelHoldsNavigation($panel) ) {
                 return false;
@@ -1515,7 +1515,7 @@ final class NavigationToggleSuppressor
      */
     private function hasAssociatedNavigationMenu(DOMElement $toggle): bool
     {
-        $controlledIds = preg_split('/\s+/', trim(SourceDom::attr($toggle, 'aria-controls'))) ?: array();
+        $controlledIds = SourceDom::tokens(SourceDom::attr($toggle, 'aria-controls'));
         foreach ( $controlledIds as $controlledId ) {
             if ( '' === $controlledId ) {
                 continue;
@@ -1700,7 +1700,7 @@ final class NavigationToggleSuppressor
                 return $this->concreteToggleControl($toggle);
             }
 
-            foreach ( preg_split('/\s+/', trim(SourceDom::attr($toggle, 'aria-controls'))) ?: array() as $controlledId ) {
+            foreach ( SourceDom::tokens(SourceDom::attr($toggle, 'aria-controls')) as $controlledId ) {
                 $target = '' === $controlledId ? null : $this->elementWithId($toggle, $controlledId);
                 if ( $target instanceof DOMElement
                     && (SourceDom::elementContains($target, $navigation) || SourceDom::elementContains($navigation, $target))

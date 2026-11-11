@@ -77,7 +77,7 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
             return true;
         }
 
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $class ) {
+        foreach ( SourceDom::tokens(SourceDom::attr($element, 'class')) as $class ) {
             if ( '' !== $class && $this->session->runtimeSelectorState()->hasDom('.' . $class) && ! $this->isPresentationalRuntimeSelector('.' . $class) ) {
                 return true;
             }
@@ -125,7 +125,7 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
         $selectors = array();
         $id = trim(SourceDom::attr($element, 'id'));
         if ( '' !== $id && $this->session->runtimeSelectorState()->hasDom('#' . $id) ) $selectors[] = '#' . $id;
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $class ) if ( '' !== $class && $this->session->runtimeSelectorState()->hasDom('.' . $class) ) $selectors[] = '.' . $class;
+        foreach ( SourceDom::tokens(SourceDom::attr($element, 'class')) as $class ) if ( '' !== $class && $this->session->runtimeSelectorState()->hasDom('.' . $class) ) $selectors[] = '.' . $class;
         foreach ( array_keys($this->session->runtimeSelectorState()->domSelectors()) as $selector ) {
             if ( str_starts_with((string) $selector, '.') || str_starts_with((string) $selector, '#') || strtolower((string) $selector) === strtolower($element->tagName) ) continue;
             if ( ! $this->isPresentationalRuntimeSelector((string) $selector) && $this->elementMatchesRuntimeSelector($element, (string) $selector) ) $selectors[] = (string) $selector;

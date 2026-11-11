@@ -93,7 +93,7 @@ final class RichTextStylingHookNormalizer
         $body = '{' . implode(';', $owned) . '}';
         $className = $this->session->layoutGeometryState()->allocateCarrier('rich-text-link-owned' . "\n" . $body);
         $this->session->layoutGeometryState()->registerRule($className, 'a.' . $className . $body);
-        $classes = preg_split('/\s+/', trim(SourceDom::attr($anchor, 'class'))) ?: array();
+        $classes = SourceDom::tokens(SourceDom::attr($anchor, 'class'));
         $classes[] = $className;
         $anchor->setAttribute('class', implode(' ', array_values(array_unique(array_filter($classes)))));
         if (array() === $inline) {

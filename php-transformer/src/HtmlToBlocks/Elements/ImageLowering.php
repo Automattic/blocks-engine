@@ -785,7 +785,7 @@ final class ImageLowering
 
     private function nonCoreImageClassName(DOMElement $image): string
     {
-        $classes = array_filter(preg_split('/\s+/', trim(SourceDom::attr($image, 'class'))) ?: array(), static function (string $className): bool {
+        $classes = array_filter(SourceDom::tokens(SourceDom::attr($image, 'class')), static function (string $className): bool {
             return ! preg_match('/^(?:wp-image-\d+|size-[a-z0-9_-]+)$/i', $className);
         });
 
@@ -794,7 +794,7 @@ final class ImageLowering
 
     private function nonCoreImageFigureClassName(DOMElement $figure): string
     {
-        $classes = array_filter(preg_split('/\s+/', trim(SourceDom::attr($figure, 'class'))) ?: array(), static function (string $className): bool {
+        $classes = array_filter(SourceDom::tokens(SourceDom::attr($figure, 'class')), static function (string $className): bool {
             return ! preg_match('/^(?:wp-block-image|size-[a-z0-9_-]+)$/i', $className);
         });
 

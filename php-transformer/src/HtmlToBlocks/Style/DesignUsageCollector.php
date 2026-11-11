@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssFontShorthand;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
@@ -574,7 +575,7 @@ final class DesignUsageCollector
      */
     private function recordClassStyles(DOMElement $element, array $declarations, ?float $parentPx, float $fontPx, bool $parentSizeConditional = false): void
     {
-        $classes = array_values(array_unique(array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn(string $class): bool => '' !== $class)));
+        $classes = array_values(array_unique(array_filter(SourceDom::tokens($element->getAttribute('class')), static fn(string $class): bool => '' !== $class)));
         if (array() === $classes) return;
         sort($classes, SORT_STRING);
         $key = implode(' ', $classes);

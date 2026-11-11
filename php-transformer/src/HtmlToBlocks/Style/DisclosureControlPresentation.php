@@ -263,7 +263,7 @@ final class DisclosureControlPresentation
             if ( in_array($display, array('flex', 'inline-flex'), true) && in_array($direction, array('row', ''), true) ) {
                 $gap = trim((string) ($declarations['column-gap'] ?? ''));
                 if ( '' === $gap ) {
-                    $parts = preg_split('/\s+/', trim((string) ($declarations['gap'] ?? ''))) ?: array();
+                    $parts = SourceDom::tokens((string) ($declarations['gap'] ?? ''));
                     $gap = (string) end($parts);
                 }
                 if ( '' !== $gap && 'normal' !== strtolower($gap) ) {

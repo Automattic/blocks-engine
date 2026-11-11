@@ -39,7 +39,7 @@ final class CapturedNavigationPanels
                 $projectedWrapper = $panel->hasAttribute(CaptureEvidence::RESTING_PANEL)
                     && SourceDom::hasClass($panel, 'wp-block-navigation__responsive-container')
                     && is_string($restingClass)
-                    && in_array('wp-block-navigation__responsive-container', preg_split('/\s+/', trim($restingClass)) ?: array(), true);
+                    && in_array('wp-block-navigation__responsive-container', SourceDom::tokens($restingClass), true);
                 $native = $projectedWrapper ? $panel : $panel->firstElementChild;
                 if ( '' === $id || ! $native instanceof DOMElement
                     || ($native !== $panel && 1 !== $panel->childElementCount)

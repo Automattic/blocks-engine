@@ -62,7 +62,7 @@ final class CapturedMenuDialogFold
                 continue;
             }
             $triggers = array();
-            foreach ( preg_split('/\s+/', trim($dialog->getAttribute('data-blocks-engine-triggers'))) ?: array() as $id ) {
+            foreach ( SourceDom::tokens($dialog->getAttribute('data-blocks-engine-triggers')) as $id ) {
                 $trigger = '' === $id ? null : $document->getElementById($id);
                 if ( $trigger instanceof DOMElement ) {
                     $triggers[] = $trigger;

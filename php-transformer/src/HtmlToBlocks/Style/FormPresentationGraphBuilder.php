@@ -1313,7 +1313,7 @@ final class FormPresentationGraphBuilder
     private function captionElement(DOMElement $group, DOMElement $form): ?DOMElement
     {
         $document = $group->ownerDocument;
-        foreach ( preg_split('/\s+/', trim($group->getAttribute('aria-labelledby'))) ?: array() as $id ) {
+        foreach ( SourceDom::tokens($group->getAttribute('aria-labelledby')) as $id ) {
             $target = '' !== $id && $document instanceof DOMDocument ? $document->getElementById($id) : null;
             if ( ! $target instanceof DOMElement || $target->isSameNode($group) ) continue;
             if ( FormControlClassifier::isControlElement($target) || array() !== FormControlClassifier::controlElements($target) ) continue;

@@ -277,7 +277,7 @@ final class RouteStateProjector
                     // A class token every current copy has and no resting copy
                     // has (or the reverse) is route state, even when another
                     // route's copy differs in its other tokens.
-                    $tokens = static fn(array $values): array => array_map(static fn(?string $value): array => preg_split('/\s+/', trim((string) $value)) ?: array(), $values);
+                    $tokens = static fn(array $values): array => array_map(static fn(?string $value): array => SourceDom::tokens((string) $value), $values);
                     $marks = static fn(array $own, array $other): array => array_diff(array_intersect(...array_merge($own, array(array_merge(...$own)))), array_merge(...$other));
                     $paired = 'class' === $name
                         ? array() !== $marks($tokens($active), $tokens($rest)) || array() !== $marks($tokens($rest), $tokens($active))
@@ -371,7 +371,7 @@ final class RouteStateProjector
 
     private static function sortedClasses(string $classes): string
     {
-        $list = preg_split('/\s+/', trim($classes)) ?: array();
+        $list = SourceDom::tokens($classes);
         sort($list, SORT_STRING);
         return implode(' ', array_unique($list));
     }
@@ -602,7 +602,7 @@ final class RouteStateProjector
         foreach ($carriers as $index => $file) {
             $content = preg_replace_callback('/(\sclass\s*=\s*)(["\'])(.*?)\2/is', static function (array $match) use ($prefix, $aliasPattern, $isStyled): string {
                 if (!str_contains($match[3], $prefix)) return $match[0];
-                $classes = preg_split('/\s+/', trim($match[3])) ?: array();
+                $classes = SourceDom::tokens($match[3]);
                 $kept = array_values(array_filter($classes, static fn(string $class): bool => !preg_match($aliasPattern, $class) || $isStyled($class)));
                 return $kept === $classes ? $match[0] : $match[1] . $match[2] . implode(' ', $kept) . $match[2];
             }, $file['content']);
@@ -1052,6 +1052,6 @@ final class RouteStateProjector
     /** @return list<string> */
     private static function classes(DOMElement $element): array
     {
-        return array_values(array_unique(array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn(string $class): bool => '' !== $class)));
+        return array_values(array_unique(array_filter(SourceDom::tokens($element->getAttribute('class')), static fn(string $class): bool => '' !== $class)));
     }
 }

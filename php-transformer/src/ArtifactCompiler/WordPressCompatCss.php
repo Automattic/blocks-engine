@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Css\ClassAttributeSelectorProjection;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CoreSelectorScoping;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
@@ -444,7 +445,7 @@ final class WordPressCompatCss
         foreach ( $scriptContents as $script ) {
             if ( preg_match_all('/\$\(\s*(["\'])(?:body|html)\1\s*\)\s*\.\s*addClass\s*\(\s*(["\'])([^"\']+)\2\s*\)/', $script, $matches) ) {
                 foreach ( $matches[3] as $classList ) {
-                    foreach ( preg_split('/\s+/', trim((string) $classList)) ?: array() as $class ) {
+                    foreach ( SourceDom::tokens((string) $classList) as $class ) {
                         if ( preg_match('/^[A-Za-z_][A-Za-z0-9_-]*$/', $class) ) {
                             $added[$class] = true;
                         }

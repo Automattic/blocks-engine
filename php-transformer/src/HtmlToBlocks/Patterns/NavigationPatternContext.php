@@ -858,7 +858,7 @@ final class NavigationPatternContext
             foreach ($items as $block) {
                 if (!in_array($block['blockName'] ?? '', array('core/navigation-link', 'core/navigation-submenu'), true)) continue;
                 $item = $parent . '>.wp-block-navigation-item:nth-child(' . (++$position) . ')';
-                foreach (preg_split('/\s+/', trim($block['attrs']['className'] ?? '')) ?: array() as $marker) {
+                foreach (SourceDom::tokens($block['attrs']['className'] ?? '') as $marker) {
                     if (!str_starts_with($marker, 'blocks-engine-navigation-')) continue;
                     $targets[$marker][$item] = true;
                 }
@@ -960,7 +960,7 @@ final class NavigationPatternContext
         for ($node = $source; $node instanceof DOMElement; $node = $node->parentNode) {
             $tag = strtolower($node->tagName);
             if (in_array($tag, array('html', 'body'), true)) break;
-            $classes = preg_split('/\s+/', trim($node->getAttribute('class'))) ?: array();
+            $classes = SourceDom::tokens($node->getAttribute('class'));
             $classes = array_values(array_filter($classes, static fn(string $class): bool => '' !== $class && !str_starts_with($class, 'blocks-engine-') && !$projections->isCurrentNavigationClass($class, $node) && !$projections->selectsCurrentNavigationState('.' . $class, $node)));
             sort($classes);
             $role = SourceDom::role($node);
@@ -1035,7 +1035,7 @@ final class NavigationPatternContext
         $presentation = array();
         $strip = function (array &$items, string $level) use (&$strip, &$presentation): void {
             foreach ($items as &$item) {
-                $classes = preg_split('/\s+/', trim((string) ($item['attrs']['className'] ?? ''))) ?: array();
+                $classes = SourceDom::tokens((string) ($item['attrs']['className'] ?? ''));
                 foreach ($classes as $index => $class) {
                     if (!isset($this->currentItemPresentation[$class])) continue;
                     unset($classes[$index]);
@@ -1266,7 +1266,7 @@ final class NavigationPatternContext
             $peerAnchor = $item->isSameNode($anchor) ? $peer : ($peer->getElementsByTagName($anchor->tagName)->item(0));
             if ($peerAnchor instanceof DOMElement) $peerAnchors[] = $peerAnchor;
         }
-        $classes = static fn(DOMElement $element): array => array_values(array_unique(array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn(string $class): bool => '' !== $class)));
+        $classes = static fn(DOMElement $element): array => array_values(array_unique(array_filter(SourceDom::tokens($element->getAttribute('class')), static fn(string $class): bool => '' !== $class)));
         $restingClasses = array();
         $own = static function (DOMElement $element, array $peers) use ($classes, &$restingClasses): array {
             $lists = array();
@@ -1415,7 +1415,7 @@ final class NavigationPatternContext
             }
         }
         $projections = $this->session->authorSelectorProjectionState();
-        $classes = preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array();
+        $classes = SourceDom::tokens($element->getAttribute('class'));
         $classes = array_values(array_filter(array_diff($classes, SourceClassIdentity::routeState($element)), static fn(string $class): bool => !$projections->isCurrentNavigationClass($class, $element) && !$projections->selectsCurrentNavigationState('.' . $class, $element)));
         // Core's submenu row can require a different rendered display from
         // ordinary links even when their source declarations are identical.
@@ -2117,7 +2117,7 @@ final class NavigationPatternContext
     {
         if (!$this->sourceTargetProjection instanceof SourceTargetProjectionState) return;
         $root = $source->getNodePath() ?? '';
-        $classes = preg_split('/\s+/', trim((string) ($block['attrs']['className'] ?? ''))) ?: array();
+        $classes = SourceDom::tokens((string) ($block['attrs']['className'] ?? ''));
         foreach ($this->pendingInheritedPresentations as $index => $pending) {
             // The correspondence is rooted at the list, while the recovered
             // inheritance may belong to its enclosing landmark.

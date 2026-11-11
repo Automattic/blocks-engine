@@ -1740,7 +1740,7 @@ final class StyleResolver implements ElementPresentationResolver
         if ( '' !== $id && 1 === preg_match('/#' . preg_quote($id, '/') . '(?![\w-])/', $selector) ) {
             return true;
         }
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $className ) {
+        foreach ( SourceDom::tokens(SourceDom::attr($element, 'class')) as $className ) {
             if ( '' !== $className && 1 === preg_match('/' . CssIdent::classSelectorRegex($className) . '(?![\w-])/', $selector) ) {
                 return true;
             }
@@ -3495,7 +3495,7 @@ final class StyleResolver implements ElementPresentationResolver
     {
         $classes = array();
         foreach ($classNames as $className) {
-            foreach (preg_split('/\s+/', trim($className)) ?: array() as $class) {
+            foreach (SourceDom::tokens($className) as $class) {
                 if ('' !== $class && ! in_array($class, $classes, true)) {
                     $classes[] = $class;
                 }
@@ -6529,8 +6529,8 @@ final class StyleResolver implements ElementPresentationResolver
         $rows = json_decode($dialog->getAttribute('data-blocks-engine-ancestor-state'), true);
         $classes = array();
         foreach ( is_array($rows) ? $rows : array() as $row ) {
-            $opened = preg_split('/\s+/', trim((string) ( $row['opened']['class'] ?? '' ))) ?: array();
-            $closed = preg_split('/\s+/', trim((string) ( $row['closed']['class'] ?? '' ))) ?: array();
+            $opened = SourceDom::tokens((string) ( $row['opened']['class'] ?? '' ));
+            $closed = SourceDom::tokens((string) ( $row['closed']['class'] ?? '' ));
             foreach ( array_diff($opened, $closed) as $class ) {
                 if ( 1 === preg_match('/^-?[_a-zA-Z][\w-]*$/', $class) ) {
                     $classes[] = $class;
@@ -6761,7 +6761,7 @@ final class StyleResolver implements ElementPresentationResolver
 
     public function presentationClassName(string $className): string
     {
-        $classes = preg_split('/\s+/', trim($className)) ?: array();
+        $classes = SourceDom::tokens($className);
         $classes = array_filter($classes, fn (string $class): bool => '' !== $class
             && (! self::isBehaviorHookClassName($class) || $this->hasAuthorClassSelector($class))
             && ! GeneratedGutenbergClassPolicy::isGeneratedClassName($class)
@@ -6776,7 +6776,7 @@ final class StyleResolver implements ElementPresentationResolver
             return $this->presentationClassName($className);
         }
 
-        $classes = preg_split('/\s+/', trim($className)) ?: array();
+        $classes = SourceDom::tokens($className);
         foreach ( $classes as $class ) {
             foreach ( $this->session->sourceStyleResolutionState()->classPromotions($class) as $terminalClass ) {
                 if ( ! in_array($terminalClass, $classes, true) ) {

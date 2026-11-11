@@ -218,7 +218,7 @@ final class RuntimeDependencyParityReport
             if (!isset($scopedTargets[$scopeKey])) {
                 $scopedTargets[$scopeKey] = $this->withBlockCommentAnchorTargets($this->htmlTargets((string) $document->saveHTML($scope)), (string) $document->saveHTML($scope));
             }
-            foreach (preg_split('/\s+/', trim($control->getAttribute('aria-controls'))) ?: array() as $id) {
+            foreach (SourceDom::tokens($control->getAttribute('aria-controls')) as $id) {
                 if ('' === $id || !isset($sourceTargets['#' . $id]) || isset($scopedTargets[$scopeKey]['ids'][$id])) continue;
                 // Like an id the source never had: when the same source document
                 // scope has no such target (a phone popup built only when it
@@ -277,7 +277,7 @@ final class RuntimeDependencyParityReport
     {
         $device = trim(EngineMarker::deviceScopeValue($root));
         if ('' !== $device && $root->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE)) return 'device:' . $device;
-        foreach (preg_split('/\s+/', trim($root->getAttribute('class'))) ?: array() as $class) {
+        foreach (SourceDom::tokens($root->getAttribute('class')) as $class) {
             if (null !== DocumentVariantIds::suffixForClass($class)) return 'class:' . $class;
         }
         return null;
@@ -817,7 +817,7 @@ final class RuntimeDependencyParityReport
             if ( '' !== $id ) {
                 $targets['#' . $id] = array_filter(array('tag' => $tag, 'source_path' => $sourcePath, 'id' => $id, 'src' => $src), static fn (string $value): bool => '' !== $value);
             }
-            foreach ( preg_split('/\s+/', trim($element->hasAttribute('class') ? $element->getAttribute('class') : '')) ?: array() as $class ) {
+            foreach ( SourceDom::tokens($element->hasAttribute('class') ? $element->getAttribute('class') : '') as $class ) {
                 if ( '' !== $class ) {
                     $targets['.' . $class] = array_filter(array('tag' => $tag, 'source_path' => $sourcePath, 'class' => $class, 'src' => $src), static fn (string $value): bool => '' !== $value);
                     $targets[$tag . '.' . $class] = array_filter(array('tag' => $tag, 'source_path' => $sourcePath, 'class' => $class, 'src' => $src), static fn (string $value): bool => '' !== $value);
@@ -892,7 +892,7 @@ final class RuntimeDependencyParityReport
         }
         if ( preg_match_all('/\sclass\s*=\s*(["\'])(.*?)\1/is', $html, $matches) ) {
             foreach ( $matches[2] as $classList ) {
-                foreach ( preg_split('/\s+/', trim(html_entity_decode((string) $classList, ENT_QUOTES | ENT_HTML5, 'UTF-8'))) ?: array() as $class ) {
+                foreach ( SourceDom::tokens(html_entity_decode((string) $classList, ENT_QUOTES | ENT_HTML5, 'UTF-8')) as $class ) {
                     if ( '' !== $class ) {
                         $targets['classes'][$class] = true;
                     }
@@ -904,7 +904,7 @@ final class RuntimeDependencyParityReport
                 $tag = strtolower((string) $element[1]);
                 $attrs = (string) $element[2];
                 if ( preg_match('/\sclass\s*=\s*(["\'])(.*?)\1/is', $attrs, $classMatch) ) {
-                    foreach ( preg_split('/\s+/', trim(html_entity_decode((string) $classMatch[2], ENT_QUOTES | ENT_HTML5, 'UTF-8'))) ?: array() as $class ) {
+                    foreach ( SourceDom::tokens(html_entity_decode((string) $classMatch[2], ENT_QUOTES | ENT_HTML5, 'UTF-8')) as $class ) {
                         if ( '' !== $class ) {
                             $targets['selectors'][$tag . '.' . $class] = true;
                         }

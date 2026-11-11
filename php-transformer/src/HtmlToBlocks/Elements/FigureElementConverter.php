@@ -98,7 +98,7 @@ final class FigureElementConverter implements ElementConverter
      */
     private static function restoreSavedTableClasses(DOMElement $figure): void
     {
-        $classes = preg_split('/\s+/', trim($figure->getAttribute('class'))) ?: array();
+        $classes = SourceDom::tokens($figure->getAttribute('class'));
         if ( ! in_array('wp-block-table', $classes, true) ) {
             return;
         }
@@ -133,7 +133,7 @@ final class FigureElementConverter implements ElementConverter
         if ( array() === $moved ) {
             return;
         }
-        $tableClasses = preg_split('/\s+/', trim($table->getAttribute('class'))) ?: array();
+        $tableClasses = SourceDom::tokens($table->getAttribute('class'));
         $table->setAttribute('class', implode(' ', array_values(array_unique(array_filter(array_merge($moved, $tableClasses), static fn (string $class): bool => '' !== $class)))));
         $figure->setAttribute('class', implode(' ', $kept));
     }

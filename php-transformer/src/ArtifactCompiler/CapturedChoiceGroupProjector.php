@@ -633,7 +633,7 @@ final class CapturedChoiceGroupProjector
 
     private function isResponsiveDocumentWrapper(DOMElement $element): bool
     {
-        foreach (preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $class) {
+        foreach (SourceDom::tokens($element->getAttribute('class')) as $class) {
             if (str_starts_with($class, 'site-document-variant-') || in_array($class, array(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, CaptureEvidence::MOBILE_DOCUMENT_CLASS), true)) {
                 return true;
             }

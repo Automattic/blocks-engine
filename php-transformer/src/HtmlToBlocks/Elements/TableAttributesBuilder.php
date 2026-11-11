@@ -128,7 +128,7 @@ final class TableAttributesBuilder
     /** @return list<string> */
     private static function classTokens(DOMElement $element): array
     {
-        return array_values(array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn (string $class): bool => '' !== $class));
+        return array_values(array_filter(SourceDom::tokens($element->getAttribute('class')), static fn (string $class): bool => '' !== $class));
     }
 
     private function registerTablePresentationNormalization(DOMElement $table): void

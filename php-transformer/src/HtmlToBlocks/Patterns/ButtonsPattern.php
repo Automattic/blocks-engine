@@ -712,7 +712,7 @@ final class ButtonsPattern
     /** Whether a class list holds a class that is neither an engine marker nor generated geometry. */
     private function hasAuthoredClass(string $classes): bool
     {
-        foreach ( preg_split('/\s+/', trim($classes)) ?: array() as $class ) {
+        foreach ( SourceDom::tokens($classes) as $class ) {
             if ( '' !== $class && ! str_starts_with($class, 'blocks-engine-') && ! str_starts_with($class, 'be-') ) {
                 return true;
             }
@@ -738,7 +738,7 @@ final class ButtonsPattern
             if ( str_contains($tag, 'blocks-engine-richtext-marker') || 1 !== preg_match('/\bclass\s*=\s*(["\'])(.*?)\1/is', $tag, $class) ) {
                 continue;
             }
-            foreach ( preg_split('/\s+/', trim(html_entity_decode($class[2], ENT_QUOTES | ENT_HTML5, 'UTF-8'))) ?: array() as $token ) {
+            foreach ( SourceDom::tokens(html_entity_decode($class[2], ENT_QUOTES | ENT_HTML5, 'UTF-8')) as $token ) {
                 if ( '' !== $token && ! str_starts_with($token, 'blocks-engine-') && ! str_starts_with($token, 'be-') ) {
                     $classes[$token] = true;
                 }
@@ -767,7 +767,7 @@ final class ButtonsPattern
             return false;
         }
         foreach ( $anchor->getElementsByTagName('*') as $descendant ) {
-            foreach ( preg_split('/\s+/', trim($descendant->getAttribute('class'))) ?: array() as $class ) {
+            foreach ( SourceDom::tokens($descendant->getAttribute('class')) as $class ) {
                 if ( '' !== $class && isset($emitted[$class]) ) {
                     return true;
                 }
@@ -954,9 +954,9 @@ final class ButtonsPattern
     /** @param array<string, mixed> $attrs */
     private function removeSourceControlClasses(array &$attrs, DOMElement $element): void
     {
-        $sourceClasses = preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array();
+        $sourceClasses = SourceDom::tokens($element->getAttribute('class'));
         $classes = array_filter(
-            preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array(),
+            SourceDom::tokens((string) ($attrs['className'] ?? '')),
             static fn (string $class): bool => ! in_array($class, $sourceClasses, true)
         );
         if ( array() === $classes ) {

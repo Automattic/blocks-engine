@@ -538,7 +538,7 @@ final class AuthorSelectorProjectionState
             if ( 1 !== preg_match('/\sclass="([^"]*)"/i', $tag[2], $class) ) {
                 return '<' . $tag[1] . ' class="' . implode(' ', $classes) . '"' . $tag[2] . '>';
             }
-            $tokens = array_filter(preg_split('/\s+/', trim($class[1])) ?: array(), static fn (string $token): bool => '' !== $token);
+            $tokens = array_filter(SourceDom::tokens($class[1]), static fn (string $token): bool => '' !== $token);
             return '<' . $tag[1] . str_replace($class[0], ' class="' . implode(' ', array_unique(array_merge($tokens, $classes))) . '"', $tag[2]) . '>';
         }, $html) ?? $html;
     }
@@ -570,7 +570,7 @@ final class AuthorSelectorProjectionState
             }
             $expected = array( EngineMarker::roleClass($marker), ...EngineMarker::subjectClasses($carrier['tag'], array_map('strval', array_keys($carrier['classes']))) );
             foreach ( $tags[0] as $tag ) {
-                $classes = 1 === preg_match('/\sclass="([^"]*)"/i', $tag, $class) ? preg_split('/\s+/', trim($class[1])) ?: array() : array();
+                $classes = 1 === preg_match('/\sclass="([^"]*)"/i', $tag, $class) ? SourceDom::tokens($class[1]) : array();
                 if ( array() !== array_diff($expected, $classes) ) {
                     continue 2;
                 }
@@ -716,7 +716,7 @@ final class AuthorSelectorProjectionState
             return;
         }
         $this->imageFigures[$path] = array(
-            'classes' => array_values(array_filter(preg_split('/\s+/', trim($className)) ?: array(), static fn (string $class): bool => '' !== $class)),
+            'classes' => array_values(array_filter(SourceDom::tokens($className), static fn (string $class): bool => '' !== $class)),
             'anchor' => $anchor,
             'linked' => $linked,
             'leafMarker' => $leafMarker,

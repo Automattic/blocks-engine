@@ -67,7 +67,7 @@ final class SourceDocumentEnvelope
         if ( ! preg_match('/<html\b[^>]*\bclass\s*=\s*(["\'])(.*?)\1/is', $html, $match) ) {
             return '';
         }
-        $classes = preg_split('/\s+/', trim(html_entity_decode($match[2], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'))) ?: array();
+        $classes = SourceDom::tokens(html_entity_decode($match[2], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'));
         if ( in_array('dark', $classes, true) ) {
             return 'dark';
         }
@@ -91,6 +91,6 @@ final class SourceDocumentEnvelope
             return array();
         }
 
-        return array_values(array_filter(array_unique(preg_split('/\s+/', trim(SourceDom::attr($body, 'class'))) ?: array())));
+        return array_values(array_filter(array_unique(SourceDom::tokens(SourceDom::attr($body, 'class')))));
     }
 }

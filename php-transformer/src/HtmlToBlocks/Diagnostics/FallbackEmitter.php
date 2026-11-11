@@ -718,7 +718,7 @@ final class FallbackEmitter
             return true;
         }
 
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $class ) {
+        foreach ( SourceDom::tokens(SourceDom::attr($element, 'class')) as $class ) {
             if ( '' !== $class && $this->runtimeSelectors()->hasCanvas('.' . $class) ) {
                 return true;
             }
