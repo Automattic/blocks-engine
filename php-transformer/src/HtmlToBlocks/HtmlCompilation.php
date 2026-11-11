@@ -677,9 +677,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         );
         $this->formRuntimeIslandRecorder = new FormRuntimeIslandRecorder(
             $formControlMetadataBuilder,
-            function (DOMElement $element, string $kind, string $reason, string $capability, array $metadata): void {
-                $this->runtimeIslands->recordRuntimeIsland($element, $kind, $reason, $capability, $metadata);
-            },
+            $this->runtimeIslands->recordRuntimeIsland(...),
             $this->session
         );
         $this->readableFormControlBlockConverter = new ReadableFormControlBlockConverter(
@@ -1056,9 +1054,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     {
         return new NavigationStyleProjectionContext(
             fn (string $selector): array => $this->session->sourceStyleResolutionState()->parsedSelector($selector),
-            function (array $cssParts, string $source, string $placement, string $pathPrefix, string $target = 'both'): void {
-                $this->stylesheetAssetStage->generated($cssParts, $source, $placement, $pathPrefix, $target);
-            }
+            $this->stylesheetAssetStage->generated(...)
         );
     }
 
@@ -1276,14 +1272,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $paymentWidgetFindings = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\PaymentProcessorWidgetPruner::prune($body);
         // Saved block markup re-enters as source; invert save shapes that moved
         // source identity onto synthesized wrappers before anything reads them.
-        OwnSaveShapeInverter::invert($body, function (DOMElement $element): bool {
-            foreach ( $this->styleResolver->styleRuleCandidates($element, 'static-conditional') as $rule ) {
-                if ( $this->styleResolver->matchesCssSelector($element, (string) $rule['selector']) ) {
-                    return true;
-                }
-            }
-            return false;
-        });
+        OwnSaveShapeInverter::invert($body, $this->styleResolver->matchesStaticConditionalRule(...));
         $this->navigationBlockNormalizer->hydrateDuplicateSubmenus($body);
         DeclarativeCounterMaterializer::materialize($body, (string) ($options['declarative_state_html'] ?? ''));
         // Remove wrapper-convention custom elements before author selectors are
