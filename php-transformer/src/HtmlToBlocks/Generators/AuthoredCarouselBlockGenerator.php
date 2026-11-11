@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
@@ -1575,9 +1576,8 @@ JS;
         if ('' === trim($markup)) {
             return '';
         }
-        $previous = libxml_use_internal_errors(true);
         $document = new \DOMDocument('1.0', 'UTF-8');
-        $document->loadHTML('<?xml encoding="utf-8" ?><div>' . $markup . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><div>' . $markup . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
         $container = $document->getElementsByTagName('div')->item(0);
         $safe = '';
         if ($container instanceof DOMElement) {
@@ -1587,8 +1587,6 @@ JS;
                 }
             }
         }
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
         return $safe;
     }
 
@@ -1951,9 +1949,8 @@ JS;
         if (preg_match('/^[\t\n\f\r ]*$/D', $markup)) {
             return '';
         }
-        $previous = libxml_use_internal_errors(true);
         $document = new \DOMDocument('1.0', 'UTF-8');
-        $document->loadHTML('<?xml encoding="utf-8" ?><div>' . $markup . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><div>' . $markup . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
         $container = $document->getElementsByTagName('div')->item(0);
         $safe = '';
         if ($container instanceof DOMElement) {
@@ -1965,8 +1962,6 @@ JS;
                 }
             }
         }
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
         return $safe;
     }
 
