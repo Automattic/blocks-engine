@@ -114,9 +114,7 @@ final class RouteStateProjector
         foreach ($files as $index => $file) {
             if ('html' !== ($file['kind'] ?? null) || !is_string($file['content'] ?? null)) continue;
             $document = new DOMDocument('1.0', 'UTF-8');
-            $previous = libxml_use_internal_errors(true);
-            $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $file['content'], LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-            libxml_clear_errors(); libxml_use_internal_errors($previous);
+            $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8">' . $file['content'], LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
             if (!$loaded) continue;
             $documents[$index] = $document;
             foreach ((new DOMXPath($document))->query('//*[a[@href]]') ?: array() as $element) {
@@ -160,9 +158,7 @@ final class RouteStateProjector
         foreach ($files as $index => $file) {
             if ('html' !== ($file['kind'] ?? null) || !is_string($file['content'] ?? null) || !preg_match('/<nav\b|\brole=["\']?navigation\b/i', $file['content'])) continue;
             $document = new DOMDocument('1.0', 'UTF-8');
-            $previous = libxml_use_internal_errors(true);
-            $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $file['content'], LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-            libxml_clear_errors(); libxml_use_internal_errors($previous);
+            $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8">' . $file['content'], LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
             if (!$loaded) continue;
             $documents[$index] = $document;
             foreach ((new DOMXPath($document))->query('//*[self::nav or @role="navigation"]//a[@href]') ?: array() as $link) {
@@ -400,9 +396,7 @@ final class RouteStateProjector
         foreach ($files as $index => $file) {
             if ('html' !== ($file['kind'] ?? null) || !is_string($file['content'] ?? null) || 1 !== preg_match('/<nav\b|\brole=["\']?(?:navigation|menu|menubar)\b/i', $file['content'])) continue;
             $document = new DOMDocument('1.0', 'UTF-8');
-            $previous = libxml_use_internal_errors(true);
-            $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $file['content'], LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-            libxml_clear_errors(); libxml_use_internal_errors($previous);
+            $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8">' . $file['content'], LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
             if (!$loaded) continue;
             $documents[$index] = $document;
             $xpath = new DOMXPath($document);
@@ -502,9 +496,7 @@ final class RouteStateProjector
         $stylesheets = null;
         foreach (array_keys($documents) as $index) {
             $document = new DOMDocument('1.0', 'UTF-8');
-            $previous = libxml_use_internal_errors(true);
-            $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $files[$index]['content'], LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-            libxml_clear_errors(); libxml_use_internal_errors($previous);
+            $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8">' . $files[$index]['content'], LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
             if (!$loaded) { unset($documents[$index]); continue; }
             $documents[$index] = $document;
             $xpath = new DOMXPath($document);
@@ -652,9 +644,7 @@ final class RouteStateProjector
         $scoped = array(); $meanings = array(); $worn = array();
         foreach (array_keys($documents) as $index) {
             $document = new DOMDocument('1.0', 'UTF-8');
-            $previous = libxml_use_internal_errors(true);
-            $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $files[$index]['content'], LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-            libxml_clear_errors(); libxml_use_internal_errors($previous);
+            $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8">' . $files[$index]['content'], LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
             if (!$loaded) { unset($documents[$index]); continue; }
             $documents[$index] = $document;
             foreach ((new DOMXPath($document))->query('//*[self::nav or self::header or self::footer or @role="navigation" or @role="banner" or @role="contentinfo"]/descendant-or-self::*[@class]') ?: array() as $element) {
@@ -895,11 +885,8 @@ final class RouteStateProjector
         if (! preg_match('/\saria-current\s*=|\sdata-status\s*=\s*["\']?active|\sstyle\s*=\s*(?:"[\s;]*"|\'[\s;]*\')/i', $html)) {
             return $html;
         }
-        $previous = libxml_use_internal_errors(true);
         $document = new DOMDocument('1.0', 'UTF-8');
-        $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
+        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8">' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
         if (! $loaded) {
             return $html;
         }

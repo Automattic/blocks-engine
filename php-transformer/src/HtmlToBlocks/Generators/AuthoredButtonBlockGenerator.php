@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use DOMDocument;
 use DOMElement;
 use DOMText;
@@ -382,10 +383,7 @@ JS;
         ksort($candidates);
         $safeHtml = SourceDom::safeFallbackHtmlString('<b' . SourceDom::htmlAttributeString($candidates) . '></b>');
         $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $safeHtml . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
+        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . $safeHtml . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
         $node = $loaded ? $document->getElementsByTagName('b')->item(0) : null;
         if ( ! $node instanceof DOMElement ) {
             return array();

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CapturedChoiceGroupBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredControlState;
@@ -68,9 +69,7 @@ final class CapturedChoiceGroupConverter implements ElementConverter
             if (!is_string($state['html'] ?? null) || !str_contains($state['html'], CaptureEvidence::NATIVE_CONTROL_STATE)) continue;
             $typed = true;
             $document = new DOMDocument();
-            $previous = libxml_use_internal_errors(true);
-            $document->loadHTML('<?xml encoding="UTF-8"><div data-control-state-fragment="true">' . $state['html'] . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-            libxml_clear_errors(); libxml_use_internal_errors($previous);
+            HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8"><div data-control-state-fragment="true">' . $state['html'] . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
             $root = $document->getElementsByTagName('div')->item(0);
             if (!$root instanceof DOMElement) continue;
             foreach ($root->getElementsByTagName('*') as $control) {

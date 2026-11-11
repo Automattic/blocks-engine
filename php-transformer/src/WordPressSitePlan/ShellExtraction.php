@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
@@ -4188,10 +4189,7 @@ final class ShellExtraction
                 if (!is_string($data[$state]['html'] ?? null)) continue;
                 $html = $data[$state]['html'];
                 $dom = new \DOMDocument();
-                $previous = libxml_use_internal_errors(true);
-                $dom->loadHTML('<?xml encoding="UTF-8"><div id="be-snapshot-root">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-                libxml_clear_errors();
-                libxml_use_internal_errors($previous);
+                HtmlSerialization::loadHtml($dom, '<?xml encoding="UTF-8"><div id="be-snapshot-root">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
                 $xpath = new \DOMXPath($dom);
                 foreach ($xpath->query('//*[@aria-current="page"]') as $current) {
                     $siblings = array();

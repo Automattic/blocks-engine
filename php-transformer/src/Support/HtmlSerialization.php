@@ -19,6 +19,20 @@ use DOMProcessingInstruction;
  */
 final class HtmlSerialization
 {
+    /**
+     * DOMDocument::loadHTML() with libxml's parse warnings collected and
+     * discarded, leaving the caller's libxml error mode as it was.
+     */
+    public static function loadHtml(DOMDocument $document, string $html, int $options = 0): bool
+    {
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadHTML($html, $options);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        return $loaded;
+    }
+
     public static function documentHtml(DOMDocument $document): ?string
     {
         self::removeEncodingHints($document);

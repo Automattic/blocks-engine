@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
@@ -199,11 +200,8 @@ final class RuntimeDependencyParityReport
      */
     private function controlledTargetFindings(array $sourceTargets, string $sourceHtml, string $generatedHtml, string $sourcePath): array
     {
-        $previous = libxml_use_internal_errors(true);
         $document = new DOMDocument();
-        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $generatedHtml . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
+        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . $generatedHtml . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
         if (!$loaded) return array();
         $findings = array();
         $scopedTargets = array();
