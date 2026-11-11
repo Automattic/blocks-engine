@@ -95,9 +95,13 @@ final class NativeGetFormControlConverter implements ElementConverter
         }
         if ( 'button' === $tagName ) {
             // core/button's label is phrasing RichText; SVG or flow content
-            // there is an invalid block. The authored button keeps it intact.
+            // there is an invalid block. Keep its editable native tree.
             if ( $this->hasNonPhrasingContent($element) ) {
                 return $this->authoredFormControlBlockConverter->button($element, true);
+            }
+            $relativeButton = $this->createBlock->percentageSizedFormButton($element);
+            if ( null !== $relativeButton ) {
+                return $relativeButton;
             }
             $type = strtolower(trim(SourceDom::attr($element, 'type')));
             if ( ! in_array($type, array( 'button', 'reset', 'submit' ), true) ) {

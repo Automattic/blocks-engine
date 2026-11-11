@@ -7,6 +7,9 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConv
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredInputBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorLayoutOwnership;
@@ -150,6 +153,11 @@ final class ReadableFormBlockBuilder
             return null;
         }
 
+        if ( 'choice_submission' === FormRuntimeRequirementAnalyzer::formIntent($form) ) {
+            $contentBlocks = array_map($this->inactiveControlBlock(...), $contentBlocks);
+            $contentBlocks[] = $this->createBlock->createBlock('core/paragraph', array('content' => 'This form is not accepting responses yet.'));
+        }
+
         // A degraded form is still a form: keep the source element so its
         // controls stay grouped for assistive technology and for a provider
         // that binds a handler to it later.
@@ -159,6 +167,26 @@ final class ReadableFormBlockBuilder
         }
 
         return $this->createBlock->createBlock('core/group', $attributes, $contentBlocks, $form);
+    }
+
+    /** @param array<string, mixed> $block @return array<string, mixed> */
+    private function inactiveControlBlock(array $block): array
+    {
+        foreach ( $block['innerBlocks'] ?? array() as $index => $child ) {
+            $block['innerBlocks'][$index] = $this->inactiveControlBlock($child);
+        }
+        $localName = explode('/', $block['blockName'] ?? '')[1] ?? '';
+        $generator = match ($localName) {
+            AuthoredInputBlockGenerator::LOCAL_NAME => new AuthoredInputBlockGenerator(),
+            AuthoredButtonBlockGenerator::LOCAL_NAME => new AuthoredButtonBlockGenerator(),
+            default => null,
+        };
+        if ( null !== $generator ) {
+            $attrs = $block['attrs'];
+            $attrs['disabled'] = true;
+            $block = array_replace($block, BlockFactory::leaf($block['blockName'], $attrs, $generator->markup($attrs)));
+        }
+        return $block;
     }
 
     /**
@@ -472,7 +500,7 @@ final class ReadableFormBlockBuilder
         // including responsive navigation alternatives built from selects.
         for ( $form = $control->parentNode; $form instanceof DOMElement; $form = $form->parentNode ) {
             if ( 'form' === strtolower($form->tagName) ) {
-                $forceNative = $forceNative || 'preference' === FormRuntimeRequirementAnalyzer::formIntent($form);
+                $forceNative = $forceNative || FormRuntimeRequirementAnalyzer::collectsOnlyChoices($form);
                 break;
             }
         }

@@ -2090,6 +2090,16 @@ final class AuthorStylesheetProjector
                 continue;
             }
 
+            // Some lowering paths retain the source leaf inside a paragraph
+            // without marking it as a potential standalone inline carrier.
+            // The emitted tree is authoritative: add a zero-specificity hop
+            // only when that topology actually exists, keeping the source arm
+            // for matches that were not wrapped.
+            $carrierChild = $this->projectInlineLayoutCarrierChildSelector($selector, $parsed, $context);
+            if ( null !== $carrierChild ) {
+                $rewritten[] = $carrierChild;
+            }
+
             $otherSubjects = array();
             $navigationSubjects = array();
             foreach ($matches as $element) {
@@ -3762,6 +3772,24 @@ final class AuthorStylesheetProjector
     }
 
     /** @param array<string, mixed> $parsed */
+    private function projectInlineLayoutCarrierChildSelector(string $selector, array $parsed, AuthorStylesheetProjectionContext $context): ?string
+    {
+        $rightmost = $parsed['rightmost_compound_span'] ?? null;
+        $combinators = $parsed['combinators'] ?? array();
+        if ( ! is_array($rightmost) || '>' !== end($combinators) ) {
+            return null;
+        }
+        $start = (int) $rightmost['start'];
+        // The carrier re-parents the subject, so sibling-indexed pseudo-classes
+        // would be evaluated against different siblings than in the source.
+        if ( 1 === preg_match('/:(?:first|last|only|nth)-|:nth-/i', substr($selector, $start)) ) {
+            return null;
+        }
+        $projected = substr($selector, 0, $start) . ':where(.' . self::INLINE_LAYOUT_CARRIER_CLASS . ')>' . substr($selector, $start);
+        return $this->matchesEmittedMarkup(CssSelectorMatcher::parse($projected), $context->emittedMarkup) ? $projected : null;
+    }
+
+    /** @param array<string, mixed> $parsed */
     private function projectInlineLayoutCarrierSelector(string $selector, array $parsed, bool $addressable): string
     {
         $rightmost = $parsed['rightmost_compound_span'] ?? null;
@@ -3997,6 +4025,19 @@ final class AuthorStylesheetProjector
             );
         }
         $projected = array();
+        $tokens = CssSelectorTokenizer::tokenize($selector);
+        $parentIndex = count($parsed['compounds']) - 2;
+        $linkSpan = null;
+        if ( ! $wrapperOnly && 'a' === strtolower((string) ($parsed['compounds'][$parentIndex]['type'] ?? ''))
+            && in_array($parsed['combinators'][$parentIndex] ?? '', array( ' ', '>' ), true)
+        ) {
+            foreach ( $this->matchingSourceElements($selector, $parsed, $context) as $image ) {
+                if ( $image->parentNode instanceof DOMElement && 'a' === strtolower($image->parentNode->tagName) ) {
+                    $linkSpan = $tokens['compound_spans'][$parentIndex] ?? null;
+                    break;
+                }
+            }
+        }
         foreach ( $wrapperOnly ? array( '' ) : NativeImageLeafPresentation::LEAF_PATHS as $leafPath ) {
             $replacements = array(
                 (int) $parsed['rightmost_rewrite_end'] => array(
@@ -4013,6 +4054,17 @@ final class AuthorStylesheetProjector
                         'value' => ':where(figure)' . $this->typeSpecificityShim($context),
                     );
                 }
+            }
+            // core/image absorbs the source anchor as its inner link. Move
+            // that compound inside the figure, retaining the generated link's
+            // baseline type weight as well as the authored compound's rank.
+            if ( null !== $linkSpan && ' > a > img' === $leafPath ) {
+                $link = substr($selector, $linkSpan['start'], $linkSpan['end'] - $linkSpan['start']);
+                $replacements[$linkSpan['start']] = array(
+                    'end' => (int) $parsed['rightmost_compound_span']['start'],
+                    'value' => '',
+                );
+                $replacements[(int) $parsed['rightmost_rewrite_end']]['value'] = '.wp-block-image > ' . $link . $this->typeSpecificityShim($context) . ' > img';
             }
             $arm = $this->replaceSelectorSpans($selector, $replacements);
             if ( ! (new CoreSelectorScoping())->selectorIsScoped($arm) ) {

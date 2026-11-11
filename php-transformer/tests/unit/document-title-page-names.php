@@ -93,9 +93,9 @@ foreach ( array('|', '-', '–', '—', '·') as $separator ) {
             'index.php/index-query-2.html' => '<title>' . $homeTitle . '</title><main><h3>Bronze casting</h3></main>',
         );
         $expected = array(
-            'index.html' => 'Home Welcome', // The entry owns its title; copies do not.
-            'about/index.html' => 'About My story',
-            'blog/index.html' => 'Blog News',
+            'index.html' => 'Home ' . $separator . ' Welcome', // The entry owns its title; copies do not.
+            'about/index.html' => 'About ' . $separator . ' My story',
+            'blog/index.html' => 'Blog ' . $separator . ' News',
             'index.php/index-query-1.html' => 'Opening night',
             'index.php/index-query-2.html' => 'Bronze casting',
         );
@@ -171,6 +171,45 @@ $issue = $titles(array(
 ));
 foreach ( array('electrical/index.html' => 'Electrical', 'plumbing/index.html' => 'Plumbing', 'about/index.html' => 'About Acme') as $path => $expected ) {
     $assert($expected === ($issue[$path] ?? null), "#5270 $path", json_encode($issue));
+}
+
+// #5394: section branding is corroborated by member titles and the index h1.
+$sectionPage = static fn (string $title, string $heading): string => '<!doctype html><html><head><title>' . $title . '</title></head><body><header><a href="/">Acme</a></header><main><h1>' . $heading . '</h1><p>Body.</p></main></body></html>';
+$sectionCases = array(
+    'index.html' => array('Acme | Tools for builders', 'Tools for builders'),
+    'tools/index.html' => array('Acme Tools | Field calculators | Acme', 'Acme Tools'),
+    'tools/callback/index.html' => array('Callback Calculator | Acme Tools | Acme', 'Callback Calculator'),
+    'tools/margin/index.html' => array('Margin Calculator | Acme Tools | Acme', 'Margin Calculator'),
+    'guides/index.html' => array('Field Guides | Acme | Acme', 'Field Guides'),
+    'about/index.html' => array('About | Acme', 'About'),
+);
+$files = array();
+foreach ( $sectionCases as $path => [$title, $heading] ) {
+    $files[$path] = $sectionPage($title, $heading);
+}
+$named = $titles($files);
+foreach ( $sectionCases as $path => [$title, $expected] ) {
+    $assert($expected === ($named[$path] ?? null), "#5394 $path", json_encode($named));
+}
+
+// Either corroboration signal suffices, but unrelated sections do not vote.
+foreach ( array('members', 'index') as $signal ) {
+    $files = array(
+        'index.html' => $sectionPage('Home | Example', 'Home'),
+        'about.html' => $sectionPage('About | Example', 'About'),
+        'contact.html' => $sectionPage('Contact | Example', 'Contact'),
+        'news.html' => $sectionPage('News | Example', 'News'),
+        'tools/one/index.html' => $sectionPage('One | Workshop | Example', 'One'),
+        'other/three/index.html' => $sectionPage('Three | Workshop | Example', 'Three'),
+    );
+    if ( 'members' === $signal ) {
+        $files['tools/two/index.html'] = $sectionPage('Two | Workshop | Example', 'Two');
+    } else {
+        $files['tools/index.html'] = $sectionPage('Workshop | Calculators | Example', 'Workshop');
+    }
+    $named = $titles($files);
+    $assert('One' === ($named['tools/one/index.html'] ?? null), "$signal alone corroborates section branding", json_encode($named));
+    $assert('Three | Workshop' === ($named['other/three/index.html'] ?? null), 'another section does not corroborate branding', json_encode($named));
 }
 
 if ( $failures > 0 ) {

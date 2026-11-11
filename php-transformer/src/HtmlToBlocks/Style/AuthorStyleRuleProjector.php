@@ -478,15 +478,19 @@ final class AuthorStyleRuleProjector
             return $body;
         }
         $important = CssValueInspector::isImportant($minimumWidth) ? '!important' : '';
+        return self::withReplacedDeclaration($body, 'min-width', 'min-width:0' . $important, 'max-width:100%' . $important);
+    }
+
+    /** Drops every `$property` declaration from a rule body and appends its replacements. */
+    private static function withReplacedDeclaration(string $body, string $property, string ...$replacements): string
+    {
         $retained = array();
         foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
-            if ( 'min-width' !== strtolower(trim((string) strtok($declaration, ':'))) ) {
+            if ( $property !== strtolower(trim((string) strtok($declaration, ':'))) ) {
                 $retained[] = $declaration;
             }
         }
-        $retained[] = 'min-width:0' . $important;
-        $retained[] = 'max-width:100%' . $important;
-        return implode(';', $retained);
+        return implode(';', array_merge($retained, $replacements));
     }
 
     /** @param array<string, string> $declarations */
@@ -526,14 +530,7 @@ final class AuthorStyleRuleProjector
             return $body;
         }
         $important = CssValueInspector::isImportant($rows) ? '!important' : '';
-        $retained = array();
-        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
-            if ( 'grid-template-rows' !== strtolower(trim((string) strtok($declaration, ':'))) ) {
-                $retained[] = $declaration;
-            }
-        }
-        $retained[] = 'grid-template-rows:' . $collapsed . $important;
-        return implode(';', $retained);
+        return self::withReplacedDeclaration($body, 'grid-template-rows', 'grid-template-rows:' . $collapsed . $important);
     }
 
     /** @param array<string, string> $ruleDeclarations */
@@ -1201,14 +1198,7 @@ final class AuthorStyleRuleProjector
             return $body;
         }
         $important = CssValueInspector::isImportant($height) ? '!important' : '';
-        $retained = array();
-        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
-            if ( 'height' !== strtolower(trim((string) strtok($declaration, ':'))) ) {
-                $retained[] = $declaration;
-            }
-        }
-        $retained[] = 'height:auto' . $important;
-        return implode(';', $retained);
+        return self::withReplacedDeclaration($body, 'height', 'height:auto' . $important);
     }
 
     /** @param list<string> $conditions */

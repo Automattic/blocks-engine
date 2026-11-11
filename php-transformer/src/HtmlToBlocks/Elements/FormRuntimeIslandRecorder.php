@@ -27,6 +27,7 @@ final class FormRuntimeIslandRecorder
         $controls = $this->metadataBuilder->controls($element);
         ($this->recordRuntimeIsland)($element, 'form', 'form_requires_runtime', 'server_or_client_form_handler', array(
             'form'             => $this->metadataBuilder->form($element),
+            'form_intent'      => FormRuntimeRequirementAnalyzer::formIntent($element),
             'controls'         => $controls,
             'control_count'    => count($controls),
             'events'           => SourceDom::eventMetadata($element),

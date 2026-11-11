@@ -870,17 +870,15 @@
             "retagged span>p [blocks-engine-inline-layout-carrier]": 1
         },
         "59-spreadsheet": {
-            "added button": 2,
             "added div [blocks-engine-control]": 12,
             "added div [blocks-engine-layout-child-button]": 7,
             "added div [blocks-engine-layout-neutral-buttons]": 7,
             "added img": 8,
             "added p [blocks-engine-inline-layout-carrier]": 9,
             "added span [blocks-engine-copy-to-clipboard__status]": 1,
-            "removed button": 2,
             "removed input": 1,
             "removed nav": 1,
-            "removed svg": 6,
+            "removed svg": 8,
             "retagged div>p [blocks-engine-editor-anchor-cellAddr]": 1,
             "retagged div>p [blocks-engine-lowered-paragraph]": 3,
             "retagged span>div [blocks-engine-empty-visual-group]": 1,

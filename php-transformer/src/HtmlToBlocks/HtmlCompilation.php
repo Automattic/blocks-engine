@@ -730,9 +730,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $pseudoFormAnalyzer
         );
         $searchBlockConverter = new SearchBlockConverter($this->styleResolver, $this->session, $this, $this->svgMaterializer, $this->runtimeIslands, $this->createSearchBlockConversionContext(), $formControlMetadataBuilder, $pseudoFormAnalyzer);
-        $loginBlockConverter = new LoginBlockConverter(
-            fn (DOMElement $element): array => $this->createBlock('core/loginout', array( 'displayLoginAsForm' => true ), array(), $element)
-        );
+        $loginBlockConverter = new LoginBlockConverter($this);
         $formDispatcher = new FormDispatcher(new FormDispatchContext(
             $loginBlockConverter->loginBlockFromForm(...),
             $searchBlockConverter->searchBlockFromForm(...),
@@ -1271,6 +1269,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DocumentReferenceIndex::install($document, $this->documentAuthorCss);
         \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\InteractiveSurface::indexDocument($document);
         try {
+            FormRuntimeRequirementAnalyzer::indexSourceBehavior($document, (string) ($options['declarative_state_html'] ?? ''));
             $interactionCandidates = $this->interactionFallbackReporter->interactionCandidates($body);
             $this->navigationToggleSuppressor->collectProjectedNavigationRelationships($body);
             $this->navigationToggleSuppressor->collectSupersededNavToggleSelectors($body);
@@ -1279,6 +1278,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $shellArtifacts = !array_key_exists('extract_global_shell', $options) || !empty($options['extract_global_shell']) ? $this->globalShellArtifacts->globalShellArtifacts($body, (string) ($options['source'] ?? 'html'), false, max(0, (int) ($options['global_shell_context_depth'] ?? 0))) : array();
             $blocks = $this->navigationBlockNormalizer->normalize($this->convertChildren($body, $fallbacks, true), $this->session->transformationProvenanceState()->sources(), $this->session->transformationProvenanceState()->sourceBaseHiddenStates(), $this->session->transformationProvenanceState()->sourceCollapsedWrapperHiddenStates());
         } finally {
+            FormRuntimeRequirementAnalyzer::releaseSourceBehavior($document);
             \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\InteractiveSurface::releaseDocument($document);
             \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DocumentReferenceIndex::release($document);
         }
@@ -1812,6 +1812,40 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $this->authoredFormControlBlockConverter->runtimeButton($element);
     }
 
+    /** @return array<string, mixed>|null */
+    public function percentageSizedFormButton(DOMElement $button): ?array
+    {
+        if ( ! $this->buttonHasPercentageSize($button) ) {
+            return null;
+        }
+        $this->session->authorSelectorProjectionState()->markRetainedSourcePath($button->getNodePath() ?? '');
+        return $this->authoredFormControlBlockConverter->button($button, true);
+    }
+
+    /** Keep containing-block-relative sizes on the original, editable control. */
+    private function buttonHasPercentageSize(DOMElement $button): bool
+    {
+        // Standalone CTA buttons have their own wrapper sizing projection.
+        // Form controls instead need to remain items of their source form row.
+        $form = $button->parentNode;
+        while ( $form instanceof DOMElement && 'form' !== strtolower($form->tagName) ) {
+            $form = $form->parentNode;
+        }
+        if ( ! $form instanceof DOMElement ) {
+            return false;
+        }
+        $sizes = array( 'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height' );
+        // Retain conditional rules rather than testing only the resting viewport.
+        foreach ( $this->styleResolver->authoredControlPresentation($button, $sizes) as $declarations ) {
+            foreach ( $declarations as $value ) {
+                if ( str_contains($this->styleResolver->resolveCssVariablesInValue($value, $button), '%') ) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     /**
      * @param array<string, mixed> $attrs
      * @param array<int, array<string, mixed>> $innerBlocks
@@ -1829,10 +1863,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         if ( 'core/cover' === $name && $sourceElement instanceof DOMElement && in_array(CoverPattern::CONSUMED_BACKGROUND_CLASS, preg_split('/\s+/', (string) ($attrs['className'] ?? '')) ?: array(), true) ) {
             $this->session->authorSelectorProjectionState()->markConsumedCoverBackground($sourceElement->getNodePath() ?? '');
         }
-        // Control boxes already transport the exact source attributes through
-        // the core group's runtime metadata. A shell would discard that core
-        // identity without preserving any additional DOM contract.
-        if ( 'core/group' === $name && ! isset($attrs['metadata']['blocksEngineControlBox']) && $sourceElement instanceof DOMElement && $this->emptyVisualRetention->preservesScriptStateWrapper($sourceElement) ) {
+        // Control boxes transport source attributes through runtime metadata.
+        // Forms must also keep their core/group identity for provider substitution;
+        // their hidden state travels through the generic runtime attributes.
+        if ( 'core/group' === $name && 'form' !== ($attrs['tagName'] ?? '') && ! isset($attrs['metadata']['blocksEngineControlBox']) && $sourceElement instanceof DOMElement && $this->emptyVisualRetention->preservesScriptStateWrapper($sourceElement) ) {
             return $this->layoutShells->blockForElements(array( $sourceElement ), $innerBlocks, $sourceElement);
         }
         if ( $sourceElement instanceof DOMElement ) {

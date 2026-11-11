@@ -3,7 +3,7 @@ const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || '../../tools/
 const browser = await chromium.launch();
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 400 } });
-  for (const band of ['', 'banded']) {
+  for (const band of ['', 'banded', 'media', 'media-banded']) {
     const out = JSON.parse(execFileSync('php', [new URL('./search-decorative-icon.php', import.meta.url).pathname, band, '--json'], { encoding: 'utf8' }));
     const attrs = JSON.parse(out.html.match(/<!-- wp:search (.*?) \/-->/s)[1]);
     const pre = out.html.slice(0, out.html.indexOf('<!-- wp:search')).replace(/<!--[^>]*-->/g, '');
