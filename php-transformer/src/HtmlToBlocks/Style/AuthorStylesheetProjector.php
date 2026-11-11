@@ -4025,6 +4025,19 @@ final class AuthorStylesheetProjector
             );
         }
         $projected = array();
+        $tokens = CssSelectorTokenizer::tokenize($selector);
+        $parentIndex = count($parsed['compounds']) - 2;
+        $linkSpan = null;
+        if ( ! $wrapperOnly && 'a' === strtolower((string) ($parsed['compounds'][$parentIndex]['type'] ?? ''))
+            && in_array($parsed['combinators'][$parentIndex] ?? '', array( ' ', '>' ), true)
+        ) {
+            foreach ( $this->matchingSourceElements($selector, $parsed, $context) as $image ) {
+                if ( $image->parentNode instanceof DOMElement && 'a' === strtolower($image->parentNode->tagName) ) {
+                    $linkSpan = $tokens['compound_spans'][$parentIndex] ?? null;
+                    break;
+                }
+            }
+        }
         foreach ( $wrapperOnly ? array( '' ) : NativeImageLeafPresentation::LEAF_PATHS as $leafPath ) {
             $replacements = array(
                 (int) $parsed['rightmost_rewrite_end'] => array(
@@ -4041,6 +4054,17 @@ final class AuthorStylesheetProjector
                         'value' => ':where(figure)' . $this->typeSpecificityShim($context),
                     );
                 }
+            }
+            // core/image absorbs the source anchor as its inner link. Move
+            // that compound inside the figure, retaining the generated link's
+            // baseline type weight as well as the authored compound's rank.
+            if ( null !== $linkSpan && ' > a > img' === $leafPath ) {
+                $link = substr($selector, $linkSpan['start'], $linkSpan['end'] - $linkSpan['start']);
+                $replacements[$linkSpan['start']] = array(
+                    'end' => (int) $parsed['rightmost_compound_span']['start'],
+                    'value' => '',
+                );
+                $replacements[(int) $parsed['rightmost_rewrite_end']]['value'] = '.wp-block-image > ' . $link . $this->typeSpecificityShim($context) . ' > img';
             }
             $arm = $this->replaceSelectorSpans($selector, $replacements);
             if ( ! (new CoreSelectorScoping())->selectorIsScoped($arm) ) {
