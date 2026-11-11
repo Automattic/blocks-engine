@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
@@ -506,7 +507,7 @@ final class ShellExtraction
     {
         $payload = $declaration['payload'] ?? array();
         if (RuntimeEntityManifest::SCHEMA === ($payload['schema'] ?? null)) return $this->manifestEntities[RuntimeDeclarations::hash($payload)];
-        return is_array($payload['entities'] ?? null) ? $payload['entities'] : array();
+        return ArrayField::array($payload, 'entities');
     }
 
     /** @param array<string,mixed> $document @return array<int,array<string,mixed>> */
@@ -1383,7 +1384,7 @@ final class ShellExtraction
             $variantScopeShells = array();
             foreach ((array) ($attrs['wrappers'] ?? array()) as $wrapper) {
                 if (!is_array($wrapper)) continue;
-                $wa = is_array($wrapper['attributes'] ?? null) ? $wrapper['attributes'] : array();
+                $wa = ArrayField::array($wrapper, 'attributes');
                 $scopeClassNames[] = (string) ($wa['class'] ?? '');
                 // A nested device-only subtree and its device-hidden sibling are
                 // the two device variants of one landmark. Their wrapper is the
@@ -1409,7 +1410,7 @@ final class ShellExtraction
                 $hasShellWrapperContract = true;
                 foreach ($attrs['wrappers'] as $wrapper) {
                     if (!is_array($wrapper)) continue;
-                    $wrapperAttributes = is_array($wrapper['attributes'] ?? null) ? $wrapper['attributes'] : array();
+                    $wrapperAttributes = ArrayField::array($wrapper, 'attributes');
                     if ('' === $role && is_string($wrapperAttributes['role'] ?? null)) $role = $wrapperAttributes['role'];
                     if ('' === $anchor && is_string($wrapperAttributes['id'] ?? null)) $anchor = $wrapperAttributes['id'];
                     $wrapperClass = trim((string) ($wrapperAttributes['class'] ?? ''));

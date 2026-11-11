@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CapturedDialogBlockGenerator;
@@ -1456,7 +1457,7 @@ final class CapturedDialogProjector
         if (str_starts_with($selector, '#') && 1 === preg_match('/^#[A-Za-z][A-Za-z0-9_.:-]*$/', $selector)) {
             $query = './/*[@id=' . $this->xpathLiteral(substr($selector, 1)) . ']';
         } else {
-            $bindings = is_array($trigger['dataBindings'] ?? null) ? $trigger['dataBindings'] : array();
+            $bindings = ArrayField::array($trigger, 'dataBindings');
             foreach ($bindings as $name => $value) {
                 if (is_string($name) && is_string($value) && 1 === preg_match('/^data-(?:popup|modal|dialog)(?:id|target)?$/i', $name) && '' !== $value) {
                     $query = './/*[@' . strtolower($name) . '=' . $this->xpathLiteral($value) . ']';
@@ -1598,7 +1599,7 @@ final class CapturedDialogProjector
     /** @param array<string, mixed> $trigger */
     private function bindingsCompatible(DOMElement $element, array $trigger): bool
     {
-        $bindings = is_array($trigger['dataBindings'] ?? null) ? $trigger['dataBindings'] : array();
+        $bindings = ArrayField::array($trigger, 'dataBindings');
         foreach ($bindings as $name => $value) {
             if (! is_string($name) || ! is_string($value) || '' === $value || 1 !== preg_match('/^data-[a-z0-9_.:-]+$/i', $name)) {
                 if (is_string($value) && '' !== $value) {

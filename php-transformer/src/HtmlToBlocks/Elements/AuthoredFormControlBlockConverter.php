@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
@@ -418,7 +419,7 @@ final class AuthoredFormControlBlockConverter
         $generated = $this->runtimeButtonBlock($element);
         $materialized = $this->createBlock->createBlock(
             (string) ($generated['blockName'] ?? ''),
-            is_array($generated['attrs'] ?? null) ? $generated['attrs'] : array(),
+            ArrayField::array($generated, 'attrs'),
             array(),
             $element
         );

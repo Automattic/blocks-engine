@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
@@ -269,7 +270,7 @@ trait StagedTransport
         $sharedArtifact = array_merge($sharedPlan['artifact'], array('files' => $this->sharedReductionFiles($sharedPlan, $payloadReader)));
         $this->retainSharedCssRuleTrees($sharedArtifact['files']);
         $pageArtifact = $this->materializePlanArtifact($pagePlan['artifact'], $payloadReader);
-        $pageLayoutGeometryProof = is_array($pagePlan['layout_geometry_proof'] ?? null) ? $pagePlan['layout_geometry_proof'] : array();
+        $pageLayoutGeometryProof = ArrayField::array($pagePlan, 'layout_geometry_proof');
         foreach ($pageArtifact['files'] as &$pageFile) {
             if ('html' === ($pageFile['kind'] ?? null)) $pageFile['layout_geometry_proof'] = $pageLayoutGeometryProof;
         }
@@ -605,7 +606,7 @@ trait StagedTransport
         $files = self::sortedBySourcePaths($files, $sourcePaths);
         $documents['documents'] = self::sortedBySourcePaths($documents['documents'], $sourcePaths, 'source_path');
         $documents['diagnostics'] = $this->dedupeDiagnostics(array_merge(...array_map(
-            static fn(array $document): array => is_array($document['diagnostics'] ?? null) ? $document['diagnostics'] : array(),
+            static fn(array $document): array => ArrayField::array($document, 'diagnostics'),
             $documents['documents']
         )));
         $compiledDocuments = self::orderedMapBySourcePaths($compiledDocuments, $sourcePaths);
@@ -766,7 +767,7 @@ trait StagedTransport
         if ('' !== $partition['schema']) {
             $artifact['schema'] = $partition['schema'];
         }
-        foreach (is_array($partition['identity'] ?? null) ? $partition['identity'] : array() as $key => $value) $artifact[$key] = $value;
+        foreach (ArrayField::array($partition, 'identity') as $key => $value) $artifact[$key] = $value;
         return $artifact;
     }
 
@@ -778,7 +779,7 @@ trait StagedTransport
             array_filter($files, static fn(array $file): bool => 'html' === ($file['kind'] ?? null))
         ), true);
         $reductions = array_values(array_filter(
-            is_array($proof['reductions'] ?? null) ? $proof['reductions'] : array(),
+            ArrayField::array($proof, 'reductions'),
             static fn(array $reduction): bool => isset($paths[(string) ($reduction['source_path'] ?? '')])
         ));
         return array() === $reductions ? array() : array('schema' => LayoutGeometryProof::SCHEMA, 'reductions' => $reductions);
@@ -787,7 +788,7 @@ trait StagedTransport
     /** @param array<string,mixed> $artifact */
     private function containsPayloadReferences(array $artifact): bool
     {
-        foreach (is_array($artifact['files'] ?? null) ? $artifact['files'] : array() as $file) {
+        foreach (ArrayField::array($artifact, 'files') as $file) {
             if (is_array($file) && isset($file['payload_reference'])) return true;
         }
         return false;
@@ -805,7 +806,7 @@ trait StagedTransport
         $references = array();
         $hydratedArtifact = $artifact;
         $hydratedArtifact['files'] = array();
-        foreach (is_array($artifact['files'] ?? null) ? $artifact['files'] : array() as $key => $file) {
+        foreach (ArrayField::array($artifact, 'files') as $key => $file) {
             if (!is_array($file)) continue;
             $path = is_string($file['path'] ?? null) ? $file['path'] : (is_string($key) ? $key : '');
             $ownership = $file['metadata']['compilation'] ?? null;
@@ -831,7 +832,7 @@ trait StagedTransport
         // payloads stay closed. Digest verification remains readPayload's job.
         $includeRoot = HtmlFragmentIncludes::virtualRoot($hydratedArtifact['files'], array_values(array_filter(array_merge(
             array($artifact['entrypoint'] ?? $artifact['entry'] ?? $artifact['main'] ?? ''),
-            is_array($artifact['entrypoints'] ?? null) ? $artifact['entrypoints'] : array()
+            ArrayField::array($artifact, 'entrypoints')
         ), static fn($path): bool => is_string($path) && '' !== $path)));
         $byPath = array();
         foreach ($hydratedArtifact['files'] as $index => $file) $byPath[$file['path']] = $index;
@@ -963,7 +964,7 @@ trait StagedTransport
     /** Reject unbounded reference declarations before a reader can allocate. */
     private function assertReferenceLimits(array $artifact): void
     {
-        $requested = is_array($artifact['compiler_limits'] ?? null) ? $artifact['compiler_limits'] : array();
+        $requested = ArrayField::array($artifact, 'compiler_limits');
         $maxFile = min(ArtifactNormalizer::MAX_FILE_BYTES, max(1, (int) ($requested['max_file_bytes'] ?? ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES)));
         $maxTotal = min(ArtifactNormalizer::MAX_TOTAL_BYTES, max(1, (int) ($requested['max_total_bytes'] ?? ArtifactNormalizer::DEFAULT_MAX_TOTAL_BYTES)));
         $maxMediaFile = min(ArtifactNormalizer::MAX_MEDIA_FILE_BYTES, max(1, (int) ($requested['max_media_file_bytes'] ?? ArtifactNormalizer::DEFAULT_MAX_MEDIA_FILE_BYTES)));
@@ -974,7 +975,7 @@ trait StagedTransport
         $total = 0;
         $mediaTotal = 0;
         $reportTotal = 0;
-        foreach (is_array($artifact['files'] ?? null) ? $artifact['files'] : array() as $file) {
+        foreach (ArrayField::array($artifact, 'files') as $file) {
             if (!is_array($file) || !isset($file['payload_reference'])) continue;
             $reference = $this->payloadReference($file['payload_reference']);
             // Reference-backed media is never opened by a reader, so its bytes

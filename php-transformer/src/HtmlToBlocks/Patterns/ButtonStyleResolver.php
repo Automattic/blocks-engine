@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
@@ -96,7 +97,7 @@ final class ButtonStyleResolver
         $style  = array();
 
         // Emit canonical button paint so theme defaults cannot replace authored chrome.
-        $color      = is_array($mapped['color'] ?? null) ? $mapped['color'] : array();
+        $color      = ArrayField::array($mapped, 'color');
         $background = (string) ($color['background'] ?? '');
         $gradient   = (string) ($color['gradient'] ?? '');
         $text       = (string) ($color['text'] ?? '');
@@ -110,7 +111,7 @@ final class ButtonStyleResolver
             $style['color']['text'] = $text;
         }
 
-        $border = is_array($mapped['border'] ?? null) ? $mapped['border'] : array();
+        $border = ArrayField::array($mapped, 'border');
         if ( array() !== $border ) {
             $style['border'] = $border;
         }
@@ -133,7 +134,7 @@ final class ButtonStyleResolver
             $style['shadow'] = $shadow;
         }
 
-        $typography = $this->buttonTypography(is_array($mapped['typography'] ?? null) ? $mapped['typography'] : array());
+        $typography = $this->buttonTypography(ArrayField::array($mapped, 'typography'));
         if ( array() !== $typography ) {
             $style['typography'] = $typography;
         }

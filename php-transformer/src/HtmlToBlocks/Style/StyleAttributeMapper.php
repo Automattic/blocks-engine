@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 
 /**
@@ -146,7 +147,7 @@ final class StyleAttributeMapper
         $classes      = array();
         $declarations = array();
 
-        $colorStyle = is_array($style['color'] ?? null) ? $style['color'] : array();
+        $colorStyle = ArrayField::array($style, 'color');
         $text       = trim((string) ($colorStyle['text'] ?? ''));
         $background = trim((string) ($colorStyle['background'] ?? ''));
         $gradient   = trim((string) ($colorStyle['gradient'] ?? ''));
@@ -163,7 +164,7 @@ final class StyleAttributeMapper
             $declarations[] = 'background:' . $gradient;
         }
 
-        $border = is_array($style['border'] ?? null) ? $style['border'] : array();
+        $border = ArrayField::array($style, 'border');
         if ( '' !== trim((string) ($border['color'] ?? '')) ) {
             $classes[]      = 'has-border-color';
             $declarations[] = 'border-color:' . trim((string) $border['color']);
@@ -197,7 +198,7 @@ final class StyleAttributeMapper
         }
 
         // Match the core style engine: dimensions precede spacing in save().
-        $dimensions = is_array($style['dimensions'] ?? null) ? $style['dimensions'] : array();
+        $dimensions = ArrayField::array($style, 'dimensions');
         if ( '' !== trim((string) ($dimensions['minHeight'] ?? '')) ) {
             $declarations[] = 'min-height:' . trim((string) $dimensions['minHeight']);
         }
@@ -205,7 +206,7 @@ final class StyleAttributeMapper
             $declarations[] = 'max-width:' . trim((string) $dimensions['maxWidth']);
         }
 
-        $spacing = is_array($style['spacing'] ?? null) ? $style['spacing'] : array();
+        $spacing = ArrayField::array($style, 'spacing');
         foreach ( array( 'margin', 'padding' ) as $box ) {
             $sides = is_array($spacing[ $box ] ?? null) ? $spacing[ $box ] : array();
             foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
@@ -220,7 +221,7 @@ final class StyleAttributeMapper
             $declarations[] = 'gap:' . $blockGap;
         }
 
-        $typography    = is_array($style['typography'] ?? null) ? $style['typography'] : array();
+        $typography    = ArrayField::array($style, 'typography');
         $typographyMap = array(
             'fontFamily'    => 'font-family',
             'fontSize'      => 'font-size',

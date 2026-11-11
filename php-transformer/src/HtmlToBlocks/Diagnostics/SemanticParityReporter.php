@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
@@ -118,7 +119,7 @@ final class SemanticParityReporter
         }
 
         foreach ( $blockMenus as $index => $blockMenu ) {
-            $carried = is_array($blockMenu['carried_sibling_items'] ?? null) ? $blockMenu['carried_sibling_items'] : array();
+            $carried = ArrayField::array($blockMenu, 'carried_sibling_items');
             unset($blockMenus[$index]['carried_sibling_items']);
 
             // Read the flag from the source menu this block menu is actually
@@ -129,13 +130,13 @@ final class SemanticParityReporter
             }
 
             $items = array_merge(
-                is_array($carried['before'] ?? null) ? $carried['before'] : array(),
+                ArrayField::array($carried, 'before'),
                 is_array($blockMenu['items'] ?? null) ? array_values($blockMenu['items']) : array(),
-                is_array($carried['after'] ?? null) ? $carried['after'] : array()
+                ArrayField::array($carried, 'after')
             );
             $items = $this->collapseLinkedWrapperRuns(
                 $items,
-                is_array($pairedSource['items'] ?? null) ? $pairedSource['items'] : array()
+                ArrayField::array($pairedSource, 'items')
             );
 
             $blockMenus[$index]['item_count'] = count($items);
@@ -696,7 +697,7 @@ final class SemanticParityReporter
             }
 
             $blockPath = $path . '.' . $index;
-            $innerBlocks = is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array();
+            $innerBlocks = ArrayField::array($block, 'innerBlocks');
             if ( $this->isNativeNavigationCarrier($block)
                 && $this->containsBlockName($innerBlocks, 'core/list')
                 && ! $this->containsBlockName($innerBlocks, 'core/navigation')
@@ -779,7 +780,7 @@ final class SemanticParityReporter
         // The layout-shell namespace is consumer-owned, so match on the
         // local-name suffix the way the editability report does rather than a
         // hardcoded namespace literal.
-        if ( ! str_ends_with((string) ($block['blockName'] ?? ''), '/layout-shell') || $this->containsBlockName(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array(), 'core/navigation') ) {
+        if ( ! str_ends_with((string) ($block['blockName'] ?? ''), '/layout-shell') || $this->containsBlockName(ArrayField::array($block, 'innerBlocks'), 'core/navigation') ) {
             return false;
         }
 
@@ -854,7 +855,7 @@ final class SemanticParityReporter
                 continue;
             }
 
-            $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
+            $attrs = ArrayField::array($block, 'attrs');
 
             // Saved markup carries the anchor for blocks whose rich text is not
             // mirrored into an attribute — a synthetic paragraph wrapping a link,
@@ -933,7 +934,7 @@ final class SemanticParityReporter
             }
 
             if ( in_array($block['blockName'] ?? '', array( 'core/navigation-link', 'core/navigation-submenu' ), true) ) {
-                $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
+                $attrs = ArrayField::array($block, 'attrs');
                 $items[] = array(
                     'label' => $this->normalizedNavigationLabel((string) ($attrs['label'] ?? '')),
                     'url' => (string) ($attrs['url'] ?? ''),

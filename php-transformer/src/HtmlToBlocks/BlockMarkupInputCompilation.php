@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformationOptions;
@@ -430,7 +431,7 @@ final class BlockMarkupInputCompilation
         $innerBlocks = is_array($block['innerBlocks'] ?? null) ? array_values($block['innerBlocks']) : array();
         $html = '';
         $index = 0;
-        foreach ( is_array($block['innerContent'] ?? null) ? $block['innerContent'] : array() as $part ) {
+        foreach ( ArrayField::array($block, 'innerContent') as $part ) {
             if ( is_string($part) ) {
                 $html .= $part;
                 continue;
@@ -1069,7 +1070,7 @@ final class BlockMarkupInputCompilation
             if ( is_string($block['blockName'] ?? null) && '' !== $block['blockName'] ) {
                 $counts[$block['blockName']] = ( $counts[$block['blockName']] ?? 0 ) + 1;
             }
-            foreach ( self::blockNameCounts(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array()) as $name => $count ) {
+            foreach ( self::blockNameCounts(ArrayField::array($block, 'innerBlocks')) as $name => $count ) {
                 $counts[$name] = ( $counts[$name] ?? 0 ) + $count;
             }
         }
@@ -1086,7 +1087,7 @@ final class BlockMarkupInputCompilation
                 continue;
             }
             ++$count;
-            $count += self::countBlocks(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array());
+            $count += self::countBlocks(ArrayField::array($block, 'innerBlocks'));
         }
 
         return $count;

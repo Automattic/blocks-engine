@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssFontShorthand;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
@@ -269,7 +270,7 @@ final class StyleResolver implements ElementPresentationResolver
         )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
 
         if ( array() !== $nativeGridPlacement['placement'] ) {
-            $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
+            $style = ArrayField::array($attrs, 'style');
             // The keys are core's child layout values
             // (wp_get_layout_child_values()), rendered by
             // wp_get_child_layout_style_rules() for children of a
@@ -278,7 +279,7 @@ final class StyleResolver implements ElementPresentationResolver
             // resolution on this element may already have populated
             // style.layout (e.g. selfStretch/flexSize for a flex-item child),
             // and grid placement must not clobber it.
-            $existingChildLayout = is_array($style['layout'] ?? null) ? $style['layout'] : array();
+            $existingChildLayout = ArrayField::array($style, 'layout');
             $style['layout'] = array_merge($existingChildLayout, $nativeGridPlacement['placement']);
             $attrs['style'] = $style;
         }
@@ -321,7 +322,7 @@ final class StyleResolver implements ElementPresentationResolver
                 continue;
             }
             $matched = false;
-            foreach (is_array($rule['selectors'] ?? null) ? $rule['selectors'] : array() as $selectorRecord) {
+            foreach (ArrayField::array($rule, 'selectors') as $selectorRecord) {
                 $selector = trim((string) ($selectorRecord['selector'] ?? ''));
                 if ('' !== $selector && $this->matchesCssSelector($element, $selector)) {
                     $matched = true;
@@ -331,7 +332,7 @@ final class StyleResolver implements ElementPresentationResolver
             if (!$matched) {
                 continue;
             }
-            $geometry = array_intersect_key(is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array(), $missing);
+            $geometry = array_intersect_key(ArrayField::array($rule, 'declarations'), $missing);
             if (array() !== $geometry) {
                 $owned = $this->mergeCssDeclarationMaps($owned, $geometry);
             }
@@ -757,8 +758,8 @@ final class StyleResolver implements ElementPresentationResolver
             foreach ( $this->rulesInCascadeOrder($this->styleRuleCandidates($element, 'static-conditional')) as $rule ) {
                 yield array(
                     'selectors' => array( (string) ( $rule['selector'] ?? '' ) ),
-                    'declarations' => is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array(),
-                    'conditions' => is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array(),
+                    'declarations' => ArrayField::array($rule, 'declarations'),
+                    'conditions' => ArrayField::array($rule, 'conditions'),
                     'layer' => $rule['layerRank'] ?? null,
                 );
             }
@@ -906,7 +907,7 @@ final class StyleResolver implements ElementPresentationResolver
         $families = array();
         foreach ( $authorStyles->styleRules() as $rule ) {
             $set = array();
-            foreach ( array_keys(is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array()) as $property ) {
+            foreach ( array_keys(ArrayField::array($rule, 'declarations')) as $property ) {
                 $property = strtolower((string) $property);
                 foreach ( $propertyFamilies as $family => $pattern ) {
                     if ( 1 === preg_match($pattern, $property) ) {
@@ -918,7 +919,7 @@ final class StyleResolver implements ElementPresentationResolver
                 continue;
             }
             $matched = false;
-            foreach ( is_array($rule['selectors'] ?? null) ? $rule['selectors'] : array() as $record ) {
+            foreach ( ArrayField::array($rule, 'selectors') as $record ) {
                 $selector = (string) ( $record['selector'] ?? '' );
                 if ( '' === $selector ) continue;
                 if ( $this->selectorCarriesPseudoState($selector) ) {
@@ -926,7 +927,7 @@ final class StyleResolver implements ElementPresentationResolver
                     $selector = preg_replace('/:(?:hover|focus-visible|focus-within|focus|active|visited|any-link|link|disabled|enabled|target)(?![\\w(-])/i', '', $selector) ?? $selector;
                     $parsed = $this->session->sourceStyleResolutionState()->parsedSelector($selector);
                 } else {
-                    $parsed = is_array($record['parsed'] ?? null) ? $record['parsed'] : array();
+                    $parsed = ArrayField::array($record, 'parsed');
                 }
                 $match = $selectorCache->matches($element, $selector, $parsed);
                 if ( ( $match['supported'] ?? false ) && ( $match['matches'] ?? false ) ) {
@@ -938,7 +939,7 @@ final class StyleResolver implements ElementPresentationResolver
                 continue;
             }
             $layered = false;
-            foreach ( is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array() as $condition ) {
+            foreach ( ArrayField::array($rule, 'conditions') as $condition ) {
                 if ( 1 === preg_match('/^@layer\b/i', trim((string) preg_replace('#/\*.*?\*/#s', '', (string) $condition))) ) {
                     $layered = true;
                 }
@@ -1000,7 +1001,7 @@ final class StyleResolver implements ElementPresentationResolver
         $parsedBySelector = array();
         foreach ( $styleRules as $rule ) {
             $selectors = array();
-            foreach ( is_array($rule['selectors'] ?? null) ? $rule['selectors'] : array() as $record ) {
+            foreach ( ArrayField::array($rule, 'selectors') as $record ) {
                 $selector = (string) ( $record['selector'] ?? '' );
                 // Interaction states and generated content are not the
                 // resting element, as in the source-style collections.
@@ -1008,14 +1009,14 @@ final class StyleResolver implements ElementPresentationResolver
                     continue;
                 }
                 $selectors[] = $selector;
-                $parsedBySelector[ $selector ] ??= is_array($record['parsed'] ?? null) ? $record['parsed'] : array();
+                $parsedBySelector[ $selector ] ??= ArrayField::array($record, 'parsed');
             }
             // The author analysis keeps at-rule preludes verbatim, so a
             // comment written before `@media` travels with the condition
             // (`/* tablet */ @media(max-width:1300px)`); the viewport
             // evaluator reads the at-rule itself.
             $conditions = array();
-            foreach ( is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array() as $condition ) {
+            foreach ( ArrayField::array($rule, 'conditions') as $condition ) {
                 $condition = trim((string) preg_replace('#/\*.*?\*/#s', '', (string) $condition));
                 if ( '' !== $condition ) {
                     $conditions[] = $condition;
@@ -1026,7 +1027,7 @@ final class StyleResolver implements ElementPresentationResolver
             }
             $rules[] = array(
                 'selectors' => $selectors,
-                'declarations' => is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array(),
+                'declarations' => ArrayField::array($rule, 'declarations'),
                 'conditions' => array(),
                 'layer' => $rule['layer'] ?? null,
             );
@@ -1187,7 +1188,7 @@ final class StyleResolver implements ElementPresentationResolver
             // print` hiding nav chrome) is not the value the document renders
             // with; letting it through turns an anchored conditional winner
             // into a resting one.
-            if ( ! $this->conditionsApplyAtReferenceViewport(is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array()) ) {
+            if ( ! $this->conditionsApplyAtReferenceViewport(ArrayField::array($rule, 'conditions')) ) {
                 continue;
             }
             $value = $declared;
@@ -3684,13 +3685,13 @@ final class StyleResolver implements ElementPresentationResolver
         $runtimeProperties = array_fill_keys(array('transform', 'translate', 'rotate', 'scale', 'animation', 'animation-name', 'animation-play-state', 'opacity', 'visibility'), true);
         $authorRules = $this->session->authorStyleAnalysis()->styleRules();
         foreach ($authorRules as $authorRule) {
-            $declarations = is_array($authorRule['declarations'] ?? null) ? $authorRule['declarations'] : array();
+            $declarations = ArrayField::array($authorRule, 'declarations');
             if (array() === $declarations) {
                 continue;
             }
             $customNames = array_filter(array_keys($declarations), static fn ($name): bool => str_starts_with((string) $name, '--'));
-            $conditions = array_values(array_map('trim', is_array($authorRule['conditions'] ?? null) ? $authorRule['conditions'] : array()));
-            foreach (is_array($authorRule['selectors'] ?? null) ? $authorRule['selectors'] : array() as $authorSelector) {
+            $conditions = array_values(array_map('trim', ArrayField::array($authorRule, 'conditions')));
+            foreach (ArrayField::array($authorRule, 'selectors') as $authorSelector) {
                 $selector = trim((string) ($authorSelector['selector'] ?? ''));
                 if ('' === $selector) {
                     continue;
@@ -5744,7 +5745,7 @@ final class StyleResolver implements ElementPresentationResolver
         $groups = array();
         foreach ( $this->styleRuleCandidates($element, 'image-shape') as $rule ) {
             $property = (string) ($rule['property'] ?? '');
-            $conditions = is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array();
+            $conditions = ArrayField::array($rule, 'conditions');
             if ( ! isset($wanted[$property]) || array() === $conditions ) {
                 continue;
             }
@@ -6711,11 +6712,11 @@ final class StyleResolver implements ElementPresentationResolver
         $runtimeProperties = array_fill_keys(array('transform', 'translate', 'rotate', 'scale', 'animation', 'animation-name', 'animation-play-state', 'opacity', 'visibility'), true);
         $unsafe = array();
         foreach ($this->session->authorStyleAnalysis()->styleRules() as $rule) {
-            $declarations = is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array();
+            $declarations = ArrayField::array($rule, 'declarations');
             if (! $this->hasSourceSlideRuntimeState($declarations, $runtimeProperties)) {
                 continue;
             }
-            foreach (is_array($rule['selectors'] ?? null) ? $rule['selectors'] : array() as $selectorRecord) {
+            foreach (ArrayField::array($rule, 'selectors') as $selectorRecord) {
                 $selector = trim((string) ($selectorRecord['selector'] ?? ''));
                 if ('' === $selector) {
                     continue;
@@ -6992,7 +6993,7 @@ final class StyleResolver implements ElementPresentationResolver
         $stacks = array();
         foreach ( $this->session->authorStyleAnalysis()->styleRules() as $rule ) {
             $conditions = is_array($rule['conditions'] ?? null) ? array_values(array_map('strval', $rule['conditions'])) : array();
-            if ( array() === $conditions || array() === array_intersect_key(is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array(), $names) ) {
+            if ( array() === $conditions || array() === array_intersect_key(ArrayField::array($rule, 'declarations'), $names) ) {
                 continue;
             }
             $stacks[] = $conditions;

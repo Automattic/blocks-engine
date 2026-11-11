@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\TransformOptions;
@@ -313,10 +314,10 @@ final class HtmlTransformerSession
         $this->configurePolicy(! empty($options['extract_global_shell']), ! empty($options['fallback_reduction_mode']));
         $this->runtimeBehaviorState()->installRuntimeScriptMetadata(TransformOptions::runtimeScriptMetadataFromOptions($options));
         $this->runtimeBehaviorState()->installRuntimeProjectionScriptAssets(
-            is_array($options['runtime_projection_script_assets'] ?? null) ? $options['runtime_projection_script_assets'] : array()
+            ArrayField::array($options, 'runtime_projection_script_assets')
         );
         $this->runtimeBehaviorState()->installThemePreferenceOwnership(
-            is_array($options['theme_preference_ownership'] ?? null) ? $options['theme_preference_ownership'] : array()
+            ArrayField::array($options, 'theme_preference_ownership')
         );
         $this->installSourcePath((string) ($options['source'] ?? 'html'));
         $this->installRuntimeSelectorState(new RuntimeSelectorState(

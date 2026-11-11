@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 
@@ -189,7 +190,7 @@ final class RuntimeIslandPackageBuilder
             'disposition'         => $disposition,
             'js_handling'         => 'drop' === $disposition ? 'drop' : 'preserve_verbatim',
             'handle_hint'         => $this->handleHint($kind, $selector, $markup),
-            'attributes'          => is_array($runtimeIsland['attributes'] ?? null) ? $runtimeIsland['attributes'] : array(),
+            'attributes'          => ArrayField::array($runtimeIsland, 'attributes'),
             'scripts'             => $scripts,
         );
 
@@ -213,7 +214,7 @@ final class RuntimeIslandPackageBuilder
         $scripts = array();
 
         if ( 'script' === $kind ) {
-            $attributes = is_array($runtimeIsland['attributes'] ?? null) ? $runtimeIsland['attributes'] : array();
+            $attributes = ArrayField::array($runtimeIsland, 'attributes');
             $sourceKind = is_scalar($runtimeIsland['script_source_kind'] ?? null) ? (string) $runtimeIsland['script_source_kind'] : '';
             if ( '' === $sourceKind ) {
                 $sourceKind = '' !== trim((string) ($attributes['src'] ?? '')) ? 'external' : 'inline';
@@ -235,12 +236,12 @@ final class RuntimeIslandPackageBuilder
             return DeterministicRowDeduplicator::dedupe($scripts);
         }
 
-        $required = is_array($runtimeIsland['required_scripts'] ?? null) ? $runtimeIsland['required_scripts'] : array();
+        $required = ArrayField::array($runtimeIsland, 'required_scripts');
         foreach ( $required as $requiredScript ) {
             if ( ! is_array($requiredScript) ) {
                 continue;
             }
-            $attributes = is_array($requiredScript['attributes'] ?? null) ? $requiredScript['attributes'] : array();
+            $attributes = ArrayField::array($requiredScript, 'attributes');
             $sourceKind = is_scalar($requiredScript['script_source_kind'] ?? null) ? (string) $requiredScript['script_source_kind'] : '';
             if ( '' === $sourceKind ) {
                 $sourceKind = '' !== trim((string) ($attributes['src'] ?? '')) ? 'external' : 'inline';

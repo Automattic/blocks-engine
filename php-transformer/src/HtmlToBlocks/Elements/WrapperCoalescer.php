@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
@@ -117,7 +118,7 @@ final class WrapperCoalescer
     private function nativeBlockHeight(array $block): int
     {
         $height = 0;
-        foreach (is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array() as $child) {
+        foreach (ArrayField::array($block, 'innerBlocks') as $child) {
             if (is_array($child)) $height = max($height, $this->nativeBlockHeight($child));
         }
 
@@ -129,7 +130,7 @@ final class WrapperCoalescer
     {
         $chain = array();
         $cursor = $block;
-        while (1 === count(is_array($cursor['innerBlocks'] ?? null) ? $cursor['innerBlocks'] : array()) && null !== ($descriptor = $this->foldableWrapperDescriptor($cursor))) {
+        while (1 === count(ArrayField::array($cursor, 'innerBlocks')) && null !== ($descriptor = $this->foldableWrapperDescriptor($cursor))) {
             $chain[] = array('block' => $cursor, 'descriptor' => $descriptor);
             $cursor = $cursor['innerBlocks'][0];
         }
@@ -137,7 +138,7 @@ final class WrapperCoalescer
             $chain[] = array('block' => $cursor, 'descriptor' => $descriptor);
             $terminal = array(
                 'blockName' => 'core/freeform',
-                'innerBlocks' => $this->compressProjectedGroupChains(is_array($cursor['innerBlocks'] ?? null) ? $cursor['innerBlocks'] : array(), $depth + count($chain)),
+                'innerBlocks' => $this->compressProjectedGroupChains(ArrayField::array($cursor, 'innerBlocks'), $depth + count($chain)),
             );
             return array('chain' => $chain, 'terminal' => $terminal, 'boundary' => null);
         }
@@ -164,14 +165,14 @@ final class WrapperCoalescer
         // only its block name records) loses its block identity for the editor
         // and for shell extraction. A native grid or flex
         // layout is likewise an editor control the wrapper list cannot carry.
-        if (!in_array($block['blockName'] ?? null, array('core/group'), true) || in_array($block['attrs']['layout']['type'] ?? null, array('grid', 'flex'), true) || isset($block['_binding_token']) || $this->session->transformationProvenanceState()->isBindingAnchor($block['_source_provenance_id'] ?? null) || $this->hasIndependentWrapperOwnership($block) || in_array(strtolower((string) ($block['attrs']['tagName'] ?? 'div')), array_merge(array('ul', 'ol', 'li'), self::LANDMARK_GROUP_TAGS), true) || ShellLandmarkPolicy::namesRoleOnlyLandmark(is_array($block['attrs'] ?? null) ? $block['attrs'] : array())) return null;
+        if (!in_array($block['blockName'] ?? null, array('core/group'), true) || in_array($block['attrs']['layout']['type'] ?? null, array('grid', 'flex'), true) || isset($block['_binding_token']) || $this->session->transformationProvenanceState()->isBindingAnchor($block['_source_provenance_id'] ?? null) || $this->hasIndependentWrapperOwnership($block) || in_array(strtolower((string) ($block['attrs']['tagName'] ?? 'div')), array_merge(array('ul', 'ol', 'li'), self::LANDMARK_GROUP_TAGS), true) || ShellLandmarkPolicy::namesRoleOnlyLandmark(ArrayField::array($block, 'attrs'))) return null;
         return $this->groupWrapperDescriptor($block);
     }
 
     /** @param array<string,mixed> $block */
     private function hasIndependentWrapperOwnership(array $block): bool
     {
-        $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
+        $attrs = ArrayField::array($block, 'attrs');
         // A dialog Group's identity includes its runtime shell and bindings.
         return isset($attrs['metadata']['blocksEngineDialog'])
             || !empty($block['_editability_runtime_owned'])
@@ -192,11 +193,11 @@ final class WrapperCoalescer
         $terminalIsShell = $this->sourceElementClassifier->isLayoutShellBlock($terminal);
         $terminalBlocks = $terminalIsShell ? $terminal['innerBlocks'] : (is_array($terminal['innerBlocks'] ?? null) && 'core/freeform' === ($terminal['blockName'] ?? null) ? $terminal['innerBlocks'] : array($terminal));
         $wrappers = array_column($chain, 'descriptor');
-        if ($terminalIsShell) $wrappers = array_merge($wrappers, is_array($terminal['_layout_shell_wrappers'] ?? null) ? $terminal['_layout_shell_wrappers'] : array());
+        if ($terminalIsShell) $wrappers = array_merge($wrappers, ArrayField::array($terminal, '_layout_shell_wrappers'));
         $opening = implode('', array_column($wrappers, 'opening'));
         $closing = implode('', array_reverse(array_column($wrappers, 'closing')));
         $provenanceIds = array_values(array_filter(array_map(static fn (array $entry): mixed => $entry['block']['_source_provenance_id'] ?? null, $chain), 'is_int'));
-        if ($terminalIsShell) $provenanceIds = array_merge($provenanceIds, is_array($terminal['_source_provenance_ids'] ?? null) ? $terminal['_source_provenance_ids'] : array());
+        if ($terminalIsShell) $provenanceIds = array_merge($provenanceIds, ArrayField::array($terminal, '_source_provenance_ids'));
         $blockName = $this->generatedBlocks()->blockName('layout-shell');
         $this->generatedBlocks()->register(LayoutShellBlockGenerator::class, (new LayoutShellBlockGenerator())->definition($blockName));
         return array_filter(array(
@@ -223,11 +224,11 @@ final class WrapperCoalescer
         if ( ! empty($block['_native_custom_wrapper_hook']) ) {
             return null;
         }
-        $content = is_array($block['innerContent'] ?? null) ? $block['innerContent'] : array();
+        $content = ArrayField::array($block, 'innerContent');
         $opening = is_string($content[0] ?? null) ? $content[0] : '';
         $last = array() === $content ? null : $content[array_key_last($content)];
         $closing = is_string($last) ? $last : '';
-        $children = is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array();
+        $children = ArrayField::array($block, 'innerBlocks');
         if (count($content) !== count($children) + 2 || array_slice($content, 1, -1) !== array_fill(0, count($children), null)) {
             return null;
         }
@@ -321,7 +322,7 @@ final class WrapperCoalescer
                 $values = $this->styleResolver->mergeCssDeclarationMaps($values, array($name => $value));
             }
         }
-        $attrs = is_array($childBlock['attrs'] ?? null) ? $childBlock['attrs'] : array();
+        $attrs = ArrayField::array($childBlock, 'attrs');
         $textAlign = $attrs['style']['typography']['textAlign'] ?? $attrs['align'] ?? null;
         if (isset($textAlign, $values['text-align']) && $textAlign === CssValueInspector::comparable($values['text-align'])) unset($values['text-align']);
         if (array() === $values) return null;
@@ -421,7 +422,7 @@ final class WrapperCoalescer
         $attrs = $resolution['attrs'];
         $sourceChild = $resolution['source_child'];
 
-        $childAttrs = is_array($childBlock['attrs'] ?? null) ? $childBlock['attrs'] : array();
+        $childAttrs = ArrayField::array($childBlock, 'attrs');
         $childAttrs['className'] = null === $proof
             ? SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), (string) ($childAttrs['className'] ?? ''), ...SourceDom::classNames($element))
             : SourceDom::mergeClassNames((string) ($childAttrs['className'] ?? ''), $this->layoutGeometryProofCarrier($proof));

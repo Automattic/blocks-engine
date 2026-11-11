@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
@@ -792,7 +793,7 @@ final class AuthorSelectorSemanticPreparer
         AuthorStyleAnalysis $authorStyles,
         AuthorSelectorProjectionState $projections
     ): void {
-        $selectors = is_array($options['runtime_projection_selectors'] ?? null) ? $options['runtime_projection_selectors'] : array();
+        $selectors = ArrayField::array($options, 'runtime_projection_selectors');
         foreach ( $selectors as $selector ) {
             if ( ! is_string($selector) || ! preg_match('/\[\s*data-[a-z0-9_-]+(?:\s*[~|^$*]?=|\s*\])/i', $selector) ) {
                 continue;

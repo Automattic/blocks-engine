@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssAnalysisLimits;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
@@ -237,7 +238,7 @@ final class FormPresentationGraphBuilder
         if (array_diff(array_keys($presentation), array('schema', 'styles', 'provenance', 'variants', 'truncated', 'diagnostics')) || !array_is_list($presentation['variants'] ?? null)) throw new InvalidArgumentException('Form element presentation envelope has unknown keys.');
         foreach ($presentation['variants'] as $variant) {
             if (!is_array($variant) || array_diff(array_keys($variant), array('condition', 'styles', 'precedence', 'provenance'))) throw new InvalidArgumentException('Form element presentation variant has unknown keys.');
-            foreach (is_array($variant['precedence'] ?? null) ? $variant['precedence'] : array() as $rank) if (!is_array($rank) || array_diff(array_keys($rank), array('source_order', 'specificity', 'important'))) throw new InvalidArgumentException('Form element presentation precedence has unknown keys.');
+            foreach (ArrayField::array($variant, 'precedence') as $rank) if (!is_array($rank) || array_diff(array_keys($rank), array('source_order', 'specificity', 'important'))) throw new InvalidArgumentException('Form element presentation precedence has unknown keys.');
         }
         if ('generic/form-element-presentation/v1' !== ($presentation['schema'] ?? null) || !is_array($presentation['styles'] ?? null) || !is_array($presentation['provenance'] ?? null) || !is_array($presentation['variants'] ?? null) || count($presentation['variants']) > self::MAX_RULES_PER_ROLE || !is_bool($presentation['truncated'] ?? null) || !is_array($presentation['diagnostics'] ?? null) || count($presentation['diagnostics']) > self::MAX_DIAGNOSTICS) throw new InvalidArgumentException('Form element presentation envelope is invalid.');
         if (!array_is_list($presentation['diagnostics']) || array_filter($presentation['diagnostics'], static fn (mixed $diagnostic): bool => !is_string($diagnostic) || '' === trim($diagnostic) || str_starts_with($diagnostic, 'unsupported_selector:'))) throw new InvalidArgumentException('Form element diagnostics must describe the element, not the stylesheet.');

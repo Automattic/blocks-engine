@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
@@ -134,7 +135,7 @@ final class CustomElementRuntimeDependency
                 if ( ! is_array($row) ) {
                     continue;
                 }
-                $attributes = is_array($row['attributes'] ?? null) ? $row['attributes'] : array();
+                $attributes = ArrayField::array($row, 'attributes');
                 $rowSrc = trim((string) ($attributes['src'] ?? ''));
                 $path = is_string($row['path'] ?? null) ? $row['path'] : '';
                 $content = $contentByPath[$path] ?? '';
@@ -155,7 +156,7 @@ final class CustomElementRuntimeDependency
             if ( ! is_array($row) ) {
                 continue;
             }
-            $attributes = is_array($row['attributes'] ?? null) ? $row['attributes'] : array();
+            $attributes = ArrayField::array($row, 'attributes');
             $rowSrc = trim((string) ($attributes['src'] ?? ''));
             if ( '' === $rowSrc || ! $this->sameScriptSource($src, $rowSrc) ) {
                 continue;

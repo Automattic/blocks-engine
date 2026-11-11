@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Css\UnreachableSelectorPruner;
 
@@ -286,7 +287,7 @@ final class ArtifactCompiler
         $this->htmlTransformerAnalysisCache = $this->cacheHtmlAnalysis ? new HtmlTransformerAnalysisCache() : null;
         $normalized = (new ArtifactNormalizer())->normalize($artifact);
         $normalized['source_css_bytes'] = $artifact['_captured_source_css_bytes'] ?? self::sourceCssBytes($normalized['files']);
-        $this->layoutGeometryProof = is_array($normalized['layout_geometry_proof'] ?? null) ? $normalized['layout_geometry_proof'] : array();
+        $this->layoutGeometryProof = ArrayField::array($normalized, 'layout_geometry_proof');
         $capturedDialogs = (new CapturedDialogProjector())->project($normalized['files']);
         $collections = (new CapturedCollectionProjector())->project($capturedDialogs['files']);
         $selectableSets = (new CapturedSelectableSetProjector())->project($collections['files'], $collections['consumed_selectable_bindings'] ?? array());
@@ -396,7 +397,7 @@ final class ArtifactCompiler
         $entryBlocks = is_array($reduction['entry_blocks'] ?? null) ? $reduction['entry_blocks'] : $this->compileEntryBlocks($html, $entryPath, $normalized['files'], $companionPluginPayloadBuilder->blockNamespace($artifact), $normalized['runtime_declarations']);
         // Staged receipts carry the pages their workers omitted; whole compilation
         // discovers them here. Both reach the same page-omitted accounting below.
-        $omittedPages = is_array($reduction['omitted_pages'] ?? null) ? $reduction['omitted_pages'] : array();
+        $omittedPages = ArrayField::array($reduction, 'omitted_pages');
         $compiledHtmlDocuments = is_array($reduction['compiled_documents'] ?? null) ? $reduction['compiled_documents'] : $this->compileHtmlSourceDocuments($normalized['files'], $entryPath, $companionPluginPayloadBuilder->blockNamespace($artifact), $normalized['runtime_declarations'], $omittedPages);
         $inlineShellCompilation = is_array($reduction['inline_shell_compilation'] ?? null)
             ? $reduction['inline_shell_compilation']
@@ -622,7 +623,7 @@ final class ArtifactCompiler
         if (array() !== ($capturedDialogs['native_runtime_replacements'] ?? array())) {
             $sourceReports['native_runtime_replacements'] = $capturedDialogs['native_runtime_replacements'];
         }
-        $compiledSite = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments, $inlineShellCompilation['artifacts'], is_array($entryBlocks['document_root_markers'] ?? null) ? $entryBlocks['document_root_markers'] : array(), is_array($entryBlocks['design_usage'] ?? null) ? $entryBlocks['design_usage'] : array());
+        $compiledSite = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments, $inlineShellCompilation['artifacts'], ArrayField::array($entryBlocks, 'document_root_markers'), ArrayField::array($entryBlocks, 'design_usage'));
         $compiledSite['source_css_bytes'] = $normalized['source_css_bytes'];
         $compiledSite['runtime_entity_records'] = $runtimeEntityRecords;
         $sourceReports['compiled_site'] = $compiledSite;
@@ -636,9 +637,9 @@ final class ArtifactCompiler
         foreach ($compiledHtmlDocuments as $sourcePath => $compiledHtmlDocument) {
             $sourceFile = $fileMetadata[$sourcePath] ?? array();
             $editabilityDocuments[(string) $sourcePath] = array(
-                'blocks' => is_array($compiledHtmlDocument['blocks'] ?? null) ? $compiledHtmlDocument['blocks'] : array(),
+                'blocks' => ArrayField::array($compiledHtmlDocument, 'blocks'),
                 'serialized_blocks' => is_string($compiledHtmlDocument['serialized_blocks'] ?? null) ? $compiledHtmlDocument['serialized_blocks'] : '',
-                'generated_carrier_css' => $this->cssAssetContent(is_array($compiledHtmlDocument['assets'] ?? null) ? $compiledHtmlDocument['assets'] : array()),
+                'generated_carrier_css' => $this->cssAssetContent(ArrayField::array($compiledHtmlDocument, 'assets')),
                 'runtime_block_paths' => $compiledHtmlDocument['runtime_block_paths'],
                 'visual_block_paths' => $compiledHtmlDocument['visual_block_paths'],
                 'editability_report' => $compiledHtmlDocument['editability_report'],
@@ -819,14 +820,14 @@ final class ArtifactCompiler
         $editorModule = array();
         ksort($reports, SORT_STRING);
         foreach ($reports as $sourcePath => $report) {
-            foreach (is_array($report['counterparts'] ?? null) ? $report['counterparts'] : array() as $counterpart) {
+            foreach (ArrayField::array($report, 'counterparts') as $counterpart) {
                 if (!is_array($counterpart)) {
                     continue;
                 }
                 $counterpart['source_path'] = (string) $sourcePath;
                 $merged['counterparts'][] = $counterpart;
             }
-            foreach (is_array($report['declined'] ?? null) ? $report['declined'] : array() as $declinedEntry) {
+            foreach (ArrayField::array($report, 'declined') as $declinedEntry) {
                 if (is_array($declinedEntry)) {
                     $declinedEntry['source_path'] = (string) $sourcePath;
                     $merged['declined'][] = $declinedEntry;
@@ -933,12 +934,12 @@ final class ArtifactCompiler
                     $assets[$index]['visual_payload'] = $asset['visual_payload'];
                 }
                 $occurrences = is_array($assets[$index]['component_occurrences'] ?? null) ? $assets[$index]['component_occurrences'] : array();
-                foreach (is_array($asset['component_occurrences'] ?? null) ? $asset['component_occurrences'] : array() as $occurrence) {
+                foreach (ArrayField::array($asset, 'component_occurrences') as $occurrence) {
                     if (count($occurrences) < 8 && !in_array($occurrence, $occurrences, true)) $occurrences[] = $occurrence;
                 }
                 if (array() !== $occurrences) $assets[$index]['component_occurrences'] = $occurrences;
                 $counts = is_array($assets[$index]['component_occurrence_counts'] ?? null) ? $assets[$index]['component_occurrence_counts'] : array();
-                foreach (is_array($asset['component_occurrence_counts'] ?? null) ? $asset['component_occurrence_counts'] : array() as $fingerprint => $count) if (is_string($fingerprint) && is_int($count)) $counts[$fingerprint] = (int) ($counts[$fingerprint] ?? 0) + $count;
+                foreach (ArrayField::array($asset, 'component_occurrence_counts') as $fingerprint => $count) if (is_string($fingerprint) && is_int($count)) $counts[$fingerprint] = (int) ($counts[$fingerprint] ?? 0) + $count;
                 if (array() !== $counts) $assets[$index]['component_occurrence_counts'] = $counts;
                 $assets[$index]['component_occurrences_omitted'] = max(0, array_sum($counts) - count($occurrences));
                 if ( 'css' !== ($asset['kind'] ?? null) ) {
@@ -966,7 +967,7 @@ final class ArtifactCompiler
         foreach ( $compiledHtmlDocuments as $sourcePath => $compiledHtmlDocument ) {
             $file = $filesByPath[$sourcePath] ?? array('path' => $sourcePath, 'kind' => 'html');
             $append(
-                is_array($compiledHtmlDocument['assets'] ?? null) ? $compiledHtmlDocument['assets'] : array(),
+                ArrayField::array($compiledHtmlDocument, 'assets'),
                 $this->fileOwnership($file)
             );
         }
@@ -1004,14 +1005,14 @@ final class ArtifactCompiler
             $deduplicated[$index]['hash'] = hash('sha256', $canonicalPayload);
             $deduplicated[$index]['source_hash'] = $deduplicated[$index]['hash'];
             $rows = is_array($deduplicated[$index]['component_occurrences'] ?? null) ? $deduplicated[$index]['component_occurrences'] : array();
-            $incomingRows = is_array($asset['component_occurrences'] ?? null) ? $asset['component_occurrences'] : array();
+            $incomingRows = ArrayField::array($asset, 'component_occurrences');
             $alreadyIncluded = array() !== $incomingRows;
             foreach ($incomingRows as $row) {
                 if (!in_array($row, $rows, true)) $alreadyIncluded = false;
                 if (count($rows) < 8 && !in_array($row, $rows, true)) $rows[] = $row;
             }
             $deduplicated[$index]['component_occurrences'] = $rows;
-            if (!$alreadyIncluded) foreach (is_array($asset['component_occurrence_counts'] ?? null) ? $asset['component_occurrence_counts'] : array() as $fingerprint => $count) if (is_string($fingerprint) && is_int($count)) $deduplicated[$index]['component_occurrence_counts'][$fingerprint] = (int) ($deduplicated[$index]['component_occurrence_counts'][$fingerprint] ?? 0) + $count;
+            if (!$alreadyIncluded) foreach (ArrayField::array($asset, 'component_occurrence_counts') as $fingerprint => $count) if (is_string($fingerprint) && is_int($count)) $deduplicated[$index]['component_occurrence_counts'][$fingerprint] = (int) ($deduplicated[$index]['component_occurrence_counts'][$fingerprint] ?? 0) + $count;
             $deduplicated[$index]['component_occurrences_omitted'] = max(0, array_sum(is_array($deduplicated[$index]['component_occurrence_counts'] ?? null) ? $deduplicated[$index]['component_occurrence_counts'] : array()) - count($rows));
         }
         return $deduplicated;
@@ -1104,14 +1105,14 @@ final class ArtifactCompiler
     {
         $candidates = array();
         $append = static function (string $sourcePath, array $evidence) use (&$candidates): void {
-            foreach (is_array($evidence['candidates'] ?? null) ? $evidence['candidates'] : array() as $candidate) {
+            foreach (ArrayField::array($evidence, 'candidates') as $candidate) {
                 if (is_array($candidate) && is_string($candidate['fingerprint'] ?? null) && is_string($candidate['path'] ?? null) && is_string($candidate['tag'] ?? null)) $candidates[$candidate['fingerprint']][] = array('source_path' => $sourcePath, 'path' => $candidate['path'], 'tag' => $candidate['tag']);
             }
         };
         $append($entryPath, $entryEvidence);
-        foreach ($documents as $sourcePath => $document) $append((string) $sourcePath, is_array($document['reusable_components'] ?? null) ? $document['reusable_components'] : array());
+        foreach ($documents as $sourcePath => $document) $append((string) $sourcePath, ArrayField::array($document, 'reusable_components'));
         $mapped = array();
-        foreach ($assets as $asset) foreach (is_array($asset['component_occurrence_counts'] ?? null) ? $asset['component_occurrence_counts'] : array() as $fingerprint => $count) if (is_string($fingerprint) && is_int($count)) $mapped[$fingerprint] = (int) ($mapped[$fingerprint] ?? 0) + $count;
+        foreach ($assets as $asset) foreach (ArrayField::array($asset, 'component_occurrence_counts') as $fingerprint => $count) if (is_string($fingerprint) && is_int($count)) $mapped[$fingerprint] = (int) ($mapped[$fingerprint] ?? 0) + $count;
         $components = array();
         foreach ($candidates as $fingerprint => $occurrences) {
             if (count($occurrences) < 2) continue;
@@ -1123,9 +1124,9 @@ final class ArtifactCompiler
         }
         usort($components, static fn(array $a, array $b): int => $b['occurrence_count'] <=> $a['occurrence_count'] ?: strcmp($a['fingerprint'], $b['fingerprint']));
         $documentScans = array();
-        $scan = static function (string $sourcePath, array $evidence) use (&$documentScans): void { $documentScans[] = array('source_path' => $sourcePath, 'scanned_node_count' => (int) ($evidence['scanned_node_count'] ?? 0), 'candidate_count' => (int) ($evidence['candidate_count'] ?? 0), 'omitted_candidate_count' => (int) ($evidence['omitted_candidate_count'] ?? 0), 'truncated' => array_values(is_array($evidence['truncated'] ?? null) ? $evidence['truncated'] : array())); };
+        $scan = static function (string $sourcePath, array $evidence) use (&$documentScans): void { $documentScans[] = array('source_path' => $sourcePath, 'scanned_node_count' => (int) ($evidence['scanned_node_count'] ?? 0), 'candidate_count' => (int) ($evidence['candidate_count'] ?? 0), 'omitted_candidate_count' => (int) ($evidence['omitted_candidate_count'] ?? 0), 'truncated' => array_values(ArrayField::array($evidence, 'truncated'))); };
         $scan($entryPath, $entryEvidence);
-        foreach ($documents as $sourcePath => $document) $scan((string) $sourcePath, is_array($document['reusable_components'] ?? null) ? $document['reusable_components'] : array());
+        foreach ($documents as $sourcePath => $document) $scan((string) $sourcePath, ArrayField::array($document, 'reusable_components'));
         $truncated = array_values(array_unique(array_merge(...array_map(static fn(array $scan): array => $scan['truncated'], $documentScans))));
         $componentOmitted = max(0, count($components) - 32);
         $documentOmitted = max(0, count($documentScans) - 64);
@@ -1230,7 +1231,7 @@ final class ArtifactCompiler
                     $diagnostics[] = $this->declinedProductGridBindingDiagnostic($fallback, $sourcePath, $container);
                 }
                 $gridItems = array();
-                foreach ( is_array($fallback['products'] ?? null) ? $fallback['products'] : array() as $product ) {
+                foreach ( ArrayField::array($fallback, 'products') as $product ) {
                     if ( ! is_array($product) ) continue;
                     if (is_string($product['url'] ?? null)) {
                         $route = SchemaProductEvidence::urlRoute($product['url'], $sourcePath);
@@ -1341,7 +1342,7 @@ final class ArtifactCompiler
                     static fn (array $control): bool => in_array(strtolower((string) ($control['tag'] ?? '')), array('input', 'select', 'textarea'), true)
                         && ! in_array(strtolower((string) ($control['type'] ?? '')), array('button', 'image', 'reset', 'submit'), true)
                 );
-                $choiceGroups = array_values(array_filter(is_array($fallback['choice_groups'] ?? null) ? $fallback['choice_groups'] : array(), 'is_array'));
+                $choiceGroups = array_values(array_filter(ArrayField::array($fallback, 'choice_groups'), 'is_array'));
                 if ( array() !== $choiceGroups ) $declarable = true;
                 if ( true === ($fallback['control_topology']['truncated'] ?? false) ) { if ( $declarable ) $diagnostics[] = $this->declinedFormDeclarationDiagnostic($fallback, $sourcePath, $selector, 'control_topology_truncated', 'its bounded control topology was truncated, so the control graph is incomplete'); continue; }
                 // A control's own field-description candidates that could not be
@@ -1351,7 +1352,7 @@ final class ArtifactCompiler
                 $rawControls = array_values(array_filter($fallback['controls'], 'is_array'));
                 $unrepresentedText = array();
                 foreach ( $rawControls as $index => $rawControl ) {
-                    foreach ( is_array($rawControl['_unresolved_description_candidates'] ?? null) ? $rawControl['_unresolved_description_candidates'] : array() as $text ) {
+                    foreach ( ArrayField::array($rawControl, '_unresolved_description_candidates') as $text ) {
                         if ( is_string($text) && '' !== trim($text) ) $unrepresentedText[] = array('selector' => is_string($rawControl['selector'] ?? null) ? $rawControl['selector'] : $selector, 'text' => $text);
                     }
                     unset($rawControls[$index]['_unresolved_description_candidates']);
@@ -1362,7 +1363,7 @@ final class ArtifactCompiler
                 foreach ( is_array($fallback['form']['unrepresented_context'] ?? null) ? $fallback['form']['unrepresented_context'] : array() as $item ) {
                     if ( is_array($item) && is_string($item['text'] ?? null) && '' !== trim($item['text']) ) $unrepresentedText[] = array('selector' => $selector, 'text' => $item['text']);
                 }
-                $form = array('selector' => $selector, 'source_path' => $sourcePath, 'form' => is_array($fallback['form'] ?? null) ? $fallback['form'] : array(), 'controls' => $rawControls);
+                $form = array('selector' => $selector, 'source_path' => $sourcePath, 'form' => ArrayField::array($fallback, 'form'), 'controls' => $rawControls);
                 if ( array() !== $choiceGroups ) $form['choice_groups'] = $choiceGroups;
                 foreach (array('fallback_identity', 'reconciliation_identity') as $identityKey) if (is_string($fallback[$identityKey] ?? null) && preg_match('/^[a-f0-9]{64}$/', $fallback[$identityKey])) $form[$identityKey] = $fallback[$identityKey];
                 // An order-lookup form (order number + the email used at checkout
@@ -1632,7 +1633,7 @@ final class ArtifactCompiler
      */
     private function declinedFormDeclarationDiagnostic(array $fallback, string $sourcePath, string $selector, string $failedCheck, string $because): array
     {
-        $controls = array_values(array_filter(is_array($fallback['controls'] ?? null) ? $fallback['controls'] : array(), 'is_array'));
+        $controls = array_values(array_filter(ArrayField::array($fallback, 'controls'), 'is_array'));
         return array(
             'code' => 'runtime_form_declaration_declined',
             'severity' => 'warning',
@@ -1663,7 +1664,7 @@ final class ArtifactCompiler
      */
     private function rejectedFormGraphDiagnostic(array $fallback, string $sourcePath, string $selector, string $graph, string $reason): array
     {
-        $controls = array_values(array_filter(is_array($fallback['controls'] ?? null) ? $fallback['controls'] : array(), 'is_array'));
+        $controls = array_values(array_filter(ArrayField::array($fallback, 'controls'), 'is_array'));
         return array(
             'code' => 'runtime_form_graph_rejected',
             'severity' => 'warning',
@@ -1757,7 +1758,7 @@ final class ArtifactCompiler
     {
         $files = ArtifactNormalizer::inlineOccurrences($files);
         $ownedIds = array();
-        foreach ( array_merge(array($fallback['form'] ?? array()), is_array($fallback['controls'] ?? null) ? $fallback['controls'] : array()) as $row ) {
+        foreach ( array_merge(array($fallback['form'] ?? array()), ArrayField::array($fallback, 'controls')) as $row ) {
             if ( is_array($row) && is_string($row['id'] ?? null) && '' !== trim($row['id']) ) $ownedIds[$row['id']] = true;
         }
         if ( is_string($fallback['html'] ?? null) && preg_match_all('/\bid\s*=\s*["\']([^"\']+)["\']/i', $fallback['html'], $matches) ) foreach ( $matches[1] as $id ) $ownedIds[(string) $id] = true;
@@ -2005,7 +2006,7 @@ final class ArtifactCompiler
             if ( ! is_array($runtimeIsland) || 'script' === ($runtimeIsland['kind'] ?? '') ) {
                 continue;
             }
-            $requiredScripts = is_array($runtimeIsland['required_scripts'] ?? null) ? $runtimeIsland['required_scripts'] : array();
+            $requiredScripts = ArrayField::array($runtimeIsland, 'required_scripts');
             foreach ( $inlineScripts as $file ) {
                 $content = is_scalar($file['content'] ?? null) ? trim((string) $file['content']) : '';
                 if ( '' === $content || ! $this->inlineScriptReferencesRuntimeIsland($content, $runtimeIsland) ) {
@@ -2093,7 +2094,7 @@ final class ArtifactCompiler
      */
     private function inlineScriptReferencesRuntimeIsland(string $content, array $runtimeIsland): bool
     {
-        $attributes = is_array($runtimeIsland['attributes'] ?? null) ? $runtimeIsland['attributes'] : array();
+        $attributes = ArrayField::array($runtimeIsland, 'attributes');
         $id = is_scalar($attributes['id'] ?? null) ? trim((string) $attributes['id']) : '';
         if ( '' !== $id && str_contains($content, $id) ) {
             return true;
@@ -4318,7 +4319,7 @@ final class ArtifactCompiler
             foreach ($xpath->query('//*[@' . CaptureEvidence::VIEWPORT_ENTRANCE . ']') ?: array() as $node) {
                 if (!$node instanceof \DOMElement) continue;
                 $evidence = json_decode($node->getAttribute(CaptureEvidence::VIEWPORT_ENTRANCE), true);
-                foreach (is_array($evidence['attributes'] ?? null) ? $evidence['attributes'] : array() as $name => $state) {
+                foreach (ArrayField::array($evidence, 'attributes') as $name => $state) {
                     // Only recorded after states are incidental. An unrelated or
                     // subsequently changed attribute remains structural.
                     if (is_string($name) && is_array($state) && array_key_exists('after', $state) && is_string($state['after']) && $node->getAttribute($name) === $state['after']) $node->removeAttribute($name);
@@ -4455,13 +4456,13 @@ final class ArtifactCompiler
                     'slug'           => $slug,
                     'title'          => $title,
                     'metadata'       => array_merge($this->documentMetadata($path, 'html', (string) ($file['role'] ?? 'document'), $slug, $title, $bodyFormat), is_string($file['metadata']['route_path'] ?? null) ? array('route_path' => $file['metadata']['route_path']) : array(), is_string($file['metadata']['post_type'] ?? null) ? array('post_type' => $file['metadata']['post_type'], 'post_type_declaration' => 'metadata:post_type') : array(), is_array($file['metadata']['template_surface'] ?? null) ? array('template_surface' => $file['metadata']['template_surface']) : array(), is_array($file['metadata']['structured_data'] ?? null) ? array('structured_data' => $file['metadata']['structured_data']) : array()),
-                    'document_metadata' => $this->fullDocumentMetadata($content, $path, $artifact['files'], $path === $entryPath ? $assets : ($compiledBlocks['assets'] ?? array()), is_array($compiledBlocks['document_root_markers'] ?? null) ? $compiledBlocks['document_root_markers'] : array()),
+                    'document_metadata' => $this->fullDocumentMetadata($content, $path, $artifact['files'], $path === $entryPath ? $assets : ($compiledBlocks['assets'] ?? array()), ArrayField::array($compiledBlocks, 'document_root_markers')),
                     'html'           => $file['content'] ?? '',
                     'body_format'    => $bodyFormat,
                     'block_markup'   => $blockMarkup,
-                    'shell_artifacts' => is_array($compiledBlocks['shell_artifacts'] ?? null) ? $compiledBlocks['shell_artifacts'] : array(),
-                    'runtime_islands' => is_array($compiledBlocks['runtime_islands'] ?? null) ? $compiledBlocks['runtime_islands'] : array(),
-                    'design_usage'   => is_array($compiledBlocks['design_usage'] ?? null) ? $compiledBlocks['design_usage'] : array(),
+                    'shell_artifacts' => ArrayField::array($compiledBlocks, 'shell_artifacts'),
+                    'runtime_islands' => ArrayField::array($compiledBlocks, 'runtime_islands'),
+                    'design_usage'   => ArrayField::array($compiledBlocks, 'design_usage'),
                     'bytes'          => $file['bytes'] ?? 0,
                     'mime_type'      => $file['mime_type'] ?? 'text/html',
                     'asset_references' => $this->assetReferencePaths($assets),
@@ -5684,13 +5685,13 @@ final class ArtifactCompiler
             return array(
                 'serialized_blocks' => (string) ( $result['serialized_blocks'] ?? '' ),
                 'diagnostics'       => array_values(array_filter(
-                    is_array($result['diagnostics'] ?? null) ? $result['diagnostics'] : array(),
+                    ArrayField::array($result, 'diagnostics'),
                     static fn (array $diagnostic): bool => 'format_bridge_conversion_completed' !== (string) ($diagnostic['code'] ?? '')
                 )),
             );
         }
 
-        $diagnostics = is_array($result['diagnostics'] ?? null) ? $result['diagnostics'] : array();
+        $diagnostics = ArrayField::array($result, 'diagnostics');
         $diagnostics[] = $this->diagnostic('markdown_adapter_unavailable', 'warning', 'A Markdown adapter is unavailable; preserved source Markdown as a core/html fallback.');
 
         return array(

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPress;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
 use RuntimeException;
 
@@ -175,7 +176,7 @@ final class Runtime
                 unset($attrs[ $dimension ]);
             }
         }
-        $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
+        $style = ArrayField::array($attrs, 'style');
         $this->filterStyleGroup($style, $fallback, $supports, 'dimensions', array( 'minHeight' => 'minHeight', 'maxWidth' => 'maxWidth' ));
         // core/button serializes the spacing sides itself onto its link (the
         // `__experimentalSkipSerialization` flag only opts the block out of the
@@ -217,10 +218,10 @@ final class Runtime
     private function filterStyleGroup(array &$style, array &$fallback, array $supports, string $group, array $features, bool $colorDefaults = false, bool $blockSerializesItsOwnValues = false): void { $values = is_array($style[ $group ] ?? null) ? $style[ $group ] : array(); foreach ( $features as $key => $feature ) if ( array_key_exists($key, $values) && ! $this->supportsFeature($supports, $group, $feature, $colorDefaults) ) { if ( ! $blockSerializesItsOwnValues ) { $fallback[ $group ][ $key ] = $values[ $key ]; unset($values[ $key ]); } } if ( array() === $values ) unset($style[ $group ]); else $style[ $group ] = $values; }
 
     /** @param array<string, mixed> $style @param array<string, mixed> $fallback @param array<string, mixed> $supports */
-    private function filterSpacing(array &$style, array &$fallback, array $supports, bool $blockSerializesItsOwnPadding = false): void { $spacing = is_array($style['spacing'] ?? null) ? $style['spacing'] : array(); foreach ( array( 'margin', 'padding' ) as $box ) { $sides = is_array($spacing[ $box ] ?? null) ? $spacing[ $box ] : array(); foreach ( $sides as $side => $value ) if ( ! $this->supportsFeature($supports, 'spacing', $box, false, (string) $side) ) { if ( ! ( $blockSerializesItsOwnPadding && 'padding' === $box ) ) { $fallback['spacing'][ $box ][ $side ] = $value; unset($sides[ $side ]); } } if ( array() === $sides ) unset($spacing[ $box ]); else $spacing[ $box ] = $sides; } if ( isset($spacing['blockGap']) && ! $this->supportsFeature($supports, 'spacing', 'blockGap') ) { $fallback['spacing']['blockGap'] = $spacing['blockGap']; unset($spacing['blockGap']); } if ( array() === $spacing ) unset($style['spacing']); else $style['spacing'] = $spacing; }
+    private function filterSpacing(array &$style, array &$fallback, array $supports, bool $blockSerializesItsOwnPadding = false): void { $spacing = ArrayField::array($style, 'spacing'); foreach ( array( 'margin', 'padding' ) as $box ) { $sides = is_array($spacing[ $box ] ?? null) ? $spacing[ $box ] : array(); foreach ( $sides as $side => $value ) if ( ! $this->supportsFeature($supports, 'spacing', $box, false, (string) $side) ) { if ( ! ( $blockSerializesItsOwnPadding && 'padding' === $box ) ) { $fallback['spacing'][ $box ][ $side ] = $value; unset($sides[ $side ]); } } if ( array() === $sides ) unset($spacing[ $box ]); else $spacing[ $box ] = $sides; } if ( isset($spacing['blockGap']) && ! $this->supportsFeature($supports, 'spacing', 'blockGap') ) { $fallback['spacing']['blockGap'] = $spacing['blockGap']; unset($spacing['blockGap']); } if ( array() === $spacing ) unset($style['spacing']); else $style['spacing'] = $spacing; }
 
     /** @param array<string, mixed> $style @param array<string, mixed> $fallback @param array<string, mixed> $supports */
-    private function filterBorder(array &$style, array &$fallback, array $supports, bool $blockSerializesItsOwnValues = false): void { $border = is_array($style['border'] ?? null) ? $style['border'] : array(); foreach ( array( 'color', 'style', 'width', 'radius' ) as $feature ) if ( isset($border[ $feature ]) && ! $this->supportsFeature($supports, 'border', $feature) ) { if ( ! $blockSerializesItsOwnValues ) { $fallback['border'][ $feature ] = $border[ $feature ]; unset($border[ $feature ]); } } foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) { $sideBorder = is_array($border[ $side ] ?? null) ? $border[ $side ] : array(); foreach ( array( 'color', 'style', 'width' ) as $feature ) if ( isset($sideBorder[ $feature ]) && ! $this->supportsFeature($supports, 'border', $feature) ) { if ( ! $blockSerializesItsOwnValues ) { $fallback['border'][ $side ][ $feature ] = $sideBorder[ $feature ]; unset($sideBorder[ $feature ]); } } if ( array() === $sideBorder ) unset($border[ $side ]); else $border[ $side ] = $sideBorder; } if ( array() === $border ) unset($style['border']); else $style['border'] = $border; }
+    private function filterBorder(array &$style, array &$fallback, array $supports, bool $blockSerializesItsOwnValues = false): void { $border = ArrayField::array($style, 'border'); foreach ( array( 'color', 'style', 'width', 'radius' ) as $feature ) if ( isset($border[ $feature ]) && ! $this->supportsFeature($supports, 'border', $feature) ) { if ( ! $blockSerializesItsOwnValues ) { $fallback['border'][ $feature ] = $border[ $feature ]; unset($border[ $feature ]); } } foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) { $sideBorder = is_array($border[ $side ] ?? null) ? $border[ $side ] : array(); foreach ( array( 'color', 'style', 'width' ) as $feature ) if ( isset($sideBorder[ $feature ]) && ! $this->supportsFeature($supports, 'border', $feature) ) { if ( ! $blockSerializesItsOwnValues ) { $fallback['border'][ $side ][ $feature ] = $sideBorder[ $feature ]; unset($sideBorder[ $feature ]); } } if ( array() === $sideBorder ) unset($border[ $side ]); else $border[ $side ] = $sideBorder; } if ( array() === $border ) unset($style['border']); else $style['border'] = $border; }
 
     /** @param array<string, mixed> $supports */
     private function supportsFeature(array $supports, string $group, string $feature, bool $colorDefaults = false, string $side = ''): bool { $declaration = 'border' === $group ? ($supports['border'] ?? $supports['__experimentalBorder'] ?? false) : ($supports[ $group ] ?? false); if ( true === $declaration ) return true; if ( ! is_array($declaration) || true === ($declaration['__experimentalSkipSerialization'] ?? false) ) return false; $skipped = $declaration['__experimentalSkipSerialization'] ?? array(); $skipFeature = lcfirst(str_replace('__experimental', '', $feature)); if ( is_array($skipped) && (in_array($feature, $skipped, true) || in_array($skipFeature, $skipped, true)) ) return false; if ( 'layout' === $group ) return false !== ($declaration['allowEditing'] ?? true) && ( 'grid' !== $feature || false !== ($declaration['allowSwitching'] ?? true) ); $value = $declaration[ $feature ] ?? ($colorDefaults ? true : false); return '' !== $side && is_array($value) ? in_array($side, $value, true) : true === $value; }
@@ -357,7 +358,7 @@ final class Runtime
                 'parent'        => is_array($capability['parent'] ?? null) ? array_values($capability['parent']) : array(),
                 'allowedBlocks' => $capability['allowedBlocks'] ?? ($supports[ $name ]['allowedBlocks'] ?? null),
                 'dynamic'       => true === ($capability['dynamic'] ?? false),
-                'assets'        => is_array($capability['assets'] ?? null) ? $capability['assets'] : array(),
+                'assets'        => ArrayField::array($capability, 'assets'),
             );
         }
     }

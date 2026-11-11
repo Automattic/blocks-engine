@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\Contract;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+
 /** Measures bounded editability risks independently of visual-parity evidence. */
 final class EditabilityReport
 {
@@ -81,14 +83,14 @@ final class EditabilityReport
         $signalCount = 0;
         foreach ($documents as $sourcePath => $document) {
             $report = is_array($document['editability_report'] ?? null) ? $document['editability_report'] : $this->fromBlocks(
-                is_array($document['blocks'] ?? null) ? $document['blocks'] : array(),
+                ArrayField::array($document, 'blocks'),
                 (string) $sourcePath,
                 is_string($document['serialized_blocks'] ?? null) ? $document['serialized_blocks'] : '',
                 is_string($document['generated_carrier_css'] ?? null) ? $document['generated_carrier_css'] : '',
-                is_array($document['runtime_block_paths'] ?? null) ? $document['runtime_block_paths'] : array(),
-                is_array($document['visual_block_paths'] ?? null) ? $document['visual_block_paths'] : array(),
-                is_array($document['source_provenance'] ?? null) ? $document['source_provenance'] : array(),
-                is_array($document['generated_blocks'] ?? null) ? $document['generated_blocks'] : array()
+                ArrayField::array($document, 'runtime_block_paths'),
+                ArrayField::array($document, 'visual_block_paths'),
+                ArrayField::array($document, 'source_provenance'),
+                ArrayField::array($document, 'generated_blocks')
             );
             $reports[] = array(
                 'source_path' => (string) $sourcePath,
@@ -177,8 +179,8 @@ final class EditabilityReport
             if (!is_array($block)) continue;
             $blockPath = array_merge($path, array($index));
             $name = is_string($block['blockName'] ?? null) && '' !== $block['blockName'] ? $block['blockName'] : 'core/freeform';
-            $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
-            $innerBlocks = is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array();
+            $attrs = ArrayField::array($block, 'attrs');
+            $innerBlocks = ArrayField::array($block, 'innerBlocks');
             $metrics['block_count']++;
             $metrics['max_nesting_depth'] = max($metrics['max_nesting_depth'], $depth);
             if ($depth > ($deepestBlock['depth'] ?? 0)) {
@@ -205,7 +207,7 @@ final class EditabilityReport
                 }
             } elseif ($this->isLayoutShell($name) && array() === $innerBlocks && '' === trim(strip_tags((string) ($block['innerHTML'] ?? '')))) {
                 // A folded chain around nothing is classified like the empty group it replaced.
-                $wrappers = is_array($attrs['wrappers'] ?? null) ? $attrs['wrappers'] : array();
+                $wrappers = ArrayField::array($attrs, 'wrappers');
                 $innermost = end($wrappers);
                 $innermostClass = is_array($innermost) ? (string) ($innermost['attributes']['class'] ?? '') : '';
                 $emptyKind = $this->emptyGroupKind('core/group', array('className' => $innermostClass), $generatedCarrierCss, isset($runtimeBlockPaths['blocks.' . implode('.', $blockPath)]), isset($visualBlockPaths['blocks.' . implode('.', $blockPath)]));
@@ -290,7 +292,7 @@ final class EditabilityReport
                 if (null === $firstBoundary) $firstBoundary = array('block_path' => $entry['block_path'], 'block_name' => $name, 'reason_code' => $boundary);
             }
             if (isset($entry['kind']) || isset($entry['boundary_reason_code'])) $entries[] = $entry;
-            $current = is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array();
+            $current = ArrayField::array($block, 'innerBlocks');
         }
         return array_filter(array('path' => $entries, 'first_boundary' => $firstBoundary), static fn(mixed $value): bool => null !== $value && array() !== $value);
     }
@@ -332,7 +334,7 @@ final class EditabilityReport
     private function hasVisualGroupAttributes(array $attrs): bool
     {
         foreach (array('backgroundColor', 'gradient', 'layout') as $key) if (!empty($attrs[$key])) return true;
-        $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
+        $style = ArrayField::array($attrs, 'style');
         if (array_filter((array) ($style['color'] ?? array()), static fn (mixed $value, string $key): bool => in_array($key, array('background', 'gradient', 'duotone'), true) && !empty($value), ARRAY_FILTER_USE_BOTH)) return true;
         foreach (array('background', 'border', 'dimensions', 'shadow', 'spacing') as $key) if (!empty($style[$key])) return true;
         return false;

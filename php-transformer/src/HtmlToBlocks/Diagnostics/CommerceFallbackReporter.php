@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\SchemaProductEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CustomElementRuntimeDependency;
@@ -1356,7 +1357,7 @@ final class CommerceFallbackReporter
                     return $block;
                 }
             }
-            $nested = $this->blockForSourceSelector(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array(), $selector);
+            $nested = $this->blockForSourceSelector(ArrayField::array($block, 'innerBlocks'), $selector);
             if ( null !== $nested ) {
                 return $nested;
             }

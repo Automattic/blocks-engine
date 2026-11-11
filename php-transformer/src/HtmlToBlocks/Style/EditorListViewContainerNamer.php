@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use DOMElement;
@@ -38,7 +39,7 @@ final class EditorListViewContainerNamer
             return $attrs;
         }
 
-        $metadata = is_array($attrs['metadata'] ?? null) ? $attrs['metadata'] : array();
+        $metadata = ArrayField::array($attrs, 'metadata');
         $metadata['name'] = $name;
         $attrs['metadata'] = $metadata;
 

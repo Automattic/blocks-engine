@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ImageDimensionResolver;
@@ -257,7 +258,7 @@ final class ImageLowering
             }
 
             if ( 'core/image' === (string) ($block['blockName'] ?? '') ) {
-                $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
+                $attrs = ArrayField::array($block, 'attrs');
                 if ( '' === (string) ($attrs['href'] ?? '') ) {
                     $attrs['lightbox'] = array( 'enabled' => true );
                     $blocks[ $index ] = $this->blockFactory->rebuild($block, $attrs);
@@ -569,7 +570,7 @@ final class ImageLowering
 
         $selection = $this->authoredImageSelection($image, (string) $attrs['url']);
         if ( array() !== $selection ) {
-            $attrs['metadata'] = array_merge(is_array($attrs['metadata'] ?? null) ? $attrs['metadata'] : array(), array( 'blocksEngineImageSelection' => $selection ));
+            $attrs['metadata'] = array_merge(ArrayField::array($attrs, 'metadata'), array( 'blocksEngineImageSelection' => $selection ));
         }
 
         if ($figure instanceof DOMElement && $link instanceof DOMElement) {

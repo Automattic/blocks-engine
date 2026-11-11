@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 
 /**
@@ -66,7 +67,7 @@ final class TransformOptions
             $metadata[] = array_filter(array(
                 'path'               => is_string($script['path'] ?? null) ? $script['path'] : '',
                 'selector'           => is_string($script['selector'] ?? null) ? $script['selector'] : '',
-                'attributes'         => is_array($script['attributes'] ?? null) ? $script['attributes'] : array(),
+                'attributes'         => ArrayField::array($script, 'attributes'),
                 'script_role'        => 'runtime',
                 'script_source_kind' => is_string($script['script_source_kind'] ?? null) ? $script['script_source_kind'] : 'external',
             ), static fn (mixed $value): bool => '' !== $value && array() !== $value);
@@ -98,7 +99,7 @@ final class TransformOptions
     public static function sharedStylesheetPaths(array $options): array
     {
         $paths = array();
-        foreach ( is_array($options['shared_stylesheet_paths'] ?? null) ? $options['shared_stylesheet_paths'] : array() as $path ) {
+        foreach ( ArrayField::array($options, 'shared_stylesheet_paths') as $path ) {
             if ( is_string($path) && '' !== $path ) {
                 $paths[$path] = true;
             }

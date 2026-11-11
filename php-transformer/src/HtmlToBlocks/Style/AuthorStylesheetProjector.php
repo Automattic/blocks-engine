@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
@@ -4778,12 +4779,12 @@ final class AuthorStylesheetProjector
         foreach ( $context->authorStyles->styleRules() as $rule ) {
             $conditions = array_values(array_filter(array_map(
                 static fn ($condition): string => trim((string) preg_replace('#/\*.*?\*/#s', '', (string) $condition)),
-                is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array()
+                ArrayField::array($rule, 'conditions')
             )));
             if ( array() !== $conditions && ! $this->styleResolver->conditionsApplyAtViewport($conditions, StyleResolver::DESKTOP_REFERENCE_WIDTH) ) {
                 continue;
             }
-            foreach ( is_array($rule['selectors'] ?? null) ? $rule['selectors'] : array() as $record ) {
+            foreach ( ArrayField::array($rule, 'selectors') as $record ) {
                 $selector = trim((string) ( $record['selector'] ?? '' ));
                 if ( 1 !== preg_match('/^(.+?)::?after$/i', $selector, $subject) ) {
                     continue;

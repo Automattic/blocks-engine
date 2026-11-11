@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
@@ -235,7 +236,7 @@ final class SourceElementClassifier
     public function isLayoutShellBlock(array $block): bool
     {
         return str_ends_with((string) ($block['blockName'] ?? ''), '/layout-shell')
-            && 0 < count(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array());
+            && 0 < count(ArrayField::array($block, 'innerBlocks'));
     }
 
     public function isLayoutShellSerializableStyle(string $style): bool

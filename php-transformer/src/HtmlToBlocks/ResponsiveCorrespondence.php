@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
@@ -157,7 +158,7 @@ final class ResponsiveCorrespondence
                 continue;
             }
             $name = is_string($block['blockName'] ?? null) ? $block['blockName'] : '';
-            $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
+            $attrs = ArrayField::array($block, 'attrs');
             $blockPath = $path . '.' . $index;
             $blockVariant = $this->variantContext($attrs) ?? $variant;
             foreach ($this->tokenClasses((string) ($attrs['className'] ?? '')) as $token) {
@@ -210,11 +211,11 @@ final class ResponsiveCorrespondence
         if (null !== $variant) {
             return $variant;
         }
-        foreach (is_array($attrs['wrappers'] ?? null) ? $attrs['wrappers'] : array() as $wrapper) {
+        foreach (ArrayField::array($attrs, 'wrappers') as $wrapper) {
             if (!is_array($wrapper)) {
                 continue;
             }
-            $attributes = is_array($wrapper['attributes'] ?? null) ? $wrapper['attributes'] : array();
+            $attributes = ArrayField::array($wrapper, 'attributes');
             $variant = $this->variantClassContext((string) ($attributes['class'] ?? ''));
             if (null !== $variant) {
                 return $variant;
