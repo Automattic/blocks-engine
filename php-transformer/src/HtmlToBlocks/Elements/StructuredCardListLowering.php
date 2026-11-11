@@ -14,7 +14,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttribu
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
-use Closure;
 use DOMElement;
 
 /**
@@ -25,9 +24,6 @@ final class StructuredCardListLowering
 {
     private const CSS_OWNED_GRID_CLASS = 'blocks-engine-css-owned-grid';
 
-    /**
-     * @param Closure(): RichTextStylingHookNormalizer $richTextStylingHooks
-     */
     public function __construct(
         private readonly SourceBlockCreator $blocks,
         private readonly StyleResolver $styleResolver,
@@ -36,7 +32,7 @@ final class StructuredCardListLowering
         private readonly SourceElementClassifier $sourceElementClassifier,
         private readonly Runtime $runtime,
         private readonly PatternTreeConverter $tree,
-        private readonly Closure $richTextStylingHooks
+        private readonly RichTextStylingHookNormalizer $richTextStylingHooks
     ) {
     }
 
@@ -129,7 +125,7 @@ final class StructuredCardListLowering
     {
         $tag = strtolower($element->tagName);
         if ( 'span' === $tag ) {
-            return ($this->richTextStylingHooks)()->isStylingHookSpan($element);
+            return $this->richTextStylingHooks->isStylingHookSpan($element);
         }
         if ( 'a' !== $tag && ! $this->sourceElementClassifier->isInlineContentElement($tag) ) {
             return false;
@@ -294,7 +290,7 @@ final class StructuredCardListLowering
             ), array(), $element);
         }
 
-        if ( 'span' === $tag && ($this->richTextStylingHooks)()->isStylingHookSpan($element) ) {
+        if ( 'span' === $tag && $this->richTextStylingHooks->isStylingHookSpan($element) ) {
             $content = $this->styleResolver->innerHtml($element);
             if ( '' === trim($this->runtime->stripAllTags($content)) ) {
                 return null;

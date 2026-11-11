@@ -242,6 +242,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly SvgMaterializer $svgMaterializer;
 
     private readonly RichTextMaterializer $richTextMaterializer;
+    private readonly RichTextStylingHookNormalizer $richTextStylingHooks;
     private readonly Style\SourceElementVisibility $sourceVisibility;
     private readonly Elements\StandaloneBreakLowering $standaloneBreaks;
     private readonly AuthoredMarqueeRecognizer $authoredMarqueeRecognizer;
@@ -420,6 +421,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $flankedSeparators = new Elements\FlankedSeparatorLowering($this, $this->styleResolver, $this->sourceElementClassifier);
         $this->sourceVisibility = new Style\SourceElementVisibility($this->styleResolver);
         $this->richTextMaterializer = new RichTextMaterializer($this->styleResolver, $this->svgMaterializer, $this->session, $this);
+        $this->richTextStylingHooks = new RichTextStylingHookNormalizer($this->styleResolver, $this->richTextMaterializer, $this->session, $this->sourceElementClassifier);
         $inlineFlows = new Elements\InlineFlowLowering($this, $this, $this->styleResolver, $this->sourceElementClassifier, $this->richTextMaterializer, $this->runtime);
         $authoredStateButtons = new Elements\AuthoredStateButtonLowering($this->session, $this->svgMaterializer);
         $this->linkedIconTextRows = new Elements\LinkedIconTextRowLowering(
@@ -451,7 +453,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $formControlMetadataBuilder = new FormControlMetadataBuilder(
             $this->styleResolver,
             $this->session,
-            fn (DOMElement $element): string => $this->formContextRichText($element),
+            $this->richTextStylingHooks->formContextContent(...),
             function (DOMElement $element): array {
                 if ( '' === $this->session->authorStyleAnalysis()->combinedCss() ) {
                     return array();
@@ -534,7 +536,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->sourceElementClassifier,
             $this->runtime,
             $this,
-            fn (): RichTextStylingHookNormalizer => $this->richTextStylingHooks()
+            $this->richTextStylingHooks
         );
         $this->authorSelectorSemanticPreparer = new AuthorSelectorSemanticPreparer($this->sourceElementClassifier,
             new AuthorSelectorSemanticContext(
@@ -607,7 +609,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->runtime,
             fn (DOMElement $element): ?DOMElement => $this->sourceTagProjectedClone($element),
             fn (DOMElement $label): string => $this->richTextMaterializer->content($label, array( 'input', 'select', 'textarea' )),
-            fn (DOMElement $label): string => $this->inlineRichTextContent($label)
+            $this->richTextStylingHooks->inlineContent(...)
         );
         $this->projectedNavigation = new ProjectedNavigationConverter(
             $this->navigationToggleSuppressor,
@@ -1254,18 +1256,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return new TextLeafElementContext(
             $this->codePresentation ??= new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CodePresentation($this->styleResolver),
             $this
-        );
-    }
-
-    private ?RichTextStylingHookNormalizer $richTextStylingHooks = null;
-
-    private function richTextStylingHooks(): RichTextStylingHookNormalizer
-    {
-        return $this->richTextStylingHooks ??= new RichTextStylingHookNormalizer(
-            $this->styleResolver,
-            $this->richTextMaterializer,
-            $this->session,
-            $this->sourceElementClassifier
         );
     }
 
@@ -1923,7 +1913,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             ),
             $this->styleResolver,
             $this->session,
-            fn (DOMElement $sourceElement): string => $this->inlineRichTextContent($sourceElement)
+            fn (DOMElement $sourceElement): string => $this->richTextStylingHooks->inlineContent($sourceElement)
         );
     }
 
@@ -2195,7 +2185,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $unsafeFixedHeightTopologyChange = ! empty($attrs['unsafeFixedHeightTopologyChange']);
         unset($attrs['unsafeFixedHeightTopologyChange']);
         if ( ! $preserveInlineLayoutLeaf ) {
-            $attrs = $this->richTextStylingHooks()->hoistContentWrappingSpans($name, $attrs);
+            $attrs = $this->richTextStylingHooks->hoistContentWrappingSpans($name, $attrs);
         }
         // A RichText carrier whose only classes are its role and subject
         // classes carries no authored class.
@@ -2578,48 +2568,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     }
 
     /**
-     * Inline content as the standalone RichText a block's own content
-     * attribute carries — a control label, an in-form introduction, a lowered
-     * wrapper paragraph: the materialized source markup, with styling hooks
-     * lowered to semantic carriers inline rather than hoisted onto the host.
-     */
-    private function inlineRichTextContent(DOMElement $element): string
-    {
-        $content = $this->richTextMaterializer->content($element);
-        if ('' === $content) return '';
-        $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $content . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
-        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
-        if (!$body instanceof DOMElement) return $content;
-        $this->richTextStylingHooks()->normalize($body);
-        return SourceDom::innerHtml($body);
-    }
-
-    /**
-     * In-form copy — an introduction above the fields, a note between them —
-     * as the paragraph/heading RichText the page conversion keeps, so the form
-     * contract carries the copy's formatting instead of its flattened text.
-     * Copy without inline markup, and markup a paragraph cannot hold (structure
-     * a RichText attribute rejects, or an object the fallback gate reserves for
-     * the page's own conversion), returns '': the item's plain text, styles and
-     * classes stay the contract there.
-     */
-    private function formContextRichText(DOMElement $element): string
-    {
-        $content = trim($this->inlineRichTextContent($element));
-        if ( '' === $content || ! preg_match('/<[a-zA-Z]/', $content)
-            || $this->richTextMaterializer->hasStructuralHtml($content)
-            || $this->richTextMaterializer->requiresHtmlFallback($content) ) {
-            return '';
-        }
-
-        return $content;
-    }
-
-    /**
      * @param array<string, mixed> $childBlock
      * @return array<string, mixed>|null
      * @see WrapperCoalescer::coalescedSingleGroupWrapper()
@@ -2876,7 +2824,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             // Reuse label RichText preparation so wrapper hooks become carriers
             // before button marks are introduced (the normalizer avoids nesting
             // marks when replacing spans). Then use the paragraph primitives.
-            $content = $this->inlineRichTextContent($element);
+            $content = $this->richTextStylingHooks->inlineContent($element);
             $content = $this->richTextMaterializer->contentWithInlineSafeButtonsLowered($element, $content) ?? $content;
             $content = $this->richTextMaterializer->contentWithMaterializedSvgImages($element, $content) ?? $content;
         }
