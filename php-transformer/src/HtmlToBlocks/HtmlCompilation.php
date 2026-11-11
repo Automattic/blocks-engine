@@ -1710,130 +1710,25 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     }
 
     /**
-     * Reduce safe legacy core/html islands through the producer's native block
-     * recognizers. An island is replaced only when its complete fragment maps
-     * to native blocks with no fallback diagnostics; otherwise its serialized
-     * payload remains untouched.
-     *
      * @param array<int, array<string, mixed>> $blocks
      * @return array<int, array<string, mixed>>
      */
     public function reduceCoreHtmlFallbackBlocks(array $blocks, ?DOMElement $sourceRoot = null): array
     {
-        $reduced = array();
-        foreach ($blocks as $block) {
-            if (!is_array($block)) {
-                continue;
+        return (new Elements\CoreHtmlIslandReducer(
+            $this->runtimeIslands,
+            $this->sourceBlockAttributeProjector,
+            $this->session,
+            function (string $html, array $sourceBoxes): array {
+                $fragment = new self($this->runtime, $this->analysisCache);
+                $fragment->reducedButtonSourceBoxes = $sourceBoxes;
+
+                return array(
+                    $fragment->transform($html, array( 'extract_global_shell' => false, 'fallback_reduction_mode' => true ))->toArray(),
+                    $fragment->session,
+                );
             }
-
-            $name = is_string($block['blockName'] ?? null) ? $block['blockName'] : '';
-            if (in_array($name, array('core/html', 'core/freeform'), true)) {
-                $html = is_string($block['attrs']['content'] ?? null)
-                    ? $block['attrs']['content']
-                    : (is_string($block['innerHTML'] ?? null) ? $block['innerHTML'] : '');
-                $replacement = $this->safeFallbackFragmentBlocks($html, $sourceRoot);
-                array_push($reduced, ...($replacement ?? array($block)));
-                continue;
-            }
-
-            $children = is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array();
-            if (array() !== $children) {
-                $reducedChildren = array();
-                $childReplacements = array();
-                foreach ($children as $child) {
-                    $replacement = $this->reduceCoreHtmlFallbackBlocks(array($child), $sourceRoot);
-                    $childReplacements[] = $replacement;
-                    array_push($reducedChildren, ...$replacement);
-                }
-                $block['innerBlocks'] = $reducedChildren;
-                $innerContent = array();
-                $childIndex = 0;
-                foreach (is_array($block['innerContent'] ?? null) ? $block['innerContent'] : array() as $content) {
-                    if (null !== $content) {
-                        $innerContent[] = $content;
-                        continue;
-                    }
-                    foreach ($childReplacements[$childIndex] ?? array() as $_) {
-                        $innerContent[] = null;
-                    }
-                    ++$childIndex;
-                }
-                $block['innerContent'] = $innerContent;
-                $block['innerHTML'] = implode('', array_filter($innerContent, 'is_string'));
-            }
-            $reduced[] = $block;
-        }
-
-        return $reduced;
-    }
-
-    /**
-     * @return array<int, array<string, mixed>>|null Null keeps the original island.
-     */
-    private function safeFallbackFragmentBlocks(string $html, ?DOMElement $sourceRoot = null): ?array
-    {
-        if ('' === trim($html)) {
-            return array();
-        }
-        if (preg_match('/<\s*(?:script|style|iframe|canvas|svg|form|input|select|textarea)\b/i', $html)) {
-            return null;
-        }
-        $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $loaded = $document->loadHTML('<!doctype html><html><body>' . $html . '</body></html>');
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
-        if ($loaded) {
-            foreach ($document->getElementsByTagName('*') as $element) {
-                if ($element instanceof DOMElement && $this->runtimeIslands->isRuntimeDomTarget($element)) {
-                    return null;
-                }
-            }
-        }
-
-        // Island reduction reparses a detached fragment, so ancestor selectors
-        // no longer match. Resolve box modifiers against the original source
-        // and pass that evidence to the same button attribute projector.
-        $sourceBoxes = array();
-        if ( $loaded && $sourceRoot instanceof DOMElement ) {
-            foreach ( $document->getElementsByTagName('a') as $anchor ) {
-                if ( ! $anchor instanceof DOMElement || '' === SourceDom::attr($anchor, 'id') ) {
-                    continue;
-                }
-                foreach ( $sourceRoot->getElementsByTagName('a') as $sourceAnchor ) {
-                    if ( $sourceAnchor instanceof DOMElement && SourceDom::attr($sourceAnchor, 'id') === SourceDom::attr($anchor, 'id') ) {
-                        $sourceBoxes[SourceDom::attr($anchor, 'id')] = $this->sourceBlockAttributeProjector->layoutNeutralButtonSourceBoxClasses($sourceAnchor);
-                        break;
-                    }
-                }
-            }
-        }
-        $fragmentCompilation = new self($this->runtime, $this->analysisCache);
-        $fragmentCompilation->reducedButtonSourceBoxes = $sourceBoxes;
-        $result = $fragmentCompilation->transform($html, array('extract_global_shell' => false, 'fallback_reduction_mode' => true));
-        $data = $result->toArray();
-        $blocks = is_array($data['blocks'] ?? null) ? $data['blocks'] : array();
-        if (array() === $blocks || array() !== ($data['fallbacks'] ?? array())) {
-            return null;
-        }
-        foreach ($blocks as $block) {
-            if (!is_array($block) || !str_starts_with((string) ($block['blockName'] ?? ''), 'core/') || in_array($block['blockName'] ?? '', array('core/html', 'core/freeform'), true)) {
-                return null;
-            }
-        }
-
-        if ( $this->session->hasAssetMaterializationState() ) {
-            // Fragment-owned support remains in the compiler's structured
-            // records until acceptance. Commit only records whose source
-            // identities survive in the returned blocks; a rejected exploratory
-            // compilation never reaches this boundary.
-            $this->session->generatedSupportStylesheetState()->commitAcceptedFrom(
-                $fragmentCompilation->session->generatedSupportStylesheetState(),
-                $blocks
-            );
-        }
-
-        return $blocks;
+        ))->reduce($blocks, $sourceRoot);
     }
 
     /**
