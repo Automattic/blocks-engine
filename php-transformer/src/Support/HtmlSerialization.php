@@ -33,6 +33,14 @@ final class HtmlSerialization
         return $loaded;
     }
 
+    /** A UTF-8 DOMDocument parsed by {@see self::loadHtml()}, or null when it fails. */
+    public static function utf8Document(string $html, int $options = 0): ?DOMDocument
+    {
+        $document = new DOMDocument('1.0', 'UTF-8');
+
+        return self::loadHtml($document, '<?xml encoding="UTF-8">' . $html, $options) ? $document : null;
+    }
+
     /**
      * Attributes as escaped ` name="value"` pairs. Empty values are omitted
      * unless their name is in `$includeEmpty`.

@@ -170,9 +170,7 @@ final class ScrollStateProjector
 
     private function loadDocument(string $html): ?DOMDocument
     {
-        $document = new DOMDocument('1.0', 'UTF-8');
-        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8">' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-        return $loaded ? $document : null;
+        return HtmlSerialization::utf8Document($html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
     }
 
     /**

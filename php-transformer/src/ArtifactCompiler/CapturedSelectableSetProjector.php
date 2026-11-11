@@ -146,9 +146,8 @@ final class CapturedSelectableSetProjector
             $path = $routes[CaptureReceiptRoutes::normalizedUrl((string) ($page['sourceUrl'] ?? ''))] ?? '';
             foreach ($files as &$file) {
                 if ('' === $path || $path !== ($file['path'] ?? null) || !is_string($file['content'] ?? null)) continue;
-                $document = new DOMDocument('1.0', 'UTF-8');
-                $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8">' . $file['content'], LIBXML_NONET);
-                if (!$loaded) continue;
+                $document = HtmlSerialization::utf8Document($file['content'], LIBXML_NONET);
+                if (null === $document) continue;
                 $changed = false;
                 $bindings = new ScriptOccurrenceBindings($document);
                 foreach (array_slice($page['components'] ?? array(), 0, self::MAX_SETS_PER_PAGE) as $component) {
@@ -344,9 +343,8 @@ final class CapturedSelectableSetProjector
      */
     private function projectPage(string $html, array $sets, string $sourcePath, array $consumedBindings = array()): array
     {
-        $document = new DOMDocument('1.0', 'UTF-8');
-        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8">' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-        if (! $loaded) {
+        $document = HtmlSerialization::utf8Document($html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+        if (null === $document) {
             return array('html' => $html, 'diagnostics' => array($this->diagnostic('captured_selectable_set_source_invalid', 'warning', 'Captured selectable sets were not projected because the source HTML could not be parsed.', array('source_path' => $sourcePath))), 'projected_count' => 0);
         }
 
@@ -1018,9 +1016,8 @@ final class CapturedSelectableSetProjector
 
     private function safeRegionHtml(string $html): ?string
     {
-        $document = new DOMDocument('1.0', 'UTF-8');
-        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8"><div data-region-root="true">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-        if (! $loaded) {
+        $document = HtmlSerialization::utf8Document('<div data-region-root="true">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+        if (null === $document) {
             return null;
         }
         $xpath = new \DOMXPath($document);
@@ -1110,9 +1107,8 @@ final class CapturedSelectableSetProjector
     /** @return array<int, \DOMNode> */
     private function fragmentNodes(string $html): array
     {
-        $document = new DOMDocument('1.0', 'UTF-8');
-        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8"><div data-region-root="true">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-        if (! $loaded) {
+        $document = HtmlSerialization::utf8Document('<div data-region-root="true">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+        if (null === $document) {
             return array();
         }
         $wrapper = (new \DOMXPath($document))->query('//*[@data-region-root="true"]')?->item(0);

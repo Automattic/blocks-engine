@@ -433,10 +433,7 @@ final class CapturedChoiceGroupProjector
 
     private function loadDocument(string $html): ?DOMDocument
     {
-        $document = new DOMDocument('1.0', 'UTF-8');
-        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8">' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-
-        return $loaded ? $document : null;
+        return HtmlSerialization::utf8Document($html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
     }
 
     /**
@@ -582,9 +579,8 @@ final class CapturedChoiceGroupProjector
 
     private function fragmentRoot(string $html): ?DOMElement
     {
-        $document = new DOMDocument('1.0', 'UTF-8');
-        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8"><div data-choice-fragment="true">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-        if (! $loaded) {
+        $document = HtmlSerialization::utf8Document('<div data-choice-fragment="true">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+        if (null === $document) {
             return null;
         }
         $wrapper = $document->getElementsByTagName('div')->item(0);
@@ -638,9 +634,8 @@ final class CapturedChoiceGroupProjector
 
     private function safeHtml(string $html): ?string
     {
-        $document = new DOMDocument('1.0', 'UTF-8');
-        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8"><div data-choice-root="true">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-        if (! $loaded) {
+        $document = HtmlSerialization::utf8Document('<div data-choice-root="true">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+        if (null === $document) {
             return null;
         }
         $xpath = new \DOMXPath($document);
