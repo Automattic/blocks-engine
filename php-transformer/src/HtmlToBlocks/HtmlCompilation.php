@@ -339,8 +339,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
 
 
-    private string $currentSourcePath = 'html';
-
     /** @var array<string, array<string, mixed>> Undecodable glyph findings keyed by format and source. */
     private array $glyphColorUndecodable = array();
 
@@ -1103,7 +1101,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private function createStyleResolutionContext(): StyleResolutionContext
     {
         return new StyleResolutionContext(
-            fn (string $selector): array => $this->parsedCssSelector($selector),
+            fn (string $selector): array => $this->session->sourceStyleResolutionState()->parsedSelector($selector),
             fn (string $className): string => $this->styleResolver->promotedClassName($className),
             fn (string $url): string => $this->imageUrls->resolvedAssetUrl($url)
         );
@@ -1141,7 +1139,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private function createNavigationStyleProjectionContext(): NavigationStyleProjectionContext
     {
         return new NavigationStyleProjectionContext(
-            fn (string $selector): array => $this->parsedCssSelector($selector),
+            fn (string $selector): array => $this->session->sourceStyleResolutionState()->parsedSelector($selector),
             function (array $cssParts, string $source, string $placement, string $pathPrefix, string $target = 'both'): void {
                 $this->stylesheetAssetStage->generated($cssParts, $source, $placement, $pathPrefix, $target);
             }
@@ -1343,8 +1341,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->glyphColorUndecodable = array();
         $this->capturedGlyphColors = null;
         $this->documentAuthorCss = '';
-        $this->currentSourcePath = (string) ($options['source'] ?? 'html');
-        $this->session->installSourcePath($this->currentSourcePath);
+        $this->session->installSourcePath((string) ($options['source'] ?? 'html'));
         $sharedStylesheetPaths = array();
         foreach ( is_array($options['shared_stylesheet_paths'] ?? null) ? $options['shared_stylesheet_paths'] : array() as $path ) {
             if ( is_string($path) && '' !== $path ) {
@@ -1480,10 +1477,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // Remove wrapper-convention custom elements before author selectors are
         // prepared, so style projection and component promotion both observe the
         // content rather than the source's wrapping convention.
-        $this->documentAuthorCss = $this->authoredCssText($html, (string) ($options['static_css'] ?? ''));
+        $this->documentAuthorCss = $this->stylesheetAnalysisComposer->combinedAuthorStylesheet($html, $staticCss);
         $this->unwrapRenderNeutralCustomElements($body, $this->documentAuthorCss);
         $timer->start('transform.author_selector_preparation');
-        $this->prepareAuthorSelectorSemantics($html, (string) ($options['static_css'] ?? ''), $body, $options);
+        $this->authorSelectorSemanticPreparer->prepare($html, $staticCss, $body, $options, $this->session);
         $this->session->fallbackEmitter()->configure($this->session->transformationProvenanceState()->fallback(), $this->session->runtimeBehaviorState()->runtimeScriptMetadata(), $this->session->runtimeSelectorState(), $this->session->authorSelectorProjectionState()->tagMarkers());
         // Author-selector preparation marks source nodes for later projection.
         // General style matching begins only after those source mutations settle.
@@ -1585,14 +1582,14 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $sharedStylesheetPaths,
             ! empty($options['project_only_matched_author_rules']),
             ! empty($options['native_document_context']),
-            $this->currentSourcePath
+            $this->session->sourcePath()
         );
         $authorStylesheetProjections = $authorStylesheets->projections();
         $runtimeScriptProjections = RuntimeScriptProjections::collect($this->session);
         $timer->start('transform.stylesheet_materialization');
         $authorStylesheets->materialize(
             $html,
-            (string) ($options['static_css'] ?? ''),
+            $staticCss,
             true !== ($options['skip_author_stylesheet_materialization'] ?? false),
             $serializedBlocks . $readableMarkup,
             $sourceProvenance,
@@ -1633,7 +1630,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $reusableComponentRecognition = $classIdentity->rewrite($reusableComponentRecognition, $classReplacements);
         $projectedSelectorBindings = $classIdentity->rewrite($authorStylesheets->projectedSelectorBindings(), $classReplacements);
         $this->session->assetMaterializationState()->restore($classIdentity->rewrite($assets, $classReplacements));
-        $validation = $this->validation->validate($timer, $body, $blocks, $serializedBlocks, $sourceProvenance, $shellArtifacts, $fallbacks, $html, (string) ($options['static_css'] ?? ''), $validationEvidence, $projectedSelectorBindings, $this->currentSourcePath);
+        $validation = $this->validation->validate($timer, $body, $blocks, $serializedBlocks, $sourceProvenance, $shellArtifacts, $fallbacks, $html, $staticCss, $validationEvidence, $projectedSelectorBindings, $this->session->sourcePath());
         $validationOutcome = $validation->outcome;
         $diagnostics = $validation->diagnostics;
         foreach ( $this->glyphColorUndecodable as $finding ) {
@@ -1904,23 +1901,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
      * Author CSS visible to the document: declared stylesheets plus the styles
      * the source embeds inline.
      */
-    private function authoredCssText(string $html, string $staticCss): string
-    {
-        return $this->stylesheetAnalysisComposer->combinedAuthorStylesheet($html, $staticCss);
-    }
-
-    /** @param array<string, mixed> $options */
-    private function prepareAuthorSelectorSemantics(string $html, string $staticCss, DOMElement $sourceBody, array $options): void
-    {
-        $this->authorSelectorSemanticPreparer->prepare($html, $staticCss, $sourceBody, $options, $this->session);
-    }
-
-    /** @return array<string, mixed> */
-    private function parsedCssSelector(string $selector): array
-    {
-        return $this->session->sourceStyleResolutionState()->parsedSelector($selector);
-    }
-
     /**
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<int, array<string, mixed>>
@@ -2101,7 +2081,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             'source'      => HtmlTransformer::class,
             'mime_type'   => $format,
             'src'         => $src,
-            'source_path' => $this->currentSourcePath,
+            'source_path' => $this->session->sourcePath(),
         );
     }
 
