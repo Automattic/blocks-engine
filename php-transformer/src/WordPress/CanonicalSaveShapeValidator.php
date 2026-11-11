@@ -309,8 +309,7 @@ final class CanonicalSaveShapeValidator
      * A class WordPress' block supports reproduce in save() without any source
      * input: the block base class, element classes, and attribute-derived
      * support classes (alignment, color/border has-*, and is-* state/style).
-     */
-    /**
+     *
      * @param array<string, mixed> $attrs
      */
     private function isStructuralClass(string $class, string $blockName, array $attrs): bool

@@ -33,12 +33,6 @@ final class RuntimeDependencyParityReport
     }
 
     /**
-     * Tag-only script selectors whose native DOM shape can be behavior-bearing.
-     *
-     * @var array<int, string>
-     */
-
-    /**
      * Acceptable disposition for a missing-DOM-target finding whose selector the
      * transformer intentionally removed because a native block now provides the
      * behavior — the parity loss is expected and editable, not a bug.

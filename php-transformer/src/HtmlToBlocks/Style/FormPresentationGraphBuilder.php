@@ -870,21 +870,6 @@ final class FormPresentationGraphBuilder
     }
 
     /**
-     * A checkbox/radio label's visible text often lives in a dedicated carrier
-     * — `<label><div><p>Yes</p></div>…` — while the `<label>` itself declares
-     * no typography. The text inherits each typography property from the
-     * nearest element between it and the label that declares it — often an
-     * intermediate carrier (`<p>`) above the spans that hold the text — so each
-     * property is resolved where it is declared, walking from the deepest
-     * carrier up to (not including) the label. Base and condition-scoped facts
-     * are resolved at the same declaring element.
-     *
-     * @param array<string, mixed> $roles
-     * @param list<array<string, mixed>> $rules
-     * @param list<array<string, mixed>> $customPropertyRules
-     * @return array<string, mixed>
-     */
-    /**
      * The paint a button's sole caption carrier draws behind the caption, when
      * it paints one. The control keeps its own paint; this layer sits inside the
      * control's padding box, as the carrier does in the source. Conditions that

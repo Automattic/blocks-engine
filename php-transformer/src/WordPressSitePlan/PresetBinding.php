@@ -1437,20 +1437,6 @@ final class PresetBinding
     }
 
     /**
-     * Whether binding a property keeps the cascade outcome.
-     *
-     * A preset class is `!important`, so any other `!important` rule that can
-     * reach the element competes with it; a rule that excludes one of the
-     * classes the binding adds (`:not(.has-text-color)`) cannot. Spacing stays
-     * inline (as a preset variable), so only selectors on the style text can
-     * observe it, and only through a fragment longer than the property name,
-     * unless the declaration is new. Interaction-state rules for the property
-     * make the resting value one of several, so they block binding too.
-     *
-     * @param array<string,true> $tokens
-     * @param list<string> $addedClasses
-     */
-    /**
      * Whether adding `has-background` keeps the block's padding: the block
      * already has the class, its core style does not pad it, or every side
      * is set by an inline declaration or an author rule for its class list.
@@ -2126,7 +2112,6 @@ final class PresetBinding
         return (string) preg_replace_callback('/\s*\/?>$/', static fn(array $end): string => $encoded . $end[0], $html, 1);
     }
 
-    /** @return list<array{0:string,1:string}> */
     /**
      * Properties whose value another device document writes inline through
      * capture device-inline evidence. They stay inline declarations, which

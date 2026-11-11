@@ -539,9 +539,6 @@ final class CapturedSelectableSetProjector
     }
 
     /**
-     * @return array{status:'matched'|'unmatched'|'ambiguous', elements:array<int, DOMElement>}
-     */
-    /**
      * A set is consumed only when a completed native collection bound every
      * member trigger and the dialog region. A partial or unrelated group stays.
      *

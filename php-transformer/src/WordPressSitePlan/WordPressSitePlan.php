@@ -49,7 +49,6 @@ final class WordPressSitePlan
     /** Blocks whose serialized `url` attribute names a route rather than an asset. */
     public const ROUTE_URL_BLOCKS = array('navigation-link', 'navigation-submenu', 'button', 'social-link');
     public const MAX_DOCUMENT_IDENTITY_DIAGNOSTICS = 50;
-    /** Generated, document-namespaced class names the projected author CSS selects on. */
     /** Marks the post-content block of a template that holds a page's hoisted layout frame. */
     public const FRAME_CONTENT_CLASS = 'blocks-engine-frame-content';
     private const GENERATED_CLASS_PATTERN = '/blocks-engine-[a-z-]+-[0-9a-f]{12}-\d+/';
@@ -173,8 +172,7 @@ PHP;
      * @param bool $strictMissingMedia Rejects the whole plan when a media
      *        reference names a local file the artifact never packaged, instead
      *        of recovering it as an explicit placeholder and warning.
-     */
-    /**
+     *
      * @param StepTimer|null $timer Receives one exclusive step per site-plan stage, so callers
      *                             can always see where composition spends its time.
      */
@@ -2112,12 +2110,6 @@ PHP;
         return ':is(' . implode(' ', array_slice($compounds, 0, $run)) . ',:where(' . implode(',', $wrappers) . ')) ' . implode(' ', array_slice($compounds, $run));
     }
 
-    /**
-     * The responsive variant root classes a compound consists of, such as
-     * `:where(.data-blocks-engine-capture-mobile-document)`; null for any other compound.
-     *
-     * @return list<string>|null
-     */
     /** Rendered elements rooting a captured document copy; at least one. */
     private static function documentCopyCount(string $markup): int
     {
@@ -2239,21 +2231,6 @@ PHP;
         return 1 === preg_match('/^(?:wp-|blocks-engine-|has-|is-|be-)/', $name) ? null : array('class', $name);
     }
 
-    /**
-     * Whether a selector targets a shared-chrome generated class or rich-text
-     * marker. A class named only inside `:not(...)` is an exclusion: the rule
-     * still applies to the page's own elements (for example
-     * `.text-sm:not(:where(.control))`), so it stays in the page stylesheet in
-     * its source cascade position.
-     *
-     * Document-namespaced rich-text markers are rewritten onto attribute
-     * selectors (`mark[style*="--blocks-engine-richtext-marker:…"]`), not class
-     * selectors. Identity comparison strips those markers so pages still
-     * cluster; the matching rules must follow the canonical marker onto the
-     * shared part instead of remaining page-scoped.
-     *
-     * @param array{patterns:list<string>,richtext:list<string>} $matcher from generatedClassMatcher()
-     */
     /**
      * The side of a selector that one stylesheet keeps when its `:is()` or
      * `:where()` lists group generated classes the shared parts carry with
@@ -3576,21 +3553,6 @@ PHP;
         return $merged;
     }
 
-    /** @param array<string,mixed> $asset */
-    /**
-     * A selector without the `:where()` arguments that name a rich-text
-     * marker no emitted markup carries, or null when the selector can only
-     * match such an element.
-     *
-     * A dead marker matches nothing, so dropping an argument that requires
-     * it leaves what the `:where()` matches unchanged, and `:where()` adds no
-     * specificity. A `:not(:where(...))` left with no arguments excluded
-     * nothing and is removed. Each route's copy of extracted chrome carries
-     * its own marker, so without this the shared chrome rules differ per
-     * route only by dead markers and every route ships its own copy.
-     *
-     * @param array<string,true> $live
-     */
     /**
      * An element marker no emitted markup, runtime declaration or entity
      * record carries names an element the plan replaced or dropped, so every
@@ -5468,10 +5430,6 @@ PHP;
         }
         return $ranges;
     }
-    /**
-     * @param array<int,array<string,mixed>> $posts
-     * @return array<string,true>
-     */
     /**
      * Post-chrome matching normalizes every nested range of every post, and
      * the same ranges are matched again while factoring and placing slots.
@@ -8437,7 +8395,6 @@ PHP;
         if ($this->omittedUnresolvedNavigationDiagnostics > 0) $diagnostics[] = array('code' => 'wordpress_site_plan_unresolved_navigation_link', 'severity' => 'warning', 'message' => sprintf('%d more unresolved navigation links were resolved or neutralized; omitted from this diagnostic list.', $this->omittedUnresolvedNavigationDiagnostics), 'reason' => 'truncated', 'omitted_count' => $this->omittedUnresolvedNavigationDiagnostics);
         return $diagnostics;
     }
-    /** @param array<int,array<string,mixed>> $routes */
     /** Preserve fixed section destinations also referenced by other routes. */
     public function shellFragmentReference(string $value, string $origin): string
     {

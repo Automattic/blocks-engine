@@ -267,8 +267,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
     private readonly InteractionFallbackReporter $interactionFallbackReporter;
 
-    /** Held per transform so the context-typography cascade analysis runs once. */
-
     private readonly AuthoredFormControlBlockConverter $authoredFormControlBlockConverter;
 
     private readonly ReadableFormControlBlockConverter $readableFormControlBlockConverter;
@@ -1079,7 +1077,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->formRuntimeIslandRecorder,
             $this->anchors,
             $this->runtime,
-            fn (DOMElement $element): array => $this->runtimeAuthoredButton($element)
+            $this->runtimeAuthoredButton(...)
         );
     }
 
@@ -1544,10 +1542,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         ))->reduce($blocks, $sourceRoot);
     }
 
-    /**
-     * Author CSS visible to the document: declared stylesheets plus the styles
-     * the source embeds inline.
-     */
     private function convertChildren(DOMNode $parent, array &$fallbacks, bool $captureUnsupported = false, bool $preserveLinkContainers = false): array
     {
         $blocks = array();
@@ -1637,13 +1631,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $blocks;
     }
 
-    /**
-     * A break-only anonymous inline box between block siblings occupies one line
-     * per break. Edge breaks and breaks sharing inline content keep their usual
-     * conversion. Only the first break in a bounded run emits its native blocks.
-     *
-     * @return list<array<string, mixed>>|null
-     */
     /** @param array<int, array<string, mixed>> $fallbacks */
     private function recordDependentRuntimeMediaMaskLoss(DOMElement $owner, DOMElement $mask, array &$fallbacks, int $fallbackIndex): void
     {
@@ -2096,8 +2083,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $this->authorLayoutOwnership->richTextMarker($element);
     }
 
-    /** @return list<array{key: string, selector: string, parsed: array<string, mixed>, direct_child_parsed: array<string, mixed>, declarations: array<string, string>, rule_order: int}> */
-
     private function createCommercePattern(): CommerceStructureRecognizer
     {
         return new CommerceStructureRecognizer(
@@ -2138,11 +2123,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $blocks;
     }
 
-    /**
-     * Whether an image's wrapping link is a lightbox trigger rather than a
-     * destination: it has to point at an image resource and be marked as a
-     * lightbox/gallery viewer by the source script that handled the click.
-     */
     /**
      * Preserve a flow-content button as one control container: the source
      * `<button>` saved as a layout-shell wrapper (its type/ARIA attributes and

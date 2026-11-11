@@ -1913,7 +1913,6 @@ final class NavigationPatternContext
         $this->sourceTargetProjection?->record(SourceDom::elementSelector($element), $targetSelector, $declarations);
     }
 
-    /** Resolve the rendered box of a navigation icon from its source geometry. */
     /**
      * Uniform `scale()` transforms between the anchor and its SVG enlarge the
      * artwork around its center (an icon set scaled by a custom property, say).

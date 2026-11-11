@@ -613,12 +613,6 @@ final class GeneratedBlockStyleProjector
     }
 
     /**
-     * Block support values are resolved before responsive author CSS is replayed.
-     * Do not let the resolved value override a later authored breakpoint.
-     *
-     * @return array<string, true>
-     */
-    /**
      * Whether the control is pinned to every edge of its containing block.
      *
      * @param array<string, string> $sourceDeclarations
@@ -941,8 +935,11 @@ final class GeneratedBlockStyleProjector
         return null !== $styleToken && ! in_array($styleToken, array( 'none', 'hidden' ), true);
     }
 
-    /** @param array<string, string> $sourceDeclarations */
-    /** A display:block control whose parent lays it out in normal block flow. */
+    /**
+     * A display:block control whose parent lays it out in normal block flow.
+     *
+     * @param array<string, string> $sourceDeclarations
+     */
     private function sourceControlFillsFlowLine(DOMElement $sourceControl, array $sourceDeclarations): bool
     {
         // `display:flex` and friends are block-level too: they span the line

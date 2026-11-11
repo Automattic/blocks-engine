@@ -564,8 +564,11 @@ JS;
         ), static fn (mixed $value): bool => '' !== $value && false !== $value);
     }
 
-    /** Any source sizing rule owns geometry, even outside the reference viewport. */
-    /** @param list<string> $properties */
+    /**
+     * Any source sizing rule owns geometry, even outside the reference viewport.
+     *
+     * @param list<string> $properties
+     */
     private function sourceOwnsIframeGeometry(DOMElement $iframe, StyleResolver $styleResolver, array $properties = array( 'width', 'height', 'aspect-ratio', 'position' )): bool
     {
         return array() !== $styleResolver->authorDeclaredPropertyValues($iframe, $properties)

@@ -82,12 +82,6 @@ final class ArtifactCompiler
     public const PAGE_OMITTED_DIAGNOSTIC_CODE = 'page_compile_omitted';
     public const PAGE_OMITTED_REASON_CODE = 'page_compile_representability_limit';
 
-    /**
-     * Tag-only script selectors whose native DOM shape can be behavior-bearing.
-     *
-     * @var array<int, string>
-     */
-
 	/** @var array<string, string> */
 	private array $themeStaticCssCache = array();
 
@@ -2556,14 +2550,6 @@ final class ArtifactCompiler
     }
 
     /**
-     * Imports participate at the importing occurrence, including their layer,
-     * supports and media conditions. This is an analysis stream only: published
-     * author files and their imports remain intact, and only mapped rules emit.
-     *
-     * @param array<int, array<string, mixed>> $files
-     * @param array<string, true> $ancestors
-     */
-    /**
      * An inline <style> sheet is stored at a content-addressed path, but its
      * @import references resolve against the owning document, like the
      * browser's base URL. Linked sheets carry their own path as source_path.
@@ -3144,13 +3130,6 @@ final class ArtifactCompiler
     }
 
 
-    /**
-     * Keep transformed selector records below browser engine limits while
-     * retaining the source stylesheet's cascade position and link contract.
-     *
-     * @param array<int, array<string, mixed>> $files
-     * @return array<int, array<string, mixed>>
-     */
     /**
      * Drop stylesheet arms that require a class or id no other site file names
      * (see {@see UnreachableSelectorPruner}). Each stylesheet is pruned against

@@ -570,12 +570,6 @@ final class EngineSupportCss
     }
 
     /**
-     * Repairs to core/social-links' own rendering, independent of anything
-     * captured from the source — tagged {@see CascadeLayer::BLOCK_RENDER_REPAIR}.
-     *
-     * @return list<CascadeRule>
-     */
-    /**
      * Mirrors the capture device visibility sheet for native blocks carrying
      * the class form of its markers. Without a selection the capture shows its
      * default document, which the capture contract defines as desktop.

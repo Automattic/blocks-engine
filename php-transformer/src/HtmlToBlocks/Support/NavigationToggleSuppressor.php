@@ -1995,18 +1995,6 @@ final class NavigationToggleSuppressor
     }
 
     /**
-     * Whether an anchor is a real navigation destination rather than a
-     * disclosure/overflow toggle (e.g. a "More" menu trigger that duplicates
-     * the surrounding items in a nested submenu). Toggle anchors carry
-     * aria-expanded/aria-controls or a non-navigating href (empty, "#", or
-     * javascript:) and must not count toward a nav's link signature: a source
-     * that expresses the same toggle as a labelled anchor in one header
-     * instance and as a <details>/<summary> disclosure in a duplicate instance
-     * (or omits its visible label under a narrower layout) must still compare
-     * as the equivalent navigation, so its responsive overlay is preserved
-     * instead of silently downgrading the menu to overlayMenu "never".
-     */
-    /**
      * A hash (or empty) anchor whose accessible name is a menu control, not a
      * destination. Builders emit this instead of <button> / <a role="button">.
      * Used only for overlay projection, never for dropping the control as
