@@ -339,12 +339,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
 
 
-    /** @var array<string, array<string, mixed>> Undecodable glyph findings keyed by format and source. */
-    private array $glyphColorUndecodable = array();
-
-    /** @var \SplObjectStorage<DOMElement, string>|null Captured `data-blocks-engine-capture-glyph-color` values keyed by glyph element. */
-    private ?\SplObjectStorage $capturedGlyphColors = null;
-
     private readonly ReusableComponentRecognizer $reusableComponentRecognizer;
 
     private HtmlTransformerSession $session;
@@ -1338,8 +1332,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->session->runtimeBehaviorState()->installThemePreferenceOwnership(
             is_array($options['theme_preference_ownership'] ?? null) ? $options['theme_preference_ownership'] : array()
         );
-        $this->glyphColorUndecodable = array();
-        $this->capturedGlyphColors = null;
         $this->documentAuthorCss = '';
         $this->session->installSourcePath((string) ($options['source'] ?? 'html'));
         $sharedStylesheetPaths = array();
@@ -1426,7 +1418,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         CapturedNavigationPanels::restoreNative($body);
         CapturedNavigationPanels::restoreRestingStates($body);
         // Capture evidence, not content: read before anything serializes the source.
-        $this->capturedGlyphColors = CapturedGlyphColor::detach($body);
+        $this->session->installCapturedGlyphColors(CapturedGlyphColor::detach($body));
         if ( QuirksModeSource::isQuirksMode($html) ) {
             QuirksModeSource::normalize(
                 $body,
@@ -1633,7 +1625,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $validation = $this->validation->validate($timer, $body, $blocks, $serializedBlocks, $sourceProvenance, $shellArtifacts, $fallbacks, $html, $staticCss, $validationEvidence, $projectedSelectorBindings, $this->session->sourcePath());
         $validationOutcome = $validation->outcome;
         $diagnostics = $validation->diagnostics;
-        foreach ( $this->glyphColorUndecodable as $finding ) {
+        foreach ( $this->session->transformationEvidenceState()->glyphColorUndecodableFindings() as $finding ) {
             $diagnostics[] = ConversionFindingContract::withClassification($finding);
         }
         $headMetadata = HeadMetadataReport::fromHtml($html);
@@ -2071,20 +2063,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         );
     }
 
-    private function recordGlyphColorUndecodable(string $mimeType, string $src): void
-    {
-        $format = '' !== $mimeType ? strtolower($mimeType) : 'unknown';
-        $this->glyphColorUndecodable[$format . "\0" . $src] = array(
-            'code'        => 'glyph_color_undecodable',
-            'severity'    => 'warning',
-            'message'     => 'A social icon glyph could not be decoded by this PHP image library, so its authored icon colour was not carried and core default icon colours apply.',
-            'source'      => HtmlTransformer::class,
-            'mime_type'   => $format,
-            'src'         => $src,
-            'source_path' => $this->session->sourcePath(),
-        );
-    }
-
     private function createPatternContext(): PatternContext
     {
         return new PatternContext(
@@ -2127,8 +2105,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             ),
             $this->styleResolver,
             $this->session,
-            fn (string $mimeType, string $src) => $this->recordGlyphColorUndecodable($mimeType, $src),
-            fn (DOMElement $glyph): string => null !== $this->capturedGlyphColors && isset($this->capturedGlyphColors[$glyph]) ? $this->capturedGlyphColors[$glyph] : '',
             fn (DOMElement $sourceElement): string => $this->inlineRichTextContent($sourceElement)
         );
     }

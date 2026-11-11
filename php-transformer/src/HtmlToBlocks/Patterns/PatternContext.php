@@ -28,8 +28,6 @@ final class PatternContext
      * @param CodeWindowPatternContext|null $codeWindowContext
      * @param LogoPatternContext|null $logoContext
      * @param ImageLowering|null $images
-     * @param Closure(string, string): void|null $glyphColorUndecodable
-     * @param Closure(DOMElement): string|null $capturedGlyphColor
      * @param Closure(DOMElement): string|null $richTextContent
      */
     public function __construct(
@@ -48,8 +46,6 @@ final class PatternContext
         private readonly ?DisclosureControlPresentation $disclosure = null,
         private readonly ?StyleResolver $styles = null,
         private readonly ?HtmlTransformerSession $session = null,
-        private readonly ?Closure $glyphColorUndecodable = null,
-        private readonly ?Closure $capturedGlyphColor = null,
         private readonly ?Closure $richTextContent = null
     ) {
     }
@@ -201,8 +197,8 @@ final class PatternContext
      */
     public function glyphColorUndecodable(string $mimeType, string $src): void
     {
-        if ( null !== $this->glyphColorUndecodable ) {
-            ($this->glyphColorUndecodable)($mimeType, $src);
+        if ( null !== $this->session ) {
+            $this->session->transformationEvidenceState()->recordGlyphColorUndecodable($mimeType, $src, $this->session->sourcePath());
         }
     }
 
@@ -212,6 +208,6 @@ final class PatternContext
      */
     public function capturedGlyphColor(DOMElement $glyph): string
     {
-        return null === $this->capturedGlyphColor ? '' : (string) ($this->capturedGlyphColor)($glyph);
+        return $this->session?->capturedGlyphColor($glyph) ?? '';
     }
 }
