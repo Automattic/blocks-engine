@@ -189,12 +189,16 @@ final class AuthorSelectorSemanticPreparer
     private function discoverAuthorInlineSemanticPaths(array $authorSelectors, AuthorStyleAnalysis $authorStyles, AuthorSelectorProjectionState $projections): void
     {
         foreach ( $authorSelectors as $authorSelector ) {
-            $selector = $authorSelector['selector'];
-            $parsed = $authorSelector['parsed'];
+            $host = CssSelectorMatcher::pseudoElementHost($authorSelector['selector']);
+            $selector = $host['selector'] ?? $authorSelector['selector'];
+            $parsed = $host['parsed'] ?? $authorSelector['parsed'];
             if ( ! $parsed['supported'] ) {
                 continue;
             }
             foreach ( $this->matchingSourceElements($authorStyles, $selector, $parsed) as $element ) {
+                // Empty icon spans retain their source element rather than
+                // becoming a RichText mark; no new carrier is needed for them.
+                if (null !== $host && !$element->hasChildNodes()) continue;
                 $path = $element->getNodePath() ?? '';
                 $inlineTag = strtolower($element->tagName);
                 $directChildSelector = '>' === ($parsed['combinators'][count($parsed['combinators']) - 1] ?? null);
