@@ -997,12 +997,10 @@ final class ButtonsPattern
             }
         }
 
-        if ( $this->hasAnyToken($element, array( 'outline', 'ghost', 'hollow', 'bordered' )) ) {
-            return true;
-        }
-
-        // Corner geometry alone is not an outline/paint signal.
-        if ( ! preg_match('/(?:^|;)\s*border(?:-(?:width|style|color|(?:top|right|bottom|left)(?:-(?:width|style|color))?))?\s*:\s*[^;]+/', $normalized) ) {
+        // Corner geometry and zero-width resets are not outline paint.
+        $border = $this->styleResolver->paintedBorder($style);
+        unset($border['radius']);
+        if ( array() === $border ) {
             return false;
         }
 

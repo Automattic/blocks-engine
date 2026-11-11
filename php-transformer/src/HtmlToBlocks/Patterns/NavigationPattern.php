@@ -5438,6 +5438,14 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( MenuVocabulary::containsUnconditionalMenuToken($attributes) ) {
             return true;
         }
+        // Descriptive link rows are content, not a flat menu. Their secondary
+        // labels and per-row borders cannot be represented by navigation-link.
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName)
+                && 0 < $child->getElementsByTagName('small')->length ) {
+                return false;
+            }
+        }
         if ( MenuVocabulary::containsLinksToken($attributes) && ! $this->isContactLinkCluster($element) ) {
             return true;
         }

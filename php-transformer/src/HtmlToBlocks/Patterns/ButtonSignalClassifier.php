@@ -88,8 +88,8 @@ final class ButtonSignalClassifier
         // Only the box-wide shorthand establishes an outlined control surface.
         // A border reset (`border:0`, `border:none`) is neutral: it neither
         // outlines the control nor cancels the fill that may paint it.
-        if ( preg_match('/(?:^|;)\s*border\s*:\s*[^;]+/', $style) === 1
-            && preg_match('/(?:^|;)\s*border\s*:\s*(?:0|none)\s*(?:;|$)/', $style) !== 1 ) {
+        $border = (new ButtonStyleResolver())->paintedBorder($style);
+        if ( isset($border['style']) ) {
             return true;
         }
 
