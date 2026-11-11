@@ -24,19 +24,24 @@ $classMeasurementMarkup = (string) ($classMeasurementCopy['serialized_blocks'] ?
 $assert(1 === substr_count($classMeasurementMarkup, 'Studio Name') && ! str_contains($classMeasurementMarkup, 'blocks-engine-hidden-richtext-marker'), 'class-hidden measurement copies beside headings emit no phantom paragraphs');
 
 $hiddenHeadingSource = (string) file_get_contents(dirname(__DIR__) . '/fixtures/hidden-heading-copy.html');
-$hiddenHeadingMarkup = (string) ($transform($hiddenHeadingSource)['serialized_blocks'] ?? '');
-$assert(! str_contains($hiddenHeadingMarkup, 'Research and heritage') && str_contains($hiddenHeadingMarkup, 'Creation') && str_contains($hiddenHeadingMarkup, 'Body text.'), 'inaccessible out-of-flow hidden heading copies emit no phantom block, even with different text');
 foreach ( array(
-    'visible decoration' => str_replace('visibility:hidden;', '', $hiddenHeadingSource),
-    'in-flow reserved box' => str_replace('position:absolute;', '', $hiddenHeadingSource),
-    'accessible hidden content' => str_replace('aria-hidden="true"', '', $hiddenHeadingSource),
-    'visible descendant' => str_replace('Research and heritage', '<span style="visibility:visible">Research and heritage</span>', $hiddenHeadingSource),
-    'responsive reveal' => str_replace('</style>', '@media(min-width:768px){.ghost{visibility:visible}}</style>', $hiddenHeadingSource),
-) as $label => $source ) {
-    $assert(str_contains((string) ($transform($source)['serialized_blocks'] ?? ''), 'Research and heritage'), $label . ' retains its existing content');
+    'plain' => $hiddenHeadingSource,
+    'GoDaddy attributes' => str_replace('aria-hidden="true"', 'aria-hidden="true" data-ux="ContentCardHeading" data-typography="HeadingDelta"', $hiddenHeadingSource),
+) as $variant => $variantSource ) {
+    $hiddenHeadingMarkup = (string) ($transform($variantSource)['serialized_blocks'] ?? '');
+    $assert(! str_contains($hiddenHeadingMarkup, 'Research and heritage') && str_contains($hiddenHeadingMarkup, 'Creation') && str_contains($hiddenHeadingMarkup, 'Body text.'), $variant . ': inaccessible out-of-flow hidden heading copies emit no phantom block, even with different text');
+    foreach ( array(
+        'visible decoration' => str_replace('visibility:hidden;', '', $variantSource),
+        'in-flow reserved box' => str_replace('position:absolute;', '', $variantSource),
+        'accessible hidden content' => str_replace('aria-hidden="true"', '', $variantSource),
+        'visible descendant' => str_replace('Research and heritage', '<span style="visibility:visible">Research and heritage</span>', $variantSource),
+        'responsive reveal' => str_replace('</style>', '@media(min-width:768px){.ghost{visibility:visible}}</style>', $variantSource),
+    ) as $label => $source ) {
+        $assert(str_contains((string) ($transform($source)['serialized_blocks'] ?? ''), 'Research and heritage'), $variant . ': ' . $label . ' retains its existing content');
+    }
+    $fixedCopy = str_replace('position:absolute;', 'position:fixed;', $variantSource);
+    $assert(! str_contains((string) ($transform($fixedCopy)['serialized_blocks'] ?? ''), 'Research and heritage'), $variant . ': fixed measuring copies also emit no phantom block');
 }
-$fixedCopy = str_replace('position:absolute;', 'position:fixed;', $hiddenHeadingSource);
-$assert(! str_contains((string) ($transform($fixedCopy)['serialized_blocks'] ?? ''), 'Research and heritage'), 'fixed measuring copies also emit no phantom block');
 
 $scriptedPanel = $transform('<style>#terminal{display:none}#terminal.open{display:flex}</style><main><h1>Studio Name</h1><div id="terminal" aria-hidden="true"><p>Signal received</p></div></main>');
 $assert(str_contains((string) ($scriptedPanel['serialized_blocks'] ?? ''), 'Signal received'), 'hidden panels with their own content are not measurement copies');
