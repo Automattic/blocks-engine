@@ -4045,7 +4045,7 @@ PHP;
             }
             $times = $xpath->query('descendant-or-self::time', $card);
             if (1 !== count($targets) || 1 !== $times->length) continue;
-            $cards[$target][] = self::parseVisiblePublicationTimestamp((string) $times->item(0)->textContent);
+            $cards[$target][] = PublicationDate::fromVisibleText((string) $times->item(0)->textContent);
         }
         $dates = array();
         foreach ($cards as $target => $found) if (1 === count($found)) $dates[$target] = $found[0];
@@ -4418,7 +4418,7 @@ PHP;
         // Keep offset candidates separate from evidence: a plain <time> must
         // neither select the publication instant nor affect post inference.
         $timestamp = static function (string $value) use (&$localTimes): ?string {
-            $date = self::normalizePublicationTimestamp($value, $localTime);
+            $date = PublicationDate::normalize($value, $localTime);
             if (null !== $date && null !== $localTime) $localTimes[$date] ??= $localTime;
             return $date;
         };
@@ -4466,7 +4466,7 @@ PHP;
                 if (!$visibleDate && array() === $identities) continue;
                 $text = self::elementInnerText($fragment, (string) $node['name'], $node['inner_offset']);
                 $timestamp(trim(preg_replace('/\s+/', ' ', $text) ?? $text));
-                $parsed = self::parseVisiblePublicationTimestamp($text);
+                $parsed = PublicationDate::fromVisibleText($text);
                 if (null !== $parsed) {
                     if ($visibleDate) $rows[] = array('source' => 'html:visible-date', 'publication_timestamp' => $parsed);
                     else foreach ($identities as $identity) $dateSlots[$identity] = array('text' => $text, 'publication_timestamp' => $parsed);
@@ -5758,7 +5758,7 @@ PHP;
         if (array() === $children) {
             $kind = $this->classifyPostChromeBlock($slice, $post, $route, $postIndex);
             if ($dateContext && is_string($post['publication_timestamp'] ?? null)
-                && self::parseVisiblePublicationTimestamp(ListingExcerptProjection::text($slice)) === $post['publication_timestamp']) {
+                && PublicationDate::fromVisibleText(ListingExcerptProjection::text($slice)) === $post['publication_timestamp']) {
                 $kind = 'date';
             }
             if ('title' === $kind) {
@@ -6537,7 +6537,7 @@ PHP;
         $timestamp = is_string($post['publication_timestamp'] ?? null) ? $post['publication_timestamp'] : null;
         // The entire visible leaf matching this post's timestamp is sufficient
         // evidence, even when the date class lives on a surrounding group.
-        if (null !== $timestamp && self::parseVisiblePublicationTimestamp(ListingExcerptProjection::text($slice)) === $timestamp) {
+        if (null !== $timestamp && PublicationDate::fromVisibleText(ListingExcerptProjection::text($slice)) === $timestamp) {
             return 'date';
         }
         foreach (HtmlMarkupParser::htmlMarkupNodes($slice) as $node) {
@@ -6551,14 +6551,14 @@ PHP;
             // The text must still be a date: post-date renders a date, so a
             // time of day stamped with the post's day (an event's start time)
             // stays authored content.
-            if ($datedTime && self::normalizePublicationTimestamp((string) $attributes['datetime']) === $timestamp
-                && null !== self::parseVisiblePublicationTimestamp(self::elementInnerText($slice, 'time', $node['inner_offset']))) {
+            if ($datedTime && PublicationDate::normalize((string) $attributes['datetime']) === $timestamp
+                && null !== PublicationDate::fromVisibleText(self::elementInnerText($slice, 'time', $node['inner_offset']))) {
                 return 'date';
             }
             if (!self::isVisibleDateElement((string) ($node['name'] ?? ''), $attributes) && !$datedTime) {
                 continue;
             }
-            $parsed = self::parseVisiblePublicationTimestamp(self::elementInnerText($slice, (string) $node['name'], $node['inner_offset']));
+            $parsed = PublicationDate::fromVisibleText(self::elementInnerText($slice, (string) $node['name'], $node['inner_offset']));
             if (null !== $parsed && (null === $timestamp || $parsed === $timestamp)) {
                 return 'date';
             }
@@ -6672,7 +6672,7 @@ PHP;
         $attrs = array();
         $blockAttrs = self::listingBlockAttributes($slice);
         if (is_array($blockAttrs['style'] ?? null)) $attrs['style'] = $blockAttrs['style'];
-        $format = self::visibleDateFormat(trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($slice), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? ''));
+        $format = PublicationDate::visibleFormat(trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($slice), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? ''));
         if (null !== $format) {
             $attrs['format'] = $format;
         }
@@ -6830,21 +6830,6 @@ PHP;
         }
         $path = '/' . trim($path, '/');
         return str_ends_with($path, '/index.html') ? array($path, substr($path, 0, -11)) : array($path);
-    }
-    private static function visibleDateFormat(string $value): ?string
-    {
-        if (preg_match('/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/', $value, $match)) {
-            return ((int) $match[1] > 12 && (int) $match[2] <= 12) ? 'j/n/Y' : 'n/j/Y';
-        }
-        if (preg_match('/^(\d{1,2})-(\d{1,2})-(\d{4})$/', $value, $match)) {
-            return ((int) $match[1] > 12 && (int) $match[2] <= 12) ? 'j-n-Y' : 'n-j-Y';
-        }
-        foreach (array('l, F j, Y' => '/^[A-Z][a-z]+day, [A-Z][a-z]+ \d{1,2}, \d{4}$/', 'M j, Y' => '/^[A-Z][a-z]{2} \d{1,2}, \d{4}$/', 'F j, Y' => '/^[A-Z][a-z]+ \d{1,2}, \d{4}$/', 'j M Y' => '/^\d{1,2} [A-Z][a-z]{2} \d{4}$/', 'j F Y' => '/^\d{1,2} [A-Z][a-z]+ \d{4}$/') as $format => $pattern) {
-            if (1 === preg_match($pattern, $value)) {
-                return $format;
-            }
-        }
-        return null;
     }
     private static function queryLoopMarkup(bool $inherit): string
     {
@@ -8727,85 +8712,8 @@ PHP;
         foreach ($decision['evidence'] as $evidence) {
             if (is_array($evidence) && in_array($evidence['source'] ?? null, array('json-ld:WebPage', 'json-ld:AboutPage', 'json-ld:ContactPage', 'json-ld:CollectionPage'), true) && ('inferred' === $decision['state'] && 'page' !== $decision['post_type'] || array_key_exists('publication_timestamp', $evidence))) throw new InvalidArgumentException('WordPress site plan structured page evidence is invalid.');
         }
-        $timestamps = array(); foreach ($decision['evidence'] as $evidence) { if (!is_array($evidence) || array_diff(array_keys($evidence), array('source', 'publication_timestamp')) || !is_string($evidence['source'] ?? null) || '' === $evidence['source'] || strlen($evidence['source']) > 128) throw new InvalidArgumentException('WordPress site plan content decision evidence is invalid.'); if (isset($evidence['publication_timestamp'])) { if (!self::utcTimestamp($evidence['publication_timestamp'])) throw new InvalidArgumentException('WordPress site plan content decision timestamp is invalid.'); $timestamps[] = $evidence['publication_timestamp']; } }
-        if (isset($document['publication_timestamp']) && (!self::utcTimestamp($document['publication_timestamp']) || !in_array($document['publication_timestamp'], $timestamps, true))) throw new InvalidArgumentException('WordPress site plan publication timestamp is invalid.');
-    }
-    private static function utcTimestamp(mixed $value): bool { if (!is_string($value) || !preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/', $value)) return false; try { return (new \DateTimeImmutable($value))->format('Y-m-d\\TH:i:s\\Z') === $value; } catch (\Exception) { return false; } }
-    private static function normalizePublicationTimestamp(string $value, ?string &$localTime = null): ?string
-    {
-        $localTime = null;
-        $format = null; $input = $value;
-        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) $format = '!Y-m-d';
-        // ISO 8601 allows the basic offset form (-0500); normalize it to -05:00.
-        elseif (preg_match('/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.\d+)?(?:(Z)|([+-]\d{2}):?(\d{2}))$/', $value, $match)) { $input = $match[1] . ('Z' === $match[2] ? '+00:00' : $match[3] . ':' . $match[4]); $format = '!Y-m-d\\TH:i:sP'; }
-        if (null === $format) return null;
-        $timestamp = self::utcFromFormat($format, $input);
-        // The same validated, seconds-precision input used for UTC conversion
-        // retains its explicit offset; date-only and zero-offset values do not.
-        if (null !== $timestamp && '!Y-m-d' !== $format && !in_array(substr($input, -6), array('+00:00', '-00:00'), true)) $localTime = $input;
-        return $timestamp;
-    }
-    private static function parseVisiblePublicationTimestamp(string $value): ?string
-    {
-        $value = trim(preg_replace('/\s+/', ' ', $value) ?? $value);
-        if ('' === $value) return null;
-        // Builder bylines commonly prefix a full date with its weekday.
-        $value = preg_replace('/^(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+/i', '', $value) ?? $value;
-        $iso = self::normalizePublicationTimestamp($value);
-        if (null !== $iso) return $iso;
-        if (preg_match('/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/', $value, $match)) {
-            $first = (int) $match[1];
-            $second = (int) $match[2];
-            if ($first > 31 || $second > 31 || $first < 1 || $second < 1) return null;
-            $format = $first > 12 && $second <= 12 ? '!j/n/Y' : '!n/j/Y';
-            return self::utcFromFormat($format, $first . '/' . $second . '/' . $match[3]);
-        }
-        // A dotted numeric date is day-first wherever it is written (de, ru, pl, cs, fi, tr).
-        if (preg_match('/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/', $value, $match)) {
-            return self::utcFromFormat('!j.n.Y', (int) $match[1] . '.' . (int) $match[2] . '.' . $match[3]);
-        }
-        // A closed vocabulary, not locale/strtotime guessing. All aliases in a
-        // row denote the same month across fr, es, de, it, pt and nl.
-        $months = array(
-            'Jan' => 'jan january janvier janv enero ene januar gennaio gen janeiro januari',
-            'Feb' => 'feb febr february fevrier fevr febrero februar febbraio fevereiro fev februari',
-            'Mar' => 'mar march mars marzo marz maerz mrz marco maart mrt',
-            'Apr' => 'apr april avril avr abril abr aprile',
-            'May' => 'may mai mayo maggio mag maio mei',
-            'Jun' => 'jun june juin junio juni giugno giu junho',
-            'Jul' => 'jul july juillet juil juill julio juli luglio lug julho',
-            'Aug' => 'aug august aout agosto ago augustus',
-            'Sep' => 'sep sept september septembre septiembre setiembre settembre set setembro',
-            'Oct' => 'oct october octobre octubre oktober okt ottobre ott outubro out',
-            'Nov' => 'nov november novembre noviembre novembro',
-            'Dec' => 'dec december decembre diciembre dic dezember dez dicembre dezembro',
-        );
-        $folded = strtr(mb_strtolower($value, 'UTF-8'), array('é' => 'e', 'û' => 'u', 'ä' => 'a', 'ç' => 'c'));
-        // Also accept decomposed accents, without relying on intl or a locale.
-        $folded = preg_replace('/(?<=[a-z])\p{M}+/u', '', $folded) ?? $folded;
-        $match = array();
-        $dayFirst = 1 === preg_match('/^(\d{1,2})(?:\. ?| )(?:de )?([a-z]{3,12})\.? (?:de )?(\d{4})$/', $folded, $match);
-        if ($dayFirst || preg_match('/^([a-z]{3,12})\.? (\d{1,2}), (\d{4})$/', $folded, $match)) {
-            $token = $match[$dayFirst ? 2 : 1];
-            foreach ($months as $month => $aliases) {
-                if (in_array($token, explode(' ', $aliases), true)) {
-                    $value = $dayFirst ? $match[1] . ' ' . $month . ' ' . $match[3] : $month . ' ' . $match[2] . ', ' . $match[3];
-                    break;
-                }
-            }
-        }
-        foreach (array('!F j, Y', '!M j, Y', '!j F Y', '!j M Y') as $format) {
-            $parsed = self::utcFromFormat($format, $value);
-            if (null !== $parsed) return $parsed;
-        }
-        return null;
-    }
-    private static function utcFromFormat(string $format, string $input): ?string
-    {
-        $date = \DateTimeImmutable::createFromFormat($format, $input);
-        $errors = \DateTimeImmutable::getLastErrors();
-        if (!$date || (is_array($errors) && (0 !== $errors['warning_count'] || 0 !== $errors['error_count']))) return null;
-        return $date->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d\\TH:i:s\\Z');
+        $timestamps = array(); foreach ($decision['evidence'] as $evidence) { if (!is_array($evidence) || array_diff(array_keys($evidence), array('source', 'publication_timestamp')) || !is_string($evidence['source'] ?? null) || '' === $evidence['source'] || strlen($evidence['source']) > 128) throw new InvalidArgumentException('WordPress site plan content decision evidence is invalid.'); if (isset($evidence['publication_timestamp'])) { if (!PublicationDate::isUtc($evidence['publication_timestamp'])) throw new InvalidArgumentException('WordPress site plan content decision timestamp is invalid.'); $timestamps[] = $evidence['publication_timestamp']; } }
+        if (isset($document['publication_timestamp']) && (!PublicationDate::isUtc($document['publication_timestamp']) || !in_array($document['publication_timestamp'], $timestamps, true))) throw new InvalidArgumentException('WordPress site plan publication timestamp is invalid.');
     }
     /** @param array<string,mixed> $metadata @param array<string,bool> $tokens */
     private static function assertDocumentMetadata(array $metadata, array $tokens, string $sourcePath, string $documentKind): void
