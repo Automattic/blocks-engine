@@ -70,7 +70,11 @@ final class StandaloneBreakLowering
             return array($this->blocks->createBlock('core/spacer', array('height' => CssLength::format($height * $count))));
         }
         $blocks = array();
-        for ( $i = 0; $i < $count; ++$i ) $blocks[] = $this->blocks->createBlock('core/paragraph', array('content' => '<br>'));
+        // These paragraphs stand for line boxes, not source paragraph boxes.
+        for ( $i = 0; $i < $count; ++$i ) $blocks[] = $this->blocks->createBlock('core/paragraph', array(
+            'content' => '<br>',
+            'style' => array('spacing' => array('margin' => array('top' => '0', 'bottom' => '0'))),
+        ));
         return $blocks;
     }
 
