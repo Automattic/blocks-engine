@@ -1306,7 +1306,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             TransformOptions::assetMetadataFromOptions($options)
         ));
         $this->session->configurePolicy(! empty($options['extract_global_shell']), ! empty($options['fallback_reduction_mode']));
-        $this->session->runtimeBehaviorState()->installRuntimeScriptMetadata($this->runtimeIslands->runtimeScriptMetadataFromOptions($options));
+        $this->session->runtimeBehaviorState()->installRuntimeScriptMetadata(TransformOptions::runtimeScriptMetadataFromOptions($options));
         $this->session->runtimeBehaviorState()->installRuntimeProjectionScriptAssets(
             is_array($options['runtime_projection_script_assets'] ?? null) ? $options['runtime_projection_script_assets'] : array()
         );
@@ -1315,22 +1315,17 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         );
         $this->documentAuthorCss = '';
         $this->session->installSourcePath((string) ($options['source'] ?? 'html'));
-        $sharedStylesheetPaths = array();
-        foreach ( is_array($options['shared_stylesheet_paths'] ?? null) ? $options['shared_stylesheet_paths'] : array() as $path ) {
-            if ( is_string($path) && '' !== $path ) {
-                $sharedStylesheetPaths[$path] = true;
-            }
-        }
+        $sharedStylesheetPaths = TransformOptions::sharedStylesheetPaths($options);
         $staticCss = (string) ($options['static_css'] ?? '');
         $styleAnalysis = $this->stylesheetAnalysisComposer->composedStyleAnalysis(
             $this->stylesheetAnalysisComposer->stylesheetPayloads($html, $staticCss, $options)
         );
         $this->session->sourceStyleResolutionState()->installStylesheetAnalysis(StaticClassPromotions::detect($html), $styleAnalysis);
-        $runtimeDomSelectors = $this->runtimeIslands->runtimeSelectorsFromOptions($options, 'runtime_dom_selectors');
+        $runtimeDomSelectors = TransformOptions::runtimeSelectorsFromOptions($options, 'runtime_dom_selectors');
         $this->session->installRuntimeSelectorState(new RuntimeSelectorState(
             $runtimeDomSelectors,
-            $this->runtimeIslands->runtimeSelectorsFromOptions($options, 'runtime_behavioral_selectors'),
-            $this->runtimeIslands->runtimeCanvasSelectorsFromOptions($options)
+            TransformOptions::runtimeSelectorsFromOptions($options, 'runtime_behavioral_selectors'),
+            TransformOptions::runtimeSelectorsFromOptions($options, 'runtime_canvas_selectors')
         ));
         $this->session->installLayoutGeometryState(new LayoutGeometryState(
             is_array($options['layout_geometry_proof']['reductions'] ?? null) ? $options['layout_geometry_proof']['reductions'] : array()
