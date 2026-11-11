@@ -6,6 +6,8 @@ namespace Automattic\BlocksEngine\PhpTransformer\Css;
 /** Lossless, rule-local selector factoring at the projection serialization boundary. */
 final class CssSelectorListCompactor
 {
+    private const PSEUDO_ELEMENT = '/::|:(?:before|after|first-line|first-letter)\\b/i';
+
     /** @var array<string, string> Bounded, document-independent serialization cache. */
     private static array $stylesheets = array();
     private static int $cachedBytes = 0;
@@ -258,11 +260,6 @@ final class CssSelectorListCompactor
         }
         $groups = array();
         foreach ( $arms as $index => $arm ) {
-            // Include legacy single-colon pseudo-elements. Never put a
-            // pseudo-element in :is(), even when it occurs in a shared part.
-            if ( preg_match('/::|:(?:before|after|first-line|first-letter)\b/i', $arm) ) {
-                continue;
-            }
             $arm = trim($arm);
             $tokens = CssSelectorTokenizer::tokenize($arm);
             if ( ! $tokens['supported'] ) {
@@ -270,6 +267,12 @@ final class CssSelectorListCompactor
             }
             foreach ( $tokens['compound_spans'] as $position => $span ) {
                 $compound = $tokens['compounds'][ $position ];
+                // A pseudo-element (legacy single-colon forms included) never
+                // goes in :is(); the compounds before it may, and it stays in
+                // the shared suffix: `:is(.a,.b) .x::before`.
+                if ( preg_match(self::PSEUDO_ELEMENT, $compound) ) {
+                    continue;
+                }
                 $weight = self::plainCompoundWeight($compound);
                 if ( null === $weight ) {
                     continue;
