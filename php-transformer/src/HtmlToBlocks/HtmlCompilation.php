@@ -1270,7 +1270,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             function (DOMElement $element, array &$fallbacks): ?array {
                 return $this->textlessMedia->mediaBlockFromTextlessElement($element, $fallbacks);
             },
-            $this->emptyVisualRetention->shouldPreserveEmptyVisualElement(...)
+            fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element)
         );
     }
 
