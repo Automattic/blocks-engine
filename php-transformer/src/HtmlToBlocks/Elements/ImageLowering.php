@@ -97,6 +97,12 @@ final class ImageLowering
             $className .= ' ' . $carrier;
         }
 
+        // When the host survives below, only it owns the source identity.
+        // Its synthetic paint must not acquire the host's selector markers;
+        // it is still a figure the source never had.
+        if ( $sized ) {
+            $className .= ' ' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS;
+        }
         $image = $this->blocks->createBlock('core/image', array_filter(array(
             'url'       => $this->imageUrls->resolvedAssetUrl($url),
             'alt'       => $this->backgroundImageExtractor->altFromAttributes(SourceDom::htmlAttributes($element)),
@@ -106,7 +112,7 @@ final class ImageLowering
             'width'     => ! in_array(strtolower($width), array( '', 'auto' ), true) ? $width : '',
             'height'    => ! in_array(strtolower($height), array( '', 'auto' ), true) ? $height : '',
             'scale'     => $sized ? $scale : '',
-        ), static fn (string $value): bool => '' !== $value), array(), $element);
+        ), static fn (string $value): bool => '' !== $value), array(), $sized ? null : $element);
 
         if ( ! $sized ) {
             return $image;
