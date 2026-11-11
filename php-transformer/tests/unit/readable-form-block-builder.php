@@ -66,7 +66,6 @@ $authoredConverter = new AuthoredFormControlBlockConverter(
     $createBlock,
     $session,
     new Runtime(),
-    static fn (string $id): string => $id,
     static fn (DOMElement $element): DOMElement => $element
 );
 $controlConverter = new ReadableFormControlBlockConverter(

@@ -620,7 +620,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this,
             $this->session,
             $this->runtime,
-            fn (string $id): string => SourceDom::safeAnchor($id),
             fn (DOMElement $element): ?DOMElement => $this->sourceTagProjectedClone($element),
             fn (DOMElement $label): string => $this->richTextMaterializer->content($label, array( 'input', 'select', 'textarea' )),
             fn (DOMElement $label): string => $this->inlineRichTextContent($label)
@@ -1104,7 +1103,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private function createStyleResolutionContext(): StyleResolutionContext
     {
         return new StyleResolutionContext(
-            CssValueInspector::comparable(...),
             fn (string $selector): array => $this->parsedCssSelector($selector),
             fn (string $className): string => $this->styleResolver->promotedClassName($className),
             fn (string $url): string => $this->imageUrls->resolvedAssetUrl($url)

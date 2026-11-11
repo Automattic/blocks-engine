@@ -77,7 +77,6 @@ $makeCoalescer = static function (array $runtimeDomSelectors = array(), array $o
 
     $styleResolver = new StyleResolver($session,
         new StyleResolutionContext(
-            static fn (string $value): string => $value,
             static fn (string $selector): array => array(),
             static fn (string $className): string => $className,
             static fn (string $url): string => $url
