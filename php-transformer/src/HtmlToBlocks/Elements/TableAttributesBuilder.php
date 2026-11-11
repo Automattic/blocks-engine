@@ -45,7 +45,7 @@ final class TableAttributesBuilder
         $native = self::isNativeSavedTable($table);
         $attrs = array(
             'hasFixedLayout' => $native
-                ? in_array('has-fixed-layout', self::tokens($table), true)
+                ? in_array('has-fixed-layout', self::classTokens($table), true)
                 : 'fixed' === strtolower(trim((string) ($this->styleResolver->structuralPresentationDeclarations($table)['table-layout'] ?? ''))),
         );
         // core/table's own saved markup already looks the way core styles it, so
@@ -113,11 +113,11 @@ final class TableAttributesBuilder
         $figure = $table->parentNode;
         if ( ! $figure instanceof DOMElement
             || 'figure' !== strtolower($figure->tagName)
-            || ! in_array('wp-block-table', self::tokens($figure), true)
+            || ! in_array('wp-block-table', self::classTokens($figure), true)
         ) {
             return false;
         }
-        foreach ( array_merge(self::tokens($figure), self::tokens($table)) as $class ) {
+        foreach ( array_merge(self::classTokens($figure), self::classTokens($table)) as $class ) {
             if ( str_starts_with($class, 'blocks-engine-table-') ) {
                 return false;
             }
