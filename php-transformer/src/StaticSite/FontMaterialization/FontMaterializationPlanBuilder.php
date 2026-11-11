@@ -476,7 +476,7 @@ final class FontMaterializationPlanBuilder
                 $values = explode(',', $tuple);
                 $axisValues = array();
                 foreach ( $names as $axisIndex => $name ) $axisValues[$name] = $this->typedWeight((string) ($values[$axisIndex] ?? ''));
-                $declarations[] = array('style' => '1' === trim((string) ($values[$italIndex] ?? '0')) ? 'italic' : 'normal', 'weight' => $axisValues['wght'] ?? $this->typedWeight((string) end($values)), 'axes' => $axisValues);
+                $declarations[] = array('style' => '1' === trim((string) ($values[$italIndex] ?? '0')) ? 'italic' : 'normal', 'weight' => $axisValues['wght'] ?? $this->typedWeight('400'), 'axes' => $axisValues);
             }
         } elseif ( '' !== $axes ) $declarations = array_map(fn (string $weight): array => array('style' => 'normal', 'weight' => $this->typedWeight($weight), 'axes' => array('wght' => $this->typedWeight($weight))), explode(',', $axes));
         $faces = array();
@@ -837,7 +837,7 @@ final class FontMaterializationPlanBuilder
             $wghtIndex = array_search('wght', $names, true);
             foreach ( explode(';', $tuples) as $tuple ) {
                 $values = explode(',', $tuple);
-                $value = false === $wghtIndex ? end($values) : ($values[$wghtIndex] ?? null);
+                $value = false === $wghtIndex ? '400' : ($values[$wghtIndex] ?? null);
                 array_push($weights, ...$this->expandFontWeightToken((string) $value));
             }
         } else {

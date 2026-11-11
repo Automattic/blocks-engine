@@ -34,6 +34,26 @@ $numericProduct = $product('/products/1234');
 $numericProduct['name'] = '1234';
 $numericResult = $compile(array('index.html' => '<main><h1>Shop</h1></main>', 'products/1234.html' => $page($numericProduct, $purchase)));
 $assert(array('products/1234.html') === array_keys($candidates($planOf($numericResult))), 'A numeric product slug compiles and claims its detail page.');
+
+// WebPage.mainEntity is common product evidence, and source route casing must
+// use the same canonicalization as the product URL before claiming the page.
+$squareFiles = array('index.html' => '<main><h1>Shop</h1></main>');
+foreach (array('first-thing/ABC123' => array('First Thing', '45'), 'second-thing-/DEF456' => array('Second Thing', '35')) as $route => [$name, $price]) {
+    $schemaProduct = array('@type' => 'Product', '@id' => 'https://example.test/item/' . $route . '#product', 'name' => $name, 'url' => 'https://example.test/item/' . $route, 'offers' => array('@type' => 'Offer', 'price' => $price));
+    $schema = array('@type' => 'WebPage', 'mainEntity' => $schemaProduct);
+    if ('first-thing/ABC123' === $route) $schema = array('@graph' => array($schema));
+    $squareFiles['item/' . $route . '/index.html'] = $page($schema, $purchase);
+}
+$squareResult = $compile($squareFiles);
+$squarePlan = $planOf($squareResult);
+$squareCandidates = $candidates($squarePlan);
+$assert(array('item/first-thing/ABC123/index.html', 'item/second-thing-/DEF456/index.html') === array_keys($squareCandidates), 'mainEntity products with uppercase IDs and trailing-dash slugs claim their detail pages.');
+$squareEntities = array();
+foreach ($squareResult['source_reports']['compiled_site']['runtime_declarations'] as $declaration) {
+    if ('products' === ($declaration['type'] ?? null)) $squareEntities = array_merge($squareEntities, $declaration['payload']['entities']);
+}
+$assert(2 === count($squareEntities), 'Both mainEntity products are declared.');
+WordPressSitePlan::assertValid($squarePlan);
 WordPressSitePlan::assertValid($plan);
 $assert($claims === $candidates($planOf($compile(array_reverse($files, true)))), 'Candidate identities are stable under file reordering.');
 

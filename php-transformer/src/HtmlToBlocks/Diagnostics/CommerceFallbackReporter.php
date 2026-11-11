@@ -948,7 +948,9 @@ final class CommerceFallbackReporter
             foreach ( $element->getElementsByTagName('*') as $input ) {
                 $tag = strtolower($input->tagName);
                 if ( ('select' === $tag || ('input' === $tag && in_array(strtolower($input->getAttribute('type')), array('radio', 'checkbox'), true)))
-                    && '' !== trim($input->getAttribute('name')) && ! $input->hasAttribute('form') && ! SourceDom::hasNonAuthoredAncestor($input) ) {
+                    && '' !== trim($input->getAttribute('name')) && ! $input->hasAttribute('form') && ! SourceDom::hasNonAuthoredAncestor($input)
+                    // Search filters (listing type, sold/active) are not product options.
+                    && ! ListingControlsRecognizer::inSearchContext($input) ) {
                     $hasOptions = true;
                     break;
                 }
