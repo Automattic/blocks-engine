@@ -23,7 +23,7 @@ $group = array('@type' => 'ProductGroup', 'name' => 'Field Shirt', 'url' => 'htt
     'keywords' => 'woven, everyday, woven',
     'hasVariant' => array($variant('Small', 'Stone', '20.00', 'http://schema.org/InStock'), $variant('Large', 'Stone', '24.00', 'https://schema.org/OutOfStock'), $variant('Small', 'Ink', '22.00', 'BackOrder')));
 $group['hasVariant'][0]['offers']['priceSpecification'] = array('@type' => 'UnitPriceSpecification', 'priceType' => 'https://schema.org/StrikethroughPrice', 'price' => '30.00');
-$html = static fn (array $schema): string => '<!doctype html><html><head><title>Catalog</title><script type="application/ld+json">' . json_encode($schema) . '</script></head><body><main><h1>Catalog</h1></main></body></html>';
+$html = static fn (array $schema): string => '<!doctype html><html><head><title>Catalog</title><script type="application/ld+json">' . json_encode($schema) . '</script></head><body><a href="/cart/">Cart</a><main><h1>Catalog</h1></main></body></html>';
 $slug = static fn (string $value): string => strtolower(str_replace(' ', '-', $value));
 $price = static fn (mixed $value): string => is_scalar($value) ? (string) $value : '';
 $read = static function (array $schema, array &$diagnostics = array()) use ($html, $slug, $price): array {
