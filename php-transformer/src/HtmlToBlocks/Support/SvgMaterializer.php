@@ -7,11 +7,9 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementMaterializer;
-use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssVariableExpander;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
-use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use DOMDocument;
 use DOMElement;
@@ -1713,52 +1711,6 @@ final class SvgMaterializer implements SvgElementMaterializer
         return substr($html, 0, $tagMatch[0][1]) . $newTag . substr($html, $tagMatch[0][1] + strlen($tag));
     }
 
-
-    /**
-     * @return array<string, string>
-     */
-    private function cssCustomProperties(string $html, string $linkedCss): array
-    {
-        $css = trim($linkedCss);
-        $styles = StyleTagScanner::scan($html);
-        if ( array() !== $styles ) {
-            $css .= ( '' === $css ? '' : "\n" ) . implode("\n", array_map(static fn (array $style): string => trim($style['content']), $styles));
-        }
-        if ( '' === trim($css) ) {
-            return array();
-        }
-
-        $rootProperties = array();
-        ( new CssStylesheetTransformer() )->transform($css, static function (string $prelude, string $body) use (&$rootProperties): string {
-            $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-            if ( null === $selectors || ! array_filter($selectors, static function (string $selector): bool {
-                $selector = preg_replace('/\/\*.*?\*\//s', '', $selector) ?? $selector;
-                return in_array(strtolower(trim($selector)), array( ':root', 'html' ), true);
-            }) ) {
-                return $prelude;
-            }
-            if ( preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $body, $matches, PREG_SET_ORDER) ) {
-                foreach ( $matches as $match ) {
-                    $rootProperties[(string) $match[1]] = trim((string) $match[2]);
-                }
-            }
-            return $prelude;
-        });
-        if ( array() !== $rootProperties ) {
-            return $rootProperties;
-        }
-
-        if ( ! preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $css, $matches, PREG_SET_ORDER) ) {
-            return array();
-        }
-
-        $properties = array();
-        foreach ( $matches as $match ) {
-            $properties[(string) $match[1]] = trim((string) $match[2]);
-        }
-
-        return $properties;
-    }
 
     private function materializedInlineSvgPath(DOMElement $element, string $html): string
     {

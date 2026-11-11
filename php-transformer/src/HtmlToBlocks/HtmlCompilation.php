@@ -2556,23 +2556,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $block;
     }
 
-    /** @param array<int, array<string, mixed>> $blocks */
-    private function stripOuterAnchorFromBlocks(array &$blocks): void
-    {
-        foreach ($blocks as &$block) {
-            if (! is_array($block)) continue;
-            if (isset($block['attrs']['content']) && is_string($block['attrs']['content'])) {
-                $content = preg_replace('/^<a\b[^>]*>(.*)<\/a>$/is', '$1', $block['attrs']['content']) ?? $block['attrs']['content'];
-                if ($content !== $block['attrs']['content']) $block = $this->blockFactory->rebuild($block, array_merge($block['attrs'], array('content' => $content)));
-            }
-            if (is_string($block['innerHTML'] ?? null)) $block['innerHTML'] = preg_replace('/<a\b[^>]*>(<img\b[^>]*>)<\/a>/is', '$1', $block['innerHTML']) ?? $block['innerHTML'];
-            if (is_array($block['innerContent'] ?? null)) foreach ($block['innerContent'] as &$part) if (is_string($part)) $part = preg_replace('/<a\b[^>]*>(<img\b[^>]*>)<\/a>/is', '$1', $part) ?? $part;
-            unset($part);
-            if (is_array($block['innerBlocks'] ?? null)) $this->stripOuterAnchorFromBlocks($block['innerBlocks']);
-        }
-        unset($block);
-    }
-
     /** @param array<int, array<string, mixed>> $blocks @return list<string> */
     private function directBlockTags(array $blocks): array
     {
@@ -3050,28 +3033,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->sourceElementClassifier,
             fn (DOMElement $element): ?array => $this->svgMaterializer->inlineSvgImageReference($element)
         );
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $blocks
-     * @return array<string, mixed>|null
-     */
-    private function blockForSourceSelector(array $blocks, string $selector): ?array
-    {
-        foreach ( $blocks as $block ) {
-            if ( ! is_array($block) ) {
-                continue;
-            }
-            $provenanceId = $block['_source_provenance_id'] ?? null;
-            if ( is_int($provenanceId) && $selector === ($this->session->transformationProvenanceState()->source($provenanceId)['selector'] ?? null) ) {
-                return $block;
-            }
-            $nested = $this->blockForSourceSelector(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array(), $selector);
-            if ( null !== $nested ) {
-                return $nested;
-            }
-        }
-        return null;
     }
 
     /**
