@@ -1997,7 +1997,7 @@ final class ShellExtraction
                 continue;
             }
             if (is_array($absorbed)) {
-                $withoutShells = $this->withAdoptedVariantShells($pages, $absorbed['pages'], array_keys($excluded), $area, $absorbed['identities'], $runtimeDeclarations);
+                [$withoutShells, $excluded] = $this->withAdoptedVariantShells($pages, $absorbed['pages'], $excluded, $area, $absorbed['identities'], $runtimeDeclarations);
                 $assignment = self::shellTemplateSlugs($applicable, $withoutShells);
                 if (null === $assignment) {
                     $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'info', 'message' => "{$area} shell exclusions cannot be assigned distinct route templates.", 'area' => $area, 'provenance' => $this->shellProvenance($area, 'retained', 'route_template_ambiguous', $candidates));
@@ -3023,7 +3023,8 @@ final class ShellExtraction
         foreach ($indexes as $index) $applicable[$index] = $pages[$index];
         $absorbed = $this->absorbResponsiveVariantLandmarks($pages, $indexes, $area, array(), array(), $runtimeDeclarations);
         if (!is_array($absorbed)) return null;
-        $withoutShells = $this->withAdoptedVariantShells($pages, $absorbed['pages'], array_keys(array_diff_key($applicable, $absorbed['pages'])), $area, $absorbed['identities'], $runtimeDeclarations);
+        $excluded = array_fill_keys(array_keys(array_diff_key($applicable, $absorbed['pages'])), 'non_equivalent');
+        [$withoutShells, $excluded] = $this->withAdoptedVariantShells($pages, $absorbed['pages'], $excluded, $area, $absorbed['identities'], $runtimeDeclarations);
         $assignment = self::shellTemplateSlugs($applicable, $withoutShells);
         if (null === $assignment) return null;
         [$templateSlugs, $excludedTemplateSlugs] = $assignment;
@@ -3072,19 +3073,20 @@ final class ShellExtraction
      * Excluded pages whose responsive variants still match the absorbed shell
      * identities adopt it too, unless a variant landmark carries a runtime binding.
      *
-     * @param array<int,array<string,mixed>> $pages @param array<int,string> $withoutShells @param array<int,int> $indexes
+     * @param array<int,array<string,mixed>> $pages @param array<int,string> $withoutShells @param array<int,string> $excluded Exclusion reasons by index.
      * @param array<int,string> $identities @param array<int,array<string,mixed>> $runtimeDeclarations
-     * @return array<int,string>
+     * @return array{0:array<int,string>,1:array<int,string>} Pages without shells, and the exclusions that remain.
      */
-    private function withAdoptedVariantShells(array $pages, array $withoutShells, array $indexes, string $area, array $identities, array $runtimeDeclarations): array
+    private function withAdoptedVariantShells(array $pages, array $withoutShells, array $excluded, string $area, array $identities, array $runtimeDeclarations): array
     {
-        foreach ($indexes as $index) {
+        foreach (array_keys($excluded) as $index) {
             if ($this->variantLandmarksContainRuntimeBinding($pages[$index], $area, $runtimeDeclarations)) continue;
             $adopted = $this->stripMatchingVariantLandmarks($pages[$index]['canonical_block_markup'], $area, $identities, true);
             if (null === $adopted || $this->retainsResponsiveVariantLandmark($adopted, $area)) continue;
             $withoutShells[$index] = $adopted;
+            unset($excluded[$index]);
         }
-        return $withoutShells;
+        return array($withoutShells, $excluded);
     }
 
     private function retainsResponsiveVariantLandmark(string $markup, string $area): bool
