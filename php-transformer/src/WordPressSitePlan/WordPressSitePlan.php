@@ -1062,7 +1062,7 @@ PHP;
         }
         self::assertSource($plan['source']);
         $sourceCatalog = self::sourceDocumentCatalogFromSource($plan['source']);
-        RuntimeDeclarations::assertNormalized($plan['runtime_declarations']);
+        RuntimeDeclarations::assertNormalized($plan['runtime_declarations'], !isset($plan['resolution']));
         $records = RuntimeEntityManifest::normalizeRecords($plan['runtime_entity_records']);
         if ($records !== $plan['runtime_entity_records']) throw new InvalidArgumentException('WordPress site plan runtime entity records are not canonically normalized.');
         foreach ($plan['runtime_declarations'] as $declaration) if (RuntimeEntityManifest::SCHEMA === ($declaration['payload']['schema'] ?? null)) RuntimeEntityManifest::resolve($declaration['payload'], $records);

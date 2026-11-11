@@ -1439,16 +1439,16 @@ $requiredFormControls = $requiredFormDeclarations[0]['payload']['entities'][0]['
 $assert(true === ($requiredFormControls[0]['required'] ?? null) && true === ($requiredFormControls[1]['required'] ?? null), 'generic form declarations normalize native and ARIA required semantics through artifact compilation');
 $boundedTopologyHtml = static function (int $extraControls): string {
     $controls = '';
-    for ( $index = 0; $index < 63; ++$index ) $controls .= '<div><input name="field-' . $index . '"></div>';
+    for ( $index = 0; $index < 127; ++$index ) $controls .= '<div><input name="field-' . $index . '"></div>';
     $controls .= '<input name="standalone"><button type="submit">Send</button>';
     for ( $index = 0; $index < $extraControls; ++$index ) $controls .= '<input name="extra-' . $index . '">';
     return '<main><form method="post" action="#">' . $controls . '</form></main>';
 };
 $exactTopology = ( new HtmlTransformer() )->transform($boundedTopologyHtml(0))->toArray()['fallbacks'][0]['control_topology'] ?? array();
 $overflowTopology = ( new HtmlTransformer() )->transform($boundedTopologyHtml(1))->toArray()['fallbacks'][0]['control_topology'] ?? array();
-$assert(128 === count($exactTopology['nodes'] ?? array()) && false === ($exactTopology['truncated'] ?? null), 'form control topology retains exactly the configured node limit without reporting truncation');
-$assert(128 === count($overflowTopology['nodes'] ?? array()) && true === ($overflowTopology['truncated'] ?? null), 'form control topology truncates deterministically when one source-ordered control exceeds the node limit');
-$assert(64 === ($overflowTopology['nodes'][127]['control'] ?? null), 'node-limit truncation preserves the last in-bounds flat control reference');
+$assert(256 === count($exactTopology['nodes'] ?? array()) && false === ($exactTopology['truncated'] ?? null), 'form control topology retains exactly the configured node limit without reporting truncation');
+$assert(256 === count($overflowTopology['nodes'] ?? array()) && true === ($overflowTopology['truncated'] ?? null), 'form control topology truncates deterministically when one source-ordered control exceeds the node limit');
+$assert(128 === ($overflowTopology['nodes'][255]['control'] ?? null), 'node-limit truncation preserves the last in-bounds flat control reference');
 $exactTopologyResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $boundedTopologyHtml(0))))->toArray();
 $overflowTopologyResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $boundedTopologyHtml(1))))->toArray();
 $runtimeDeclarationKeys = static fn(array $result): array => array_map(static fn(array $declaration): string => ($declaration['kind'] ?? '') . ':' . ($declaration['type'] ?? $declaration['capability'] ?? ''), $result['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array());

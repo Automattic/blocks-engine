@@ -799,16 +799,18 @@ final class FormControlMetadataBuilder
         return SourceDom::associatedLabel($control);
     }
 
-    /** The explicit decorative required marker also supplies provider presentation identity. */
+    /** A standalone required indicator also supplies provider presentation identity. */
     public function requiredMarker(DOMElement $control): ?DOMElement
     {
         $label = $this->labelElement($control);
         if ( ! $label instanceof DOMElement ) {
             return null;
         }
-        foreach ( $label->getElementsByTagName('span') as $marker ) {
+        foreach ( $label->getElementsByTagName('*') as $marker ) {
             $text = trim($marker->textContent ?? '');
-            if ( 'true' === strtolower(SourceDom::attr($marker, 'aria-hidden')) && preg_match('/^\*{1,4}$/D', $text) ) {
+            if ( ( 'span' === strtolower($marker->tagName) && 'true' === strtolower(SourceDom::attr($marker, 'aria-hidden')) && preg_match('/^\*{1,4}$/D', $text) )
+                || 1 === preg_match('/^\(\s*required\s*\)$/iu', $text)
+            ) {
                 return $marker;
             }
         }

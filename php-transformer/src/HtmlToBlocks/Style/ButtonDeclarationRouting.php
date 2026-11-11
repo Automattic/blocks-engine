@@ -141,6 +141,12 @@ final class ButtonDeclarationRouting
         if ( ! in_array($property, array( 'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height' ), true) ) {
             return false;
         }
+        // A shared buttons bar has no outer wrapper per anchor to size.
+        $shared = array() !== $controls;
+        foreach ($controls as $element) {
+            $shared = $shared && ButtonStyleResolver::sharesAnchorContainer($element, $this->styleResolver);
+        }
+        if ($shared) return true;
         // Definite out-of-flow heights and proven padding/border sizing need
         // link ownership. Percentage, auto and fill sizes keep the wrapper chain.
         if ( in_array($property, array( 'height', 'min-height', 'max-height' ), true) ) {

@@ -17,7 +17,7 @@ use InvalidArgumentException;
 /** Emits bounded declared layout facts; it never computes browser geometry. */
 final class FormLayoutGraphBuilder
 {
-    private const MAX_NODES = 128;
+    private const MAX_NODES = 256;
     private const MAX_DEPTH = 16;
     private const MAX_RULES_PER_NODE = 16;
     private const MAX_RULES = 512;
