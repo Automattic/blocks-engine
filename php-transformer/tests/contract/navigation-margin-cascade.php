@@ -37,9 +37,8 @@ $endAligned = $cssFor('<style>nav{display:flex;gap:20px}.navlinks{list-style:non
 $assert(str_contains($endAligned, '.wp-block-navigation:where(.blocks-engine-list-navigation).navlinks{margin-left:auto;margin-right:0}'), 'the original end-aligned menu keeps its host auto and opposite-side zero without important');
 
 // #5429: a class reset on the item (0,1,0) loses to the typed descendant rule
-// (0,1,2) in the source. The projected rules must keep that outcome.
-$reduced = '<style>.txt{margin:0}.menu--desktop ul li{margin:0 16px}</style><nav class="menu--desktop"><ul><li class="txt"><a href="/">Home</a></li></ul></nav>';
-$projected = $cssFor($reduced);
+// in the source, plain (0,1,2) or runtime-scoped (0,2,2). The projected rules
+// must keep that outcome.
 $ruleFor = static function (string $css, string $declarations) use ($assert): array {
     $assert(1 === preg_match_all('/([^{}]+)\{' . preg_quote($declarations, '/') . '\}/', $css, $found, PREG_OFFSET_CAPTURE), "exactly one projected rule carries {$declarations} in: {$css}");
     $parsed = CssSelectorMatcher::parse(trim($found[1][0][0]));
@@ -47,13 +46,20 @@ $ruleFor = static function (string $css, string $declarations) use ($assert): ar
     $weight = CssSelectorMatcher::specificityCounts($parsed);
     return array('selector' => trim($found[1][0][0]), 'specificity' => array($weight['ids'], $weight['classes'], $weight['types']), 'offset' => $found[1][0][1]);
 };
-$reset = $ruleFor($projected, 'margin:0');
-$spacing = $ruleFor($projected, 'margin:0 16px');
-$order = $spacing['specificity'] <=> $reset['specificity'];
-$assert(1 === $order || (0 === $order && $spacing['offset'] > $reset['offset']), sprintf(
-    'typed item margin %s (%s) must outrank class reset %s (%s), as it does in the source',
-    $spacing['selector'], implode(',', $spacing['specificity']), $reset['selector'], implode(',', $reset['specificity'])
-));
+$itemCases = array(
+    'typed' => '<style>.txt{margin:0}.menu--desktop ul li{margin:0 16px}</style><nav class="menu--desktop"><ul><li class="txt"><a href="/">Home</a></li></ul></nav>',
+    'runtime-scoped typed' => '<style>.txt{margin:0}.menu--desktop ul li[data-v-1a2b3c]{margin:0 16px}</style><nav class="menu--desktop" data-v-1a2b3c><ul data-v-1a2b3c><li class="txt" data-v-1a2b3c><a href="/" data-v-1a2b3c>Home</a></li></ul></nav>',
+);
+foreach ($itemCases as $label => $reduced) {
+    $projected = $cssFor($reduced);
+    $reset = $ruleFor($projected, 'margin:0');
+    $spacing = $ruleFor($projected, 'margin:0 16px');
+    $order = $spacing['specificity'] <=> $reset['specificity'];
+    $assert(1 === $order || (0 === $order && $spacing['offset'] > $reset['offset']), sprintf(
+        '%s item margin %s (%s) must outrank class reset %s (%s), as it does in the source',
+        $label, $spacing['selector'], implode(',', $spacing['specificity']), $reset['selector'], implode(',', $reset['specificity'])
+    ));
+}
 
 // Same class, separate gates: neither may be flattened or deduplicated away.
 $conditional = $cssFor(str_replace(

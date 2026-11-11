@@ -3013,7 +3013,13 @@ final class AuthorStylesheetProjector
             if ( '' === $marker ) {
                 return null;
             }
-            $projected[] = ':where(.' . $marker . $attributeTarget . ')' . $this->selectorSpecificityShims($parsed, $context)
+            // Native navigation subjects carry a shared four-class baseline on
+            // every other projection path; keep it here, or a class rule this
+            // selector beat in the source would outrank it.
+            $baseline = '' === $context->selectorProjections->navigationSubject($path)
+                ? ''
+                : str_repeat(':not(.' . $context->authorStyles->classSpecificityShim() . ')', 4);
+            $projected[] = ':where(.' . $marker . $attributeTarget . ')' . $baseline . $this->selectorSpecificityShims($parsed, $context)
                 . (($rightmost['empty'] ?? false) ? ':empty' : '');
         }
         return array_values(array_unique($projected));
