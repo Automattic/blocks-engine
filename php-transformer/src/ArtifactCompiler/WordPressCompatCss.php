@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Css\ClassAttributeSelectorProjection;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CoreSelectorScoping;
@@ -122,10 +123,7 @@ final class WordPressCompatCss
         $this->sourceCandidates = array('*' => array());
         foreach ($this->siteMarkerDocuments ?? array() as $html) {
             $document = new \DOMDocument();
-            $previous = libxml_use_internal_errors(true);
-            $document->loadHTML('<?xml encoding="utf-8" ?>' . $html, LIBXML_NOERROR | LIBXML_NOWARNING);
-            libxml_clear_errors();
-            libxml_use_internal_errors($previous);
+            HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?>' . $html, LIBXML_NOERROR | LIBXML_NOWARNING);
             $this->sourceDocuments[] = $document;
             foreach ($document->getElementsByTagName('*') as $element) {
                 $this->sourceCandidates['*'][] = $element;

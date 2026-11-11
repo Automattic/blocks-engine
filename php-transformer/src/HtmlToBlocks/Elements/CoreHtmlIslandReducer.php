@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -100,10 +101,7 @@ final class CoreHtmlIslandReducer
             return null;
         }
         $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $loaded = $document->loadHTML('<!doctype html><html><body>' . $html . '</body></html>');
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
+        $loaded = HtmlSerialization::loadHtml($document, '<!doctype html><html><body>' . $html . '</body></html>');
         if ($loaded) {
             foreach ($document->getElementsByTagName('*') as $element) {
                 if ($element instanceof DOMElement && $this->runtimeIslands->isRuntimeDomTarget($element)) {

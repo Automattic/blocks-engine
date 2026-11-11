@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Css\UnreachableSelectorPruner;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
@@ -2934,10 +2935,7 @@ final class ArtifactCompiler
             // stylesheet. Retain source root/body context just as projection
             // does; block comments are inert to the HTML parser.
             $dom = new DOMDocument();
-            $previousErrors = libxml_use_internal_errors(true);
-            $loaded = $dom->loadHTML('<?xml encoding="UTF-8"><html><body>' . $pageMarkup[$owner] . '</body></html>');
-            libxml_clear_errors();
-            libxml_use_internal_errors($previousErrors);
+            $loaded = HtmlSerialization::loadHtml($dom, '<?xml encoding="UTF-8"><html><body>' . $pageMarkup[$owner] . '</body></html>');
             if (!$loaded) continue;
             $attributes = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::metadataFromHtml((string) ($document['content'] ?? ''));
             foreach (array('html' => 'root_attributes', 'body' => 'body_attributes') as $tag => $key) {
@@ -3783,10 +3781,7 @@ final class ArtifactCompiler
     {
         $selectors = array();
         $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
+        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
         if ( ! $loaded ) {
             return array();
         }
@@ -3892,10 +3887,7 @@ final class ArtifactCompiler
     {
         $selectors = array();
         $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
+        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
         if ( ! $loaded ) {
             return array();
         }
@@ -3927,10 +3919,7 @@ final class ArtifactCompiler
     {
         $selectors = array();
         $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
+        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
         if ( ! $loaded ) {
             return array();
         }
@@ -4378,10 +4367,7 @@ final class ArtifactCompiler
 
     private static function loadUtf8Html(\DOMDocument $dom, string $html): bool
     {
-        $previous = libxml_use_internal_errors(true);
-        $loaded = $dom->loadHTML('<?xml encoding="utf-8" ?>' . $html);
-        libxml_clear_errors(); libxml_use_internal_errors($previous);
-        return $loaded;
+        return HtmlSerialization::loadHtml($dom, '<?xml encoding="utf-8" ?>' . $html);
     }
 
     /**

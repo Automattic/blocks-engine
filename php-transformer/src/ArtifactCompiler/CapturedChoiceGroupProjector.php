@@ -432,11 +432,8 @@ final class CapturedChoiceGroupProjector
 
     private function loadDocument(string $html): ?DOMDocument
     {
-        $previous = libxml_use_internal_errors(true);
         $document = new DOMDocument('1.0', 'UTF-8');
-        $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
+        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8">' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
 
         return $loaded ? $document : null;
     }
@@ -584,11 +581,8 @@ final class CapturedChoiceGroupProjector
 
     private function fragmentRoot(string $html): ?DOMElement
     {
-        $previous = libxml_use_internal_errors(true);
         $document = new DOMDocument('1.0', 'UTF-8');
-        $loaded = $document->loadHTML('<?xml encoding="UTF-8"><div data-choice-fragment="true">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
+        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8"><div data-choice-fragment="true">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
         if (! $loaded) {
             return null;
         }
@@ -692,11 +686,8 @@ final class CapturedChoiceGroupProjector
 
     private function safeHtml(string $html): ?string
     {
-        $previous = libxml_use_internal_errors(true);
         $document = new DOMDocument('1.0', 'UTF-8');
-        $loaded = $document->loadHTML('<?xml encoding="UTF-8"><div data-choice-root="true">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
+        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8"><div data-choice-root="true">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
         if (! $loaded) {
             return null;
         }

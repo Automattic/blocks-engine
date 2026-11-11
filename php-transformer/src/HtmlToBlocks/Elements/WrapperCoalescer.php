@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
@@ -237,10 +238,7 @@ final class WrapperCoalescer
         if (! array_key_exists($cacheKey, $this->parsedWrapperCache)) {
             $tagName = strtolower($match[1]);
             $document = new DOMDocument();
-            $previous = libxml_use_internal_errors(true);
-            $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $opening . $closing . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-            libxml_clear_errors();
-            libxml_use_internal_errors($previous);
+            $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . $opening . $closing . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
             $element = $loaded ? $document->getElementsByTagName($tagName)->item(0) : null;
             $parsed = null;
             if ($element instanceof DOMElement) {

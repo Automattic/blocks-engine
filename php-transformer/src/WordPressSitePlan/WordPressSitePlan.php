@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
 use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlMarkupParser;
@@ -1709,10 +1710,7 @@ PHP;
                     // archive) is never evidence that a rule is inert there.
                     if (!is_string($documentsBySource[$source]['canonical_block_markup'] ?? null) || '' === trim($documentsBySource[$source]['canonical_block_markup'])) continue;
                     $dom = new \DOMDocument();
-                    $previous = libxml_use_internal_errors(true);
-                    $loaded = $dom->loadHTML('<?xml encoding="UTF-8"><html><body>' . $documentsBySource[$source]['canonical_block_markup'] . "\n" . $sharedMarkup . '</body></html>');
-                    libxml_clear_errors();
-                    libxml_use_internal_errors($previous);
+                    $loaded = HtmlSerialization::loadHtml($dom, '<?xml encoding="UTF-8"><html><body>' . $documentsBySource[$source]['canonical_block_markup'] . "\n" . $sharedMarkup . '</body></html>');
                     if (!$loaded) continue;
                     foreach (array('html' => 'root_attributes', 'body' => 'body_attributes') as $tag => $key) {
                         $element = $dom->getElementsByTagName($tag)->item(0);
