@@ -1733,7 +1733,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 $text = trim($child->textContent ?? '');
                 if ( '' !== $text ) {
                     $blocks = array_merge($blocks, $this->convertText($text));
-                    $lineIndex = $this->inlineParagraphIndex($blocks);
+                    $lineIndex = Elements\StandaloneBreakLowering::inlineParagraphIndex($blocks);
                 }
                 continue;
             }
@@ -1742,7 +1742,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 continue;
             }
             if ( 'br' === strtolower($child->tagName) && null !== $lineIndex && $this->styleResolver->breakEndsInlineLine($child) ) {
-                $blocks[$lineIndex] = self::endLine($blocks[$lineIndex]);
+                $blocks[$lineIndex] = Elements\StandaloneBreakLowering::endLine($blocks[$lineIndex]);
                 continue;
             }
             $lineIndex = null;
@@ -1791,7 +1791,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                     $block['attrs']['className'] = trim(($block['attrs']['className'] ?? '') . ' wp-block-post-content');
                 }
                 $blocks[] = $block;
-                $lineIndex = $blockCount + 1 === count($blocks) ? $this->inlineParagraphIndex($blocks) : null;
+                $lineIndex = $blockCount + 1 === count($blocks) ? Elements\StandaloneBreakLowering::inlineParagraphIndex($blocks) : null;
             } elseif ( $this->sourceElementClassifier->isRuntimeMediaSurfaceElement($child) ) {
                 $ownerSelector = SourceDom::elementSelector($child);
                 for ( $index = $fallbackOffset; $index < count($fallbacks); ++$index ) {
@@ -1816,41 +1816,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
      *
      * @return list<array<string, mixed>>|null
      */
-    /**
-     * The index of the last block when it is a synthetic paragraph standing
-     * for inline source content: it renders inline, so a `<br>` after the
-     * source run it stands for has to end the line inside it.
-     *
-     * @param array<int, array<string, mixed>> $blocks
-     */
-    private function inlineParagraphIndex(array $blocks): ?int
-    {
-        $index = array_key_last($blocks);
-        $block = null === $index ? null : $blocks[$index];
-        if ( ! is_array($block) || 'core/paragraph' !== ($block['blockName'] ?? null) || ! str_ends_with((string) ($block['innerHTML'] ?? ''), '</p>') || array() !== ($block['innerBlocks'] ?? array()) ) {
-            return null;
-        }
-        $classes = preg_split('/\s+/', (string) ($block['attrs']['className'] ?? '')) ?: array();
-        return in_array(self::SYNTHETIC_PARAGRAPH_CLASS, $classes, true) && ! in_array(SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS, $classes, true)
-            ? $index
-            : null;
-    }
-
-    /**
-     * @param array<string, mixed> $paragraph
-     * @return array<string, mixed>
-     */
-    private static function endLine(array $paragraph): array
-    {
-        $html = substr((string) $paragraph['innerHTML'], 0, -4) . '<br></p>';
-        $paragraph['innerHTML'] = $html;
-        $paragraph['innerContent'] = array( $html );
-        if ( isset($paragraph['attrs']['content']) ) {
-            $paragraph['attrs']['content'] .= '<br>';
-        }
-        return $paragraph;
-    }
-
     /** @param array<int, array<string, mixed>> $fallbacks */
     private function recordDependentRuntimeMediaMaskLoss(DOMElement $owner, DOMElement $mask, array &$fallbacks, int $fallbackIndex): void
     {
