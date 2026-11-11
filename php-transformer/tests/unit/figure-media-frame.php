@@ -38,4 +38,19 @@ foreach ($dom->getElementsByTagName('img') as $image) {
     $assert(! preg_match('/(?:^|;)\s*height\s*:(?!\s*auto(?:\s*;|\s*$))/i', $image->getAttribute('style')), 'no fixed inline height competes with the frame');
 }
 
+$paddingFixture = require dirname(__DIR__) . '/fixtures/padding-ratio-media-frame.php';
+$paddingResult = (new HtmlTransformer())->transform($paddingFixture)->toArray();
+$paddingCss = implode("\n", array_column($paddingResult['assets'], 'content'));
+$assert(str_contains($paddingCss, 'aspect-ratio:100 / 27.2109'), 'padding ratio uses the existing image geometry carrier');
+$assert(str_contains($paddingCss, 'position:static !important'), 'folded absolute image returns to flow');
+$assert(! str_contains($paddingResult['serialized_blocks'], 'height:100%'), 'folded ratio owns image height');
+foreach (array(
+    'padding-bottom: 0%',
+    'padding-bottom: 120px',
+    'padding-bottom: 27.2109%;position:static',
+) as $replacement) {
+    $guard = (new HtmlTransformer())->transform(str_replace('padding-bottom: 27.2109%', $replacement, $paddingFixture))->toArray();
+    $assert(! str_contains(implode("\n", array_column($guard['assets'], 'content')), 'aspect-ratio:100 /'), 'only positive percentage positioned ratio frames are converted');
+}
+
 echo "Figure media frame passed.\n";
