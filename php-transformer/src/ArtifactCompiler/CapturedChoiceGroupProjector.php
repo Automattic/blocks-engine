@@ -615,7 +615,7 @@ final class CapturedChoiceGroupProjector
         }
         $elements = array();
         foreach ($this->documentScopes($document) as $scope) {
-            $matched = $this->selectorMatches($scope, $selector);
+            $matched = CapturedSelectorPath::matches($scope, $selector, skipsScopeTag: true);
             if (count($matched) > 1) {
                 return array('status' => 'ambiguous', 'elements' => array());
             }
@@ -634,55 +634,6 @@ final class CapturedChoiceGroupProjector
             }
         }
         return false;
-    }
-
-    /** @return array<int, DOMElement> */
-    private function selectorMatches(DOMElement $scope, string $selector): array
-    {
-        if (str_contains($selector, ',') || ! str_contains($selector, '>')) {
-            return array();
-        }
-        $parts = preg_split('/\s*>\s*/', $selector);
-        if (! is_array($parts) || array() === $parts) {
-            return array();
-        }
-        if ('body' === strtolower($parts[0])) {
-            array_shift($parts);
-        }
-        if (array() === $parts) {
-            return array();
-        }
-        if (1 === preg_match('/^([a-z][a-z0-9]*)/i', $parts[0], $token) && strtolower($scope->tagName) === strtolower($token[1])) {
-            array_shift($parts);
-        }
-        $current = array($scope);
-        foreach ($parts as $part) {
-            if (1 !== preg_match('/^([a-z][a-z0-9]*)(#([A-Za-z][A-Za-z0-9_.:-]*))?(:nth-of-type\((\d+)\))?$/i', $part, $tokens)) {
-                return array();
-            }
-            $tag = strtolower($tokens[1]);
-            $id = $tokens[3] ?? '';
-            $nth = isset($tokens[5]) ? (int) $tokens[5] : 0;
-            $next = array();
-            foreach ($current as $node) {
-                $seen = 0;
-                foreach ($node->childNodes as $child) {
-                    if (! $child instanceof DOMElement || strtolower($child->tagName) !== $tag) {
-                        continue;
-                    }
-                    ++$seen;
-                    if ('' !== $id && $child->getAttribute('id') !== $id || 0 < $nth && $seen !== $nth) {
-                        continue;
-                    }
-                    $next[] = $child;
-                }
-            }
-            if (array() === $next) {
-                return array();
-            }
-            $current = $next;
-        }
-        return $current;
     }
 
     private function safeHtml(string $html): ?string

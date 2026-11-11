@@ -1487,60 +1487,12 @@ final class CapturedDialogProjector
      */
     private function selectorMatches(DOMElement $scope, array $trigger): array
     {
-        $selector = is_string($trigger['selector'] ?? null) ? trim($trigger['selector']) : '';
-        if ('' === $selector || str_contains($selector, ',') || ! str_contains($selector, '>')) {
-            return array();
-        }
-        $parts = preg_split('/\s*>\s*/', $selector);
-        if (! is_array($parts) || array() === $parts) {
-            return array();
-        }
-        if ('body' === strtolower($parts[0])) {
-            array_shift($parts);
-        }
-        if (array() === $parts) {
-            return array();
-        }
-        $current = array($scope);
-        foreach ($parts as $index => $part) {
-            if (1 !== preg_match('/^([a-z][a-z0-9]*)(#([A-Za-z][A-Za-z0-9_.:-]*))?(:nth-of-type\((\d+)\))?$/i', $part, $tokens)) {
-                return array();
-            }
-            $tag = strtolower($tokens[1]);
-            $id = $tokens[3] ?? '';
-            $nth = isset($tokens[5]) && '' !== $tokens[5] ? (int) $tokens[5] : 0;
-            $isLast = $index === array_key_last($parts);
-            $next = array();
-            foreach ($current as $node) {
-                $seen = array();
-                foreach ($node->childNodes as $child) {
-                    if (! $child instanceof DOMElement) {
-                        continue;
-                    }
-                    $childTag = strtolower($child->tagName);
-                    $seen[$childTag] = ($seen[$childTag] ?? 0) + 1;
-                    $tagMatches = $childTag === $tag || ($isLast && $this->tagCompatible($tag, $childTag));
-                    if (! $tagMatches) {
-                        continue;
-                    }
-                    if ('' !== $id && $child->getAttribute('id') !== $id) {
-                        continue;
-                    }
-                    if ($nth > 0 && ($seen[$tag] ?? 0) !== $nth) {
-                        continue;
-                    }
-                    $next[] = $child;
-                }
-            }
-            if (array() === $next) {
-                return array();
-            }
-            if (count($next) > self::MAX_STATES_PER_PAGE) {
-                return $next;
-            }
-            $current = $next;
-        }
-        return $current;
+        return CapturedSelectorPath::matches(
+            $scope,
+            is_string($trigger['selector'] ?? null) ? trim($trigger['selector']) : '',
+            limit: self::MAX_STATES_PER_PAGE,
+            lastTagMatches: fn (string $tag, string $childTag): bool => $this->tagCompatible($tag, $childTag),
+        );
     }
 
     /**

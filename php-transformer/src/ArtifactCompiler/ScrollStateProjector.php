@@ -272,7 +272,7 @@ final class ScrollStateProjector
     /**
      * A captured style-target selector is a child path relative to the toggle
      * target (`div:nth-of-type(2)` is the target's second direct `div` child),
-     * the same grammar bySelectorPath() resolves. The runtime resolves it with
+     * the same grammar CapturedSelectorPath::matches() resolves. The runtime resolves it with
      * `element.querySelector()`, which searches every descendant, so an
      * unanchored path would bind the first deeper element that happens to fit
      * (for example the second `div` inside a nested logo link). Anchor child
@@ -400,7 +400,7 @@ final class ScrollStateProjector
                 return $matches;
             }
         }
-        return $this->bySelectorPath($scope, $selector);
+        return CapturedSelectorPath::matches($scope, $selector, limit: self::MAX_TOGGLES_PER_PAGE);
     }
 
     /** @return array<int, DOMElement> */
@@ -427,62 +427,6 @@ final class ScrollStateProjector
             }
         }
         return false;
-    }
-
-    /** @return array<int, DOMElement> */
-    private function bySelectorPath(DOMElement $scope, string $selector): array
-    {
-        if ('' === $selector || str_contains($selector, ',') || ! str_contains($selector, '>')) {
-            return array();
-        }
-        $parts = preg_split('/\s*>\s*/', $selector);
-        if (! is_array($parts) || array() === $parts) {
-            return array();
-        }
-        if ('body' === strtolower($parts[0])) {
-            array_shift($parts);
-        }
-        if (array() === $parts) {
-            return array();
-        }
-        $current = array($scope);
-        foreach ($parts as $index => $part) {
-            if (1 !== preg_match('/^([a-z][a-z0-9]*)(#([A-Za-z][A-Za-z0-9_.:-]*))?(:nth-of-type\((\d+)\))?$/i', $part, $tokens)) {
-                return array();
-            }
-            $tag = strtolower($tokens[1]);
-            $id = $tokens[3] ?? '';
-            $nth = isset($tokens[5]) && '' !== $tokens[5] ? (int) $tokens[5] : 0;
-            $next = array();
-            foreach ($current as $node) {
-                $seen = array();
-                foreach ($node->childNodes as $child) {
-                    if (! $child instanceof DOMElement) {
-                        continue;
-                    }
-                    $childTag = strtolower($child->tagName);
-                    $seen[$childTag] = ($seen[$childTag] ?? 0) + 1;
-                    if ($childTag !== $tag) {
-                        continue;
-                    }
-                    if ('' !== $id && $child->getAttribute('id') !== $id) {
-                        continue;
-                    }
-                    if ($nth > 0 && ($seen[$tag] ?? 0) !== $nth) {
-                        continue;
-                    }
-                    $next[] = $child;
-                }
-            }
-            if (array() === $next) {
-                return array();
-            }
-            if (count($next) > self::MAX_TOGGLES_PER_PAGE) {
-                return $next;
-            }
-            $current = $next;
-        }
-        return $current;
     }
 
     /** @param array<int, array<string, mixed>> $files @return array<string, mixed>|null */
