@@ -186,8 +186,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly AuthorLayoutOwnership $authorLayoutOwnership;
     private readonly Elements\LayoutTableLowering $layoutTables;
 
-    private string $capturedRootTheme = '';
-
     /** Author CSS visible to the document, captured once per transform for element-dispatch checks. */
     private string $documentAuthorCss = '';
 
@@ -289,9 +287,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
 
 
-
-    /** @var list<string> Hosts the current source document declares as its own. */
-    private array $sourceDocumentHosts = array();
 
     /** @var list<DOMElement> Neutral convention instances retained as author selector hooks. */
     private array $retainedCustomWrapperHooks = array();
@@ -708,8 +703,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 return $attrs;
             },
             $this,
-            $this->session,
-            fn (): array => $this->sourceDocumentHosts
+            $this->session
         );
         $formCompositionPlanner = new FormCompositionPlanner(
             $this->session,
@@ -1007,7 +1001,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 $this->svgMaterializer,
                 $this->session,
                 fn (DOMElement $element): string => $this->sanitizeInlineSvgMarkup($element),
-                fn (): string => $this->capturedRootTheme,
                 function (DOMElement $element): array {
                     $presentation = $this->styleResolver->presentationAttributes($element);
                     $inline = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
@@ -1341,7 +1334,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             }
         }
         $staticCss = (string) ($options['static_css'] ?? '');
-        $this->capturedRootTheme = $this->documentEnvelope->documentRootTheme($html);
         $styleAnalysis = $this->stylesheetAnalysisComposer->composedStyleAnalysis(
             $this->stylesheetAnalysisComposer->stylesheetPayloads($html, $staticCss, $options)
         );
@@ -1365,7 +1357,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
         $timer->start('transform.source_parse');
         $sourceBodyClasses = $this->documentEnvelope->documentBodyClassNames($html);
-        $this->sourceDocumentHosts = NativeGetFormBlockBuilder::declaredDocumentHosts($html);
+        $this->session->installSourceDocument($this->documentEnvelope->documentRootTheme($html), NativeGetFormBlockBuilder::declaredDocumentHosts($html));
         $normalizedHtml = CaptureReplayScripts::withoutReplayScripts(
             SourceDom::normalizeHtml5VoidElements($this->documentEnvelope->documentBodyHtml($this->documentEnvelope->normalizeExplicitPlaintextElements($html)))
         );
