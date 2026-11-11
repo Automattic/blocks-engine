@@ -2090,6 +2090,16 @@ final class AuthorStylesheetProjector
                 continue;
             }
 
+            // Some lowering paths retain the source leaf inside a paragraph
+            // without marking it as a potential standalone inline carrier.
+            // The emitted tree is authoritative: add a zero-specificity hop
+            // only when that topology actually exists, keeping the source arm
+            // for matches that were not wrapped.
+            $carrierChild = $this->projectInlineLayoutCarrierChildSelector($selector, $parsed, $context);
+            if ( null !== $carrierChild ) {
+                $rewritten[] = $carrierChild;
+            }
+
             $otherSubjects = array();
             $navigationSubjects = array();
             foreach ($matches as $element) {
@@ -3759,6 +3769,19 @@ final class AuthorStylesheetProjector
     {
         $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
         return ':where(' . RichTextMarkerSelector::carrierSelectorList($marker) . ')' . $this->selectorSpecificityShims($parsed, $context) . $suffix;
+    }
+
+    /** @param array<string, mixed> $parsed */
+    private function projectInlineLayoutCarrierChildSelector(string $selector, array $parsed, AuthorStylesheetProjectionContext $context): ?string
+    {
+        $rightmost = $parsed['rightmost_compound_span'] ?? null;
+        $combinators = $parsed['combinators'] ?? array();
+        if ( ! is_array($rightmost) || '>' !== end($combinators) ) {
+            return null;
+        }
+        $start = (int) $rightmost['start'];
+        $projected = substr($selector, 0, $start) . ':where(.' . self::INLINE_LAYOUT_CARRIER_CLASS . ')>' . substr($selector, $start);
+        return $this->matchesEmittedMarkup(CssSelectorMatcher::parse($projected), $context->emittedMarkup) ? $projected : null;
     }
 
     /** @param array<string, mixed> $parsed */
