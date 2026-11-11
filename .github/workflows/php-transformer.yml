@@ -186,6 +186,10 @@ jobs:
         working-directory: php-transformer
         run: PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/php-transformer/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/orphan-list-item-browser.mjs
 
+      - name: Verify lowered background images keep their position when linked
+        working-directory: php-transformer
+        run: PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/php-transformer/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/background-image-position-browser.mjs
+
       - name: Verify slideshow slides with inline images stack in one stage
         working-directory: php-transformer
         run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/carousel-inline-image-slides-browser.mjs
