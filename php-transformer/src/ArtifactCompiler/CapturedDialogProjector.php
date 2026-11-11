@@ -83,9 +83,8 @@ final class CapturedDialogProjector
             $path = $routes[CaptureReceiptRoutes::normalizedUrl((string) ($page['sourceUrl'] ?? ''))] ?? '';
             foreach ($files as &$file) {
                 if ('' === $path || $path !== ($file['path'] ?? null) || !is_string($file['content'] ?? null)) continue;
-                $document = new DOMDocument('1.0', 'UTF-8');
-                $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8">' . $file['content'], LIBXML_NONET);
-                if (!$loaded) continue;
+                $document = HtmlSerialization::utf8Document($file['content'], LIBXML_NONET);
+                if (null === $document) continue;
                 $changed = false;
                 $selectors = array();
                 $bindings = new ScriptOccurrenceBindings($document);
@@ -305,9 +304,8 @@ final class CapturedDialogProjector
             $content = $file['content'] ?? null;
             $path = (string) ($file['path'] ?? '');
             if (! preg_match('/\.html?$/i', $path) || ! is_string($content) || 1 !== preg_match('/\spopover(?:\s|=|>)/i', $content) || ! str_contains(strtolower($content), 'popovertarget')) continue;
-            $document = new DOMDocument('1.0', 'UTF-8');
-            $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8">' . $content, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-            if (! $loaded || $this->hasRestingInlinePanel($document)) continue;
+            $document = HtmlSerialization::utf8Document($content, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+            if (null === $document || $this->hasRestingInlinePanel($document)) continue;
             $count = 0;
             $xpath = new DOMXPath($document);
             foreach (iterator_to_array($xpath->query('//*[@popover][@id]') ?: array()) as $popover) {
@@ -1065,9 +1063,8 @@ final class CapturedDialogProjector
         foreach ($files as &$file) {
             $html = $file['content'] ?? null;
             if (!is_string($html) || !preg_match('/\.html?$/i', (string) ($file['path'] ?? '')) || !str_contains($html, CaptureEvidence::EXISTING_PANEL)) continue;
-            $document = new DOMDocument('1.0', 'UTF-8');
-            $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8">' . $html, LIBXML_NONET);
-            if (!$loaded || $this->hasUnrecognizedRuntime($document)) continue;
+            $document = HtmlSerialization::utf8Document($html, LIBXML_NONET);
+            if (null === $document || $this->hasUnrecognizedRuntime($document)) continue;
             $xpath = new DOMXPath($document);
             $changed = false;
             foreach ($document->getElementsByTagName('*') as $trigger) {
@@ -1105,9 +1102,8 @@ final class CapturedDialogProjector
         foreach ($files as &$file) {
             $html = $file['content'] ?? null;
             if (!is_string($html) || !preg_match('/\.html?$/i', (string) ($file['path'] ?? '')) || !str_contains($html, CaptureEvidence::EXISTING_PANEL)) continue;
-            $document = new DOMDocument('1.0', 'UTF-8');
-            $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8">' . $html, LIBXML_NONET);
-            if (!$loaded || $this->hasUnrecognizedRuntime($document)) continue;
+            $document = HtmlSerialization::utf8Document($html, LIBXML_NONET);
+            if (null === $document || $this->hasUnrecognizedRuntime($document)) continue;
             $xpath = new DOMXPath($document);
             $changed = false;
             foreach ($xpath->query('//*[@' . CaptureEvidence::DIALOG_PANEL . '][@' . CaptureEvidence::EXISTING_PANEL . ']') ?: array() as $panel) {
@@ -1253,9 +1249,8 @@ final class CapturedDialogProjector
                 || $content !== ($files[$index]['content'] ?? null)
                 || !str_contains($content, CaptureEvidence::DIALOG_PANEL)
                 || !str_contains($content, CaptureEvidence::DIALOG_TRIGGER)) continue;
-            $document = new DOMDocument('1.0', 'UTF-8');
-            $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8">' . $content, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-            if (!$loaded) continue;
+            $document = HtmlSerialization::utf8Document($content, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+            if (null === $document) continue;
             $xpath = new DOMXPath($document);
             $matched = false;
             foreach ($document->getElementsByTagName('dialog') as $panel) {
@@ -1292,9 +1287,8 @@ final class CapturedDialogProjector
             $content = $file['content'] ?? null;
             $path = (string) ($file['path'] ?? '');
             if (!preg_match('/\.html?$/i', $path) || !is_string($content) || !str_contains($content, CaptureEvidence::DISCLOSURE_RUNTIME) || !str_contains($content, CaptureEvidence::DIALOG_TRIGGER)) continue;
-            $document = new DOMDocument('1.0', 'UTF-8');
-            $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8">' . $content, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-            if (!$loaded || $this->hasUnrecognizedRuntime($document)) continue;
+            $document = HtmlSerialization::utf8Document($content, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+            if (null === $document || $this->hasUnrecognizedRuntime($document)) continue;
             if ($this->hasRestingInlinePanel($document)) {
                 $diagnostics[] = $this->restingInlineDiagnostic($path);
                 continue;
@@ -1620,9 +1614,8 @@ final class CapturedDialogProjector
     /** @return array{nodes:array<int, \DOMNode>, class:string, id:string, aria_label:string, aria_labelledby:string, aria_describedby:string, has_close_control:bool, self_positioned:bool}|null */
     private function safeDialogFragment(string $html, string $panelId = ''): ?array
     {
-        $document = new DOMDocument('1.0', 'UTF-8');
-        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8"><div data-dialog-root="true">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-        if (! $loaded) return null;
+        $document = HtmlSerialization::utf8Document('<div data-dialog-root="true">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+        if (null === $document) return null;
         $xpath = new DOMXPath($document);
         foreach (array('script', 'iframe', 'object', 'embed', 'template') as $tag) {
             $matches = $xpath->query('//' . $tag);
