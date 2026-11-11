@@ -487,7 +487,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this,
             $this->session,
             $this->sourceElementDescription,
-            fn (DOMElement $element): ?DOMElement => $this->emptyVisualRetention->soleElementChild($element),
+            fn (DOMElement $element): ?DOMElement => $this->soleElementChild($element),
             fn (DOMElement $element): bool => $this->imageLowering->isImageOnlyAnchor($element)
         );
         $this->authorLayoutOwnership = new AuthorLayoutOwnership(
@@ -2609,6 +2609,12 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     }
 
     /** Read lazily: closures built before the retention policy call it. */
+    /** Lazy: WrapperCoalescer is built before the empty-visual policy. */
+    private function soleElementChild(DOMElement $element): ?DOMElement
+    {
+        return $this->emptyVisualRetention->soleElementChild($element);
+    }
+
     private function shouldPreserveEmptyVisualElement(DOMElement $element): bool
     {
         return $this->emptyVisualRetention->shouldPreserveEmptyVisualElement($element);
