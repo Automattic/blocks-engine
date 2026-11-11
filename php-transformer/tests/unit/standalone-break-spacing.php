@@ -27,7 +27,7 @@ foreach ( $heads as $name => $head ) {
     });
     preg_match_all('/<!-- wp:spacer \{"height":"([^"]+)"/', $markup, $matches);
     $ok = 'unresolved' === $name
-        ? 7 === substr_count($markup, '<p><br></p>')
+        ? 7 === substr_count($markup, '<p style="margin-top:0;margin-bottom:0"><br></p>')
         : array('57.6px', '57.6px', '28.8px', '57.6px') === $matches[1];
     $ok = $ok && ! str_contains($markup, '<p></p>');
     if ( ! $ok ) {

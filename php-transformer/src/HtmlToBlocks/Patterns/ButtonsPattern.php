@@ -237,7 +237,14 @@ final class ButtonsPattern
             return null;
         }
 
-        return $this->createBlock->createBlock('core/buttons', $context->presentationAttributes($element), $buttonBlocks, $element);
+        $attrs = $context->presentationAttributes($element);
+        // Normal block flow stacks block-level anchors; Core's default row does not.
+        if (ButtonStyleResolver::stacksBlockAnchors($element, $buttons->resolvedDeclarations(...))) {
+            $attrs['layout'] = array('type' => 'flex', 'orientation' => 'vertical', 'justifyContent' => 'left');
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), 'is-vertical blocks-engine-stacked-buttons');
+            $attrs['style']['spacing']['blockGap'] = '0';
+        }
+        return $this->createBlock->createBlock('core/buttons', $attrs, $buttonBlocks, $element);
     }
 
     /** @return array<string, mixed> */
@@ -309,6 +316,8 @@ final class ButtonsPattern
         foreach ($anchor->getElementsByTagName('*') as $label) {
             if (!$label instanceof DOMElement || '' === $text || $this->plainText(SourceDom::innerHtml($label)) !== $text) continue;
             $native = $this->styleResolver->nativeAttributes($buttons->nativePresentationStyle($label))['style'] ?? array();
+            // 100% on a label inherits the control's winning size.
+            if ('100%' === ($native['typography']['fontSize'] ?? '')) unset($native['typography']['fontSize']);
             if ($absorbsBoxes) {
                 $native = $this->withoutNonPresentationalValues($native);
                 $style = array_replace_recursive($style, $native);

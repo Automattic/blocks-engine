@@ -27,7 +27,7 @@ foreach (array(
             throw new RuntimeException($delivery . ' / ' . $label . ': author cascade must supply the lowered image scale.');
         }
         if (!preg_match('/\b(be-inline-geometry-[a-f0-9]+)\b/', $figure[1], $carrier)
-            || !str_contains($css, '.' . $carrier[1] . '{object-position:' . $position . '}.' . $carrier[1] . '>img{object-position:inherit}')) {
+            || !str_contains($css, '.' . $carrier[1] . '{object-position:' . $position . '}.' . $carrier[1] . '>img,.' . $carrier[1] . '>a>img{object-position:inherit}')) {
             throw new RuntimeException($delivery . ' / ' . $label . ': author cascade must supply the lowered image position.');
         }
     }
