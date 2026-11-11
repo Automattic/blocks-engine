@@ -263,7 +263,7 @@ final class WrapperCoalescer
         // Attribute-only carriers may project core editor styles. A shell must
         // already render every geometry token on this exact saved wrapper.
         preg_match_all('/(?:^|\s)(be-inline-geometry-[^\s]+)/', (string) ($block['attrs']['className'] ?? ''), $geometryClasses);
-        $savedClasses = preg_split('/\s+/', trim((string) ($attributes['class'] ?? ''))) ?: array();
+        $savedClasses = SourceDom::tokens((string) ($attributes['class'] ?? ''));
         if (array_diff($geometryClasses[1], $savedClasses)) {
             return null;
         }
@@ -332,7 +332,7 @@ final class WrapperCoalescer
         foreach (array('fontSize', 'fontFamily', 'textColor', 'align') as $attribute) {
             if (! isset($attrs[$attribute]) && isset($wrapperAttrs[$attribute])) $attrs[$attribute] = $wrapperAttrs[$attribute];
         }
-        $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
+        $classes = SourceDom::tokens((string) ($attrs['className'] ?? ''));
         $classes = array_values(array_filter($classes, fn (string $name): bool => ! isset($this->inheritedTextCarriers[$name])));
         $attrs['className'] = SourceDom::mergeClassNames(implode(' ', $classes), $carrier, ...array_map(static fn (DOMElement $node): string => SourceDom::attr($node, 'class'), array_slice($chain, 0, -1)));
         if ('' !== $carrier) $this->inheritedTextCarriers[$carrier] = true;
@@ -944,7 +944,7 @@ final class WrapperCoalescer
 
     private function classListHasExactToken(string $className, string $token): bool
     {
-        foreach ( preg_split('/\s+/', trim($className)) ?: array() as $class ) {
+        foreach ( SourceDom::tokens($className) as $class ) {
             if ( $token === $class ) {
                 return true;
             }

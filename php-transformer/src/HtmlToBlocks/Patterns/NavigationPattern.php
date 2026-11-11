@@ -754,7 +754,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( 1 === preg_match('/breadcrumb/i', SourceDom::attr($element, 'aria-label')) ) {
             return true;
         }
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $token ) {
+        foreach ( SourceDom::tokens(SourceDom::attr($element, 'class')) as $token ) {
             if ( 1 === preg_match('/breadcrumb/i', $token) ) {
                 return true;
             }
@@ -1683,7 +1683,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     /** @param array<string, mixed> $attrs @return array<string, mixed> */
     private function withClassName(array $attrs, string $className): array
     {
-        $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? '') . ' ' . $className)) ?: array();
+        $classes = SourceDom::tokens((string) ($attrs['className'] ?? '') . ' ' . $className);
         $attrs['className'] = implode(' ', array_values(array_unique(array_filter($classes))));
         return $attrs;
     }
@@ -2569,7 +2569,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function defaultNavigationTextColorClass(array $links): string
     {
         $restingColorClass = static function (array $attrs): ?string {
-            foreach ( preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $className ) {
+            foreach ( SourceDom::tokens((string) ($attrs['className'] ?? '')) as $className ) {
                 if ( str_starts_with($className, self::LINK_COLOR_CLASS_PREFIX)
                     && ! str_starts_with($className, self::LINK_COLOR_STATE_CLASS_PREFIX)
                 ) {
@@ -3630,8 +3630,8 @@ final class NavigationPattern implements PatternRecognizerInterface
             $anchorAttrs = $this->withoutAuthoredCurrentNavigationSignals($anchorAttrs);
             $submenuAttrs = $this->withoutAuthoredCurrentNavigationSignals($submenuAttrs);
         }
-        $itemClasses = preg_split('/\s+/', trim((string) ($itemAttrs['className'] ?? ''))) ?: array();
-        $anchorClasses = preg_split('/\s+/', trim((string) ($anchorAttrs['className'] ?? ''))) ?: array();
+        $itemClasses = SourceDom::tokens((string) ($itemAttrs['className'] ?? ''));
+        $anchorClasses = SourceDom::tokens((string) ($anchorAttrs['className'] ?? ''));
         $classes = array_values(array_unique(array_filter(array_merge($itemClasses, $anchorClasses, array($subjectMarker, $navigationContext?->navigationLabelWidthMarker($anchor) ?? '')))));
         if ( ! $item->isSameNode($anchor) && null !== $navigationContext ) {
             $classes = array_values(array_unique(array_merge($classes, $navigationContext->sourcePresentationMarkers($item))));
@@ -3798,7 +3798,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             // (inner or outer) is still excluded, same as today.
             $descendant = $this->soleMeaningfulChild($anchor);
             if ( $descendant instanceof DOMElement && $this->hasElementChild($descendant) ) {
-                foreach ( preg_split('/\s+/', trim(SourceDom::attr($descendant, 'class'))) ?: array() as $candidate ) {
+                foreach ( SourceDom::tokens(SourceDom::attr($descendant, 'class')) as $candidate ) {
                     if ( SourceDom::isBoundedClassToken($candidate) ) {
                         $classes[$candidate] = true;
                     }
@@ -3831,7 +3831,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             if ( 'li' === strtolower($node->tagName) || $this->holdsAnotherLabelledAnchor($node, $anchor) ) {
                 break;
             }
-            foreach ( preg_split('/\s+/', trim(SourceDom::attr($node, 'class'))) ?: array() as $candidate ) {
+            foreach ( SourceDom::tokens(SourceDom::attr($node, 'class')) as $candidate ) {
                 if ( SourceDom::isBoundedClassToken($candidate) ) {
                     $classes[$candidate] = true;
                 }
@@ -3968,7 +3968,7 @@ final class NavigationPattern implements PatternRecognizerInterface
      */
     private function carriedClassNames(string $className): array
     {
-        $classes = preg_split('/\s+/', trim($className)) ?: array();
+        $classes = SourceDom::tokens($className);
 
         return array_values(array_filter($classes, SourceDom::isBoundedClassToken(...)));
     }
@@ -4168,7 +4168,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                         implode(' ', $navigationContext?->sourcePresentationMarkers($list) ?? array())
                     );
                 } else {
-                    $attrs['className'] = implode(' ', array_values(array_unique(array_filter(preg_split('/\s+/', trim((string) ($attrs['className'] ?? '') . ' ' . $listClasses)) ?: array()))));
+                    $attrs['className'] = implode(' ', array_values(array_unique(array_filter(SourceDom::tokens((string) ($attrs['className'] ?? '') . ' ' . $listClasses)))));
                 }
             }
 
@@ -4404,7 +4404,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             return $attrs;
         }
 
-        $classNames = array_values(array_filter(preg_split('/\s+/', trim($attrs['className'])) ?: array(), static function (string $className): bool {
+        $classNames = array_values(array_filter(SourceDom::tokens($attrs['className']), static function (string $className): bool {
             return ! in_array($className, array(
                 'wp-block-navigation',
                 'wp-block-navigation-item',
@@ -4429,7 +4429,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     {
         if ( is_string($attrs['className'] ?? null) ) {
             $classNames = array_values(array_filter(
-                preg_split('/\s+/', trim($attrs['className'])) ?: array(),
+                SourceDom::tokens($attrs['className']),
                 fn (string $className): bool => ! MenuVocabulary::containsCurrentStateToken($className)
             ));
             if ( array() === $classNames ) {

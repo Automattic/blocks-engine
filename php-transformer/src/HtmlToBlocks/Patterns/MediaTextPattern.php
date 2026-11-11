@@ -553,8 +553,8 @@ final class MediaTextPattern implements PatternRecognizerInterface
             return false;
         }
 
-        $sourceClasses = preg_split('/\s+/', trim(SourceDom::attr($textSide, 'class'))) ?: array();
-        foreach ( preg_split('/\s+/', trim($attrs['className'])) ?: array() as $class ) {
+        $sourceClasses = SourceDom::tokens(SourceDom::attr($textSide, 'class'));
+        foreach ( SourceDom::tokens($attrs['className']) as $class ) {
             if ( '' === $class ) {
                 continue;
             }

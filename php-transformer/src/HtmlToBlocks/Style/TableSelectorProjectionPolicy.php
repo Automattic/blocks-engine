@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 /** Identifies table selectors whose source structure changes in core/table markup. */
@@ -41,7 +42,7 @@ final class TableSelectorProjectionPolicy
         }
 
         for ( $node = $element; $node instanceof DOMElement && 'table' !== strtolower($node->tagName); $node = $node->parentNode ) {
-            $nodeClasses = preg_split('/\s+/', trim($node->getAttribute('class'))) ?: array();
+            $nodeClasses = SourceDom::tokens($node->getAttribute('class'));
             if ( array_intersect(array_keys($classes), $nodeClasses) ) {
                 return true;
             }

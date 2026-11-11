@@ -726,7 +726,7 @@ final class FormControlMetadataBuilder
             return array();
         }
         $targets = array();
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($control, 'aria-labelledby'))) ?: array() as $id ) {
+        foreach ( SourceDom::tokens(SourceDom::attr($control, 'aria-labelledby')) as $id ) {
             $target = '' === $id ? null : $document->getElementById($id);
             if ( $target instanceof DOMElement ) {
                 $targets[] = $target;
@@ -1054,7 +1054,7 @@ final class FormControlMetadataBuilder
             return null;
         }
 
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($control, 'aria-controls'))) ?: array() as $id ) {
+        foreach ( SourceDom::tokens(SourceDom::attr($control, 'aria-controls')) as $id ) {
             if ( '' === $id ) {
                 continue;
             }

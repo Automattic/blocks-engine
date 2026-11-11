@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+
 /** Builds an editable, bounded companion block for authored text marquees. */
 final class AuthoredMarqueeBlockGenerator
 {
@@ -104,7 +106,7 @@ JS;
 
     private function safeTokenList(string $value): string
     {
-        $tokens = preg_split('/\s+/', trim($value)) ?: array();
+        $tokens = SourceDom::tokens($value);
         return implode(' ', array_filter($tokens, static fn (string $token): bool => 1 === preg_match('/^[A-Za-z0-9_-]+$/', $token)));
     }
 

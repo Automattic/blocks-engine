@@ -129,7 +129,7 @@ final class ThemeToggleConverter implements ElementConverter
                 'mode' => $mode,
                 'ariaLabel' => $label,
                 'iconSemantic' => $semantic,
-                'className' => implode(' ', array_values(array_unique(array_filter(preg_split('/\s+/', trim(SourceDom::attr($button, 'class') . ' ' . (string) ($presentation['className'] ?? ''))) ?: array())))),
+                'className' => implode(' ', array_values(array_unique(array_filter(SourceDom::tokens(SourceDom::attr($button, 'class') . ' ' . (string) ($presentation['className'] ?? '')))))),
                 'attributes' => $safeAttributes,
                 'style' => is_array($presentation['style'] ?? null) ? $presentation['style'] : array(),
                 'icon' => $icon,

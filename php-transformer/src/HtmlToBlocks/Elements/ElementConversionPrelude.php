@@ -42,7 +42,7 @@ final class ElementConversionPrelude implements ElementConverter
     private function commentAttributes(DOMElement $element): array
     {
         $attrs = $this->styleResolver->presentationAttributes($element);
-        $attrs['className'] = implode(' ', array_unique(array_filter(preg_split('/\s+/', trim($element->getAttribute('class') . ' ' . ($attrs['className'] ?? ''))) ?: array())));
+        $attrs['className'] = implode(' ', array_unique(array_filter(SourceDom::tokens($element->getAttribute('class') . ' ' . ($attrs['className'] ?? '')))));
         return $attrs;
     }
 

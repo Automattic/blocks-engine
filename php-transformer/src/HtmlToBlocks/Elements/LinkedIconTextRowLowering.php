@@ -132,7 +132,7 @@ final class LinkedIconTextRowLowering
         );
         $classes = array();
         foreach ( array( $paragraph, $anchor, $span ) as $sourceElement ) {
-            foreach ( preg_split('/\s+/', trim(SourceDom::attr($sourceElement, 'class'))) ?: array() as $class ) {
+            foreach ( SourceDom::tokens(SourceDom::attr($sourceElement, 'class')) as $class ) {
                 if ( '' !== $class && ! in_array($class, $classes, true) ) {
                     $classes[] = $class;
                 }

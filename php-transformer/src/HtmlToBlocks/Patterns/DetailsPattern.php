@@ -114,7 +114,7 @@ final class DetailsPattern implements PatternRecognizerInterface
         if ('' !== $label) return $label;
 
         $panels = array();
-        foreach (preg_split('/\s+/', trim($summary->getAttribute('aria-controls'))) ?: array() as $id) {
+        foreach (SourceDom::tokens($summary->getAttribute('aria-controls')) as $id) {
             $panel = $summary->ownerDocument?->getElementById($id);
             if ($panel instanceof DOMElement) $panels[] = $panel;
         }
@@ -134,7 +134,7 @@ final class DetailsPattern implements PatternRecognizerInterface
         $label = trim($element->getAttribute('aria-label'));
         if ('' !== $label) return $label;
         $parts = array();
-        foreach (preg_split('/\s+/', trim($element->getAttribute('aria-labelledby'))) ?: array() as $id) {
+        foreach (SourceDom::tokens($element->getAttribute('aria-labelledby')) as $id) {
             $target = $element->ownerDocument?->getElementById($id);
             $text = trim($target?->textContent ?? '');
             if ('' !== $text) $parts[] = $text;

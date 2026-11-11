@@ -1440,7 +1440,7 @@ final class ProjectedNavigationConverter implements ElementConverter
                 }
             }
             if ( ! $matched ) {
-                foreach ( preg_split('/\s+/', trim(SourceDom::attr($toggle, 'class'))) ?: array() as $className ) {
+                foreach ( SourceDom::tokens(SourceDom::attr($toggle, 'class')) as $className ) {
                     if ( '' !== $className && 1 === preg_match('/\.' . preg_quote($className, '/') . '(?:$|[.\s\[:#>+~])/', $selector) ) {
                         $matched = true;
                         break;

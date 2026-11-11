@@ -307,7 +307,7 @@ final class SourceBlockAttributeProjector
                 if ('a' === $sourceTagName) {
                     $itemClasses = array();
                     $sourceClasses = SourceDom::boundedClassTokens($anchor->getAttribute('class'));
-                    foreach (preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $class) {
+                    foreach (SourceDom::tokens((string) ($attrs['className'] ?? '')) as $class) {
                         if (str_starts_with($class, 'blocks-engine-social-source-') && !in_array($class, $sourceClasses, true)) $itemClasses[] = $class;
                         else $classes = SourceDom::mergeClassNames($classes, $class);
                     }
@@ -407,10 +407,10 @@ final class SourceBlockAttributeProjector
         if ( 1 !== preg_match('/^\s*<a\b[^>]*?\sclass="([^"]*)"/i', $content, $match) ) {
             return $projectionClassName;
         }
-        $carried = array_flip(preg_split('/\s+/', trim($match[1])) ?: array());
-        $base = array_flip(preg_split('/\s+/', trim($baseClassName)) ?: array());
+        $carried = array_flip(SourceDom::tokens($match[1]));
+        $base = array_flip(SourceDom::tokens($baseClassName));
         $kept = array_filter(
-            preg_split('/\s+/', trim($projectionClassName)) ?: array(),
+            SourceDom::tokens($projectionClassName),
             static fn (string $class): bool => isset($base[$class]) || ! isset($carried[$class])
         );
         return implode(' ', $kept);

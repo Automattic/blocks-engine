@@ -3800,7 +3800,7 @@ final class ArtifactCompiler
             if ( '' !== $id ) {
                 $selectors['#' . $id] = true;
             }
-            foreach ( preg_split('/\s+/', trim($element->hasAttribute('class') ? $element->getAttribute('class') : '')) ?: array() as $class ) {
+            foreach ( SourceDom::tokens($element->hasAttribute('class') ? $element->getAttribute('class') : '') as $class ) {
                 if ( '' !== $class && ! $this->isBehaviorHookClassName($class) ) {
                     $selectors['.' . $class] = true;
                 }
@@ -3908,7 +3908,7 @@ final class ArtifactCompiler
             if ( '' !== $id ) {
                 $selectors['#' . $id] = true;
             }
-            foreach ( preg_split('/\s+/', trim($canvas->hasAttribute('class') ? $canvas->getAttribute('class') : '')) ?: array() as $class ) {
+            foreach ( SourceDom::tokens($canvas->hasAttribute('class') ? $canvas->getAttribute('class') : '') as $class ) {
                 if ( '' !== $class ) {
                     $selectors['.' . $class] = true;
                     $selectors['canvas.' . $class] = true;
@@ -3944,7 +3944,7 @@ final class ArtifactCompiler
             if ( '' !== $id ) {
                 $selectors['#' . $id] = true;
             }
-            foreach ( preg_split('/\s+/', trim($element->hasAttribute('class') ? $element->getAttribute('class') : '')) ?: array() as $class ) {
+            foreach ( SourceDom::tokens($element->hasAttribute('class') ? $element->getAttribute('class') : '') as $class ) {
                 if ( '' !== $class ) {
                     $selectors['.' . $class] = true;
                 }
@@ -4262,8 +4262,8 @@ final class ArtifactCompiler
                 foreach ($attributes as $name => $value) {
                     if (!array_key_exists($name, $ancestor['attributes'])) { unset($attributes[$name]); continue; }
                     if ('class' === $name) {
-                        $tokens = preg_split('/\s+/', trim($ancestor['attributes'][$name])) ?: array();
-                        $attributes[$name] = implode(' ', array_values(array_intersect(preg_split('/\s+/', trim($value)) ?: array(), $tokens)));
+                        $tokens = SourceDom::tokens($ancestor['attributes'][$name]);
+                        $attributes[$name] = implode(' ', array_values(array_intersect(SourceDom::tokens($value), $tokens)));
                         if ('' === $attributes[$name]) unset($attributes[$name]);
                     } elseif ($ancestor['attributes'][$name] !== $value) {
                         unset($attributes[$name]);
@@ -4299,9 +4299,9 @@ final class ArtifactCompiler
     {
         $counterpartClasses = array();
         foreach ($counterparts as $counterpart) {
-            foreach (preg_split('/\s+/', trim($counterpart->getAttribute('class'))) ?: array() as $class) if ('' !== $class) $counterpartClasses[$class] = true;
+            foreach (SourceDom::tokens($counterpart->getAttribute('class')) as $class) if ('' !== $class) $counterpartClasses[$class] = true;
         }
-        $classes = preg_split('/\s+/', trim($node->getAttribute('class'))) ?: array();
+        $classes = SourceDom::tokens($node->getAttribute('class'));
         if (array() !== $classes && array() !== $counterpartClasses) $node->setAttribute('class', implode(' ', array_values(array_filter($classes, static fn(string $class): bool => isset($counterpartClasses[$class])))));
         $children = array();
         foreach ($node->childNodes as $child) if ($child instanceof \DOMElement) $children[] = $child;
@@ -4342,12 +4342,12 @@ final class ArtifactCompiler
         foreach ($currentNodes as $node) {
             for ($cursor = $node; $cursor instanceof \DOMElement; $cursor = $cursor->parentNode) {
                 if ($cursor->hasAttribute('data-state')) $cursor->setAttribute('data-state', preg_replace('/\bselected\b/', 'false', $cursor->getAttribute('data-state')) ?? $cursor->getAttribute('data-state'));
-                $classes = preg_split('/\s+/', trim($cursor->getAttribute('class'))) ?: array();
+                $classes = SourceDom::tokens($cursor->getAttribute('class'));
                 if (array() !== $classes && $cursor->parentNode instanceof \DOMElement) {
                     $siblingClasses = array();
                     foreach ($cursor->parentNode->childNodes as $sibling) {
                         if (!$sibling instanceof \DOMElement || $sibling === $cursor || $sibling->tagName !== $cursor->tagName) continue;
-                        foreach (preg_split('/\s+/', trim($sibling->getAttribute('class'))) ?: array() as $class) $siblingClasses[$class] = true;
+                        foreach (SourceDom::tokens($sibling->getAttribute('class')) as $class) $siblingClasses[$class] = true;
                     }
                     if (array() !== $siblingClasses) $cursor->setAttribute('class', implode(' ', array_values(array_filter($classes, static fn(string $class): bool => isset($siblingClasses[$class])))));
                 }
@@ -4911,7 +4911,7 @@ final class ArtifactCompiler
         $metadata = array('source_context' => array('source_path' => $sourcePath, 'kind' => 'html'), ...\Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::metadataFromHtml($html, $routeIdentity, $this->routeClasses[$routeIdentity] ?? null), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => $meta, 'links' => $links, 'scripts' => $scripts);
         $metadata = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::withRouteSets($metadata, $this->routeSets);
         if ( array() !== $projectedRootMarkers ) {
-            $rootClasses = array_values(array_filter(preg_split('/\s+/', trim((string) ($metadata['root_attributes']['class'] ?? ''))) ?: array(), static fn(string $class): bool => '' !== $class));
+            $rootClasses = array_values(array_filter(SourceDom::tokens((string) ($metadata['root_attributes']['class'] ?? '')), static fn(string $class): bool => '' !== $class));
             $metadata['root_attributes']['class'] = implode(' ', array_unique(array_merge($rootClasses, $projectedRootMarkers)));
         }
         $comments = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\WordPressComments::entities($html, $sourcePath);

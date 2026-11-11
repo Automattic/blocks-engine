@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use DOMDocument;
 use DOMElement;
@@ -96,7 +97,7 @@ final class NavigationLabelNormalizer
     /** @return list<string> */
     private static function classes(DOMElement $element): array
     {
-        return array_values(array_unique(array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn (string $value): bool => '' !== $value)));
+        return array_values(array_unique(array_filter(SourceDom::tokens($element->getAttribute('class')), static fn (string $value): bool => '' !== $value)));
     }
 
     private static function isPresentationSpan(DOMElement $element): bool

@@ -460,7 +460,7 @@ final class ListingControlsRecognizer
             }
         }
         $document = $control->ownerDocument;
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($control, 'aria-labelledby'))) ?: array() as $id ) {
+        foreach ( SourceDom::tokens(SourceDom::attr($control, 'aria-labelledby')) as $id ) {
             if ( '' === $id ) {
                 continue;
             }

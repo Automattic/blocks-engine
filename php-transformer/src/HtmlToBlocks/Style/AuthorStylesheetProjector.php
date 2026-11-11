@@ -201,7 +201,7 @@ final class AuthorStylesheetProjector
             // Native site plans must retain these selectors: route metadata
             // (including an authoritative empty body) owns their truth there.
             $selectors = CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude);
-            $classes = preg_split('/\s+/', trim($context->authorStyles->sourceBody()->getAttribute('class'))) ?: array();
+            $classes = SourceDom::tokens($context->authorStyles->sourceBody()->getAttribute('class'));
             $selectors = array_filter($selectors, static fn (string $selector): bool =>
                 !preg_match('/^body:not\(\.([A-Za-z0-9_-]+)\)(?=\s|>|\+|~)/', trim($selector), $predicate)
                 || !in_array($predicate[1], $classes, true));
@@ -2722,7 +2722,7 @@ final class AuthorStylesheetProjector
                 $pattern = '/#' . preg_quote($id, '/') . '(?![\w-])/';
                 $specificityShim = ':not(#' . $context->authorStyles->idSpecificityShim() . ')';
             } else {
-                foreach ( preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $className ) {
+                foreach ( SourceDom::tokens($element->getAttribute('class')) as $className ) {
                     if ( '' !== $className && 1 === preg_match('/' . CssIdent::classSelectorRegex($className) . '(?![\w-])/', $selector) ) {
                         $pattern = '/' . CssIdent::classSelectorRegex($className) . '(?![\w-])/';
                         $specificityShim = ':not(.' . $context->authorStyles->classSpecificityShim() . ')';

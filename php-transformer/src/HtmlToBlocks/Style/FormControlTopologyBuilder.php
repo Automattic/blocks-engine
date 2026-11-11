@@ -282,7 +282,7 @@ final class FormControlTopologyBuilder
 
         $classes = array();
         $classAttribute = $element->hasAttribute('class') ? $element->getAttribute('class') : '';
-        foreach ( preg_split('/\s+/', trim($classAttribute)) ?: array() as $class ) {
+        foreach ( SourceDom::tokens($classAttribute) as $class ) {
             if ( count($classes) >= self::MAX_CLASSES ) break;
             if ( 1 === preg_match('/^[A-Za-z_][A-Za-z0-9_-]{0,79}$/D', $class) ) $classes[] = $class;
         }
@@ -336,7 +336,7 @@ final class FormControlTopologyBuilder
     {
         $parts = array();
         $document = $element->ownerDocument;
-        foreach ( preg_split('/\s+/', trim($element->getAttribute('aria-labelledby'))) ?: array() as $id ) {
+        foreach ( SourceDom::tokens($element->getAttribute('aria-labelledby')) as $id ) {
             $target = '' !== $id && $document instanceof \DOMDocument ? $document->getElementById($id) : null;
             if ( $target instanceof DOMElement ) {
                 $parts[] = $target->textContent ?? '';

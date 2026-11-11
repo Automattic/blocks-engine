@@ -509,7 +509,7 @@ final class ImageDimensionResolver
 
     private function isZeroLength(string $value): bool
     {
-        foreach ( preg_split('/\s+/', trim($value)) ?: array() as $token ) {
+        foreach ( SourceDom::tokens($value) as $token ) {
             if ( '' !== $token && 1 !== preg_match('/^[+-]?0*(?:\.0+)?(?:[a-z]+|%)?$/', $token) ) {
                 return false;
             }

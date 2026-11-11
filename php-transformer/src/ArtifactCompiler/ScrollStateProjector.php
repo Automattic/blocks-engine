@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use DOMDocument;
 use DOMElement;
@@ -359,7 +360,7 @@ final class ScrollStateProjector
      */
     private function isResponsiveDocumentWrapper(DOMElement $element, array $documentScopeClasses): bool
     {
-        foreach (preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $class) {
+        foreach (SourceDom::tokens($element->getAttribute('class')) as $class) {
             if (str_starts_with($class, ResponsiveDocumentVariants::DOCUMENT_VARIANT_CLASS_PREFIX) || in_array($class, $documentScopeClasses, true)) {
                 return true;
             }

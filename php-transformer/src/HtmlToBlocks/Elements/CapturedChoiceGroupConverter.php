@@ -324,7 +324,7 @@ final class CapturedChoiceGroupConverter implements ElementConverter
     private function withoutStateClassTokens(array $blocks, array $tokens): array
     {
         $strip = static function (string $classes) use ($tokens): string {
-            $kept = array_filter(preg_split('/\s+/', trim($classes)) ?: array(), static fn (string $token): bool => '' !== $token && ! in_array($token, $tokens, true));
+            $kept = array_filter(SourceDom::tokens($classes), static fn (string $token): bool => '' !== $token && ! in_array($token, $tokens, true));
             return implode(' ', $kept);
         };
         $markup = static fn (string $html): string => (string) preg_replace_callback(

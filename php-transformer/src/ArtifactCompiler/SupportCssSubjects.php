@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use DOMDocument;
@@ -26,7 +27,7 @@ final class SupportCssSubjects
         $document = new DOMDocument();
         @$document->loadHTML('<?xml encoding="UTF-8"><html><body>' . $markup . '</body></html>');
         foreach ($document->getElementsByTagName('*') as $element) {
-            foreach (preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $class) $this->classes[$class] = true;
+            foreach (SourceDom::tokens($element->getAttribute('class')) as $class) $this->classes[$class] = true;
             if ($element->hasAttribute('id')) $this->ids[$element->getAttribute('id')] = true;
             foreach ($element->attributes as $attribute) $this->attributes[strtolower($attribute->name)] = true;
         }

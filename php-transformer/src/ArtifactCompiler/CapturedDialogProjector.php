@@ -365,7 +365,7 @@ final class CapturedDialogProjector
             // open content, and the popover dialog now owns its binding.
             $panel->removeAttribute('hidden');
             foreach (array(CaptureEvidence::DIALOG_PANEL, CaptureEvidence::EXISTING_PANEL) as $attribute) $panel->removeAttribute($attribute);
-            $classes = array_diff(preg_split('/\s+/', trim($panel->getAttribute('class'))) ?: array(), array(CaptureEvidence::DROPDOWN_CLASS, CaptureEvidence::DIALOG_CLASS));
+            $classes = array_diff(SourceDom::tokens($panel->getAttribute('class')), array(CaptureEvidence::DROPDOWN_CLASS, CaptureEvidence::DIALOG_CLASS));
             if (array() === array_filter($classes)) $panel->removeAttribute('class'); else $panel->setAttribute('class', implode(' ', $classes));
             foreach ($triggers as $trigger) {
                 foreach (array(CaptureEvidence::DIALOG_TRIGGER, CaptureEvidence::DIALOG_PANEL_STATE, CaptureEvidence::DIALOG_ANCESTOR_STATE, CaptureEvidence::DISCLOSURE_LABEL) as $attribute) $trigger->removeAttribute($attribute);
@@ -680,7 +680,7 @@ final class CapturedDialogProjector
     {
         $html = preg_replace('/(<a\b[^>]*?)\s+aria-current\s*=\s*(["\'])page\2/i', '$1', $html) ?? $html;
         return preg_replace_callback('/\bclass\s*=\s*(["\'])(.*?)\1/s', static function (array $match): string {
-            $classes = preg_split('/\s+/', trim($match[2])) ?: array();
+            $classes = SourceDom::tokens($match[2]);
             $classes = array_values(array_filter($classes, static fn(string $class): bool => !preg_match('/^blocks-engine-(?:current-navigation-(?:item|underline)|navigation-current-color-[a-f0-9]{64})$/', $class)));
             return 'class=' . $match[1] . implode(' ', $classes) . $match[1];
         }, $html) ?? $html;
@@ -1367,7 +1367,7 @@ final class CapturedDialogProjector
         $bound = array();
         foreach ((new DOMXPath($document))->query('//*[@data-blocks-engine-captured-dialog="true"]') ?: array() as $dialog) {
             if (!$dialog instanceof DOMElement) continue;
-            foreach (preg_split('/\s+/', trim($dialog->getAttribute('data-blocks-engine-triggers'))) ?: array() as $id) {
+            foreach (SourceDom::tokens($dialog->getAttribute('data-blocks-engine-triggers')) as $id) {
                 if ('' !== $id) $bound[$id] = true;
             }
         }

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
@@ -178,7 +179,7 @@ final class ResponsiveCorrespondence
     private function tokenClasses(string $className): array
     {
         $tokens = array();
-        foreach (preg_split('/\s+/', trim($className)) ?: array() as $class) {
+        foreach (SourceDom::tokens($className) as $class) {
             if (preg_match('/^(?:' . preg_quote(self::TOKEN_CLASS_PREFIX, '/') . '|' . preg_quote(CaptureEvidence::RESPONSIVE_COUNTERPART_CLASS_PREFIX, '/') . ')[a-f0-9]{12}$/', (string) $class)) {
                 $tokens[] = (string) $class;
             }
@@ -188,7 +189,7 @@ final class ResponsiveCorrespondence
 
     private function variantClassContext(string $className): ?string
     {
-        foreach (preg_split('/\s+/', trim($className)) ?: array() as $class) {
+        foreach (SourceDom::tokens($className) as $class) {
             if (CaptureEvidence::DESKTOP_DOCUMENT_CLASS === $class) {
                 return 'default';
             }

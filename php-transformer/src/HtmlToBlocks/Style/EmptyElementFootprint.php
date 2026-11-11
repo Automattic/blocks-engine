@@ -166,7 +166,7 @@ final class EmptyElementFootprint
             return true;
         }
         $flex = $this->styleResolver->resolveCssVariablesInValue((string) ($declarations['flex'] ?? ''), $element);
-        $parts = preg_split('/\s+/', trim($flex)) ?: array();
+        $parts = SourceDom::tokens($flex);
         $basis = (string) (count($parts) >= 3 ? $parts[2] : (count($parts) === 2 && ! is_numeric($parts[1]) ? $parts[1] : ($parts[0] ?? '')));
         return 'auto' === $flex
             || (isset($parts[0]) && is_numeric($parts[0]) && 0 < (float) $parts[0])
@@ -282,7 +282,7 @@ final class EmptyElementFootprint
         $nodes = array_merge(array( $element ), SourceDom::descendantElements($element));
         $classes = array();
         foreach ( $nodes as $node ) {
-            foreach ( preg_split('/\s+/', trim(SourceDom::attr($node, 'class'))) ?: array() as $class ) {
+            foreach ( SourceDom::tokens(SourceDom::attr($node, 'class')) as $class ) {
                 if ( '' !== $class ) {
                     $classes[$class] = true;
                 }

@@ -48,7 +48,7 @@ final class FormControlClassifier
         $xpath = new \DOMXPath($element->ownerDocument);
         foreach ( $xpath->query('//*[@aria-labelledby]') ?: array() as $labelled ) {
             if ( $labelled instanceof DOMElement && $labelled !== $element
-                && in_array($id, preg_split('/\s+/', trim($labelled->getAttribute('aria-labelledby'))) ?: array(), true) ) {
+                && in_array($id, SourceDom::tokens($labelled->getAttribute('aria-labelledby')), true) ) {
                 return true;
             }
         }

@@ -241,7 +241,7 @@ final class AccordionPattern implements PatternRecognizerInterface
     /** The panel's source classes with closed-only classes swapped for the recorded open-state list. */
     private function openClassList(DOMElement $panel): string
     {
-        $tokens = static fn (string $value): array => array_values(array_filter(preg_split('/\s+/', trim($value)) ?: array(), static fn (string $t): bool => '' !== $t));
+        $tokens = static fn (string $value): array => array_values(array_filter(SourceDom::tokens($value), static fn (string $t): bool => '' !== $t));
         $open = $tokens($panel->getAttribute(CaptureEvidence::DISCLOSURE_OPEN_PREFIX . 'class'));
         $closed = $tokens($panel->getAttribute(CaptureEvidence::DISCLOSURE_CLOSED_PREFIX . 'class'));
         $closedOnly = array_diff($closed, $open);
