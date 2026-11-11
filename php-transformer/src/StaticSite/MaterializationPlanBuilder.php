@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 
 final class MaterializationPlanBuilder
 {
@@ -510,7 +511,7 @@ final class MaterializationPlanBuilder
                 continue;
             }
             foreach ( $anchorMatches as $anchorMatch ) {
-                $href = $this->attributeValue((string) $anchorMatch[1], 'href');
+                $href = HtmlSerialization::tagAttribute((string) $anchorMatch[1], 'href');
                 $label = trim(html_entity_decode(strip_tags((string) $anchorMatch[2]), ENT_QUOTES | ENT_HTML5));
                 if ( '' === $href || '' === $label ) {
                     continue;
@@ -555,19 +556,6 @@ final class MaterializationPlanBuilder
         }
 
         return $links;
-    }
-
-    private function attributeValue(string $attributes, string $name): string
-    {
-        if ( preg_match('/(?:^|\s)' . preg_quote($name, '/') . '\s*=\s*(["\'])(.*?)\1/is', $attributes, $match) ) {
-            return html_entity_decode((string) $match[2], ENT_QUOTES | ENT_HTML5);
-        }
-
-        if ( preg_match('/(?:^|\s)' . preg_quote($name, '/') . '\s*=\s*([^\s"\'>]+)/is', $attributes, $match) ) {
-            return html_entity_decode((string) $match[1], ENT_QUOTES | ENT_HTML5);
-        }
-
-        return '';
     }
 
     private function slugFromHref(string $href): string
