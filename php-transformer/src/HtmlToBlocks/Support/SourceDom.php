@@ -701,11 +701,21 @@ final class SourceDom
         return '';
     }
 
-    public static function associatedLabel(DOMElement $control): ?DOMElement
+    /** Explicit labels take precedence; callers may opt into wrapping labels. */
+    public static function associatedLabel(DOMElement $control, bool $includeImplicit = false): ?DOMElement
     {
+        $implicit = null;
+        if ( $includeImplicit ) {
+            for ( $parent = $control->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+                if ( 'label' === strtolower($parent->tagName) ) {
+                    $implicit = $parent;
+                    break;
+                }
+            }
+        }
         $id = self::attr($control, 'id');
         if ( '' === $id || ! $control->ownerDocument instanceof DOMDocument ) {
-            return null;
+            return $implicit;
         }
 
         $scope = self::documentVariantRoot($control);
@@ -721,7 +731,7 @@ final class SourceDom
             $fallback ??= $label;
         }
 
-        return $fallback;
+        return $fallback ?? $implicit;
     }
 
     public static function elementSelector(DOMElement $element): string
