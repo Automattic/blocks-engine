@@ -267,4 +267,15 @@ final class EmptyVisualRetentionPolicy implements EmptyVisualRetention
             || $this->shouldPreserveEmptyVisualElement($sourceInline)
             || $this->hasStaticPseudoElementRule($sourceInline);
     }
+
+    public function hasEmptyVisualInlineChild(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && $this->sourceElementClassifier->isInlineContentElement(strtolower($child->tagName)) && $this->shouldPreserveEmptyVisualElement($child) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }

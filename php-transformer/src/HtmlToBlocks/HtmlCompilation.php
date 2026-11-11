@@ -1195,7 +1195,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     {
         return new RichTextElementContext(
             fn (DOMElement $element): ?array => $this->authoredMarqueeRecognizer->authoredMarqueeBlock($element),
-            fn (DOMElement $element): bool => $this->hasEmptyVisualInlineChild($element),
+            fn (DOMElement $element): bool => $this->emptyVisualRetention->hasEmptyVisualInlineChild($element),
             $this->authorLayoutOwnership->hasBoxChromeWrapperStyling(...),
             $this->runtimeIslands,
             fn (DOMElement $element): ?array => $this->paragraphImages->unwrappedParagraphImageBlock($element),
@@ -1755,7 +1755,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             if ( ! $child instanceof DOMElement ) {
                 continue;
             }
-            if ( 'br' === strtolower($child->tagName) && null !== $lineIndex && $this->breakEndsInlineLine($child) ) {
+            if ( 'br' === strtolower($child->tagName) && null !== $lineIndex && $this->styleResolver->breakEndsInlineLine($child) ) {
                 $blocks[$lineIndex] = self::endLine($blocks[$lineIndex]);
                 continue;
             }
@@ -1863,14 +1863,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $paragraph['attrs']['content'] .= '<br>';
         }
         return $paragraph;
-    }
-
-    /** A `<br>` breaks a line only in flow: a flex or grid parent blockifies each run into its own item. */
-    private function breakEndsInlineLine(DOMElement $break): bool
-    {
-        $parent = $break->parentNode;
-        $display = $parent instanceof DOMElement ? strtolower($this->styleResolver->resolvedPresentationDeclarations($parent)['display'] ?? 'block') : 'block';
-        return ! in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */
@@ -2417,7 +2409,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $children = $this->positionedInlineCarrierChildren($element, $fallbacks);
             return array() === $children
                 ? null
-                : $this->createBlock('core/group', $this->positionedInlineCarrierAttributes($element), $children, $element);
+                : $this->createBlock('core/group', $this->styleResolver->positionedInlineCarrierAttributes($element), $children, $element);
         }
 
         $content = $this->richTextMaterializer->content($element);
@@ -2425,7 +2417,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return null;
         }
 
-        return $this->createBlock('core/group', $this->positionedInlineCarrierAttributes($element), array(
+        return $this->createBlock('core/group', $this->styleResolver->positionedInlineCarrierAttributes($element), array(
             $this->createBlock('core/paragraph', array(
                 'content' => $content,
                 'className' => self::SYNTHETIC_PARAGRAPH_CLASS,
@@ -2462,16 +2454,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         return $blocks;
-    }
-
-    /** @return array<string, mixed> */
-    private function positionedInlineCarrierAttributes(DOMElement $element): array
-    {
-        return $this->styleResolver->presentationAttributes($element, array(), array(
-            'position', 'z-index', 'inset', 'inset-block', 'inset-inline',
-            'inset-block-start', 'inset-block-end', 'inset-inline-start',
-            'inset-inline-end', 'top', 'right', 'bottom', 'left',
-        ));
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */
@@ -2696,17 +2678,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return false;
     }
 
-    private function hasEmptyVisualInlineChild(DOMElement $element): bool
-    {
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && $this->sourceElementClassifier->isInlineContentElement(strtolower($child->tagName)) && $this->shouldPreserveEmptyVisualElement($child) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     /**
      * Lower a foreignObject-only "fit text" SVG to the native text block its
      * inner element renders as (`<svg viewBox="..."><foreignObject width="100%"
@@ -2755,11 +2726,11 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return null;
         }
 
-        if ( $this->hasAuthorSemanticMarkedChild($element) || $this->hasRichTextMarkedDescendant($element) ) {
+        if ( $this->session->authorSelectorProjectionState()->hasSemanticMarkedChild($element) || $this->hasRichTextMarkedDescendant($element) ) {
             return null;
         }
 
-        if ( $this->hasEmptyVisualInlineChild($element) ) {
+        if ( $this->emptyVisualRetention->hasEmptyVisualInlineChild($element) ) {
             $fallbacks = array();
             $children = $this->convertChildren($element, $fallbacks, true);
             if ( array() !== $children ) {
@@ -2894,7 +2865,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return null;
         }
 
-        if ( $this->hasEmptyVisualInlineChild($element) ) {
+        if ( $this->emptyVisualRetention->hasEmptyVisualInlineChild($element) ) {
             $fallbacks = array();
             $children = $this->convertChildren($element, $fallbacks, true);
             if ( array() !== $children ) {
@@ -2963,24 +2934,13 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             if ('' !== trim(SourceDom::attr($child, 'id'))) ++$addressable;
         }
         if ($addressable < 2) return null;
-        if ($this->authorLayoutOwnership->isAuthorOwnedLayout($element) || $this->hasEmptyVisualInlineChild($element)) return null;
+        if ($this->authorLayoutOwnership->isAuthorOwnedLayout($element) || $this->emptyVisualRetention->hasEmptyVisualInlineChild($element)) return null;
 
         $content = $this->richTextMaterializer->content($element);
         if ('' === trim($this->runtime->stripAllTags($content)) || $this->richTextMaterializer->requiresHtmlFallback($content)) return null;
 
         $paragraph = $this->createBlock('core/paragraph', array('className' => self::INLINE_LAYOUT_CARRIER_CLASS, 'content' => $content));
         return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), array($paragraph), $element);
-    }
-
-    private function hasAuthorSemanticMarkedChild(DOMElement $element): bool
-    {
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && $this->session->authorSelectorProjectionState()->hasSemanticMarker($child) ) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private function hasRichTextMarkedDescendant(DOMElement $element): bool
