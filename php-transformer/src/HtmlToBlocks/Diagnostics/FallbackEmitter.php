@@ -659,6 +659,12 @@ final class FallbackEmitter
             'required_scripts'    => array(),
         ), $metadata), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value));
 
+        // Identical forms may share a styling selector and markup; their source
+        // positions must stay distinct when runtime records are deduplicated.
+        if ( 'choice_submission' === ($island['form_intent'] ?? null) ) {
+            $island['selector'] = $island['context']['selector'];
+        }
+
         $runtimeDom->recordIsland(
             $island,
             $element->ownerDocument instanceof DOMDocument ? spl_object_id($element->ownerDocument) : 0,
