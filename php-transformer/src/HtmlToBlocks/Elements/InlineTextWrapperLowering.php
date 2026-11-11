@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
@@ -248,5 +249,62 @@ final class InlineTextWrapperLowering
         }
 
         return false;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    public function positionedInlineCarrierBlock(DOMElement $element, array &$fallbacks): ?array
+    {
+        if ( $this->authorLayoutOwnership->positionedCarrierHasStructuredContent($element) ) {
+            $children = $this->positionedInlineCarrierChildren($element, $fallbacks);
+            return array() === $children
+                ? null
+                : $this->blocks->createBlock('core/group', $this->styleResolver->positionedInlineCarrierAttributes($element), $children, $element);
+        }
+
+        $content = $this->richTextMaterializer->content($element);
+        if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+            return null;
+        }
+
+        return $this->blocks->createBlock('core/group', $this->styleResolver->positionedInlineCarrierAttributes($element), array(
+            $this->blocks->createBlock('core/paragraph', array(
+                'content' => $content,
+                'className' => SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS,
+            )),
+        ), $element);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<int, array<string, mixed>>
+     */
+    private function positionedInlineCarrierChildren(DOMElement $element, array &$fallbacks): array
+    {
+        $blocks = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                $text = trim($child->textContent ?? '');
+                if ( '' !== $text ) {
+                    $blocks = array_merge($blocks, $this->tree->text($text));
+                }
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            if ( FormControlClassifier::isControlElement($child) ) {
+                $blocks[] = $this->blocks->htmlPreservationBlock($child);
+                continue;
+            }
+            $block = $this->tree->element($child, $fallbacks, true);
+            if ( null !== $block ) {
+                $blocks[] = $block;
+            }
+        }
+
+        return $blocks;
     }
 }
