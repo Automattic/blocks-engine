@@ -1372,27 +1372,7 @@ final class CapturedDialogProjector
      */
     private function findTriggers(DOMDocument $document, array $trigger): array
     {
-        $scopes = $this->documentScopes($document);
-        if (count($scopes) > self::MAX_STATES_PER_PAGE) {
-            return array('status' => 'ambiguous', 'elements' => array());
-        }
-        $elements = array();
-        foreach ($scopes as $scope) {
-            $matched = $this->matchInScope($scope, $trigger);
-            if (count($matched) > 1) {
-                return array('status' => 'ambiguous', 'elements' => array());
-            }
-            if (1 === count($matched)) {
-                $elements[] = $matched[0];
-            }
-        }
-        if (count($elements) > self::MAX_STATES_PER_PAGE) {
-            return array('status' => 'ambiguous', 'elements' => array());
-        }
-        if (array() === $elements) {
-            return array('status' => 'unmatched', 'elements' => array());
-        }
-        return array('status' => 'matched', 'elements' => $elements);
+        return $this->uniqueScopeMatches($document, fn(DOMElement $scope): array => $this->matchInScope($scope, $trigger), self::MAX_STATES_PER_PAGE);
     }
 
     /**
