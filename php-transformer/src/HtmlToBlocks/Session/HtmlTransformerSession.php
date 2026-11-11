@@ -41,6 +41,9 @@ final class HtmlTransformerSession
     private bool $preserveShellLandmarks = false;
     private bool $fallbackReductionMode = false;
     private string $sourcePath = '';
+    private string $sourceRootTheme = '';
+    /** @var list<string> */
+    private array $declaredDocumentHosts = array();
     /** @var \SplObjectStorage<DOMElement, string>|null Captured `data-blocks-engine-capture-glyph-color` values keyed by glyph element. */
     private ?\SplObjectStorage $capturedGlyphColors = null;
     private readonly PresentationResolutionCache $presentationResolutionCache;
@@ -226,6 +229,29 @@ final class HtmlTransformerSession
     public function sourcePath(): string
     {
         return $this->sourcePath;
+    }
+
+    /**
+     * Facts the source document declares outside its body.
+     *
+     * @param string $rootTheme Theme class (`dark` or `light`) on the source `<html>`, or empty.
+     * @param list<string> $declaredHosts Hosts the source document declares as its own.
+     */
+    public function installSourceDocument(string $rootTheme, array $declaredHosts): void
+    {
+        $this->sourceRootTheme = $rootTheme;
+        $this->declaredDocumentHosts = $declaredHosts;
+    }
+
+    public function sourceRootTheme(): string
+    {
+        return $this->sourceRootTheme;
+    }
+
+    /** @return list<string> */
+    public function declaredDocumentHosts(): array
+    {
+        return $this->declaredDocumentHosts;
     }
 
     /** @param \SplObjectStorage<DOMElement, string> $colors */
