@@ -6,14 +6,13 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlLabel;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
-use Closure;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use DOMElement;
 
-/** Replaces plain sign-in forms with destination-owned WordPress authentication. */
+/** Replaces plain credential forms with destination-owned WordPress authentication. */
 final class LoginBlockConverter
 {
-    /** @param Closure(DOMElement): array<string, mixed> $createLoginBlock */
-    public function __construct(private readonly Closure $createLoginBlock)
+    public function __construct(private readonly SourceBlockCreator $createBlock)
     {
     }
 
@@ -27,11 +26,14 @@ final class LoginBlockConverter
         }
 
         $passwords = 0;
+        $confirmations = 0;
+        $identityOnly = true;
+        $registrationText = '';
         $usernames = 0;
         $checkboxes = 0;
+        $terms = false;
         $submits = 0;
-        // Count raw controls, not the authored inventory: even a hidden-by-CSS
-        // or autocomplete="new-password" confirmation field must decline lowering.
+        // Count raw controls, including hidden-by-CSS and new-password fields.
         foreach ( $form->getElementsByTagName('*') as $control ) {
             if ( ! $control instanceof DOMElement || ! FormControlClassifier::isControlElement($control) ) {
                 continue;
@@ -46,22 +48,25 @@ final class LoginBlockConverter
                     continue;
                 }
                 if ( 'password' === $type ) {
-                    ++$passwords;
+                    if ( preg_match('/confirm|repeat|retype/i', $this->controlSignal($control)) ) {
+                        ++$confirmations;
+                    } else {
+                        ++$passwords;
+                    }
                     continue;
                 }
                 if ( in_array($type, array( 'text', 'email' ), true) ) {
+                    $identityOnly = $identityOnly && ('email' === $type || 1 === preg_match('/\b(?:name|first[ _-]*name|last[ _-]*name|full[ _-]*name|display[ _-]*name|user[ _-]*name|user[ _-]*login|email|e-mail|log|login)\b/i', $this->controlSignal($control)));
                     ++$usernames;
                     continue;
                 }
                 if ( 'checkbox' === $type ) {
-                    $label = FormControlLabel::element($control);
-                    $signal = implode(' ', array(
-                        SourceDom::attr($control, 'name'),
-                        SourceDom::attr($control, 'id'),
-                        SourceDom::attr($control, 'aria-label'),
-                        $label?->textContent ?? '',
-                    ));
+                    $signal = $this->controlSignal($control);
                     if ( ! preg_match('/\b(?:remember(?:[ _-]*me)?|keep[ _-]*me[ _-]*(?:signed|logged)[ _-]*in)\b/i', $signal) ) {
+                        if ( preg_match('/\bterms\b/i', $signal) ) {
+                            $terms = true;
+                            continue;
+                        }
                         return null;
                     }
                     ++$checkboxes;
@@ -69,15 +74,9 @@ final class LoginBlockConverter
                 }
             }
             if ( in_array($tag, array( 'input', 'button' ), true) && 'submit' === $type ) {
-                $signal = implode(' ', array(
-                    $control->textContent ?? '',
-                    SourceDom::attr($control, 'value'),
-                    SourceDom::attr($control, 'name'),
-                    SourceDom::attr($control, 'aria-label'),
-                    SourceDom::attr($control, 'title'),
-                ));
-                if ( preg_match('/\b(?:register|registration|sign[\s_-]*up|create[\s_-]*(?:an?[\s_-]*)?account)\b/i', $signal) ) {
-                    return null;
+                $text = trim('input' === $tag ? SourceDom::attr($control, 'value') : ($control->textContent ?? ''));
+                if ( preg_match('/\b(?:register|registration|sign[\s_-]*up|create[\s_-]*(?:an?[\s_-]*)?account)\b/i', $text) ) {
+                    $registrationText = $text;
                 }
                 ++$submits;
                 continue;
@@ -85,12 +84,34 @@ final class LoginBlockConverter
             return null;
         }
 
-        if ( 1 !== $passwords || 1 !== $usernames || 1 < $checkboxes || 1 !== $submits ) {
+        $registration = '' !== $registrationText;
+        if ( 1 !== $passwords || 1 > $usernames || 1 < $checkboxes || 1 !== $submits
+            || ($registration ? (! $identityOnly || 1 < $confirmations) : (1 !== $usernames || 0 !== $confirmations || $terms)) ) {
             return null;
         }
 
         // Source endpoints, field names, captured state and redirects are not
         // portable authentication contracts. WordPress supplies all of them.
-        return ($this->createLoginBlock)($form);
+        $login = $this->createBlock->createBlock('core/loginout', array( 'displayLoginAsForm' => true ), array(), $form);
+        if ( ! $registration ) {
+            return $login;
+        }
+
+        $button = $this->createBlock->createBlock('core/button', array(
+            'text' => $registrationText,
+            'url' => '/wp-login.php?action=register',
+        ));
+        $buttons = $this->createBlock->createBlock('core/buttons', array(), array( $button ));
+        return $this->createBlock->createBlock('core/group', array(), array( $login, $buttons ), $form);
+    }
+
+    private function controlSignal(DOMElement $control): string
+    {
+        return implode(' ', array(
+            SourceDom::attr($control, 'name'),
+            SourceDom::attr($control, 'id'),
+            SourceDom::attr($control, 'aria-label'),
+            FormControlLabel::element($control)?->textContent ?? '',
+        ));
     }
 }

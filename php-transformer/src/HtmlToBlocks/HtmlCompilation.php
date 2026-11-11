@@ -730,9 +730,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $pseudoFormAnalyzer
         );
         $searchBlockConverter = new SearchBlockConverter($this->styleResolver, $this->session, $this, $this->svgMaterializer, $this->runtimeIslands, $this->createSearchBlockConversionContext(), $formControlMetadataBuilder, $pseudoFormAnalyzer);
-        $loginBlockConverter = new LoginBlockConverter(
-            fn (DOMElement $element): array => $this->createBlock('core/loginout', array( 'displayLoginAsForm' => true ), array(), $element)
-        );
+        $loginBlockConverter = new LoginBlockConverter($this);
         $formDispatcher = new FormDispatcher(new FormDispatchContext(
             $loginBlockConverter->loginBlockFromForm(...),
             $searchBlockConverter->searchBlockFromForm(...),
