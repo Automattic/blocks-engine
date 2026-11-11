@@ -369,12 +369,12 @@ final class AuthorStylesheetProjector
         $hasNestedRules = array_filter($parts, static fn (array $part): bool => isset($part['prelude']));
         $hasButtonSubjects = (bool) preg_match('/(?:^|[;{])\s*(?:align-self|justify-self|place-self)\s*:/i', $body)
             && array() !== $this->buttonDeclarationRouting->buttonSizeSubjects($prelude, $context);
-        $hasMargins = $hasNestedRules && array_filter(
-            $this->styleResolver->verbatimCssDeclarations($body),
-            static fn (string $name): bool => 'margin' === $name || str_starts_with($name, 'margin-') || ($hasButtonSubjects && in_array($name, array('align-self', 'justify-self', 'place-self'), true)),
-            ARRAY_FILTER_USE_KEY
-        );
-        if ( $hasMargins ) {
+        // Body projection and button declaration routing read a flat
+        // declaration list split at `;`. A nested rule's own `;` would cut its
+        // block mid-way (e.g. lifting `transform` out of it onto a wrapper
+        // rule) and leave stray `}` that truncate the stylesheet for every
+        // later reader. Project each declaration run and nested rule apart.
+        if ( $hasNestedRules ) {
             $css = '';
             foreach ( $parts as $part ) {
                 if ( isset($part['declarations']) ) {
