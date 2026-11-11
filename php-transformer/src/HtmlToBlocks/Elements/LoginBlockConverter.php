@@ -33,6 +33,7 @@ final class LoginBlockConverter
         $checkboxes = 0;
         $terms = false;
         $submits = 0;
+        $secondaryButtons = array();
         // Count raw controls, including hidden-by-CSS and new-password fields.
         foreach ( $form->getElementsByTagName('*') as $control ) {
             if ( ! $control instanceof DOMElement || ! FormControlClassifier::isControlElement($control) ) {
@@ -81,6 +82,10 @@ final class LoginBlockConverter
                 ++$submits;
                 continue;
             }
+            if ( 'button' === $tag && 'button' === $type ) {
+                $secondaryButtons[] = $control;
+                continue;
+            }
             return null;
         }
 
@@ -92,17 +97,28 @@ final class LoginBlockConverter
 
         // Source endpoints, field names, captured state and redirects are not
         // portable authentication contracts. WordPress supplies all of them.
-        $login = $this->createBlock->createBlock('core/loginout', array( 'displayLoginAsForm' => true ), array(), $form);
-        if ( ! $registration ) {
-            return $login;
+        $blocks = array( $this->createBlock->createBlock('core/loginout', array( 'displayLoginAsForm' => true ), array(), $form) );
+        if ( $registration ) {
+            $blocks[] = $this->buttons($registrationText, '/wp-login.php?action=register');
         }
+        // Handler-free secondary controls (for example, guest access) stay
+        // editable buttons after the form. Interleaved prose such as "Or" is
+        // not carried over.
+        foreach ( $secondaryButtons as $control ) {
+            $text = trim(preg_replace('/\s+/', ' ', $control->textContent ?? '') ?? '');
+            if ( '' === $text ) {
+                return null;
+            }
+            $blocks[] = $this->buttons($text);
+        }
+        return 1 === count($blocks) ? $blocks[0] : $this->createBlock->createBlock('core/group', array(), $blocks, $form);
+    }
 
-        $button = $this->createBlock->createBlock('core/button', array(
-            'text' => $registrationText,
-            'url' => '/wp-login.php?action=register',
-        ));
-        $buttons = $this->createBlock->createBlock('core/buttons', array(), array( $button ));
-        return $this->createBlock->createBlock('core/group', array(), array( $login, $buttons ), $form);
+    /** @return array<string, mixed> */
+    private function buttons(string $text, ?string $url = null): array
+    {
+        $button = $this->createBlock->createBlock('core/button', array_filter(array( 'text' => $text, 'url' => $url ), static fn ($value): bool => null !== $value));
+        return $this->createBlock->createBlock('core/buttons', array(), array( $button ));
     }
 
     private function controlSignal(DOMElement $control): string
