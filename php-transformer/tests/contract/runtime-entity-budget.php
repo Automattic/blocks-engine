@@ -45,7 +45,7 @@ $entities = static function (array $plan, array $declaration): array {
 // take the same record-manifest fallback forms already had.
 $grid = '';
 for ($item = 0; $item < 4; ++$item) $grid .= $card('Item ' . $item, (10 + $item) . '.00', 'data:image/png;base64,' . str_repeat(chr(65 + $item), 350000));
-$files = array('index.html' => '<main><h1>Shop</h1><div class="grid">' . $grid . '</div></main>');
+$files = array('index.html' => '<a href="/cart/">Cart</a><main><h1>Shop</h1><div class="grid">' . $grid . '</div></main>');
 $catalog = $compile($files);
 $catalogPlan = $catalog['source_reports']['wordpress_site_plan'] ?? null;
 $assert('failed' !== $catalog['status'] && is_array($catalogPlan), 'A product collection over one inline payload no longer fails the site: ' . json_encode(array_column($findings($catalog['diagnostics'], 'wordpress_site_plan_not_self_contained'), 'message')));
@@ -61,7 +61,7 @@ WordPressSitePlan::assertValid($catalogPlan);
 // so an image over half the limit is over it, while the page stays a file the
 // compiler accepts.
 $grid = $card('Huge Item', '10.00', 'data:image/png;base64,' . str_repeat('A', intdiv(RuntimeDeclarations::MAX_PAYLOAD_BYTES, 2) + 100000)) . $card('Small Item', '11.00', 'https://cdn.example.test/s.jpg') . $card('Tiny Item', '12.00', 'https://cdn.example.test/t.jpg') . $card('Wee Item', '13.00', 'https://cdn.example.test/w.jpg');
-$oversized = $compile(array('index.html' => '<main><h1>Shop</h1><div class="grid">' . $grid . '</div></main>'));
+$oversized = $compile(array('index.html' => '<a href="/cart/">Cart</a><main><h1>Shop</h1><div class="grid">' . $grid . '</div></main>'));
 $oversizedPlan = $oversized['source_reports']['wordpress_site_plan'] ?? null;
 $assert('success_with_warnings' === $oversized['status'] && is_array($oversizedPlan), 'One oversized product entity no longer fails the site: ' . json_encode(array_column($findings($oversized['diagnostics'], 'wordpress_site_plan_not_self_contained'), 'message')));
 $allDropped = $findings($oversized['diagnostics'], 'runtime_entity_dropped');

@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use InvalidArgumentException;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
 
 /** Resolves declared asset tokens using explicit runtime destination context. */
 final class WordPressSitePlanResolver
@@ -264,7 +265,7 @@ final class WordPressSitePlanResolver
                     foreach ($resolvedIndex->ranges() as $index => $candidate) if ($candidate['offset'] === $resolvedOffset && $search === substr($resolved, $candidate['offset'], $candidate['length'])) { $range = $candidate; $blockIndex = $index; break; }
                     if (!is_array($range)) throw new InvalidArgumentException('WordPress site plan runtime binding resolved anchor is detached from its source document.');
                     $binding['search_block_markup'] = $search;
-                    $binding['occurrence'] = self::occurrenceAtOffset($resolved, $search, $range['offset']);
+                    $binding['occurrence'] = HtmlTagScanner::occurrenceAtOffset($resolved, $search, $range['offset']);
                     $binding['position'] = array('schema' => 'blocks-engine/runtime-binding-position/v1', 'block_index' => $blockIndex, 'offset' => $range['offset'], 'length' => $range['length']);
                     $declarations[$declarationIndex]['payload']['entities'][$entityIndex]['bindings'][$bindingIndex] = $binding;
                 }
@@ -293,11 +294,6 @@ final class WordPressSitePlanResolver
         $offset = 0; for ($index = 0; $index < $occurrence; ++$index) { $offset = strpos($markup, $search, $offset); if (false === $offset) return null; if ($index + 1 < $occurrence) $offset += strlen($search); }
         return $offset;
     }
-    private static function occurrenceAtOffset(string $markup, string $search, int $offset): int
-    {
-        $occurrence = 0; $cursor = 0; while (false !== ($found = strpos($markup, $search, $cursor))) { ++$occurrence; if ($found === $offset) return $occurrence; $cursor = $found + strlen($search); } return 0;
-    }
-
     public static function normalizeThemeUri(mixed $value): string
     {
         if (!is_string($value) || '' === $value || preg_match('/[\x00-\x20\x7f]/', $value) || false === ($parts = parse_url($value))) throw new InvalidArgumentException('WordPress site plan resolution requires a valid theme_uri.');

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use DOMElement;
 use InvalidArgumentException;
@@ -12,7 +13,7 @@ final class FormControlTopologyBuilder
 {
     private const MAX_DEPTH = 16;
 
-    private const MAX_NODES = 128;
+    private const MAX_NODES = 256;
 
     private const MAX_CLASSES = 8;
 
@@ -281,7 +282,7 @@ final class FormControlTopologyBuilder
 
         $classes = array();
         $classAttribute = $element->hasAttribute('class') ? $element->getAttribute('class') : '';
-        foreach ( preg_split('/\s+/', trim($classAttribute)) ?: array() as $class ) {
+        foreach ( SourceDom::tokens($classAttribute) as $class ) {
             if ( count($classes) >= self::MAX_CLASSES ) break;
             if ( 1 === preg_match('/^[A-Za-z_][A-Za-z0-9_-]{0,79}$/D', $class) ) $classes[] = $class;
         }
@@ -315,7 +316,7 @@ final class FormControlTopologyBuilder
         // An ARIA group is the same named control group a captioned fieldset is,
         // built from generic elements. Its accessible name is the group's only
         // caption, so it travels with the role, bounded like a legend.
-        $role = strtolower(trim($element->getAttribute('role')));
+        $role = SourceDom::role($element);
         if ( in_array($role, self::GROUP_ROLES, true) ) {
             $presentation['group_role'] = $role;
             $label = $this->accessibleName($element);
@@ -335,7 +336,7 @@ final class FormControlTopologyBuilder
     {
         $parts = array();
         $document = $element->ownerDocument;
-        foreach ( preg_split('/\s+/', trim($element->getAttribute('aria-labelledby'))) ?: array() as $id ) {
+        foreach ( SourceDom::tokens($element->getAttribute('aria-labelledby')) as $id ) {
             $target = '' !== $id && $document instanceof \DOMDocument ? $document->getElementById($id) : null;
             if ( $target instanceof DOMElement ) {
                 $parts[] = $target->textContent ?? '';

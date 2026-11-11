@@ -62,7 +62,7 @@ final class DetailsPattern implements PatternRecognizerInterface
      */
     private function summaryMarker(DOMElement $element, PatternContext $context): string
     {
-        $summary = $this->firstChildElement($element, 'summary');
+        $summary = SourceDom::firstChildElement($element, 'summary');
 
         return $summary instanceof DOMElement ? $context->disclosureSummaryMarker($summary) : '';
     }
@@ -77,7 +77,7 @@ final class DetailsPattern implements PatternRecognizerInterface
      */
     public function match(DOMElement $element, array &$fallbacks, callable $convertChildrenWithoutTags, callable $presentationAttributes, callable $innerHtml, callable $createBlock, string $summaryMarker = ''): ?array
     {
-        $summary = $this->firstChildElement($element, 'summary');
+        $summary = SourceDom::firstChildElement($element, 'summary');
         $children = $convertChildrenWithoutTags($element, $fallbacks, array( 'summary' ));
         if ( null === $summary && array() === $children ) {
             return null;
@@ -114,7 +114,7 @@ final class DetailsPattern implements PatternRecognizerInterface
         if ('' !== $label) return $label;
 
         $panels = array();
-        foreach (preg_split('/\s+/', trim($summary->getAttribute('aria-controls'))) ?: array() as $id) {
+        foreach (SourceDom::tokens($summary->getAttribute('aria-controls')) as $id) {
             $panel = $summary->ownerDocument?->getElementById($id);
             if ($panel instanceof DOMElement) $panels[] = $panel;
         }
@@ -122,7 +122,7 @@ final class DetailsPattern implements PatternRecognizerInterface
             if ($child instanceof DOMElement && !$child->isSameNode($summary)) $panels[] = $child;
         }
         foreach ($panels as $panel) {
-            if (!in_array(strtolower(trim($panel->getAttribute('role'))), array('dialog', 'region'), true)) continue;
+            if (!in_array(SourceDom::role($panel), array('dialog', 'region'), true)) continue;
             $label = $this->accessibleName($panel);
             if ('' !== $label) return $label;
         }
@@ -134,7 +134,7 @@ final class DetailsPattern implements PatternRecognizerInterface
         $label = trim($element->getAttribute('aria-label'));
         if ('' !== $label) return $label;
         $parts = array();
-        foreach (preg_split('/\s+/', trim($element->getAttribute('aria-labelledby'))) ?: array() as $id) {
+        foreach (SourceDom::tokens($element->getAttribute('aria-labelledby')) as $id) {
             $target = $element->ownerDocument?->getElementById($id);
             $text = trim($target?->textContent ?? '');
             if ('' !== $text) $parts[] = $text;
@@ -302,7 +302,7 @@ final class DetailsPattern implements PatternRecognizerInterface
                     continue;
                 }
 
-                if ( $candidate->isSameNode($header) || $this->containsNode($candidate, $toggle) || $this->containsNode($header, $candidate) ) {
+                if ( $candidate->isSameNode($header) || SourceDom::elementContains($candidate, $toggle) || SourceDom::elementContains($header, $candidate) ) {
                     continue;
                 }
 
@@ -348,7 +348,7 @@ final class DetailsPattern implements PatternRecognizerInterface
     private function isBoundedDisclosureHeader(DOMElement $header, DOMElement $toggle): bool
     {
         foreach ( $header->getElementsByTagName('*') as $candidate ) {
-            if ( $candidate instanceof DOMElement && ! $this->containsNode($candidate, $toggle) && ! $this->containsNode($toggle, $candidate) ) {
+            if ( $candidate instanceof DOMElement && ! SourceDom::elementContains($candidate, $toggle) && ! SourceDom::elementContains($toggle, $candidate) ) {
                 return false;
             }
         }

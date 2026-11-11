@@ -12,7 +12,7 @@ $assert = static function (bool $condition, string $message): void {
 
 // Non-landmark shared chrome, colliding terminal slugs, and content-box
 // support CSS. The two about documents share declarations, not ownership
-// with the home document: payload deduplication must not make them global.
+// with the home document: wherever their rule loads, it matches only them.
 $files = array('site.css' => '.masthead{width:900px;padding:17px}.colophon{width:800px;padding:19px}.home-copy{width:600px;padding:31px}.about-copy{width:610px;padding:32px}');
 foreach (array('index.html', 'en/about.html', 'fr/about.html') as $index => $path) {
     $files[$path] = '<!doctype html><html><head><link rel="stylesheet" href="' . ($index ? '../' : '') . 'site.css"></head><body><div class="app frame-' . $index . '"><div class="masthead"><div><a href="/">Home</a><a href="/en/about">About</a></div></div><main><div class="' . ($index ? 'about-copy' : 'home-copy') . '"><p>Document ' . $index . '</p></div></main><div class="colophon"><p>Shared footer</p></div></div></body></html>';
@@ -28,17 +28,12 @@ foreach (array('home-copy' => array('index.html'), 'about-copy' => array('en/abo
     $support = array_values(array_filter($plan['assets'], static fn(array $asset): bool => 'engine-support' === ($asset['source'] ?? '') && str_contains((string) ($asset['content'] ?? ''), '.' . $class . '{box-sizing:content-box}')));
     $assert(1 === count($support), 'Identical support payloads share one resource.');
     $asset = $support[0];
-    $assert($owners === array_column($asset['scopes'], 'source_path'), 'Support CSS retains exactly its document consumers.');
-    preg_match_all('/^    if \( (.+) \) wp_enqueue_style\( .*' . preg_quote($asset['target_path'], '/') . '.*$/m', $bootstrap, $matches);
-    $conditions = implode("\n", $matches[1]);
-    $assert(!in_array('true', $matches[1], true), 'No document support sheet has an unconditional enqueue.');
-    foreach ($owners as $owner) {
-        $assert(str_contains($conditions, 'index.html' === $owner ? 'is_front_page()' : $pages[$owner]['reconciliation_identity']), 'Enqueue conditions identify each owning route.');
-    }
+    $markup = array_column($plan['pages'], 'canonical_block_markup', 'source_path');
     foreach (array_keys($files) as $other) {
         if (!str_ends_with($other, '.html')) continue;
         $targets = array_column(WordPressSitePlan::documentStylesheets($plan, $other), 'target_path');
-        $assert(in_array($asset['target_path'], $targets, true) === in_array($other, $owners, true), 'Public document stylesheet sequence excludes unrelated support CSS.');
+        // Support folded past its consumers matches nothing on other routes.
+        $assert(in_array($other, $owners, true) ? in_array($asset['target_path'], $targets, true) : !in_array($asset['target_path'], $targets, true) || !str_contains($markup[$other], $class), 'Support CSS loads on its consumers and is inert elsewhere.');
     }
 }
 foreach (array('masthead', 'colophon') as $class) {

@@ -3,6 +3,11 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\TransformOptions;
+use Automattic\BlocksEngine\PhpTransformer\Contract\TransformationOptions;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackEmitter;
@@ -40,6 +45,11 @@ final class HtmlTransformerSession
     private bool $preserveShellLandmarks = false;
     private bool $fallbackReductionMode = false;
     private string $sourcePath = '';
+    private string $sourceRootTheme = '';
+    /** @var list<string> */
+    private array $declaredDocumentHosts = array();
+    /** @var \SplObjectStorage<DOMElement, string>|null Captured `data-blocks-engine-capture-glyph-color` values keyed by glyph element. */
+    private ?\SplObjectStorage $capturedGlyphColors = null;
     private readonly PresentationResolutionCache $presentationResolutionCache;
     private readonly SourceStyleResolutionState $sourceStyleResolutionState;
     private ?LayoutGeometryState $layoutGeometryState = null;
@@ -174,6 +184,36 @@ final class HtmlTransformerSession
         return $this->runtimeBehaviorState;
     }
 
+    /** Records a native disclosure root and supersedes the local-disclosure runtime selectors inside it. */
+    public function rememberNativeDisclosure(DOMElement $root): void
+    {
+        $this->runtimeBehaviorState->rememberNativeDisclosureRoot($root->getNodePath() ?? '');
+        foreach ( array_merge(array( $root ), iterator_to_array($root->getElementsByTagName('*'), false)) as $node ) {
+            if ( $node instanceof DOMElement && 'true' === strtolower($node->getAttribute(CaptureEvidence::LOCAL_DISCLOSURE)) ) {
+                $this->runtimeSelectorState()->supersede('[' . CaptureEvidence::LOCAL_DISCLOSURE . ']');
+                if ( '' !== $node->getAttribute('id') ) {
+                    $this->runtimeSelectorState()->supersede('#' . $node->getAttribute('id'));
+                }
+            }
+        }
+    }
+
+    /** Records the tab controls of the first tablist inside a native tabs root. */
+    public function rememberNativeTabControls(DOMElement $tabsRoot): void
+    {
+        foreach ( $tabsRoot->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || 'tablist' !== SourceDom::role($child) ) {
+                continue;
+            }
+            foreach ( $child->getElementsByTagName('*') as $candidate ) {
+                if ( $candidate instanceof DOMElement && 'tab' === SourceDom::role($candidate) ) {
+                    $this->runtimeBehaviorState->rememberNativeTabControl($candidate->getNodePath() ?? '');
+                }
+            }
+            break;
+        }
+    }
+
     public function navigationProjectionState(): NavigationProjectionState
     {
         return $this->navigationProjectionState;
@@ -193,6 +233,41 @@ final class HtmlTransformerSession
     public function sourcePath(): string
     {
         return $this->sourcePath;
+    }
+
+    /**
+     * Facts the source document declares outside its body.
+     *
+     * @param string $rootTheme Theme class (`dark` or `light`) on the source `<html>`, or empty.
+     * @param list<string> $declaredHosts Hosts the source document declares as its own.
+     */
+    public function installSourceDocument(string $rootTheme, array $declaredHosts): void
+    {
+        $this->sourceRootTheme = $rootTheme;
+        $this->declaredDocumentHosts = $declaredHosts;
+    }
+
+    public function sourceRootTheme(): string
+    {
+        return $this->sourceRootTheme;
+    }
+
+    /** @return list<string> */
+    public function declaredDocumentHosts(): array
+    {
+        return $this->declaredDocumentHosts;
+    }
+
+    /** @param \SplObjectStorage<DOMElement, string> $colors */
+    public function installCapturedGlyphColors(\SplObjectStorage $colors): void
+    {
+        $this->capturedGlyphColors = $colors;
+    }
+
+    /** Captured rendered colour of a glyph element, or empty when there is none. */
+    public function capturedGlyphColor(DOMElement $glyph): string
+    {
+        return null !== $this->capturedGlyphColors && isset($this->capturedGlyphColors[$glyph]) ? $this->capturedGlyphColors[$glyph] : '';
     }
 
     public function configurePolicy(bool $preserveShellLandmarks, bool $fallbackReductionMode): void
@@ -219,5 +294,39 @@ final class HtmlTransformerSession
     public function fallbackEmitter(): FallbackEmitter
     {
         return $this->fallbackEmitter;
+    }
+
+    /**
+     * Install the per-transform state read from transform options: provenance,
+     * generated block registry, asset materialization, policy, runtime
+     * behavior and selector evidence, source path, and layout geometry proof.
+     *
+     * @param array<string, mixed> $options
+     */
+    public function installTransformOptions(array $options): void
+    {
+        $this->transformationProvenanceState()->installFallback(TransformationOptions::provenance($options));
+        $this->installGeneratedBlockRegistry(new GeneratedBlockRegistry(TransformOptions::generatedBlockNamespaceFromOptions($options)));
+        $this->installAssetMaterializationState(new AssetMaterializationState(
+            trim((string) ($options['generated_asset_root'] ?? ''), '/'),
+            TransformOptions::assetMetadataFromOptions($options)
+        ));
+        $this->configurePolicy(! empty($options['extract_global_shell']), ! empty($options['fallback_reduction_mode']));
+        $this->runtimeBehaviorState()->installRuntimeScriptMetadata(TransformOptions::runtimeScriptMetadataFromOptions($options));
+        $this->runtimeBehaviorState()->installRuntimeProjectionScriptAssets(
+            ArrayField::array($options, 'runtime_projection_script_assets')
+        );
+        $this->runtimeBehaviorState()->installThemePreferenceOwnership(
+            ArrayField::array($options, 'theme_preference_ownership')
+        );
+        $this->installSourcePath((string) ($options['source'] ?? 'html'));
+        $this->installRuntimeSelectorState(new RuntimeSelectorState(
+            TransformOptions::runtimeSelectorsFromOptions($options, 'runtime_dom_selectors'),
+            TransformOptions::runtimeSelectorsFromOptions($options, 'runtime_behavioral_selectors'),
+            TransformOptions::runtimeSelectorsFromOptions($options, 'runtime_canvas_selectors')
+        ));
+        $this->installLayoutGeometryState(new LayoutGeometryState(
+            is_array($options['layout_geometry_proof']['reductions'] ?? null) ? $options['layout_geometry_proof']['reductions'] : array()
+        ));
     }
 }

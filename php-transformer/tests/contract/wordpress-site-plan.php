@@ -558,7 +558,7 @@ $persistedV1Graph = array(
     'schema' => 'generic/computed-layout-graph/v1',
     'basis' => 'source_css_cascade',
     'truncated' => false,
-    'limits' => array('nodes' => 128, 'depth' => 8, 'rules_per_node' => 16),
+    'limits' => array('nodes' => 256, 'depth' => 8, 'rules_per_node' => 16),
     'nodes' => array(array('id' => 'form', 'kind' => 'container', 'order' => 0, 'source' => array('tag' => 'form', 'classes' => array('contact')), 'layout' => array('display' => 'grid'), 'provenance' => array(array('source_path' => 'css/form.css', 'source_sha256' => str_repeat('a', 64), 'selector' => '.contact', 'condition' => null, 'properties' => array('display'))))),
     'variants' => array(),
     'diagnostics' => array(),
@@ -755,9 +755,21 @@ $interleavedCopyResult = (new ArtifactCompiler())->compile(array('entrypoint' =>
 $interleavedCopyDiagnostics = array_values(array_filter($interleavedCopyResult['diagnostics'] ?? array(), static fn(array $diagnostic): bool => 'form_field_context_unrepresented' === ($diagnostic['code'] ?? null)));
 $assert(1 === count($interleavedCopyDiagnostics) && array('Second section') === ($interleavedCopyDiagnostics[0]['unrepresented_text'] ?? null), 'Copy interleaved between two controls is named by a diagnostic instead of only recording a boolean flag.');
 
+// Widget-heavy booking forms retain all visible buttons within the graph bounds.
+$bookingFields = '<div><label>Name<input name="name"></label></div><div><label>Email<input type="email" name="email"></label></div><div><label>Phone<input type="tel" name="phone"></label></div>';
+for ($index = 0; $index < 8; ++$index) $bookingFields .= '<div><button role="radio" name="guests" type="button" value="' . $index . '">' . ($index + 1) . ' guests</button></div>';
+for ($index = 0; $index < 55; ++$index) $bookingFields .= '<div><button type="button">Slot ' . $index . '</button></div>';
+$bookingResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<style>form, form div { display: grid; gap: 8px; } form input, form button, form textarea, form label { display: block; }</style><main><form method="post" action="/book">' . $bookingFields . '<textarea name="message"></textarea><button type="submit">Book</button></form></main>')))->toArray();
+$bookingDeclaration = current(array_filter($bookingResult['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
+$bookingEntity = $bookingDeclaration['payload']['entities'][0] ?? array();
+$assert(68 === count($bookingEntity['controls'] ?? array()), 'The booking form declares every named input, guest choice, unnamed slot button, textarea and submit.');
+$assert(false === ($bookingEntity['control_topology']['truncated'] ?? null), 'The booking form declares an untruncated control topology.');
+$assert(false === ($bookingEntity['layout_graph']['truncated'] ?? null) && count($bookingEntity['layout_graph']['nodes'] ?? array()) > 128 && array() === ($bookingEntity['layout_graph']['source_contract_losses'] ?? array()), 'The booking form declares an untruncated layout graph without source contract losses.');
+$assert(array() === array_filter($bookingResult['diagnostics'] ?? array(), static fn(array $diagnostic): bool => 'runtime_form_declaration_declined' === ($diagnostic['code'] ?? null)), 'The booking form has no runtime declaration decline.');
+
 // A prepared form declaration is never dropped silently: a failed contract is
 // named so a consumer can see which check declined the metadata.
-$truncatedFormFields = ''; for ($index = 0; $index < 70; ++$index) $truncatedFormFields .= '<div class="field"><input type="text" name="field-' . $index . '"></div>';
+$truncatedFormFields = ''; for ($index = 0; $index < 140; ++$index) $truncatedFormFields .= '<div class="field"><input type="text" name="field-' . $index . '"></div>';
 $truncatedFormResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><form method="post" action="/apply">' . $truncatedFormFields . '<button type="submit">Send</button></form></main>')))->toArray();
 $truncatedFormFallback = current(array_filter($truncatedFormResult['fallbacks'] ?? array(), static fn(array $fallback): bool => 'html_form_fallback' === ($fallback['diagnostic_code'] ?? null)));
 $truncatedFormPlan = $truncatedFormResult['source_reports']['wordpress_site_plan'] ?? array();
@@ -1405,11 +1417,13 @@ foreach (array(' – ', ' | ', ' - ') as $termTitleSeparator) {
     $termIdentityResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $termIdentityFiles))->toArray();
     $termIdentityPlan = $termIdentityResult['source_reports']['wordpress_site_plan'];
     $termIdentityBootstrap = (string) ($writeMap($termIdentityPlan['writes'])['functions.php']['payload']['data'] ?? '');
-    $archiveSupport = array_values(array_filter($termIdentityPlan['assets'], static fn(array $asset): bool => 'engine-support' === ($asset['source'] ?? '') && str_contains($asset['content'] ?? '', '.blocks-engine-synthetic-image-figure{margin:0}') && in_array(array('kind' => 'archive', 'source_path' => 'tag/ai/index.html', 'route_path' => 'tag/ai'), $asset['scopes'] ?? array(), true)));
+    $archiveSupport = array_values(array_filter($termIdentityPlan['assets'], static fn(array $asset): bool => 'engine-support' === ($asset['source'] ?? '') && 1 === preg_match('/\.blocks-engine-synthetic-image-figure(?::where\(:root:is\([^)]*\)\))?\{margin:0\}/', $asset['content'] ?? '') && str_contains((string) json_encode($asset['scopes'] ?? array()), 'tag\\/ai')));
     $assert(array() !== $archiveSupport, 'Captured tag documents own generated synthetic-image support CSS.');
     foreach ($archiveSupport as $support) {
         $supportHandle = 'blocks-engine-' . substr(hash('sha256', $support['target_path']), 0, 12);
-        $assert(str_contains($termIdentityBootstrap, "if ( 'tag/ai' === blocks_engine_archive_path() ) wp_enqueue_style( '" . $supportHandle . "', get_theme_file_uri( '" . $support['target_path'] . "' )"), 'Generated archive support CSS enqueues under the canonical archive condition.');
+        // Folded support may load on more routes, where it matches nothing,
+        // but always under the canonical archive condition or unconditionally.
+        $assert(1 === preg_match("/if \\( (true|[^\\n]*'tag\\/ai' === blocks_engine_archive_path\\(\\)[^\\n]*) \\) wp_enqueue_style\\( '" . preg_quote($supportHandle, '/') . "'/", $termIdentityBootstrap), 'Generated archive support CSS enqueues under the canonical archive condition.');
     }
     $rootStart = strpos($termIdentityBootstrap, 'global $blocks_engine_document_roots');
     $rootEnd = strpos($termIdentityBootstrap, "add_filter( 'language_attributes'", $rootStart);
@@ -1799,6 +1813,16 @@ $companionCanonicalizer = new AssetReferenceCanonicalizer(array(array('source_pa
 $escapedCompanionBlock = '<!-- wp:blocks-engine/responsive-layout ' . json_encode(array('content' => '<picture><source srcset="/uploads/logo.png 1x, /uploads/logo.png?retina=1 2x"><img src="/uploads/logo.png" style="background-image:url(/uploads/logo.png)"></picture>')) . ' /-->';
 $canonicalCompanionBlock = $companionCanonicalizer->content($escapedCompanionBlock, 'website/index.html');
 $assert(4 === substr_count($canonicalCompanionBlock, WordPressSitePlan::TOKEN_PREFIX . 'asset-0123456789abcdef}}') && !str_contains($canonicalCompanionBlock, '\\/uploads\\/logo.png'), 'Default JSON slash escaping does not hide companion HTML assets from canonicalization.');
+// Mirrored HTML must retain non-asset attributes in both JSON quote transports.
+$mirroredHtml = '<picture><source data-srcset="/uploads/logo.png 1x" srcset="/uploads/logo.png 1x"><img data-src="/uploads/logo.png" src="/uploads/logo.png" data-poster="/uploads/logo.png" poster="/uploads/logo.png" data-style="background:url(/uploads/logo.png)" style="background:url(/uploads/logo.png)"><a data-href="/uploads/logo.png" href="/uploads/logo.png"></a></picture>';
+foreach (array(0, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_QUOT | JSON_HEX_APOS | JSON_UNESCAPED_SLASHES) as $jsonFlags) {
+    $mirroredBlock = '<!-- wp:custom/accessible-link ' . json_encode(array('content' => $mirroredHtml), $jsonFlags) . ' -->' . $mirroredHtml . '<!-- /wp:custom/accessible-link -->';
+    $canonicalMirror = $companionCanonicalizer->content($mirroredBlock, 'website/index.html');
+    preg_match('~^<!-- wp:custom/accessible-link (.*?) -->(.*)<!-- /wp:custom/accessible-link -->$~s', $canonicalMirror, $mirrorParts);
+    $mirrorAttributes = json_decode($mirrorParts[1], true);
+    $expectedMirror = str_replace(array(' srcset="/uploads/logo.png', ' src="/uploads/logo.png', ' poster="/uploads/logo.png', ' style="background:url(/uploads/logo.png)', ' href="/uploads/logo.png'), array(' srcset="' . WordPressSitePlan::TOKEN_PREFIX . 'asset-0123456789abcdef}}', ' src="' . WordPressSitePlan::TOKEN_PREFIX . 'asset-0123456789abcdef}}', ' poster="' . WordPressSitePlan::TOKEN_PREFIX . 'asset-0123456789abcdef}}', ' style="background:url(' . WordPressSitePlan::TOKEN_PREFIX . 'asset-0123456789abcdef}})', ' href="' . WordPressSitePlan::TOKEN_PREFIX . 'asset-0123456789abcdef}}'), $mirroredHtml);
+    $assert($expectedMirror === $mirrorParts[2] && $expectedMirror === $mirrorAttributes['content'], 'Mirrored block HTML canonicalizes exact asset attributes identically while preserving data-* attributes across JSON quote transports.');
+}
 $unicodeCanonicalizer = new AssetReferenceCanonicalizer(array(array('source_path' => 'assets/JOHN-OATES-‘ARKANSAS.jpg', 'token' => 'asset-0123456789abcdef')));
 $assert(WordPressSitePlan::TOKEN_PREFIX . 'asset-0123456789abcdef}}' === $unicodeCanonicalizer->reference('../assets/JOHN-OATES-%E2%80%98ARKANSAS.jpg', 'pages/home.html'), 'Canonical matching resolves percent-encoded Unicode references to declared artifact paths.');
 $authorLayoutReference = array('source_path' => 'assets/materialized-svg/logo.svg', 'target_path' => 'assets/materialized-svg/logo.svg', 'token' => 'materialized-svg');

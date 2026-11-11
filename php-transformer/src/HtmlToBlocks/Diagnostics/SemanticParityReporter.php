@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
@@ -14,16 +16,13 @@ use DOMElement;
  * landmark count comparison, navigation-menu presence/item-count/label parity,
  * and the source-vs-block nav/landmark counting that backs those findings.
  *
- * This is a behavior-preserving extraction of the inline builders that
- * previously lived in HtmlTransformer. It performs the same DOM walks and
- * counting against the parsed source body, the generated blocks, and their
- * source provenance — all passed in as explicit parameters rather than read
- * from transformer state — so the report output is byte-identical to the
- * inline implementation.
+ * It walks the parsed source body, the generated blocks, and their source
+ * provenance, all passed in as explicit parameters rather than read from
+ * transformer state.
  *
- * Shared DOM helpers come from DomHelpersTrait; the small `safeNavigationUrl`
- * helper is duplicated here (HtmlTransformer keeps its own copy for non-parity
- * callers) so this module needs no transformer reference.
+ * Fallback HTML and label helpers come from DomHelpersTrait; stateless DOM
+ * helpers are called on SourceDom, so this module needs no transformer
+ * reference.
  */
 final class SemanticParityReporter
 {
@@ -120,7 +119,7 @@ final class SemanticParityReporter
         }
 
         foreach ( $blockMenus as $index => $blockMenu ) {
-            $carried = is_array($blockMenu['carried_sibling_items'] ?? null) ? $blockMenu['carried_sibling_items'] : array();
+            $carried = ArrayField::array($blockMenu, 'carried_sibling_items');
             unset($blockMenus[$index]['carried_sibling_items']);
 
             // Read the flag from the source menu this block menu is actually
@@ -131,13 +130,13 @@ final class SemanticParityReporter
             }
 
             $items = array_merge(
-                is_array($carried['before'] ?? null) ? $carried['before'] : array(),
+                ArrayField::array($carried, 'before'),
                 is_array($blockMenu['items'] ?? null) ? array_values($blockMenu['items']) : array(),
-                is_array($carried['after'] ?? null) ? $carried['after'] : array()
+                ArrayField::array($carried, 'after')
             );
             $items = $this->collapseLinkedWrapperRuns(
                 $items,
-                is_array($pairedSource['items'] ?? null) ? $pairedSource['items'] : array()
+                ArrayField::array($pairedSource, 'items')
             );
 
             $blockMenus[$index]['item_count'] = count($items);
@@ -269,7 +268,7 @@ final class SemanticParityReporter
             }
 
             ++$counts[$landmark];
-            $selectors[$landmark][] = $this->elementSelector($element);
+            $selectors[$landmark][] = SourceDom::elementSelector($element);
         }
 
         foreach ( $element->childNodes as $child ) {
@@ -283,8 +282,8 @@ final class SemanticParityReporter
     {
         return ShellLandmarkPolicy::landmarkKind(
             $element->tagName,
-            $this->attr($element, 'role'),
-            $this->hasAncestorTag($element, array( 'blockquote', 'figure' ))
+            SourceDom::attr($element, 'role'),
+            SourceDom::hasAncestorTag($element, array( 'blockquote', 'figure' ))
         );
     }
 
@@ -378,7 +377,7 @@ final class SemanticParityReporter
      */
     private function collectSourceNavigationMenus(DOMElement $element, array &$menus, array &$seen): void
     {
-        if ( ('nav' === strtolower($element->tagName) || 'navigation' === strtolower($this->attr($element, 'role')))
+        if ( ('nav' === strtolower($element->tagName) || 'navigation' === strtolower(SourceDom::attr($element, 'role')))
             && ! $this->isSourceChromeOnlyNavigation($element)
         ) {
             $items = $this->sourceNavigationMenuItems($element);
@@ -397,7 +396,7 @@ final class SemanticParityReporter
                 }
 
                 $menus[] = array(
-                    'selector' => $this->elementSelector($element),
+                    'selector' => SourceDom::elementSelector($element),
                     'item_count' => count($items),
                     'items' => $items,
                     'excludes_outside_anchors' => $this->sourceMenuExcludesOutsideAnchors($element),
@@ -479,7 +478,7 @@ final class SemanticParityReporter
             if ( '' !== $label ) {
                 $items[] = array(
                     'label' => $label,
-                    'url' => $this->safeNavigationUrl($this->attr($anchor, 'href')),
+                    'url' => SourceDom::safeNavigationUrl(SourceDom::attr($anchor, 'href')),
                 );
             }
         }
@@ -496,7 +495,7 @@ final class SemanticParityReporter
                 continue;
             }
 
-            $tokens = strtolower($this->attr($child, 'class') . ' ' . $this->attr($child, 'id') . ' ' . $this->attr($child, 'aria-label'));
+            $tokens = strtolower(SourceDom::attr($child, 'class') . ' ' . SourceDom::attr($child, 'id') . ' ' . SourceDom::attr($child, 'aria-label'));
             $hasBrand = $hasBrand || (bool) preg_match('/(?:^|[^a-z0-9])(?:brand|logo|site-title|site-name|home-link|home-logo)(?:[^a-z0-9]|$)/', $tokens);
             $hasAction = $hasAction || (bool) preg_match('/(?:^|[^a-z0-9])(?:btn|button|cta|action)(?:[^a-z0-9]|$)/', $tokens);
         }
@@ -516,7 +515,7 @@ final class SemanticParityReporter
             }
 
             $tagName = strtolower($child->tagName);
-            if ( in_array($tagName, array( 'ul', 'ol' ), true) && $this->hasSourceNavigationSignal($child) ) {
+            if ( in_array($tagName, array( 'ul', 'ol' ), true) && SourceDom::hasSourceNavigationSignal($child) ) {
                 foreach ( $this->sourceNavigationMenuItems($child) as $item ) {
                     $items[] = $item;
                 }
@@ -549,7 +548,7 @@ final class SemanticParityReporter
 
         $hasSignaledList = false;
         foreach ( $element->getElementsByTagName('ul') as $list ) {
-            if ( $list instanceof DOMElement && $this->hasSourceNavigationSignal($list) ) {
+            if ( $list instanceof DOMElement && SourceDom::hasSourceNavigationSignal($list) ) {
                 $hasSignaledList = true;
                 break;
             }
@@ -607,7 +606,7 @@ final class SemanticParityReporter
             return true;
         }
 
-        return (bool) preg_match('/(?:^|[^a-z0-9])(?:hamburger|menu|toggle)(?:[^a-z0-9]|$)/', strtolower($this->attr($element, 'class') . ' ' . $this->attr($element, 'aria-label')));
+        return (bool) preg_match('/(?:^|[^a-z0-9])(?:hamburger|menu|toggle)(?:[^a-z0-9]|$)/', strtolower(SourceDom::attr($element, 'class') . ' ' . SourceDom::attr($element, 'aria-label')));
     }
 
     /**
@@ -640,13 +639,13 @@ final class SemanticParityReporter
     private function isMobileDuplicateSourceNavigation(DOMElement $element): bool
     {
         $tokens = array(
-            $this->attr($element, 'class'),
-            $this->attr($element, 'id'),
+            SourceDom::attr($element, 'class'),
+            SourceDom::attr($element, 'id'),
         );
 
         for ( $parent = $element->parentNode; $parent instanceof DOMElement && 'body' !== strtolower($parent->tagName); $parent = $parent->parentNode ) {
-            $tokens[] = $this->attr($parent, 'class');
-            $tokens[] = $this->attr($parent, 'id');
+            $tokens[] = SourceDom::attr($parent, 'class');
+            $tokens[] = SourceDom::attr($parent, 'id');
         }
 
         return (bool) preg_match('/(?:^|[^a-z0-9])(?:mobile|drawer|offcanvas|overlay|hamburger|menu-panel|nav-panel)(?:[^a-z0-9]|$)/', strtolower(implode(' ', $tokens)));
@@ -654,7 +653,7 @@ final class SemanticParityReporter
 
     private function isSourceNavigationChromeAnchor(DOMElement $anchor): bool
     {
-        if ( in_array(strtolower($this->attr($anchor, 'role')), array( 'separator', 'presentation', 'none' ), true) ) {
+        if ( in_array(strtolower(SourceDom::attr($anchor, 'role')), array( 'separator', 'presentation', 'none' ), true) ) {
             return true;
         }
 
@@ -663,13 +662,13 @@ final class SemanticParityReporter
         // such an anchor here left the source side counting one item fewer than
         // the block side represents.
         if ( '' === trim($anchor->textContent ?? '')
-            && '' === trim($this->attr($anchor, 'aria-label') . $this->attr($anchor, 'title'))
+            && '' === trim(SourceDom::attr($anchor, 'aria-label') . SourceDom::attr($anchor, 'title'))
             && '' === $this->anchorImageAltText($anchor)
         ) {
             return true;
         }
 
-        $tokens = strtolower($this->attr($anchor, 'class') . ' ' . $this->attr($anchor, 'id'));
+        $tokens = strtolower(SourceDom::attr($anchor, 'class') . ' ' . SourceDom::attr($anchor, 'id'));
         return (bool) preg_match('/(?:^|[^a-z0-9])(?:separator|divider)(?:[^a-z0-9]|$)/', $tokens)
             && ! preg_match('/[\p{L}\p{N}]/u', (string) $anchor->textContent);
     }
@@ -698,7 +697,7 @@ final class SemanticParityReporter
             }
 
             $blockPath = $path . '.' . $index;
-            $innerBlocks = is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array();
+            $innerBlocks = ArrayField::array($block, 'innerBlocks');
             if ( $this->isNativeNavigationCarrier($block)
                 && $this->containsBlockName($innerBlocks, 'core/list')
                 && ! $this->containsBlockName($innerBlocks, 'core/navigation')
@@ -781,7 +780,7 @@ final class SemanticParityReporter
         // The layout-shell namespace is consumer-owned, so match on the
         // local-name suffix the way the editability report does rather than a
         // hardcoded namespace literal.
-        if ( ! str_ends_with((string) ($block['blockName'] ?? ''), '/layout-shell') || $this->containsBlockName(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array(), 'core/navigation') ) {
+        if ( ! str_ends_with((string) ($block['blockName'] ?? ''), '/layout-shell') || $this->containsBlockName(ArrayField::array($block, 'innerBlocks'), 'core/navigation') ) {
             return false;
         }
 
@@ -856,7 +855,7 @@ final class SemanticParityReporter
                 continue;
             }
 
-            $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
+            $attrs = ArrayField::array($block, 'attrs');
 
             // Saved markup carries the anchor for blocks whose rich text is not
             // mirrored into an attribute — a synthetic paragraph wrapping a link,
@@ -893,7 +892,7 @@ final class SemanticParityReporter
 
                         $item = array(
                             'label' => $label,
-                            'url' => $this->safeNavigationUrl(html_entity_decode($match[2], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')),
+                            'url' => SourceDom::safeNavigationUrl(html_entity_decode($match[2], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')),
                         );
                         $key = $item['label'] . "\0" . $item['url'];
                         if ( isset($seen[$key]) ) {
@@ -910,7 +909,7 @@ final class SemanticParityReporter
             // rather than in anchor markup.
             if ( 'core/button' === ($block['blockName'] ?? '') && isset($attrs['url']) ) {
                 $label = $this->normalizedNavigationLabel((string) ($attrs['text'] ?? ''));
-                $url = $this->safeNavigationUrl((string) $attrs['url']);
+                $url = SourceDom::safeNavigationUrl((string) $attrs['url']);
                 if ( '' !== $label && ! isset($seen[$label . "\0" . $url]) ) {
                     $seen[$label . "\0" . $url] = true;
                     $items[] = array( 'label' => $label, 'url' => $url );
@@ -935,7 +934,7 @@ final class SemanticParityReporter
             }
 
             if ( in_array($block['blockName'] ?? '', array( 'core/navigation-link', 'core/navigation-submenu' ), true) ) {
-                $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
+                $attrs = ArrayField::array($block, 'attrs');
                 $items[] = array(
                     'label' => $this->normalizedNavigationLabel((string) ($attrs['label'] ?? '')),
                     'url' => (string) ($attrs['url'] ?? ''),
@@ -978,7 +977,7 @@ final class SemanticParityReporter
     private function anchorImageAltText(DOMElement $anchor): string
     {
         foreach ( $anchor->getElementsByTagName('img') as $image ) {
-            $alt = $this->normalizedNavigationLabel($this->attr($image, 'alt'));
+            $alt = $this->normalizedNavigationLabel(SourceDom::attr($image, 'alt'));
             if ( '' !== $alt ) {
                 return $alt;
             }
@@ -995,7 +994,7 @@ final class SemanticParityReporter
         }
 
         foreach ( array( 'aria-label', 'title' ) as $attribute ) {
-            $label = $this->normalizedNavigationLabel($this->attr($anchor, $attribute));
+            $label = $this->normalizedNavigationLabel(SourceDom::attr($anchor, $attribute));
             if ( '' !== $label ) {
                 return $label;
             }
@@ -1142,7 +1141,7 @@ final class SemanticParityReporter
             return 'none';
         }
 
-        $bounded = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
+        $bounded = SourceDom::boundedFallbackHtml($this->safeFallbackHtml($element));
 
         return '' === $bounded['html'] ? 'none' : $bounded['html'];
     }
@@ -1258,15 +1257,15 @@ final class SemanticParityReporter
                     continue;
                 }
 
-                $style = $this->attr($heading, 'style');
+                $style = SourceDom::attr($heading, 'style');
                 if ( '' === $style || ! preg_match('/font-family\s*:\s*([^;{}]+)/i', $style, $match) ) {
                     continue;
                 }
 
-                $bounded = $this->boundedFallbackHtml($this->safeFallbackHtml($heading));
+                $bounded = SourceDom::boundedFallbackHtml($this->safeFallbackHtml($heading));
                 $declarations[] = array(
                     'family'         => trim((string) $match[1]),
-                    'selector'       => $this->elementSelector($heading),
+                    'selector'       => SourceDom::elementSelector($heading),
                     'source_snippet' => $bounded['html'],
                 );
             }

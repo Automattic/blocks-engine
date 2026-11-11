@@ -93,9 +93,7 @@ $check(0 === count($wardContext['context_before'] ?? array())
 // A nearby but unrelated select must not be borrowed across a field wrapper.
 $unrelated = new DOMDocument();
 $unrelated->loadHTML('<form><div><button type="button" role="combobox">Pick</button></div><div><select hidden><option value="wrong">Wrong</option></select></div></form>');
-$builder = new Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder(
-    static fn (DOMElement $element): string => $element->getNodePath()
-);
+$builder = new Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder();
 $button = $unrelated->getElementsByTagName('button')->item(0);
 $check($button instanceof DOMElement && ! isset($builder->control($button)['choice_source_selector']), 'unrelated select is not associated');
 

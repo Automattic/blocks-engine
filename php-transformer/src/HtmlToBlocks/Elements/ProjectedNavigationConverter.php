@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
@@ -22,26 +23,22 @@ use DOMElement;
 /** Promotes a menu toggle onto its projected navigation, or suppresses the control. */
 final class ProjectedNavigationConverter implements ElementConverter
 {
-    /**
-     * @param Closure(DOMElement, array<int, array<string, mixed>>&, array<int, class-string>): ?array<string, mixed> $recognizePatterns
-     */
     public function __construct(
         private readonly NavigationToggleSuppressor $navigationToggleSuppressor,
         private readonly StyleResolver $styleResolver,
         private readonly HtmlTransformerSession $session,
-        private readonly Closure $recognizePatterns,
+        private readonly PatternTreeConverter $tree,
         private readonly SourceBlockCreator $createBlock,
-        private readonly ?Closure $isRuntimeDomTarget = null,
-        private readonly ?Closure $svgMarkup = null
+        private readonly RuntimeDomTargets $runtimeDomTargets,
+        private readonly Closure $svgMarkup
     ) {
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */
-    public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
         $runtimeButton = ('button' === $tagName || AuthoredButtonBlockGenerator::isRoleButton($element))
-            && $this->isRuntimeDomTarget instanceof Closure
-            && ($this->isRuntimeDomTarget)($element)
+            && $this->runtimeDomTargets->isRuntimeDomTarget($element)
             && $this->retainsRuntimeButtonBinding($element);
         $projectedNavigation = $runtimeButton ? $this->navigationToggleSuppressor->projectedNavigationTargetForControl($element) : null;
         if ( $runtimeButton && ! $projectedNavigation instanceof DOMElement ) {
@@ -69,7 +66,7 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
         $projectedNavigation ??= $this->navigationToggleSuppressor->projectedNavigationTargetForControl($element);
         if ( $projectedNavigation instanceof DOMElement ) {
-            $block = ($this->recognizePatterns)($projectedNavigation, $fallbacks, array(NavigationPattern::class));
+            $block = $this->tree->patterns($projectedNavigation, $fallbacks, array(NavigationPattern::class));
             // A landmark carrier is the panel's own box around its menu. The
             // control's slot takes only that menu; Core's overlay is the panel.
             if ( null !== $block && $this->navigationToggleSuppressor->isNavigationCarrier($projectedNavigation)
@@ -313,7 +310,7 @@ final class ProjectedNavigationConverter implements ElementConverter
         $host = '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation.' . $marker;
         $hostDeclarations = $this->nativeNavigationToggleHostDeclarations($always, $display, $sourceDeclarations, array() !== $placement);
         $drawer = $this->collapsedContainingBlock($toggle);
-        $drawerPlacement = $drawer instanceof DOMElement && $this->containsNavigation($drawer, $navigation)
+        $drawerPlacement = $drawer instanceof DOMElement && SourceDom::elementContains($drawer, $navigation)
             ? $this->portableCollapsedPlacement($drawer, array('position')) : array();
         $outOfFlowRule = '';
         if ( 'fixed' === ($placement['position'] ?? '') && 'fixed' === ($drawerPlacement['position'] ?? '') ) {
@@ -1098,7 +1095,7 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
         $toggleContainingBlock = $this->collapsedContainingBlock($toggle);
         $navigationContainingBlock = $this->collapsedContainingBlock($navigation);
-        if ( $toggleContainingBlock instanceof DOMElement && $this->containsNavigation($toggleContainingBlock, $navigation) ) {
+        if ( $toggleContainingBlock instanceof DOMElement && SourceDom::elementContains($toggleContainingBlock, $navigation) ) {
             $drawer = $this->portableCollapsedPlacement($toggleContainingBlock, self::CONTAINING_BLOCK_PROPERTIES);
             // An absolute control inside a viewport-fixed drawer is itself
             // viewport anchored. Promote only simple physical edge offsets:
@@ -1143,17 +1140,6 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
 
         return $portable;
-    }
-
-    /** Whether the drawer is the converted navigation or one of its ancestors. */
-    private function containsNavigation(DOMElement $drawer, DOMElement $navigation): bool
-    {
-        for ( $node = $navigation; $node instanceof DOMElement; $node = $node->parentNode ) {
-            if ( $drawer->isSameNode($node) ) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /** @param list<string> $properties @return array<string, string> */
@@ -1443,7 +1429,7 @@ final class ProjectedNavigationConverter implements ElementConverter
                 }
             }
             if ( ! $matched ) {
-                foreach ( preg_split('/\s+/', trim(SourceDom::attr($toggle, 'class'))) ?: array() as $className ) {
+                foreach ( SourceDom::tokens(SourceDom::attr($toggle, 'class')) as $className ) {
                     if ( '' !== $className && 1 === preg_match('/\.' . preg_quote($className, '/') . '(?:$|[.\s\[:#>+~])/', $selector) ) {
                         $matched = true;
                         break;

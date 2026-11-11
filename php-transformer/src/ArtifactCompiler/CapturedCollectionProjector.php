@@ -32,7 +32,7 @@ final class CapturedCollectionProjector
             $indices[$path] = $index;
         }
         if (!CapturedInteractionReport::valid($report)
-            || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null)
+            || null === $receipt
             || !is_array($report['pages'] ?? null) || !is_array($receipt['routes'] ?? null)) {
             return array('files' => $files, 'diagnostics' => array(), 'projected_count' => 0);
         }
@@ -940,7 +940,7 @@ final class CapturedCollectionProjector
     private function controlState(DOMElement $element): array
     {
         $state = array('className' => $element->getAttribute('class'), 'style' => $element->getAttribute('style'), 'selected' => $element->hasAttribute('aria-selected') ? $element->getAttribute('aria-selected') : null, 'dataState' => $element->hasAttribute('data-state') ? $element->getAttribute('data-state') : null);
-        $role = strtolower(trim($element->getAttribute('role')));
+        $role = SourceDom::role($element);
         if (in_array($role, array('tab', 'button'), true)) $state['role'] = $role;
         if (preg_match('/^-?[0-9]{1,4}$/', trim($element->getAttribute('tabindex')))) $state['tabIndex'] = (int) $element->getAttribute('tabindex');
         return $state;
@@ -1116,11 +1116,8 @@ final class CapturedCollectionProjector
 
     private function document(string $html): DOMDocument
     {
-        $previous = libxml_use_internal_errors(true);
         $document = new DOMDocument('1.0', 'UTF-8');
-        $document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NONET);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
+        HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8">' . $html, LIBXML_NONET);
         return $document;
     }
 

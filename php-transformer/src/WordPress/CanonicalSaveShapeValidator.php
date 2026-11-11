@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPress;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+
 /**
  * Asserts that every emitted static core wrapper block carries only the class
  * and id tokens WordPress' own block `save()` would reproduce, so the block
@@ -135,7 +137,7 @@ final class CanonicalSaveShapeValidator
      */
     private function validateWrapper(array $block, string $blockName, string $path, array &$findings): void
     {
-        $innerHTML = is_string($block['innerHTML'] ?? null) ? $block['innerHTML'] : '';
+        $innerHTML = ArrayField::string($block, 'innerHTML');
         if ( ! preg_match('/<[a-zA-Z][^>]*>/', $innerHTML, $match) ) {
             return;
         }
@@ -144,10 +146,10 @@ final class CanonicalSaveShapeValidator
         $wrapperClasses = $this->classTokens($wrapper);
         $wrapperId      = $this->attributeValue($wrapper, 'id');
 
-        $attrs          = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
-        $classNameValue = is_string($attrs['className'] ?? null) ? $attrs['className'] : '';
+        $attrs          = ArrayField::array($block, 'attrs');
+        $classNameValue = ArrayField::string($attrs, 'className');
         $classNameTokens = $this->tokens($classNameValue);
-        $anchor          = is_string($attrs['anchor'] ?? null) ? $attrs['anchor'] : '';
+        $anchor          = ArrayField::string($attrs, 'anchor');
 
         // The block base class core's `addGeneratedClassName` always reproduces
         // in save() must be present on the stored wrapper. A block emitted
@@ -268,7 +270,7 @@ final class CanonicalSaveShapeValidator
      */
     private function validateNoDuplicateClassTokens(array $block, ?string $blockName, string $path, array &$findings): void
     {
-        $innerHTML = is_string($block['innerHTML'] ?? null) ? $block['innerHTML'] : '';
+        $innerHTML = ArrayField::string($block, 'innerHTML');
         if ( '' === $innerHTML || ! preg_match_all('/<[a-zA-Z][a-zA-Z0-9:-]*\b[^>]*>/', $innerHTML, $matches) ) {
             return;
         }
@@ -309,8 +311,7 @@ final class CanonicalSaveShapeValidator
      * A class WordPress' block supports reproduce in save() without any source
      * input: the block base class, element classes, and attribute-derived
      * support classes (alignment, color/border has-*, and is-* state/style).
-     */
-    /**
+     *
      * @param array<string, mixed> $attrs
      */
     private function isStructuralClass(string $class, string $blockName, array $attrs): bool

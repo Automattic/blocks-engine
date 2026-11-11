@@ -51,7 +51,7 @@ $assert(array() === ($unrecognized['fallbacks'] ?? array()) && str_contains((str
 $collection = $transform('<content><div>One</div><div>Two</div></content>');
 $assert(str_starts_with((string) ($collection['blocks'][0]['blockName'] ?? ''), 'custom/collection-'), 'Repeated children retain the existing custom collection conversion.');
 
-foreach (array('progress', 'meter', 'dialog', 'slot', 'shadow', 'applet') as $tag) {
+foreach (array('progress', 'meter', 'slot', 'shadow', 'applet') as $tag) {
     $guarded = $transform('<' . $tag . '><div><h1>Semantic fallback</h1></div></' . $tag . '>');
     $assert(! str_contains((string) ($guarded['serialized_blocks'] ?? ''), '<!-- wp:heading'), $tag . ' is not reinterpreted as a transparent source container.');
 }

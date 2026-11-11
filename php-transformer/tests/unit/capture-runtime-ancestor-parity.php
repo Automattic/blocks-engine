@@ -70,14 +70,16 @@ $markup = (string) ($native['serialized_blocks'] ?? '');
 $proofs = array_values(array_filter($native['source_reports']['native_runtime_replacements'] ?? array(), static fn (array $proof): bool => CaptureEvidence::DISCLOSURE_RUNTIME === ($proof['attribute'] ?? null)));
 $assert(1 === count($proofs) && $runtimeHash === $proofs[0]['body_hash'], 'the published disclosure runtime is retired with a native replacement proof', json_encode($native['source_reports']['native_runtime_replacements'] ?? null));
 $assert(!str_contains(json_encode($native['assets']), 'function triggers()'), 'the retired runtime is not shipped as an asset');
-$assert(1 === substr_count($markup, '<!-- wp:custom/captured-dialog '), 'the scoped dropdown becomes one native dialog block', $markup);
+$assert(1 === substr_count($markup, '"blocksEngineDialog"'), 'the scoped dropdown becomes one native dialog block', $markup);
 libxml_use_internal_errors(true);
 $dom = new DOMDocument();
+require_once __DIR__ . '/../fixtures/render-core-dialogs.php';
+$markup = render_core_dialogs($markup);
 $dom->loadHTML('<body>' . $markup . '</body>');
 $dialog = (new DOMXPath($dom))->query('//*[@data-blocks-engine-triggers]')->item(0);
 $expected = array_map(static fn (array $row): array => array('tag' => $row['tag'], 'closed' => $row['closed'], 'opened' => $row['opened']), $ancestors);
 $assert($dialog instanceof DOMElement && $expected === json_decode($dialog->getAttribute('data-blocks-engine-ancestor-state'), true), 'every recorded ancestor class binding travels to the native dialog', $markup);
-$assert(str_contains($markup, 'data-blocks-engine-capture-dialog-trigger-state=') && str_contains($markup, 'wp:custom/authored-button'), 'the authored trigger retains its relative state contract', $markup);
+$assert(str_contains($markup, 'data-blocks-engine-capture-dialog-trigger-state=') && str_contains($native['serialized_blocks'], 'wp:custom/authored-button'), 'the authored trigger retains its relative state contract', $markup);
 $assert(0 === ($native['metrics']['fallback_count'] ?? -1), 'the page lowers without fallback blocks');
 
 // One changed byte makes the body unknown: the capture keeps its runtime and markup.

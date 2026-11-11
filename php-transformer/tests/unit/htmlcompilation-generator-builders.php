@@ -18,6 +18,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\DescriptionLi
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\VisualIframeBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\PatternTreeFixture;
 
 $session = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession(new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()));
 $session->installGeneratedBlockRegistry(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry('custom'));
@@ -85,7 +86,7 @@ $unwiredCustom = new CustomBlockGenerator();
 $threw = false;
 $fallbacks = array();
 try {
-    $unwiredCustom->convert($elementFrom('<vendor-card><p>Hi</p></vendor-card>'), $fallbacks);
+    $unwiredCustom->convert($elementFrom('<vendor-card><p>Hi</p></vendor-card>'), 'vendor-card', $fallbacks);
 } catch (LogicException $exception) {
     $threw = str_contains($exception->getMessage(), 'not wired for conversion');
 }
@@ -102,12 +103,12 @@ $transparent = new CustomBlockGenerator(
     new ElementPresentationResolverFixture(static fn (): array => array()),
     $createBlock,
     static fn (): bool => true,
-    static fn (DOMElement $element): array => array( array( 'blockName' => 'core/paragraph', 'attrs' => array( 'content' => trim($element->textContent ?? '') ) ) ),
+    new PatternTreeFixture(children: static fn (DOMElement $element): array => array( array( 'blockName' => 'core/paragraph', 'attrs' => array( 'content' => trim($element->textContent ?? '') ) ) )),
     static fn (): bool => false,
     static fn (): array => array( 'blockName' => 'custom/layout-shell' )
 );
 $fallbacks = array();
-$lowered = $transparent->convert($elementFrom('<vendor-card><p>Hello</p></vendor-card>'), $fallbacks);
+$lowered = $transparent->convert($elementFrom('<vendor-card><p>Hello</p></vendor-card>'), 'vendor-card', $fallbacks)->block;
 $assert('core/paragraph' === ($lowered['blockName'] ?? null), 'transparent-custom-element-flattens-single-child');
 $assert(array() === $fallbacks, 'transparent-custom-element-emits-no-fallbacks');
 

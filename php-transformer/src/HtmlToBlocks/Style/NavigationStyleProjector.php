@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
@@ -15,10 +16,9 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 /**
  * Projects author navigation styling onto the emitted navigation blocks.
  *
- * Extracted from HtmlTransformer as a collaborator rather than a mixin: every
- * dependency it needs from the transformer is declared on
- * {@see NavigationStyleProjectionContext}, so this class has no $this access to
- * the transformer and can be exercised without constructing one.
+ * Every dependency it needs from the compilation is declared on
+ * {@see NavigationStyleProjectionContext}, so it can be exercised without
+ * constructing a transformer.
  */
 final class NavigationStyleProjector
 {
@@ -60,7 +60,7 @@ final class NavigationStyleProjector
                 }
 
                 $expectedMarker = 'blocks-engine-direct-navigation-link-color-' . substr(hash('sha256', $safeColor), 0, 12);
-                $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
+                $classes = SourceDom::tokens((string) ($attrs['className'] ?? ''));
                 if ( ! in_array($expectedMarker, $classes, true) ) {
                     continue;
                 }
@@ -401,7 +401,7 @@ final class NavigationStyleProjector
                 continue;
             }
 
-            $margins = $this->inlineAxisAutoMargins(is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array());
+            $margins = $this->inlineAxisAutoMargins(ArrayField::array($rule, 'declarations'));
             if ( array() === $margins ) {
                 continue;
             }
@@ -443,7 +443,7 @@ final class NavigationStyleProjector
                 continue;
             }
 
-            $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
+            $classes = SourceDom::tokens((string) ($attrs['className'] ?? ''));
             if ( ! in_array('blocks-engine-list-navigation', $classes, true) ) {
                 continue;
             }
@@ -634,7 +634,7 @@ final class NavigationStyleProjector
 
             $declarations = array();
             $itemNeutralizers = array();
-            foreach ( is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array() as $property => $value ) {
+            foreach ( ArrayField::array($rule, 'declarations') as $property => $value ) {
                 $property = trim((string) $property);
                 $value = trim((string) $value);
                 if ( '' === $property || '' === $value ) {
@@ -678,7 +678,7 @@ final class NavigationStyleProjector
             }
             $emitted[$emissionKey] = true;
 
-            $conditions = is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array();
+            $conditions = ArrayField::array($rule, 'conditions');
             if ( isset($anchorAliases[$class]) ) {
                 // Native subjects already retain the complete authored cascade.
                 // Replay only the editor paint/transition contested by Core's
@@ -809,7 +809,7 @@ final class NavigationStyleProjector
         $authoredRules = $this->navigationAuthorStyleRules();
         $rules = array();
         foreach ( $authoredRules as $rule ) {
-            $conditions = is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array();
+            $conditions = ArrayField::array($rule, 'conditions');
             if ( array() !== $conditions && ! $this->navigationConditionsAreProjectable($conditions) ) {
                 continue;
             }
@@ -858,7 +858,7 @@ final class NavigationStyleProjector
                 continue;
             }
 
-            $source = is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array();
+            $source = ArrayField::array($rule, 'declarations');
             $source = isset($source['color']) ? array( 'color' => $source['color'] ) : array();
             if ( array() === $source ) {
                 continue;
@@ -941,15 +941,15 @@ final class NavigationStyleProjector
         $order = 0;
         foreach ( $this->session->authorStyleAnalysis()->styleRules() as $authorRule ) {
             $declarations = $this->styleResolver->safeVisualDeclarations(
-                is_array($authorRule['declarations'] ?? null) ? $authorRule['declarations'] : array()
+                ArrayField::array($authorRule, 'declarations')
             );
             if ( array() === $declarations ) {
                 continue;
             }
             $ruleId = $order++;
-            foreach ( is_array($authorRule['selectors'] ?? null) ? $authorRule['selectors'] : array() as $authorSelector ) {
+            foreach ( ArrayField::array($authorRule, 'selectors') as $authorSelector ) {
                 $selector = trim((string) ($authorSelector['selector'] ?? ''));
-                $parsed = is_array($authorSelector['parsed'] ?? null) ? $authorSelector['parsed'] : array();
+                $parsed = ArrayField::array($authorSelector, 'parsed');
                 if ( '' === $selector || ! ($parsed['supported'] ?? false) ) {
                     continue;
                 }
@@ -963,7 +963,7 @@ final class NavigationStyleProjector
                     'selector' => $selector,
                     'parsed' => $parsed,
                     'declarations' => $declarations,
-                    'conditions' => is_array($authorRule['conditions'] ?? null) ? $authorRule['conditions'] : array(),
+                    'conditions' => ArrayField::array($authorRule, 'conditions'),
                     'pseudo' => $pseudo,
                     'specificity' => $this->navigationSelectorSpecificity($parsed, $pseudo),
                     'order' => $ruleId,
@@ -1090,7 +1090,7 @@ final class NavigationStyleProjector
             foreach ( $authoredRules as $rule ) {
                 if ( ($candidate['conditions'] ?? array()) !== ($rule['conditions'] ?? array())
                     || ($candidate['pseudo'] ?? '') !== ($rule['pseudo'] ?? '')
-                    || ! array_key_exists($property, is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array())
+                    || ! array_key_exists($property, ArrayField::array($rule, 'declarations'))
                 ) {
                     continue;
                 }
@@ -1110,7 +1110,7 @@ final class NavigationStyleProjector
             }
 
             if ( array() === ($candidate['conditions'] ?? array()) && '' === ($candidate['pseudo'] ?? '') ) {
-                $inline = $this->styleResolver->safeVisualDeclarations($this->styleResolver->cssDeclarations(SourceDom::attr($anchor, 'style')));
+                $inline = $this->styleResolver->safeVisualDeclarations($this->styleResolver->inlineDeclarations($anchor));
                 if ( array_key_exists($property, $inline) ) {
                     $entry = array(
                         'id' => -1,
@@ -1145,12 +1145,12 @@ final class NavigationStyleProjector
     private function navigationRuleHasConditionalPropertyCompetitorOnAnchors(array $candidate, string $property, array $authoredRules, array $anchors): bool
     {
         foreach ( $authoredRules as $rule ) {
-            $conditions = is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array();
+            $conditions = ArrayField::array($rule, 'conditions');
             if ( array() === $conditions
                 || $this->navigationConditionsAreStaticLayers($conditions)
                 || ($candidate['id'] ?? null) === ($rule['id'] ?? null)
                 || ($candidate['pseudo'] ?? '') !== ($rule['pseudo'] ?? '')
-                || ! array_key_exists($property, is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array())
+                || ! array_key_exists($property, ArrayField::array($rule, 'declarations'))
             ) {
                 continue;
             }
@@ -1233,7 +1233,7 @@ final class NavigationStyleProjector
         $virtualRules = array();
         foreach ( $authoredRules as $rule ) {
             $virtualValue = null;
-            foreach ( is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array() as $property => $value ) {
+            foreach ( ArrayField::array($rule, 'declarations') as $property => $value ) {
                 if ( $this->navigationBorderDeclarationAffectsVirtualProperty((string) $property, $virtualProperty) ) {
                     $virtualValue = (string) $value;
                 }
@@ -1285,7 +1285,7 @@ final class NavigationStyleProjector
                 return null;
             }
 
-            $itemClasses = preg_split('/\s+/', trim(SourceDom::attr($item, 'class'))) ?: array();
+            $itemClasses = SourceDom::tokens(SourceDom::attr($item, 'class'));
             if ( in_array($class, $itemClasses, true) ) {
                 // The class also belonged to the source item. Its item paint is
                 // authored, not an artifact of core moving the anchor class.
@@ -1342,7 +1342,7 @@ final class NavigationStyleProjector
                 return null;
             }
 
-            $wrapperClasses = preg_split('/\s+/', trim(SourceDom::attr($node, 'class'))) ?: array();
+            $wrapperClasses = SourceDom::tokens(SourceDom::attr($node, 'class'));
             if ( in_array($class, $wrapperClasses, true) ) {
                 return null;
             }
@@ -1405,7 +1405,7 @@ final class NavigationStyleProjector
      */
     private function navigationDeclarationIsPaintFree(string $value): bool
     {
-        $tokens = preg_split('/\s+/', trim($value)) ?: array();
+        $tokens = SourceDom::tokens($value);
         if ( array() === $tokens ) {
             return false;
         }
@@ -1484,7 +1484,7 @@ final class NavigationStyleProjector
     {
         $matched = array();
         foreach ( $this->session->sourceStyleResolutionState()->navigationStateRules() as $rule ) {
-            $conditions = is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array();
+            $conditions = ArrayField::array($rule, 'conditions');
             if ( (array() !== $conditions && ! $this->navigationConditionsAreProjectable($conditions))
                 || ! isset($rule['declarations']['color'])
                 || ! $this->styleResolver->matchesCssSelector($element, $rule['base_selector'])
@@ -1527,7 +1527,7 @@ final class NavigationStyleProjector
                 continue;
             }
 
-            foreach ( preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $class ) {
+            foreach ( SourceDom::tokens((string) ($attrs['className'] ?? '')) as $class ) {
                 if ( ! str_starts_with($class, $prefix) ) {
                     continue;
                 }
@@ -1596,7 +1596,7 @@ final class NavigationStyleProjector
                 continue;
             }
 
-            foreach ( preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $class ) {
+            foreach ( SourceDom::tokens((string) ($attrs['className'] ?? '')) as $class ) {
                 if ( ! str_starts_with($class, $prefix) ) {
                     continue;
                 }
@@ -1632,7 +1632,7 @@ final class NavigationStyleProjector
         foreach ($matches[1] as $json) {
             $attrs = json_decode($json, true);
             if (!is_array($attrs)) continue;
-            foreach (preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $class) {
+            foreach (SourceDom::tokens((string) ($attrs['className'] ?? '')) as $class) {
                 if (!str_starts_with($class, $prefix)) continue;
                 $value = $this->session->generatedSupportStylesheetState()->navigationAnchorLineHeight($class);
                 if ('' === $value) continue;
@@ -1674,7 +1674,7 @@ final class NavigationStyleProjector
                 continue;
             }
 
-            foreach ( preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $class ) {
+            foreach ( SourceDom::tokens((string) ($attrs['className'] ?? '')) as $class ) {
                 if ( ! str_starts_with($class, $prefix) ) {
                     continue;
                 }
@@ -1726,7 +1726,7 @@ final class NavigationStyleProjector
 
             $color = trim((string) ($attrs['style']['color']['text'] ?? ''));
             if ( '' === $color ) {
-                foreach ( preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $class ) {
+                foreach ( SourceDom::tokens((string) ($attrs['className'] ?? '')) as $class ) {
                     $fallbackColor = $this->session->generatedSupportStylesheetState()->navigationLinkColor($class);
                     if ( '' !== $fallbackColor ) {
                         $color = $fallbackColor;
@@ -1741,7 +1741,7 @@ final class NavigationStyleProjector
                 continue;
             }
 
-            $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
+            $classes = SourceDom::tokens((string) ($attrs['className'] ?? ''));
             $stateMask = $this->navigationColorStateMaskFromClasses($classes, $statePrefix);
             if ( null === $stateMask ) {
                 continue;
@@ -1775,7 +1775,7 @@ final class NavigationStyleProjector
                     continue;
                 }
 
-                $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
+                $classes = SourceDom::tokens((string) ($attrs['className'] ?? ''));
                 foreach ( $classes as $className ) {
                     if ( isset($defaultColors[$className]) && in_array('blocks-engine-native-responsive-navigation', $classes, true) ) {
                         $selector = '.wp-block-navigation.blocks-engine-native-responsive-navigation.' . $className;
@@ -1919,7 +1919,7 @@ final class NavigationStyleProjector
             ) {
                 continue;
             }
-            foreach ( preg_split('/\s+/', trim((string) ($presentation['className'] ?? ''))) ?: array() as $class ) {
+            foreach ( SourceDom::tokens((string) ($presentation['className'] ?? '')) as $class ) {
                 if ( '' === $class || str_starts_with($class, 'blocks-engine-') ) {
                     continue;
                 }
@@ -1947,7 +1947,7 @@ final class NavigationStyleProjector
                 continue;
             }
 
-            foreach ( preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $candidate ) {
+            foreach ( SourceDom::tokens((string) ($attrs['className'] ?? '')) as $candidate ) {
                 if ( '' !== $candidate && ! str_starts_with($candidate, 'blocks-engine-') ) {
                     $classes[$candidate] = true;
                 }
@@ -1981,7 +1981,7 @@ final class NavigationStyleProjector
                 continue;
             }
 
-            foreach ( preg_split('/\s+/', trim($className)) ?: array() as $candidate ) {
+            foreach ( SourceDom::tokens($className) as $candidate ) {
                 if ( '' !== $candidate && ! str_starts_with($candidate, 'blocks-engine-') ) {
                     $classes[$candidate] = true;
                 }
@@ -2052,7 +2052,7 @@ final class NavigationStyleProjector
                 continue;
             }
 
-            $declarations = is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array();
+            $declarations = ArrayField::array($rule, 'declarations');
             $candidate = trim((string) ($declarations['background-color'] ?? $declarations['background'] ?? ''));
             if ( '' !== $candidate && ! in_array(strtolower($candidate), array( 'none', 'transparent', 'inherit', 'initial', 'unset' ), true) ) {
                 $background = $candidate;
@@ -2069,6 +2069,6 @@ final class NavigationStyleProjector
     private function navigationSourceOwnershipClasses(array $entry, string $kind): array
     {
         $className = (string) ($entry['navigation_source_ownership'][$kind]['class_name'] ?? '');
-        return array_values(array_filter(preg_split('/\s+/', trim($className)) ?: array()));
+        return array_values(array_filter(SourceDom::tokens($className)));
     }
 }

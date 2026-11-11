@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ResponsiveCorrespondence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
@@ -199,6 +200,7 @@ final class PresetBinding
     private int $bound = 0;
     /** Projected font defaults, keyed by the HTML target that inherits them. @var array<string,string> */
     private array $fontDefaults = array();
+    private bool $themeDefaultsReady = false;
     /** Whether an author rule selects `mark` elements, which a span made a mark would join. */
     private bool $markRules = false;
     /** Author font rules that may compete with a heading default. @var list<array{selector:string,value:?string}> */
@@ -254,7 +256,18 @@ final class PresetBinding
             if (!array_key_exists($name, $this->variables)) $this->variables[$name] = false;
         }
         $this->classStyles = self::mergeClassStyles($usageBySource);
-        $theme = (new ThemeJsonProjection())->project($assets, array_keys($usageBySource), $system)['theme'];
+    }
+
+    /**
+     * Only the theme that will be written may own inherited font defaults.
+     * Before that projection is available, binding conservatively keeps fonts.
+     *
+     * @param array<string,mixed> $theme
+     */
+    public function useThemeDefaults(array $theme): void
+    {
+        $this->themeDefaultsReady = true;
+        $this->fontDefaults = array();
         $families = array_column($theme['settings']['typography']['fontFamilies'] ?? array(), 'fontFamily', 'slug');
         $styles = $theme['styles'] ?? array();
         foreach (array('body', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6') as $tag) {
@@ -380,7 +393,7 @@ final class PresetBinding
             // The author's link classes ride on the item, or on the anchor
             // the item renders (`blocksEngineNavigationAnchor`).
             $attributes = json_decode($block[2] ?? '', true);
-            $classes = (is_string($attributes['className'] ?? null) ? $attributes['className'] : '') . ' ' . (is_string($attributes['metadata']['blocksEngineNavigationAnchor']['className'] ?? null) ? $attributes['metadata']['blocksEngineNavigationAnchor']['className'] : '');
+            $classes = (ArrayField::string($attributes, 'className')) . ' ' . (is_string($attributes['metadata']['blocksEngineNavigationAnchor']['className'] ?? null) ? $attributes['metadata']['blocksEngineNavigationAnchor']['className'] : '');
             $observation = $this->classStyles[self::authoredClassKey($classes)]['color'] ?? null;
             $slug = $this->presetSlug('color', null, $observation, $reason);
             $links[] = $slug;
@@ -495,7 +508,7 @@ final class PresetBinding
                 continue;
             }
             $classes = preg_split('/\s+/', trim((string) ($values['class'] ?? ''))) ?: array();
-            if (in_array('has-inline-color', $classes, true)) continue;
+            if (in_array('has-inline-color', $classes, true) && !self::isEmptyMark($html, $name, $tag[0][1] + strlen($tag[0][0]))) continue;
             $close = null !== $attributes && 'span' === $name ? self::closingTag($html, 'span', $tag[0][1] + strlen($tag[0][0])) : null;
             $bound = null === $attributes ? null : $this->inlineFormat($name, $values, $html, $tag[0][1] + strlen($tag[0][0]), $reason);
             if (null !== $background) $this->refuse('inline_format_unsupported');
@@ -657,6 +670,18 @@ final class PresetBinding
         $attributes = array();
         foreach ($matches as $match) $attributes[strtolower($match[1])] = html_entity_decode($match[2], ENT_QUOTES | ENT_HTML5, 'UTF-8');
         return $attributes;
+    }
+
+    /**
+     * The conversion gives a text-less decoration mark `has-inline-color` so
+     * RichText keeps it. That class alone does not mean the mark is already
+     * in core's format, so its colour still binds like any other carrier.
+     */
+    private static function isEmptyMark(string $html, string $name, int $after): bool
+    {
+        if ('mark' !== $name) return false;
+        $close = self::closingTag($html, 'mark', $after);
+        return null !== $close && '' === trim(strip_tags(substr($html, $after, $close[0] - $after)));
     }
 
     /** @return array{0:int,1:int}|null Offset and length of the tag that closes an element opened before `$from`. */
@@ -832,6 +857,7 @@ final class PresetBinding
             'fontFamily' => array('fontFamily', 'font-family', 'has-%s-font-family'),
         );
         foreach ($typography as $key => [$attribute, $property, $presetClass]) {
+            if ('fontFamily' === $key && !$this->themeDefaultsReady) continue;
             if ($isLink) {
                 // Button links carry no font preset class; a family equal to
                 // a preset stack reads its variable from the same inline
@@ -941,7 +967,8 @@ final class PresetBinding
      *   a token's exact colour. Compound custom properties and backgrounds
      *   also bind literal colour tokens, including gradient stops.
      *   A `var()` in a whole colour must resolve the same way as
-     *   for a block literal.
+     *   for a block literal, or have unanimous class-list rendering evidence
+     *   for a class-only selector when global resolution is impossible.
      * - A font size binds only when it is the preset's own length, and a
      *   font family only when it is the preset's own stack, so no fallback
      *   or rounding changes what renders. Font-shorthand custom properties
@@ -1005,7 +1032,7 @@ final class PresetBinding
                     return $prelude . '{' . $this->bindRuleBody($transformer, implode(';', $kept), false) . '}' . $excluded . '{' . $this->bindRuleBody($transformer, implode(';', $shared), false) . '}';
                 }
             }
-            return $prelude . '{' . $this->bindRuleBody($transformer, $body, self::rootSelector($prelude)) . '}';
+            return $prelude . '{' . $this->bindRuleBody($transformer, $body, self::rootSelector($prelude), $prelude) . '}';
         });
     }
 
@@ -1114,7 +1141,7 @@ final class PresetBinding
         return null !== $a && null !== $b && abs($a - $b) < 0.001;
     }
 
-    private function bindRuleBody(CssStylesheetTransformer $transformer, string $body, bool $rootSelector = false): string
+    private function bindRuleBody(CssStylesheetTransformer $transformer, string $body, bool $rootSelector = false, string $selector = ''): string
     {
         $result = '';
         foreach ($transformer->splitStyleRuleBody($body) as $part) {
@@ -1127,7 +1154,7 @@ final class PresetBinding
             $changed = false;
             $rewritten = array();
             foreach (CssValueSplitter::splitTopLevel($declarations, array(';')) as $declaration) {
-                $bound = $this->bindDeclaration($declaration, $rootSelector);
+                $bound = $this->bindDeclaration($declaration, $rootSelector, $selector);
                 // Only source bytes are projected. Newly emitted preset reads
                 // must keep WordPress's namespace so Global Styles owns them.
                 $bound = $bound === $declaration ? self::sourcePresets($declaration) : $bound;
@@ -1138,6 +1165,36 @@ final class PresetBinding
             $result .= $changed ? implode(';', $rewritten) . (str_ends_with(rtrim($declarations), ';') ? ';' : '') : $declarations;
         }
         return $result;
+    }
+
+    /**
+     * Class-list evidence can prove a class-only selector's colour even when
+     * scoped custom properties cannot resolve globally. Context, state and
+     * attribute selectors cannot be reconstructed from class lists, so abstain.
+     *
+     * Every matching class list must supply the same exact palette token.
+     */
+    private function observedSelectorColorSlug(string $selector, string $property): ?string
+    {
+        $arms = CssStylesheetTransformer::splitSelectorList($selector);
+        if (null === $arms || array() === $arms) return null;
+        $slug = null;
+        foreach ($arms as $arm) {
+            // Projection excludes generated roles without changing source matches.
+            $arm = preg_replace('/' . preg_quote(':not(:where(.blocks-engine-role-control))', '/') . '$/', '', trim($arm)) ?? $arm;
+            if (!preg_match('/^(?:\.[a-zA-Z_][a-zA-Z0-9_-]*)+$/', $arm)) return null;
+            $classes = explode('.', substr($arm, 1));
+            $matched = false;
+            foreach ($this->classStyles as $key => $properties) {
+                if (array() !== array_diff($classes, explode(' ', $key))) continue;
+                $matched = true;
+                $observed = $this->presetSlug('color', null, $properties[$property] ?? null);
+                if (null === $observed || (null !== $slug && $slug !== $observed)) return null;
+                $slug = $observed;
+            }
+            if (!$matched) return null;
+        }
+        return $slug;
     }
 
     /** Keep source preset definitions and unbound reads out of core's namespace. */
@@ -1153,7 +1210,7 @@ final class PresetBinding
         ) ?? $css;
     }
 
-    private function bindDeclaration(string $declaration, bool $rootSelector = false): string
+    private function bindDeclaration(string $declaration, bool $rootSelector = false, string $selector = ''): string
     {
         $parts = explode(':', $declaration, 2);
         if (2 !== count($parts)) return $declaration;
@@ -1195,6 +1252,9 @@ final class PresetBinding
             'font-size' => $this->exactFontSizeSlug($value),
             default => $this->exactFontFamilySlug($value),
         };
+        if (null === $slug && 'color' === $kind && str_contains($value, 'var(') && in_array($property, array('color', 'background-color'), true)) {
+            $slug = $this->observedSelectorColorSlug($selector, $property);
+        }
         if (null === $slug && 'color' === $kind) {
             $mix = $this->translucentMix($value);
             if (null === $mix) return $declaration;
@@ -1390,20 +1450,6 @@ final class PresetBinding
         return array($match[1][1], $match[1][1] + strlen($match[1][0]), $match[1][0]);
     }
 
-    /**
-     * Whether binding a property keeps the cascade outcome.
-     *
-     * A preset class is `!important`, so any other `!important` rule that can
-     * reach the element competes with it; a rule that excludes one of the
-     * classes the binding adds (`:not(.has-text-color)`) cannot. Spacing stays
-     * inline (as a preset variable), so only selectors on the style text can
-     * observe it, and only through a fragment longer than the property name,
-     * unless the declaration is new. Interaction-state rules for the property
-     * make the resting value one of several, so they block binding too.
-     *
-     * @param array<string,true> $tokens
-     * @param list<string> $addedClasses
-     */
     /**
      * Whether adding `has-background` keeps the block's padding: the block
      * already has the class, its core style does not pad it, or every side
@@ -2029,7 +2075,7 @@ final class PresetBinding
         ksort($usageBySource, SORT_STRING);
         $observations = array();
         foreach ($usageBySource as $usage) {
-            foreach (is_array($usage['class_styles'] ?? null) ? $usage['class_styles'] : array() as $row) {
+            foreach (ArrayField::array($usage, 'class_styles') as $row) {
                 $key = self::authoredClassKey((string) ($row['classes'] ?? ''));
                 if ('' === $key) continue;
                 foreach (self::CLASS_STYLE_PROPERTIES as $property) {
@@ -2040,6 +2086,7 @@ final class PresetBinding
         ksort($observations, SORT_STRING);
         $merged = array();
         foreach ($observations as $key => $properties) {
+            $merged[(string) $key] = array();
             foreach ($properties as $property => $values) {
                 if (array('' => true) === $values) continue;
                 $merged[(string) $key][$property] = 1 === count($values) ? (string) array_key_first($values) : '!';
@@ -2079,7 +2126,6 @@ final class PresetBinding
         return (string) preg_replace_callback('/\s*\/?>$/', static fn(array $end): string => $encoded . $end[0], $html, 1);
     }
 
-    /** @return list<array{0:string,1:string}> */
     /**
      * Properties whose value another device document writes inline through
      * capture device-inline evidence. They stay inline declarations, which

@@ -27,7 +27,7 @@ final class SourceElementVisibility
     private function capturedDialogHasReachableTrigger(DOMElement $dialog): bool
     {
         $document = $dialog->ownerDocument;
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($dialog, 'data-blocks-engine-triggers'))) ?: array() as $id ) {
+        foreach ( SourceDom::tokens(SourceDom::attr($dialog, 'data-blocks-engine-triggers')) as $id ) {
             $trigger = '' !== $id && null !== $document ? $document->getElementById($id) : null;
             if ( ! $trigger instanceof DOMElement ) {
                 continue;
@@ -65,9 +65,9 @@ final class SourceElementVisibility
             return false;
         }
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
-        $visibility = CssValueInspector::comparable((string) ($declarations['visibility'] ?? ''));
-        $opacity = CssValueInspector::comparable((string) ($declarations['opacity'] ?? ''));
+        $display = CssValueInspector::declared($declarations, 'display');
+        $visibility = CssValueInspector::declared($declarations, 'visibility');
+        $opacity = CssValueInspector::declared($declarations, 'opacity');
         return 'none' === $display
             || in_array($visibility, array( 'hidden', 'collapse' ), true)
             || (is_numeric($opacity) && 0.0 === (float) $opacity);
@@ -113,16 +113,42 @@ final class SourceElementVisibility
                 return false;
             }
             $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->controlSurfaceResolvedStyle($candidate));
-            $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+            $display = CssValueInspector::declared($declarations, 'display');
             if ( 'none' === $display ) {
                 return true;
             }
-            $visibility = CssValueInspector::comparable((string) ($declarations['visibility'] ?? ''));
+            $visibility = CssValueInspector::declared($declarations, 'visibility');
             if ( in_array($visibility, array( 'hidden', 'collapse' ), true) ) {
                 return true;
             }
-            $opacity = CssValueInspector::comparable((string) ($declarations['opacity'] ?? ''));
+            $opacity = CssValueInspector::declared($declarations, 'opacity');
             if ( is_numeric($opacity) && 0.0 === (float) $opacity ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether a wrapper around the element hides it at the collapsed (mobile)
+     * reference viewport. The element itself is excluded: a navigation becomes
+     * core/navigation, whose own overlay replaces the source's collapsed
+     * state, while a wrapper stays a group that keeps hiding it.
+     */
+    public function wrapperHiddenAtCollapsedViewport(DOMElement $element): bool
+    {
+        for (
+            $candidate = $element->parentNode;
+            $candidate instanceof DOMElement && 'body' !== strtolower($candidate->tagName);
+            $candidate = $candidate->parentNode
+        ) {
+            if ( SourceDom::documentVariantRoot($candidate) === $candidate ) {
+                return false;
+            }
+            $declarations = $this->styleResolver->collapsedViewportDeclarations($candidate, array( 'display', 'visibility' ));
+            if ( 'none' === CssValueInspector::declared($declarations, 'display')
+                || in_array(CssValueInspector::declared($declarations, 'visibility'), array( 'hidden', 'collapse' ), true) ) {
                 return true;
             }
         }

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Closure;
 use DOMElement;
 
@@ -11,9 +12,9 @@ final class ButtonElementContext
 {
     public function __construct(
         private readonly Closure $isReplacedSearchClusterControl,
-        private readonly Closure $convertChildren,
+        private readonly PatternTreeConverter $tree,
         private readonly Closure $convertButton,
-        private readonly ?Closure $isRuntimeDomTarget = null,
+        private readonly ?RuntimeDomTargets $runtimeDomTargets = null,
         private readonly ?Closure $runtimeButton = null,
         private readonly ?Closure $convertButtonWrapperGroup = null,
         private readonly ?Closure $imageMinimumPixelSize = null
@@ -34,7 +35,7 @@ final class ButtonElementContext
     /** @param array<int, array<string, mixed>> $fallbacks @return array<int, array<string, mixed>> */
     public function convertChildren(DOMElement $element, array &$fallbacks, bool $captureUnsupported): array
     {
-        return ($this->convertChildren)($element, $fallbacks, $captureUnsupported);
+        return $this->tree->children($element, $fallbacks, $captureUnsupported);
     }
 
     /** @return array<string, mixed>|null */
@@ -45,7 +46,7 @@ final class ButtonElementContext
 
     public function isRuntimeDomTarget(DOMElement $element): bool
     {
-        return $this->isRuntimeDomTarget instanceof Closure && ($this->isRuntimeDomTarget)($element);
+        return true === $this->runtimeDomTargets?->isRuntimeDomTarget($element);
     }
 
     /** @return array<string, mixed>|null */

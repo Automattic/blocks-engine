@@ -6,7 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 /**
  * The declared, ordered cascade layers for the engine-support stylesheet
  * emitted after the author stylesheet (`engine-support-after-author`; see
- * {@see \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation::materializeAuthorStylesheet()}).
+ * {@see AuthorStylesheetMaterialization::materialize()}).
  *
  * Precedence used to be the line order in which that method called its
  * emitters — nineteen interleaved appends across eight collaborators, with

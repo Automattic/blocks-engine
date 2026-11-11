@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\RuntimeDomTargetsFixture;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\AuthoredFormControlBlockConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeIslandRecorder;
@@ -39,27 +41,25 @@ $createBlock = new SourceBlockCreatorFixture(static fn (string $name, array $att
     'attrs' => $attrs,
     'innerBlocks' => $innerBlocks,
 ));
-$presentationAttributes = static fn (DOMElement $element): array => array( 'className' => 'presented' );
+$presentation = new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array( 'className' => 'presented' ));
 $echoStart = count($session->transformationEvidenceState()->formControlEchoTexts());
 $recorded = array();
-$metadataBuilder = new FormControlMetadataBuilder(static fn (DOMElement $element): string => strtolower($element->tagName));
+$metadataBuilder = new FormControlMetadataBuilder();
 $runtimeRecorder = new FormRuntimeIslandRecorder(
     $metadataBuilder,
     static function (DOMElement $element, string $kind, string $reason, string $capability, array $metadata) use (&$recorded): void {
         $recorded[] = compact('kind', 'reason', 'capability', 'metadata');
     },
-    static fn (DOMElement $element): array => array(),
     $session
 );
 $authoredRegistry = $session->requireGeneratedBlockRegistry();
 $authoredConverter = new AuthoredFormControlBlockConverter(
     $metadataBuilder,
     static fn (DOMElement $element): array => $element->hasAttribute('data-styled') ? array( 'display' => 'block' ) : array(),
-    $presentationAttributes,
+    $presentation,
     $createBlock,
     $session,
     new Runtime(),
-    static fn (string $id): string => $id,
     static fn (DOMElement $element): DOMElement => $element
 );
 $converter = new ReadableFormControlBlockConverter(
@@ -67,9 +67,8 @@ $converter = new ReadableFormControlBlockConverter(
     $authoredConverter,
     $runtimeRecorder,
     new Runtime(),
-    static fn (DOMElement $element): array => $element->hasAttribute('data-event') ? array( 'change' => true ) : array(),
-    static fn (DOMElement $element): bool => $element->hasAttribute('data-runtime'),
-    $presentationAttributes,
+    new RuntimeDomTargetsFixture(static fn (DOMElement $element): bool => $element->hasAttribute('data-runtime')),
+    $presentation,
     $createBlock,
     $session
 );
@@ -88,7 +87,7 @@ $assert('core/group' === ($multiControl['blockName'] ?? ''), 'multi-control-labe
 $assert(2 === count($multiControl['innerBlocks'] ?? array()), 'multi-control-label-retains-each-summary');
 $assert('presented' === ($multiControl['attrs']['className'] ?? ''), 'multi-control-label-retains-presentation');
 
-$eventLabel = $converter->convert($elementFrom('<label>Email<input data-event></label>', 'label'));
+$eventLabel = $converter->convert($elementFrom('<label>Email<input onchange="handle()"></label>', 'label'));
 $assert(null === $eventLabel, 'eventful-wrapped-control-declines-readable-block');
 
 $recorded = array();
@@ -131,7 +130,7 @@ $assert('core/paragraph' === ($legend['blockName'] ?? ''), 'group-caption-become
 $assert('Your details' === ($legend['attrs']['content'] ?? ''), 'group-caption-retains-its-text');
 
 $assert(null === $converter->convert($elementFrom('<div>Not a control</div>', 'div')), 'non-control-is-declined');
-$assert(null === $converter->convert($elementFrom('<input data-event name="email">', 'input')), 'eventful-control-is-declined');
+$assert(null === $converter->convert($elementFrom('<input onchange="handle()" name="email">', 'input')), 'eventful-control-is-declined');
 
 if ( $failures ) {
     fwrite(STDERR, implode("\n", $failures) . "\n");

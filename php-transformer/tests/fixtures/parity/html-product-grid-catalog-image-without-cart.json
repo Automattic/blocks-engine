@@ -13,7 +13,7 @@
   },
   "operation": "html_transformer.transform",
   "input": {
-    "content": "<main><h1>Shop</h1><div class=\"grid grid-cols-4 gap-5\"><div class=\"card\"><img src=\"/media/ring.jpg\" alt=\"Solaris Ring\"><h3>Solaris Ring</h3><span class=\"price\">$64.99</span></div><div class=\"card\"><img src=\"/media/wave.jpg\" alt=\"Prism Wave\"><h3>Prism Wave</h3><span class=\"price\">$54.99</span></div><div class=\"card\"><img src=\"/media/pulse.jpg\" alt=\"Green Pulse\"><h3>Green Pulse</h3><span class=\"price\">$29.99</span></div><div class=\"card\"><img src=\"/media/apex.jpg\" alt=\"Apex Dynamics\"><h3>Apex Dynamics</h3><span class=\"price\">$49.99</span></div></div></main>"
+    "content": "<header><a href=\"/cart/\">Cart</a></header><main><h1>Shop</h1><div class=\"grid grid-cols-4 gap-5\"><div class=\"card\"><img src=\"/media/ring.jpg\" alt=\"Solaris Ring\"><h3>Solaris Ring</h3><span class=\"price\">$64.99</span></div><div class=\"card\"><img src=\"/media/wave.jpg\" alt=\"Prism Wave\"><h3>Prism Wave</h3><span class=\"price\">$54.99</span></div><div class=\"card\"><img src=\"/media/pulse.jpg\" alt=\"Green Pulse\"><h3>Green Pulse</h3><span class=\"price\">$29.99</span></div><div class=\"card\"><img src=\"/media/apex.jpg\" alt=\"Apex Dynamics\"><h3>Apex Dynamics</h3><span class=\"price\">$49.99</span></div></div></main>"
   },
   "expected_fallbacks": [
     {

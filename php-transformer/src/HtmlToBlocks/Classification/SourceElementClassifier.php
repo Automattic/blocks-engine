@@ -3,11 +3,11 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentElementConverter;
-use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\HtmlDimensionAttribute;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
@@ -70,7 +70,7 @@ final class SourceElementClassifier
     public function isDependentRuntimeMediaMask(DOMElement $element): bool
     {
         if ( '' !== trim(SourceDom::attr($element, 'aria-label'))
-            || in_array(strtolower(trim(SourceDom::attr($element, 'role'))), array( 'img', 'graphics-document', 'graphics-symbol' ), true)
+            || in_array(SourceDom::role($element), array( 'img', 'graphics-document', 'graphics-symbol' ), true)
             || 0 < $element->getElementsByTagName('title')->length
             || 0 < $element->getElementsByTagName('desc')->length
         ) {
@@ -236,7 +236,7 @@ final class SourceElementClassifier
     public function isLayoutShellBlock(array $block): bool
     {
         return str_ends_with((string) ($block['blockName'] ?? ''), '/layout-shell')
-            && 0 < count(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array());
+            && 0 < count(ArrayField::array($block, 'innerBlocks'));
     }
 
     public function isLayoutShellSerializableStyle(string $style): bool
@@ -917,7 +917,8 @@ final class SourceElementClassifier
     {
         $srcset = SourceDom::attr($image, 'srcset');
         if ( '' === $srcset ) {
-            return '' !== SourceDom::attr($image, 'sizes');
+            // `sizes` only selects among srcset candidates; alone it has no effect.
+            return false;
         }
         $candidates = SrcsetParser::parse($srcset);
         if ( array() === $candidates ) {
@@ -976,7 +977,7 @@ final class SourceElementClassifier
 
     public function isCarouselList(DOMElement $element): bool
     {
-        if ( 'list' === strtolower(trim(SourceDom::attr($element, 'role')))
+        if ( 'list' === SourceDom::role($element)
             || in_array(strtolower($element->tagName), array('ol', 'ul'), true)
         ) {
             return true;
@@ -1027,7 +1028,7 @@ final class SourceElementClassifier
     public function isCarouselControl(DOMElement $element, DOMElement $root): bool
     {
         return (in_array(strtolower($element->tagName), array('a', 'button'), true)
-            || ('button' === strtolower(trim(SourceDom::attr($element, 'role')))
+            || ('button' === SourceDom::role($element)
                 && '' !== trim(SourceDom::attr($element, 'aria-label')))
             || ('' === trim(SourceDom::attr($element, 'role'))
                 && 1 === preg_match('/^\d+$/D', trim(SourceDom::attr($element, 'tabindex')))
@@ -1049,7 +1050,7 @@ final class SourceElementClassifier
      */
     private static function isDocumentNavigationLink(DOMElement $element): bool
     {
-        if ('a' !== strtolower($element->tagName) || 'button' === strtolower(trim(SourceDom::attr($element, 'role')))) {
+        if ('a' !== strtolower($element->tagName) || 'button' === SourceDom::role($element)) {
             return false;
         }
         $href = trim(SourceDom::attr($element, 'href'));
@@ -1140,7 +1141,7 @@ final class SourceElementClassifier
                 if ('dialog' === $surface['kind']) return true;
                 if ('carousel' === $surface['kind']) continue;
             }
-            if ( $ancestor->hasAttribute('hidden') || 'true' === strtolower(trim(SourceDom::attr($ancestor, 'aria-hidden'))) ) {
+            if ( $ancestor->hasAttribute('hidden') || SourceDom::isAriaHidden($ancestor) ) {
                 return true;
             }
             $identity = strtolower(implode(' ', array(
@@ -1410,7 +1411,7 @@ final class SourceElementClassifier
 
     public function isCarouselSlideChild(DOMElement $child): bool
     {
-        if ( 'listitem' === strtolower(trim(SourceDom::attr($child, 'role'))) || 'li' === strtolower($child->tagName) ) {
+        if ( 'listitem' === SourceDom::role($child) || 'li' === strtolower($child->tagName) ) {
             return true;
         }
 
@@ -1532,17 +1533,6 @@ final class SourceElementClassifier
         }
 
         return $hasDefinition;
-    }
-
-    public function isDescendantOf(DOMElement $element, DOMElement $ancestor): bool
-    {
-        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
-            if ( $node->isSameNode($ancestor) ) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     public function isUnsafeIframeDestination(string $value): bool

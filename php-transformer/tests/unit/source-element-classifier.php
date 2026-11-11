@@ -18,6 +18,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 
 $failures = 0;
 $passes   = 0;
@@ -395,11 +396,11 @@ $assert(
 
 $outer = $element('<section><div><span id="leaf">x</span></div></section>');
 $leaf  = $outer->getElementsByTagName('span')->item(0);
-$assert($classifier->isDescendantOf($leaf, $outer), 'a nested element is a descendant');
-$assert($classifier->isDescendantOf($outer, $outer), 'an element is its own ancestor for this predicate');
+$assert(SourceDom::elementContains($outer, $leaf), 'a nested element is a descendant');
+$assert(SourceDom::elementContains($outer, $outer), 'an element is its own ancestor for this predicate');
 
 $sibling = $element('<aside>other</aside>');
-$assert(! $classifier->isDescendantOf($leaf, $sibling), 'an unrelated element is not an ancestor');
+$assert(! SourceDom::elementContains($sibling, $leaf), 'an unrelated element is not an ancestor');
 
 // --- statelessness ----------------------------------------------------------
 

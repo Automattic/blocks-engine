@@ -10,16 +10,12 @@ use DOMElement;
  * Converts source tags whose block mapping depends only on the element's own
  * text/markup content and presentation attributes.
  *
- * These branches previously lived inline in `HtmlTransformer::convertElement()`.
- * They are extracted as a collaborator rather than a trait: a trait keeps every
- * method in the transformer's `$this` scope, so it moves code across a file
- * boundary without reducing the object surface. This class receives a
- * {@see TextLeafElementContext} and can be exercised without constructing a
- * transformer.
+ * It receives a {@see TextLeafElementContext} and can be exercised without
+ * constructing a transformer.
  *
- * Ordering note: the transformer's dispatch chain is order-sensitive. This
- * converter is consulted at exactly the position the extracted branches
- * occupied, and {@see handles()} matches the same tags those branches matched.
+ * Ordering note: the element dispatch chain is order-sensitive, and
+ * {@see handles()} decides which tags reach this converter at its position
+ * in that chain.
  */
 final class TextLeafElementConverter implements ElementConverter
 {
@@ -54,11 +50,10 @@ final class TextLeafElementConverter implements ElementConverter
      * Returns a `ConversionOutcome` so a legitimate `null` block (the element
      * intentionally produces nothing, e.g. `br`) stays distinguishable from
      * "this converter does not own the tag".
-     */
-    /**
+     *
      * @param array<int, array<string, mixed>> $fallbacks
      */
-    public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
         return match ($tagName) {
             'address'          => ConversionOutcome::handled($this->convertAddress($element)),
@@ -78,7 +73,7 @@ final class TextLeafElementConverter implements ElementConverter
     private function convertAddress(DOMElement $element): ?array
     {
         $content = $this->richTextMaterializer->content($element);
-        if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+        if ( ! $this->runtime->hasVisibleText($content) ) {
             return null;
         }
 
@@ -99,7 +94,7 @@ final class TextLeafElementConverter implements ElementConverter
         $children = $this->context->convertChildren($element, $fallbacks, true);
         if ( array() === $children ) {
             $content = SourceDom::innerHtml($element);
-            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+            if ( ! $this->runtime->hasVisibleText($content) ) {
                 return null;
             }
 
@@ -138,7 +133,7 @@ final class TextLeafElementConverter implements ElementConverter
         }
 
         $content = SourceDom::innerHtml($element);
-        if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+        if ( ! $this->runtime->hasVisibleText($content) ) {
             return null;
         }
 

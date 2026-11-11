@@ -12,7 +12,7 @@ $controls = '<form method="get"><label for="sort">Sort by</label><select id="sor
     . '<fieldset><legend>Finish</legend><label><input type="checkbox" name="filter.finish" value="matte">Matte</label><label><input type="checkbox" name="filter.finish" value="gloss">Gloss</label></fieldset></form>';
 $card = static fn (string $name, string $finish): string => '<article data-finish="' . $finish . '"><img src="' . strtolower($name) . '.jpg" alt="' . $name . '"><h2>' . $name . '</h2><p>$20.00</p></article>';
 $compile = static function (string $content): array {
-    return (new ArtifactCompiler())->compile(array('entrypoint' => 'catalog.html', 'files' => array('catalog.html' => '<!doctype html><html><head><title>Catalog</title></head><body><main><h1>Catalog</h1>' . $content . '</main></body></html>')))->toArray();
+    return (new ArtifactCompiler())->compile(array('entrypoint' => 'catalog.html', 'files' => array('catalog.html' => '<!doctype html><html><head><title>Catalog</title></head><body><a href="/cart/">Cart</a><main><h1>Catalog</h1>' . $content . '</main></body></html>')))->toArray();
 };
 $entities = static function (array $result, string $type): array {
     foreach ($result['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array() as $declaration) {
@@ -73,7 +73,7 @@ $assert(1 === count($gridFindings) && 2 === $gridFindings[0]['product_count'], '
 $assert(1 === count($listings) && array('sort', 'facet', 'facet') === array_column($listings[0]['controls'], 'kind'), 'Sibling panel controls attach to populated listing.');
 
 foreach (array('header', 'aside') as $landmark) {
-    $html = '<!doctype html><html><head><title>Catalog</title></head><body><' . $landmark . '><h2>Promoted products</h2><div style="display:grid">' . $card('Delta', 'matte') . $card('Epsilon', 'gloss') . '</div></' . $landmark . '><main><h1>Catalog</h1><filter-form><form>' . $facets . $sort . '</form></filter-form><div class="collection-empty collection" id="product-grid"><svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg><p>No products found</p></div></main></body></html>';
+    $html = '<!doctype html><html><head><title>Catalog</title></head><body><a href="/cart/">Cart</a><' . $landmark . '><h2>Promoted products</h2><div style="display:grid">' . $card('Delta', 'matte') . $card('Epsilon', 'gloss') . '</div></' . $landmark . '><main><h1>Catalog</h1><filter-form><form>' . $facets . $sort . '</form></filter-form><div class="collection-empty collection" id="product-grid"><svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg><p>No products found</p></div></main></body></html>';
     $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'catalog.html', 'files' => array('catalog.html' => $html)))->toArray();
     $grids = $entities($result, 'product_grids');
     $listings = $entities($result, 'product_listings');
@@ -86,6 +86,11 @@ foreach (array('header', 'aside') as $landmark) {
 $contact = $compile('<section><h2>Contact us</h2><form><input name="email" type="email"><fieldset><legend>Interests</legend><label><input type="checkbox" name="interests" value="news">News</label><label><input type="checkbox" name="interests" value="events">Events</label></fieldset><button>Send</button></form></section>');
 $assert(array() === $entities($contact, 'product_grids') && array() === $entities($contact, 'product_listings'), 'Contact interests without product signals are not commerce.');
 $assert(array() === array_filter($contact['fallbacks'] ?? array(), static fn (array $finding): bool => 'html_product_grid_fallback' === ($finding['diagnostic_code'] ?? null)), 'Contact interests emit no grid findings.');
+// Valueless disclosure checkboxes (navigation folder toggles) offer no selectable value.
+$folder = static fn (string $id, string $label): string => '<li><input type="checkbox" name="folder-toggle-' . $id . '" id="folder-toggle-' . $id . '"><label for="folder-toggle-' . $id . '">' . $label . '</label><div><ul><li><a href="' . $id . '.html">' . $label . ' page</a></li></ul></div></li>';
+$toggles = $compile('<nav><ul>' . $folder('a', 'Company') . $folder('b', 'Services') . '</ul></nav><section><h2>About</h2><p>We are a consulting firm.</p></section><div id="collection-about" class="layout empty"><div class="row"></div></div>');
+$assert(array() === $entities($toggles, 'product_grids') && array() === $entities($toggles, 'product_listings'), 'Disclosure toggles beside an empty layout are not commerce.');
+$assert(array() === array_filter($toggles['fallbacks'] ?? array(), static fn (array $finding): bool => 'html_product_grid_fallback' === ($finding['diagnostic_code'] ?? null)), 'Disclosure toggles emit no grid findings.');
 $loneOrder = $compile('<section><form><select name="order"><option value="one">Uno</option><option value="two">Dos</option></select></form></section>');
 $assert(array() === $entities($loneOrder, 'product_grids') && array() === $entities($loneOrder, 'product_listings'), 'An order select without product signals is not commerce.');
 // Captured-page topology: no landmarks, deep sibling branches, duplicate devices.
@@ -110,7 +115,7 @@ foreach (array(2, 1, 0) as $count) {
     foreach (array('Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta', 'Theta') as $name) $drawer .= $capturedCard($name);
     $drawer .= '</ul></div>';
     $copy = '<div>' . str_repeat('<div>', 8) . $column . str_repeat('</div>', 8) . $drawer . '</div>';
-    $html = '<!doctype html><html><head><title>Catalog</title></head><body><style>.neutral { color: black; }</style><script>window.neutral = "not a facet label";</script>' . $copy . $copy . '</body></html>';
+    $html = '<!doctype html><html><head><title>Catalog</title></head><body><a href="/cart/">Cart</a><style>.neutral { color: black; }</style><script>window.neutral = "not a facet label";</script>' . $copy . $copy . '</body></html>';
     $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'catalog.html', 'files' => array('catalog.html' => $html)))->toArray();
     $grids = $entities($result, 'product_grids');
     $listings = $entities($result, 'product_listings');
@@ -139,4 +144,16 @@ $dom->loadHTML('<html><body><style>body { color: red; }</style><div>Unrelated pa
 $recognized = (new Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ListingControlsRecognizer())->recognize($dom->getElementsByTagName('ul')->item(0), array(), array());
 $assert('color' === ($recognized['controls'][0]['key'] ?? null), 'Unlabeled facet key falls back to the final input name segment.');
 $assert(strlen($recognized['controls'][0]['label']) <= 40, 'Unlabeled facet never takes ancestor text.');
+// Neither a request form's checkbox questions (answers to submit) nor a zero
+// counter elsewhere on the page ("0 Likes") makes an empty collection a listing.
+foreach (array(
+    'request form' => '<div id="wrap"><section>' . '<form><label>Name <input type="text" name="name"></label><label>Email <input type="email" name="email"></label>'
+    . '<fieldset><legend>Do you need any of the following?</legend><label><input type="checkbox" name="extras" value="Keyboard">Keyboard</label><label><input type="checkbox" name="extras" value="Mouse">Mouse</label></fieldset>'
+    . '<label>Notes <textarea name="notes"></textarea></label><button type="submit">Send</button></form>' . '</section><div id="collection-page" class="layout empty"><div class="row"></div></div></div>',
+    'zero counter' => '<div id="wrap"><section><article><h1>Updates</h1><p>Post body.</p><footer><span><span>0 Likes</span></span></footer></article></section><div id="collection-page" class="layout empty"><div class="row"></div></div></div>',
+) as $case => $html) {
+    $transformed = (new Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer())->transform($html)->toArray();
+    $grids = array_filter($transformed['fallbacks'] ?? array(), static fn (array $finding): bool => 'html_product_grid_fallback' === ($finding['diagnostic_code'] ?? null));
+    $assert(array() === $grids, 'An empty collection is not a listing (' . $case . '): ' . json_encode(array_column($grids, 'listing')));
+}
 echo "product-listing-small-catalog: ok\n";

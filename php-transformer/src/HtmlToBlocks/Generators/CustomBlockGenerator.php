@@ -3,7 +3,10 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ConversionOutcome;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -35,7 +38,7 @@ use LogicException;
  *  - Pure: no I/O, no global state; the same inputs always yield the same
  *    definition.
  */
-final class CustomBlockGenerator
+final class CustomBlockGenerator implements ElementConverter
 {
     /**
      * Block-editor category for generated blocks. `widgets` is the generic
@@ -45,7 +48,6 @@ final class CustomBlockGenerator
 
     /**
      * @param Closure(DOMElement): bool $isSafeTransparentCustomElement
-     * @param Closure(DOMElement, array<int, array<string, mixed>>&): array<int, array<string, mixed>> $convertChildren
      * @param Closure(DOMElement): bool $hasAuthorSemanticMarker
      * @param Closure(list<DOMElement>, list<array<string, mixed>>, DOMElement): array<string, mixed> $layoutShellBlockForElements
      */
@@ -54,7 +56,7 @@ final class CustomBlockGenerator
         private readonly ?ElementPresentationResolver $presentationResolver = null,
         private readonly ?SourceBlockCreator $createBlock = null,
         private readonly ?Closure $isSafeTransparentCustomElement = null,
-        private readonly ?Closure $convertChildren = null,
+        private readonly ?PatternTreeConverter $tree = null,
         private readonly ?Closure $hasAuthorSemanticMarker = null,
         private readonly ?Closure $layoutShellBlockForElements = null
     ) {
@@ -154,15 +156,25 @@ JS;
      * Explicit ARIA list topology is retained with semantic Group wrappers.
      *
      * @param array<int, array<string, mixed>> $fallbacks
+     */
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
+    {
+        $block = $this->transparentBlock($element, $fallbacks);
+
+        return null === $block ? ConversionOutcome::unhandled() : ConversionOutcome::handled($block);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
      */
-    public function convert(DOMElement $element, array &$fallbacks): ?array
+    private function transparentBlock(DOMElement $element, array &$fallbacks): ?array
     {
         $sourceElementClassifier = $this->sourceElementClassifier ?? throw new LogicException('CustomBlockGenerator was not wired for conversion.');
         $presentationResolver = $this->presentationResolver ?? throw new LogicException('CustomBlockGenerator was not wired for conversion.');
         $createBlock = $this->createBlock ?? throw new LogicException('CustomBlockGenerator was not wired for conversion.');
         $isSafeTransparentCustomElement = $this->isSafeTransparentCustomElement ?? throw new LogicException('CustomBlockGenerator was not wired for conversion.');
-        $convertChildren = $this->convertChildren ?? throw new LogicException('CustomBlockGenerator was not wired for conversion.');
+        $tree = $this->tree ?? throw new LogicException('CustomBlockGenerator was not wired for conversion.');
         $hasAuthorSemanticMarker = $this->hasAuthorSemanticMarker ?? throw new LogicException('CustomBlockGenerator was not wired for conversion.');
         $layoutShellBlockForElements = $this->layoutShellBlockForElements ?? throw new LogicException('CustomBlockGenerator was not wired for conversion.');
 
@@ -203,7 +215,7 @@ JS;
             if ( $isList && ! $isSafeTransparentCustomElement($child) ) {
                 return null;
             }
-            $childBlocks = $convertChildren($child, $childFallbacks);
+            $childBlocks = $tree->children($child, $childFallbacks, true);
             if ( array() === $childBlocks ) {
                 return null;
             }

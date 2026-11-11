@@ -101,7 +101,7 @@ $assert('gloss' === ($bothProducts['delta-stool']['attributes'][0]['value'] ?? n
 
 // schema.org `category` names the leaf of a category path.
 $jsonLd = '<script type="application/ld+json">' . json_encode(array('@context' => 'https://schema.org', '@type' => 'Product', 'name' => 'Omega Desk', 'category' => 'Furniture > Desks', 'offers' => array('@type' => 'Offer', 'price' => '120.00'))) . '</script>';
-$schemaPlan = $compile(array('shop.html' => '<!doctype html><html><head><title>Desk</title>' . $jsonLd . '</head><body><main><h1>Omega Desk</h1></main></body></html>'))['source_reports']['wordpress_site_plan'] ?? array();
+$schemaPlan = $compile(array('shop.html' => '<!doctype html><html><head><title>Desk</title>' . $jsonLd . '</head><body><a href="/cart/">Cart</a><main><h1>Omega Desk</h1></main></body></html>'))['source_reports']['wordpress_site_plan'] ?? array();
 $schemaProducts = array_column($declaration($schemaPlan, 'products')['payload']['entities'] ?? array(), null, 'slug');
 $assert('Desks' === ($schemaProducts['omega-desk']['category'] ?? null), 'A schema.org category path names its leaf: ' . json_encode($schemaProducts));
 

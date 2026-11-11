@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssAnalysisLimits;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
@@ -95,7 +96,7 @@ final class FormStepTrackDetector
     {
         $ids = array();
         $parents = array();
-        foreach ( is_array($graph['nodes'] ?? null) ? $graph['nodes'] : array() as $node ) {
+        foreach ( ArrayField::array($graph, 'nodes') as $node ) {
             if ( is_array($node) && is_string($node['id'] ?? null) ) {
                 $ids[$node['id']] = $node['kind'] ?? null;
                 $parents[$node['id']] = $node['parent'] ?? null;

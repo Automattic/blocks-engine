@@ -13,9 +13,8 @@ use DOMElement;
  * Recognizes column / split-layout / documentation-sidebar containers and
  * converts them to a core/columns block of core/column children.
  *
- * Extracted verbatim from HtmlTransformer::columnsBlockFromElement() and its
- * private helpers. The matcher keeps its frozen callback contract while the
- * registry supplies recursive conversion through PatternTreeConverter:
+ * The matcher keeps a frozen callback contract while the registry supplies
+ * recursive conversion through PatternTreeConverter:
  *   - $convertChildren: convertChildren($child, $fallbacks, true) for wrapper
  *     columns (recursion that may emit fallbacks).
  *   - $convertElement:  convertElement($child, $fallbacks, true) for non-wrapper
@@ -124,7 +123,7 @@ final class ColumnsPattern implements PatternRecognizerInterface
         // Explicit grid placement depends on the source parent's track model.
         // core/columns replaces that model with flex and cannot preserve it.
         foreach ( $elementChildren as $child ) {
-            $childStyle = strtolower(trim($resolvedStyle($child) . ';' . $this->attr($child, 'style')));
+            $childStyle = strtolower(trim($resolvedStyle($child) . ';' . SourceDom::attr($child, 'style')));
             if ( preg_match('/(?:^|;)\s*grid-(?:column|row|area)\s*:/', $childStyle) ) {
                 return null;
             }
@@ -133,7 +132,7 @@ final class ColumnsPattern implements PatternRecognizerInterface
         $columns = array();
         $columnFallbacks = array();
         foreach ( $elementChildren as $child ) {
-            $children = $this->isColumnWrapperElement($child)
+            $children = ShellLandmarkPolicy::isColumnsWrapperTag($child->tagName)
                 ? $convertChildren($child, $columnFallbacks, true)
                 : array_filter(array( $convertElement($child, $columnFallbacks, true) ));
             // Core saves width as an inline flex-basis, preserving authored
@@ -166,17 +165,12 @@ final class ColumnsPattern implements PatternRecognizerInterface
         return $createBlock('core/columns', $attrs, $columns, $element);
     }
 
-    private function isColumnWrapperElement(DOMElement $element): bool
-    {
-        return ShellLandmarkPolicy::isColumnsWrapperTag($element->tagName);
-    }
-
     /**
      * @param callable(DOMElement): string $referenceViewportStyle
      */
     private function looksLikeColumnsContainer(DOMElement $element, string $resolvedStyle, callable $referenceViewportStyle): bool
     {
-        $inlineStyle = strtolower($this->attr($element, 'style'));
+        $inlineStyle = strtolower(SourceDom::attr($element, 'style'));
         $style = strtolower('' !== trim($resolvedStyle) ? $resolvedStyle : $inlineStyle);
 
         // An out-of-flow flex track is not a row of independent WordPress
@@ -192,13 +186,13 @@ final class ColumnsPattern implements PatternRecognizerInterface
             return false;
         }
 
-        if ( $this->hasClass($element, 'wp-block-columns') ) {
+        if ( SourceDom::hasClass($element, 'wp-block-columns') ) {
             return true;
         }
 
-        $className = strtolower($this->attr($element, 'class'));
+        $className = strtolower(SourceDom::attr($element, 'class'));
 
-        if ( preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex\b/', $style) && $this->hasDirectChildElement($element, 'svg') ) {
+        if ( preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex\b/', $style) && null !== SourceDom::firstChildElement($element, 'svg') ) {
             return false;
         }
 
@@ -229,7 +223,7 @@ final class ColumnsPattern implements PatternRecognizerInterface
         // Split-layout names describe two-pane structures. Multi-child content
         // stacks such as hero copy must stay groups so source CSS controls flow.
         return (bool) preg_match('/(?:^|\s)columns?(?:$|\s)/', $className)
-            || ( $this->looksLikeSplitLayout($element) && 2 === SourceDom::directElementChildCount($element) )
+            || ( $this->looksLikeSplitLayout($element) && 2 === SourceDom::childElementCount($element) )
             || ( $this->looksLikeDocumentationLayout($element) && $this->hasSidebarAndContentChildren($element, $referenceViewportStyle) )
             || $this->hasSidebarAndContentChildren($element, $referenceViewportStyle)
             || preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex/', $inlineStyle);
@@ -237,13 +231,13 @@ final class ColumnsPattern implements PatternRecognizerInterface
 
     private function looksLikeSplitLayout(DOMElement $element): bool
     {
-        $name = strtolower(trim($this->attr($element, 'class') . ' ' . $this->attr($element, 'id')));
+        $name = strtolower(trim(SourceDom::attr($element, 'class') . ' ' . SourceDom::attr($element, 'id')));
 
         return (bool) preg_match('/(?:^|[\s_-])(?:split|two[\s_-]?col|media[\s_-]?text|text[\s_-]?media|feature[\s_-]?row|hero[\s_-]?(?:inner|grid|content|layout)|content[\s_-]?grid)(?:$|[\s_-])/', $name);
     }
     private function looksLikeDocumentationLayout(DOMElement $element): bool
     {
-        $name = strtolower(trim($this->attr($element, 'class') . ' ' . $this->attr($element, 'id')));
+        $name = strtolower(trim(SourceDom::attr($element, 'class') . ' ' . SourceDom::attr($element, 'id')));
         return (bool) preg_match('/(?:^|[\s_-])(?:docs?|documentation|article|content)(?:[\s_-]+(?:layout|shell|page|with[\s_-]+sidebar)|$)|(?:^|[\s_-])sidebar[\s_-]+layout(?:$|[\s_-])/', $name);
     }
 
@@ -282,7 +276,7 @@ final class ColumnsPattern implements PatternRecognizerInterface
                 continue;
             }
 
-            $name = strtolower(trim($child->tagName . ' ' . $this->attr($child, 'class') . ' ' . $this->attr($child, 'id') . ' ' . $this->attr($child, 'role')));
+            $name = strtolower(trim($child->tagName . ' ' . SourceDom::attr($child, 'class') . ' ' . SourceDom::attr($child, 'id') . ' ' . SourceDom::attr($child, 'role')));
             $namesSidebar = $namesSidebar || (bool) preg_match('/(?:^|[\s_-])(?:aside|sidebar|toc|table[\s_-]+of[\s_-]+contents)(?:$|[\s_-])/', $name);
             $namesContent = $namesContent || in_array(strtolower($child->tagName), array( 'article', 'form', 'main' ), true)
                 || (bool) preg_match('/(?:^|[\s_-])(?:main|content|article|form|docs?[\s_-]+content|documentation[\s_-]+content)(?:$|[\s_-])/', $name);
@@ -307,7 +301,7 @@ final class ColumnsPattern implements PatternRecognizerInterface
 
             ++$flowChildren;
 
-            $name = strtolower(trim($child->tagName . ' ' . $this->attr($child, 'class') . ' ' . $this->attr($child, 'id') . ' ' . $this->attr($child, 'role')));
+            $name = strtolower(trim($child->tagName . ' ' . SourceDom::attr($child, 'class') . ' ' . SourceDom::attr($child, 'id') . ' ' . SourceDom::attr($child, 'role')));
             $sidebar = (bool) preg_match('/(?:^|[\s_-])(?:aside|sidebar|toc|table[\s_-]+of[\s_-]+contents)(?:$|[\s_-])/', $name);
             $content = in_array(strtolower($child->tagName), array( 'article', 'form', 'main' ), true)
                 || (bool) preg_match('/(?:^|[\s_-])(?:main|content|article|form|docs?[\s_-]+content|documentation[\s_-]+content)(?:$|[\s_-])/', $name);

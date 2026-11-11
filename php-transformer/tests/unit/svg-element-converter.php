@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\RuntimeDomTargetsFixture;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementContext;
@@ -35,7 +36,7 @@ $state = (object) array( 'mode' => 'block' );
 $fallbackCaptures = 0;
 $context = new SvgElementContext(
     static fn (DOMElement $element): bool => 'inert' === $state->mode,
-    static fn (DOMElement $element): bool => str_starts_with($state->mode, 'runtime-'),
+    new RuntimeDomTargetsFixture(static fn (DOMElement $element): bool => str_starts_with($state->mode, 'runtime-')),
     static fn (DOMElement $element): string => '<svg viewbox="0 0 1 1"></svg>',
     static fn (string $html): bool => 'runtime-safe' === $state->mode,
     static fn (DOMElement $element): bool => str_starts_with($state->mode, 'drawable-'),

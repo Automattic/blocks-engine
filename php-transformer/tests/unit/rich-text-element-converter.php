@@ -13,12 +13,14 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\RuntimeDomTargetsFixture;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RichTextElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RichTextElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\RichTextMaterializationFixture;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\PatternTreeFixture;
 
 $assertions = 0;
 $failures   = array();
@@ -69,12 +71,12 @@ $makeConverter = static function (array $overrides = array()): RichTextElementCo
         $c['authoredMarqueeBlock'],
         $c['hasEmptyVisualInlineChild'],
         $c['hasBoxChromeWrapperStyling'],
-        $c['isRuntimeDomTarget'],
+        new RuntimeDomTargetsFixture($c['isRuntimeDomTarget']),
         $c['imageBlockFromParagraph'],
         $c['mixedMediaLinkGroupFromParagraph'],
         $c['compactLinkedIconTextRowFromParagraph'],
         $c['convertText'],
-        $c['convertChildren']
+        new PatternTreeFixture(children: $c['convertChildren'])
     ));
 };
 

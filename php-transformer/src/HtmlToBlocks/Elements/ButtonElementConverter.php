@@ -23,7 +23,7 @@ final class ButtonElementConverter implements ElementConverter
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */
-    public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
         $roleButton = AuthoredButtonBlockGenerator::isRoleButton($element);
         if ( 'button' !== $tagName && (!$roleButton || (!$this->context->isRuntimeDomTarget($element) && !SourceDom::isBoundCapturedDialogTrigger($element))) ) {
@@ -154,7 +154,7 @@ final class ButtonElementConverter implements ElementConverter
                 return false;
             }
             if ( 'svg' === strtolower($child->tagName)
-                && ( 'true' !== strtolower(trim(SourceDom::attr($child, 'aria-hidden')))
+                && ( ! SourceDom::isAriaHidden($child)
                     || '' === trim(SourceDom::attr($child, 'viewbox'))
                     || 0 === SourceDom::childElementCount($child) ) ) {
                 return false;

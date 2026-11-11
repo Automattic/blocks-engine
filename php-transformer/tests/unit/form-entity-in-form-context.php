@@ -400,6 +400,15 @@ $assert(!$presentation['truncated'] && ($controlVariant['style_patch']['font_siz
     && ($controlVariant['style_patch']['font_family'] ?? '') === 'Georgia',
     'late control typography uses the same bounded form-specific cascade', json_encode($presentation['diagnostics']));
 
+// A Squarespace phone field: an empty `<label for>`, named by aria-labelledby on its legend.
+$labelledBy = $formContext(
+    '<main><form><input type="text" name="fname" aria-label="First Name">'
+    . '<fieldset><legend id="phone-wrapper"><div class="title"><span>Phone</span><span class="description required">(required)</span></div><p class="description">Phone</p></legend>'
+    . '<div class="field"><label for="phone-input"><div class="caption-text"></div></label><input id="phone-input" type="text" name="fullPhone" aria-labelledby="phone-wrapper"></div></fieldset>'
+    . '<input type="email" name="email" aria-label="Email"><button type="submit">Send</button></form></main>'
+);
+$assert(array() === ( $labelledBy['unrepresented_context'] ?? array() ), 'aria-labelledby label copy is owned by its control, not unrepresented form text', json_encode($labelledBy['unrepresented_context'] ?? null));
+
 if ( 0 < $failures ) {
     fwrite(STDERR, "form entity in-form context FAILED: {$passes} passed, {$failures} failed\n");
     exit(1);

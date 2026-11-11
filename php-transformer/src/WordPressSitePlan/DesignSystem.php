@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 
@@ -358,7 +359,7 @@ final class DesignSystem
             foreach ($matches[1] as $json) {
                 $attributes = '' === $json ? array() : json_decode($json, true);
                 if (!is_array($attributes)) $attributes = array();
-                $style = is_array($attributes['style'] ?? null) ? $attributes['style'] : array();
+                $style = ArrayField::array($attributes, 'style');
                 $carried = array(
                     'color' => isset($attributes['textColor']) || isset($style['color']['text']),
                     'background' => isset($attributes['backgroundColor']) || isset($attributes['gradient']) || isset($style['color']['background']) || isset($style['color']['gradient']),
@@ -558,7 +559,7 @@ final class DesignSystem
                     $attributes = json_decode($json, true);
                     if (!is_array($attributes)) continue;
                     foreach (array('textColor', 'backgroundColor', 'fontSize', 'fontFamily') as $key) if (is_string($attributes[$key] ?? null)) $preset++;
-                    $style = is_array($attributes['style'] ?? null) ? $attributes['style'] : array();
+                    $style = ArrayField::array($attributes, 'style');
                     $values = array($style['color']['text'] ?? null, $style['color']['background'] ?? null, $style['typography']['fontSize'] ?? null, $style['typography']['fontFamily'] ?? null);
                     foreach (array('padding', 'margin') as $box) foreach ((array) ($style['spacing'][$box] ?? array()) as $value) $values[] = $value;
                     foreach ((array) ($style['spacing']['blockGap'] ?? array()) as $value) $values[] = $value;
@@ -1046,7 +1047,7 @@ final class DesignSystem
         $authoredBackground = true;
         $conditional = array();
         foreach ($usageBySource as $usage) {
-            $root = is_array($usage['root'] ?? null) ? $usage['root'] : array();
+            $root = ArrayField::array($usage, 'root');
             // The body's cascaded size is not the html rem base or a text
             // run's class-owned size. Only shared root values can be defaults.
             $root['font_size'] = ($root['font_size_px'] ?? 0) > 0 ? CssLength::format((float) $root['font_size_px']) : '';

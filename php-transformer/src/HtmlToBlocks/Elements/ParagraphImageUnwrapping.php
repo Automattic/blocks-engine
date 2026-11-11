@@ -11,7 +11,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttribu
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
-use Closure;
 use DOMElement;
 
 /**
@@ -25,8 +24,7 @@ final class ParagraphImageUnwrapping
         private readonly StyleResolver $styleResolver,
         private readonly BlockFactory $blockFactory,
         private readonly ImageLowering $imageLowering,
-        private readonly AnchorLowering $anchors,
-        private readonly Closure $convertPictureElement
+        private readonly AnchorLowering $anchors
     ) {
     }
 
@@ -45,10 +43,16 @@ final class ParagraphImageUnwrapping
         }
         $path = $paragraph->getNodePath() ?? '';
         $projections = $this->session->authorSelectorProjectionState();
+        $marker = $projections->ensureSemanticMarker($path);
+        $child = $this->paragraphImageChild($paragraph, $ignoreLineBreaks);
+        $image = $child instanceof DOMElement && 'img' === strtolower($child->tagName) ? $child : $child?->getElementsByTagName('img')->item(0);
+        if ( $image instanceof DOMElement ) {
+            $projections->recordUnwrappedImageCarrier($image->getNodePath() ?? '', $marker);
+        }
         $attrs = $block['attrs'];
         $attrs['className'] = SourceDom::mergeClassNames(
             (string) ( $attrs['className'] ?? '' ),
-            ...$projections->semanticCarrierClasses($projections->ensureSemanticMarker($path), $path)
+            ...$projections->semanticCarrierClasses($marker, $path)
         );
         if ( $this->paragraphImageSetsLineBox($paragraph, $ignoreLineBreaks) ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) $attrs['className'], SourceBlockAttributeProjector::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS);
@@ -124,7 +128,7 @@ final class ParagraphImageUnwrapping
             return $this->imageLowering->convertImage($child);
         }
         if ( 'picture' === $tagName ) {
-            return ($this->convertPictureElement)($child);
+            return $this->imageLowering->convertPicture($child);
         }
 
         if ( '' !== LinkUrlSanitizer::sanitize(SourceDom::attr($child, 'href')) ) {

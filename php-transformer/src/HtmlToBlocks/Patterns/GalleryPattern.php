@@ -20,16 +20,16 @@ final class GalleryPattern implements PatternRecognizerInterface
 
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
-        $gallery = $context->galleryContext();
-        if ( null === $gallery ) {
+        $images = $context->images();
+        if ( null === $images ) {
             return null;
         }
 
         $block = $this->match(
             $element,
-            fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $gallery->convertImage($image, $figure, $picture, $link),
-            fn (DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array => $gallery->convertPicture($picture, $figure, $link),
-            fn (DOMElement $figure): ?DOMElement => $gallery->linkedMediaAnchor($figure),
+            fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $images->convertImage($image, $figure, $picture, $link),
+            $images->convertPicture(...),
+            $images->figureLinkedMediaAnchor(...),
             $context->presentationAttributes(...),
             SourceDom::innerHtml(...),
             $this->createBlock->createBlock(...)
@@ -69,26 +69,26 @@ final class GalleryPattern implements PatternRecognizerInterface
             if ( 'figure' === $tagName ) {
                 $linkedMedia = $figureLinkedMediaAnchor($child);
                 if ( $linkedMedia instanceof DOMElement ) {
-                    $linkedPicture = $this->firstChildElement($linkedMedia, 'picture');
+                    $linkedPicture = SourceDom::firstChildElement($linkedMedia, 'picture');
                     if ( $linkedPicture instanceof DOMElement ) {
                         $images[] = $convertPictureElement($linkedPicture, $child, $linkedMedia);
                         continue;
                     }
 
-                    $linkedImage = $this->firstChildElement($linkedMedia, 'img');
+                    $linkedImage = SourceDom::firstChildElement($linkedMedia, 'img');
                     if ( $linkedImage instanceof DOMElement ) {
                         $images[] = $convertImageElement($linkedImage, $child, null, $linkedMedia);
                         continue;
                     }
                 }
 
-                $image = $this->firstChildElement($child, 'img');
+                $image = SourceDom::firstChildElement($child, 'img');
                 if ( $image instanceof DOMElement ) {
                     $images[] = $convertImageElement($image, $child, null, null);
                     continue;
                 }
 
-                $picture = $this->firstChildElement($child, 'picture');
+                $picture = SourceDom::firstChildElement($child, 'picture');
                 if ( $picture instanceof DOMElement ) {
                     $images[] = $convertPictureElement($picture, $child, null);
                     continue;
@@ -119,7 +119,7 @@ final class GalleryPattern implements PatternRecognizerInterface
         }
 
         $attrs = $presentationAttributes($element);
-        $caption = $this->firstChildElement($element, 'figcaption');
+        $caption = SourceDom::firstChildElement($element, 'figcaption');
         if ( $caption instanceof DOMElement ) {
             $attrs['caption'] = $innerHtml($caption);
         }

@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 /**
@@ -27,8 +28,54 @@ final class CustomWrapperConventions
     private const WRAPPER_CONTENT_SHAPE_DEPTH = 2;
 
     public function __construct(
-        private readonly StyleResolver $styleResolver
+        private readonly StyleResolver $styleResolver,
+        private readonly RenderNeutralElements $renderNeutral
     ) {
+    }
+
+    /**
+     * Remove custom elements a source uses as a wrapping convention.
+     *
+     * Site builders wrap ordinary content in presentation-only custom elements.
+     * A custom element tag is not evidence that its subtree needs a generated
+     * block, so leaving those wrappers in place freezes headings and copy into
+     * opaque markup. A tag is treated as a convention when it recurs across the
+     * document while the content it wraps diverges: a genuine component repeats
+     * its internal structure, a wrapper does not.
+     *
+     * Instances an author attribute selector still addresses stay in place as
+     * selector hooks.
+     *
+     * @return list<DOMElement> The retained hook instances.
+     */
+    public function unwrapConventionWrappers(DOMElement $body, string $staticCss): array
+    {
+        $retainedHooks = array();
+        $instances = array();
+        foreach ( $body->getElementsByTagName('*') as $element ) {
+            if ( $element instanceof DOMElement && str_contains(strtolower($element->tagName), '-') ) {
+                $instances[strtolower($element->tagName)][] = $element;
+            }
+        }
+
+        $attributeSelectors = null;
+        foreach ( $instances as $tag => $elements ) {
+            if ( ! $this->isWrapperConventionTag($tag, $elements, $staticCss) ) {
+                continue;
+            }
+            $attributeSelectors ??= $this->authorDataAttributeSelectors($staticCss);
+            foreach ( $elements as $element ) {
+                if ( $this->renderNeutral->isRenderNeutralWrapper($element, false) ) {
+                    if ( $this->authorAttributeSelectorAddresses($element, $attributeSelectors) ) {
+                        $retainedHooks[] = $element;
+                    } else {
+                        SourceDom::unwrapElement($element);
+                    }
+                }
+            }
+        }
+
+        return $retainedHooks;
     }
 
     /**
@@ -37,7 +84,7 @@ final class CustomWrapperConventions
      *
      * @return array<string, true>
      */
-    public function authorDataAttributeSelectors(string $css): array
+    private function authorDataAttributeSelectors(string $css): array
     {
         $selectors = array();
         foreach ( CssValueSplitter::ruleBlocks($css) as $rule ) {
@@ -63,7 +110,7 @@ final class CustomWrapperConventions
      *
      * @param array<string, true> $selectors
      */
-    public function authorAttributeSelectorAddresses(DOMElement $element, array $selectors): bool
+    private function authorAttributeSelectorAddresses(DOMElement $element, array $selectors): bool
     {
         foreach ( array_keys($selectors) as $selector ) {
             $parsed = \Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary::parseAttributeSelector($selector);
@@ -87,7 +134,7 @@ final class CustomWrapperConventions
      *
      * @param array<int, DOMElement> $elements Every instance of the tag.
      */
-    public function isWrapperConventionTag(string $tag, array $elements, string $staticCss): bool
+    private function isWrapperConventionTag(string $tag, array $elements, string $staticCss): bool
     {
         if ( self::WRAPPER_CONVENTION_MIN_INSTANCES > count($elements) ) {
             return false;

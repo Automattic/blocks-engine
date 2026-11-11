@@ -43,7 +43,7 @@ final class DefinitionListLowering
 
             if ( 'dd' === $tagName ) {
                 $description = $this->styleResolver->innerHtml($child);
-                if ( '' === trim($this->runtime->stripAllTags($term . $description)) ) {
+                if ( ! $this->runtime->hasVisibleText($term . $description) ) {
                     continue;
                 }
 

@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
@@ -207,7 +209,6 @@ final class ShellExtraction
         return $pages;
     }
 
-    /** @return array<string,mixed>|null */
     /** @return array<int,string> Visible text runs of block markup. */
     private static function textRuns(string $markup): array
     {
@@ -506,7 +507,7 @@ final class ShellExtraction
     {
         $payload = $declaration['payload'] ?? array();
         if (RuntimeEntityManifest::SCHEMA === ($payload['schema'] ?? null)) return $this->manifestEntities[RuntimeDeclarations::hash($payload)];
-        return is_array($payload['entities'] ?? null) ? $payload['entities'] : array();
+        return ArrayField::array($payload, 'entities');
     }
 
     /** @param array<string,mixed> $document @return array<int,array<string,mixed>> */
@@ -528,21 +529,43 @@ final class ShellExtraction
             // page could otherwise make ambiguous.
             $range = $this->topLevelShellRange($index, (string) $candidate['area'], $markup);
             $identity = self::normalizeNestedChromeMarkup($markup);
-            $row = array('area' => $candidate['area'], 'markup' => $markup, 'template_part_markup' => $templatePartMarkup, 'identity_markup' => $identity, 'source_path' => $sourcePath, 'source_hash' => is_string($candidate['source_hash'] ?? null) ? $candidate['source_hash'] : '');
+            $row = array('area' => $candidate['area'], 'markup' => $markup, 'template_part_markup' => $templatePartMarkup, 'identity_markup' => $identity, 'source_path' => $sourcePath, 'source_hash' => ArrayField::string($candidate, 'source_hash'));
             if (is_array($range)) { $row['offset'] = $range['offset']; $row['length'] = $range['length']; }
+            if ('header' === $row['area'] && is_array($range)) $row = $this->withLeadingHeaderChrome($index, $row);
             $candidates[] = $row;
         }
         $sourcePath = WordPressSitePlan::value($document, 'source_path');
         $occupiedAreas = array_column($candidates, 'area');
         $nestedLandmarks = $this->nestedLandmarkShellCandidates($index, $sourcePath, $occupiedAreas);
         if (array() === $nestedLandmarks) {
-            return array_merge($candidates, $this->nestedChromeCandidates($index, $sourcePath, $occupiedAreas));
+            return $this->withSameDocumentFragments(array_merge($candidates, $this->nestedChromeCandidates($index, $sourcePath, $occupiedAreas)), $sourcePath);
         }
         // A labelled landmark claims only its own area. Unlabeled chrome still
         // supplies the other one, so a page with a nested <footer> and an
         // unlabeled leading masthead shares both.
         $occupiedAreas = array_merge($occupiedAreas, array_column($nestedLandmarks, 'area'));
-        return array_merge($candidates, $nestedLandmarks, $this->unlabeledChromeCandidates($index, $sourcePath, $occupiedAreas));
+        return $this->withSameDocumentFragments(array_merge($candidates, $nestedLandmarks, $this->unlabeledChromeCandidates($index, $sourcePath, $occupiedAreas)), $sourcePath);
+    }
+
+    /**
+     * Route links have already been resolved to plan paths. Only the owning
+     * route's fragment links are portable to every page rendering this shell.
+     * Keep source markup and ranges intact for structural removal.
+     */
+    private function withSameDocumentFragments(array $candidates, string $sourcePath): array
+    {
+        $normalize = function (string $markup) use ($sourcePath): string {
+            return preg_replace_callback('/("(?:url|href)"\s*:\s*"|\bhref\s*=\s*[\'"])([^"\']+)([\'"])/i', fn(array $match): string =>
+                $match[1] . $this->plan->shellFragmentReference($match[2], $sourcePath) . $match[3], $markup) ?? $markup;
+        };
+        foreach ($candidates as &$candidate) {
+            $markup = $normalize($candidate['markup']);
+            if ($markup === $candidate['markup']) continue;
+            $candidate['identity_markup'] = self::normalizeNestedChromeMarkup($markup);
+            $candidate['template_part_markup'] = $normalize($candidate['template_part_markup']);
+        }
+        unset($candidate);
+        return $candidates;
     }
 
     /**
@@ -749,6 +772,9 @@ final class ShellExtraction
         }
         foreach ($ranges as $range) {
             $block = substr($markup, $range['offset'], $range['length']);
+            // Modal content is not document chrome, even when its editable
+            // owner serializes as a Group. Never mine its children for parts.
+            if (self::isCapturedModalDialogBlock($block)) continue;
             // A complete labelled shell owns its descendants. Looking for
             // unlabeled chrome inside it can mistake its link row for another
             // header and its trailing controls for a footer when a preceding
@@ -831,7 +857,7 @@ final class ShellExtraction
             return false;
         }
         $attrs = json_decode($match[1], true);
-        if (!is_array($attrs)) {
+        if (!is_array($attrs) || isset($attrs['metadata']['blocksEngineDialog'])) {
             return false;
         }
         if (isset($attrs['wrappers']) && is_array($attrs['wrappers'])) {
@@ -919,7 +945,7 @@ final class ShellExtraction
 
     private static function isFooterChrome(string $markup): bool
     {
-        if (self::containsMainLandmark($markup) || self::isEmptyVisualGroup($markup) || self::containsNavigation($markup) || self::isHeadingBlock($markup)) {
+        if (self::isCapturedModalDialogBlock($markup) || self::containsMainLandmark($markup) || self::isEmptyVisualGroup($markup) || self::containsNavigation($markup) || self::isHeadingBlock($markup)) {
             return false;
         }
         if (str_contains($markup, '<!-- wp:heading') || str_contains($markup, '<!-- wp:post-content')) {
@@ -931,8 +957,12 @@ final class ShellExtraction
     private static function isCapturedModalDialogBlock(string $markup): bool
     {
         // Only a modal: a dropdown flows in its document like a source panel.
-        return 1 === preg_match('#^<!--\s*wp:[a-z0-9-]+/captured-dialog(?:\s+(\{.*?\}))?\s*/?-->#s', ltrim($markup), $match)
-            && 'dropdown' !== ((json_decode($match[1] ?? '', true) ?: array())['presentation'] ?? null);
+        if (1 === preg_match('#^<!--\s*wp:[a-z0-9-]+/captured-dialog(?:\s+(\{.*?\}))?\s*/?-->#s', ltrim($markup), $match)) {
+            return 'dropdown' !== ((json_decode($match[1] ?? '', true) ?: array())['presentation'] ?? null);
+        }
+        if (1 !== preg_match('#^<!--\s*wp:group\s+(\{.*?\})\s*-->#s', ltrim($markup), $match)) return false;
+        $shell = json_decode($match[1], true)['metadata']['blocksEngineDialog'] ?? null;
+        return is_array($shell) && 'dropdown' !== ($shell['attributes']['data-blocks-engine-presentation'] ?? null);
     }
 
     private static function isHeadingBlock(string $markup): bool
@@ -953,6 +983,7 @@ final class ShellExtraction
             $identities = array_column($rows, 'identity_markup');
             if (1 !== count(array_unique($identities))) continue;
             $row = $rows[0];
+            if ('header' === $area && 1 === count($rows)) $row = $this->withLeadingHeaderChrome($index, $row);
             $identity = $row['identity_markup'];
             if ('' === $identity) continue;
             $partMarkup = self::landmarkPartMarkup(self::withoutCurrentNavigationState($row['markup']), $area);
@@ -960,9 +991,41 @@ final class ShellExtraction
             foreach (array_slice($rows, 1) as $extra) $additional[] = array('offset' => $extra['offset'], 'length' => $extra['length'], 'markup' => $extra['markup']);
             // The candidate's own block-tree offset is carried forward so removal
             // never needs to re-derive its position by searching for its bytes.
-            $candidates[] = array('document_edge' => $row['document_edge'] ?? false, 'area' => $area, 'markup' => $row['markup'], 'template_part_markup' => $partMarkup, 'identity_markup' => $identity, 'source_path' => $sourcePath, 'source_hash' => $row['source_hash'], 'nested_shell' => true, 'shared_only' => !empty($row['document_level']), 'wrapper_contract_shell' => !empty($row['wrapper_contract_shell']), 'offset' => $row['offset'], 'length' => $row['length'], 'additional_ranges' => $additional, 'ancestor_context' => $row['ancestor_context'] ?? null);
+            $candidates[] = array('document_edge' => $row['document_edge'] ?? false, 'area' => $area, 'markup' => $row['markup'], 'template_part_markup' => $partMarkup, 'identity_markup' => $identity, 'source_path' => $sourcePath, 'source_hash' => $row['source_hash'], 'nested_shell' => true, 'shared_only' => !empty($row['document_level']), 'wrapper_contract_shell' => !empty($row['wrapper_contract_shell']), 'offset' => $row['offset'], 'length' => $row['length'], 'additional_ranges' => $additional, 'ancestor_context' => $row['ancestor_context'] ?? null) + (isset($row['shared_leading']) ? array('shared_leading' => $row['shared_leading']) : array());
         }
         return $candidates;
+    }
+
+    /**
+     * Compare the leading chrome, not a route heading appended inside its header.
+     * Retain the landmark extent so extraction can unwrap the route-owned remainder.
+     */
+    private function withLeadingHeaderChrome(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, array $row): array
+    {
+        $children = $index->children($row);
+        $count = 0;
+        $navigation = false;
+        foreach ($children as $child) {
+            $block = substr($index->markup, $child['offset'], $child['length']);
+            if (!self::isCapturedModalDialogBlock($block) && (self::containsMainLandmark($block) || str_contains($block, '<!-- wp:heading'))) break;
+            $navigation = $navigation || self::containsNavigation($block);
+            ++$count;
+        }
+        if (!$navigation || 0 === $count || count($children) === $count) return $row;
+        $end = $children[$count - 1]['offset'] + $children[$count - 1]['length'];
+        $last = $children[count($children) - 1];
+        $closing = $last['offset'] + $last['length'];
+        $pruned = substr($index->markup, $row['offset'], $end - $row['offset'])
+            . substr($index->markup, $closing, $row['offset'] + $row['length'] - $closing);
+        return array_replace($row, array(
+            'markup' => $pruned,
+            'identity_markup' => self::normalizeNestedChromeMarkup($pruned),
+            'source_hash' => hash('sha256', $pruned),
+            'template_part_markup' => self::landmarkPartMarkup(self::withoutCurrentNavigationState($pruned), 'header'),
+            'nested_shell' => true,
+            // Keep the original landmark for restoration and structural removal.
+            'shared_leading' => array('markup' => substr($index->markup, $row['offset'], $row['length']), 'end' => $end, 'closing' => $closing),
+        ));
     }
 
     /** @param array<int,array<string,mixed>> $pages @param array<string,true> $reservedSlugs @param array<int,array<string,mixed>> $runtimeDeclarations @param array<int,array<string,mixed>> $assets @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,runtime_declarations:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>} */
@@ -1321,7 +1384,7 @@ final class ShellExtraction
             $variantScopeShells = array();
             foreach ((array) ($attrs['wrappers'] ?? array()) as $wrapper) {
                 if (!is_array($wrapper)) continue;
-                $wa = is_array($wrapper['attributes'] ?? null) ? $wrapper['attributes'] : array();
+                $wa = ArrayField::array($wrapper, 'attributes');
                 $scopeClassNames[] = (string) ($wa['class'] ?? '');
                 // A nested device-only subtree and its device-hidden sibling are
                 // the two device variants of one landmark. Their wrapper is the
@@ -1347,7 +1410,7 @@ final class ShellExtraction
                 $hasShellWrapperContract = true;
                 foreach ($attrs['wrappers'] as $wrapper) {
                     if (!is_array($wrapper)) continue;
-                    $wrapperAttributes = is_array($wrapper['attributes'] ?? null) ? $wrapper['attributes'] : array();
+                    $wrapperAttributes = ArrayField::array($wrapper, 'attributes');
                     if ('' === $role && is_string($wrapperAttributes['role'] ?? null)) $role = $wrapperAttributes['role'];
                     if ('' === $anchor && is_string($wrapperAttributes['id'] ?? null)) $anchor = $wrapperAttributes['id'];
                     $wrapperClass = trim((string) ($wrapperAttributes['class'] ?? ''));
@@ -1678,10 +1741,10 @@ final class ShellExtraction
                 $diagnostics[] = array('code' => 'wordpress_site_plan_shell_wrapper_variant_retained', 'severity' => 'info', 'message' => 'The footer wrapper contract remains route-owned while identical footer copy is factored into a shared inner template part.', 'area' => 'footer');
                 continue;
             }
-            if (isset($reservedSlugs[$area])) {
-                $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'info', 'message' => "{$area} shell conflicts with an existing template part.", 'area' => $area, 'provenance' => $this->shellProvenance($area, 'retained', 'existing_template_part'));
-                continue;
-            }
+            // A part owned by another route population reserves a name, not
+            // the semantic area. Remaining candidates can still share a part.
+            $partSlug = $area;
+            for ($suffix = 2; isset($reservedSlugs[$partSlug]); ++$suffix) $partSlug = $area . '-' . $suffix;
             $applicable = array_filter($pages, static fn(array $page): bool => empty($page['synthetic']));
             if (array() === $applicable) continue;
             foreach ($applicable as $index => $page) if (!isset($unremovable[$area][$index])) foreach ($page['shell_candidates'] ?? array() as $candidate) if ($area === ($candidate['area'] ?? null)) $candidates[$index][] = $candidate;
@@ -1799,7 +1862,7 @@ final class ShellExtraction
             // the entry page, so it owns the part for the front page alone.
             $entryOnly = is_array($cluster) && 1 === count($cluster['indexes']) && 1 < count($applicable) && !empty($pages[$cluster['indexes'][0]]['entrypoint']) && array() === array_diff_key($candidates, array($cluster['indexes'][0] => true)) && 1 === count($clusters);
             if (!is_array($cluster) || (!$entryOnly && count($cluster['indexes']) < count($applicable) && (count($cluster['indexes']) < 2 || (is_array($runnerUp) && count($cluster['indexes']) === count($runnerUp['indexes']))))) {
-                $partitioned = $this->viewportPartitionWithoutCandidate($pages, array_keys($applicable), $area, $runtimeDeclarations);
+                $partitioned = $this->viewportPartitionWithoutCandidate($pages, array_keys($applicable), $area, $runtimeDeclarations, $partSlug);
                 if (null === $partitioned) {
                     $reason = array() === $clusters ? 'incomplete' : 'non_equivalent';
                     $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_' . ('incomplete' === $reason ? 'incomplete' : 'ambiguous'), 'severity' => 'info', 'message' => "{$area} shell candidates do not establish a dominant semantic cluster.", 'area' => $area, 'provenance' => $this->shellProvenance($area, 'retained', $reason, $candidates));
@@ -1865,7 +1928,7 @@ final class ShellExtraction
                 $page = $pages[$index];
                 $candidate = $candidates[$index][0];
                 $withoutShell = $inlineShell
-                    ? $this->replaceShellInPlace($page['canonical_block_markup'], $candidate, $area)
+                    ? $this->replaceShellInPlace($page['canonical_block_markup'], $candidate, $area, $partSlug)
                     : (isset($candidate['legacy_content_markup'])
                     ? (($candidate['legacy_page_markup'] ?? null) === $page['canonical_block_markup'] ? $candidate['legacy_content_markup'] : null)
                     : (!empty($candidate['nested_shell'])
@@ -1993,10 +2056,10 @@ final class ShellExtraction
                 $pages[$index]['canonical_block_markup'] = $withoutShell;
                 $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($withoutShell);
             }
-            if (null !== $bindingHoist) $runtimeDeclarations = self::applySharedShellBindingHoist($runtimeDeclarations, $bindingHoist, 'wordpress-site-plan/shared/' . $area . '#' . $area);
+            if (null !== $bindingHoist) $runtimeDeclarations = self::applySharedShellBindingHoist($runtimeDeclarations, $bindingHoist, 'wordpress-site-plan/shared/' . $partSlug . '#' . $area);
             foreach ($runtimeDeclarations as &$declaration) unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']); unset($declaration);
             $runtimeDeclarations = RuntimeDeclarations::normalizeForComposition($runtimeDeclarations);
-            $sourcePath = $singlePage ? $pages[array_key_first($applicable)]['source_path'] : 'wordpress-site-plan/shared/' . $area;
+            $sourcePath = $singlePage ? $pages[array_key_first($applicable)]['source_path'] : 'wordpress-site-plan/shared/' . $partSlug;
             $placement = $inlineShell ? 'inline_shared_shell' : ($singlePage ? 'entry_shell' : 'shared_shell');
             if ($inlineShell) { $templateSlugs = array(); $excludedTemplateSlugs = array(); }
             elseif ($singlePage) $templateSlugs = WordPressSitePlan::NATIVE_TEMPLATE_SLUGS;
@@ -2005,7 +2068,7 @@ final class ShellExtraction
             if ($singlePage && !$inlineShell) $partMarkup = $this->plan->qualifyShellFragments($partMarkup, $pages[array_key_first($applicable)]['source_path']);
             $ancestorContext = is_array($absorbed) ? ($absorbed['ancestor_context'] ?? null) : ($first['ancestor_context'] ?? null);
             $container = isset($first['legacy_container_opening']) ? array('opening' => $first['legacy_container_opening'], 'closing' => $first['legacy_container_closing']) : null;
-            $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $area, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => 'div', 'placement' => array_filter(array('kind' => $placement, 'source_path' => $sourcePath, 'source_paths' => $inlineShell ? array_values(array_map(static fn(int $index): string => $pages[$index]['source_path'], $cluster['indexes'])) : null, 'template_slugs' => $templateSlugs, 'excluded_template_slugs' => $excludedTemplateSlugs, 'container' => $inlineShell ? null : $container, 'template_wrappers' => !$singlePage && !$inlineShell ? $templateWrappers : array()), static fn(mixed $value): bool => array() !== $value && null !== $value), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', is_array($absorbed) ? 'responsive_variant_partition' : (!empty($first['route_edge']) ? 'route_edge' : 'canonical'), array_intersect_key($candidates, array_flip($cluster['indexes'])), $identity), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $area . '.html'), 'content_hash' => WordPressSitePlan::contentHash($partMarkup)) + (is_array($ancestorContext) ? array('ancestor_context' => $ancestorContext) : array());
+            $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $partSlug, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => 'div', 'placement' => array_filter(array('kind' => $placement, 'source_path' => $sourcePath, 'source_paths' => $inlineShell ? array_values(array_map(static fn(int $index): string => $pages[$index]['source_path'], $cluster['indexes'])) : null, 'template_slugs' => $templateSlugs, 'excluded_template_slugs' => $excludedTemplateSlugs, 'container' => $inlineShell ? null : $container, 'template_wrappers' => !$singlePage && !$inlineShell ? $templateWrappers : array()), static fn(mixed $value): bool => array() !== $value && null !== $value), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', is_array($absorbed) ? 'responsive_variant_partition' : (!empty($first['route_edge']) ? 'route_edge' : 'canonical'), array_intersect_key($candidates, array_flip($cluster['indexes'])), $identity), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $partSlug . '.html'), 'content_hash' => WordPressSitePlan::contentHash($partMarkup)) + (is_array($ancestorContext) ? array('ancestor_context' => $ancestorContext) : array());
             $diagnostics[] = array('code' => $singlePage ? 'wordpress_site_plan_shell_entry_extracted' : 'wordpress_site_plan_shell_extracted', 'severity' => 'info', 'message' => $singlePage ? "Extracted the entry {$area} shell for the front-page template." : "Extracted the dominant semantically equivalent {$area} shell cluster.", 'area' => $area, 'page_count' => count($cluster['indexes']), 'applicable_page_count' => count($applicable), 'exclusions' => array_map(static fn(int $index, string $reason): array => array('source_path' => $pages[$index]['source_path'], 'reason' => $reason), array_keys($excluded), $excluded));
         }
         foreach ($pages as &$page) unset($page['shell_candidates'], $page['_source_shared_variant_identities']); unset($page);
@@ -2268,7 +2331,7 @@ final class ShellExtraction
         foreach ($ranges as $range) {
             $offset = $base + $range['offset'];
             $block = substr($markup, $offset, $range['length']);
-            if (self::hasEmptyContent($block)) continue;
+            if (self::isCapturedModalDialogBlock($block) || self::hasEmptyContent($block)) continue;
             // Main content, an existing part, or a block a binding blocks ends
             // the edge with content beyond it; the other area's landmark ends
             // it without.
@@ -2806,6 +2869,7 @@ final class ShellExtraction
         if (empty($candidate['nested_shell'])) return false;
         $roots = array();
         foreach ($index->topLevel() as $range) $roots[$range['offset'] . ':' . $range['length']] = true;
+        if (isset($candidate['shared_leading'])) return !isset($roots[$candidate['offset'] . ':' . $candidate['length']]);
         foreach ($this->nestedShellRanges($markup, $candidate, $area) as $range) {
             if (!isset($roots[$range['offset'] . ':' . $range['length']])) return true;
         }
@@ -2813,9 +2877,9 @@ final class ShellExtraction
     }
 
     /** Replace the exact shell occurrence without changing its layout ancestry. */
-    private function replaceShellInPlace(string $markup, array $candidate, string $area): ?string
+    private function replaceShellInPlace(string $markup, array $candidate, string $area, ?string $slug = null): ?string
     {
-        $reference = '<!-- wp:template-part {"slug":"' . $area . '","area":"' . $area . '","tagName":"div","className":"blocks-engine-shell-transport"} /-->';
+        $reference = '<!-- wp:template-part {"slug":"' . ($slug ?? $area) . '","area":"' . $area . '","tagName":"div","className":"blocks-engine-shell-transport"} /-->';
         if (!empty($candidate['nested_shell'])) return $this->withoutNestedShell($markup, $candidate, $reference);
         $range = $this->topLevelShellRange(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup), $area, $candidate['markup'], $candidate['offset'] ?? null);
         if (null === $range) return null;
@@ -2984,7 +3048,7 @@ final class ShellExtraction
     private function shellProvenance(string $area, string $decision, string $reason, array $candidates = array(), ?string $identity = null): array
     {
         $sources = array();
-        foreach ($candidates as $rows) foreach ($rows as $candidate) if (is_array($candidate) && is_string($candidate['source_path'] ?? null)) $sources[$candidate['source_path']] = is_string($candidate['source_hash'] ?? null) ? $candidate['source_hash'] : '';
+        foreach ($candidates as $rows) foreach ($rows as $candidate) if (is_array($candidate) && is_string($candidate['source_path'] ?? null)) $sources[$candidate['source_path']] = ArrayField::string($candidate, 'source_hash');
         ksort($sources, SORT_STRING);
         return array_filter(array('schema' => 'blocks-engine/shell-extraction/v1', 'area' => $area, 'decision' => $decision, 'reason' => $reason, 'sources' => $sources, 'shell_identity' => $identity), static fn(mixed $value): bool => null !== $value);
     }
@@ -2995,7 +3059,7 @@ final class ShellExtraction
     }
 
     /** @param array<int,array<string,mixed>> $pages @param array<int,int> $indexes @param array<int,array<string,mixed>> $runtimeDeclarations @return array{pages:array<int,string>,part:array<string,mixed>,diagnostic:array<string,mixed>,runtime_declarations:array<int,array<string,mixed>>}|null */
-    private function viewportPartitionWithoutCandidate(array $pages, array $indexes, string $area, array $runtimeDeclarations): ?array
+    private function viewportPartitionWithoutCandidate(array $pages, array $indexes, string $area, array $runtimeDeclarations, string $partSlug): ?array
     {
         $applicable = array();
         foreach ($indexes as $index) $applicable[$index] = $pages[$index];
@@ -3036,12 +3100,12 @@ final class ShellExtraction
         foreach ($runtimeDeclarations as &$declaration) unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']);
         unset($declaration);
         $runtimeDeclarations = RuntimeDeclarations::normalizeForComposition($runtimeDeclarations);
-        $sourcePath = 'wordpress-site-plan/shared/' . $area;
+        $sourcePath = 'wordpress-site-plan/shared/' . $partSlug;
         $partMarkup = self::landmarkPartMarkup($absorbed['markup'], $area);
         $ancestorContext = is_array($absorbed['ancestor_context'] ?? null) ? $absorbed['ancestor_context'] : null;
         $provenanceCandidates = array();
         foreach (array_keys($withoutShells) as $index) $provenanceCandidates[$index] = array(array('source_path' => (string) $pages[$index]['source_path'], 'source_hash' => ''));
-        $part = array('source_path' => $sourcePath . '#' . $area, 'slug' => $area, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => 'div', 'placement' => array_filter(array('kind' => 'shared_shell', 'source_path' => $sourcePath, 'template_slugs' => $templateSlugs, 'excluded_template_slugs' => $excludedTemplateSlugs), static fn(mixed $value): bool => array() !== $value && null !== $value), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', 'responsive_variant_partition', $provenanceCandidates, hash('sha256', implode("\0", $absorbed['identities']))), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $area . '.html'), 'content_hash' => WordPressSitePlan::contentHash($partMarkup)) + (is_array($ancestorContext) ? array('ancestor_context' => $ancestorContext) : array());
+        $part = array('source_path' => $sourcePath . '#' . $area, 'slug' => $partSlug, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => 'div', 'placement' => array_filter(array('kind' => 'shared_shell', 'source_path' => $sourcePath, 'template_slugs' => $templateSlugs, 'excluded_template_slugs' => $excludedTemplateSlugs), static fn(mixed $value): bool => array() !== $value && null !== $value), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', 'responsive_variant_partition', $provenanceCandidates, hash('sha256', implode("\0", $absorbed['identities']))), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $partSlug . '.html'), 'content_hash' => WordPressSitePlan::contentHash($partMarkup)) + (is_array($ancestorContext) ? array('ancestor_context' => $ancestorContext) : array());
         $diagnostic = array('code' => 'wordpress_site_plan_shell_extracted', 'severity' => 'info', 'message' => "Extracted the dominant semantically equivalent {$area} shell cluster.", 'area' => $area, 'page_count' => count($withoutShells), 'applicable_page_count' => count($applicable), 'exclusions' => array_map(static fn(int $index, string $reason): array => array('source_path' => $pages[$index]['source_path'], 'reason' => $reason), array_keys($excluded), $excluded));
         return array('pages' => $withoutShells, 'part' => $part, 'diagnostic' => $diagnostic, 'runtime_declarations' => $runtimeDeclarations);
     }
@@ -3379,6 +3443,17 @@ final class ShellExtraction
     private function nestedShellRanges(string $markup, array $candidate, string $area): array
     {
         if (!empty($candidate['nested_shell'])) {
+            $leading = $candidate['shared_leading'] ?? null;
+            if (is_array($leading)) {
+                $box = $this->nestedShellRange($markup, $leading['markup'], $candidate['offset']);
+                if (null === $box) return array();
+                $shift = $box['offset'] - $candidate['offset'];
+                // Unwrap the landmark as its chrome leaves, retaining native route blocks.
+                return array(
+                    array('offset' => $box['offset'], 'length' => $leading['end'] - $candidate['offset']),
+                    array('offset' => $leading['closing'] + $shift, 'length' => $candidate['offset'] + $candidate['length'] - $leading['closing']),
+                );
+            }
             $ranges = array();
             $primary = $this->nestedShellRange($markup, (string) ($candidate['markup'] ?? ''), isset($candidate['offset']) && is_int($candidate['offset']) ? $candidate['offset'] : null);
             if (is_array($primary)) $ranges[] = $primary;
@@ -3455,7 +3530,13 @@ final class ShellExtraction
         return array('offset' => $candidate['start'], 'length' => $candidate['end'] - $candidate['start']);
     }
 
-    private static function isGroupBlock(string $markup): bool { return preg_match('/^<!--\s*wp:group(?:\s|\{)/', $markup) === 1; }
+    private static function isGroupBlock(string $markup): bool
+    {
+        if (1 !== preg_match('/^<!--\s*wp:group(?:\s+(\{.*?\}))?\s*-->/s', ltrim($markup), $match)) return false;
+        // Runtime-owned dialog boundaries were opaque companion blocks before
+        // their contents became core Groups. They are still not layout shells.
+        return !isset((json_decode($match[1] ?? '{}', true) ?: array())['metadata']['blocksEngineDialog']);
+    }
 
     private static function isCheckboxBlock(string $markup): bool { return preg_match('/^<!--\s*wp:[a-z][a-z0-9-]*\/authored-input\s+\{[^}]*"type":"checkbox"/', $markup) === 1; }
 
@@ -4109,10 +4190,7 @@ final class ShellExtraction
                 if (!is_string($data[$state]['html'] ?? null)) continue;
                 $html = $data[$state]['html'];
                 $dom = new \DOMDocument();
-                $previous = libxml_use_internal_errors(true);
-                $dom->loadHTML('<?xml encoding="UTF-8"><div id="be-snapshot-root">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-                libxml_clear_errors();
-                libxml_use_internal_errors($previous);
+                HtmlSerialization::loadHtml($dom, '<?xml encoding="UTF-8"><div id="be-snapshot-root">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
                 $xpath = new \DOMXPath($dom);
                 foreach ($xpath->query('//*[@aria-current="page"]') as $current) {
                     $siblings = array();

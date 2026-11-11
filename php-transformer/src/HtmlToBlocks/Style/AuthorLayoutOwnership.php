@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListStructure;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
@@ -32,8 +33,8 @@ final class AuthorLayoutOwnership
         'align-content', 'align-items', 'justify-content', 'place-content',
     );
 
-    private const CSS_OWNED_LAYOUT_CLASS = 'blocks-engine-css-owned-layout';
-    private const CSS_OWNED_GRID_CLASS = 'blocks-engine-css-owned-grid';
+    public const CSS_OWNED_LAYOUT_CLASS = 'blocks-engine-css-owned-layout';
+    public const CSS_OWNED_GRID_CLASS = 'blocks-engine-css-owned-grid';
 
     public function __construct(
         private readonly StyleResolver $styleResolver,
@@ -67,7 +68,7 @@ final class AuthorLayoutOwnership
             // serialize blockGap, so source gap remains stylesheet owned by
             // the normalization in createBlock().
             $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-            $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
+            $style = ArrayField::array($attrs, 'style');
             unset($style['spacing']['blockGap']);
             if ( empty($style['spacing']) ) {
                 unset($style['spacing']);
@@ -78,7 +79,7 @@ final class AuthorLayoutOwnership
                 && ! isset($style['color']['background'])
                 && ! $this->styleResolver->hasConditionalStyleFamily($element, 'background')
             ) {
-                $style['color'] = array_merge(is_array($style['color'] ?? null) ? $style['color'] : array(), array( 'background' => $background ));
+                $style['color'] = array_merge(ArrayField::array($style, 'color'), array( 'background' => $background ));
             }
             if ( array() !== $style ) {
                 $attrs['style'] = $style;
@@ -106,19 +107,27 @@ final class AuthorLayoutOwnership
         if ( ! $this->authorOwnsChildFlowSpacing($element) && ! $this->isStructuralListContext($element) ) {
             return $this->markUnsafeFixedHeightTopologyChange($attrs, $topologyChanged);
         }
-        $attrs['className'] = SourceDom::mergeClassNames(
-            (string) $attrs['className'],
-            self::CSS_OWNED_FLOW_CLASS
-        );
-        $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
-        $spacing = is_array($style['spacing'] ?? null) ? $style['spacing'] : array();
+        return $this->markUnsafeFixedHeightTopologyChange(self::withCssOwnedFlow($attrs), $topologyChanged);
+    }
+
+    /**
+     * The author's CSS owns child flow spacing: mark the flow class and zero any unset block gap.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    public static function withCssOwnedFlow(array $attrs): array
+    {
+        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::CSS_OWNED_FLOW_CLASS);
+        $style = ArrayField::array($attrs, 'style');
+        $spacing = ArrayField::array($style, 'spacing');
         if ( ! isset($spacing['blockGap']) ) {
             $spacing['blockGap'] = '0';
             $style['spacing'] = $spacing;
             $attrs['style'] = $style;
         }
 
-        return $this->markUnsafeFixedHeightTopologyChange($attrs, $topologyChanged);
+        return $attrs;
     }
 
     /**
@@ -169,7 +178,7 @@ final class AuthorLayoutOwnership
             return false;
         }
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+        $display = CssValueInspector::declared($declarations, 'display');
         if ( in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
             return true;
         }
@@ -202,7 +211,7 @@ final class AuthorLayoutOwnership
         }
 
         if ( ! $this->sourceElementClassifier->isInlineContentElement(strtolower($element->tagName))
-            || '' === trim($this->runtime->stripAllTags(SourceDom::innerHtml($element))) ) {
+            || ! $this->runtime->hasVisibleText(SourceDom::innerHtml($element)) ) {
             return false;
         }
 
@@ -345,7 +354,7 @@ final class AuthorLayoutOwnership
             }
             if ( ! $child instanceof DOMElement
                 || ( ( ! $allowsAnchors || 'a' !== strtolower($child->tagName) ) && ! $this->sourceElementClassifier->isInlineContentElement(strtolower($child->tagName)) )
-                || '' === trim($this->runtime->stripAllTags(SourceDom::innerHtml($child)))
+                || ! $this->runtime->hasVisibleText(SourceDom::innerHtml($child))
             ) {
                 return false;
             }
@@ -374,7 +383,7 @@ final class AuthorLayoutOwnership
      */
     public function cssOwnedFlexAttributes(DOMElement $element, array $excludedGeometryProperties = array()): array
     {
-        $inlineDeclarations = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
+        $inlineDeclarations = $this->styleResolver->inlineDeclarations($element);
         // Only an author-layout CONFLICT can safely demote the carrier's priority.
         // A display differing from the tag default alone offers no such guarantee.
         if ( $this->styleResolver->inlineDisplayConflictsWithAuthorLayout($element, $inlineDeclarations) ) {
@@ -407,7 +416,7 @@ final class AuthorLayoutOwnership
         // Carry only the inline-present properties so the fallback to
         // mapper-synthesized declarations cannot invent a `gap` that
         // overrides explicit row-gap/column-gap values.
-        $inlineDeclarations = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
+        $inlineDeclarations = $this->styleResolver->inlineDeclarations($element);
         $carriedProperties = array_values(array_intersect(self::CSS_OWNED_GRID_CARRIER_PROPERTIES, array_keys($inlineDeclarations)));
         $attrs = $this->styleResolver->presentationAttributes($element, $excludedGeometryProperties, $carriedProperties);
         unset($attrs['layout']);
@@ -441,8 +450,78 @@ final class AuthorLayoutOwnership
             }
         }
 
-        $inline = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
+        $inline = $this->styleResolver->inlineDeclarations($element);
         return CssValueInspector::comparable((string) ($inline['display'] ?? $display));
+    }
+
+    /**
+     * A positioned inline leaf cannot survive as RichText: its wrapper owns a
+     * containing-block relationship and/or stacking context, rather than text
+     * formatting. Preserve it as a native group carrier before RichText drops
+     * the source class and geometry.
+     */
+    public function ownsPositioningGeometry(DOMElement $element): bool
+    {
+        if ( ! $this->sourceElementClassifier->isInlineContentElement(strtolower($element->tagName)) || $this->isRichTextInlineContext($element) ) {
+            return false;
+        }
+
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
+        $position = strtolower(trim((string) ($declarations['position'] ?? 'static')));
+        if ( $this->hasPositionedInlineDescendant($element) ) {
+            return true;
+        }
+
+        $zIndex = strtolower(trim((string) ($declarations['z-index'] ?? 'auto')));
+        $hasZIndex = ! in_array($zIndex, array( '', 'auto', 'inherit', 'initial', 'unset' ), true);
+        if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
+            return true;
+        }
+
+        if ( 'sticky' === $position ) {
+            return $this->sourceElementClassifier->hasResolvedInset($declarations) || $hasZIndex;
+        }
+
+        if ( 'relative' === $position ) {
+            return $this->sourceElementClassifier->hasResolvedInset($declarations) || $hasZIndex;
+        }
+
+        return false;
+    }
+
+    private function hasPositionedInlineDescendant(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && $this->ownsPositioningGeometry($descendant) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * A positioned inline carrier keeps its children as blocks when any
+     * descendant positions itself, is not phrasing content, or is
+     * interactive; otherwise its content stays one RichText run.
+     */
+    public function positionedCarrierHasStructuredContent(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( ! $descendant instanceof DOMElement ) {
+                continue;
+            }
+
+            $tagName = strtolower($descendant->tagName);
+            if ( $this->ownsPositioningGeometry($descendant)
+                || ! $this->sourceElementClassifier->isInlineContentElement($tagName)
+                || in_array($tagName, array( 'a', 'button', 'input', 'select', 'textarea' ), true)
+            ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function isRichTextInlineContext(DOMElement $element): bool
@@ -459,7 +538,7 @@ final class AuthorLayoutOwnership
         return false;
     }
 
-    private function richTextMarker(DOMElement $element): string
+    public function richTextMarker(DOMElement $element): string
     {
         $marker = trim(SourceDom::attr($element, 'data-blocks-engine-richtext-marker'));
         return '' !== $marker ? $marker : $this->session->authorSelectorProjectionState()->richTextMarker(SourceDom::sourceElementIdentity($element));

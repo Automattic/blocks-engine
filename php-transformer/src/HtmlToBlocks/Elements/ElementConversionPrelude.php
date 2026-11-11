@@ -29,7 +29,7 @@ use DOMElement;
  * Collaborators take existing converters, suppressors, and resolvers. Remaining
  * HtmlCompilation operations are explicit constructor closures — not a Context bag.
  */
-final class ElementConversionPrelude
+final class ElementConversionPrelude implements ElementConverter
 {
     /**
      * A menu its script opens in place. Core's generated list and items are
@@ -42,7 +42,7 @@ final class ElementConversionPrelude
     private function commentAttributes(DOMElement $element): array
     {
         $attrs = $this->styleResolver->presentationAttributes($element);
-        $attrs['className'] = implode(' ', array_unique(array_filter(preg_split('/\s+/', trim($element->getAttribute('class') . ' ' . ($attrs['className'] ?? ''))) ?: array())));
+        $attrs['className'] = implode(' ', array_unique(array_filter(SourceDom::tokens($element->getAttribute('class') . ' ' . ($attrs['className'] ?? '')))));
         return $attrs;
     }
 
@@ -65,7 +65,6 @@ final class ElementConversionPrelude
 
     /**
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array<string, mixed> $linkedRuntimeControl
-     * @param Closure(DOMElement, array<int, array<string, mixed>>&, array<int, class-string>): ?array<string, mixed> $recognizePatterns
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array<string, mixed> $proofBackedWrapperCoalescing
      * @param Closure(DOMElement): ?array<string, mixed> $layoutGeometryProofFor
      */
@@ -92,7 +91,6 @@ final class ElementConversionPrelude
         private readonly TransformationProvenanceState $provenance,
         private readonly PatternTreeConverter $tree,
         private readonly Closure $linkedRuntimeControl,
-        private readonly Closure $recognizePatterns,
         private readonly AuthorLayoutOwnership $authorLayoutOwnership,
         private readonly Closure $proofBackedWrapperCoalescing,
         private readonly Closure $layoutGeometryProofFor,
@@ -104,7 +102,7 @@ final class ElementConversionPrelude
     /**
      * @param array<int, array<string, mixed>> $fallbacks
      */
-    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported): ConversionOutcome
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
         if (WordPressComments::hasClass($element, 'wp-block-comments')) {
             $children = $this->tree->children($element, $fallbacks, $captureUnsupported);
@@ -276,7 +274,7 @@ final class ElementConversionPrelude
             // A script-addressed menu stays a native navigation block; its hooks
             // render with it. Anything the pattern cannot claim stays an island.
             if ( 'nav' === $tagName ) {
-                $navigation = ($this->recognizePatterns)($element, $fallbacks, array( NavigationPattern::class ));
+                $navigation = $this->tree->patterns($element, $fallbacks, array( NavigationPattern::class ));
                 if ( 'core/navigation' === ($navigation['blockName'] ?? null) ) {
                     if ( 'mobile' !== ($navigation['attrs']['overlayMenu'] ?? 'never') ) {
                         $navigation['attrs']['className'] = SourceDom::mergeClassNames((string) ($navigation['attrs']['className'] ?? ''), self::SCRIPT_NAVIGATION_CLASS);
@@ -307,7 +305,7 @@ final class ElementConversionPrelude
             return ConversionOutcome::handled($standaloneSearchTrigger);
         }
 
-        $mathBlock = ($this->recognizePatterns)($element, $fallbacks, array(MathPattern::class));
+        $mathBlock = $this->tree->patterns($element, $fallbacks, array(MathPattern::class));
         if ( null !== $mathBlock ) {
             return ConversionOutcome::handled($mathBlock);
         }
@@ -415,7 +413,7 @@ final class ElementConversionPrelude
         if ( null !== $inlineSvgContent ) {
             $content = $inlineSvgContent;
         }
-        if ( '' === trim($this->runtime->stripAllTags($content)) || $this->richTextMaterializer->requiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
+        if ( ! $this->runtime->hasVisibleText($content) || $this->richTextMaterializer->requiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
             return null;
         }
 

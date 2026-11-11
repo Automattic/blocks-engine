@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\SourceAttribute;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 
@@ -122,8 +123,10 @@ __CONTROL_HELPERS__
 })(window.wp.blocks,window.wp.blockEditor,window.wp.components,window.wp.element);
 JS;
         $script = AuthoredFormLabelEditorScript::synchronize($script);
-        return array('index.js' => str_replace(array('__BLOCK_NAME__', '__BLOCK_ATTRIBUTES__', '__CONTROL_HELPERS__', '__INDICATOR_POLICY__'),
-            array($namespace . '/' . self::LOCAL_NAME, json_encode($this->blockJson($namespace)['attributes'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), AuthoredControlState::editorHelpers(), json_encode(SourceAttribute::staticPolicy(), JSON_THROW_ON_ERROR)), $script));
+        return array('index.js' => EditorScript::bind($script, $namespace . '/' . self::LOCAL_NAME, $this->blockJson($namespace)['attributes'], array(
+            '__CONTROL_HELPERS__' => AuthoredControlState::editorHelpers(),
+            '__INDICATOR_POLICY__' => json_encode(SourceAttribute::staticPolicy(), JSON_THROW_ON_ERROR),
+        )));
     }
 
     /** @param array<string,mixed> $attrs */
@@ -137,7 +140,7 @@ JS;
                 $value = (string) ($attrs[$key] ?? '');
                 if ('' !== $value) $html .= ' ' . (array('className' => 'class', 'ariaLabel' => 'aria-label')[$key] ?? $key) . '="' . $escape($value) . '"';
             }
-            $source = SourceAttribute::staticAttributes(is_array($attrs['indicatorAttributes'] ?? null) ? $attrs['indicatorAttributes'] : array());
+            $source = SourceAttribute::staticAttributes(ArrayField::array($attrs, 'indicatorAttributes'));
             return $html . SourceDom::htmlAttributeString($source) . '>' . $escape($attrs['fallbackText'] ?? '') . '</' . $tag . '>';
         }
         $html = '<input';

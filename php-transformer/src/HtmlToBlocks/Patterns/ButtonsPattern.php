@@ -3,12 +3,14 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AccessibleLinkBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\AssetMaterializationState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutParticipation;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMDocument;
 use DOMElement;
@@ -235,7 +237,14 @@ final class ButtonsPattern
             return null;
         }
 
-        return $this->createBlock->createBlock('core/buttons', $context->presentationAttributes($element), $buttonBlocks, $element);
+        $attrs = $context->presentationAttributes($element);
+        // Normal block flow stacks block-level anchors; Core's default row does not.
+        if (ButtonStyleResolver::stacksBlockAnchors($element, $buttons->resolvedDeclarations(...))) {
+            $attrs['layout'] = array('type' => 'flex', 'orientation' => 'vertical', 'justifyContent' => 'left');
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), 'is-vertical blocks-engine-stacked-buttons');
+            $attrs['style']['spacing']['blockGap'] = '0';
+        }
+        return $this->createBlock->createBlock('core/buttons', $attrs, $buttonBlocks, $element);
     }
 
     /** @return array<string, mixed> */
@@ -307,6 +316,8 @@ final class ButtonsPattern
         foreach ($anchor->getElementsByTagName('*') as $label) {
             if (!$label instanceof DOMElement || '' === $text || $this->plainText(SourceDom::innerHtml($label)) !== $text) continue;
             $native = $this->styleResolver->nativeAttributes($buttons->nativePresentationStyle($label))['style'] ?? array();
+            // 100% on a label inherits the control's winning size.
+            if ('100%' === ($native['typography']['fontSize'] ?? '')) unset($native['typography']['fontSize']);
             if ($absorbsBoxes) {
                 $native = $this->withoutNonPresentationalValues($native);
                 $style = array_replace_recursive($style, $native);
@@ -468,7 +479,7 @@ final class ButtonsPattern
                     continue;
                 }
                 $declarations = $buttons->resolvedDeclarations($node);
-                $position = CssValueInspector::comparable((string) ($declarations['position'] ?? ''));
+                $position = CssValueInspector::declared($declarations, 'position');
                 if ( ! in_array($position, array( 'absolute', 'fixed' ), true) ) {
                     continue;
                 }
@@ -649,10 +660,7 @@ final class ButtonsPattern
             return false;
         }
         $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
+        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
         $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
         if ( ! $body instanceof DOMElement ) {
             return false;
@@ -712,7 +720,7 @@ final class ButtonsPattern
     /** Whether a class list holds a class that is neither an engine marker nor generated geometry. */
     private function hasAuthoredClass(string $classes): bool
     {
-        foreach ( preg_split('/\s+/', trim($classes)) ?: array() as $class ) {
+        foreach ( SourceDom::tokens($classes) as $class ) {
             if ( '' !== $class && ! str_starts_with($class, 'blocks-engine-') && ! str_starts_with($class, 'be-') ) {
                 return true;
             }
@@ -738,7 +746,7 @@ final class ButtonsPattern
             if ( str_contains($tag, 'blocks-engine-richtext-marker') || 1 !== preg_match('/\bclass\s*=\s*(["\'])(.*?)\1/is', $tag, $class) ) {
                 continue;
             }
-            foreach ( preg_split('/\s+/', trim(html_entity_decode($class[2], ENT_QUOTES | ENT_HTML5, 'UTF-8'))) ?: array() as $token ) {
+            foreach ( SourceDom::tokens(html_entity_decode($class[2], ENT_QUOTES | ENT_HTML5, 'UTF-8')) as $token ) {
                 if ( '' !== $token && ! str_starts_with($token, 'blocks-engine-') && ! str_starts_with($token, 'be-') ) {
                     $classes[$token] = true;
                 }
@@ -767,7 +775,7 @@ final class ButtonsPattern
             return false;
         }
         foreach ( $anchor->getElementsByTagName('*') as $descendant ) {
-            foreach ( preg_split('/\s+/', trim($descendant->getAttribute('class'))) ?: array() as $class ) {
+            foreach ( SourceDom::tokens($descendant->getAttribute('class')) as $class ) {
                 if ( '' !== $class && isset($emitted[$class]) ) {
                     return true;
                 }
@@ -784,10 +792,7 @@ final class ButtonsPattern
         }
 
         $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
+        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
         $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
         if ( ! $body instanceof DOMElement ) {
             return $html;
@@ -954,9 +959,9 @@ final class ButtonsPattern
     /** @param array<string, mixed> $attrs */
     private function removeSourceControlClasses(array &$attrs, DOMElement $element): void
     {
-        $sourceClasses = preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array();
+        $sourceClasses = SourceDom::tokens($element->getAttribute('class'));
         $classes = array_filter(
-            preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array(),
+            SourceDom::tokens((string) ($attrs['className'] ?? '')),
             static fn (string $class): bool => ! in_array($class, $sourceClasses, true)
         );
         if ( array() === $classes ) {
@@ -982,8 +987,12 @@ final class ButtonsPattern
         }
 
         $normalized = strtolower($style);
-        if ( preg_match('/(?:^|;)\s*background(?:-color)?\s*:\s*([^;]+)/i', $normalized, $backgroundMatches) ) {
-            $resolvedBackground = trim((string) ($backgroundMatches[1] ?? ''));
+        // The resolved cascade is ordered from lower to higher priority. Both
+        // shorthand and longhand set the fill; unrelated background-* properties
+        // do not. Consult the last fill declaration, not an earlier reset.
+        $resolvedBackground = '';
+        if ( preg_match_all('/(?:^|;)\s*background(?:-color)?\s*:\s*([^;]+)/i', $normalized, $backgroundMatches) ) {
+            $resolvedBackground = trim((string) end($backgroundMatches[1]));
             if ( '' !== $resolvedBackground
                 && ! in_array($resolvedBackground, array( 'transparent', 'none' ), true)
                 && ! preg_match('/^rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\)$/i', $resolvedBackground) ) {
@@ -1000,11 +1009,11 @@ final class ButtonsPattern
             return false;
         }
 
-        if ( ! preg_match('/(?:^|;)\s*background(?:-color)?\s*:\s*([^;]+)/i', $normalized, $matches) ) {
+        if ( '' === $resolvedBackground ) {
             return true;
         }
 
-        return preg_match('/^(?:transparent|none|rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\))\s*$/i', trim((string) ($matches[1] ?? ''))) === 1;
+        return preg_match('/^(?:transparent|none|rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\))\s*$/i', $resolvedBackground) === 1;
     }
 
     private function isRichTextAnchorLabel(DOMElement $anchor, ButtonPatternContext $buttons): bool
@@ -1279,7 +1288,7 @@ final class ButtonsPattern
         }
 
         $type = strtolower(trim($surface->getAttribute('type')));
-        if ( ! in_array($type, array( '', 'button' ), true) || ( '' === $type && $this->hasFormAncestor($surface) ) ) {
+        if ( ! in_array($type, array( '', 'button' ), true) || ( '' === $type && FormControlClassifier::hasFormAncestor($surface) ) ) {
             return null;
         }
 
@@ -1335,17 +1344,6 @@ final class ButtonsPattern
     public function requiresWrappedButtonPreservation(DOMElement $anchor): bool
     {
         return $this->wrappedButtonRequiresPreservation($anchor);
-    }
-
-    private function hasFormAncestor(DOMElement $element): bool
-    {
-        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
-            if ( 'form' === strtolower($ancestor->tagName) ) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**

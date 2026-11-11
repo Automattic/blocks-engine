@@ -3,7 +3,9 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssAnalysisLimits;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
@@ -237,7 +239,7 @@ final class FormPresentationGraphBuilder
         if (array_diff(array_keys($presentation), array('schema', 'styles', 'provenance', 'variants', 'truncated', 'diagnostics')) || !array_is_list($presentation['variants'] ?? null)) throw new InvalidArgumentException('Form element presentation envelope has unknown keys.');
         foreach ($presentation['variants'] as $variant) {
             if (!is_array($variant) || array_diff(array_keys($variant), array('condition', 'styles', 'precedence', 'provenance'))) throw new InvalidArgumentException('Form element presentation variant has unknown keys.');
-            foreach (is_array($variant['precedence'] ?? null) ? $variant['precedence'] : array() as $rank) if (!is_array($rank) || array_diff(array_keys($rank), array('source_order', 'specificity', 'important'))) throw new InvalidArgumentException('Form element presentation precedence has unknown keys.');
+            foreach (ArrayField::array($variant, 'precedence') as $rank) if (!is_array($rank) || array_diff(array_keys($rank), array('source_order', 'specificity', 'important'))) throw new InvalidArgumentException('Form element presentation precedence has unknown keys.');
         }
         if ('generic/form-element-presentation/v1' !== ($presentation['schema'] ?? null) || !is_array($presentation['styles'] ?? null) || !is_array($presentation['provenance'] ?? null) || !is_array($presentation['variants'] ?? null) || count($presentation['variants']) > self::MAX_RULES_PER_ROLE || !is_bool($presentation['truncated'] ?? null) || !is_array($presentation['diagnostics'] ?? null) || count($presentation['diagnostics']) > self::MAX_DIAGNOSTICS) throw new InvalidArgumentException('Form element presentation envelope is invalid.');
         if (!array_is_list($presentation['diagnostics']) || array_filter($presentation['diagnostics'], static fn (mixed $diagnostic): bool => !is_string($diagnostic) || '' === trim($diagnostic) || str_starts_with($diagnostic, 'unsupported_selector:'))) throw new InvalidArgumentException('Form element diagnostics must describe the element, not the stylesheet.');
@@ -624,28 +626,17 @@ final class FormPresentationGraphBuilder
                     // provider label that renders the text directly keeps it.
                     $carried = $this->carrierTypography($buttonCaption ? array() : $roles, $element, $analysis['rules'], $customPropertyAnalysis['rules'], $conditional, $buttonCaption && ! $this->hasPadding($styles));
                     if ( array() !== $carried ) {
-                        $overridden = array_map(static fn (string $key): string => str_replace('_', '-', $key), array_keys(array_intersect_key($styles, $carried['styles'])));
-                        foreach ( $provenance as $factIndex => $fact ) {
-                            $fact['properties'] = array_values(array_diff($fact['properties'], $overridden));
-                            if ( array() === $fact['properties'] ) {
-                                unset($provenance[$factIndex]);
-                            } else {
-                                $provenance[$factIndex] = $fact;
-                            }
-                        }
-                        $provenance = array_values($provenance);
-                        $styles = array_merge($styles, $carried['styles']);
-                        ksort($styles);
-                        $provenance = array_merge($provenance, $carried['provenance']);
-                        if ( count($provenance) > self::MAX_PROVENANCE ) {
-                            $provenance = array_slice($provenance, 0, self::MAX_PROVENANCE);
-                            $this->truncated = true;
-                            $this->diagnostics[] = 'provenance_limit';
-                        }
+                        [$styles, $provenance] = $this->withCarriedTypography($styles, $provenance, $carried);
                     }
                     foreach ( $carried['conditional'] ?? array() as $encoded => $patch ) {
                         $conditional[$encoded] ??= array();
                     }
+                }
+                if ( 'label' === $role ) {
+                    $this->carryLabelColumnGap($styles, $provenance, $element, $analysis['rules']);
+                }
+                if ( 'required_marker' === $role ) {
+                    $this->carryMarkerGap($styles, $provenance, $element, $analysis['rules'], $customPropertyAnalysis['rules']);
                 }
                 if ( array() !== $styles || 'required_marker' === $role ) {
                     $row[$role] = array( 'styles' => $styles, 'provenance' => $provenance );
@@ -870,21 +861,6 @@ final class FormPresentationGraphBuilder
     }
 
     /**
-     * A checkbox/radio label's visible text often lives in a dedicated carrier
-     * — `<label><div><p>Yes</p></div>…` — while the `<label>` itself declares
-     * no typography. The text inherits each typography property from the
-     * nearest element between it and the label that declares it — often an
-     * intermediate carrier (`<p>`) above the spans that hold the text — so each
-     * property is resolved where it is declared, walking from the deepest
-     * carrier up to (not including) the label. Base and condition-scoped facts
-     * are resolved at the same declaring element.
-     *
-     * @param array<string, mixed> $roles
-     * @param list<array<string, mixed>> $rules
-     * @param list<array<string, mixed>> $customPropertyRules
-     * @return array<string, mixed>
-     */
-    /**
      * The paint a button's sole caption carrier draws behind the caption, when
      * it paints one. The control keeps its own paint; this layer sits inside the
      * control's padding box, as the carrier does in the source. Conditions that
@@ -920,6 +896,30 @@ final class FormPresentationGraphBuilder
             }
         }
         return array( 'styles' => $styles, 'provenance' => $this->provenance($facts, null), 'variants' => $variants );
+    }
+
+    /** Carrier typography wins per property: overridden provenance is pruned, then its styles and provenance merge in. */
+    private function withCarriedTypography(array $styles, array $provenance, array $carried): array
+    {
+        $overridden = array_map(static fn (string $key): string => str_replace('_', '-', $key), array_keys(array_intersect_key($styles, $carried['styles'])));
+        foreach ( $provenance as $factIndex => $fact ) {
+            $fact['properties'] = array_values(array_diff($fact['properties'], $overridden));
+            if ( array() === $fact['properties'] ) {
+                unset($provenance[$factIndex]);
+            } else {
+                $provenance[$factIndex] = $fact;
+            }
+        }
+        $provenance = array_values($provenance);
+        $styles = array_merge($styles, $carried['styles']);
+        ksort($styles);
+        $provenance = array_merge($provenance, $carried['provenance']);
+        if ( count($provenance) > self::MAX_PROVENANCE ) {
+            $provenance = array_slice($provenance, 0, self::MAX_PROVENANCE);
+            $this->truncated = true;
+            $this->diagnostics[] = 'provenance_limit';
+        }
+        return array($styles, $provenance);
     }
 
     private function carrierTypography(array $roles, DOMElement $label, array $rules, array $customPropertyRules, array $labelConditional = array(), bool $captionBox = false): array
@@ -1255,7 +1255,7 @@ final class FormPresentationGraphBuilder
         $claimed = array();
         foreach ( $form->getElementsByTagName('*') as $element ) {
             if ( ! $element instanceof DOMElement ) continue;
-            if ( ! in_array(strtolower(trim($element->getAttribute('role'))), self::GROUP_ROLES, true) ) continue;
+            if ( ! in_array(SourceDom::role($element), self::GROUP_ROLES, true) ) continue;
             if ( FormControlClassifier::isControlElement($element) || $this->inertAncestor($element, $form) ) continue;
             $caption = $this->captionElement($element, $form);
             if ( null === $caption || isset($claimed[$caption->getNodePath()]) ) continue;
@@ -1290,24 +1290,7 @@ final class FormPresentationGraphBuilder
         $provenance = $this->provenance($base, null);
         $carried = $this->carrierTypography(array(), $caption, $rules, $customPropertyRules);
         if ( array() !== $carried ) {
-            $overridden = array_map(static fn (string $key): string => str_replace('_', '-', $key), array_keys(array_intersect_key($styles, $carried['styles'])));
-            foreach ( $provenance as $factIndex => $fact ) {
-                $fact['properties'] = array_values(array_diff($fact['properties'], $overridden));
-                if ( array() === $fact['properties'] ) {
-                    unset($provenance[$factIndex]);
-                } else {
-                    $provenance[$factIndex] = $fact;
-                }
-            }
-            $provenance = array_values($provenance);
-            $styles = array_merge($styles, $carried['styles']);
-            ksort($styles);
-            $provenance = array_merge($provenance, $carried['provenance']);
-            if ( count($provenance) > self::MAX_PROVENANCE ) {
-                $provenance = array_slice($provenance, 0, self::MAX_PROVENANCE);
-                $this->truncated = true;
-                $this->diagnostics[] = 'provenance_limit';
-            }
+            [$styles, $provenance] = $this->withCarriedTypography($styles, $provenance, $carried);
         }
         if ( array() === $styles ) return null;
 
@@ -1328,7 +1311,7 @@ final class FormPresentationGraphBuilder
     private function captionElement(DOMElement $group, DOMElement $form): ?DOMElement
     {
         $document = $group->ownerDocument;
-        foreach ( preg_split('/\s+/', trim($group->getAttribute('aria-labelledby'))) ?: array() as $id ) {
+        foreach ( SourceDom::tokens($group->getAttribute('aria-labelledby')) as $id ) {
             $target = '' !== $id && $document instanceof DOMDocument ? $document->getElementById($id) : null;
             if ( ! $target instanceof DOMElement || $target->isSameNode($group) ) continue;
             if ( FormControlClassifier::isControlElement($target) || array() !== FormControlClassifier::controlElements($target) ) continue;
@@ -1676,6 +1659,82 @@ final class FormPresentationGraphBuilder
         }
         ksort($result);
         return $result;
+    }
+
+    /**
+     * A flex label's own `column-gap` spaces its box from its caption. The
+     * shared vocabulary keeps `column-gap` row-only, so the label states it
+     * through the equivalent `gap: <row-gap> <column-gap>` shorthand.
+     */
+    private function carryLabelColumnGap(array &$styles, array &$provenance, DOMElement $label, array $rules): void
+    {
+        $base = $this->matched($label, $rules, true)['base'];
+        $column = $base['column-gap'] ?? null;
+        if ( ! is_array($column) || ! in_array($styles['display'] ?? '', array( 'flex', 'inline-flex' ), true)
+            || ( isset($base['gap']) && CssCascade::wins($base['gap'], $column) ) ) {
+            return;
+        }
+        $row = isset($base['gap']) ? (CssValueSplitter::splitTopLevelWhitespace($base['gap']['value'])[0] ?? 'normal') : 'normal';
+        $styles['gap'] = $row . ' ' . $column['value'];
+        $provenance = array_merge($provenance, $this->provenance(array( 'gap' => $column ), null));
+    }
+
+    /** Carry a horizontal flex gap across the flattened caption/marker boundary. */
+    private function carryMarkerGap(array &$styles, array &$provenance, DOMElement $marker, array $rules, array $customRules): void
+    {
+        $container = $marker->parentNode;
+        if ( ! $container instanceof DOMElement || ! $marker->previousElementSibling ) {
+            return;
+        }
+        $matched = $this->matched($container, $rules, true);
+        $containerStyles = $this->styles($matched['base'], $container, null, $customRules, true);
+        if ( ! in_array($containerStyles['display'] ?? '', array( 'flex', 'inline-flex' ), true)
+            || 'row' !== ($containerStyles['flex_direction'] ?? 'row')
+        ) {
+            return;
+        }
+        $property = isset($matched['base']['column-gap']) ? 'column-gap' : 'gap';
+        $gap = $containerStyles[self::key($property)] ?? '';
+        $parts = CssValueSplitter::splitTopLevelWhitespace($gap);
+        $gap = $parts[1] ?? $parts[0] ?? '';
+        if ( '' === $gap || 'normal' === $gap ) {
+            return;
+        }
+        // Font-relative lengths must use the gap container's font, not the
+        // smaller indicator's. Scale ex/ch without guessing font metrics.
+        if ( 1 === preg_match('/^([0-9.]+)(em|ex|ch)$/D', $gap, $length) ) {
+            $containerFont = $this->fontPixels($container, $rules, $customRules);
+            $markerFont = $this->fontPixels($marker, $rules, $customRules);
+            if ( 'em' === $length[2] ) {
+                $gap = CssLength::format((float) $length[1] * $containerFont);
+            } elseif ( $markerFont > 0 && $containerFont !== $markerFont ) {
+                $ratio = rtrim(rtrim(number_format($containerFont / $markerFont, 6, '.', ''), '0'), '.');
+                $gap = 'calc(' . $gap . ' * ' . $ratio . ')';
+            }
+        }
+        $styles['margin_left'] = isset($styles['margin_left']) ? 'calc(' . $styles['margin_left'] . ' + ' . $gap . ')' : $gap;
+        $provenance = array_merge($provenance, $this->provenance(array( 'margin-left' => $matched['base'][$property] ), null));
+    }
+
+    /** Resolve inherited font sizes against their own parent, not the marker. */
+    private function fontPixels(DOMElement $element, array $rules, array $customRules): float
+    {
+        $chain = array();
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $chain[] = $node;
+        }
+        $font = 16.0;
+        $root = 16.0;
+        foreach ( array_reverse($chain) as $index => $node ) {
+            $matched = $this->matched($node, $rules);
+            $styles = $this->styles(array_intersect_key($matched['base'], array( 'font-size' => true )), $node, null, $customRules, true);
+            $value = $styles['font_size'] ?? '';
+            $font = str_ends_with($value, '%') ? $font * (float) $value / 100 : (CssLength::FONT_SIZE_KEYWORDS[$value] ?? CssLength::toPx($value, $root, $font) ?? $font);
+            if ( 0 === $index ) {
+                $root = $font;
+            }
+        }
+        return $font;
     }
 
     private static function declarationKey(array $fact, string $property): string { return $fact['path'] . "\n" . $fact['selector'] . "\n" . $property; }

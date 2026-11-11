@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
@@ -31,12 +33,12 @@ final class RichTextStylingHookNormalizer
         // assigning highlighted-text semantics to mechanical carriers.
         foreach ($this->richTextStylingHookElements($body) as $inline) {
             if ('font' === strtolower($inline->tagName) && !$inline->hasAttributes()) {
-                $this->unwrapElement($inline);
+                SourceDom::unwrapElement($inline);
                 continue;
             }
             if ($this->replaceRichTextStylingHookWithMark($inline)) continue;
             if ('span' === strtolower($inline->tagName) || RichTextInlineTags::isUnknownHtmlElement($inline)) {
-                $this->unwrapElement($inline);
+                SourceDom::unwrapElement($inline);
             }
         }
         foreach ($this->richTextAnchors($body) as $anchor) {
@@ -63,7 +65,7 @@ final class RichTextStylingHookNormalizer
      */
     private function projectRichTextLinkOwnedDeclarations(DOMElement $anchor): void
     {
-        $inline = $this->styleResolver->cssDeclarations(SourceDom::attr($anchor, 'style'));
+        $inline = $this->styleResolver->inlineDeclarations($anchor);
         $visual = $this->richTextMaterializer->inlineVisualDeclarations($anchor);
         $owned = array();
         foreach ($inline as $property => $value) {
@@ -93,7 +95,7 @@ final class RichTextStylingHookNormalizer
         $body = '{' . implode(';', $owned) . '}';
         $className = $this->session->layoutGeometryState()->allocateCarrier('rich-text-link-owned' . "\n" . $body);
         $this->session->layoutGeometryState()->registerRule($className, 'a.' . $className . $body);
-        $classes = preg_split('/\s+/', trim(SourceDom::attr($anchor, 'class'))) ?: array();
+        $classes = SourceDom::tokens(SourceDom::attr($anchor, 'class'));
         $classes[] = $className;
         $anchor->setAttribute('class', implode(' ', array_values(array_unique(array_filter($classes)))));
         if (array() === $inline) {
@@ -318,7 +320,7 @@ final class RichTextStylingHookNormalizer
         if ( ! $carrierReplacesSource && ! $sourceIsLink ) {
             $declarations = $this->richTextMaterializer->withoutKeptFormatTagDeclarations($element, $declarations);
         }
-        $existingDeclarations = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
+        $existingDeclarations = $this->styleResolver->inlineDeclarations($element);
         if ( $sourceIsLink ) {
             // Only authored inline values move inside links. Author link rules
             // (including hover/media rules) must keep styling the link itself.
@@ -371,6 +373,11 @@ final class RichTextStylingHookNormalizer
         while ( null !== $element->firstChild ) {
             $mark->appendChild($element->firstChild);
         }
+        // RichText discards an empty element unless it matches a registered
+        // format, and core's inline color format is `mark.has-inline-color`.
+        if ( '' === trim($mark->textContent ?? '') && 0 === $mark->getElementsByTagName('img')->length ) {
+            $mark->setAttribute('class', SourceDom::mergeClassNames($mark->getAttribute('class'), 'has-inline-color'));
+        }
 
         $parent = $element->parentNode;
         if ( ! $parent instanceof DOMNode ) {
@@ -398,7 +405,7 @@ final class RichTextStylingHookNormalizer
     private function isMaterializedRichTextCarrier(DOMElement $element): bool
     {
         return 'mark' === strtolower($element->tagName)
-            && '' !== trim((string) ($this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'))['--blocks-engine-richtext-marker'] ?? ''));
+            && '' !== trim((string) ($this->styleResolver->inlineDeclarations($element)['--blocks-engine-richtext-marker'] ?? ''));
     }
 
     /**
@@ -454,23 +461,6 @@ final class RichTextStylingHookNormalizer
     }
 
     /**
-     * Replace an element with its children in place, dropping only the wrapper.
-     */
-    public function unwrapElement(DOMElement $element): void
-    {
-        $parent = $element->parentNode;
-        if ( ! $parent instanceof DOMNode ) {
-            return;
-        }
-
-        while ( null !== $element->firstChild ) {
-            $parent->insertBefore($element->firstChild, $element);
-        }
-
-        $parent->removeChild($element);
-    }
-
-    /**
      * Lift class/style styling hooks out of a block's RichText source so the
      * stored block round-trips through RichText unchanged.
      *
@@ -516,10 +506,7 @@ final class RichTextStylingHookNormalizer
         }
 
         $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $loaded   = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $content . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
+        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . $content . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
 
         $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
         if ( ! $body instanceof DOMElement ) {
@@ -535,7 +522,7 @@ final class RichTextStylingHookNormalizer
         // onto the block. A source identity needs to remain on the inline node so
         // author selectors continue to address the saved RichText carrier.
         while ( ! $listItemHasBlockContent && ( $wrapper = $this->soleStylingHookSpan($body) ) instanceof DOMElement ) {
-            $wrapperDeclarations = $this->styleResolver->cssDeclarations(SourceDom::attr($wrapper, 'style'));
+            $wrapperDeclarations = $this->styleResolver->inlineDeclarations($wrapper);
             if ( array() !== $this->richTextSafeIdentityAttributes($wrapper) || isset($wrapperDeclarations['--blocks-engine-richtext-marker']) ) {
                 break;
             }
@@ -552,7 +539,7 @@ final class RichTextStylingHookNormalizer
                 }
                 $hoistedDeclarations = array_merge($hoistedDeclarations, $wrapperDeclarations);
             }
-            $this->unwrapElement($wrapper);
+            SourceDom::unwrapElement($wrapper);
         }
 
         $this->normalize($body);
@@ -574,7 +561,7 @@ final class RichTextStylingHookNormalizer
         if ( array() !== $hoistedDeclarations ) {
             $mapped = $this->styleResolver->styleAttributeMapper()->map($hoistedDeclarations)['style'];
             if ( array() !== $mapped ) {
-                $existing       = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
+                $existing       = ArrayField::array($attrs, 'style');
                 $attrs['style'] = array_replace_recursive($mapped, $existing);
                 // A size on the content overrides the host's size in the source
                 // cascade too, even when the host carries a reset such as 100%.
@@ -606,5 +593,44 @@ final class RichTextStylingHookNormalizer
         }
 
         return $only instanceof DOMElement && $this->isStylingHookSpan($only) ? $only : null;
+    }
+
+    /**
+     * Inline content as the standalone RichText a block's own content
+     * attribute carries — a control label, an in-form introduction, a lowered
+     * wrapper paragraph: the materialized source markup, with styling hooks
+     * lowered to semantic carriers inline rather than hoisted onto the host.
+     */
+    public function inlineContent(DOMElement $element): string
+    {
+        $content = $this->richTextMaterializer->content($element);
+        if ('' === $content) return '';
+        $document = new DOMDocument();
+        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . $content . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
+        if (!$body instanceof DOMElement) return $content;
+        $this->normalize($body);
+        return SourceDom::innerHtml($body);
+    }
+
+    /**
+     * In-form copy — an introduction above the fields, a note between them —
+     * as the paragraph/heading RichText the page conversion keeps, so the form
+     * contract carries the copy's formatting instead of its flattened text.
+     * Copy without inline markup, and markup a paragraph cannot hold (structure
+     * a RichText attribute rejects, or an object the fallback gate reserves for
+     * the page's own conversion), returns '': the item's plain text, styles and
+     * classes stay the contract there.
+     */
+    public function formContextContent(DOMElement $element): string
+    {
+        $content = trim($this->inlineContent($element));
+        if ( '' === $content || ! preg_match('/<[a-zA-Z]/', $content)
+            || $this->richTextMaterializer->hasStructuralHtml($content)
+            || $this->richTextMaterializer->requiresHtmlFallback($content) ) {
+            return '';
+        }
+
+        return $content;
     }
 }

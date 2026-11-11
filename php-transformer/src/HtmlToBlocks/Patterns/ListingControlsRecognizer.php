@@ -89,7 +89,10 @@ final class ListingControlsRecognizer
             $controls[] = $count;
         }
 
-        if ( array() === $controls ) {
+        // An empty collection's only evidence would be a zero count, and any
+        // "0 likes" or "0 comments" on the page reads the same; it needs a
+        // control that selects among products.
+        if ( array() === $controls || ( array() === $cards && array('result_count') === array_unique(array_column($controls, 'kind')) ) ) {
             return null;
         }
 
@@ -109,7 +112,7 @@ final class ListingControlsRecognizer
         $groups = array();
         $radios = array();
         foreach ( $scope->getElementsByTagName('*') as $element ) {
-            if ( ! $element instanceof DOMElement || $this->contains($listing, $element) || self::inSearchContext($element) || $this->inSiblingListingBranch($listing, $element) ) {
+            if ( ! $element instanceof DOMElement || $this->contains($listing, $element) || self::inSearchContext($element) || $this->inSubmissionForm($element) || $this->inSiblingListingBranch($listing, $element) ) {
                 continue;
             }
             $tag = strtolower($element->tagName);
@@ -227,6 +230,11 @@ final class ListingControlsRecognizer
             }
             $options[] = $option;
         }
+        // A group whose only options reset the listing selects nothing, such
+        // as a lone valueless disclosure checkbox.
+        if ( array() === array_filter($options, static fn (array $option): bool => ! isset($option['reset'])) ) {
+            return null;
+        }
         // Explicit checkbox filters remain meaningful on a one-item or empty
         // collection, where partitioning two cards is impossible.
         $explicitFacet = 'checkboxes' === $group['shape'];
@@ -238,14 +246,18 @@ final class ListingControlsRecognizer
             $name = $group['name'] ?? SourceDom::attr($group['element'], 'name');
             $label = (string) preg_replace('/^.*[.\[\]]([^.[\]]+)\]?$/', '$1', $name);
         }
-        $key = trim((string) preg_replace('/[^a-z0-9]+/', '_', $this->normalize('' !== $label ? $label : 'facet')), '_');
+        $key = trim((string) preg_replace('/[^a-z0-9]+/', '_', $this->normalize($label)), '_');
+        // A facet needs a name both to show shoppers and to key its attribute.
+        if ( '' === $key ) {
+            return null;
+        }
         ksort($cardValues);
 
         return array(
             'kind'        => 'facet',
             'element'     => $group['element'],
             'shape'       => $group['shape'],
-            'key'         => '' !== $key ? $key : 'facet',
+            'key'         => $key,
             'label'       => $label,
             'role'        => preg_match('/\b(categor|collection|department|type|kind)/i', $label) ? 'category' : 'attribute',
             'options'     => $options,
@@ -436,12 +448,19 @@ final class ListingControlsRecognizer
                 break;
             }
         }
-        $label = SourceDom::associatedLabel($control);
+        $label = SourceDom::associatedLabel($control, true);
         if ( null !== $label ) {
-            return $this->text($label);
+            // A wrapping label's caption excludes the control (and its options).
+            $caption = $label->cloneNode(true);
+            if ( $caption instanceof DOMElement ) {
+                foreach ( iterator_to_array($caption->getElementsByTagName(strtolower($control->tagName))) as $nested ) {
+                    $nested->parentNode?->removeChild($nested);
+                }
+                return $this->text($caption);
+            }
         }
         $document = $control->ownerDocument;
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($control, 'aria-labelledby'))) ?: array() as $id ) {
+        foreach ( SourceDom::tokens(SourceDom::attr($control, 'aria-labelledby')) as $id ) {
             if ( '' === $id ) {
                 continue;
             }
@@ -460,6 +479,27 @@ final class ListingControlsRecognizer
         }
 
         return trim(SourceDom::attr($control, 'aria-label'));
+    }
+
+    /**
+     * A form that asks for the visitor's details (email, phone, password, a file,
+     * or free text) submits answers; its choices never filter a listing.
+     */
+    private function inSubmissionForm(DOMElement $element): bool
+    {
+        for ( $form = $element->parentNode; $form instanceof DOMElement && 'form' !== strtolower($form->tagName); $form = $form->parentNode );
+        if ( ! $form instanceof DOMElement ) {
+            return false;
+        }
+        if ( $form->getElementsByTagName('textarea')->length > 0 ) {
+            return true;
+        }
+        foreach ( $form->getElementsByTagName('input') as $input ) {
+            if ( in_array(strtolower(SourceDom::attr($input, 'type')), array('email', 'tel', 'password', 'file'), true) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Search suggestions are not the page's browsable collection. */

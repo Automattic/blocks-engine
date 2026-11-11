@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\HtmlDimensionAttribute;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\MonochromeGlyphColor;
@@ -115,7 +116,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                     && !($explicit && null !== $service && $this->isLocalPlaceholderUrl($anchor->getAttribute('href')))) {
                     return null;
                 }
-                if (null === $service || '' === ($this->glyphColor($image, $context) ?: $this->sameDestinationGlyphColor($anchor, $context))) {
+                if (null === $service || '' === ($this->glyphColor($image, $context) ?: $this->sameDestinationGlyphColor($anchor, $image, $context))) {
                     $sourceArtwork = true;
                 }
             }
@@ -184,10 +185,10 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         $structuralItems = true;
         $sourceRow = !in_array(strtolower($element->tagName), array('ul', 'ol'), true) && $this->hasMixedParent($element);
         foreach ( $anchors as $anchor ) {
-            $url = LinkUrlSanitizer::sanitize($this->attr($anchor, 'href'));
-            $label = trim($this->attr($anchor, 'aria-label'));
+            $url = LinkUrlSanitizer::sanitize(SourceDom::attr($anchor, 'href'));
+            $label = trim(SourceDom::attr($anchor, 'aria-label'));
             if ( '' === $label ) {
-                $label = trim($this->attr($anchor, 'title'));
+                $label = trim(SourceDom::attr($anchor, 'title'));
             }
             $text = $this->visibleText($anchor, $context);
             if ( '' === $label ) {
@@ -226,7 +227,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
 
         $attrs = $context->presentationAttributes($element);
         for ( $carrier = $element; $carrier instanceof DOMElement && 'body' !== strtolower($carrier->tagName); $carrier = $carrier->parentNode ) {
-            if ( preg_match('/(?:^|;)\s*text-align\s*:\s*(left|center|right)\b/i', $this->attr($carrier, 'style'), $alignment) ) {
+            if ( preg_match('/(?:^|;)\s*text-align\s*:\s*(left|center|right)\b/i', SourceDom::attr($carrier, 'style'), $alignment) ) {
                 $attrs['justifyContent'] = strtolower($alignment[1]);
                 break;
             }
@@ -399,7 +400,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
     private static function hasOtherSemanticOwner(DOMElement $element): bool
     {
         return in_array(strtolower($element->tagName), array('nav', 'form', 'label', 'button', 'fieldset'), true)
-            || in_array(strtolower(trim($element->getAttribute('role'))), array('navigation', 'form', 'button', 'menu', 'menubar', 'listbox'), true)
+            || in_array(SourceDom::role($element), array('navigation', 'form', 'button', 'menu', 'menubar', 'listbox'), true)
             || MenuVocabulary::containsUnconditionalMenuToken($element->getAttribute('class') . ' ' . $element->getAttribute('id'));
     }
 
@@ -452,7 +453,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             return false;
         }
         foreach ( $anchors as $anchor ) {
-            if ( null === self::serviceForUrl(LinkUrlSanitizer::sanitize($this->attr($anchor, 'href'))) ) {
+            if ( null === self::serviceForUrl(LinkUrlSanitizer::sanitize(SourceDom::attr($anchor, 'href'))) ) {
                 return false;
             }
         }
@@ -607,8 +608,8 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                     $dimensions[] = $size;
                     break;
                 }
-                $width = HtmlDimensionAttribute::pixels($this->attr($icon, 'width')) ?? 0.0;
-                $height = HtmlDimensionAttribute::pixels($this->attr($icon, 'height')) ?? 0.0;
+                $width = HtmlDimensionAttribute::pixels(SourceDom::attr($icon, 'width')) ?? 0.0;
+                $height = HtmlDimensionAttribute::pixels(SourceDom::attr($icon, 'height')) ?? 0.0;
                 if ( 0 < $width && 0 < $height ) {
                     $dimensions[] = min($width, $height);
                 }
@@ -700,12 +701,12 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                 return $paint;
             }
 
-            return $this->sameDestinationGlyphColor($anchor, $context);
+            return $this->sameDestinationGlyphColor($anchor, $image, $context);
         }
 
         $svg = $anchor->getElementsByTagName('svg')->item(0);
         if ( $svg instanceof DOMElement ) {
-            $fill = $this->concreteColor($this->attr($svg, 'fill'));
+            $fill = $this->concreteColor(SourceDom::attr($svg, 'fill'));
             if ( '' !== $fill ) {
                 return $fill;
             }
@@ -750,7 +751,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             return $captured;
         }
 
-        $url = trim($this->attr($image, 'src'));
+        $url = trim(SourceDom::attr($image, 'src'));
         if ( '' === $url ) {
             return '';
         }
@@ -782,14 +783,28 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         return $this->concreteColor((string) ($asset['glyph_color'] ?? ''));
     }
 
-    private function sameDestinationGlyphColor(DOMElement $anchor, PatternContext $context): string
+    private function artworkIdentity(DOMElement $image, PatternContext $context): string
     {
-        $href = LinkUrlSanitizer::sanitize($this->attr($anchor, 'href'));
+        $src = trim(SourceDom::attr($image, 'src'));
+        if ( '' === $src || str_starts_with(strtolower($src), 'data:') ) {
+            return '';
+        }
+
+        return (string) ($context->assetMetadata($src)['path'] ?? $src);
+    }
+
+    private function sameDestinationGlyphColor(DOMElement $anchor, DOMElement $image, PatternContext $context): string
+    {
+        $href = LinkUrlSanitizer::sanitize(SourceDom::attr($anchor, 'href'));
         if ( '' === $href ) {
             return '';
         }
-        if ( array_key_exists($href, $this->destinationGlyphColor) ) {
-            return $this->destinationGlyphColor[$href];
+        // Inline data images are lazy-load stubs with no artwork identity of their own;
+        // real artwork may only borrow evidence from the same asset.
+        $asset = $this->artworkIdentity($image, $context);
+        $key = $href . "\n" . $asset;
+        if ( array_key_exists($key, $this->destinationGlyphColor) ) {
+            return $this->destinationGlyphColor[$key];
         }
 
         $color = '';
@@ -799,27 +814,31 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                 if ( ! $other instanceof DOMElement || $other->isSameNode($anchor) ) {
                     continue;
                 }
-                if ( LinkUrlSanitizer::sanitize($this->attr($other, 'href')) !== $href ) {
+                if ( LinkUrlSanitizer::sanitize(SourceDom::attr($other, 'href')) !== $href ) {
                     continue;
                 }
-                $image = $other->getElementsByTagName('img')->item(0);
-                if ( ! $image instanceof DOMElement ) {
+                $otherImage = $other->getElementsByTagName('img')->item(0);
+                if ( ! $otherImage instanceof DOMElement ) {
                     continue;
                 }
-                $color = $this->glyphColor($image, $context);
+                // A shared destination says nothing about different artwork.
+                if ( '' !== $asset && $this->artworkIdentity($otherImage, $context) !== $asset ) {
+                    continue;
+                }
+                $color = $this->glyphColor($otherImage, $context);
                 if ( '' !== $color ) {
                     break;
                 }
             }
         }
-        $this->destinationGlyphColor[$href] = $color;
+        $this->destinationGlyphColor[$key] = $color;
 
         return $color;
     }
 
     private function ownPaintColor(DOMElement $element): string
     {
-        $style = $this->attr($element, 'style');
+        $style = SourceDom::attr($element, 'style');
         if ( '' === $style ) {
             return '';
         }

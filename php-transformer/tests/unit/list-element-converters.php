@@ -11,6 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListElementConv
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\RichTextMaterializationFixture;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\PatternTreeFixture;
 
 $assertions = 0;
 $failures = array();
@@ -42,7 +43,7 @@ $compilation->transform('<p>Initialize layout state</p>');
 $ownership = (new ReflectionProperty($compilation, 'authorLayoutOwnership'))->getValue($compilation);
 $state = (object) array( 'mode' => 'native' );
 $listContext = new ListElementContext(
-    static fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => 'pattern' === $state->mode ? array( 'blockName' => 'core/navigation' ) : null,
+    new PatternTreeFixture(static fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => 'pattern' === $state->mode ? array( 'blockName' => 'core/navigation' ) : null),
     static fn (array $block, DOMElement $element): array => array_merge($block, array( 'remembered' => true )),
     static fn (DOMElement $element): bool => 'structured' === $state->mode,
     static fn (DOMElement $element, array &$fallbacks): ?array => array( 'blockName' => 'core/columns' ),
@@ -81,7 +82,7 @@ $descriptionContext = new DescriptionListElementContext(
     static fn (DOMElement $element): ?array => 'metadata' === $state->mode ? array( 'blockName' => 'core/group', 'attrs' => array( 'metadata' => true ) ) : null,
     static fn (DOMElement $element): array => 'items' === $state->mode ? array( array( 'blockName' => 'core/list-item' ) ) : array(),
     $ownership,
-    static fn (DOMElement $element, array &$fallbacks, bool $capture): array => 'empty' === $state->mode ? array() : array( array( 'blockName' => 'core/paragraph' ) ),
+    new PatternTreeFixture(children: static fn (DOMElement $element, array &$fallbacks, bool $capture): array => 'empty' === $state->mode ? array() : array( array( 'blockName' => 'core/paragraph' ) )),
     static fn (string $text): bool => '' !== trim(strip_tags($text))
 );
 $descriptionConverter = new DescriptionListElementConverter(new SourceElementClassifier(), $createBlock, new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array( 'className' => 'presented-' . strtolower($element->tagName) )), new RichTextMaterializationFixture(array( 'content' => static fn (DOMElement $element): string => $element->textContent ?? '' )), $descriptionContext);

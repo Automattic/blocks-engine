@@ -306,6 +306,8 @@ final class CaptureEvidence
     public const DEVICE_BODY = 'data-blocks-engine-capture-device-body';
     /** Per-device inline styles retained on native block roots for overlay replay. */
     public const DEVICE_INLINE = 'data-blocks-engine-capture-device-inline';
+    /** Per-device class tokens retained on native block roots for overlay replay. */
+    public const DEVICE_CLASS = 'data-blocks-engine-capture-device-class';
 
     // Published for downstream importers; Blocks Engine does not read these.
 

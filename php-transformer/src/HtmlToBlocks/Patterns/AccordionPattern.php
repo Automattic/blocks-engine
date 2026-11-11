@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -104,7 +105,7 @@ final class AccordionPattern implements PatternRecognizerInterface
         $carriedIcon = '' !== $toggle['iconSvg'] && 1 === $header->getElementsByTagName('svg')->length
             ? $header->getElementsByTagName('svg')->item(0) : null;
         if ( $panel instanceof DOMElement ) {
-            if ( $this->containsNode($panel, $title)
+            if ( SourceDom::elementContains($panel, $title)
                 || ! $this->itemContentIsCovered($item, $control, $panel, $header, $carriedIcon instanceof DOMElement ? $carriedIcon : null)
             ) {
                 return null;
@@ -114,7 +115,7 @@ final class AccordionPattern implements PatternRecognizerInterface
             // does not establish a disclosure relationship; an inert panel
             // is closed content, not an already visible body.
             if ( 'details' !== strtolower($item->tagName)
-                && ! $this->hasClass($item, 'wp-block-accordion-item')
+                && ! SourceDom::hasClass($item, 'wp-block-accordion-item')
                 && '' === $this->trimmedAttribute($stateControl, 'aria-controls')
                 && ! $startsHidden($panel)
                 && ! $panel->hasAttribute('inert')
@@ -173,7 +174,7 @@ final class AccordionPattern implements PatternRecognizerInterface
             return $attributes;
         }
         $mapped = ( new StyleAttributeMapper() )->map($box, static fn (string $value): string => $value);
-        $style = is_array($mapped['style'] ?? null) ? $mapped['style'] : array();
+        $style = ArrayField::array($mapped, 'style');
         $style = array_intersect_key($style, array_flip(array('spacing', 'border')));
         if ( isset($style['spacing']) && is_array($style['spacing']) ) {
             $style['spacing'] = array_intersect_key($style['spacing'], array_flip(array('padding')));
@@ -182,7 +183,7 @@ final class AccordionPattern implements PatternRecognizerInterface
         if ( array() === $style ) {
             return $attributes;
         }
-        $existing = is_array($attributes['style'] ?? null) ? $attributes['style'] : array();
+        $existing = ArrayField::array($attributes, 'style');
         $attributes['style'] = array_replace_recursive($style, $existing);
 
         return $attributes;
@@ -196,7 +197,7 @@ final class AccordionPattern implements PatternRecognizerInterface
     {
         $row = $title;
         for ( $node = $title->parentNode; $node instanceof DOMElement && ! $node->isSameNode($item); $node = $node->parentNode ) {
-            if ( $panel instanceof DOMElement && $this->containsNode($node, $panel) ) {
+            if ( $panel instanceof DOMElement && SourceDom::elementContains($node, $panel) ) {
                 break;
             }
             $row = $node;
@@ -241,7 +242,7 @@ final class AccordionPattern implements PatternRecognizerInterface
     /** The panel's source classes with closed-only classes swapped for the recorded open-state list. */
     private function openClassList(DOMElement $panel): string
     {
-        $tokens = static fn (string $value): array => array_values(array_filter(preg_split('/\s+/', trim($value)) ?: array(), static fn (string $t): bool => '' !== $t));
+        $tokens = static fn (string $value): array => array_values(array_filter(SourceDom::tokens($value), static fn (string $t): bool => '' !== $t));
         $open = $tokens($panel->getAttribute(CaptureEvidence::DISCLOSURE_OPEN_PREFIX . 'class'));
         $closed = $tokens($panel->getAttribute(CaptureEvidence::DISCLOSURE_CLOSED_PREFIX . 'class'));
         $closedOnly = array_diff($closed, $open);
@@ -474,7 +475,7 @@ final class AccordionPattern implements PatternRecognizerInterface
 
         foreach ( $item->getElementsByTagName('*') as $candidate ) {
             if ( $candidate instanceof DOMElement && $candidate->getAttribute('id') === $controlledId ) {
-                return ! $this->containsNode($candidate, $title);
+                return ! SourceDom::elementContains($candidate, $title);
             }
         }
 
@@ -636,7 +637,7 @@ final class AccordionPattern implements PatternRecognizerInterface
         if ( in_array($tag, array( 'script', 'style', 'template' ), true) ) {
             return true;
         }
-        $isHeaderIcon = $this->containsNode($header, $node)
+        $isHeaderIcon = SourceDom::elementContains($header, $node)
             && preg_match('/(?:^|[\\s_-])icon(?:$|[\\s_-])/i', $node->getAttribute('class'))
             && preg_match('/^[\\s+−–—×✕⌄⌃›‹❯❮]+$/u', $node->textContent)
             && 0 === $node->getElementsByTagName('*')->length;

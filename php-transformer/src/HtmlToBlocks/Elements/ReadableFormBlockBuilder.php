@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
@@ -66,19 +67,15 @@ final class ReadableFormBlockBuilder
     private array $controlBoxes = array();
 
     /**
-     * @param Closure(DOMElement): array<string, mixed>                                                     $eventMetadata
-     * @param Closure(DOMElement): bool                                                                     $isRuntimeDomTarget
      * @param Closure(DOMElement): array<string, mixed>                                                     $cssOwnedGroupAttributes
      * @param Closure(list<DOMElement>, list<array<string, mixed>>, DOMElement): array<string, mixed>       $layoutShellBlockForElements
      * @param Closure(list<DOMElement>): (array<string, mixed>|null)                                        $fieldBoxShell
-     * @param Closure(DOMElement, array<int, array<string, mixed>>&): list<array<string, mixed>>|null       $convertFlowContent
      */
     public function __construct(
         private readonly FormControlMetadataBuilder $metadataBuilder,
         private readonly ReadableFormControlBlockConverter $controlBlockConverter,
         private readonly FormRuntimeIslandRecorder $runtimeIslandRecorder,
-        private readonly Closure $eventMetadata,
-        private readonly Closure $isRuntimeDomTarget,
+        private readonly RuntimeDomTargets $runtimeDomTargets,
         private readonly Closure $cssOwnedGroupAttributes,
         private readonly AuthorLayoutOwnership $authorLayoutOwnership,
         private readonly ElementPresentationResolver $presentationResolver,
@@ -86,7 +83,7 @@ final class ReadableFormBlockBuilder
         private readonly Closure $layoutShellBlockForElements,
         private readonly Closure $fieldBoxShell,
         private readonly HtmlTransformerSession $session,
-        private readonly ?Closure $convertFlowContent = null
+        private readonly ?PatternTreeConverter $flowTree = null
     ) {
     }
 
@@ -110,7 +107,7 @@ final class ReadableFormBlockBuilder
     {
         $this->layoutGraph = null;
         if ( 0 < $form->getElementsByTagName('script')->length
-            || ( ! $allowFormEvents && array() !== ($this->eventMetadata)($form) )
+            || ( ! $allowFormEvents && array() !== SourceDom::eventMetadata($form) )
         ) {
             return null;
         }
@@ -133,11 +130,11 @@ final class ReadableFormBlockBuilder
             if ( null !== $label ) {
                 $this->controlLabels[(string) $label->getNodePath()] = true;
             }
-            if ( array() !== ($this->eventMetadata)($control) || ! FormControlClassifier::isReadableControl($control) ) {
+            if ( array() !== SourceDom::eventMetadata($control) || ! FormControlClassifier::isReadableControl($control) ) {
                 return null;
             }
 
-            if ( ($this->isRuntimeDomTarget)($control) ) {
+            if ( $this->runtimeDomTargets->isRuntimeDomTarget($control) ) {
                 $this->runtimeIslandRecorder->recordControl($control);
             }
             // The walk reads each box before it reaches the control, so a
@@ -217,16 +214,21 @@ final class ReadableFormBlockBuilder
                 || (FormControlClassifier::isControlElement($node) && FormControlClassifier::isHoneypotControl($node)) ) {
                 continue;
             }
+            // A legend is one group caption even when its nested wrappers
+            // also appear in the layout graph. Do not walk those parts again
+            // as independent flow content after lowering the whole caption.
+            if ('legend' === strtolower($node->tagName)) {
+                $legend = $this->controlBlockConverter->convert($node);
+                if (null !== $legend) {
+                    $legend['_form_legend'] = true;
+                    $blocks[] = $legend;
+                }
+                continue;
+            }
             $entry = $entriesByPath[ (string) $node->getNodePath() ] ?? null;
             if ( null === $entry ) {
-                if ('legend' === strtolower($node->tagName)) {
-                    $legend = $this->controlBlockConverter->convert($node);
-                    if (null !== $legend) {
-                        $legend['_form_legend'] = true;
-                        $blocks[] = $legend;
-                    }
-                } elseif ( $this->isFlowContent($node) ) {
-                    array_push($blocks, ...(($this->convertFlowContent)($node, $fallbacks)));
+                if ( $this->isFlowContent($node) ) {
+                    $this->pushFlowContent($blocks, $node, $fallbacks);
                 }
                 continue;
             }
@@ -245,7 +247,7 @@ final class ReadableFormBlockBuilder
             $element = $entry['element'];
             if ( ! $this->holdsControl($entry['id'], $children) ) {
                 if ( $this->isFlowContent($element) ) {
-                    array_push($blocks, ...($this->convertFlowContent)($element, $fallbacks));
+                    $this->pushFlowContent($blocks, $element, $fallbacks);
                 }
                 continue;
             }
@@ -289,7 +291,20 @@ final class ReadableFormBlockBuilder
                 continue;
             }
             if ($isFieldset) {
+                // A fieldset's caption is outside its anonymous flex/grid
+                // content box. Keep source identity on the content group so
+                // projected author layout and field selectors still match.
+                $captions = array();
+                if ( $this->authorLayoutOwnership->isAuthorOwnedLayout($element) ) {
+                    $captions = array_values(array_filter($inner, static fn (array $block): bool => ! empty($block['_form_legend'])));
+                    if ( array() !== $captions ) {
+                        $inner = array_values(array_filter($inner, static fn (array $block): bool => empty($block['_form_legend'])));
+                    }
+                }
                 $group = $this->createBlock->createBlock('core/group', $this->presentationAttributes($element), $inner, $element);
+                if ( array() !== $captions ) {
+                    $group = $this->createBlock->createBlock('core/group', array('className' => 'blocks-engine-css-owned-layout blocks-engine-css-owned-flow'), array_merge($captions, array($group)));
+                }
                 $legend = null;
                 foreach ($element->childNodes as $child) {
                     if ($child instanceof DOMElement && 'legend' === strtolower($child->tagName)) {
@@ -330,13 +345,25 @@ final class ReadableFormBlockBuilder
     }
 
     /**
+     * @param list<array<string, mixed>> $blocks
+     * @param list<array<string, mixed>> $fallbacks
+     */
+    private function pushFlowContent(array &$blocks, DOMElement $element, array &$fallbacks): void
+    {
+        $block = $this->flowTree?->element($element, $fallbacks, false);
+        if ( null !== $block ) {
+            $blocks[] = $block;
+        }
+    }
+
+    /**
      * Label text, wrapped or referenced, rides on the control it names. A
      * label that names no control (a caption over a row of fields) is
      * authored content like any other.
      */
     private function isFlowContent(DOMElement $element): bool
     {
-        if ( null === $this->convertFlowContent ) {
+        if ( null === $this->flowTree ) {
             return false;
         }
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {

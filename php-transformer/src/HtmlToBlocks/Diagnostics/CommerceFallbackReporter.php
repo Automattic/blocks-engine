@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\SchemaProductEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CustomElementRuntimeDependency;
@@ -18,7 +19,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use DOMElement;
-use DOMNode;
 
 /**
  * Additive commerce diagnostics for recognized product grids and cart controls.
@@ -52,7 +52,8 @@ final class CommerceFallbackReporter
         private readonly SourceElementDescription $sourceElementDescription,
         private readonly FormControlMetadataBuilder $metadataBuilder,
         private readonly HtmlTransformerSession $session,
-        private readonly FormFallbackFindingContext $formFallbackContext
+        private readonly FormFallbackFindingContext $formFallbackContext,
+        private readonly BlockBindingBuilder $blockBindings
     ) {
     }
 
@@ -82,8 +83,11 @@ final class CommerceFallbackReporter
      * @param array<int, array<string, mixed>> $fallbacks
      * @param array<int, array<string, mixed>> $blocks
      */
-    public function appendProductGridFallbacks(DOMElement $body, array &$fallbacks, array $blocks): void
+    public function appendProductGridFallbacks(DOMElement $body, array &$fallbacks, array $blocks, ?bool $hasPurchaseAffordance = null): void
     {
+        if ( ! ($hasPurchaseAffordance ?? $this->recognizer->hasPurchaseAffordance($body)) ) {
+            return;
+        }
         $emitted = 0;
         $candidates = array();
         foreach ( $body->getElementsByTagName('*') as $element ) {
@@ -202,7 +206,7 @@ final class CommerceFallbackReporter
                 // loop here retires that redraw. The item template that loop
                 // repeats is built from the cards' final block markup in
                 // `itemTemplate()` once the page is serialized.
-                'binding'           => $this->blockBinding(array(), 'commerce_product_grid', $this->runtimeIslands->runtimeDomSelectorsForElement($element), $element),
+                'binding'           => $this->blockBindings->binding(array(), 'commerce_product_grid', $this->runtimeIslands->runtimeDomSelectorsForElement($element), $element),
                 'listing'           => $listing,
             ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->provenance->fallback());
             ++$emitted;
@@ -277,7 +281,7 @@ final class CommerceFallbackReporter
             $element = $control['element'];
             unset($control['element']);
             $control['selector'] = SourceDom::elementSelector($element);
-            $control['binding'] = $this->blockBinding(array(), 'commerce_listing_control', $this->runtimeIslands->runtimeDomSelectorsForElement($element), $element);
+            $control['binding'] = $this->blockBindings->binding(array(), 'commerce_listing_control', $this->runtimeIslands->runtimeDomSelectorsForElement($element), $element);
             $controls[] = $control;
             if ( 'facet' !== $control['kind'] ) {
                 continue;
@@ -301,7 +305,7 @@ final class CommerceFallbackReporter
         return array(
             'schema'   => 'generic/listing-controls/v1',
             'selector' => SourceDom::elementSelector($recognized['region']),
-            'binding'  => $this->blockBinding(array(), 'commerce_listing', array(), $recognized['region']),
+            'binding'  => $this->blockBindings->binding(array(), 'commerce_listing', array(), $recognized['region']),
             'controls' => $controls,
         );
     }
@@ -792,7 +796,7 @@ final class CommerceFallbackReporter
                 $children = array();
             }
             if ( array() === $children ) {
-                $leaves[$path] = $this->leaf(is_string($blockMarkup) ? $blockMarkup : '', is_string($block['innerHTML'] ?? null) ? $block['innerHTML'] : '', (string) $block['blockName'], $className, $ancestors);
+                $leaves[$path] = $this->leaf(is_string($blockMarkup) ? $blockMarkup : '', ArrayField::string($block, 'innerHTML'), (string) $block['blockName'], $className, $ancestors);
                 return;
             }
             foreach ( $children as $index => $child ) {
@@ -947,7 +951,9 @@ final class CommerceFallbackReporter
             foreach ( $element->getElementsByTagName('*') as $input ) {
                 $tag = strtolower($input->tagName);
                 if ( ('select' === $tag || ('input' === $tag && in_array(strtolower($input->getAttribute('type')), array('radio', 'checkbox'), true)))
-                    && '' !== trim($input->getAttribute('name')) && ! $input->hasAttribute('form') && ! SourceDom::hasNonAuthoredAncestor($input) ) {
+                    && '' !== trim($input->getAttribute('name')) && ! $input->hasAttribute('form') && ! SourceDom::hasNonAuthoredAncestor($input)
+                    // Search filters (listing type, sold/active) are not product options.
+                    && ! ListingControlsRecognizer::inSearchContext($input) ) {
                     $hasOptions = true;
                     break;
                 }
@@ -996,7 +1002,7 @@ final class CommerceFallbackReporter
             }
         }
         foreach ( array_slice(array_replace($regions, $optionRegions), 0, self::MAX_CANDIDATES) as $element ) {
-            $binding = $this->blockBinding(array(), 'commerce_add_to_cart_form', $this->runtimeIslands->runtimeDomSelectorsForElement($element), $element);
+            $binding = $this->blockBindings->binding(array(), 'commerce_add_to_cart_form', $this->runtimeIslands->runtimeDomSelectorsForElement($element), $element);
             // A details column may be the smallest common ancestor without
             // being a purchase-only wrapper. Anchor its contiguous control run,
             // not the heading, price or prose alongside it.
@@ -1137,7 +1143,7 @@ final class CommerceFallbackReporter
                 'placement'         => $this->cartViewPlacement($scope),
                 'runtime_selectors' => $runtimeSelectors,
                 'context'           => $this->sourceElementDescription->sourceContext($scope, includeStructureSignals: false, retainLinkTabindex: true),
-                'binding'           => $this->blockBinding(array(), 'commerce_cart', $runtimeSelectors, $scope),
+                'binding'           => $this->blockBindings->binding(array(), 'commerce_cart', $runtimeSelectors, $scope),
             ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->provenance->fallback());
         }
     }
@@ -1187,7 +1193,7 @@ final class CommerceFallbackReporter
                 'selector'          => $region['selector'],
                 'runtime_selectors' => $region['runtime_selectors'],
                 'context'           => $this->sourceElementDescription->sourceContext($region['element'], includeStructureSignals: false, retainLinkTabindex: true),
-                'binding'           => $this->blockBinding(array(), 'commerce_checkout', $region['runtime_selectors'], $region['element']),
+                'binding'           => $this->blockBindings->binding(array(), 'commerce_checkout', $region['runtime_selectors'], $region['element']),
             ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->provenance->fallback());
         }
     }
@@ -1216,7 +1222,7 @@ final class CommerceFallbackReporter
             if ( ! is_array($fallback) || ! in_array((string) ($fallback['diagnostic_code'] ?? ''), array( 'html_unsupported_element', CustomElementRuntimeDependency::UNPROVEN_CODE, 'html_cart_view_fallback' ), true) ) {
                 return true;
             }
-            $findingSelector = is_string($fallback['selector'] ?? null) ? $fallback['selector'] : '';
+            $findingSelector = ArrayField::string($fallback, 'selector');
 
             return '' === $findingSelector || ! $covered($findingSelector);
         }));
@@ -1291,7 +1297,7 @@ final class CommerceFallbackReporter
                 }
                 $binding = $this->commerceBindingForCard($child, $blocks);
                 if ( array() === $binding ) {
-                    $collectionBinding ??= $this->blockBinding(array(), 'commerce_collection', array(), $container);
+                    $collectionBinding ??= $this->blockBindings->binding(array(), 'commerce_collection', array(), $container);
                     $binding = $collectionBinding;
                 }
                 if ( array() !== $binding ) {
@@ -1321,7 +1327,7 @@ final class CommerceFallbackReporter
         if ( null === $block ) {
             return array();
         }
-        return $this->blockBinding($block, 'commerce_controls', $this->runtimeIslands->runtimeDomSelectorsForElement($control));
+        return $this->blockBindings->binding($block, 'commerce_controls', $this->runtimeIslands->runtimeDomSelectorsForElement($control));
     }
 
     /**
@@ -1351,51 +1357,12 @@ final class CommerceFallbackReporter
                     return $block;
                 }
             }
-            $nested = $this->blockForSourceSelector(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array(), $selector);
+            $nested = $this->blockForSourceSelector(ArrayField::array($block, 'innerBlocks'), $selector);
             if ( null !== $nested ) {
                 return $nested;
             }
         }
         return null;
-    }
-
-    /**
-     * `$block` is the preferred anchor when the caller owns a block the page
-     * actually emits (the per-card cart-control path). `$anchorElement` is the
-     * source element whose own emitted block anchors the binding when the
-     * caller has no such block (a card with no cart control at all, so every
-     * card in the grid shares its container's anchor instead). The anchor
-     * selector is resolved against the page's actual emitted block tree during
-     * fallback-binding finalization, exactly like the div-pseudo-form anchor
-     * (blocks-engine#718/#1975) — see that finalization step's docblock for
-     * why an anchor selector, not a synthesized block, is what keeps a binding
-     * page-owned. A container shared by many cards resolves to exactly one
-     * canonical position; the site-plan composer recognizes the
-     * `commerce_collection` role as a single anchor legitimately shared by
-     * many entities, rather than N entities racing for one position.
-     *
-     * @return array<string,mixed>
-     */
-    private function blockBinding(array $block, string $role, array $supersededRuntimeSelectors = array(), ?DOMElement $anchorElement = null): array
-    {
-        $provenanceId = $block['_source_provenance_id'] ?? null;
-        $markup = array() !== $block ? $this->runtime->serializeBlocks(array($block)) : '';
-        $anchorSelector = null !== $anchorElement ? SourceDom::elementSelector($anchorElement) : '';
-        if ( ( '' === trim($markup) || ! is_int($provenanceId) ) && '' === $anchorSelector ) {
-            return array();
-        }
-        $binding = array('schema' => 'generic/block-binding/v1', 'search_block_markup' => $markup, 'occurrence' => 1, 'role' => $role);
-        if ( is_int($provenanceId) ) {
-            $binding['_binding_provenance_id'] = $provenanceId;
-        }
-        if ( '' !== $anchorSelector ) {
-            $binding['_binding_anchor_selector'] = $anchorSelector;
-        }
-        $supersededRuntimeSelectors = array_values(array_unique(array_filter($supersededRuntimeSelectors, static fn(mixed $selector): bool => is_string($selector) && '' !== trim($selector))));
-        if ( array() !== $supersededRuntimeSelectors ) {
-            $binding['superseded_runtime_selectors'] = $supersededRuntimeSelectors;
-        }
-        return $binding;
     }
 
 }

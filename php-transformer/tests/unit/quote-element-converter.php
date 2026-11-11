@@ -6,8 +6,8 @@ require __DIR__ . '/../../vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ConversionOutcome;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\OrderedElementConverterRegistry;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\QuoteElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\QuoteElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\PatternTreeFixture;
 
 $assertions = 0;
 $failures = array();
@@ -29,8 +29,8 @@ $elementFrom = static function (string $html): DOMElement {
 };
 
 $mode = 'quote';
-$converter = new QuoteElementConverter(new QuoteElementContext(
-    static function (DOMElement $element, array &$fallbacks) use (&$mode): ?array {
+$converter = new QuoteElementConverter(new PatternTreeFixture(
+    static function (DOMElement $element, array &$fallbacks, array $patterns) use (&$mode): ?array {
         $fallbacks[] = array( 'quote' => true );
         return 'quote' === $mode ? array( 'blockName' => 'core/quote' ) : null;
     }
@@ -56,7 +56,7 @@ $lateConverter = new class($lateCalls) implements ElementConverter {
         $this->calls =& $calls;
     }
 
-    public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
         ++$this->calls;
         return 'figure' === $tagName

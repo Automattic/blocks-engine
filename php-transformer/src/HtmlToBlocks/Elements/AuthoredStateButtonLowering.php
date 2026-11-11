@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
@@ -54,7 +55,7 @@ final class AuthoredStateButtonLowering
         if ( ! $svg instanceof DOMElement ) {
             return null;
         }
-        $icon = $this->svgMaterializer->restoreSvgCasing($this->svgMaterializer->sanitizeInlineSvgMarkup($svg));
+        $icon = $this->svgMaterializer->inlineSvgMarkup($svg);
         if ( '' === $icon || ! SourceDom::isSafeSvgContent($icon) || ! SourceDom::isSafeInlineSvgMarkup($icon) ) {
             return null;
         }
@@ -62,7 +63,7 @@ final class AuthoredStateButtonLowering
         if ( '' !== $pressed && ! in_array($pressed, array( 'true', 'false', 'mixed' ), true) ) {
             return null;
         }
-        $role = strtolower(trim(SourceDom::attr($element, 'role')));
+        $role = SourceDom::role($element);
         $checked = strtolower(trim(SourceDom::attr($element, 'aria-checked')));
         if ('' !== $role && 'checkbox' !== $role) return null;
         if ('checkbox' === $role && (!in_array($checked, array('true', 'false'), true) || '' !== $pressed || FormControlClassifier::hasFormAncestor($element))) return null;
@@ -95,12 +96,6 @@ final class AuthoredStateButtonLowering
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : (is_bool($value) ? $value : '' !== $value));
         $markup = $generator->markup($attrs);
 
-        return array(
-            'blockName' => $registry->blockName(AuthoredButtonBlockGenerator::LOCAL_NAME),
-            'attrs' => $attrs,
-            'innerBlocks' => array(),
-            'innerHTML' => $markup,
-            'innerContent' => array( $markup ),
-        );
+        return BlockFactory::leaf($registry->blockName(AuthoredButtonBlockGenerator::LOCAL_NAME), $attrs, $markup);
     }
 }

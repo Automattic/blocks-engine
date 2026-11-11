@@ -71,7 +71,7 @@ final class RenderNeutralElements
         }
         // Attribute spelling is not presentation. Check matched author rules
         // (including conditional rules) as well as the inline declarations.
-        $declarations = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
+        $declarations = $this->styleResolver->inlineDeclarations($element);
         foreach ($this->session->authorStyleRuleCandidates($element) as $candidate) {
             if (! ($candidate['parsed']['supported'] ?? false)) return false;
             if ($this->session->sourceStyleResolutionState()->selectorMatchCache->matches($element, $candidate['selector'], $candidate['parsed'])['matches']) {
@@ -103,7 +103,7 @@ final class RenderNeutralElements
         }
 
         foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( 'none' === ($this->styleResolver->cssDeclarations(SourceDom::attr($descendant, 'style'))['display'] ?? '') ) {
+            if ( 'none' === ($this->styleResolver->inlineDeclarations($descendant)['display'] ?? '') ) {
                 return false;
             }
         }
@@ -167,7 +167,7 @@ final class RenderNeutralElements
             return false;
         }
 
-        foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'))) as $candidate ) {
+        foreach ( SourceDom::subtreeElements($element) as $candidate ) {
             if ( ! $candidate instanceof DOMElement ) {
                 continue;
             }
@@ -264,7 +264,7 @@ final class RenderNeutralElements
     private function subtreeCssTokens(DOMElement $element): array
     {
         $tokens = array();
-        foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'))) as $candidate ) {
+        foreach ( SourceDom::subtreeElements($element) as $candidate ) {
             if ( ! $candidate instanceof DOMElement ) {
                 continue;
             }
@@ -317,7 +317,7 @@ final class RenderNeutralElements
      */
     public function isTransparentUnknownElement(DOMElement $element): bool
     {
-        if ( ! RichTextInlineTags::isUnknownHtmlElement($element)
+        if ( ( ! RichTextInlineTags::isUnknownHtmlElement($element) && ! str_contains(strtolower($element->tagName), '-') )
             || in_array(strtolower($element->tagName), array( 'content', 'shadow' ), true)
             || $this->sourceElementClassifier->isRuntimeMediaSurfaceElement($element)
             || ! $this->runtimeIslands->isSafeTransparentCustomElement($element)

@@ -143,11 +143,12 @@ $shared = '.bar button{display:none;border:0;background:none;font-size:27px;colo
 // button while `.bar button` still names only the toggle.
 [ $blocks, $authorCss ] = $transform($shared, '<header><div class="bar"><a class="brand" href="#home">Brand</a>' . $toggle . $nav . '</div><form action="/search"><input type="search" name="q" aria-label="Search"><button type="submit">Go</button></form></header>');
 $assert(str_contains($blocks, '"overlayMenu":"mobile"'), 'mixed: navigation emits the native mobile overlay', $blocks);
-$headerButtonSelectors = array_filter($selectorsDeclaring($authorCss, 'cursor'), static fn (string $selector): bool => str_starts_with($selector, 'header button'));
-$assert(array() !== $headerButtonSelectors, 'mixed: the shared `header button` rule survives for the kept control', $authorCss);
-foreach ( $headerButtonSelectors as $selector ) {
-    $assert(str_contains($selector, $chromeExclusion), 'mixed: the shared `header button` rule is excluded from Core\'s open/close buttons', $selector);
-    $assert(! str_contains($selector, $neverMatch), 'mixed: the shared `header button` rule is not bound to the never-present marker', $selector);
+$cursorSelectors = $selectorsDeclaring($authorCss, 'cursor');
+// The kept submit receives the shared rule through core/search's button projection.
+$assert(array() !== array_filter($cursorSelectors, static fn (string $selector): bool => str_contains($selector, '.wp-block-search__button')), 'mixed: the shared `header button` rule survives for the kept control', $authorCss);
+// What remains of the bare `header button` selector never reaches Core's open/close buttons.
+foreach ( array_filter($cursorSelectors, static fn (string $selector): bool => str_starts_with($selector, 'header button')) as $selector ) {
+    $assert(str_contains($selector, $chromeExclusion) || str_contains($selector, $neverMatch), 'mixed: the shared `header button` rule is excluded from Core\'s open/close buttons', $selector);
 }
 foreach ( $selectorsDeclaring($authorCss, 'position') as $selector ) {
     if ( str_contains($selector, '.bar button') ) {

@@ -57,8 +57,12 @@ final class LayoutParticipation
         if ( $parent instanceof DOMElement ) {
             $parentDisplays[] = self::resolvedDisplay($parent, $styleResolver);
             // Synthesized wrappers must preserve item participation even when
-            // the parent only establishes that context at another breakpoint.
-            foreach ( $styleResolver->conditionalDisplayRules($parent) as $display ) {
+            // the parent only establishes that context at another breakpoint,
+            // including its unconditional one: a bar hidden at the reference
+            // viewport is still a flex container wherever it shows.
+            $base = $styleResolver->declaredPresentation($parent, 'display')->base();
+            $displays = '' === $base ? array() : array( $base );
+            foreach ( array_merge($displays, array_values($styleResolver->conditionalDisplayRules($parent))) as $display ) {
                 $parentDisplays[] = CssValueInspector::comparable(
                     $styleResolver->resolveCssVariablesInValue($display, $parent)
                 );
@@ -124,8 +128,8 @@ final class LayoutParticipation
         }
         $style = $resolver->resolvedSourceStateDeclarations($element);
         $parent = $resolver->resolvedSourceStateDeclarations($element->parentNode);
-        return str_starts_with(CssValueInspector::comparable((string) ($parent['flex-direction'] ?? '')), 'column')
-            && in_array(CssValueInspector::comparable((string) ($style['width'] ?? '')), array('min-content', 'max-content', 'fit-content'), true)
+        return str_starts_with(CssValueInspector::declared($parent, 'flex-direction'), 'column')
+            && in_array(CssValueInspector::declared($style, 'width'), array('min-content', 'max-content', 'fit-content'), true)
             && str_contains((string) ($style['min-width'] ?? ''), '%')
             && ! in_array(CssValueInspector::comparable((string) ($style['aspect-ratio'] ?? 'auto')), array('', 'auto'), true);
     }
@@ -331,8 +335,8 @@ final class LayoutParticipation
     private static function cannotShareLine(DOMElement $element, StyleResolver $styleResolver): bool
     {
         $declarations = $styleResolver->referenceViewportAuthorDeclarations($element, array( 'float', 'position' ));
-        $float = CssValueInspector::comparable((string) ($declarations['float'] ?? ''));
-        $position = CssValueInspector::comparable((string) ($declarations['position'] ?? ''));
+        $float = CssValueInspector::declared($declarations, 'float');
+        $position = CssValueInspector::declared($declarations, 'position');
         $width = CssValueInspector::comparable((string) ($styleResolver->cssDeclarations($styleResolver->controlSurfaceResolvedStyle($element))['width'] ?? ''));
 
         return ( '' !== $float && 'none' !== $float ) || in_array($position, array( 'absolute', 'fixed' ), true) || 100 === self::widthPreset('width:' . $width);

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssFontShorthand;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
@@ -46,7 +47,6 @@ final class DesignUsageCollector
 
     private const SKIPPED_TAGS = array('script', 'style', 'noscript', 'template', 'head', 'meta', 'link', 'title', 'svg', 'math', 'iframe', 'object', 'select', 'option', 'datalist', 'canvas', 'video', 'audio', 'picture', 'img');
 
-    /** User-agent heading sizes, in em of the parent. */
     /** Inherited text properties whose media-conditional variants usage rows record. */
     private const CONDITIONAL_TEXT_FAMILIES = array('color', 'font-family', 'font-size', 'font-weight');
 
@@ -340,6 +340,14 @@ final class DesignUsageCollector
             $own = $this->declarations($element, true);
             $context['color_authored'] = null !== CssColor::parse($own['color'] ?? '');
         }
+        // Pending font substitutions are absent from the classified cascade.
+        // Family and leading have independent longhand winners: a later family
+        // does not prevent the shorthand from setting (or resetting) leading.
+        $leadingFont = $this->resolver->restingFontShorthand($element, 'line-height');
+        if (null !== $leadingFont) {
+            $expanded = CssFontShorthand::expand($this->resolver->resolveDefaultSchemeCssVariablesInValue($leadingFont, $element));
+            if (isset($expanded['line-height'])) $declarations['line-height'] = $expanded['line-height'];
+        }
         $leading = self::clean($declarations['line-height'] ?? '');
         if ('' !== $leading && !in_array($leading, array('inherit', 'unset'), true)) {
             $context['line_height'] = $leading;
@@ -567,7 +575,7 @@ final class DesignUsageCollector
      */
     private function recordClassStyles(DOMElement $element, array $declarations, ?float $parentPx, float $fontPx, bool $parentSizeConditional = false): void
     {
-        $classes = array_values(array_unique(array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn(string $class): bool => '' !== $class)));
+        $classes = array_values(array_unique(array_filter(SourceDom::tokens($element->getAttribute('class')), static fn(string $class): bool => '' !== $class)));
         if (array() === $classes) return;
         sort($classes, SORT_STRING);
         $key = implode(' ', $classes);

@@ -17,7 +17,7 @@ use DOMElement;
  * Lowers a bounded phrasing tree of SVG-drawn binary button controls into
  * the layout shell plus editable text carriers.
  */
-final class InlineCheckableControlLowering
+final class InlineCheckableControlLowering implements ElementConverter
 {
     public function __construct(
         private readonly SourceBlockCreator $blocks,
@@ -31,16 +31,24 @@ final class InlineCheckableControlLowering
     ) {
     }
 
+    /** @param array<int, array<string, mixed>> $fallbacks */
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
+    {
+        $block = $this->inlineCheckableControlBlock($element);
+
+        return null === $block ? ConversionOutcome::unhandled() : ConversionOutcome::handled($block);
+    }
+
     /** A bounded phrasing tree with named binary SVG controls is layout plus
      * editable text, rather than one invalid RichText run. Keep source wrappers
      * with the existing layout shell and transparent text carriers.
      */
-    public function inlineCheckableControlBlock(DOMElement $element): ?array
+    private function inlineCheckableControlBlock(DOMElement $element): ?array
     {
         if (!in_array(strtolower($element->tagName), array('div', 'span', 'button'), true)) return null;
         $buttons = 'button' === strtolower($element->tagName) ? array($element) : iterator_to_array($element->getElementsByTagName('button'));
         if (array() === $buttons || 16 < count($buttons) || 64 < $element->getElementsByTagName('*')->length) return null;
-        foreach (array_merge(array($element), iterator_to_array($element->getElementsByTagName('*'))) as $node) {
+        foreach (SourceDom::subtreeElements($element) as $node) {
             if ($this->runtimeIslands->isRuntimeDomTarget($node) || array() !== SourceDom::eventMetadata($node) || $node->hasAttribute('data-action') || $node->hasAttribute('jsaction')) return null;
             foreach ($node->attributes as $attribute) if (str_starts_with(strtolower($attribute->name), 'data-wp-')) return null;
         }
@@ -61,7 +69,7 @@ final class InlineCheckableControlLowering
         if (!$supports($element, 0)) return null;
         $controls = array();
         foreach ($buttons as $button) {
-            if ('checkbox' !== strtolower(trim(SourceDom::attr($button, 'role'))) || '' === trim(SourceDom::attr($button, 'aria-label') . SourceDom::attr($button, 'title')) || $this->runtimeIslands->isRuntimeDomTarget($button)) return null;
+            if ('checkbox' !== SourceDom::role($button) || '' === trim(SourceDom::attr($button, 'aria-label') . SourceDom::attr($button, 'title')) || $this->runtimeIslands->isRuntimeDomTarget($button)) return null;
             $block = $this->authoredStateButtons->fromElement($button);
             if (null === $block) return null;
             $controls[$button->getNodePath()] = $block;

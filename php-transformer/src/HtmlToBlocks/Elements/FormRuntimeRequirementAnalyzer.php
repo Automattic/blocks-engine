@@ -6,26 +6,22 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
-use Closure;
 use DOMElement;
 
 /** Determines whether a form depends on behavior that native blocks cannot retain. */
 final class FormRuntimeRequirementAnalyzer
 {
     /**
-     * @param Closure(DOMElement): array<string, mixed> $eventMetadata
-     * @param Closure(DOMElement): bool                 $isRuntimeDomTarget
      */
     public function __construct(
-        private readonly Closure $eventMetadata,
-        private readonly Closure $isRuntimeDomTarget
+        private readonly RuntimeDomTargets $runtimeDomTargets
     ) {
     }
 
     public function requiresPreservation(DOMElement $form): bool
     {
         return 0 < $form->getElementsByTagName('script')->length
-            || array() !== ($this->eventMetadata)($form)
+            || array() !== SourceDom::eventMetadata($form)
             || $this->hasSubmissionMetadata($form)
             || self::hasCommerceSubmissionSignal($form)
             || $this->hasRuntimeDomTargets($form);
@@ -246,12 +242,12 @@ final class FormRuntimeRequirementAnalyzer
 
     private function hasRuntimeDomTargets(DOMElement $form): bool
     {
-        if ( ($this->isRuntimeDomTarget)($form) || $this->hasRuntimeClassSignal($form) ) {
+        if ( $this->runtimeDomTargets->isRuntimeDomTarget($form) || $this->hasRuntimeClassSignal($form) ) {
             return true;
         }
 
         foreach ( FormControlClassifier::controlElements($form) as $control ) {
-            if ( ($this->isRuntimeDomTarget)($control) || $this->hasRuntimeClassSignal($control) ) {
+            if ( $this->runtimeDomTargets->isRuntimeDomTarget($control) || $this->hasRuntimeClassSignal($control) ) {
                 return true;
             }
         }
@@ -261,7 +257,7 @@ final class FormRuntimeRequirementAnalyzer
 
     private function hasRuntimeClassSignal(DOMElement $element): bool
     {
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $class ) {
+        foreach ( SourceDom::tokens(SourceDom::attr($element, 'class')) as $class ) {
             if ( preg_match('/^js-[A-Za-z0-9_-]+$/', $class) ) {
                 return true;
             }

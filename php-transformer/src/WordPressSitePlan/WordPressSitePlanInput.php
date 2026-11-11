@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationPlanBuilder;
 
 /**
@@ -44,14 +45,14 @@ final class WordPressSitePlanInput
     public static function fromCompiledSite(array $compiledSite, array $editabilityPolicy, array $runtimeIslandPackage, array $coreHtmlFallbackEvidence): self
     {
         $derived = (new MaterializationPlanBuilder())->fromCompiledSite($compiledSite);
-        $theme = is_array($derived['theme'] ?? null) ? $derived['theme'] : array();
+        $theme = ArrayField::array($derived, 'theme');
 
         return new self(
             $compiledSite,
-            is_array($derived['routes'] ?? null) ? $derived['routes'] : array(),
-            is_array($derived['navigation_links'] ?? null) ? $derived['navigation_links'] : array(),
-            is_array($derived['menus'] ?? null) ? $derived['menus'] : array(),
-            is_array($theme['font_materialization'] ?? null) ? $theme['font_materialization'] : array(),
+            ArrayField::array($derived, 'routes'),
+            ArrayField::array($derived, 'navigation_links'),
+            ArrayField::array($derived, 'menus'),
+            ArrayField::array($theme, 'font_materialization'),
             $editabilityPolicy,
             $runtimeIslandPackage,
             $coreHtmlFallbackEvidence
@@ -64,13 +65,13 @@ final class WordPressSitePlanInput
      */
     public static function fromCompilerResult(array $result, array $coreHtmlFallbackEvidence): self
     {
-        $reports = is_array($result['source_reports'] ?? null) ? $result['source_reports'] : array();
-        $compiledSite = is_array($reports['compiled_site'] ?? null) ? $reports['compiled_site'] : array();
+        $reports = ArrayField::array($result, 'source_reports');
+        $compiledSite = ArrayField::array($reports, 'compiled_site');
 
         return self::fromCompiledSite(
             $compiledSite,
-            is_array($reports['editability_policy'] ?? null) ? $reports['editability_policy'] : array(),
-            is_array($reports['runtime_island_package'] ?? null) ? $reports['runtime_island_package'] : array(),
+            ArrayField::array($reports, 'editability_policy'),
+            ArrayField::array($reports, 'runtime_island_package'),
             $coreHtmlFallbackEvidence
         );
     }

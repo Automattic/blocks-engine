@@ -10,6 +10,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\AuthoredFormControlBlockConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\NativeGetFormBlockBuilder;
@@ -19,6 +20,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\PatternTreeFixture;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
@@ -54,10 +56,10 @@ $createBlock = new SourceBlockCreatorFixture(static fn (string $name, array $att
 $builder = null;
 $sawInside = false;
 $builder = new NativeGetFormBlockBuilder(
-    static function (DOMElement $form, array &$fallbacks) use (&$builder, &$sawInside): array {
+    new PatternTreeFixture(children: static function (DOMElement $form, array &$fallbacks) use (&$builder, &$sawInside): array {
         $sawInside = $builder instanceof NativeGetFormBlockBuilder && $builder->isInside();
         return array( array( 'blockName' => 'core/paragraph' ) );
-    },
+    }),
     static fn (DOMElement $element): array => array(),
     $createBlock,
     $session
@@ -71,20 +73,18 @@ $assert($sawInside, 'native-get-form-depth-is-active-while-converting-children')
 $assert(! $builder->isInside(), 'native-get-form-depth-restores-after-build');
 $assert(null !== $built, 'safe-native-get-form-builds');
 
-$metadataBuilder = new FormControlMetadataBuilder(static fn (DOMElement $element): string => strtolower($element->tagName));
+$metadataBuilder = new FormControlMetadataBuilder();
 $authored = new AuthoredFormControlBlockConverter(
     $metadataBuilder,
     static fn (DOMElement $element): array => array(),
-    static fn (DOMElement $element): array => array(),
+    new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array()),
     $createBlock,
     $session,
     $runtime,
-    static fn (string $id): string => $id,
     static fn (DOMElement $element): DOMElement => $element
 );
 $styleResolver = new StyleResolver($session,
     new StyleResolutionContext(
-        static fn (string $value): string => $value,
         static fn (string $selector): array => array(),
         static fn (string $className): string => $className,
         static fn (string $url): string => $url

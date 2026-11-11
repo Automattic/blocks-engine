@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -24,7 +25,7 @@ final class NativeGetFormControlConverter implements ElementConverter
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */
-    public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
         // Indicators have no readable-prose equivalent: keep their native fill
         // semantics even without authored CSS or an enclosing form.
@@ -93,6 +94,11 @@ final class NativeGetFormControlConverter implements ElementConverter
             return $this->authoredFormControlBlockConverter->select($element, true, $this->formControlMetadataBuilder->associatedLabel($element));
         }
         if ( 'button' === $tagName ) {
+            // core/button's label is phrasing RichText; SVG or flow content
+            // there is an invalid block. The authored button keeps it intact.
+            if ( $this->hasNonPhrasingContent($element) ) {
+                return $this->authoredFormControlBlockConverter->button($element, true);
+            }
             $type = strtolower(trim(SourceDom::attr($element, 'type')));
             if ( ! in_array($type, array( 'button', 'reset', 'submit' ), true) ) {
                 $type = 'submit';
@@ -104,5 +110,15 @@ final class NativeGetFormControlConverter implements ElementConverter
             )), array(), $element);
         }
         return null;
+    }
+
+    private function hasNonPhrasingContent(DOMElement $button): bool
+    {
+        foreach ( $button->getElementsByTagName('*') as $descendant ) {
+            if ( preg_match('/^(?:svg|' . NavigationPattern::BLOCK_LEVEL_LABEL_TAGS . ')$/i', $descendant->tagName) ) {
+                return true;
+            }
+        }
+        return false;
     }
 }

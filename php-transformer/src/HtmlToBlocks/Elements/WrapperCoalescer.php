@@ -3,12 +3,15 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
@@ -33,63 +36,25 @@ use LogicException;
  * those depend on ({@see self::groupWrapperDescriptor()},
  * {@see self::selectorMatchingSurvivesWrapperCoalescing()}).
  *
- * `coalescedSingleGroupWrapper()`'s eligibility test used to be a single
- * multi-term boolean expression that returned a bare `null` on
- * disqualification, so nothing recorded *why* a wrapper survived. It is now
- * built from named, individually-inspectable disqualification reasons
- * ({@see self::coalescingDisposition()}) evaluated in the same order — and
- * with the same short-circuiting — as the original expression, so output is
- * unchanged: only the reason a decision was made became visible.
+ * Eligibility is built from named, individually inspectable
+ * disqualification reasons ({@see self::coalescingDisposition()}), so the
+ * reason a wrapper survived is visible.
  *
- * Every geometry/layout predicate the disqualification checks need —
- * `isDirectChildOfStructuralLayout()`, `hasOnlyRenderNeutralInlineGeometry()`,
- * `hasOnlyFullWidthTransparentInlineGeometry()`,
- * `hasOnlyFullWidthTransparentBoxAffectingDeclarations()`,
- * `hasOnlyRenderNeutralBoxAffectingDeclarations()`,
- * `isNormalFlowFullWidthShellChild()`,
- * `hasContainingBlockDependentAuthorDeclarations()`,
- * `isRedundantNestedLayoutWrapper()`, plus the chain-walking helpers
- * `imageLeafInGroupChain()`/`sameSourceGroupChainLeaf()` and the layout-proof
- * bookkeeping `layoutGeometryProofFor()`/`layoutGeometryProofCarrier()` —
- * lives here now, computed from `SourceDom`, the injected `StyleResolver`,
- * and `SourceElementClassifier` this class already holds. None of them read
- * `HtmlCompilation` state; `isDirectChildOfStructuralLayout()`,
- * `hasOnlyRenderNeutralInlineGeometry()`,
- * `hasOnlyRenderNeutralBoxAffectingDeclarations()`, `matchingAuthorDeclarations()`,
- * `layoutGeometryProofFor()`, and `layoutGeometryProofCarrier()` are `public`
- * because `HtmlCompilation` itself now calls back into this class for the
- * handful of unrelated features (empty-shell detection, inline-alignment
- * detection, standalone-inline-leaf detection, ...) that also need them,
- * instead of keeping a second copy.
+ * The proof-backed path ({@see self::proofBackedWrapperCoalescing()}) runs
+ * before author-layout lowering and only carries a recorded layout-geometry
+ * proof onto the wrapper's sole native child.
  *
- * Two closures remain, each because the primitive it wraps is genuinely
- * shared by call sites with no wrapper-coalescing relationship at all, so
- * moving *those* primitives here — rather than duplicating them — would
- * recreate the coupling this refactor removes:
- *
- *  - `$soleElementChild`: DOM traversal that skips inert/hidden empty
- *    children; its own dependency chain (`isInertHiddenEmptyElement()` /
- *    `sourceElementStartsHidden()`) is called from a dozen unrelated sites
- *    across `HtmlCompilation` and is also injected into
- *    `InertScaffoldingSuppressor`.
- *  - `$isImageOnlyAnchor`: image-anchor classification reused across image
- *    conversion (`imageBlockFromAnchor()`, image-in-anchor promotion, ...)
- *    well outside wrapper coalescing.
- *
- * The fallback-HTML serializer used to be a fourth closure here
- * (`$safeFallbackHtml`), but it was only ever a `HtmlCompilation` instance
- * method forwarding to the stateless {@see SourceDom::safeFallbackHtml()}.
- * This class already holds `$session`, which is where that state (projected
- * author tag markers) actually lives, so {@see self::sameSourceGroupChainLeaf()}
- * calls `SourceDom::safeFallbackHtml()` directly instead.
- *
- * This class never holds a reference to `HtmlCompilation` itself.
+ * Collaborators that are not wrapper-specific arrive injected: the sole
+ * element child walk, image-only anchor classification and the script-state
+ * guard as closures, and child conversion and block creation through the
+ * `PatternTreeConverter` and `SourceBlockCreator` interfaces.
  */
 final class WrapperCoalescer
 {
     /**
      * @param Closure(DOMElement): ?DOMElement $soleElementChild
      * @param Closure(DOMElement): bool $isImageOnlyAnchor
+     * @param Closure(DOMElement): bool $preservesScriptStateWrapper
      */
     public function __construct(
         private readonly SourceElementClassifier $sourceElementClassifier,
@@ -99,7 +64,9 @@ final class WrapperCoalescer
         private readonly HtmlTransformerSession $session,
         private readonly SourceElementDescription $sourceElementDescription,
         private readonly Closure $soleElementChild,
-        private readonly Closure $isImageOnlyAnchor
+        private readonly Closure $isImageOnlyAnchor,
+        private readonly Closure $preservesScriptStateWrapper,
+        private readonly PatternTreeConverter $tree
     ) {
     }
 
@@ -151,7 +118,7 @@ final class WrapperCoalescer
     private function nativeBlockHeight(array $block): int
     {
         $height = 0;
-        foreach (is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array() as $child) {
+        foreach (ArrayField::array($block, 'innerBlocks') as $child) {
             if (is_array($child)) $height = max($height, $this->nativeBlockHeight($child));
         }
 
@@ -163,7 +130,7 @@ final class WrapperCoalescer
     {
         $chain = array();
         $cursor = $block;
-        while (1 === count(is_array($cursor['innerBlocks'] ?? null) ? $cursor['innerBlocks'] : array()) && null !== ($descriptor = $this->foldableWrapperDescriptor($cursor))) {
+        while (1 === count(ArrayField::array($cursor, 'innerBlocks')) && null !== ($descriptor = $this->foldableWrapperDescriptor($cursor))) {
             $chain[] = array('block' => $cursor, 'descriptor' => $descriptor);
             $cursor = $cursor['innerBlocks'][0];
         }
@@ -171,7 +138,7 @@ final class WrapperCoalescer
             $chain[] = array('block' => $cursor, 'descriptor' => $descriptor);
             $terminal = array(
                 'blockName' => 'core/freeform',
-                'innerBlocks' => $this->compressProjectedGroupChains(is_array($cursor['innerBlocks'] ?? null) ? $cursor['innerBlocks'] : array(), $depth + count($chain)),
+                'innerBlocks' => $this->compressProjectedGroupChains(ArrayField::array($cursor, 'innerBlocks'), $depth + count($chain)),
             );
             return array('chain' => $chain, 'terminal' => $terminal, 'boundary' => null);
         }
@@ -198,15 +165,17 @@ final class WrapperCoalescer
         // only its block name records) loses its block identity for the editor
         // and for shell extraction. A native grid or flex
         // layout is likewise an editor control the wrapper list cannot carry.
-        if (!in_array($block['blockName'] ?? null, array('core/group'), true) || in_array($block['attrs']['layout']['type'] ?? null, array('grid', 'flex'), true) || isset($block['_binding_token']) || $this->session->transformationProvenanceState()->isBindingAnchor($block['_source_provenance_id'] ?? null) || $this->hasIndependentWrapperOwnership($block) || in_array(strtolower((string) ($block['attrs']['tagName'] ?? 'div')), array_merge(array('ul', 'ol', 'li'), self::LANDMARK_GROUP_TAGS), true) || ShellLandmarkPolicy::namesRoleOnlyLandmark(is_array($block['attrs'] ?? null) ? $block['attrs'] : array())) return null;
+        if (!in_array($block['blockName'] ?? null, array('core/group'), true) || in_array($block['attrs']['layout']['type'] ?? null, array('grid', 'flex'), true) || isset($block['_binding_token']) || $this->session->transformationProvenanceState()->isBindingAnchor($block['_source_provenance_id'] ?? null) || $this->hasIndependentWrapperOwnership($block) || in_array(strtolower((string) ($block['attrs']['tagName'] ?? 'div')), array_merge(array('ul', 'ol', 'li'), self::LANDMARK_GROUP_TAGS), true) || ShellLandmarkPolicy::namesRoleOnlyLandmark(ArrayField::array($block, 'attrs'))) return null;
         return $this->groupWrapperDescriptor($block);
     }
 
     /** @param array<string,mixed> $block */
     private function hasIndependentWrapperOwnership(array $block): bool
     {
-        $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
-        return !empty($block['_editability_runtime_owned'])
+        $attrs = ArrayField::array($block, 'attrs');
+        // A dialog Group's identity includes its runtime shell and bindings.
+        return isset($attrs['metadata']['blocksEngineDialog'])
+            || !empty($block['_editability_runtime_owned'])
             || !empty($block['_editability_visual_owned'])
             || !empty($attrs['backgroundColor'])
             || !empty($attrs['gradient'])
@@ -224,11 +193,11 @@ final class WrapperCoalescer
         $terminalIsShell = $this->sourceElementClassifier->isLayoutShellBlock($terminal);
         $terminalBlocks = $terminalIsShell ? $terminal['innerBlocks'] : (is_array($terminal['innerBlocks'] ?? null) && 'core/freeform' === ($terminal['blockName'] ?? null) ? $terminal['innerBlocks'] : array($terminal));
         $wrappers = array_column($chain, 'descriptor');
-        if ($terminalIsShell) $wrappers = array_merge($wrappers, is_array($terminal['_layout_shell_wrappers'] ?? null) ? $terminal['_layout_shell_wrappers'] : array());
+        if ($terminalIsShell) $wrappers = array_merge($wrappers, ArrayField::array($terminal, '_layout_shell_wrappers'));
         $opening = implode('', array_column($wrappers, 'opening'));
         $closing = implode('', array_reverse(array_column($wrappers, 'closing')));
         $provenanceIds = array_values(array_filter(array_map(static fn (array $entry): mixed => $entry['block']['_source_provenance_id'] ?? null, $chain), 'is_int'));
-        if ($terminalIsShell) $provenanceIds = array_merge($provenanceIds, is_array($terminal['_source_provenance_ids'] ?? null) ? $terminal['_source_provenance_ids'] : array());
+        if ($terminalIsShell) $provenanceIds = array_merge($provenanceIds, ArrayField::array($terminal, '_source_provenance_ids'));
         $blockName = $this->generatedBlocks()->blockName('layout-shell');
         $this->generatedBlocks()->register(LayoutShellBlockGenerator::class, (new LayoutShellBlockGenerator())->definition($blockName));
         return array_filter(array(
@@ -255,11 +224,11 @@ final class WrapperCoalescer
         if ( ! empty($block['_native_custom_wrapper_hook']) ) {
             return null;
         }
-        $content = is_array($block['innerContent'] ?? null) ? $block['innerContent'] : array();
+        $content = ArrayField::array($block, 'innerContent');
         $opening = is_string($content[0] ?? null) ? $content[0] : '';
         $last = array() === $content ? null : $content[array_key_last($content)];
         $closing = is_string($last) ? $last : '';
-        $children = is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array();
+        $children = ArrayField::array($block, 'innerBlocks');
         if (count($content) !== count($children) + 2 || array_slice($content, 1, -1) !== array_fill(0, count($children), null)) {
             return null;
         }
@@ -270,10 +239,7 @@ final class WrapperCoalescer
         if (! array_key_exists($cacheKey, $this->parsedWrapperCache)) {
             $tagName = strtolower($match[1]);
             $document = new DOMDocument();
-            $previous = libxml_use_internal_errors(true);
-            $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $opening . $closing . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-            libxml_clear_errors();
-            libxml_use_internal_errors($previous);
+            $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . $opening . $closing . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
             $element = $loaded ? $document->getElementsByTagName($tagName)->item(0) : null;
             $parsed = null;
             if ($element instanceof DOMElement) {
@@ -296,7 +262,7 @@ final class WrapperCoalescer
         // Attribute-only carriers may project core editor styles. A shell must
         // already render every geometry token on this exact saved wrapper.
         preg_match_all('/(?:^|\s)(be-inline-geometry-[^\s]+)/', (string) ($block['attrs']['className'] ?? ''), $geometryClasses);
-        $savedClasses = preg_split('/\s+/', trim((string) ($attributes['class'] ?? ''))) ?: array();
+        $savedClasses = SourceDom::tokens((string) ($attributes['class'] ?? ''));
         if (array_diff($geometryClasses[1], $savedClasses)) {
             return null;
         }
@@ -356,7 +322,7 @@ final class WrapperCoalescer
                 $values = $this->styleResolver->mergeCssDeclarationMaps($values, array($name => $value));
             }
         }
-        $attrs = is_array($childBlock['attrs'] ?? null) ? $childBlock['attrs'] : array();
+        $attrs = ArrayField::array($childBlock, 'attrs');
         $textAlign = $attrs['style']['typography']['textAlign'] ?? $attrs['align'] ?? null;
         if (isset($textAlign, $values['text-align']) && $textAlign === CssValueInspector::comparable($values['text-align'])) unset($values['text-align']);
         if (array() === $values) return null;
@@ -365,7 +331,7 @@ final class WrapperCoalescer
         foreach (array('fontSize', 'fontFamily', 'textColor', 'align') as $attribute) {
             if (! isset($attrs[$attribute]) && isset($wrapperAttrs[$attribute])) $attrs[$attribute] = $wrapperAttrs[$attribute];
         }
-        $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
+        $classes = SourceDom::tokens((string) ($attrs['className'] ?? ''));
         $classes = array_values(array_filter($classes, fn (string $name): bool => ! isset($this->inheritedTextCarriers[$name])));
         $attrs['className'] = SourceDom::mergeClassNames(implode(' ', $classes), $carrier, ...array_map(static fn (DOMElement $node): string => SourceDom::attr($node, 'class'), array_slice($chain, 0, -1)));
         if ('' !== $carrier) $this->inheritedTextCarriers[$carrier] = true;
@@ -435,9 +401,17 @@ final class WrapperCoalescer
         return true;
     }
 
-    /** @param array<string, mixed> $childBlock @return array<string, mixed>|null */
+    /**
+     * A wrapper that preserves script-observed state stays its own group.
+     *
+     * @param array<string, mixed> $childBlock @return array<string, mixed>|null
+     * @see self::coalescingDisposition() for the named disqualification reasons.
+     */
     public function coalescedSingleGroupWrapper(DOMElement $element, array $childBlock): ?array
     {
+        if ( ($this->preservesScriptStateWrapper)($element) ) {
+            return null;
+        }
         $textWrapper = $this->coalescedInheritedTextWrapper($element, $childBlock);
         if (null !== $textWrapper) return $textWrapper;
         $resolution = $this->coalescingResolution($element, $childBlock);
@@ -448,7 +422,7 @@ final class WrapperCoalescer
         $attrs = $resolution['attrs'];
         $sourceChild = $resolution['source_child'];
 
-        $childAttrs = is_array($childBlock['attrs'] ?? null) ? $childBlock['attrs'] : array();
+        $childAttrs = ArrayField::array($childBlock, 'attrs');
         $childAttrs['className'] = null === $proof
             ? SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), (string) ($childAttrs['className'] ?? ''), ...SourceDom::classNames($element))
             : SourceDom::mergeClassNames((string) ($childAttrs['className'] ?? ''), $this->layoutGeometryProofCarrier($proof));
@@ -633,8 +607,11 @@ final class WrapperCoalescer
             return false;
         }
 
+        // Descendants retain their identity, but lose ancestors too. Checking
+        // only the merged wrapper misses rules whose subject is below it.
+        $descendants = SourceDom::descendantElements($child);
         $beforeCandidatesByKey = array();
-        foreach ( $chain as $node ) {
+        foreach ( array_merge($chain, $descendants) as $node ) {
             foreach ( $this->session->authorStyleRuleCandidates($node) as $selector ) {
                 $beforeCandidatesByKey[$selector['key']] = $selector;
             }
@@ -646,6 +623,14 @@ final class WrapperCoalescer
                 $chain,
                 fn (DOMElement $node): bool => $this->session->sourceStyleResolutionState()->selectorMatchCache->matches($node, $selector['selector'], $selector['parsed'], true)['matches']
             );
+        }
+
+        $descendantMatchesBefore = array();
+        foreach ( $descendants as $index => $node ) {
+            foreach ( $beforeCandidates as $selector ) {
+                $descendantMatchesBefore[$index][$selector['key']] = $selector['parsed']['supported']
+                    && $this->session->sourceStyleResolutionState()->selectorMatchCache->matches($node, $selector['selector'], $selector['parsed'], true)['matches'];
+            }
         }
 
         $childClass = SourceDom::attr($child, 'class');
@@ -677,6 +662,9 @@ final class WrapperCoalescer
         $survives = true;
         $temporarySelectorCache = new CssSelectorMatchCache();
         $afterCandidates = $this->session->authorStyleRuleCandidates($matchNode, $temporarySelectorCache);
+        foreach ( $descendants as $node ) {
+            $afterCandidates = array_merge($afterCandidates, $this->session->authorStyleRuleCandidates($node, $temporarySelectorCache));
+        }
         $candidates = array();
         foreach ( array_merge($beforeCandidates, $afterCandidates) as $selector ) {
             $candidates[$selector['key']] = $selector;
@@ -687,6 +675,17 @@ final class WrapperCoalescer
             if ( ($matchesBefore[$key] ?? false) !== $matchesAfter && ($exact || ! $this->hasOnlyRenderNeutralDeclarations($selector['declarations'])) ) {
                 $survives = false;
                 break;
+            }
+        }
+
+        foreach ( $descendants as $index => $node ) {
+            foreach ( $candidates as $key => $selector ) {
+                $matchesAfter = $selector['parsed']['supported']
+                    && $temporarySelectorCache->matches($node, $selector['selector'], $selector['parsed'], true)['matches'];
+                if ( ($descendantMatchesBefore[$index][$key] ?? false) !== $matchesAfter ) {
+                    $survives = false;
+                    break 2;
+                }
             }
         }
 
@@ -714,7 +713,6 @@ final class WrapperCoalescer
         return $survives;
     }
 
-    /** @return list<array{key: string, selector: string, parsed: array<string, mixed>, direct_child_parsed: array<string, mixed>, declarations: array<string, string>, rule_order: int}> */
     /**
      * A source `div` establishing flex/grid is structural layout; a direct
      * child of one loses its own eligibility for coalescing (its geometry is
@@ -734,7 +732,7 @@ final class WrapperCoalescer
     public function isStructuralLayoutElement(DOMElement $element): bool
     {
         $declarations = array_merge($this->styleResolver->presentationDeclarations($element), $this->authorSemanticDeclarations($element));
-        return in_array(CssValueInspector::comparable((string) ($declarations['display'] ?? '')), array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
+        return in_array(CssValueInspector::declared($declarations, 'display'), array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
     }
 
     /** @return array<string, string> */
@@ -751,7 +749,7 @@ final class WrapperCoalescer
 
     public function hasOnlyRenderNeutralInlineGeometry(DOMElement $element): bool
     {
-        foreach ($this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style')) as $property => $value) {
+        foreach ($this->styleResolver->inlineDeclarations($element) as $property => $value) {
             if (! $this->isRenderNeutralGeometryDeclaration($property, $value)) return false;
         }
         return true;
@@ -759,7 +757,7 @@ final class WrapperCoalescer
 
     private function hasOnlyFullWidthTransparentInlineGeometry(DOMElement $element): bool
     {
-        $declarations = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
+        $declarations = $this->styleResolver->inlineDeclarations($element);
         if ( '100%' !== strtolower(trim(CssValueInspector::withoutImportant((string) ($declarations['width'] ?? '')))) ) {
             return false;
         }
@@ -834,7 +832,7 @@ final class WrapperCoalescer
                 return true;
             }
         }
-        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+        $display = CssValueInspector::declared($declarations, 'display');
         return '' !== $display && ! in_array($display, array( 'block', 'flow-root' ), true);
     }
 
@@ -945,7 +943,7 @@ final class WrapperCoalescer
 
     private function classListHasExactToken(string $className, string $token): bool
     {
-        foreach ( preg_split('/\s+/', trim($className)) ?: array() as $class ) {
+        foreach ( SourceDom::tokens($className) as $class ) {
             if ( $token === $class ) {
                 return true;
             }
@@ -967,11 +965,8 @@ final class WrapperCoalescer
 
     /**
      * The layout-geometry proof this wrapper/child pair already satisfies, if
-     * the normalizer recorded one. `HtmlCompilation` injects this into
-     * `ElementConversionPrelude` as `fn (DOMElement $element): ?array =>
-     * $this->wrapperCoalescer->layoutGeometryProofFor($element)` because that
-     * prelude needs the same lookup before author-layout lowering runs, not
-     * because the lookup itself belongs anywhere but here.
+     * the normalizer recorded one. `ElementConversionPrelude` also reads it
+     * before author-layout lowering runs.
      *
      * @return array<string, mixed>|null
      */
@@ -988,15 +983,36 @@ final class WrapperCoalescer
     }
 
     /**
+     * This runs before author-layout lowering, whose custom block deliberately
+     * owns CSS flex/grid topology. The contract has already compared source and
+     * wrapper-free layouts; this method only carries the wrapper identity and
+     * generated geometry carrier onto an existing native child block.
+     *
+     * @param array<int,array<string,mixed>> $fallbacks
+     * @return array<string,mixed>|null
+     */
+    public function proofBackedWrapperCoalescing(DOMElement $element, array &$fallbacks): ?array
+    {
+        $proof = $this->layoutGeometryProofFor($element);
+        if (null === $proof || $this->runtimeIslands->isRuntimeDomTarget($element) || '' !== trim(SourceDom::attr($element, 'id')) || '' !== trim(SourceDom::attr($element, 'role')) || array() !== $this->sourceElementDescription->interactiveAttributes($element) || $this->sourceElementClassifier->hasMotionStructureToken($element)) return null;
+        $children = $this->tree->children($element, $fallbacks, true);
+        if (1 !== count($children) || !in_array($children[0]['blockName'] ?? null, array('core/group', 'core/image'), true) || $this->session->transformationProvenanceState()->isBindingAnchor($children[0]['_source_provenance_id'] ?? null)) return null;
+        $sourceChild = ($this->soleElementChild)($element);
+        if (!$sourceChild instanceof DOMElement || SourceDom::elementSelector($sourceChild) !== ($proof['target_selector'] ?? null)) return null;
+        $childAttrs = is_array($children[0]['attrs'] ?? null) ? $children[0]['attrs'] : array();
+        $childAttrs['className'] = SourceDom::mergeClassNames((string) ($childAttrs['className'] ?? ''), $this->layoutGeometryProofCarrier($proof));
+        $childAttrs = array_filter($childAttrs, static fn (mixed $value): bool => !is_string($value) || '' !== trim($value));
+        $this->session->layoutGeometryState()->recordProof($proof);
+        return $this->createBlock->createBlock((string) $children[0]['blockName'], $childAttrs, $children[0]['innerBlocks'] ?? array(), $sourceChild);
+    }
+
+    /**
      * Registers (idempotently) the corrective-CSS rule a layout-geometry
-     * proof carries and returns the class name that applies it. Public so
-     * `HtmlCompilation::proofBackedWrapperCoalescing()` — a distinct, proof-
-     * only coalescing path used before author-layout lowering — can call the
-     * same carrier instead of keeping a second copy.
+     * proof carries and returns the class name that applies it.
      *
      * @param array<string,mixed> $proof
      */
-    public function layoutGeometryProofCarrier(array $proof): string
+    private function layoutGeometryProofCarrier(array $proof): string
     {
         $declarations = $proof['corrective_css']['declarations'] ?? array();
         if (!is_array($declarations)) return '';

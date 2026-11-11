@@ -16,7 +16,7 @@ use DOMElement;
  * placeholders that never paint, and hidden SVG sprite stores that only
  * other SVG content consumes.
  */
-final class InertElements
+final class InertElements implements ElementConverter
 {
     public function __construct(
         private readonly StyleResolver $styleResolver,
@@ -24,6 +24,16 @@ final class InertElements
         private readonly SourceElementVisibility $sourceVisibility,
         private readonly RuntimeIslandAnalyzer $runtimeIslands
     ) {
+    }
+
+    /**
+     * Omits an inert runtime media placeholder: it renders nothing until a script fills it.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     */
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
+    {
+        return $this->isInertRuntimeMediaPlaceholder($element) ? ConversionOutcome::handled(null) : ConversionOutcome::unhandled();
     }
 
     public function isInertRuntimeMediaPlaceholder(DOMElement $element): bool
@@ -35,7 +45,7 @@ final class InertElements
             return false;
         }
 
-        foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'))) as $candidate ) {
+        foreach ( SourceDom::subtreeElements($element) as $candidate ) {
             if ( ! $candidate instanceof DOMElement
                 || ! $this->runtimeIslands->isSafeTransparentCustomElement($candidate)
                 || '' !== trim(SourceDom::attr($candidate, 'role'))
@@ -97,7 +107,7 @@ final class InertElements
         }
 
         foreach ( $store->ownerDocument->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement || $this->sourceElementClassifier->isDescendantOf($candidate, $store) ) {
+            if ( ! $candidate instanceof DOMElement || SourceDom::elementContains($store, $candidate) ) {
                 continue;
             }
             foreach ( $candidate->attributes as $attribute ) {

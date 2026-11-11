@@ -128,7 +128,7 @@ final class TableAttributesBuilder
     /** @return list<string> */
     private static function classTokens(DOMElement $element): array
     {
-        return array_values(array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn (string $class): bool => '' !== $class));
+        return array_values(array_filter(SourceDom::tokens($element->getAttribute('class')), static fn (string $class): bool => '' !== $class));
     }
 
     private function registerTablePresentationNormalization(DOMElement $table): void
@@ -321,7 +321,7 @@ final class TableAttributesBuilder
                     continue;
                 }
                 ++$cellIndex;
-                $declarations = $this->styleResolver->cssDeclarations(SourceDom::attr($cell, 'style'));
+                $declarations = $this->styleResolver->inlineDeclarations($cell);
                 $geometry = array();
                 $width = trim((string) ($declarations['width'] ?? ''));
                 if ( '' !== $width && preg_match('/^(?:\d+(?:\.\d+)?(?:%|px|em|rem|vw|ch)|calc\(.+\)|var\(.+\))$/i', $width) ) {

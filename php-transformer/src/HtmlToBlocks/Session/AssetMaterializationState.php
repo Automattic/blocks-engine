@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer;
 
 /** Per-transform source metadata and generated asset state. */
@@ -81,8 +82,8 @@ final class AssetMaterializationState
         $existing['bytes'] = strlen($existing['content']);
         $existing['hash'] = hash('sha256', $existing['content']);
         $existing['source_hash'] = $existing['hash'];
-        $occurrences = is_array($existing['component_occurrences'] ?? null) ? $existing['component_occurrences'] : array();
-        $counts = is_array($existing['component_occurrence_counts'] ?? null) ? $existing['component_occurrence_counts'] : array();
+        $occurrences = ArrayField::array($existing, 'component_occurrences');
+        $counts = ArrayField::array($existing, 'component_occurrence_counts');
         if (is_string($occurrence['fingerprint'] ?? null)) {
             $counts[$occurrence['fingerprint']] = (int) ($counts[$occurrence['fingerprint']] ?? 0) + 1;
         }
@@ -101,6 +102,18 @@ final class AssetMaterializationState
     public function assets(): array
     {
         return array_values($this->generated);
+    }
+
+    /** Generated engine-support CSS, joined in emission order. */
+    public function engineSupportCss(): string
+    {
+        $css = array();
+        foreach ( $this->assets() as $asset ) {
+            if ( 'engine-support' === ($asset['source'] ?? '') && 'css' === ($asset['kind'] ?? '') && is_string($asset['content'] ?? null) ) {
+                $css[] = $asset['content'];
+            }
+        }
+        return implode("\n", $css);
     }
 
     /** @return array<string, array<string, mixed>> */

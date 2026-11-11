@@ -18,14 +18,9 @@ final class FormControlLabel
 
     public static function element(DOMElement $control): ?DOMElement
     {
-        $label = SourceDom::associatedLabel($control);
+        $label = SourceDom::associatedLabel($control, true);
         if ( $label instanceof DOMElement ) {
             return $label;
-        }
-        for ( $parent = $control->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
-            if ( 'label' === strtolower($parent->tagName) ) {
-                return $parent;
-            }
         }
         return self::capturedChoiceFieldLabel($control) ?? self::fieldWrapperLabel($control);
     }

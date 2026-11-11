@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ImageUrlResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ImageDimensionResolver;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
@@ -23,7 +25,7 @@ use DOMElement;
  * block, keeping the host's box as a layout shell when its presentation needs
  * one, and decides when an image-only custom element can be promoted.
  */
-final class CustomImageHostLowering
+final class CustomImageHostLowering implements ElementConverter
 {
     public function __construct(
         private readonly SourceBlockCreator $blocks,
@@ -35,8 +37,32 @@ final class CustomImageHostLowering
         private readonly ImageLowering $imageLowering,
         private readonly LayoutShellLowering $layoutShells,
         private readonly RuntimeIslandAnalyzer $runtimeIslands,
-        private readonly AuthorLayoutOwnership $authorLayoutOwnership
+        private readonly AuthorLayoutOwnership $authorLayoutOwnership,
+        private readonly ImageDimensionResolver $imageDimensions,
+        private readonly ImageUrlResolver $imageUrls
     ) {
+    }
+
+    /** Lowers an image-only custom element host (a lone image inside a custom tag). */
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
+    {
+        $customImage = SourceDom::imageOnlyCustomElement($element);
+        if ( ! $customImage instanceof DOMElement ) {
+            return ConversionOutcome::unhandled();
+        }
+        $this->imageDimensions->fillParentImageViewportPair($customImage);
+        if ('' === $this->imageUrls->sourceUrl($customImage) && !$customImage->hasAttribute('srcset')) {
+            return ConversionOutcome::handled(null);
+        }
+        if ( ! $this->canPromoteImageOnly($element, $customImage) ) {
+            return ConversionOutcome::handled($this->nativeImageIn($element, $customImage) ?? $this->imageLowering->responsiveMediaBlock($element));
+        }
+        $picture = $customImage->parentNode;
+        return ConversionOutcome::handled($this->imageLowering->convertImage(
+            $customImage,
+            $element,
+            $picture instanceof DOMElement && 'picture' === strtolower($picture->tagName) ? $picture : null
+        ));
     }
 
     /** Retain a static host box around independently editable native media. */
@@ -92,10 +118,11 @@ final class CustomImageHostLowering
         if ($picture instanceof DOMElement && $picture !== $host) {
             $wrappers[] = $picture;
         }
-        // Picture-less hosts may use a native group only when the boundary is
-        // inert. Linked thumbnails and geometry-bearing media still need the
-        // presentation carrier (including its intrinsic-height folding).
-        if (count($wrappers) === 1 && ! $this->canGroupPicturelessImageHost($host, $image, $link)) {
+        // Captured metadata describes a retained CSS-owned box. Uncaptured
+        // geometry still needs the presentation carrier's intrinsic-height
+        // folding when its visual layer is positioned out of flow.
+        if (count($wrappers) === 1 && ! $host->hasAttribute('data-image-info')
+            && ! $this->canGroupPicturelessImageHost($host, $image, $link)) {
             return $this->layoutShells->blockForElements($wrappers, array($block), $host);
         }
         // These boxes have no source-selection behavior. Expose each as a
@@ -251,7 +278,7 @@ final class CustomImageHostLowering
     private function imageHasDefinitePixelBox(DOMElement $image): bool
     {
         foreach ( array( 'width', 'height' ) as $property ) {
-            $inline = $this->styleResolver->cssDeclarations(SourceDom::attr($image, 'style'))[$property] ?? '';
+            $inline = $this->styleResolver->inlineDeclarations($image)[$property] ?? '';
             $value = trim(CssValueInspector::withoutImportant((string) $inline));
             if ( '' === $value ) {
                 $pixels = HtmlDimensionAttribute::pixels(SourceDom::attr($image, $property));

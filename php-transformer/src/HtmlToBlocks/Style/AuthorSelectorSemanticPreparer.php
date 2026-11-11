@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
@@ -189,12 +190,16 @@ final class AuthorSelectorSemanticPreparer
     private function discoverAuthorInlineSemanticPaths(array $authorSelectors, AuthorStyleAnalysis $authorStyles, AuthorSelectorProjectionState $projections): void
     {
         foreach ( $authorSelectors as $authorSelector ) {
-            $selector = $authorSelector['selector'];
-            $parsed = $authorSelector['parsed'];
+            $host = CssSelectorMatcher::pseudoElementHost($authorSelector['selector']);
+            $selector = $host['selector'] ?? $authorSelector['selector'];
+            $parsed = $host['parsed'] ?? $authorSelector['parsed'];
             if ( ! $parsed['supported'] ) {
                 continue;
             }
             foreach ( $this->matchingSourceElements($authorStyles, $selector, $parsed) as $element ) {
+                // Empty icon spans retain their source element rather than
+                // becoming a RichText mark; no new carrier is needed for them.
+                if (null !== $host && !$element->hasChildNodes()) continue;
                 $path = $element->getNodePath() ?? '';
                 $inlineTag = strtolower($element->tagName);
                 $directChildSelector = '>' === ($parsed['combinators'][count($parsed['combinators']) - 1] ?? null);
@@ -788,7 +793,7 @@ final class AuthorSelectorSemanticPreparer
         AuthorStyleAnalysis $authorStyles,
         AuthorSelectorProjectionState $projections
     ): void {
-        $selectors = is_array($options['runtime_projection_selectors'] ?? null) ? $options['runtime_projection_selectors'] : array();
+        $selectors = ArrayField::array($options, 'runtime_projection_selectors');
         foreach ( $selectors as $selector ) {
             if ( ! is_string($selector) || ! preg_match('/\[\s*data-[a-z0-9_-]+(?:\s*[~|^$*]?=|\s*\])/i', $selector) ) {
                 continue;

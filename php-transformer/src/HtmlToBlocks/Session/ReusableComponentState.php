@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+
 /** Per-transform reusable component recognition and mapping state. */
 final class ReusableComponentState
 {
@@ -54,7 +56,7 @@ final class ReusableComponentState
             if (!is_array($asset) || 'inline-svg' !== ($asset['source'] ?? null)) {
                 continue;
             }
-            foreach (is_array($asset['component_occurrence_counts'] ?? null) ? $asset['component_occurrence_counts'] : array() as $fingerprint => $count) {
+            foreach (ArrayField::array($asset, 'component_occurrence_counts') as $fingerprint => $count) {
                 if (is_string($fingerprint) && is_int($count)) {
                     $assetOccurrences[$fingerprint] = (int) ($assetOccurrences[$fingerprint] ?? 0) + $count;
                 }

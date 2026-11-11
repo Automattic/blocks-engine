@@ -27,12 +27,8 @@ use DOMText;
  *
  * These are pure functions of their arguments. They are static deliberately:
  * a pure function needs no instance, so a caller needs no constructor argument
- * and no injected closure to reach one. That is the whole point. This
- * vocabulary previously lived only in {@see DomHelpersTrait}, which meant a
- * class that was not already the transformer could not reach it, and the
- * package accumulated three separate workarounds — forwarding closures through
- * context objects, copy-pasted private duplicates, and independent
- * reimplementations that were free to disagree.
+ * and no injected closure to reach one, and the package keeps one copy of
+ * each operation instead of private duplicates free to disagree.
  *
  * Operations needing transform state accept it as an explicit argument
  * instead of reading it off an instance ({@see self::safeFallbackHtml()}
@@ -287,8 +283,8 @@ final class SourceDom
      */
     public static function projectInlineStyles(DOMElement $source, DOMElement $clone, callable $inlineStyleFor): void
     {
-        $sources = array_merge(array($source), iterator_to_array($source->getElementsByTagName('*')));
-        $targets = array_merge(array($clone), iterator_to_array($clone->getElementsByTagName('*')));
+        $sources = self::subtreeElements($source);
+        $targets = self::subtreeElements($clone);
         foreach ($sources as $index => $element) {
             if (!$element->hasAttribute('style')) continue;
             $style = $inlineStyleFor($element);
@@ -315,6 +311,11 @@ final class SourceDom
                 continue;
             }
 
+            if ( self::hasBlankHref($anchor) ) {
+                $anchor->setAttribute('href', '');
+                continue;
+            }
+
             $href = LinkUrlSanitizer::sanitize($anchor->getAttribute('href'));
             if ( '' === $href ) {
                 $anchor->removeAttribute('href');
@@ -324,6 +325,16 @@ final class SourceDom
                 $anchor->setAttribute('href', $href);
             }
         }
+    }
+
+    /**
+     * A present but blank `href` is a same-document reference, which is not
+     * the same thing as a missing or unsafe destination. Script-driven
+     * controls commonly use it, and it keeps the link focusable.
+     */
+    public static function hasBlankHref(DOMElement $element): bool
+    {
+        return $element->hasAttribute('href') && '' === trim($element->getAttribute('href'), " \t\n\r\f");
     }
 
     public static function attr(DOMElement $element, string $name): string
@@ -366,8 +377,8 @@ final class SourceDom
      * `class` tokens from the result — the `anchor` support has no such
      * constraint. `save()` writes it as a literal HTML attribute value, which
      * the block materializer already escapes with `htmlspecialchars()`
-     * ({@see BlockFactory::htmlAttrs()}), so any non-empty, control-character-free
-     * string round-trips safely and validates.
+     * ({@see HtmlSerialization::attributes()}), so any non-empty,
+     * control-character-free string round-trips safely and validates.
      *
      * This distinction matters because a same-document navigation target's id
      * is exactly the text a captured `href="#…"` fragment decodes to, and that
@@ -565,7 +576,7 @@ final class SourceDom
             }
 
             foreach ( array( 'aria-labelledby', 'aria-describedby', 'aria-controls' ) as $attribute ) {
-                if ( in_array($id, preg_split('/\s+/', trim(self::attr($candidate, $attribute))) ?: array(), true) ) {
+                if ( in_array($id, self::tokens(self::attr($candidate, $attribute)), true) ) {
                     return true;
                 }
             }
@@ -591,14 +602,26 @@ final class SourceDom
         if ('#' . $id !== $href) return false;
         // Other references on the same use still require the page-local id.
         foreach (array('aria-labelledby', 'aria-describedby', 'aria-controls', 'for') as $attribute) {
-            if (in_array($id, preg_split('/\s+/', trim(self::attr($candidate, $attribute))) ?: array(), true)) return false;
+            if (in_array($id, self::tokens(self::attr($candidate, $attribute)), true)) return false;
         }
         return true;
     }
 
+    /** The element's ARIA role, trimmed and lowercased; empty when it has none. */
+    public static function role(DOMElement $element): string
+    {
+        return strtolower(trim(self::attr($element, 'role')));
+    }
+
+    /** Whether the element declares `aria-hidden="true"`, in any case or padding. */
+    public static function isAriaHidden(DOMElement $element): bool
+    {
+        return 'true' === strtolower(trim(self::attr($element, 'aria-hidden')));
+    }
+
     public static function hasClass(DOMElement $element, string $className): bool
     {
-        return in_array($className, preg_split('/\s+/', trim(self::attr($element, 'class'))) ?: array(), true);
+        return in_array($className, self::tokens(self::attr($element, 'class')), true);
     }
 
     /**
@@ -642,7 +665,7 @@ final class SourceDom
         if ( ! str_contains($classes, 'site-document-variant-') && ! str_contains($classes, CaptureEvidence::DESKTOP_DOCUMENT_CLASS) && ! str_contains($classes, CaptureEvidence::MOBILE_DOCUMENT_CLASS) ) {
             return false;
         }
-        foreach ( preg_split('/\s+/', trim($classes)) ?: array() as $class ) {
+        foreach ( self::tokens($classes) as $class ) {
             if ( str_starts_with($class, 'site-document-variant-') || in_array($class, array( CaptureEvidence::DESKTOP_DOCUMENT_CLASS, CaptureEvidence::MOBILE_DOCUMENT_CLASS ), true) ) {
                 return true;
             }
@@ -673,7 +696,7 @@ final class SourceDom
             return '';
         }
 
-        foreach ( preg_split('/\s+/', trim(self::attr($root, 'class'))) ?: array() as $class ) {
+        foreach ( self::tokens(self::attr($root, 'class')) as $class ) {
             $suffix = DocumentVariantIds::suffixForClass($class);
             if ( null !== $suffix ) {
                 return $suffix;
@@ -686,11 +709,21 @@ final class SourceDom
         return '';
     }
 
-    public static function associatedLabel(DOMElement $control): ?DOMElement
+    /** Explicit labels take precedence; callers may opt into wrapping labels. */
+    public static function associatedLabel(DOMElement $control, bool $includeImplicit = false): ?DOMElement
     {
+        $implicit = null;
+        if ( $includeImplicit ) {
+            for ( $parent = $control->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+                if ( 'label' === strtolower($parent->tagName) ) {
+                    $implicit = $parent;
+                    break;
+                }
+            }
+        }
         $id = self::attr($control, 'id');
         if ( '' === $id || ! $control->ownerDocument instanceof DOMDocument ) {
-            return null;
+            return $implicit;
         }
 
         $scope = self::documentVariantRoot($control);
@@ -706,7 +739,7 @@ final class SourceDom
             $fallback ??= $label;
         }
 
-        return $fallback;
+        return $fallback ?? $implicit;
     }
 
     public static function elementSelector(DOMElement $element): string
@@ -751,6 +784,58 @@ final class SourceDom
         }
         ksort($attributes);
         return $attributes;
+    }
+
+    /** Replaces an element with its children, in place. */
+    public static function unwrapElement(DOMElement $element): void
+    {
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMNode ) {
+            return;
+        }
+
+        while ( null !== $element->firstChild ) {
+            $parent->insertBefore($element->firstChild, $element);
+        }
+
+        $parent->removeChild($element);
+    }
+
+    public static function hasDirectText(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @return list<string> */
+    public static function directChildTags(DOMElement $element): array
+    {
+        $tags = array();
+        foreach ($element->childNodes as $child) {
+            if (! $child instanceof DOMElement) continue;
+            $tag = strtolower($child->tagName);
+            $tags[] = 'svg' === $tag ? 'img' : $tag;
+        }
+        return $tags;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<int, array<string, mixed>>
+     */
+    public static function hasWordPressTemplateParts(DOMElement $root): bool
+    {
+        $areas = array();
+        foreach ($root->childNodes as $child) {
+            if (!$child instanceof DOMElement) continue;
+            if (self::hasClass($child, 'wp-block-template-part')) $areas[strtolower($child->tagName)] = true;
+        }
+        return isset($areas['header'], $areas['footer']);
     }
 
     /**
@@ -825,11 +910,22 @@ final class SourceDom
     }
 
     /**
+     * A whitespace-separated attribute value, such as `class`, split into tokens.
+     * A blank value yields one empty token.
+     *
+     * @return list<string>
+     */
+    public static function tokens(string $value): array
+    {
+        return preg_split('/\s+/', trim($value)) ?: array();
+    }
+
+    /**
      * @return array<int, string>
      */
     public static function classNames(DOMElement $element): array
     {
-        return array_values(array_filter(preg_split('/\s+/', trim(self::attr($element, 'class'))) ?: array()));
+        return array_values(array_filter(self::tokens(self::attr($element, 'class'))));
     }
 
     /**
@@ -844,7 +940,7 @@ final class SourceDom
     public static function boundedClassTokens(string $classAttribute, int $maxCount = 8, int $maxLength = 80): array
     {
         $tokens = array();
-        foreach ( preg_split('/\s+/', trim($classAttribute)) ?: array() as $token ) {
+        foreach ( self::tokens($classAttribute) as $token ) {
             if ( ! self::isBoundedClassToken($token, $maxLength) ) {
                 continue;
             }
@@ -862,6 +958,23 @@ final class SourceDom
         return '' !== $token
             && strlen($token) <= $maxLength
             && 1 === preg_match('/^[A-Za-z0-9_-][A-Za-z0-9_.:-]*$/D', $token);
+    }
+
+    /**
+     * The element followed by all of its descendant elements, in document order.
+     *
+     * @return array<int, DOMElement>
+     */
+    public static function subtreeElements(DOMElement $element): array
+    {
+        $out = array( $element );
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement ) {
+                $out[] = $descendant;
+            }
+        }
+
+        return $out;
     }
 
     public static function childElementCount(DOMElement $element): int
@@ -936,7 +1049,7 @@ final class SourceDom
      */
     public static function isImageOnlyNamedGraphic(DOMElement $element): bool
     {
-        if ( 'img' !== strtolower(trim(self::attr($element, 'role'))) || 'img' === strtolower($element->tagName) || '' !== trim($element->textContent ?? '') ) {
+        if ( 'img' !== self::role($element) || 'img' === strtolower($element->tagName) || '' !== trim($element->textContent ?? '') ) {
             return false;
         }
 
@@ -1341,23 +1454,11 @@ final class SourceDom
         );
     }
 
-    public static function directElementChildCount(DOMElement $element): int
-    {
-        $count = 0;
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement ) {
-                ++$count;
-            }
-        }
-
-        return $count;
-    }
-
     public static function mergeClassNames(string ...$classNames): string
     {
         $classes = array();
         foreach ( $classNames as $className ) {
-            foreach ( preg_split('/\s+/', trim($className)) ?: array() as $class ) {
+            foreach ( self::tokens($className) as $class ) {
                 if ( '' !== $class && ! in_array($class, $classes, true) ) {
                     $classes[] = $class;
                 }
@@ -1420,7 +1521,7 @@ final class SourceDom
             return '#' . $id;
         }
 
-        foreach ( preg_split('/\s+/', trim(self::attr($element, 'class'))) ?: array() as $class ) {
+        foreach ( self::tokens(self::attr($element, 'class')) as $class ) {
             if ( '' !== $class ) {
                 return '.' . $class;
             }
@@ -1429,9 +1530,6 @@ final class SourceDom
         return self::elementSelector($element);
     }
 
-    /**
-     * @return array<int, array<string, string>>
-     */
     /**
      * Whether the element is a standalone run of text: it holds only text, and
      * some of it, with no inline event handlers, and its parent holds no loose
@@ -1806,7 +1904,7 @@ final class SourceDom
         foreach ( $document->getElementsByTagName('*') as $dialog ) {
             if ( $dialog instanceof DOMElement
                 && 'true' === self::attr($dialog, 'data-blocks-engine-captured-dialog')
-                && in_array($id, preg_split('/\s+/', trim(self::attr($dialog, $binding))) ?: array(), true)
+                && in_array($id, self::tokens(self::attr($dialog, $binding)), true)
             ) {
                 return true;
             }
@@ -2138,7 +2236,7 @@ final class SourceDom
     public static function hasAriaHiddenAncestor(DOMElement $element): bool
     {
         for ( $candidate = $element; $candidate instanceof DOMElement; $candidate = $candidate->parentNode instanceof DOMElement ? $candidate->parentNode : null ) {
-            if ( 'true' === strtolower(trim(self::attr($candidate, 'aria-hidden'))) ) {
+            if ( self::isAriaHidden($candidate) ) {
                 return true;
             }
         }
@@ -2277,6 +2375,26 @@ final class SourceDom
     }
 
     /**
+     * Whether an anchor points at a destination rather than driving an in-page
+     * control. A menu toggle authored as an anchor targets a fragment, a
+     * `javascript:` URL or nothing at all, and usually declares `aria-controls`
+     * or `aria-expanded`; a language or theme switcher targets a real URL.
+     */
+    public static function navigatesToDestination(DOMElement $anchor): bool
+    {
+        if ( $anchor->hasAttribute('aria-controls') || $anchor->hasAttribute('aria-expanded') ) {
+            return false;
+        }
+
+        $href = trim(self::attr($anchor, 'href'));
+        if ( '' === $href || str_starts_with($href, '#') ) {
+            return false;
+        }
+
+        return ! str_starts_with(strtolower($href), 'javascript:');
+    }
+
+    /**
      * @return list<DOMElement>
      */
     public static function elementElementChildren(DOMElement $element): array
@@ -2303,5 +2421,10 @@ final class SourceDom
         }
 
         return false;
+    }
+
+    public static function normalizeHtml5VoidElements(string $html): string
+    {
+        return preg_replace('/<source\b([^>]*?)(?<!\/)\s*>/i', '<source$1></source>', $html) ?? $html;
     }
 }

@@ -9,6 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonElementCo
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\PatternTreeFixture;
 
 $assertions = 0;
 $failures = array();
@@ -42,7 +43,7 @@ $converter = new ButtonElementConverter(new SourceElementClassifier(), new Sourc
     static function (DOMElement $element) use (&$mode): bool {
         return 'search' === $mode;
     },
-    static function (DOMElement $element, array &$fallbacks, bool $capture) use (&$mode, &$captureUnsupported): array {
+    new PatternTreeFixture(children: static function (DOMElement $element, array &$fallbacks, bool $capture) use (&$mode, &$captureUnsupported): array {
         $captureUnsupported = $capture;
         $fallbacks[] = array( 'image' => true );
         if ( 'image' === $mode ) {
@@ -55,7 +56,7 @@ $converter = new ButtonElementConverter(new SourceElementClassifier(), new Sourc
             );
         }
         return array();
-    },
+    }),
     static function (DOMElement $element) use (&$genericCalls, &$genericBlock): ?array {
         ++$genericCalls;
         return $genericBlock;

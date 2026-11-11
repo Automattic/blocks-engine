@@ -53,7 +53,7 @@ final class InertScaffoldingSuppressor implements ElementConverter
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */
-    public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
         // A closed, script-populated dialog shell has no source content to lose.
         // Open dialogs render even when empty (including user-agent border and
@@ -101,7 +101,7 @@ final class InertScaffoldingSuppressor implements ElementConverter
     public static function isMeasurementCopy(DOMElement $element, ?callable $isDisplayNoneAtEveryViewport = null): bool
     {
         if ( ! in_array(strtolower($element->tagName), array( 'div', 'span' ), true)
-            || 'true' !== strtolower(trim(SourceDom::attr($element, 'aria-hidden')))
+            || ! SourceDom::isAriaHidden($element)
             || ! self::duplicatesVisibleSiblingText($element) ) {
             return false;
         }
@@ -135,7 +135,7 @@ final class InertScaffoldingSuppressor implements ElementConverter
         $visibleText = '';
         foreach ( $element->parentNode->childNodes as $sibling ) {
             if ( $sibling === $element
-                || ( $sibling instanceof DOMElement && 'true' === strtolower(trim(SourceDom::attr($sibling, 'aria-hidden'))) ) ) {
+                || ( $sibling instanceof DOMElement && SourceDom::isAriaHidden($sibling) ) ) {
                 continue;
             }
             $visibleText .= ' ' . $sibling->textContent;
@@ -263,7 +263,7 @@ final class InertScaffoldingSuppressor implements ElementConverter
     private function occupiesAuthorLayoutSlot(DOMElement $element): bool
     {
         $positions = $this->styleResolver->authorDeclaredValuesAtAnyViewport($element, array( 'position' ))['position'] ?? array();
-        $inlinePosition = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'))['position'] ?? '';
+        $inlinePosition = $this->styleResolver->inlineDeclarations($element)['position'] ?? '';
         if ( '' !== $inlinePosition ) {
             $positions[] = $inlinePosition;
         }
@@ -351,13 +351,19 @@ final class InertScaffoldingSuppressor implements ElementConverter
 
     /**
      * A display:none presentation tree has neither a box nor readable content.
+     * An inaccessible visibility:hidden tree is also inert when out of flow,
+     * provided no descendant overrides the inherited hidden visibility.
      * Do not generalize this to arbitrary hidden content: controls, addressed
      * panels, captured state and conditional CSS can reveal meaningful content.
      */
     private function isHiddenPresentationScaffolding(DOMElement $element): bool
     {
+        $declarations = $this->styleResolver->authorStructuralDeclarations($element);
+        $hiddenOutOfFlow = SourceDom::isAriaHidden($element)
+            && 'hidden' === CssValueInspector::comparable($declarations['visibility'] ?? '')
+            && in_array(CssValueInspector::comparable($declarations['position'] ?? ''), array( 'absolute', 'fixed' ), true);
         if ( ! in_array(strtolower($element->tagName), array( 'div', 'span' ), true)
-            || 'none' !== CssValueInspector::comparable((string) ($this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'))['display'] ?? '')) ) {
+            || ( ! $hiddenOutOfFlow && 'none' !== CssValueInspector::comparable((string) ($this->styleResolver->inlineDeclarations($element)['display'] ?? '')) ) ) {
             return false;
         }
 
@@ -374,7 +380,7 @@ final class InertScaffoldingSuppressor implements ElementConverter
             }
         }
 
-        foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'))) as $candidate ) {
+        foreach ( SourceDom::subtreeElements($element) as $candidate ) {
             if ( ! in_array(strtolower($candidate->tagName), array( 'div', 'span', 'svg', 'g', 'circle', 'path', 'ellipse', 'rect', 'line', 'polyline', 'polygon', 'animatetransform' ), true)
                 || $this->runtimeIslands->isRuntimeDomTarget($candidate)
                 || array() !== SourceDom::eventMetadata($candidate)
@@ -384,11 +390,29 @@ final class InertScaffoldingSuppressor implements ElementConverter
                 || $this->styleResolver->hasConditionalStyleFamily($candidate, 'opacity') ) {
                 return false;
             }
-            if ( 'svg' === strtolower($candidate->tagName) && 'true' !== strtolower(trim(SourceDom::attr($candidate, 'aria-hidden'))) ) {
+            if ( $hiddenOutOfFlow ) {
+                $values = $this->styleResolver->authorDeclaredValuesAtAnyViewport($candidate, array( 'visibility', 'position' ));
+                foreach ( $values['visibility'] ?? array() as $value ) {
+                    if ( ! in_array(CssValueInspector::comparable($value), array( 'hidden', 'inherit', 'unset' ), true) ) {
+                        return false;
+                    }
+                }
+                if ( $candidate === $element ) {
+                    foreach ( $values['position'] ?? array() as $value ) {
+                        if ( ! in_array(CssValueInspector::comparable($value), array( 'absolute', 'fixed' ), true) ) {
+                            return false;
+                        }
+                    }
+                }
+            }
+            if ( 'svg' === strtolower($candidate->tagName) && ! SourceDom::isAriaHidden($candidate) ) {
                 return false;
             }
             foreach ( $candidate->attributes as $attribute ) {
                 $name = strtolower($attribute->name);
+                if ( 'role' === $name && $hiddenOutOfFlow && in_array(strtolower(trim($attribute->value)), array( 'presentation', 'none' ), true) ) {
+                    continue;
+                }
                 if ( in_array($name, array( 'id', 'role', 'title', 'tabindex', 'href', 'xlink:href', 'name' ), true)
                     || str_starts_with($name, 'data-')
                     || (str_starts_with($name, 'aria-') && 'aria-hidden' !== $name) ) {
@@ -433,7 +457,7 @@ final class InertScaffoldingSuppressor implements ElementConverter
         if ( ! $liveRegion instanceof DOMElement
             || 0 !== SourceDom::childElementCount($liveRegion)
             || ! in_array(strtolower($liveRegion->tagName), array( 'div', 'p', 'span' ), true)
-            || ! in_array(strtolower(trim(SourceDom::attr($liveRegion, 'role'))), array( 'alert', 'log', 'status' ), true)
+            || ! in_array(SourceDom::role($liveRegion), array( 'alert', 'log', 'status' ), true)
             || ! in_array(strtolower(trim(SourceDom::attr($liveRegion, 'aria-live'))), array( 'assertive', 'polite' ), true)
             || ! $this->isVisuallyClippedLiveRegion($liveRegion)
             || array() !== SourceDom::safeDataAttributes($liveRegion) ) {
@@ -458,9 +482,9 @@ final class InertScaffoldingSuppressor implements ElementConverter
     private function sourceElementStartsHidden(DOMElement $element): bool
     {
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
-        $visibility = CssValueInspector::comparable((string) ($declarations['visibility'] ?? ''));
-        $opacity = CssValueInspector::comparable((string) ($declarations['opacity'] ?? ''));
+        $display = CssValueInspector::declared($declarations, 'display');
+        $visibility = CssValueInspector::declared($declarations, 'visibility');
+        $opacity = CssValueInspector::declared($declarations, 'opacity');
         return 'none' === $display
             || in_array($visibility, array( 'hidden', 'collapse' ), true)
             || (is_numeric($opacity) && 0.0 === (float) $opacity);

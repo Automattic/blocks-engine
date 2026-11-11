@@ -35,20 +35,17 @@ final class LinkedResponsiveContentProjector
      * @param Closure(DOMElement): string $imageUrl
      * @param Closure(string): string    $resolveUrl
      * @param Closure(string): int       $assetId
-     * @param Closure(DOMElement): bool  $isRuntimeTarget
      * @param Closure(DOMElement): bool  $hasEvents
      * @param Closure(DOMElement): bool  $hasInteractive
-     * @param Closure(DOMElement): bool  $hasRouteData
      */
     public function __construct(
         private readonly StyleResolver $styles,
         private readonly Closure $imageUrl,
         private readonly Closure $resolveUrl,
         private readonly Closure $assetId,
-        private readonly Closure $isRuntimeTarget,
+        private readonly RuntimeDomTargets $runtimeDomTargets,
         private readonly Closure $hasEvents,
-        private readonly Closure $hasInteractive,
-        private readonly Closure $hasRouteData,
+        private readonly Closure $hasInteractive
     ) {
     }
 
@@ -153,10 +150,10 @@ final class LinkedResponsiveContentProjector
             || '' === LinkUrlSanitizer::sanitize(SourceDom::attr($anchor, 'href'))
             || $anchor->hasAttribute('download')
             || '' !== SourceDom::attr($anchor, 'role')
-            || ($this->isRuntimeTarget)($anchor)
+            || $this->runtimeDomTargets->isRuntimeDomTarget($anchor)
             || ($this->hasEvents)($anchor)
             || ($this->hasInteractive)($anchor)
-            || ($this->hasRouteData)($anchor)
+            || SourceDom::hasRouteBearingDataAttributes($anchor)
             || ! $this->identityIsPreservable($anchor, array( 'class', 'href', 'id', 'style', 'target', 'rel', 'title', 'aria-label', 'aria-labelledby', 'aria-describedby' ))
         ) {
             return false;
@@ -194,10 +191,10 @@ final class LinkedResponsiveContentProjector
             && $label instanceof DOMElement
             && '' !== trim($label->textContent ?? '')
             && $this->labelIsEditable($label)
-            && ! ($this->isRuntimeTarget)($image)
+            && ! $this->runtimeDomTargets->isRuntimeDomTarget($image)
             && ! ($this->hasEvents)($image)
             && ! ($this->hasInteractive)($image)
-            && ! ($this->hasRouteData)($image)
+            && ! SourceDom::hasRouteBearingDataAttributes($image)
             && $this->identityIsPreservable($image, array( 'alt', 'class', 'decoding', 'height', 'id', 'loading', 'sizes', 'src', 'srcset', 'style', 'title', 'width', 'aria-labelledby', 'aria-describedby' ))
             && '' !== ($this->imageUrl)($image)
             && SourceDom::safeFallbackUrl(($this->imageUrl)($image), 'src', 'img')
@@ -384,7 +381,7 @@ final class LinkedResponsiveContentProjector
     private function idRef(string $value): string
     {
         $ids = array();
-        foreach ( preg_split('/\s+/', trim($value)) ?: array() as $id ) {
+        foreach ( SourceDom::tokens($value) as $id ) {
             $safe = SourceDom::anchorAttributeValue($id);
             if ( '' === $safe || $safe !== $id ) {
                 return '';

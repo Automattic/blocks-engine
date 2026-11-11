@@ -242,6 +242,14 @@ final class NavigationPatternContext
     public const LABEL_TYPOGRAPHY_BOX_CLASS = 'blocks-engine-label-typography';
 
     /**
+     * Marks a submenu whose source wrapper clips it to nothing at rest
+     * (`height:0;overflow:hidden`). Core's single submenu list absorbs that
+     * wrapper and the padded list inside it, so the closed list must drop its
+     * block-axis padding and border to keep the source's zero footprint.
+     */
+    public const CLIPPED_SUBMENU_CLASS = 'blocks-engine-clipped-submenu';
+
+    /**
      * Whether a block-level element inside a navigation link declares its own
      * text presentation. Such an element (a logo heading) is what paints the
      * label, so it must survive the label's inline reduction.
@@ -705,6 +713,47 @@ final class NavigationPatternContext
     private array $unindicatedSubmenuParents = array();
 
     /**
+     * Whether the source submenu takes no space until its item's hover/focus
+     * reveals it: a zero height or max-height that clips its content.
+     */
+    public function clipsSubmenuAtRest(DOMElement $item, DOMElement $submenu): bool
+    {
+        if ( ! $this->styleResolver instanceof StyleResolver ) return false;
+        $zero = false;
+        foreach ( array( 'height', 'max-height' ) as $property ) {
+            $zero = $zero || CssValueInspector::isZeroLength($this->styleResolver->declaredPresentation($submenu, $property)->base());
+        }
+        if ( ! $zero ) return false;
+        // Overflow is structural, outside the visual rule store; read the author's own declarations.
+        $clips = false;
+        foreach ( $this->styleResolver->authorDeclaredValuesAtAnyViewport($submenu, array( 'overflow', 'overflow-y' )) as $values ) {
+            foreach ( $values as $value ) {
+                $clips = $clips || 1 === preg_match('/^(?:hidden|clip)\b/', CssValueInspector::comparable($value));
+            }
+        }
+        return $clips && $this->revealsSubmenuOnItemState($item, $submenu);
+    }
+
+    /**
+     * Whether the source reveals the submenu through an interaction state on
+     * its item (`li:hover .subnav{height:auto}`): the submenu opens on
+     * hover/focus, so the item's label is a hover target, not a toggle.
+     */
+    public function revealsSubmenuOnItemState(DOMElement $item, DOMElement $submenu): bool
+    {
+        if ( ! $this->styleResolver instanceof StyleResolver || null === $this->session ) return false;
+        foreach ( $this->session->sourceStyleResolutionState()->revealStateRules() as $rule ) {
+            if ( ! in_array((string) ($rule['state'] ?? ''), array( 'hover', 'focus', 'focus-within' ), true) ) continue;
+            $revealed = array_intersect_key((array) ($rule['declarations'] ?? array()), array_flip(array( 'display', 'visibility', 'height', 'max-height', 'opacity' )));
+            if ( array() === $revealed
+                || ! $this->styleResolver->matchesCssSelector($submenu, (string) ($rule['base_selector'] ?? ''))
+                || ! $this->styleResolver->matchesCssSelector($item, (string) ($rule['state_subject_selector'] ?? '')) ) continue;
+            return true;
+        }
+        return false;
+    }
+
+    /**
      * Record the source element core's submenu toggle stands in for. When its
      * own generated content (`::after`/`::before`) paints a visible indicator
      * (text, a border (a CSS caret) or a background), that indicator is
@@ -809,7 +858,7 @@ final class NavigationPatternContext
             foreach ($items as $block) {
                 if (!in_array($block['blockName'] ?? '', array('core/navigation-link', 'core/navigation-submenu'), true)) continue;
                 $item = $parent . '>.wp-block-navigation-item:nth-child(' . (++$position) . ')';
-                foreach (preg_split('/\s+/', trim($block['attrs']['className'] ?? '')) ?: array() as $marker) {
+                foreach (SourceDom::tokens($block['attrs']['className'] ?? '') as $marker) {
                     if (!str_starts_with($marker, 'blocks-engine-navigation-')) continue;
                     $targets[$marker][$item] = true;
                 }
@@ -911,10 +960,10 @@ final class NavigationPatternContext
         for ($node = $source; $node instanceof DOMElement; $node = $node->parentNode) {
             $tag = strtolower($node->tagName);
             if (in_array($tag, array('html', 'body'), true)) break;
-            $classes = preg_split('/\s+/', trim($node->getAttribute('class'))) ?: array();
+            $classes = SourceDom::tokens($node->getAttribute('class'));
             $classes = array_values(array_filter($classes, static fn(string $class): bool => '' !== $class && !str_starts_with($class, 'blocks-engine-') && !$projections->isCurrentNavigationClass($class, $node) && !$projections->selectsCurrentNavigationState('.' . $class, $node)));
             sort($classes);
-            $role = strtolower(trim($node->getAttribute('role')));
+            $role = SourceDom::role($node);
             $identity[] = array($tag, $node->getAttribute('id'), $classes, $role);
             if (in_array($tag, array('header', 'footer'), true) || in_array($role, array('banner', 'contentinfo'), true)) break;
         }
@@ -986,7 +1035,7 @@ final class NavigationPatternContext
         $presentation = array();
         $strip = function (array &$items, string $level) use (&$strip, &$presentation): void {
             foreach ($items as &$item) {
-                $classes = preg_split('/\s+/', trim((string) ($item['attrs']['className'] ?? ''))) ?: array();
+                $classes = SourceDom::tokens((string) ($item['attrs']['className'] ?? ''));
                 foreach ($classes as $index => $class) {
                     if (!isset($this->currentItemPresentation[$class])) continue;
                     unset($classes[$index]);
@@ -1217,7 +1266,7 @@ final class NavigationPatternContext
             $peerAnchor = $item->isSameNode($anchor) ? $peer : ($peer->getElementsByTagName($anchor->tagName)->item(0));
             if ($peerAnchor instanceof DOMElement) $peerAnchors[] = $peerAnchor;
         }
-        $classes = static fn(DOMElement $element): array => array_values(array_unique(array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn(string $class): bool => '' !== $class)));
+        $classes = static fn(DOMElement $element): array => array_values(array_unique(array_filter(SourceDom::tokens($element->getAttribute('class')), static fn(string $class): bool => '' !== $class)));
         $restingClasses = array();
         $own = static function (DOMElement $element, array $peers) use ($classes, &$restingClasses): array {
             $lists = array();
@@ -1366,7 +1415,7 @@ final class NavigationPatternContext
             }
         }
         $projections = $this->session->authorSelectorProjectionState();
-        $classes = preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array();
+        $classes = SourceDom::tokens($element->getAttribute('class'));
         $classes = array_values(array_filter(array_diff($classes, SourceClassIdentity::routeState($element)), static fn(string $class): bool => !$projections->isCurrentNavigationClass($class, $element) && !$projections->selectsCurrentNavigationState('.' . $class, $element)));
         // Core's submenu row can require a different rendered display from
         // ordinary links even when their source declarations are identical.
@@ -1400,7 +1449,7 @@ final class NavigationPatternContext
             $subjects[] = array($node->getNodePath() ?? '', $marker);
             $node->setAttribute('class', SourceDom::mergeClassNames($node->getAttribute('class'), $marker));
         }
-        $markup = $this->svgMaterializer->restoreSvgCasing($this->svgMaterializer->sanitizeInlineSvgMarkup($svg));
+        $markup = $this->svgMaterializer->inlineSvgMarkup($svg);
         if ('' === $markup || !SourceDom::isSafeSvgContent($markup)) return '';
         foreach ($subjects as [$path, $marker]) $this->pendingNavigationSubjects[$path] = array('marker' => $marker, 'target' => '.wp-block-navigation .wp-block-navigation-item .' . $marker);
         return $markup;
@@ -1569,15 +1618,15 @@ final class NavigationPatternContext
         }
 
         $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->controlSurfaceResolvedStyle($element));
-        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+        $display = CssValueInspector::declared($declarations, 'display');
         if ( 'none' === $display ) {
             return true;
         }
-        $visibility = CssValueInspector::comparable((string) ($declarations['visibility'] ?? ''));
+        $visibility = CssValueInspector::declared($declarations, 'visibility');
         if ( in_array($visibility, array( 'hidden', 'collapse' ), true) ) {
             return true;
         }
-        $opacity = CssValueInspector::comparable((string) ($declarations['opacity'] ?? ''));
+        $opacity = CssValueInspector::declared($declarations, 'opacity');
 
         return is_numeric($opacity) && 0.0 === (float) $opacity;
     }
@@ -1864,7 +1913,6 @@ final class NavigationPatternContext
         $this->sourceTargetProjection?->record(SourceDom::elementSelector($element), $targetSelector, $declarations);
     }
 
-    /** Resolve the rendered box of a navigation icon from its source geometry. */
     /**
      * Uniform `scale()` transforms between the anchor and its SVG enlarge the
      * artwork around its center (an icon set scaled by a custom property, say).
@@ -2069,7 +2117,7 @@ final class NavigationPatternContext
     {
         if (!$this->sourceTargetProjection instanceof SourceTargetProjectionState) return;
         $root = $source->getNodePath() ?? '';
-        $classes = preg_split('/\s+/', trim((string) ($block['attrs']['className'] ?? ''))) ?: array();
+        $classes = SourceDom::tokens((string) ($block['attrs']['className'] ?? ''));
         foreach ($this->pendingInheritedPresentations as $index => $pending) {
             // The correspondence is rooted at the list, while the recovered
             // inheritance may belong to its enclosing landmark.

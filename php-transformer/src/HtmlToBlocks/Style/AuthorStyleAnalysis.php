@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
 use Automattic\BlocksEngine\PhpTransformer\Css\ClassAttributeSelectorProjection;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
@@ -113,7 +114,7 @@ final class AuthorStyleAnalysis
             if ( '' !== $id ) {
                 $this->sourceElementsById[$id][] = $element;
             }
-            foreach ( preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $class ) {
+            foreach ( SourceDom::tokens($element->getAttribute('class')) as $class ) {
                 if ( '' !== $class ) {
                     $this->sourceElementsByClass[$class][] = $element;
                 }
@@ -377,7 +378,7 @@ final class AuthorStyleAnalysis
         }
         return match ( $operator ) {
             '' => $value === $expected,
-            '~' => '' !== $expected && 1 !== preg_match('/\s/', $expected) && in_array($expected, preg_split('/\s+/', trim($value)) ?: array(), true),
+            '~' => '' !== $expected && 1 !== preg_match('/\s/', $expected) && in_array($expected, SourceDom::tokens($value), true),
             '|' => $value === $expected || str_starts_with($value, $expected . '-'),
             '^' => '' !== $expected && str_starts_with($value, $expected),
             '$' => '' !== $expected && str_ends_with($value, $expected),
@@ -406,7 +407,7 @@ final class AuthorStyleAnalysis
             // shared, so route state never renames a context marker.
             unset($attributes['aria-current']);
             if ( isset($attributes['class']) ) {
-                $classes = preg_split('/\s+/', trim($attributes['class'])) ?: array();
+                $classes = SourceDom::tokens($attributes['class']);
                 $attributes['class'] = implode(' ', array_diff($classes, SourceClassIdentity::routeState($element)));
             }
             $attributes["\0empty"] = $element->hasChildNodes() ? '0' : '1';
@@ -420,7 +421,7 @@ final class AuthorStyleAnalysis
                 $attributes["\0predicates"] = $predicates;
                 if ( isset($attributes['class']) ) {
                     $named = array_filter(
-                        preg_split('/\s+/', trim($attributes['class'])) ?: array(),
+                        SourceDom::tokens($attributes['class']),
                         fn (string $class): bool => isset($policy['classes'][strtolower($class)])
                     );
                     sort($named);
@@ -657,17 +658,13 @@ final class AuthorStyleAnalysis
                 if ( ! ($parsed['supported'] ?? false) && ! ($selector['direct_child_parsed']['supported'] ?? false) ) {
                     continue;
                 }
-                [$target, $key] = \Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex::bucket($parsed, true);
+                $buckets = \Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex::buckets($parsed, true);
                 $entry = array(
                     'order' => $rule['order'],
                     'sequence' => $sequence++,
                     'rule' => array_merge($selector, array('declarations' => $rule['declarations'], 'rule_order' => $rule['order'], 'key' => $rule['order'] . ':' . $selectorIndex, 'source_path' => $rule['source_path'] ?? '', 'source_hash' => $rule['source_hash'] ?? '')),
                 );
-                if ( 'universal' === $target ) {
-                    $index['universal'][] = $entry;
-                } else {
-                    $index[$target][$key][] = $entry;
-                }
+                \Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex::insert($index, $buckets, $entry);
                 ++$index['total'];
             }
         }
@@ -702,7 +699,7 @@ final class AuthorStyleAnalysis
         if ( '' !== $id ) {
             $this->sourceIds[$id] = true;
         }
-        foreach ( preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $class ) {
+        foreach ( SourceDom::tokens($element->getAttribute('class')) as $class ) {
             if ( '' !== $class ) {
                 $this->sourceClasses[$class] = true;
             }

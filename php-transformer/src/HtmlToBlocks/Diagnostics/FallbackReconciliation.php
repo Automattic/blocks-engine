@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CustomElementRuntimeDependency;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
@@ -98,7 +99,7 @@ final class FallbackReconciliation
                         $nativeListItemMarkup[] = $content;
                     }
                 }
-                $collect(is_array($node['innerBlocks'] ?? null) ? $node['innerBlocks'] : array());
+                $collect(ArrayField::array($node, 'innerBlocks'));
             }
         };
         $collect($blocks);

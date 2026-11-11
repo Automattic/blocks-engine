@@ -3,17 +3,16 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\SvgArtworkBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementMaterializer;
-use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssVariableExpander;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
-use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
-use DOMDocument;
 use DOMElement;
 use DOMNode;
 
@@ -21,18 +20,20 @@ use DOMNode;
  * Materializes source SVG into emitted blocks: inline SVG hosts, decorative
  * classification, casing restoration, box styling and asset extraction.
  *
- * Extracted from HtmlTransformer as a collaborator rather than a mixin: every
- * dependency it needs from the transformer is declared on
- * {@see SvgMaterializationContext}, so this class has no $this access to the
- * transformer and can be exercised without constructing one.
+ * Blocks are created through
+ * {@see \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator},
+ * and per-transform state is read from the session.
  */
 final class SvgMaterializer implements SvgElementMaterializer
 {
+    use DomHelpersTrait {
+        sanitizeInlineSvgMarkup as public;
+    }
+
     public function __construct(
         private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock,
         private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession $session,
         private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier $sourceElementClassifier,
-        private readonly SvgMaterializationContext $context,
         private readonly StyleResolver $styleResolver,
         private readonly Runtime $runtime
     ) {
@@ -43,7 +44,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         if (!SourceDom::svgHasDrawableContent($element) || $this->paintsNothing($element)) {
             return null;
         }
-        $html = $this->context->sanitizeInlineSvgMarkup($element);
+        $html = $this->sanitizeInlineSvgMarkup($element);
         if (!SourceDom::isSafeSvgContent($html)) {
             return null;
         }
@@ -79,7 +80,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         // the moment one unsafe attribute or element appears. The shape and
         // structure markup (svg/path/circle/rect/g/text/...) is kept so the
         // image renders, rather than collapsing to an empty block.
-        $html = $this->context->sanitizeInlineSvgMarkup($element);
+        $html = $this->sanitizeInlineSvgMarkup($element);
 
         // Safety gate: only emit raw inline SVG once the sanitized markup is
         // provably free of script/event-handler/javascript: vectors and still
@@ -93,7 +94,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         // severs page-local fragment consumers, even when CSS supplies the URL.
         // Keep their authored box (including zero dimensions) in the document.
         if ($definitionsOnly && self::isPassiveSvgMarkup($element)) {
-            return $this->context->svgArtworkBlock($element, $this->restoreSvgCasing($html));
+            return $this->svgArtworkBlock($element, $this->restoreSvgCasing($html));
         }
         if ($definitionsOnly) {
             // Non-passive document stores retain their existing inline fallback;
@@ -120,19 +121,29 @@ final class SvgMaterializer implements SvgElementMaterializer
                         );
                         return $image;
                     }
-                    return $this->context->svgArtworkBlock($element, $this->restoreSvgCasing($html));
+                    return $this->svgArtworkBlock($element, $this->restoreSvgCasing($html));
                 }
             }
         }
 
+        // Standalone images need intrinsic dimensions; inline artwork must
+        // keep the authored box, with the viewBox supplying only its ratio.
+        $inlineHtml = $this->restoreSvgCasing($html);
         $html = $this->materializeSanitizedSvgMarkup($html, $element);
         $imageBlock = $this->inlineSvgImageBlockFromMarkup($element, $html);
         if ( null !== $imageBlock ) {
             return $imageBlock;
         }
 
+        // Links only work in the parent document, not an image document. Reuse
+        // the typed artwork companion, but only when links are the sole reason
+        // this SVG fails the native image compatibility checks.
+        if ( $this->hasSvgRegionLink($element) && $this->isNativeImageCompatibleSvg($element, $html, true) ) {
+            return $this->svgArtworkBlock($element, $inlineHtml);
+        }
+
         if ( $this->hasPageCssAnimatedDescendant($element) ) {
-            return $this->context->svgArtworkBlock($element, $html);
+            return $this->svgArtworkBlock($element, $inlineHtml);
         }
 
         // Honest floor: keep SVGs that need inline document context as sanitized
@@ -157,7 +168,7 @@ final class SvgMaterializer implements SvgElementMaterializer
     /** Sanitized SVG markup that renders as an isolated image, author paint included. */
     public function standaloneSvgMarkup(DOMElement $element): string
     {
-        $html = $this->context->sanitizeInlineSvgMarkup($element);
+        $html = $this->sanitizeInlineSvgMarkup($element);
         if ( '' === $html || ! SourceDom::isSafeSvgContent($html) ) {
             return '';
         }
@@ -205,7 +216,7 @@ final class SvgMaterializer implements SvgElementMaterializer
                 continue;
             }
 
-            $style = $this->styleResolver->cssDeclarationString(array_merge($this->styleResolver->cssDeclarations(SourceDom::attr($target, 'style')), $declarations));
+            $style = $this->styleResolver->cssDeclarationString(array_merge($this->styleResolver->inlineDeclarations($target), $declarations));
             $target->setAttribute('style', $style);
             $baked = true;
         }
@@ -213,7 +224,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             return $html;
         }
 
-        $bakedHtml = $this->context->sanitizeInlineSvgMarkup($clone);
+        $bakedHtml = $this->sanitizeInlineSvgMarkup($clone);
 
         return SourceDom::isSafeSvgContent($bakedHtml) ? $this->materializeSanitizedSvgMarkup($bakedHtml, $element) : $html;
     }
@@ -266,7 +277,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         $occurrence = array_filter(array(
             'source_path' => $this->transformSourcePath(),
             'selector' => SourceDom::elementSelector($element),
-            'fingerprint' => $this->context->reusableComponentFingerprintFor($element),
+            'fingerprint' => $this->session->reusableComponentState()->fingerprintForPath((string) $element->getNodePath()),
         ), static fn (mixed $value): bool => is_string($value) && '' !== $value);
         $asset = array(
             'source'      => 'inline-svg',
@@ -311,16 +322,16 @@ final class SvgMaterializer implements SvgElementMaterializer
 
         $dimensions = $this->cssOwnsMediaBox($element) ? array() : $this->svgImageDimensions($element, $html);
         $presentation = $this->styleResolver->presentationDeclarations($element);
-        $sourceDisplay = CssValueInspector::comparable((string) ($presentation['display'] ?? ''));
+        $sourceDisplay = CssValueInspector::declared($presentation, 'display');
         $parent = $element->parentNode;
         $parentPresentation = $parent instanceof DOMElement ? $this->styleResolver->structuralPresentationDeclarations($parent) : array();
         // display:contents is not a percentage containing block. The effective
         // parent is the nearest ancestor that actually establishes a box.
-        while ( $parent instanceof DOMElement && 'contents' === CssValueInspector::comparable((string) ($parentPresentation['display'] ?? '')) ) {
+        while ( $parent instanceof DOMElement && 'contents' === CssValueInspector::declared($parentPresentation, 'display') ) {
             $parent = $parent->parentNode;
             $parentPresentation = $parent instanceof DOMElement ? $this->styleResolver->structuralPresentationDeclarations($parent) : array();
         }
-        $parentDisplay = CssValueInspector::comparable((string) ($parentPresentation['display'] ?? ''));
+        $parentDisplay = CssValueInspector::declared($parentPresentation, 'display');
         $isFlexOrGridItem = in_array($parentDisplay, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
         $sourceObjectFit = strtolower(trim((string) ($presentation['object-fit'] ?? '')));
         $isPositionedMediaBox = $parent instanceof DOMElement
@@ -520,7 +531,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             return '';
         }
 
-        $html = $this->context->sanitizeInlineSvgMarkup($element);
+        $html = $this->sanitizeInlineSvgMarkup($element);
         if ( ! SourceDom::isSafeSvgContent($html) ) {
             return null;
         }
@@ -577,12 +588,12 @@ final class SvgMaterializer implements SvgElementMaterializer
         );
         // RichText serializes an inline image object as a bare void tag, the
         // same spelling the editor saves and the DOM re-serializes on ingest.
-        $markup = '<img' . $this->svgRichTextHtmlAttributes($imageAttributes, array( 'alt' )) . '>';
+        $markup = '<img' . HtmlSerialization::attributes($imageAttributes, array( 'alt' )) . '>';
 
         if ( $includeLink ) {
             $link = $this->svgImageLinkAttributes($element);
             if ( array() !== $link ) {
-                $markup = '<a' . $this->svgRichTextHtmlAttributes($link) . '>' . $markup . '</a>';
+                $markup = '<a' . HtmlSerialization::attributes($link) . '>' . $markup . '</a>';
             }
         }
 
@@ -633,11 +644,11 @@ final class SvgMaterializer implements SvgElementMaterializer
         if ( ! isset($declarations['visibility']) && isset($author['visibility']) ) {
             $declarations['visibility'] = $author['visibility'];
         }
-        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+        $display = CssValueInspector::declared($declarations, 'display');
         if ( 'none' === $display ) {
             return true;
         }
-        $visibility = CssValueInspector::comparable((string) ($declarations['visibility'] ?? ''));
+        $visibility = CssValueInspector::declared($declarations, 'visibility');
         if ( in_array($visibility, array( 'hidden', 'collapse' ), true) ) {
             return true;
         }
@@ -706,19 +717,6 @@ final class SvgMaterializer implements SvgElementMaterializer
         return $dimensions;
     }
 
-    /** @param array<string, string> $attributes */
-    private function svgRichTextHtmlAttributes(array $attributes, array $alwaysInclude = array()): string
-    {
-        $html = '';
-        foreach ( $attributes as $name => $value ) {
-            if ( '' === $value && ! in_array($name, $alwaysInclude, true) ) {
-                continue;
-            }
-            $html .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
-        }
-        return $html;
-    }
-
     /** @return array<string, string> */
     private function svgImageLinkAttributes(DOMElement $element): array
     {
@@ -775,10 +773,10 @@ final class SvgMaterializer implements SvgElementMaterializer
             if ( 'p' === $parentTag ) {
                 return true;
             }
-            if ( 'article' === $parentTag && 'img' === strtolower(trim(SourceDom::attr($element, 'role'))) ) {
+            if ( 'article' === $parentTag && 'img' === SourceDom::role($element) ) {
                 return false;
             }
-            if ( ( $this->sourceElementClassifier->isInlineContentElement($parentTag) || 'a' === $parentTag ) && '' !== trim($this->runtime->stripAllTags(SourceDom::innerHtmlWithoutTags($parent, array( 'svg' )))) ) {
+            if ( ( $this->sourceElementClassifier->isInlineContentElement($parentTag) || 'a' === $parentTag ) && $this->runtime->hasVisibleText(SourceDom::innerHtmlWithoutTags($parent, array( 'svg' ))) ) {
                 return true;
             }
         }
@@ -859,26 +857,6 @@ final class SvgMaterializer implements SvgElementMaterializer
     }
 
     /**
-     * Declare every axis the carried media box leaves unsized as `auto`.
-     *
-     * When author CSS owns the box the block carries no intrinsic dimensions,
-     * so the rendered image sizes both axes from the asset. The editor's image
-     * block does not: it writes the asset's natural `width`/`height` onto its
-     * `<img>`, and those presentation attributes give a definite size to every
-     * axis the carried box left free. A box that only limits one axis — the
-     * common `max-height` logo — then shrinks that axis while the other stays
-     * pinned at the natural pixel count, and the artwork stretches.
-     *
-     * `aspect-ratio` cannot take that job: on a replaced element it resolves
-     * one axis from the other only while an axis is `auto`, which is exactly
-     * what the injected attributes remove. Freeing the axis is the primitive.
-     *
-     * The rendered page already computes these axes as `auto`, so declaring it
-     * is inert there and only makes the editor agree.
-     *
-     * @param array<string, string> $presentation
-     */
-    /**
      * Resolve container-owned sizing for a viewBox-only SVG. The viewBox
      * contributes a ratio, never fixed CSS pixels. A sole flex item in a
      * definite box shrinks on the main axis and stretches on the cross axis;
@@ -907,7 +885,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         if ( 1 !== preg_match('/\sviewBox\s*=\s*(["\'])\s*[-\d.]+[\s,]+[-\d.]+[\s,]+[\d.]*[1-9][\d.]*[\s,]+[\d.]*[1-9][\d.]*\s*\1/i', $html) ) {
             return array();
         }
-        $parentDisplay = CssValueInspector::comparable((string) ($parentPresentation['display'] ?? ''));
+        $parentDisplay = CssValueInspector::declared($parentPresentation, 'display');
         $parentPosition = strtolower(trim((string) ($parentPresentation['position'] ?? '')));
         $parentFloat = strtolower(trim((string) ($parentPresentation['float'] ?? '')));
 
@@ -918,7 +896,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             if ( 'auto' === $alignment ) {
                 $alignment = CssValueInspector::comparable((string) ($parentPresentation['align-items'] ?? 'stretch'));
             }
-            if ( $parent instanceof DOMElement && 1 === SourceDom::directElementChildCount($parent)
+            if ( $parent instanceof DOMElement && 1 === SourceDom::childElementCount($parent)
                 && CssValueInspector::hasDefiniteWidth($parentStyle) && CssValueInspector::hasDefiniteHeight($parentStyle)
                 && in_array($alignment, array( 'stretch', 'normal' ), true)
                 && ! isset($presentation['flex']) && ! isset($presentation['flex-shrink'])
@@ -1327,7 +1305,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         $definitions = array();
         foreach ( $element->ownerDocument->getElementsByTagName('*') as $definition ) {
             $id = $definition instanceof DOMElement ? trim(SourceDom::attr($definition, 'id')) : '';
-            if ( '' === $id || ! isset($references[$id]) || $this->svgDefinitionBelongsTo($definition, $element) ) {
+            if ( '' === $id || ! isset($references[$id]) || SourceDom::elementContains($element, $definition) ) {
                 continue;
             }
             unset($references[$id]);
@@ -1335,8 +1313,8 @@ final class SvgMaterializer implements SvgElementMaterializer
             while ( $defs instanceof DOMElement && 'defs' !== strtolower($defs->tagName) ) {
                 $defs = $defs->parentNode;
             }
-            $copy = $defs instanceof DOMElement ? $this->context->safeFallbackHtml($defs)
-                : ( in_array(strtolower($definition->tagName), array( 'symbol', 'svg' ), true) ? '<defs>' . $this->context->safeFallbackHtml($definition) . '</defs>' : '' );
+            $copy = $defs instanceof DOMElement ? SourceDom::safeFallbackHtml($defs, $this->session->authorSelectorProjectionState()->tagMarkers())
+                : ( in_array(strtolower($definition->tagName), array( 'symbol', 'svg' ), true) ? '<defs>' . SourceDom::safeFallbackHtml($definition, $this->session->authorSelectorProjectionState()->tagMarkers()) . '</defs>' : '' );
             // A <use> instance inherits custom properties from the <use>, so
             // its copied paint resolves var() in that scope.
             $definitions[] = str_contains($copy, 'var(') ? $this->resolveCssVariablesInSvgMarkup($copy, $this->svgReferrer($element, $id)) : $copy;
@@ -1367,17 +1345,6 @@ final class SvgMaterializer implements SvgElementMaterializer
         return $svg;
     }
 
-    private function svgDefinitionBelongsTo(DOMElement $definition, DOMElement $svg): bool
-    {
-        for ( $node = $definition; $node instanceof DOMElement; $node = $node->parentNode ) {
-            if ( $node->isSameNode($svg) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     private function svgImageAssetIdentity(string $html): string
     {
         // core/image owns the accessible name through its per-instance alt
@@ -1389,7 +1356,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         // and style nothing inside a standalone image document, so the same
         // icon compiled on two routes is one asset, not two.
         $html = preg_replace_callback('/\sclass\s*=\s*(["\'])(.*?)\1/is', static function (array $match): string {
-            $classes = array_filter(preg_split('/\s+/', trim($match[2])) ?: array(), static fn (string $class): bool => '' !== $class && !EngineMarker::isSpecificityShim($class) && 1 !== preg_match('/^blocks-engine-(?:source-[a-z0-9_-]+|attribute(?:-state)?|richtext|control)-[a-f0-9]{6,}(?:-\d+)?$/', $class));
+            $classes = array_filter(SourceDom::tokens($match[2]), static fn (string $class): bool => '' !== $class && !EngineMarker::isSpecificityShim($class) && 1 !== preg_match('/^blocks-engine-(?:source-[a-z0-9_-]+|attribute(?:-state)?|richtext|control)-[a-f0-9]{6,}(?:-\d+)?$/', $class));
             return array() === $classes ? '' : ' class=' . $match[1] . implode(' ', $classes) . $match[1];
         }, $html) ?? $html;
         $html = preg_replace('/<(?:title|desc)\b[^>]*>.*?<\/(?:title|desc)>/is', '', $html) ?? $html;
@@ -1417,7 +1384,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             $recognized[$id] = ($recognized[$id] ?? 0) + 1;
         }
         foreach (array_keys($names) as $id) {
-            if (preg_match_all('/(?<![\w-])' . preg_quote($id, '/') . '(?![\w-])/', $html) !== ($recognized[$id] ?? 0)) return $html;
+            if (preg_match_all('/(?<![\w-])' . preg_quote((string) $id, '/') . '(?![\w-])/', $html) !== ($recognized[$id] ?? 0)) return $html;
         }
         return preg_replace_callback('/' . $reference . '/i', static function (array $match) use ($names): string {
             if ('' !== ($match[2] ?? '')) return isset($names[$match[2]]) ? ' id=' . $match[1] . $names[$match[2]] . $match[1] : $match[0];
@@ -1449,7 +1416,7 @@ final class SvgMaterializer implements SvgElementMaterializer
     private function resolveMaterializedSvgColors(string $html, DOMElement $element): string
     {
         if ( str_contains($html, 'var(') || false !== stripos($html, 'currentColor') ) {
-            $sources = array_merge(array($element), iterator_to_array($element->getElementsByTagName('*')));
+            $sources = SourceDom::subtreeElements($element);
             $index = 0;
             $html = preg_replace_callback('/<([a-z][a-z0-9:-]*)\b[^>]*>/i', function (array $match) use ($sources, &$index): string {
                 // Sanitization can remove source tags. Walk surviving tags in
@@ -1707,52 +1674,6 @@ final class SvgMaterializer implements SvgElementMaterializer
     }
 
 
-    /**
-     * @return array<string, string>
-     */
-    private function cssCustomProperties(string $html, string $linkedCss): array
-    {
-        $css = trim($linkedCss);
-        $styles = StyleTagScanner::scan($html);
-        if ( array() !== $styles ) {
-            $css .= ( '' === $css ? '' : "\n" ) . implode("\n", array_map(static fn (array $style): string => trim($style['content']), $styles));
-        }
-        if ( '' === trim($css) ) {
-            return array();
-        }
-
-        $rootProperties = array();
-        ( new CssStylesheetTransformer() )->transform($css, static function (string $prelude, string $body) use (&$rootProperties): string {
-            $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-            if ( null === $selectors || ! array_filter($selectors, static function (string $selector): bool {
-                $selector = preg_replace('/\/\*.*?\*\//s', '', $selector) ?? $selector;
-                return in_array(strtolower(trim($selector)), array( ':root', 'html' ), true);
-            }) ) {
-                return $prelude;
-            }
-            if ( preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $body, $matches, PREG_SET_ORDER) ) {
-                foreach ( $matches as $match ) {
-                    $rootProperties[(string) $match[1]] = trim((string) $match[2]);
-                }
-            }
-            return $prelude;
-        });
-        if ( array() !== $rootProperties ) {
-            return $rootProperties;
-        }
-
-        if ( ! preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $css, $matches, PREG_SET_ORDER) ) {
-            return array();
-        }
-
-        $properties = array();
-        foreach ( $matches as $match ) {
-            $properties[(string) $match[1]] = trim((string) $match[2]);
-        }
-
-        return $properties;
-    }
-
     private function materializedInlineSvgPath(DOMElement $element, string $html): string
     {
         unset($element);
@@ -1796,9 +1717,20 @@ final class SvgMaterializer implements SvgElementMaterializer
         ));
     }
 
-    private function isNativeImageCompatibleSvg(DOMElement $element, string $html): bool
+    private function hasSvgRegionLink(DOMElement $element): bool
     {
-        if ( ! $this->isPassiveSvgMarkup($element) ) {
+        foreach ( $element->getElementsByTagName('a') as $anchor ) {
+            $href = trim(SourceDom::attr($anchor, 'href') ?: SourceDom::attr($anchor, 'xlink:href'));
+            if ( '' !== $href && ! str_starts_with($href, '#') ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function isNativeImageCompatibleSvg(DOMElement $element, string $html, bool $allowRegionLinks = false): bool
+    {
+        if ( ! $this->isPassiveSvgMarkup($element, $allowRegionLinks) ) {
             return false;
         }
 
@@ -1817,13 +1749,16 @@ final class SvgMaterializer implements SvgElementMaterializer
             return false;
         }
         $boxProperties = array_flip(array( 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio' ));
-        foreach ( $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style')) as $property => $value ) {
+        foreach ( $this->styleResolver->inlineDeclarations($element) as $property => $value ) {
             $resolved = $this->styleResolver->resolveCssVariablesInValue($value, $element);
             if ( preg_match('/var\s*\(/i', $resolved) && ! isset($boxProperties[strtolower($property)]) ) {
                 return false;
             }
         }
-        if ( preg_match('/\s(?:href|xlink:href)\s*=\s*(["\'])(?!#)[^"\']+\1/i', $html) ) {
+        // Only anchor destinations are exempt; external use/image references
+        // must continue to fail the ordinary image compatibility checks.
+        $referenceMarkup = $allowRegionLinks ? (preg_replace('/<a\b[^>]*>/i', '', $html) ?? $html) : $html;
+        if ( preg_match('/\s(?:href|xlink:href)\s*=\s*(["\'])(?!#)[^"\']+\1/i', $referenceMarkup) ) {
             return false;
         }
         if ( $this->usesAuthorFontFace($html) ) {
@@ -1936,7 +1871,7 @@ final class SvgMaterializer implements SvgElementMaterializer
 
     private function svgImageAlt(DOMElement $element): string
     {
-        if ( 'true' === strtolower(trim(SourceDom::attr($element, 'aria-hidden'))) ) {
+        if ( SourceDom::isAriaHidden($element) ) {
             return '';
         }
 
@@ -1944,7 +1879,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         // computation. A reference to an id the document does not contain
         // names nothing, so the next source applies.
         $labelledBy = array();
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'aria-labelledby'))) ?: array() as $id ) {
+        foreach ( SourceDom::tokens(SourceDom::attr($element, 'aria-labelledby')) as $id ) {
             $label = '' !== $id ? $element->ownerDocument?->getElementById($id) : null;
             $text = $label instanceof DOMElement ? trim(preg_replace('/\s+/', ' ', (string) $label->textContent) ?? '') : '';
             if ( '' !== $text ) {
@@ -2113,9 +2048,28 @@ final class SvgMaterializer implements SvgElementMaterializer
         return '' === $formatted ? '' : $formatted;
     }
 
-    public function sanitizeInlineSvgMarkup(DOMElement $element): string
+    /**
+     * Whether an SVG decoration paints nothing in the captured state; such a
+     * decoration is omitted, with an info diagnostic recording the omission.
+     */
+    public function omitsEmptyPaintDecoration(DOMElement $element): bool
     {
-        return $this->context->sanitizeInlineSvgMarkup($element);
+        if (!$this->paintsNothing($element)) return false;
+        $this->session->transformationEvidenceState()->recordConversionDiagnostic(array(
+            'code' => 'html_empty_svg_decoration_omitted',
+            'severity' => 'info',
+            'loss_class' => 'native_conversion',
+            'selector' => SourceDom::elementSelector($element),
+            'message' => 'Omitted SVG decoration proven to paint nothing in the captured state.',
+        ));
+
+        return true;
+    }
+
+    /** Sanitized inline SVG markup with its parser-lowercased names restored. */
+    public function inlineSvgMarkup(DOMElement $element): string
+    {
+        return $this->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element));
     }
 
     /**
@@ -2171,8 +2125,8 @@ final class SvgMaterializer implements SvgElementMaterializer
             return false;
         }
 
-        $role = strtolower(trim(SourceDom::attr($element, 'role')));
-        if ( 'true' === strtolower(trim(SourceDom::attr($element, 'aria-hidden'))) || in_array($role, array( 'presentation', 'none' ), true) ) {
+        $role = SourceDom::role($element);
+        if ( SourceDom::isAriaHidden($element) || in_array($role, array( 'presentation', 'none' ), true) ) {
             return true;
         }
 
@@ -2239,7 +2193,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         return ! in_array($namespace, $namespaces, true);
     }
 
-    public static function isPassiveSvgMarkup(DOMElement $element): bool
+    public static function isPassiveSvgMarkup(DOMElement $element, bool $allowRegionLinks = false): bool
     {
         // Full set of safe SVG structure/presentation/text/filter elements. These carry
         // only geometry, gradients, filters, and text — no scripting or external embedding
@@ -2296,20 +2250,28 @@ final class SvgMaterializer implements SvgElementMaterializer
             if ( in_array(strtolower($child->tagName), array('style', 'link'), true) ) {
                 continue;
             }
-            if ( ! $child instanceof DOMElement || ! self::isPassiveSvgElement($child, $allowedTags, $allowedAttributes) ) {
+            if ( ! $child instanceof DOMElement || ! self::isPassiveSvgElement($child, $allowedTags, $allowedAttributes, $allowRegionLinks) ) {
                 return false;
             }
         }
 
-        return self::isPassiveSvgElement($element, $allowedTags, $allowedAttributes);
+        return self::isPassiveSvgElement($element, $allowedTags, $allowedAttributes, $allowRegionLinks);
     }
 
     /**
      * @param array<string, int> $allowedTags
      * @param array<string, int> $allowedAttributes
      */
-    private static function isPassiveSvgElement(DOMElement $element, array $allowedTags, array $allowedAttributes): bool
+    private static function isPassiveSvgElement(DOMElement $element, array $allowedTags, array $allowedAttributes, bool $allowRegionLinks = false): bool
     {
+        $regionLink = $allowRegionLinks && 'a' === strtolower($element->tagName);
+        if ( $regionLink ) {
+            $allowedTags['a'] = 1;
+            foreach ( array( 'target', 'rel', 'download', 'hreflang', 'type' ) as $attribute ) {
+                $allowedAttributes[$attribute] = 1;
+            }
+        }
+
         // SMIL transform animation is self-contained in an SVG image document.
         // Keep the target implicit and restrict it to geometry: general SMIL
         // attribute mutation (notably href) is not passive artwork.
@@ -2352,10 +2314,15 @@ final class SvgMaterializer implements SvgElementMaterializer
             // SVG behavior or paint property; matched descendant CSS is still
             // baked and the original metadata travels with the asset.
             $isInertGroupWeight = 'weight' === $name && 'g' === strtolower($element->tagName) && 1 === preg_match('/^[a-z][a-z-]*$/iD', $value);
-            if ( (! isset($allowedAttributes[$name]) && ! $isInertDataAttribute && ! $isInertGroupWeight) || preg_match('/^on[a-z]+$/i', $name) || preg_match('/javascript\s*:|\b(?:expression|behavior)\s*:/i', $value) ) {
+            // An empty attribute that SVG does not define (authoring residue such
+            // as `<path path="">`) carries no paint, geometry, or behavior.
+            // Presence-only HTML globals and data-* markers (decided above) are
+            // excluded because presence is their value.
+            $isInertEmptyAttribute = '' === $value && ! str_starts_with($name, 'data-') && ! in_array($name, array( 'hidden', 'inert', 'autofocus', 'tabindex', 'contenteditable', 'draggable', 'popover' ), true);
+            if ( (! isset($allowedAttributes[$name]) && ! $isInertDataAttribute && ! $isInertGroupWeight && ! $isInertEmptyAttribute) || preg_match('/^on[a-z]+$/i', $name) || preg_match('/javascript\s*:|\b(?:expression|behavior)\s*:/i', $value) ) {
                 return false;
             }
-            if ( preg_match('/(?:^|:)href$/i', $name) && ! str_starts_with(trim($value), '#') && ! $embeddedRaster ) {
+            if ( preg_match('/(?:^|:)href$/i', $name) && ! str_starts_with(trim($value), '#') && ! $embeddedRaster && ! $regionLink ) {
                 return false;
             }
             if ( preg_match('/\burl\s*\((?!\s*["\']?#[-_a-z0-9]+["\']?\s*\))/i', $value) ) {
@@ -2364,5 +2331,43 @@ final class SvgMaterializer implements SvgElementMaterializer
         }
 
         return true;
+    }
+
+    /** @return array<string, mixed> */
+    public function svgArtworkBlock(DOMElement $element, string $svg): array
+    {
+        $generator = new SvgArtworkBlockGenerator();
+        $this->session->requireGeneratedBlockRegistry()->register(SvgArtworkBlockGenerator::class, $generator->definition($this->session->requireGeneratedBlockRegistry()->namespace()));
+
+        return $this->createBlock->createBlock(
+            $this->session->requireGeneratedBlockRegistry()->blockName(SvgArtworkBlockGenerator::LOCAL_NAME),
+            array( 'svg' => $svg ),
+            array(),
+            $element
+        );
+    }
+
+    /** @return array<string, mixed>|null */
+    public function decorativeTextSvgBlock(DOMElement $element): ?array
+    {
+        if (!SourceDom::isSafeSvgContent(SourceDom::outerHtml($element)) || !self::isPassiveSvgMarkup($element)) {
+            return null;
+        }
+        foreach ($element->attributes as $attribute) {
+            if (str_starts_with(strtolower($attribute->name), 'aria-') || in_array(strtolower($attribute->name), array('role', 'tabindex'), true)) {
+                return null;
+            }
+        }
+        $declarations = $this->styleResolver->presentationDeclarations($element);
+        if ('absolute' !== strtolower(trim((string) ($declarations['position'] ?? '')))) {
+            return null;
+        }
+        return $this->svgArtworkBlock($element, $this->inlineSvgMarkup($element));
+    }
+
+    /** Fallback markup carries the session's author-selector tag markers. */
+    protected function fallbackSourceTagMarker(string $tagName): string
+    {
+        return $this->session->authorSelectorProjectionState()->tagMarker($tagName);
     }
 }

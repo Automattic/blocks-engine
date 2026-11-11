@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use DOMDocument;
@@ -83,7 +85,7 @@ final class CapturedSelectableSetProjector
         }
 
         $receipt = CaptureReceiptReport::read($files);
-        if (null === $receipt || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null) || ! is_array($receipt['routes'] ?? null)) {
+        if (null === $receipt || ! is_array($receipt['routes'] ?? null)) {
             return array('files' => $files, 'diagnostics' => array_merge($diagnostics, array($this->diagnostic('captured_selectable_set_route_map_missing', 'warning', 'Captured selectable sets were not projected because the capture receipt route map is unavailable.'))), 'projected_count' => 0);
         }
 
@@ -136,7 +138,7 @@ final class CapturedSelectableSetProjector
         $count = 0;
         $retired = array();
         if (!CapturedInteractionReport::valid($report)
-            || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null)) {
+            || null === $receipt) {
             return array('files' => $files, 'projected_count' => 0, 'native_runtime_replacements' => array());
         }
         $routes = CaptureReceiptRoutes::resolve($files, $receipt);
@@ -144,12 +146,8 @@ final class CapturedSelectableSetProjector
             $path = $routes[CaptureReceiptRoutes::normalizedUrl((string) ($page['sourceUrl'] ?? ''))] ?? '';
             foreach ($files as &$file) {
                 if ('' === $path || $path !== ($file['path'] ?? null) || !is_string($file['content'] ?? null)) continue;
-                $document = new DOMDocument('1.0', 'UTF-8');
-                $previous = libxml_use_internal_errors(true);
-                $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $file['content'], LIBXML_NONET);
-                libxml_clear_errors();
-                libxml_use_internal_errors($previous);
-                if (!$loaded) continue;
+                $document = HtmlSerialization::utf8Document($file['content'], LIBXML_NONET);
+                if (null === $document) continue;
                 $changed = false;
                 $bindings = new ScriptOccurrenceBindings($document);
                 foreach (array_slice($page['components'] ?? array(), 0, self::MAX_SETS_PER_PAGE) as $component) {
@@ -240,7 +238,7 @@ final class CapturedSelectableSetProjector
                 $probed[$probedSelector]['size'] = is_int($state['set']['size'] ?? null) ? $state['set']['size'] : 0;
                 $probed[$probedSelector]['indexes'][$state['set']['index']] = true;
             }
-            $status = is_string($state['status'] ?? null) ? $state['status'] : '';
+            $status = ArrayField::string($state, 'status');
             ++$recorded;
             $statusCounts[$status] = ($statusCounts[$status] ?? 0) + 1;
             if ('no-dialog' === $status) {
@@ -259,7 +257,7 @@ final class CapturedSelectableSetProjector
                 continue;
             }
             $dialog = $state['dialog'];
-            $dialogHtml = is_string($dialog['html'] ?? null) ? $dialog['html'] : '';
+            $dialogHtml = ArrayField::string($dialog, 'html');
             $declaredBytes = is_int($dialog['htmlBytes'] ?? null) ? $dialog['htmlBytes'] : -1;
             if ('' === $dialogHtml || ! empty($dialog['htmlTruncated']) || strlen($dialogHtml) > self::MAX_REGION_BYTES || $declaredBytes !== strlen($dialogHtml)) {
                 $diagnostics[] = $this->diagnostic('captured_selectable_set_member_truncated', 'warning', 'A selectable-set member was omitted because its HTML is empty, truncated, or exceeds the byte limit.', array('source_url' => $sourceUrl));
@@ -345,12 +343,8 @@ final class CapturedSelectableSetProjector
      */
     private function projectPage(string $html, array $sets, string $sourcePath, array $consumedBindings = array()): array
     {
-        $previous = libxml_use_internal_errors(true);
-        $document = new DOMDocument('1.0', 'UTF-8');
-        $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
-        if (! $loaded) {
+        $document = HtmlSerialization::utf8Document($html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+        if (null === $document) {
             return array('html' => $html, 'diagnostics' => array($this->diagnostic('captured_selectable_set_source_invalid', 'warning', 'Captured selectable sets were not projected because the source HTML could not be parsed.', array('source_path' => $sourcePath))), 'projected_count' => 0);
         }
 
@@ -415,7 +409,7 @@ final class CapturedSelectableSetProjector
         $keys = array();
         foreach ($members as $index => $member) {
             $generated[$index] = 'blocks-engine-set-' . $identity . '-panel-' . $index;
-            $keys[$index] = is_string($member['key'] ?? null) ? $member['key'] : '';
+            $keys[$index] = ArrayField::string($member, 'key');
         }
         if (in_array('', $keys, true) || count(array_unique($keys)) !== count($keys)) {
             return $generated;
@@ -454,7 +448,7 @@ final class CapturedSelectableSetProjector
             return;
         }
         foreach (iterator_to_array($parent->childNodes) as $sibling) {
-            if (! $sibling instanceof DOMElement || $sibling->isSameNode($region) || 'tabpanel' !== strtolower(trim($sibling->getAttribute('role')))) {
+            if (! $sibling instanceof DOMElement || $sibling->isSameNode($region) || 'tabpanel' !== SourceDom::role($sibling)) {
                 continue;
             }
             $labelledBy = trim($sibling->getAttribute('aria-labelledby'));
@@ -538,9 +532,6 @@ final class CapturedSelectableSetProjector
         }
     }
 
-    /**
-     * @return array{status:'matched'|'unmatched'|'ambiguous', elements:array<int, DOMElement>}
-     */
     /**
      * A set is consumed only when a completed native collection bound every
      * member trigger and the dialog region. A partial or unrelated group stays.
@@ -745,7 +736,7 @@ final class CapturedSelectableSetProjector
 
     private function isResponsiveDocumentWrapper(DOMElement $element): bool
     {
-        foreach (preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $class) {
+        foreach (SourceDom::tokens($element->getAttribute('class')) as $class) {
             if (str_starts_with($class, 'site-document-variant-') || in_array($class, array(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, CaptureEvidence::MOBILE_DOCUMENT_CLASS), true)) {
                 return true;
             }
@@ -795,60 +786,7 @@ final class CapturedSelectableSetProjector
         if (null !== $id) {
             return $this->descendantsWithId($scope, $id);
         }
-        if ('' === $selector || str_contains($selector, ',') || ! str_contains($selector, '>')) {
-            return array();
-        }
-        $parts = preg_split('/\s*>\s*/', $selector);
-        if (! is_array($parts) || array() === $parts) {
-            return array();
-        }
-        if ('body' === strtolower($parts[0])) {
-            array_shift($parts);
-        }
-        if (array() === $parts) {
-            return array();
-        }
-        if (1 === preg_match('/^([a-z][a-z0-9]*)/i', $parts[0], $scopeToken) && strtolower($scope->tagName) === strtolower($scopeToken[1])) {
-            array_shift($parts);
-        }
-        if (array() === $parts) {
-            return array($scope);
-        }
-        $current = array($scope);
-        foreach ($parts as $part) {
-            if (1 !== preg_match('/^([a-z][a-z0-9]*)(#([A-Za-z][A-Za-z0-9_.:-]*))?(:nth-of-type\((\d+)\))?$/i', $part, $tokens)) {
-                return array();
-            }
-            $tag = strtolower($tokens[1]);
-            $id = $tokens[3] ?? '';
-            $nth = isset($tokens[5]) && '' !== $tokens[5] ? (int) $tokens[5] : 0;
-            $next = array();
-            foreach ($current as $node) {
-                $seen = array();
-                foreach ($node->childNodes as $child) {
-                    if (! $child instanceof DOMElement) {
-                        continue;
-                    }
-                    $childTag = strtolower($child->tagName);
-                    $seen[$childTag] = ($seen[$childTag] ?? 0) + 1;
-                    if ($childTag !== $tag) {
-                        continue;
-                    }
-                    if ('' !== $id && $child->getAttribute('id') !== $id) {
-                        continue;
-                    }
-                    if ($nth > 0 && ($seen[$tag] ?? 0) !== $nth) {
-                        continue;
-                    }
-                    $next[] = $child;
-                }
-            }
-            if (array() === $next) {
-                return array();
-            }
-            $current = $next;
-        }
-        return $current;
+        return CapturedSelectorPath::matches($scope, $selector, skipsScopeTag: true);
     }
 
     /** @param array<string, mixed> $state */
@@ -1078,12 +1016,8 @@ final class CapturedSelectableSetProjector
 
     private function safeRegionHtml(string $html): ?string
     {
-        $previous = libxml_use_internal_errors(true);
-        $document = new DOMDocument('1.0', 'UTF-8');
-        $loaded = $document->loadHTML('<?xml encoding="UTF-8"><div data-region-root="true">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
-        if (! $loaded) {
+        $document = HtmlSerialization::utf8Document('<div data-region-root="true">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+        if (null === $document) {
             return null;
         }
         $xpath = new \DOMXPath($document);
@@ -1173,12 +1107,8 @@ final class CapturedSelectableSetProjector
     /** @return array<int, \DOMNode> */
     private function fragmentNodes(string $html): array
     {
-        $previous = libxml_use_internal_errors(true);
-        $document = new DOMDocument('1.0', 'UTF-8');
-        $loaded = $document->loadHTML('<?xml encoding="UTF-8"><div data-region-root="true">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
-        if (! $loaded) {
+        $document = HtmlSerialization::utf8Document('<div data-region-root="true">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+        if (null === $document) {
             return array();
         }
         $wrapper = (new \DOMXPath($document))->query('//*[@data-region-root="true"]')?->item(0);

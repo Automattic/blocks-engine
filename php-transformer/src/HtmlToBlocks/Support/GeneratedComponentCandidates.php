@@ -25,6 +25,7 @@ final class GeneratedComponentCandidates
     public function collectGeneratedComponentCandidates(DOMElement $element, int $depth = 0): void
     {
         if (self::GENERATED_COMPONENT_MIN_SOURCE_DEPTH <= $depth
+            && 0 === $element->getElementsByTagName('form')->length
             && ('div' === strtolower($element->tagName) || str_contains(strtolower($element->tagName), '-'))
             && ($this->sourceElementClassifier->hasRepeatedDirectChildTags($element) || str_contains(strtolower($element->tagName), '-'))
             && ($this->session->fallbackEmitter()->isRepeatableContentComponent($element) || $this->session->fallbackEmitter()->isSafeCustomElementHost($element))

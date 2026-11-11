@@ -144,6 +144,22 @@ jobs:
         working-directory: php-transformer
         run: PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/php-transformer/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/details-control-presentation-browser.mjs
 
+      - name: Verify standalone line breaks keep source line spacing
+        working-directory: php-transformer
+        run: php tests/unit/standalone-break-spacing.php
+
+      - name: Verify block-anchor control bars stay stacked and sized
+        working-directory: php-transformer
+        run: PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/php-transformer/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/icon-anchor-bar-browser.mjs
+
+      - name: Verify form label required markers and flex gaps
+        working-directory: php-transformer
+        run: php tests/unit/form-label-marker-gap.php
+
+      - name: Verify decorative search icons and banded input padding
+        working-directory: php-transformer
+        run: PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/php-transformer/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/search-decorative-icon-browser.mjs
+
       - name: Verify native collection search semantics
         working-directory: php-transformer
         run: |
@@ -186,9 +202,16 @@ jobs:
         working-directory: php-transformer
         run: PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/php-transformer/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/orphan-list-item-browser.mjs
 
+      - name: Verify lowered background images keep their position when linked
+        working-directory: php-transformer
+        run: PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/php-transformer/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/background-image-position-browser.mjs
+
       - name: Verify slideshow slides with inline images stack in one stage
         working-directory: php-transformer
         run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/carousel-inline-image-slides-browser.mjs
+      - name: Verify a lowered background image is not restyled as an author figure or img
+        working-directory: php-transformer
+        run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/contract/background-image-selector-ownership-browser.mjs
       - name: Verify a height-limited image keeps its ratio after WordPress adds size attributes
         working-directory: php-transformer
         run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/image-height-clamp-intrinsic-width-browser.mjs

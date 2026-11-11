@@ -364,12 +364,16 @@ Native details retain their authored open state.
 | --- | --- | --- | --- |
 | `data-blocks-engine-capture-device-body` | attribute (flag) on `<script>` | excluded from runtime evidence | Capture-owned device overlay. |
 | `data-blocks-engine-capture-device-inline` | attribute (JSON) | retained in render metadata | Per-device inline styles. |
+| `data-blocks-engine-capture-device-class` | attribute (JSON) | retained in render metadata | Per-device class tokens. |
 
 `data-blocks-engine-capture-device-body` marks the capture-owned device overlay
 script. Blocks Engine excludes it from author runtime selector evidence; an
 unmarked author script selecting the same elements remains runtime evidence.
 `data-blocks-engine-capture-device-inline` holds per-device inline styles. Native
 blocks retain this attribute through render metadata so the overlay still works.
+`data-blocks-engine-capture-device-class` holds per-device class lists, keyed by
+device; the overlay swaps the selected device's tokens in. Native blocks retain
+it the same way, and the author rules for those tokens stay in the theme CSS.
 
 ### Published for downstream importers
 

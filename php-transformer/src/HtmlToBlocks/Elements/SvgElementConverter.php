@@ -26,7 +26,7 @@ final class SvgElementConverter implements ElementConverter
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */
-    public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
         if ( ! $this->handles($tagName) ) {
             return ConversionOutcome::unhandled();

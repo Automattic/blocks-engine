@@ -25,12 +25,14 @@ $files = static function (string $source): array {
     );
 };
 $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => $files($html)))->toArray();
-$markup = $result['serialized_blocks'];
+require_once __DIR__ . '/../fixtures/render-core-dialogs.php';
+$savedMarkup = $result['serialized_blocks'];
+$markup = render_core_dialogs($savedMarkup);
 $assert(0 === $result['metrics']['fallback_count'], 'mixed panels lower entirely to editable native blocks');
-$assert(2 === substr_count($markup, '<!-- wp:custom/captured-dialog '), 'one existing captured dropdown block per source scope');
+$assert(2 === substr_count($savedMarkup, '"blocksEngineDialog"'), 'one existing captured dropdown block per source scope');
 $assert(!str_contains(json_encode($result['assets']), 'function triggers()'), 'known generated helper is retired after all scoped controls bind');
 $assert(str_contains($markup, 'data-blocks-engine-placement="in-place"') && str_contains($markup, 'data-blocks-engine-capture-dialog-ancestor-unverified="ancestor-limit"'), 'source placement and unverified ancestor evidence remain explicit');
-$assert(str_contains($markup, '<!-- wp:separator') && str_contains($markup, 'Ordinary action') && str_contains($markup, 'Social') && str_contains($markup, '<svg'), 'mixed separators, action, social artwork and opener artwork survive');
+$assert(str_contains($savedMarkup, '<!-- wp:separator') && str_contains($savedMarkup, 'Ordinary action') && str_contains($savedMarkup, 'Social') && str_contains($savedMarkup, '<svg'), 'mixed separators, action, social artwork and opener artwork survive');
 libxml_use_internal_errors(true);
 $dom = new DOMDocument();
 $dom->loadHTML('<body>' . $markup . '</body>');
@@ -66,7 +68,7 @@ $assert(1 === $partial['projected_count'], 'An ambiguous mobile endpoint does no
 $duplicateCopies = str_replace(array('desktop-menu-panel', 'mobile-menu-panel'), 'shared-menu-panel', $html);
 $duplicateResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => $files($duplicateCopies)))->toArray();
 $duplicateDom = new DOMDocument();
-$duplicateDom->loadHTML('<body>' . $duplicateResult['serialized_blocks'] . '</body>');
+$duplicateDom->loadHTML('<body>' . render_core_dialogs($duplicateResult['serialized_blocks']) . '</body>');
 $duplicatePanels = (new DOMXPath($duplicateDom))->query('//*[@data-blocks-engine-triggers]');
 $assert(2 === $duplicatePanels->length && $duplicatePanels->item(0)->getAttribute('id') !== $duplicatePanels->item(1)->getAttribute('id'), 'duplicate captured endpoint IDs are disambiguated by native source-scope ownership');
 $reporter = new RuntimeDependencyParityReport();

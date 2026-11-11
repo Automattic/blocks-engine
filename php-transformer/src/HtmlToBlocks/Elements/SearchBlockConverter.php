@@ -10,7 +10,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormContr
 use DOMElement;
 
 /** Converts static search controls into native core/search blocks. */
-final class SearchBlockConverter
+final class SearchBlockConverter implements ElementConverter
 {
     public function __construct(
         private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver $presentationResolver,
@@ -22,6 +22,14 @@ final class SearchBlockConverter
         private readonly FormControlMetadataBuilder $formControlMetadataBuilder,
         private readonly PseudoFormAnalyzer $pseudoFormAnalyzer
     ) {
+    }
+
+    /** Lowers a wrapper around a search form to core/search. */
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
+    {
+        $block = $this->searchBlockFromWrapper($element);
+
+        return null === $block ? ConversionOutcome::unhandled() : ConversionOutcome::handled($block);
     }
 
     /** @return array<string, mixed>|null */
@@ -74,10 +82,10 @@ final class SearchBlockConverter
         $paintedSibling = null;
         $paintedIcon = null;
         if ( null === $submitControl ) {
-            $candidate = $this->nextElementSibling($textInput);
+            $candidate = $textInput->nextElementSibling;
             if ( $candidate instanceof DOMElement && 'span' === strtolower($candidate->tagName)
                 && '' === trim($candidate->textContent) && array() === SourceDom::eventMetadata($candidate) ) {
-                foreach ( array_merge(array( $candidate ), iterator_to_array($candidate->getElementsByTagName('*'))) as $part ) {
+                foreach ( SourceDom::subtreeElements($candidate) as $part ) {
                     $declarations = $this->context->presentationDeclarations($part);
                     if ( 1 === preg_match('/url\(/i', ($declarations['background'] ?? '') . ($declarations['background-image'] ?? '')) ) {
                         $paintedSibling = $candidate;
@@ -137,28 +145,27 @@ final class SearchBlockConverter
 
         // core/search cannot store source classes on its input or button, so
         // source rules addressing them are re-targeted onto the native parts.
-        if ( '' !== trim(SourceDom::attr($textInput, 'class')) || '' !== trim(SourceDom::attr($textInput, 'id'))
-            || ($submitControl instanceof DOMElement && ('' !== trim(SourceDom::attr($submitControl, 'class')) || '' !== trim(SourceDom::attr($submitControl, 'id')))) ) {
-            $marker = 'blocks-engine-search-subject-' . substr(hash('sha256', $textInput->getNodePath() ?? ''), 0, 12);
-            $attrs['className'] = trim($attrs['className'] . ' ' . $marker);
-            $target = ':where(.wp-block-search.' . $marker . ')';
-            ($this->session->authorSelectorProjectionState()->installInnerSubject($textInput->getNodePath() ?? '', $target . ' :where(.wp-block-search__input)', ''));
-            if ( $submitControl instanceof DOMElement ) {
-                $this->session->authorSelectorProjectionState()->installInnerSubject($submitControl->getNodePath() ?? '', $target . ' :where(.wp-block-search__button)', '');
-            }
-            if ( $paintedSibling instanceof DOMElement && $paintedIcon instanceof DOMElement ) {
-                $attrs['buttonUseIcon'] = true;
-                $button = $target . ' :where(.wp-block-search__button)';
-                ($this->session->authorSelectorProjectionState()->installInnerSubject($paintedSibling->getNodePath() ?? '', $button, ''));
-                // The source icon paints the button in place of core's SVG.
-                $css = $target . ' .wp-block-search__button>svg{display:none}';
-                if ( $paintedIcon !== $paintedSibling ) {
-                    ($this->session->authorSelectorProjectionState()->installInnerSubject($paintedIcon->getNodePath() ?? '', $button, '::before'));
-                    $css .= $target . ' .wp-block-search__button::before{content:"";display:inline-block}';
-                }
-                $this->session->generatedSupportStylesheetState()->registerNativeSearchTrigger($marker, $css);
-            }
+        $marker = 'blocks-engine-search-subject-' . substr(hash('sha256', $textInput->getNodePath() ?? ''), 0, 12);
+        $attrs['className'] = trim($attrs['className'] . ' ' . $marker);
+        $target = '.wp-block-search.' . $marker;
+        ($this->session->authorSelectorProjectionState()->installInnerSubject($textInput->getNodePath() ?? '', $target . ' :where(.wp-block-search__input)', ''));
+        if ( $submitControl instanceof DOMElement ) {
+            $this->session->authorSelectorProjectionState()->installInnerSubject($submitControl->getNodePath() ?? '', $target . ' :where(.wp-block-search__button)', '');
         }
+        if ( $paintedSibling instanceof DOMElement && $paintedIcon instanceof DOMElement ) {
+            $attrs['buttonUseIcon'] = true;
+            $button = $target . ' :where(.wp-block-search__button)';
+            ($this->session->authorSelectorProjectionState()->installInnerSubject($paintedSibling->getNodePath() ?? '', $button, ''));
+            // The source icon paints the button in place of core's SVG.
+            $css = $target . ' .wp-block-search__button>svg{display:none}';
+            if ( $paintedIcon !== $paintedSibling ) {
+                ($this->session->authorSelectorProjectionState()->installInnerSubject($paintedIcon->getNodePath() ?? '', $button, '::before'));
+                $css .= $target . ' .wp-block-search__button::before{content:"";display:inline-block}';
+            }
+            $this->session->generatedSupportStylesheetState()->registerNativeSearchTrigger($marker, $css);
+        }
+
+        $attrs['className'] = trim($attrs['className'] . ' ' . $this->registerDecorativeSearchIcon($form));
 
         return $this->createBlock->createBlock('core/search', $attrs, array(), $form);
     }
@@ -191,7 +198,9 @@ final class SearchBlockConverter
     /** Bridge replaced source controls through the existing owned search stylesheet. */
     private function registerSearchControlPresentation(DOMElement $input, ?DOMElement $button): string
     {
-        $inputCss = $this->sourceControlPadding($input, '1px 2px');
+        // Only the UA fallback belongs here. Authored declarations (including
+        // invalid values and viewport bands) must remain in the author cascade.
+        $inputCss = 'padding:1px 2px;';
         $buttonCss = '';
         if ( $button instanceof DOMElement ) {
             $buttonCss = $this->sourceControlPadding($button, '1px 6px');
@@ -219,7 +228,7 @@ final class SearchBlockConverter
         $className = 'blocks-engine-source-search-control-' . substr(hash('sha256', $inputCss . '|' . $buttonCss), 0, 12);
         $selector = '.wp-block-search.' . $className;
         $this->session->generatedSupportStylesheetState()->registerNativeSearchTrigger($className,
-            $selector . ' .wp-block-search__input{' . $inputCss . '}'
+            ':where(' . $selector . ') .wp-block-search__input{' . $inputCss . '}'
             . ('' !== $buttonCss ? $selector . ' .wp-block-search__button{' . $buttonCss . '}' : '')
             // An icon-font glyph occupies one em, not core's 24px SVG box.
             . ($button instanceof DOMElement && $this->isIconOnlySearchControl($button)
@@ -228,6 +237,34 @@ final class SearchBlockConverter
                     . $selector . ' .wp-block-search__button>svg{min-width:0;min-height:0;width:1em;height:1em}' : '')
         );
         return $className;
+    }
+
+    /** Paint a non-interactive SVG without inventing a submit button. */
+    private function registerDecorativeSearchIcon(DOMElement $form): string
+    {
+        foreach ( $form->childNodes as $carrier ) {
+            if ( ! $carrier instanceof DOMElement || 'span' !== strtolower($carrier->tagName)
+                || '' !== trim($carrier->textContent) || array() !== SourceDom::eventMetadata($carrier)
+                || $carrier->hasAttribute('tabindex') || $carrier->hasAttribute('role') ) {
+                continue;
+            }
+            $svg = $carrier->firstElementChild;
+            if ( ! $svg instanceof DOMElement || 'svg' !== strtolower($svg->tagName)
+                || 1 !== SourceDom::childElementCount($carrier)
+                || 'absolute' !== CssValueInspector::withoutImportant($this->context->presentationDeclarations($carrier)['position'] ?? '') ) {
+                continue;
+            }
+            $markup = SvgMaterializer::ensureSvgImageNamespace($this->svgMaterializer->restoreSvgCasing(SourceDom::outerHtml($svg)));
+            $marker = 'blocks-engine-search-decoration-' . substr(hash('sha256', ($carrier->getNodePath() ?? '') . $markup), 0, 12);
+            $target = '.wp-block-search.' . $marker;
+            $this->session->authorSelectorProjectionState()->installInnerSubject($carrier->getNodePath() ?? '', $target, '::before');
+            $this->session->generatedSupportStylesheetState()->registerNativeSearchTrigger($marker,
+                ':where(' . $target . '){position:relative}'
+                . $target . '::before{content:"";pointer-events:none;background:url("data:image/svg+xml,' . rawurlencode($markup) . '") center/contain no-repeat}'
+            );
+            return $marker;
+        }
+        return '';
     }
 
     private function sourceControlPadding(DOMElement $control, string $uaPadding): string
@@ -262,7 +299,7 @@ final class SearchBlockConverter
         }
 
         foreach ( $containers as $container ) {
-            $sibling = $this->nextElementSibling($container);
+            $sibling = $container->nextElementSibling;
             if ( $sibling instanceof DOMElement && $this->isAdjacentSearchTriggerControl($sibling) ) {
                 return $sibling;
             }
@@ -397,7 +434,7 @@ final class SearchBlockConverter
         }
 
         if ( $this->isAdjacentSearchTriggerControl($control) ) {
-            $formContainer = $this->previousElementSibling($control);
+            $formContainer = $control->previousElementSibling;
             return $formContainer instanceof DOMElement && $this->containsNativeSearchForm($formContainer);
         }
 
@@ -405,8 +442,8 @@ final class SearchBlockConverter
             return false;
         }
 
-        $trigger = $this->previousElementSibling($control);
-        $formContainer = $trigger instanceof DOMElement ? $this->previousElementSibling($trigger) : null;
+        $trigger = $control->previousElementSibling;
+        $formContainer = $trigger instanceof DOMElement ? $trigger->previousElementSibling : null;
         return $trigger instanceof DOMElement
             && $this->isAdjacentSearchTriggerControl($trigger)
             && $formContainer instanceof DOMElement
@@ -419,28 +456,6 @@ final class SearchBlockConverter
             ? array( $element )
             : iterator_to_array($element->getElementsByTagName('form'));
         return 1 === count($forms) && $forms[0] instanceof DOMElement && $this->isNativeSearchForm($forms[0]);
-    }
-
-    private function nextElementSibling(DOMElement $element): ?DOMElement
-    {
-        for ( $sibling = $element->nextSibling; null !== $sibling; $sibling = $sibling->nextSibling ) {
-            if ( $sibling instanceof DOMElement ) {
-                return $sibling;
-            }
-        }
-
-        return null;
-    }
-
-    private function previousElementSibling(DOMElement $element): ?DOMElement
-    {
-        for ( $sibling = $element->previousSibling; null !== $sibling; $sibling = $sibling->previousSibling ) {
-            if ( $sibling instanceof DOMElement ) {
-                return $sibling;
-            }
-        }
-
-        return null;
     }
 
     private function isSearchCloseControl(DOMElement $control): bool

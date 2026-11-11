@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use DOMElement;
@@ -336,10 +337,10 @@ final class NavigationBlockNormalizer
     {
         $provenanceId = $block['_source_provenance_id'] ?? null;
         $source = is_int($provenanceId) ? ( $sourceProvenance[$provenanceId] ?? array() ) : array();
-        $attributes = is_array($source['source_attributes'] ?? null) ? $source['source_attributes'] : array();
-        $context = is_array($source['context'] ?? null) ? $source['context'] : array();
-        $classNames = is_array($context['class_names'] ?? null) ? $context['class_names'] : array();
-        $ancestorClassNames = is_array($context['ancestor_class_names'] ?? null) ? $context['ancestor_class_names'] : array();
+        $attributes = ArrayField::array($source, 'source_attributes');
+        $context = ArrayField::array($source, 'context');
+        $classNames = ArrayField::array($context, 'class_names');
+        $ancestorClassNames = ArrayField::array($context, 'ancestor_class_names');
 
         // Identity is judged one class/id token at a time. A keyword proves a
         // mobile copy only when it shares its class with a navigation term:
@@ -446,11 +447,11 @@ final class NavigationBlockNormalizer
     private function collectLinks(array $block, array &$links): void
     {
         if ( in_array($block['blockName'] ?? '', array( 'core/navigation-link', 'core/navigation-submenu' ), true) ) {
-            $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
+            $attrs = ArrayField::array($block, 'attrs');
             $links[] = ($this->normalizeLabel)((string) ($attrs['label'] ?? '')) . '>' . trim((string) ($attrs['url'] ?? ''));
         }
 
-        foreach ( is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array() as $innerBlock ) {
+        foreach ( ArrayField::array($block, 'innerBlocks') as $innerBlock ) {
             if ( is_array($innerBlock) ) {
                 $this->collectLinks($innerBlock, $links);
             }

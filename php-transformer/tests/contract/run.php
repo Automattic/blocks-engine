@@ -5,6 +5,7 @@ require_once __DIR__ . '/../fixtures/captured-components.php';
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
 use Automattic\BlocksEngine\PhpTransformer\Contract\HtmlValidationOutcome;
@@ -752,7 +753,7 @@ $registry = new PatternRecognizerRegistry(array(
     },
 ));
 $registryContext = new PatternContext(
-    static fn (DOMElement $element): array => array()
+    new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array())
 );
 $assert($registryElement instanceof DOMElement, 'pattern registry fixture element parses');
 $assert('core/group' === ($registry->firstMatch($registryElement, $registryContext)?->block()['blockName'] ?? null), 'pattern registry returns the first recognizer match');
@@ -1155,7 +1156,7 @@ $assert(str_contains($separateResponsiveMenuCss, '@media(max-width:768px)') && s
 
 $linkedCapturedDisclosure = ( new HtmlTransformer() )->transform('<details><summary>&nbsp;</summary><div role="dialog" data-blocks-engine-triggers="menu-trigger"><nav><a href="/about">About</a></nav></div></details>')->toArray();
 $linkedCapturedDisclosureBlock = $linkedCapturedDisclosure['blocks'][0] ?? array();
-$assert(str_ends_with((string) ($linkedCapturedDisclosureBlock['blockName'] ?? ''), '/captured-dialog') && array('menu-trigger') === ($linkedCapturedDisclosureBlock['attrs']['triggerIds'] ?? null), 'explicitly linked captured disclosures lower to the typed dialog block');
+$assert('core/group' === ($linkedCapturedDisclosureBlock['blockName'] ?? '') && 'menu-trigger' === ($linkedCapturedDisclosureBlock['attrs']['metadata']['blocksEngineDialog']['attributes']['data-blocks-engine-triggers'] ?? null), 'explicitly linked captured disclosures lower to the typed dialog block');
 
 $unsafeCapturedDisclosureResult = ( new HtmlTransformer() )->transform('<div class="rich-text"><p>Copyright text</p><details><summary>&nbsp;</summary><div role="dialog"><script>window.open()</script><nav><a href="/about">About</a></nav></div></details></div>')->toArray();
 $unsafeCapturedDisclosureMarkup = (string) ($unsafeCapturedDisclosureResult['serialized_blocks'] ?? '');
@@ -1438,16 +1439,16 @@ $requiredFormControls = $requiredFormDeclarations[0]['payload']['entities'][0]['
 $assert(true === ($requiredFormControls[0]['required'] ?? null) && true === ($requiredFormControls[1]['required'] ?? null), 'generic form declarations normalize native and ARIA required semantics through artifact compilation');
 $boundedTopologyHtml = static function (int $extraControls): string {
     $controls = '';
-    for ( $index = 0; $index < 63; ++$index ) $controls .= '<div><input name="field-' . $index . '"></div>';
+    for ( $index = 0; $index < 127; ++$index ) $controls .= '<div><input name="field-' . $index . '"></div>';
     $controls .= '<input name="standalone"><button type="submit">Send</button>';
     for ( $index = 0; $index < $extraControls; ++$index ) $controls .= '<input name="extra-' . $index . '">';
     return '<main><form method="post" action="#">' . $controls . '</form></main>';
 };
 $exactTopology = ( new HtmlTransformer() )->transform($boundedTopologyHtml(0))->toArray()['fallbacks'][0]['control_topology'] ?? array();
 $overflowTopology = ( new HtmlTransformer() )->transform($boundedTopologyHtml(1))->toArray()['fallbacks'][0]['control_topology'] ?? array();
-$assert(128 === count($exactTopology['nodes'] ?? array()) && false === ($exactTopology['truncated'] ?? null), 'form control topology retains exactly the configured node limit without reporting truncation');
-$assert(128 === count($overflowTopology['nodes'] ?? array()) && true === ($overflowTopology['truncated'] ?? null), 'form control topology truncates deterministically when one source-ordered control exceeds the node limit');
-$assert(64 === ($overflowTopology['nodes'][127]['control'] ?? null), 'node-limit truncation preserves the last in-bounds flat control reference');
+$assert(256 === count($exactTopology['nodes'] ?? array()) && false === ($exactTopology['truncated'] ?? null), 'form control topology retains exactly the configured node limit without reporting truncation');
+$assert(256 === count($overflowTopology['nodes'] ?? array()) && true === ($overflowTopology['truncated'] ?? null), 'form control topology truncates deterministically when one source-ordered control exceeds the node limit');
+$assert(128 === ($overflowTopology['nodes'][255]['control'] ?? null), 'node-limit truncation preserves the last in-bounds flat control reference');
 $exactTopologyResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $boundedTopologyHtml(0))))->toArray();
 $overflowTopologyResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $boundedTopologyHtml(1))))->toArray();
 $runtimeDeclarationKeys = static fn(array $result): array => array_map(static fn(array $declaration): string => ($declaration['kind'] ?? '') . ':' . ($declaration['type'] ?? $declaration['capability'] ?? ''), $result['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array());
@@ -1583,7 +1584,7 @@ $selectorOverflowDeclaration = current(array_filter($selectorOverflowArtifact['s
 $assert(true === ($selectorOverflowGraph['truncated'] ?? null) && in_array('css_rule_or_selector_limit', $selectorOverflowGraph['diagnostics'] ?? array(), true) && !isset($selectorOverflowDeclaration['payload']['entities'][0]['layout_graph']), 'retained rule overflow remains explicit and incomplete graphs remain omitted from generic/forms/v1.');
 $scanOverflowCss = ''; for ( $index = 0; $index < 16385; ++$index ) $scanOverflowCss .= '.unrelated-' . $index . '{display:grid}';
 $scanOverflowGraph = (new HtmlTransformer())->transform($deepThreeColumnHtml, array('static_css' => $scanOverflowCss))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
-$assert(true === ($scanOverflowGraph['truncated'] ?? null) && in_array('css_selector_scan_limit', $scanOverflowGraph['diagnostics'] ?? array(), true) && !in_array('css_rule_or_selector_limit', $scanOverflowGraph['diagnostics'] ?? array(), true), 'unrelated selector scanning fails closed at its independent 16,384-selector work budget.');
+$assert(false === ($scanOverflowGraph['truncated'] ?? null) && !in_array('css_selector_scan_limit', $scanOverflowGraph['diagnostics'] ?? array(), true) && !in_array('css_rule_or_selector_limit', $scanOverflowGraph['diagnostics'] ?? array(), true), 'unrelated selectors do not consume the relevant cascade work budget.');
 $assert(is_int($cascadeVariant['precedence']['gap']['source_order'] ?? null) && is_int($cascadeVariant['precedence']['gap']['specificity'] ?? null) && is_bool($cascadeVariant['precedence']['gap']['important'] ?? null), 'conditional variants carry deterministic cascade precedence rather than implying independent winners.');
 $crossConditionGraph = (new HtmlTransformer())->transform('<form method="post" action="#" id="active" class="form"><input name="x"><button type="submit">Send</button></form>', array('static_css' => '.form{display:grid!important}@media (max-width:50rem){.form{display:flex}}@media (min-width:40rem){.form#active{display:flex!important}}'))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
 $crossConditionVariants = $crossConditionGraph['variants'] ?? array();
@@ -3190,9 +3191,9 @@ $emptyCoverCandidate = ( new HtmlTransformer() )->transform(
     '<div style="background-image:url(https://example.com/decor.png);background-size:cover;min-height:400px"></div>'
 )->toArray();
 $emptyCoverCandidateSerialized = (string) ($emptyCoverCandidate['serialized_blocks'] ?? '');
-$expectedEmptyCoverCandidateSerialized = '<!-- wp:group {"className":"be-inline-geometry-218c90ba931caddc be-inline-geometry-5462031491657489","style":{"dimensions":{"minHeight":"400px"}}} --><div class="wp-block-group be-inline-geometry-218c90ba931caddc be-inline-geometry-5462031491657489" style="min-height:400px"><!-- wp:image {"className":"blocks-engine-background-image blocks-engine-background-image-cover blocks-engine-synthetic-image-figure","scale":"cover"} --><figure class="wp-block-image blocks-engine-background-image blocks-engine-background-image-cover blocks-engine-synthetic-image-figure blocks-engine-image"><img src="https://example.com/decor.png" alt="" style="object-fit:cover"/></figure><!-- /wp:image --></div><!-- /wp:group -->';
+$expectedEmptyCoverCandidateSerialized = '<!-- wp:group {"className":"be-inline-geometry-218c90ba931caddc be-inline-geometry-5462031491657489","style":{"dimensions":{"minHeight":"400px"}}} --><div class="wp-block-group be-inline-geometry-218c90ba931caddc be-inline-geometry-5462031491657489" style="min-height:400px"><!-- wp:image {"className":"blocks-engine-background-image blocks-engine-background-image-cover be-inline-geometry-ace9edb3a4ef460a blocks-engine-synthetic-image-figure","scale":"cover"} --><figure class="wp-block-image blocks-engine-background-image blocks-engine-background-image-cover be-inline-geometry-ace9edb3a4ef460a blocks-engine-synthetic-image-figure blocks-engine-image"><img src="https://example.com/decor.png" alt="" style="object-fit:cover"/></figure><!-- /wp:image --></div><!-- /wp:group -->';
 $assert($expectedEmptyCoverCandidateSerialized === $emptyCoverCandidateSerialized, 'empty background container preserves exact tagged core/image serialization', $emptyCoverCandidateSerialized);
-$assert('core/image' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['blockName'] ?? null) && 'blocks-engine-background-image blocks-engine-background-image-cover blocks-engine-synthetic-image-figure' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['attrs']['className'] ?? null) && ! str_contains($emptyCoverCandidateSerialized, '<!-- wp:cover'), 'empty background container retains the tagged core/image path without core/cover');
+$assert('core/image' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['blockName'] ?? null) && 'blocks-engine-background-image blocks-engine-background-image-cover be-inline-geometry-ace9edb3a4ef460a blocks-engine-synthetic-image-figure' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['attrs']['className'] ?? null) && ! str_contains($emptyCoverCandidateSerialized, '<!-- wp:cover'), 'empty background container retains the tagged core/image path without core/cover');
 
 // A capture sentinel is not a drawable image. Keep the authored carrier box,
 // but do not turn its unavailable decorative paint into a broken core/image.
@@ -4075,6 +4076,13 @@ $assert('template_requires_runtime' === ($templateRuntimeIslands[0]['preservatio
 $assert('data_template' === ($templateRuntimeIslands[0]['template_role'] ?? ''), 'runtime HTML template island preserves source role metadata');
 $assert(! str_contains((string) ($runtimeTemplate['serialized_blocks'] ?? ''), '<!-- wp:html'), 'runtime HTML template does not emit raw HTML fallback blocks');
 $assert(! str_contains((string) ($runtimeTemplate['serialized_blocks'] ?? ''), '<template'), 'runtime HTML template does not serialize inert template markup into visual output');
+
+// An addressable template needs a page script to clone it; without one it is inert.
+foreach ( array( '' => 'html_template_metadata', '<script src="/search.js"></script>' => 'html_template_runtime_fallback' ) as $script => $expectedCode ) {
+    $addressable = ( new HtmlTransformer() )->transform('<main><template id="searchConfigInputsTemplate"><div class="search-param"><h4>Status</h4><label><input type="radio" name="activeOrSold"> Active</label></div></template>' . $script . '</main>')->toArray();
+    $codes = array_column($addressable['source_reports']['conversion_report']['fallback_diagnostics'] ?? array(), 'diagnostic_code');
+    $assert(in_array($expectedCode, $codes, true) && 1 === count(array_intersect($codes, array( 'html_template_metadata', 'html_template_runtime_fallback' ))), "addressable template with" . ('' === $script ? 'out' : '') . " a page script emits {$expectedCode}");
+}
 
 $controlOnlyDataTemplate = ( new HtmlTransformer() )->transform(
     '<main><form><p>Give today</p><template class="cadence-template" data-monthly-label="Monthly Donation" data-weekly-label="Weekly Donation"><fieldset class="form-item field select"><div class="dropdownWrapper"><select aria-label="Donation Frequency" class="dropdownSelect"><option value="ONE_TIME">One-Time Donation</option></select><span class="form-input-effects" aria-hidden="true"><span class="form-input-effects-border"></span></span><div class="accessoryIcon"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="12"><path d="M0.4 1.5L9 11.1Z"></path></svg></div></div></fieldset></template></form></main>'
@@ -6010,16 +6018,15 @@ $capturedDialog = $compiler->compile(array(
     ),
 ))->toArray();
 $assert(1 === ($capturedDialog['source_reports']['captured_interactions']['projected_dialog_count'] ?? null), 'captured interaction reports project one matched dialog');
-$assert(str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), '<!-- wp:ssi-captured-dialog-site/captured-dialog'), 'captured dialogs serialize as a site companion block', (string) ($capturedDialog['serialized_blocks'] ?? ''));
-$assert(str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), '<dialog') && str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), 'data-blocks-engine-triggers='), 'captured dialog block preserves native dialog and trigger linkage');
+$assert(str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), '"blocksEngineDialog"'), 'captured dialogs serialize as editable core Groups');
+$assert(str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), '"tagName":"dialog"') && str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), '"data-blocks-engine-triggers":'), 'captured dialog block preserves native dialog and trigger linkage');
 $assert(1 === preg_match('/<!-- wp:navigation-link [^>]*"anchor":"blocks-engine-dialog-trigger-[a-f0-9]{16}-1"/', (string) ($capturedDialog['serialized_blocks'] ?? '')), 'captured dialog trigger identity survives navigation-link conversion', (string) ($capturedDialog['serialized_blocks'] ?? ''));
 $assert(! str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), 'provider.example') && ! str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), 'window.provider'), 'captured dialogs remove provider endpoints and executable source code');
 $assert(str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), '<!-- wp:ssi-captured-dialog-site/authored-native-form') && str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), 'action="/directory"'), 'ordinary static GET siblings retain the native form owner');
 $capturedDialogBlocks = $capturedDialog['source_reports']['companion_plugin_payload']['blocks'] ?? array();
 $capturedDialogBlock = current(array_filter($capturedDialogBlocks, static fn(array $block): bool => 'captured-dialog' === ($block['name'] ?? ''))) ?: array();
-$assert('ssi-captured-dialog-site/captured-dialog' === ($capturedDialogBlock['block_json']['name'] ?? null), 'captured dialog companion metadata matches the serialized block namespace');
-$assert(str_contains((string) ($capturedDialogBlock['view_js'] ?? ''), 'showModal'), 'captured dialog companion block carries scoped native dialog behavior');
-$assert(isset($capturedDialogBlock['assets']['index.js']), 'captured dialog companion block carries an editable InnerBlocks editor');
+$assert(array() === $capturedDialogBlock, 'Core dialog Groups require no companion block');
+$assert(str_contains(Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\CapturedDialogRuntime::bootstrap(), 'showModal'), 'Core dialog runtime carries scoped native dialog behavior');
 $capturedDialogForms = array_values(array_filter($capturedDialog['source_reports']['artifact']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'entity_collection' === ($declaration['kind'] ?? '') && 'forms' === ($declaration['type'] ?? '')));
 $assert(1 === count($capturedDialogForms), 'captured dialog forms continue through the generic form materialization declaration');
 

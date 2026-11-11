@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LinkedResponsiveContentBlockGenerator;
@@ -159,10 +160,9 @@ final class AnchorLowering implements ButtonLinkLeftovers
             $this->imageUrls->sourceUrl(...),
             $this->imageUrls->resolvedAssetUrl(...),
             fn (string $url): int => (int) ($this->imageLowering->assetMetadataImageAttributes($url)['id'] ?? 0),
-            $this->runtimeIslands->isRuntimeDomTarget(...),
+            $this->runtimeIslands,
             fn (DOMElement $element): bool => array() !== SourceDom::eventMetadata($element),
             fn (DOMElement $element): bool => array() !== $this->sourceElementDescription->interactiveAttributes($element),
-            SourceDom::hasRouteBearingDataAttributes(...),
         ))->project($anchor);
         if ( null === $attrs ) {
             return null;
@@ -172,13 +172,7 @@ final class AnchorLowering implements ButtonLinkLeftovers
         $this->session->requireGeneratedBlockRegistry()->register(LinkedResponsiveContentBlockGenerator::class, $generator->definition($this->session->requireGeneratedBlockRegistry()->namespace()));
         $markup = $generator->markup($attrs);
 
-        return array(
-            'blockName' => $this->session->requireGeneratedBlockRegistry()->blockName(LinkedResponsiveContentBlockGenerator::LOCAL_NAME),
-            'attrs' => $generator->commentAttributes($attrs),
-            'innerBlocks' => array(),
-            'innerHTML' => $markup,
-            'innerContent' => array( $markup ),
-        );
+        return BlockFactory::leaf($this->session->requireGeneratedBlockRegistry()->blockName(LinkedResponsiveContentBlockGenerator::LOCAL_NAME), $generator->commentAttributes($attrs), $markup);
     }
 
     /**
@@ -255,7 +249,7 @@ final class AnchorLowering implements ButtonLinkLeftovers
     {
         return 'a' === strtolower($anchor->tagName)
             && '-1' === trim(SourceDom::attr($anchor, 'tabindex'))
-            && 'true' !== strtolower(trim(SourceDom::attr($anchor, 'aria-hidden')))
+            && ! SourceDom::isAriaHidden($anchor)
             && 1 === $anchor->getElementsByTagName('img')->length;
     }
 
@@ -272,7 +266,7 @@ final class AnchorLowering implements ButtonLinkLeftovers
         }
         $declarations = $this->styleResolver->presentationDeclarations($box);
         foreach ( array( 'width', 'height', 'max-width', 'max-height', 'min-width', 'min-height', 'aspect-ratio' ) as $property ) {
-            $value = CssValueInspector::comparable((string) ($declarations[$property] ?? ''));
+            $value = CssValueInspector::declared($declarations, $property);
             if ( '' !== $value && ! in_array($value, array( 'auto', 'none', 'initial', 'unset', 'inherit' ), true) ) {
                 return true;
             }

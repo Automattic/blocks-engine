@@ -122,6 +122,9 @@ final class AuthorSelectorProjectionState
     /** @var array<string, string> */
     private array $imageWrapperMarkers = array();
 
+    /** @var array<string, string> Source image path => semantic marker of the ancestor its figure stands in for. */
+    private array $unwrappedImageCarriers = array();
+
     /** @var array<string, string> */
     private array $imageLinkMarkers = array();
 
@@ -535,7 +538,7 @@ final class AuthorSelectorProjectionState
             if ( 1 !== preg_match('/\sclass="([^"]*)"/i', $tag[2], $class) ) {
                 return '<' . $tag[1] . ' class="' . implode(' ', $classes) . '"' . $tag[2] . '>';
             }
-            $tokens = array_filter(preg_split('/\s+/', trim($class[1])) ?: array(), static fn (string $token): bool => '' !== $token);
+            $tokens = array_filter(SourceDom::tokens($class[1]), static fn (string $token): bool => '' !== $token);
             return '<' . $tag[1] . str_replace($class[0], ' class="' . implode(' ', array_unique(array_merge($tokens, $classes))) . '"', $tag[2]) . '>';
         }, $html) ?? $html;
     }
@@ -567,7 +570,7 @@ final class AuthorSelectorProjectionState
             }
             $expected = array( EngineMarker::roleClass($marker), ...EngineMarker::subjectClasses($carrier['tag'], array_map('strval', array_keys($carrier['classes']))) );
             foreach ( $tags[0] as $tag ) {
-                $classes = 1 === preg_match('/\sclass="([^"]*)"/i', $tag, $class) ? preg_split('/\s+/', trim($class[1])) ?: array() : array();
+                $classes = 1 === preg_match('/\sclass="([^"]*)"/i', $tag, $class) ? SourceDom::tokens($class[1]) : array();
                 if ( array() !== array_diff($expected, $classes) ) {
                     continue 2;
                 }
@@ -713,7 +716,7 @@ final class AuthorSelectorProjectionState
             return;
         }
         $this->imageFigures[$path] = array(
-            'classes' => array_values(array_filter(preg_split('/\s+/', trim($className)) ?: array(), static fn (string $class): bool => '' !== $class)),
+            'classes' => array_values(array_filter(SourceDom::tokens($className), static fn (string $class): bool => '' !== $class)),
             'anchor' => $anchor,
             'linked' => $linked,
             'leafMarker' => $leafMarker,
@@ -734,6 +737,23 @@ final class AuthorSelectorProjectionState
     public function imageWrapperMarker(string $path): string
     {
         return $this->imageWrapperMarkers[$path] ?? '';
+    }
+
+    /**
+     * Record that the image at `$path` now renders in the figure an ancestor
+     * (a paragraph or heading holding only that image) was unwrapped into,
+     * so the figure carries the ancestor's semantic marker, not one of its own.
+     */
+    public function recordUnwrappedImageCarrier(string $path, string $marker): void
+    {
+        if ( '' !== $path && '' !== $marker ) {
+            $this->unwrappedImageCarriers[$path] = $marker;
+        }
+    }
+
+    public function unwrappedImageCarrierMarker(string $path): string
+    {
+        return $this->unwrappedImageCarriers[$path] ?? '';
     }
 
     public function ensureSemanticMarker(string $path): string
@@ -1053,6 +1073,11 @@ final class AuthorSelectorProjectionState
         return $this->semanticMarkersForPath($path);
     }
 
+    public function hasSemanticMarker(DOMElement $element): bool
+    {
+        return array() !== $this->semanticMarkersForElement($element);
+    }
+
     /** @return list<string> */
     public function semanticMarkersForPath(string $path): array
     {
@@ -1138,5 +1163,48 @@ final class AuthorSelectorProjectionState
         return ($this->authorStyles
             ?? throw new \LogicException('Author styles have not been installed for selector projection.'))
             ->allocateContextMarker($kind, $path);
+    }
+
+    /**
+     * @param array<mixed> $attrs
+     * @return array<mixed>
+     */
+    public function withRichTextCarrierAttrs(array $attrs): array
+    {
+        foreach ( $attrs as $key => $value ) {
+            if ( is_string($value) ) {
+                $attrs[$key] = $this->withRichTextCarrierClasses($value);
+            } elseif ( is_array($value) ) {
+                $attrs[$key] = $this->withRichTextCarrierAttrs($value);
+            }
+        }
+        return $attrs;
+    }
+
+    /**
+     * Whether a direct child needs a semantic carrier of its own. Attribute
+     * markers are classes an inline element keeps inside RichText, so they
+     * leave the phrasing run one paragraph.
+     */
+    public function hasSemanticCarrierChild(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && '' !== $this->semanticMarker(SourceDom::sourceElementIdentity($child)) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public function hasSemanticMarkedChild(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && $this->hasSemanticMarker($child) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

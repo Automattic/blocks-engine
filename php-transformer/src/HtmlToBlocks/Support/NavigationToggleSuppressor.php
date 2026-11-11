@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
@@ -20,10 +21,9 @@ use SplObjectStorage;
  * Decides which source menu toggles and overlay menus are superseded by the
  * emitted core/navigation, and which source nodes the projection suppresses.
  *
- * Extracted from HtmlTransformer as a collaborator rather than a mixin: every
- * dependency it needs from the transformer is declared on
- * {@see NavigationToggleSuppressionContext}, so this class has no $this access
- * to the transformer and can be exercised without constructing one.
+ * Every dependency it needs from the compilation is declared on
+ * {@see NavigationToggleSuppressionContext}, so it can be exercised without
+ * constructing a transformer.
  *
  * Projection state lives on the per-transform session rather than on this
  * collaborator, so it resets with every transform.
@@ -98,7 +98,7 @@ final class NavigationToggleSuppressor
                 continue;
             }
 
-            foreach ( preg_split('/\s+/', trim(SourceDom::attr($control, 'aria-controls'))) ?: array() as $controlledId ) {
+            foreach ( SourceDom::tokens(SourceDom::attr($control, 'aria-controls')) as $controlledId ) {
                 $target = $elementsById[ltrim($controlledId, '#')] ?? null;
                 if ( ! $target instanceof DOMElement || $this->isInsideOwnDisclosurePanel($control, $target) ) {
                     continue;
@@ -533,7 +533,7 @@ final class NavigationToggleSuppressor
             return false;
         }
         $declarations = $this->styleResolver->referenceViewportAuthorDeclarations($target, array('position'), true);
-        $position = CssValueInspector::comparable((string) ($declarations['position'] ?? ''));
+        $position = CssValueInspector::declared($declarations, 'position');
 
         return ! in_array($position, array('absolute', 'fixed'), true);
     }
@@ -602,7 +602,7 @@ final class NavigationToggleSuppressor
         if ( ! $toggle instanceof DOMElement ) {
             return array();
         }
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($toggle, 'aria-controls'))) ?: array() as $controlledId ) {
+        foreach ( SourceDom::tokens(SourceDom::attr($toggle, 'aria-controls')) as $controlledId ) {
             $panel = '' === trim($controlledId) ? null : $this->elementWithId($toggle, ltrim(trim($controlledId), '#'));
             if ( ! $panel instanceof DOMElement || $panel->isSameNode($navigation) || ! SourceDom::elementContains($panel, $navigation) ) {
                 continue;
@@ -651,7 +651,7 @@ final class NavigationToggleSuppressor
         }
 
         $controlledPanels = array();
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($control, 'aria-controls'))) ?: array() as $controlledId ) {
+        foreach ( SourceDom::tokens(SourceDom::attr($control, 'aria-controls')) as $controlledId ) {
             $target = '' === trim($controlledId) ? null : $this->elementWithId($control, trim($controlledId));
             if ( $target instanceof DOMElement && ! $target->isSameNode($control) ) {
                 $controlledPanels[] = $target;
@@ -930,7 +930,7 @@ final class NavigationToggleSuppressor
     {
         $this->recordSupersededSelectorsForElement($toggle);
 
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($toggle, 'aria-controls'))) ?: array() as $controlledId ) {
+        foreach ( SourceDom::tokens(SourceDom::attr($toggle, 'aria-controls')) as $controlledId ) {
             $controlledId = ltrim(trim($controlledId), '#');
             if ( '' === $controlledId ) {
                 continue;
@@ -1012,7 +1012,7 @@ final class NavigationToggleSuppressor
             $this->session->runtimeSelectorState()->supersede('#' . $id);
         }
 
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $class ) {
+        foreach ( SourceDom::tokens(SourceDom::attr($element, 'class')) as $class ) {
             if ( '' !== $class ) {
                 $this->session->runtimeSelectorState()->supersede('.' . $class);
             }
@@ -1059,14 +1059,14 @@ final class NavigationToggleSuppressor
         // A control inside a form belongs to that form's own fields (a country
         // code picker, a date popup): it opens the field's list, never the
         // site menu, however far up the page a menu dialog sits.
-        if ( $this->hasAncestorTag($element, 'form') ) {
+        if ( null !== SourceDom::ancestorElement($element, 'form') ) {
             return false;
         }
 
         // Explicit ownership outranks icon shape and nearby menus. A search
         // expander (or any other non-navigation disclosure) must not borrow a
         // sibling menu merely because its button has no visible text.
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'aria-controls'))) ?: array() as $controlledId ) {
+        foreach ( SourceDom::tokens(SourceDom::attr($element, 'aria-controls')) as $controlledId ) {
             $panel = '' === $controlledId ? null : $this->elementWithId($element, $controlledId);
             if ( $panel instanceof DOMElement && ! $panel->isSameNode($element) && ! $this->panelHoldsNavigation($panel) ) {
                 return false;
@@ -1146,17 +1146,6 @@ final class NavigationToggleSuppressor
             $found = true;
         }
         return $found;
-    }
-
-    private function hasAncestorTag(DOMElement $element, string $tagName): bool
-    {
-        for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
-            if ( $tagName === strtolower($node->tagName) ) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private function accessibleNameNamesMenu(DOMElement $element): bool
@@ -1515,7 +1504,7 @@ final class NavigationToggleSuppressor
      */
     private function hasAssociatedNavigationMenu(DOMElement $toggle): bool
     {
-        $controlledIds = preg_split('/\s+/', trim(SourceDom::attr($toggle, 'aria-controls'))) ?: array();
+        $controlledIds = SourceDom::tokens(SourceDom::attr($toggle, 'aria-controls'));
         foreach ( $controlledIds as $controlledId ) {
             if ( '' === $controlledId ) {
                 continue;
@@ -1578,7 +1567,7 @@ final class NavigationToggleSuppressor
         }
         $targets = array();
         foreach ( $navigation->getElementsByTagName('a') as $anchor ) {
-            if ( $this->isNavigationDestinationAnchor($anchor) ) {
+            if ( SourceDom::navigatesToDestination($anchor) ) {
                 $targets[] = trim(SourceDom::attr($anchor, 'href'));
             }
         }
@@ -1700,7 +1689,7 @@ final class NavigationToggleSuppressor
                 return $this->concreteToggleControl($toggle);
             }
 
-            foreach ( preg_split('/\s+/', trim(SourceDom::attr($toggle, 'aria-controls'))) ?: array() as $controlledId ) {
+            foreach ( SourceDom::tokens(SourceDom::attr($toggle, 'aria-controls')) as $controlledId ) {
                 $target = '' === $controlledId ? null : $this->elementWithId($toggle, $controlledId);
                 if ( $target instanceof DOMElement
                     && (SourceDom::elementContains($target, $navigation) || SourceDom::elementContains($navigation, $target))
@@ -1985,7 +1974,7 @@ final class NavigationToggleSuppressor
         foreach ( $navigation->getElementsByTagName('a') as $anchor ) {
             if ( $anchor instanceof DOMElement
                 && '' !== trim($anchor->textContent ?? '')
-                && $this->isNavigationDestinationAnchor($anchor)
+                && SourceDom::navigatesToDestination($anchor)
             ) {
                 $links[] = strtolower(trim($anchor->textContent ?? '')) . '|' . trim(SourceDom::attr($anchor, 'href'));
             }
@@ -1994,18 +1983,6 @@ final class NavigationToggleSuppressor
         return 2 > count($links) ? '' : implode("\n", $links);
     }
 
-    /**
-     * Whether an anchor is a real navigation destination rather than a
-     * disclosure/overflow toggle (e.g. a "More" menu trigger that duplicates
-     * the surrounding items in a nested submenu). Toggle anchors carry
-     * aria-expanded/aria-controls or a non-navigating href (empty, "#", or
-     * javascript:) and must not count toward a nav's link signature: a source
-     * that expresses the same toggle as a labelled anchor in one header
-     * instance and as a <details>/<summary> disclosure in a duplicate instance
-     * (or omits its visible label under a narrower layout) must still compare
-     * as the equivalent navigation, so its responsive overlay is preserved
-     * instead of silently downgrading the menu to overlayMenu "never".
-     */
     /**
      * A hash (or empty) anchor whose accessible name is a menu control, not a
      * destination. Builders emit this instead of <button> / <a role="button">.
@@ -2278,8 +2255,8 @@ final class NavigationToggleSuppressor
             }
             $declarations = $this->styleResolver->referenceViewportAuthorDeclarations($node, array('display', 'visibility', 'opacity'), true);
             $display = CssValueInspector::comparable($this->styleResolver->resolveCssVariablesAtViewport((string) ($declarations['display'] ?? ''), $node, StyleResolver::DESKTOP_REFERENCE_WIDTH));
-            $visibility = CssValueInspector::comparable((string) ($declarations['visibility'] ?? ''));
-            $opacity = CssValueInspector::comparable((string) ($declarations['opacity'] ?? ''));
+            $visibility = CssValueInspector::declared($declarations, 'visibility');
+            $opacity = CssValueInspector::declared($declarations, 'opacity');
             if ( $this->sourceElementIsHiddenByMarkup($node, $display, true)
                 || 'none' === $display
                 || in_array($visibility, array('hidden', 'collapse'), true)
@@ -2308,20 +2285,6 @@ final class NavigationToggleSuppressor
         ))));
 
         return $this->namesMenu($accessibleName);
-    }
-
-    private function isNavigationDestinationAnchor(DOMElement $anchor): bool
-    {
-        if ( $anchor->hasAttribute('aria-controls') || $anchor->hasAttribute('aria-expanded') ) {
-            return false;
-        }
-
-        $href = trim(SourceDom::attr($anchor, 'href'));
-        if ( '' === $href || str_starts_with($href, '#') ) {
-            return false;
-        }
-
-        return ! str_starts_with(strtolower($href), 'javascript:');
     }
 
 
@@ -2419,7 +2382,7 @@ final class NavigationToggleSuppressor
     /** @param array<string, mixed> $block */
     private function isLandmarkNavigationCarrier(DOMElement $element, array $block): bool
     {
-        $innerBlocks = is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array();
+        $innerBlocks = ArrayField::array($block, 'innerBlocks');
 
         return $this->isNavigationLandmark($element)
             && 'core/group' === ($block['blockName'] ?? '')

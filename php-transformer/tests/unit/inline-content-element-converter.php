@@ -3,14 +3,17 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\RuntimeDomTargetsFixture;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentElementContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListStructure;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\RichTextMaterializationFixture;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\PatternTreeFixture;
 
 $assertions = 0;
 $failures = array();
@@ -33,17 +36,14 @@ $elementFrom = static function (string $html): DOMElement {
 
 $state = (object) array( 'mode' => 'plain' );
 $context = new InlineContentElementContext(
-    static fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => 'social' === $state->mode ? array( 'blockName' => 'core/social-links' ) : null,
-    static fn (DOMElement $element): bool => 'runtime' === $state->mode,
+    new PatternTreeFixture(static fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => 'social' === $state->mode ? array( 'blockName' => 'core/social-links' ) : null),
+    new RuntimeDomTargetsFixture(static fn (DOMElement $element): bool => 'runtime' === $state->mode),
     static fn (DOMElement $element): ?array => 'svg-text' === $state->mode ? array( 'blockName' => 'core/image' ) : null,
     static fn (DOMElement $element): bool => 'positioned' === $state->mode,
     static fn (DOMElement $element, array &$fallbacks): ?array => array( 'blockName' => 'core/group', 'attrs' => array( 'positioned' => true ) ),
     static fn (DOMElement $element): bool => false,
-    static fn (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array => array(),
     static fn (DOMElement $element): string => '',
-    static fn (DOMElement $element): ?string => null,
-    static fn (DOMElement $element, string $tagName): ?DOMElement => null,
-    static fn (DOMElement $element): bool => false,
+    new ListStructure(new SourceElementClassifier()),
     static fn (DOMElement $element): bool => false,
     static fn (DOMElement $element): array => array( 'blockName' => 'core/spacer' )
 );

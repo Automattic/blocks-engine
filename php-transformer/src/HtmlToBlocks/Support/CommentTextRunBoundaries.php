@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use DOMComment;
 use DOMDocument;
 use DOMElement;
@@ -48,10 +49,7 @@ final class CommentTextRunBoundaries
         }
 
         $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $loaded   = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $content . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
+        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . $content . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
 
         $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
         if ( ! $body instanceof DOMElement ) {

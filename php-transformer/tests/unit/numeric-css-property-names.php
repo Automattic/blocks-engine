@@ -71,7 +71,6 @@ $run('name rule', static function () use ($assert): void {
 // Style resolver declaration maps (inline styles and every stylesheet rule).
 $session = new HtmlTransformerSession(new Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()));
 $context = new StyleResolutionContext(
-    static fn (string $value): string => $value,
     static function (string $selector) use ($session): array {
         return $session->sourceStyleResolutionState()->parsedSelector($selector);
     },

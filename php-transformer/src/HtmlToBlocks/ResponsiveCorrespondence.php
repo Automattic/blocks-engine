@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
@@ -155,8 +157,8 @@ final class ResponsiveCorrespondence
             if (!is_array($block)) {
                 continue;
             }
-            $name = is_string($block['blockName'] ?? null) ? $block['blockName'] : '';
-            $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
+            $name = ArrayField::string($block, 'blockName');
+            $attrs = ArrayField::array($block, 'attrs');
             $blockPath = $path . '.' . $index;
             $blockVariant = $this->variantContext($attrs) ?? $variant;
             foreach ($this->tokenClasses((string) ($attrs['className'] ?? '')) as $token) {
@@ -164,7 +166,7 @@ final class ResponsiveCorrespondence
                     'path' => $blockPath,
                     'name' => $name,
                     'variant' => $blockVariant ?? 'unresolved',
-                    'anchor' => is_string($attrs['anchor'] ?? null) ? $attrs['anchor'] : '',
+                    'anchor' => ArrayField::string($attrs, 'anchor'),
                     'provenance' => $provenanceByPath[$blockPath] ?? array(),
                 );
             }
@@ -178,7 +180,7 @@ final class ResponsiveCorrespondence
     private function tokenClasses(string $className): array
     {
         $tokens = array();
-        foreach (preg_split('/\s+/', trim($className)) ?: array() as $class) {
+        foreach (SourceDom::tokens($className) as $class) {
             if (preg_match('/^(?:' . preg_quote(self::TOKEN_CLASS_PREFIX, '/') . '|' . preg_quote(CaptureEvidence::RESPONSIVE_COUNTERPART_CLASS_PREFIX, '/') . ')[a-f0-9]{12}$/', (string) $class)) {
                 $tokens[] = (string) $class;
             }
@@ -188,7 +190,7 @@ final class ResponsiveCorrespondence
 
     private function variantClassContext(string $className): ?string
     {
-        foreach (preg_split('/\s+/', trim($className)) ?: array() as $class) {
+        foreach (SourceDom::tokens($className) as $class) {
             if (CaptureEvidence::DESKTOP_DOCUMENT_CLASS === $class) {
                 return 'default';
             }
@@ -209,11 +211,11 @@ final class ResponsiveCorrespondence
         if (null !== $variant) {
             return $variant;
         }
-        foreach (is_array($attrs['wrappers'] ?? null) ? $attrs['wrappers'] : array() as $wrapper) {
+        foreach (ArrayField::array($attrs, 'wrappers') as $wrapper) {
             if (!is_array($wrapper)) {
                 continue;
             }
-            $attributes = is_array($wrapper['attributes'] ?? null) ? $wrapper['attributes'] : array();
+            $attributes = ArrayField::array($wrapper, 'attributes');
             $variant = $this->variantClassContext((string) ($attributes['class'] ?? ''));
             if (null !== $variant) {
                 return $variant;

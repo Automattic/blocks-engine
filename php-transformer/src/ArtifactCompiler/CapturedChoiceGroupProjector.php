@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -63,7 +64,7 @@ final class CapturedChoiceGroupProjector
         $diagnostics = array();
         $projected = 0;
         foreach ($files as $index => $file) {
-            $path = is_string($file['path'] ?? null) ? $file['path'] : '';
+            $path = ArrayField::string($file, 'path');
             $content = $file['content'] ?? null;
             if (! preg_match('/\.html?$/i', $path) || ! is_string($content) || ! str_contains($content, CaptureEvidence::CHOICE_RUNTIME)) {
                 continue;
@@ -226,7 +227,7 @@ final class CapturedChoiceGroupProjector
         $diagnostics = array();
 
         $receipt = CaptureReceiptReport::read($files);
-        if (null === $receipt || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null) || ! is_array($receipt['routes'] ?? null)) {
+        if (null === $receipt || ! is_array($receipt['routes'] ?? null)) {
             return array('files' => $files, 'diagnostics' => $diagnostics, 'projected_count' => 0);
         }
         $routes = CaptureReceiptRoutes::resolve($files, $receipt);
@@ -432,13 +433,7 @@ final class CapturedChoiceGroupProjector
 
     private function loadDocument(string $html): ?DOMDocument
     {
-        $previous = libxml_use_internal_errors(true);
-        $document = new DOMDocument('1.0', 'UTF-8');
-        $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
-
-        return $loaded ? $document : null;
+        return HtmlSerialization::utf8Document($html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
     }
 
     /**
@@ -584,12 +579,8 @@ final class CapturedChoiceGroupProjector
 
     private function fragmentRoot(string $html): ?DOMElement
     {
-        $previous = libxml_use_internal_errors(true);
-        $document = new DOMDocument('1.0', 'UTF-8');
-        $loaded = $document->loadHTML('<?xml encoding="UTF-8"><div data-choice-fragment="true">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
-        if (! $loaded) {
+        $document = HtmlSerialization::utf8Document('<div data-choice-fragment="true">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+        if (null === $document) {
             return null;
         }
         $wrapper = $document->getElementsByTagName('div')->item(0);
@@ -620,7 +611,7 @@ final class CapturedChoiceGroupProjector
         }
         $elements = array();
         foreach ($this->documentScopes($document) as $scope) {
-            $matched = $this->selectorMatches($scope, $selector);
+            $matched = CapturedSelectorPath::matches($scope, $selector, skipsScopeTag: true);
             if (count($matched) > 1) {
                 return array('status' => 'ambiguous', 'elements' => array());
             }
@@ -633,7 +624,7 @@ final class CapturedChoiceGroupProjector
 
     private function isResponsiveDocumentWrapper(DOMElement $element): bool
     {
-        foreach (preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $class) {
+        foreach (SourceDom::tokens($element->getAttribute('class')) as $class) {
             if (str_starts_with($class, 'site-document-variant-') || in_array($class, array(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, CaptureEvidence::MOBILE_DOCUMENT_CLASS), true)) {
                 return true;
             }
@@ -641,63 +632,10 @@ final class CapturedChoiceGroupProjector
         return false;
     }
 
-    /** @return array<int, DOMElement> */
-    private function selectorMatches(DOMElement $scope, string $selector): array
-    {
-        if (str_contains($selector, ',') || ! str_contains($selector, '>')) {
-            return array();
-        }
-        $parts = preg_split('/\s*>\s*/', $selector);
-        if (! is_array($parts) || array() === $parts) {
-            return array();
-        }
-        if ('body' === strtolower($parts[0])) {
-            array_shift($parts);
-        }
-        if (array() === $parts) {
-            return array();
-        }
-        if (1 === preg_match('/^([a-z][a-z0-9]*)/i', $parts[0], $token) && strtolower($scope->tagName) === strtolower($token[1])) {
-            array_shift($parts);
-        }
-        $current = array($scope);
-        foreach ($parts as $part) {
-            if (1 !== preg_match('/^([a-z][a-z0-9]*)(#([A-Za-z][A-Za-z0-9_.:-]*))?(:nth-of-type\((\d+)\))?$/i', $part, $tokens)) {
-                return array();
-            }
-            $tag = strtolower($tokens[1]);
-            $id = $tokens[3] ?? '';
-            $nth = isset($tokens[5]) ? (int) $tokens[5] : 0;
-            $next = array();
-            foreach ($current as $node) {
-                $seen = 0;
-                foreach ($node->childNodes as $child) {
-                    if (! $child instanceof DOMElement || strtolower($child->tagName) !== $tag) {
-                        continue;
-                    }
-                    ++$seen;
-                    if ('' !== $id && $child->getAttribute('id') !== $id || 0 < $nth && $seen !== $nth) {
-                        continue;
-                    }
-                    $next[] = $child;
-                }
-            }
-            if (array() === $next) {
-                return array();
-            }
-            $current = $next;
-        }
-        return $current;
-    }
-
     private function safeHtml(string $html): ?string
     {
-        $previous = libxml_use_internal_errors(true);
-        $document = new DOMDocument('1.0', 'UTF-8');
-        $loaded = $document->loadHTML('<?xml encoding="UTF-8"><div data-choice-root="true">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
-        if (! $loaded) {
+        $document = HtmlSerialization::utf8Document('<div data-choice-root="true">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+        if (null === $document) {
             return null;
         }
         $xpath = new \DOMXPath($document);

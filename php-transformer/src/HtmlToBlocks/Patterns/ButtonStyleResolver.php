@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
@@ -96,7 +97,7 @@ final class ButtonStyleResolver
         $style  = array();
 
         // Emit canonical button paint so theme defaults cannot replace authored chrome.
-        $color      = is_array($mapped['color'] ?? null) ? $mapped['color'] : array();
+        $color      = ArrayField::array($mapped, 'color');
         $background = (string) ($color['background'] ?? '');
         $gradient   = (string) ($color['gradient'] ?? '');
         $text       = (string) ($color['text'] ?? '');
@@ -110,7 +111,7 @@ final class ButtonStyleResolver
             $style['color']['text'] = $text;
         }
 
-        $border = is_array($mapped['border'] ?? null) ? $mapped['border'] : array();
+        $border = ArrayField::array($mapped, 'border');
         if ( array() !== $border ) {
             $style['border'] = $border;
         }
@@ -133,7 +134,7 @@ final class ButtonStyleResolver
             $style['shadow'] = $shadow;
         }
 
-        $typography = $this->buttonTypography(is_array($mapped['typography'] ?? null) ? $mapped['typography'] : array());
+        $typography = $this->buttonTypography(ArrayField::array($mapped, 'typography'));
         if ( array() !== $typography ) {
             $style['typography'] = $typography;
         }
@@ -143,6 +144,35 @@ final class ButtonStyleResolver
         }
 
         return array( 'style' => $style );
+    }
+
+    /**
+     * A non-flex container whose only children are two or more `display:block`
+     * anchors stacks them in normal flow, and has no per-anchor outer wrapper
+     * to carry their size.
+     *
+     * @param callable(\DOMElement): array<string, string> $declarations
+     */
+    public static function stacksBlockAnchors(\DOMElement $container, callable $declarations): bool
+    {
+        if (in_array(CssValueInspector::declared($declarations($container), 'display'), array('flex', 'inline-flex', 'grid', 'inline-grid'), true)) return false;
+        $count = 0;
+        foreach ($container->childNodes as $child) {
+            if ($child instanceof \DOMElement) {
+                if ('a' !== strtolower($child->tagName) || 'block' !== CssValueInspector::declared($declarations($child), 'display')) return false;
+                ++$count;
+            } elseif ('' !== trim($child->textContent ?? '')) {
+                return false;
+            }
+        }
+        return $count > 1;
+    }
+
+    /** Whether a control is one of the anchors a container stacks in normal flow. */
+    public static function sharesAnchorContainer(\DOMElement $element, \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver $resolver): bool
+    {
+        return $element->parentNode instanceof \DOMElement
+            && self::stacksBlockAnchors($element->parentNode, static fn (\DOMElement $node): array => $resolver->cssDeclarations($resolver->controlSurfaceResolvedStyle($node)));
     }
 
     /**
@@ -162,7 +192,7 @@ final class ButtonStyleResolver
         }
         // A collapsed wrapper is still placement geometry (for example a
         // zero-sized skip-link carrier), not a positive link height to preserve.
-        if ( $height > 0 && in_array(CssValueInspector::comparable((string) ($declarations['position'] ?? '')), array( 'fixed', 'absolute' ), true) ) {
+        if ( $height > 0 && in_array(CssValueInspector::declared($declarations, 'position'), array( 'fixed', 'absolute' ), true) ) {
             return true;
         }
         $css = '';

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMaterializer;
@@ -14,7 +15,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttribu
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
-use Closure;
 use DOMElement;
 
 /**
@@ -23,11 +23,6 @@ use DOMElement;
  */
 final class StructuredCardListLowering
 {
-    private const CSS_OWNED_GRID_CLASS = 'blocks-engine-css-owned-grid';
-
-    /**
-     * @param Closure(): RichTextStylingHookNormalizer $richTextStylingHooks
-     */
     public function __construct(
         private readonly SourceBlockCreator $blocks,
         private readonly StyleResolver $styleResolver,
@@ -36,7 +31,7 @@ final class StructuredCardListLowering
         private readonly SourceElementClassifier $sourceElementClassifier,
         private readonly Runtime $runtime,
         private readonly PatternTreeConverter $tree,
-        private readonly Closure $richTextStylingHooks
+        private readonly RichTextStylingHookNormalizer $richTextStylingHooks
     ) {
     }
 
@@ -67,7 +62,7 @@ final class StructuredCardListLowering
             if ( ! $child instanceof DOMElement || 'li' !== strtolower($child->tagName) ) {
                 continue;
             }
-            if ( '' === trim($this->runtime->stripAllTags(SourceDom::innerHtmlWithoutTags($child, array( 'ul', 'ol' )))) ) {
+            if ( ! $this->runtime->hasVisibleText(SourceDom::innerHtmlWithoutTags($child, array( 'ul', 'ol' ))) ) {
                 continue;
             }
             if ( ! $this->isStructuredCardItem($child) ) {
@@ -129,7 +124,7 @@ final class StructuredCardListLowering
     {
         $tag = strtolower($element->tagName);
         if ( 'span' === $tag ) {
-            return ($this->richTextStylingHooks)()->isStylingHookSpan($element);
+            return $this->richTextStylingHooks->isStylingHookSpan($element);
         }
         if ( 'a' !== $tag && ! $this->sourceElementClassifier->isInlineContentElement($tag) ) {
             return false;
@@ -192,20 +187,11 @@ final class StructuredCardListLowering
     private function withStructuredCardFlowNeutralization(array $attrs): array
     {
         $className = (string) ($attrs['className'] ?? '');
-        if ( str_contains($className, self::CSS_OWNED_GRID_CLASS) || str_contains($className, AuthorLayoutOwnership::CSS_OWNED_FLOW_CLASS) ) {
+        if ( str_contains($className, AuthorLayoutOwnership::CSS_OWNED_GRID_CLASS) || str_contains($className, AuthorLayoutOwnership::CSS_OWNED_FLOW_CLASS) ) {
             return $attrs;
         }
 
-        $attrs['className'] = SourceDom::mergeClassNames($className, AuthorLayoutOwnership::CSS_OWNED_FLOW_CLASS);
-        $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
-        $spacing = is_array($style['spacing'] ?? null) ? $style['spacing'] : array();
-        if ( ! isset($spacing['blockGap']) ) {
-            $spacing['blockGap'] = '0';
-            $style['spacing'] = $spacing;
-            $attrs['style'] = $style;
-        }
-
-        return $attrs;
+        return AuthorLayoutOwnership::withCssOwnedFlow($attrs);
     }
 
     /**
@@ -284,7 +270,7 @@ final class StructuredCardListLowering
 
         if ( 'a' === $tag ) {
             $content = $this->anchorWithoutStylingAttributes($element);
-            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+            if ( ! $this->runtime->hasVisibleText($content) ) {
                 return null;
             }
 
@@ -294,9 +280,9 @@ final class StructuredCardListLowering
             ), array(), $element);
         }
 
-        if ( 'span' === $tag && ($this->richTextStylingHooks)()->isStylingHookSpan($element) ) {
+        if ( 'span' === $tag && $this->richTextStylingHooks->isStylingHookSpan($element) ) {
             $content = $this->styleResolver->innerHtml($element);
-            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+            if ( ! $this->runtime->hasVisibleText($content) ) {
                 return null;
             }
 
@@ -307,7 +293,7 @@ final class StructuredCardListLowering
         }
 
         $content = SourceDom::outerHtml($element);
-        if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+        if ( ! $this->runtime->hasVisibleText($content) ) {
             return null;
         }
 

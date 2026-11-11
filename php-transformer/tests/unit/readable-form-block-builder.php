@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\RuntimeDomTargetsFixture;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\AuthoredFormControlBlockConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeIslandRecorder;
@@ -13,6 +15,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButto
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredInputBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredTextareaBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\PatternTreeFixture;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 
 $session = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession(new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()));
@@ -43,28 +46,26 @@ $createBlock = new SourceBlockCreatorFixture(static fn (string $name, array $att
     'innerBlocks' => $innerBlocks,
 ));
 $presentationAttributes = static fn (DOMElement $element): array => array( 'className' => 'presented-' . strtolower($element->tagName) );
-$eventMetadata = static fn (DOMElement $element): array => $element->hasAttribute('data-event') ? array( 'submit' => true ) : array();
-$isRuntimeDomTarget = static fn (DOMElement $element): bool => $element->hasAttribute('data-runtime');
+$presentation = new ElementPresentationResolverFixture($presentationAttributes);
+$runtimeDomTargets = new RuntimeDomTargetsFixture(static fn (DOMElement $element): bool => $element->hasAttribute('data-runtime'));
 $recorded = array();
 $echoStart = count($session->transformationEvidenceState()->formControlEchoTexts());
-$metadataBuilder = new FormControlMetadataBuilder(static fn (DOMElement $element): string => strtolower($element->tagName));
+$metadataBuilder = new FormControlMetadataBuilder();
 $runtimeRecorder = new FormRuntimeIslandRecorder(
     $metadataBuilder,
     static function (DOMElement $element, string $kind, string $reason, string $capability, array $metadata) use (&$recorded): void {
         $recorded[] = compact('kind', 'reason', 'capability', 'metadata');
     },
-    $eventMetadata,
     $session
 );
 $authoredRegistry = $session->requireGeneratedBlockRegistry();
 $authoredConverter = new AuthoredFormControlBlockConverter(
     $metadataBuilder,
     static fn (DOMElement $element): array => $element->hasAttribute('data-styled') ? array( 'display' => 'block' ) : array(),
-    $presentationAttributes,
+    $presentation,
     $createBlock,
     $session,
     new Runtime(),
-    static fn (string $id): string => $id,
     static fn (DOMElement $element): DOMElement => $element
 );
 $controlConverter = new ReadableFormControlBlockConverter(
@@ -72,9 +73,8 @@ $controlConverter = new ReadableFormControlBlockConverter(
     $authoredConverter,
     $runtimeRecorder,
     new Runtime(),
-    $eventMetadata,
-    $isRuntimeDomTarget,
-    $presentationAttributes,
+    $runtimeDomTargets,
+    $presentation,
     $createBlock,
     $session
 );
@@ -105,11 +105,10 @@ $builder = new ReadableFormBlockBuilder(
     $metadataBuilder,
     $controlConverter,
     $runtimeRecorder,
-    $eventMetadata,
-    $isRuntimeDomTarget,
+    $runtimeDomTargets,
     $presentationAttributes,
     $ownership,
-    new \Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture($presentationAttributes),
+    $presentation,
     $createBlock,
     $layoutShellBlockForElements,
     static fn (array $elements): array => array(
@@ -129,26 +128,26 @@ $builder = new ReadableFormBlockBuilder(
     $session,
     // The production flow converter declines standalone controls; stray copy
     // converts as ordinary flow content.
-    static function (DOMElement $element, array &$fallbacks): array {
+    new PatternTreeFixture(element: static function (DOMElement $element, array &$fallbacks): ?array {
         if ( in_array(strtolower($element->tagName), array( 'input', 'select', 'textarea', 'button' ), true) ) {
-            return array();
+            return null;
         }
-        return array( array(
+        return array(
             'blockName' => 'core/paragraph',
             'attrs' => array( 'content' => trim($element->textContent) ),
             'innerBlocks' => array(),
-        ) );
-    }
+        );
+    })
 );
 
 $assert(null === $builder->build($formFrom('<form></form>')), 'empty-form-declines-block');
 $assert(null === $builder->build($formFrom('<form><script>submit()</script><input></form>')), 'scripted-form-declines-block');
 
-$eventForm = $formFrom('<form data-event><input aria-label="Email"></form>');
+$eventForm = $formFrom('<form onsubmit="handle()"><input aria-label="Email"></form>');
 $assert(null === $builder->build($eventForm), 'eventful-form-declines-by-default');
 $assert('core/group' === ($builder->build($eventForm, true)['blockName'] ?? ''), 'eventful-form-builds-when-allowed');
 
-$assert(null === $builder->build($formFrom('<form><input data-event></form>')), 'eventful-control-declines-form');
+$assert(null === $builder->build($formFrom('<form><input onchange="handle()"></form>')), 'eventful-control-declines-form');
 $assert(null === $builder->build($formFrom('<form><input type="hidden" value="secret"></form>')), 'unreadable-control-declines-form');
 
 $echoStart = count($session->transformationEvidenceState()->formControlEchoTexts());

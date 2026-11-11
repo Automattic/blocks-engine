@@ -34,7 +34,7 @@ function productGridCollectionAnchorsPlan(string $html): array
 {
     $result = (new ArtifactCompiler())->compile(array(
         'entrypoint' => 'index.html',
-        'files' => array('index.html' => $html),
+        'files' => array('index.html' => '<a href="/cart/">Cart</a>' . $html),
     ))->toArray();
     return $result;
 }
@@ -159,7 +159,7 @@ $assert(1 === ($catalogBinding['occurrence'] ?? null), 'The unrelated third grid
 $multiPageResult = (new ArtifactCompiler())->compile(array(
     'entrypoint' => 'index.html',
     'files' => array(
-        'index.html' => '<main><h1>Featured</h1>' . $gridA . '</main>',
+        'index.html' => '<a href="/cart/">Cart</a><main><h1>Featured</h1>' . $gridA . '</main>',
         'catalog.html' => '<main><h1>Catalog</h1>' . $gridB . '</main>',
     ),
 ))->toArray();

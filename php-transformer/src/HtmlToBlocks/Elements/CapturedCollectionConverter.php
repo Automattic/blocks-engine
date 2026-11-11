@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CollectionFilterBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
@@ -14,7 +16,7 @@ final class CapturedCollectionConverter implements ElementConverter
 {
     public function __construct(private readonly HtmlTransformerSession $session, private readonly PatternTreeConverter $tree) {}
 
-    public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
+    public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
         if ($element->hasAttribute('data-blocks-engine-collection-target')) {
             // A hidden empty-state sibling must not prevent recognition of the
@@ -85,7 +87,7 @@ final class CapturedCollectionConverter implements ElementConverter
             $attrs += array('tagName' => $tagName, 'label' => htmlspecialchars(trim($element->textContent ?? ''), ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8'), 'ariaLabel' => $element->getAttribute('aria-label')) + $config;
             $activeRole = is_string($config['active']['role'] ?? null) ? $config['active']['role'] : '';
             $inactiveRole = is_string($config['inactive']['role'] ?? null) ? $config['inactive']['role'] : '';
-            $role = $activeRole === $inactiveRole && in_array($activeRole, array('tab', 'button'), true) ? $activeRole : strtolower(trim($element->getAttribute('role')));
+            $role = $activeRole === $inactiveRole && in_array($activeRole, array('tab', 'button'), true) ? $activeRole : SourceDom::role($element);
             if (in_array($role, array('tab', 'button'), true)) $attrs['role'] = $role;
             if (preg_match('/^-?[0-9]{1,4}$/', trim($element->getAttribute('tabindex')))) $attrs['tabIndex'] = (int) $element->getAttribute('tabindex');
         } elseif (CollectionFilterBlockGenerator::STATUS === $local) {
@@ -94,7 +96,7 @@ final class CapturedCollectionConverter implements ElementConverter
             $attrs = array_merge($attrs, $status);
             $html = $generator->statusMarkup($attrs, $registry->namespace());
             if ('' === $html) return ConversionOutcome::unhandled();
-            return ConversionOutcome::handled(array('blockName' => $registry->blockName($local), 'attrs' => $attrs, 'innerBlocks' => array(), 'innerHTML' => $html, 'innerContent' => array($html)));
+            return ConversionOutcome::handled(BlockFactory::leaf($registry->blockName($local), $attrs, $html));
         } else {
             $children = $this->tree->children($element, $fallbacks, true);
         }

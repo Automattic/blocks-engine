@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\SourceAttribute;
 
@@ -100,7 +101,7 @@ JS;
                 $html .= ' ' . $name . '="' . htmlspecialchars((string) $attrs[$key], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
             }
         }
-        $source = SourceAttribute::staticAttributes(is_array($attrs['sourceAttributes'] ?? null) ? $attrs['sourceAttributes'] : array(), array_values(self::HOST_ATTRIBUTES));
+        $source = SourceAttribute::staticAttributes(ArrayField::array($attrs, 'sourceAttributes'), array_values(self::HOST_ATTRIBUTES));
         return $html . SourceDom::htmlAttributeString($source) . '>' . ($attrs['content'] ?? '') . '</label>';
     }
 }
