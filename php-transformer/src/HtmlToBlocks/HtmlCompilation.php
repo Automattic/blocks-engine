@@ -452,7 +452,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 $classes = $this->session->authorSelectorProjectionState()->controlCarrierClasses($path);
                 $marker = $this->session->authorSelectorProjectionState()->controlMarker($path);
                 if ( '' !== $marker ) {
-                    $rule = $this->authorStylesheetProjector->controlCarrierLayerRevertRule($element, $marker);
+                    $rule = $this->controlCarrierLayerRevertRule($element, $marker);
                     if ( '' !== $rule ) {
                         $this->session->generatedSupportStylesheetState()->registerNativeButton($marker, $rule);
                     }
@@ -2083,6 +2083,12 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         return $innerBlocks;
+    }
+
+    /** Read lazily: the projector is built after the closure that needs it. */
+    private function controlCarrierLayerRevertRule(DOMElement $element, string $marker): string
+    {
+        return $this->authorStylesheetProjector->controlCarrierLayerRevertRule($element, $marker);
     }
 
     /**
