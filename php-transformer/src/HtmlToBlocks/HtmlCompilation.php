@@ -466,6 +466,20 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $pseudoFormAnalyzer = new PseudoFormAnalyzer($formControlMetadataBuilder);
         $this->runtimeIslands = new RuntimeIslandAnalyzer($this->session, $this->sourceElementClassifier, $pseudoFormAnalyzer);
         $this->generatedComponents = new Elements\GeneratedComponentLowering($this->session, $this->runtimeIslands, $this, $this);
+        $this->renderNeutral = new Elements\RenderNeutralElements($this->session, $this->styleResolver, $this->sourceElementClassifier, $this->sourceElementDescription, $this->runtimeIslands, $this->emptyElementFootprint);
+        $this->styledClassBoundaries = new Support\StyledSourceClassBoundary($this->session);
+        $this->emptyVisualRetention = new Elements\EmptyVisualRetentionPolicy(
+            $this->styleResolver,
+            $this->session,
+            $this->sourceElementClassifier,
+            $this->sourceElementDescription,
+            $this->runtimeIslands,
+            $this->emptyElementFootprint,
+            $this->sourceVisibility,
+            $this->renderNeutral,
+            $this->styledClassBoundaries,
+            $this->generatedComponents
+        );
         $this->layoutShells = new Elements\LayoutShellLowering($this, $this->session, $this->styleResolver, $this->runtimeIslands);
         $this->sourceProvenance = new SourceProvenance(
             $this->session,
@@ -479,7 +493,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this,
             $this->session,
             $this->sourceElementDescription,
-            fn (DOMElement $element): ?DOMElement => $this->soleElementChild($element),
+            $this->emptyVisualRetention->soleElementChild(...),
             fn (DOMElement $element): bool => $this->imageLowering->isImageOnlyAnchor($element)
         );
         $this->authorLayoutOwnership = new AuthorLayoutOwnership(
@@ -497,7 +511,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $customVideoHosts = new Elements\CustomVideoHostLowering($this->session, $this->styleResolver, $this->imageUrls, $this->runtimeIslands, $this->mediaLowering, $this->imageLowering, $this->layoutShells, $this);
         $listItemLowering = new Elements\ListItemLowering($this, $this, $this->runtime, $this->session, $this->styleResolver, $this->listStructure, $this->richTextMaterializer);
         $this->structuredInlineItemLowering = new Elements\StructuredInlineItemLowering($this, $this->runtime, $this->sourceElementClassifier, $this->styleResolver, $inlineSvgTextGroups);
-        $this->renderNeutral = new Elements\RenderNeutralElements($this->session, $this->styleResolver, $this->sourceElementClassifier, $this->sourceElementDescription, $this->runtimeIslands, $this->emptyElementFootprint);
         $this->inertElements = new Elements\InertElements($this->styleResolver, $this->sourceElementClassifier, $this->sourceVisibility, $this->runtimeIslands);
         $this->emptyInlineGeometry = new Elements\EmptyInlineGeometryLowering($this, $this->session, $this->sourceElementClassifier, $this->emptyElementFootprint, $authoredStateButtons, $this->layoutShells, $this->runtimeIslands);
         $this->wrapperConventions = new Elements\CustomWrapperConventions($this->styleResolver, $this->renderNeutral);
@@ -536,7 +549,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 $this->listStructure,
                 $this->styleResolver,
                 $this->wrapperCoalescer,
-                fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element),
+                $this->emptyVisualRetention->shouldPreserveEmptyVisualElement(...),
                 $this->session,
                 $this->tableClassificationPolicy,
                 $this->paragraphImages
@@ -589,7 +602,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             fn (DOMElement $element): bool => $this->session->authorSelectorProjectionState()->hasSemanticMarker($element),
             $this->authorLayoutOwnership->richTextMarker(...),
             $this->listStructure,
-            fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element),
+            $this->emptyVisualRetention->shouldPreserveEmptyVisualElement(...),
             fn (DOMElement $element): array => $this->emptyVisualSpacers->emptyVisualSpacerBlock($element),
             $this->session->rememberNativeDisclosure(...),
             fn (DOMElement $element): bool => $this->runtimeIslands->retainsRuntimeTextLeafInRichText($element)
@@ -834,19 +847,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->sourceElementDescription
         );
         $this->textlessMedia = new Elements\TextlessMediaLowering($visualIframeGenerator, $this->paragraphImages);
-        $this->styledClassBoundaries = new Support\StyledSourceClassBoundary($this->session);
-        $this->emptyVisualRetention = new Elements\EmptyVisualRetentionPolicy(
-            $this->styleResolver,
-            $this->session,
-            $this->sourceElementClassifier,
-            $this->sourceElementDescription,
-            $this->runtimeIslands,
-            $this->emptyElementFootprint,
-            $this->sourceVisibility,
-            $this->renderNeutral,
-            $this->styledClassBoundaries,
-            $this->generatedComponents
-        );
         $customBlockGenerator = new CustomBlockGenerator(
             $this->sourceElementClassifier,
             $this->styleResolver,
@@ -1193,7 +1193,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     {
         return new RichTextElementContext(
             fn (DOMElement $element): ?array => $this->authoredMarqueeRecognizer->authoredMarqueeBlock($element),
-            fn (DOMElement $element): bool => $this->emptyVisualRetention->hasEmptyVisualInlineChild($element),
+            $this->emptyVisualRetention->hasEmptyVisualInlineChild(...),
             $this->authorLayoutOwnership->hasBoxChromeWrapperStyling(...),
             $this->runtimeIslands,
             fn (DOMElement $element): ?array => $this->paragraphImages->unwrappedParagraphImageBlock($element),
@@ -1219,7 +1219,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             function (DOMElement $element, array &$fallbacks): ?array {
                 return $this->textlessMedia->mediaBlockFromTextlessElement($element, $fallbacks);
             },
-            fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element)
+            $this->emptyVisualRetention->shouldPreserveEmptyVisualElement(...)
         );
     }
 
@@ -2372,17 +2372,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     }
 
     /** Read lazily: closures built before the retention policy call it. */
-    /** Lazy: WrapperCoalescer is built before the empty-visual policy. */
-    private function soleElementChild(DOMElement $element): ?DOMElement
-    {
-        return $this->emptyVisualRetention->soleElementChild($element);
-    }
-
-    private function shouldPreserveEmptyVisualElement(DOMElement $element): bool
-    {
-        return $this->emptyVisualRetention->shouldPreserveEmptyVisualElement($element);
-    }
-
     public function retainsEmptyRichTextInline(DOMElement $element): bool
     {
         return $this->emptyVisualRetention->retainsEmptyRichTextInline($element);
@@ -2530,7 +2519,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $captionHtml = $this->styleResolver->innerHtml($caption);
             if ( '' !== trim($this->runtime->stripAllTags($captionHtml)) ) {
                 $children[] = $this->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($caption), array( 'content' => $captionHtml )), array(), $caption);
-            } elseif ( $this->shouldPreserveEmptyVisualElement($caption) ) {
+            } elseif ( $this->emptyVisualRetention->shouldPreserveEmptyVisualElement($caption) ) {
                 // An empty caption can still hold space (padding, border,
                 // height) that the content after its figure depends on.
                 $children[] = $this->emptyVisualSpacers->emptyVisualSpacerBlock($caption);
