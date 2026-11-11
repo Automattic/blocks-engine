@@ -2232,6 +2232,51 @@ PHP;
      *
      * @param array{patterns:list<string>,richtext:list<string>} $matcher from generatedClassMatcher()
      */
+    /**
+     * The side of a selector that one stylesheet keeps when its `:is()` or
+     * `:where()` lists group generated classes the shared parts carry with
+     * generated classes only route content carries
+     * (`:where(.blocks-engine-control-a-0,.blocks-engine-control-b-0) > a`).
+     * Shared chrome is enqueued after the route stylesheet, so a lifted
+     * route alternative would override the route's later rules for that
+     * content. The chrome side keeps chrome and neutral alternatives; the
+     * route side keeps route and neutral alternatives, or is null when the
+     * selector groups no route alternative. A side whose list is left empty
+     * matches nothing and is null.
+     * @param array{patterns:list<string>,richtext:list<string>} $matcher
+     */
+    private static function generatedAlternatives(string $selector, array $matcher, bool $chrome): ?string
+    {
+        $result = ''; $offset = 0; $length = strlen($selector); $routeAlternatives = false;
+        while (preg_match('/:(?:is|where)\(/i', $selector, $match, PREG_OFFSET_CAPTURE, $offset)) {
+            $open = $match[0][1] + strlen($match[0][0]);
+            $depth = 1; $quote = null;
+            for ($cursor = $open; $cursor < $length && $depth > 0; ++$cursor) {
+                $char = $selector[$cursor];
+                if (null !== $quote) { if ('\\' === $char) ++$cursor; elseif ($char === $quote) $quote = null; continue; }
+                if ('"' === $char || "'" === $char) $quote = $char;
+                elseif ('\\' === $char) ++$cursor;
+                elseif ('(' === $char) ++$depth;
+                elseif (')' === $char) --$depth;
+            }
+            if (0 !== $depth) return $chrome ? $selector : null;
+            $alternatives = CssStylesheetTransformer::splitSelectorList(substr($selector, $open, $cursor - 1 - $open));
+            if (null === $alternatives) return $chrome ? $selector : null;
+            $kept = array();
+            foreach ($alternatives as $alternative) {
+                $generated = 1 === preg_match(self::GENERATED_CLASS_PATTERN, self::positiveSelector($alternative));
+                $carried = $generated && self::selectorTargetsGeneratedClass($alternative, $matcher);
+                if ($generated && !$carried) $routeAlternatives = true;
+                if (!$generated || $carried === $chrome) $kept[] = trim($alternative);
+            }
+            if (array() === $kept) return null;
+            $result .= substr($selector, $offset, $open - $offset) . implode(',', $kept) . ')';
+            $offset = $cursor;
+        }
+        if (!$chrome && !$routeAlternatives) return null;
+        return $result . substr($selector, $offset);
+    }
+
     private static function selectorTargetsGeneratedClass(string $selector, array $matcher): bool
     {
         $positive = self::positiveSelector($selector);
@@ -3100,7 +3145,7 @@ PHP;
             $unparseable = false;
             $shared = (new CssStylesheetTransformer())->transformStyleRules(
                 $asset['content'],
-                static function (string $prelude, string $body) use ($liftsToChrome, $reanchor, $inheritedContexts, $liveElementMarkers, &$matched, &$unparseable): string {
+                static function (string $prelude, string $body) use ($liftsToChrome, $reanchor, $inheritedContexts, $liveElementMarkers, $classMatcher, &$matched, &$unparseable): string {
                     $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
                     if (null === $selectors) {
                         $unparseable = true;
@@ -3126,6 +3171,9 @@ PHP;
                     }
                     $kept = array_values(array_filter($selectors, $liftsToChrome));
                     if (array() === $kept) return $inherited;
+                    // A grouped selector lifts only the alternatives the parts carry.
+                    $kept = array_values(array_filter(array_map(static fn (string $selector): ?string => self::generatedAlternatives($selector, $classMatcher, true), $kept), 'is_string'));
+                    if (array() === $kept) return $inherited;
                     if (null !== $liveElementMarkers) {
                         $kept = array_values(array_filter(array_map(static fn (string $selector): ?string => self::withoutDeadElementMarkers($selector, $liveElementMarkers), $kept), 'is_string'));
                         // Every selector named only replaced elements: the rule matches nothing.
@@ -3141,10 +3189,11 @@ PHP;
             }
             $route = (new CssStylesheetTransformer())->transformStyleRules(
                 $asset['content'],
-                static function (string $prelude, string $body) use ($targetsChrome): string {
+                static function (string $prelude, string $body) use ($targetsChrome, $classMatcher): string {
                     $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
                     if (null === $selectors) return $prelude . '{' . $body . '}';
-                    $kept = array_values(array_filter($selectors, static fn (string $selector): bool => ! $targetsChrome($selector)));
+                    // Alternatives naming only route content stay in source order on the route.
+                    $kept = array_values(array_filter(array_map(static fn (string $selector): ?string => ! $targetsChrome($selector) ? $selector : self::generatedAlternatives($selector, $classMatcher, false), $selectors), 'is_string'));
                     return array() === $kept ? '' : implode(',', $kept) . '{' . $body . '}';
                 }
             );
