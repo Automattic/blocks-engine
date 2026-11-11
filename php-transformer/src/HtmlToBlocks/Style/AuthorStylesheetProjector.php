@@ -1091,7 +1091,7 @@ final class AuthorStylesheetProjector
                 $markers[] = $marker;
             }
             if ( array() === $markers && ! $hasLabelProjection ) {
-                array_push($rewritten, ...($this->projectSourceAttributePseudoSelector($selector, $context) ?? array($selector)));
+                $rewritten[] = $this->rewriteSelectorPrelude($selector, $context);
                 continue;
             }
             foreach ( array_unique($markers) as $marker ) {
@@ -1988,10 +1988,28 @@ final class AuthorStylesheetProjector
                 array_push($rewritten, ...$runtimeProjection);
                 continue;
             }
-            $pseudoProjection = $this->projectSourceAttributePseudoSelector($selector, $context);
-            if (null !== $pseudoProjection && array() !== $pseudoProjection) {
-                array_push($rewritten, ...$pseudoProjection);
-                continue;
+            $host = CssSelectorMatcher::pseudoElementHost($selector);
+            if (null !== $host) {
+                // Project the originating element through the same subject
+                // pipeline as a non-pseudo rule, then restore the suffix on
+                // every arm (including RichText marker arms).
+                $projectedHost = $this->rewriteSelectorPreludeOnce($host['selector'], $context, $controlWrapper, $subjectArms, $semanticSubjectArms);
+                $targets = CssStylesheetTransformer::splitSelectorList($projectedHost) ?? array();
+                foreach ($targets as $target) {
+                    $rewritten[] = $target . $host['suffix'];
+                }
+                if (array() !== $targets) continue;
+            }
+            // A host that projects to nothing would ship a dead rule. State
+            // hosts (:hover, :checked) have no host here; the state path owns them.
+            if (null !== $host) {
+                $context->evidence->recordConversionDiagnostic(array(
+                    'code' => 'html_unprojectable_pseudo_element_selector',
+                    'severity' => 'error',
+                    'conversion_classification' => 'unacceptable',
+                    'selector' => $selector,
+                    'message' => 'Could not project the originating element of an author pseudo-element rule.',
+                ));
             }
             // Attribute carriers are keyed by the authored selector. Resolve the
             // complete captured predicate before rewriting a negation to its
@@ -2824,17 +2842,6 @@ final class AuthorStylesheetProjector
             return array_map(static fn (string $marker): string => ':where(.' . $marker . ')' . $shims . $suffix, $markers);
         }
         return null;
-    }
-
-    /** @return list<string>|null */
-    private function projectSourceAttributePseudoSelector(string $selector, AuthorStylesheetProjectionContext $context): ?array
-    {
-        $host = CssSelectorMatcher::pseudoElementHost($selector);
-        if (null === $host) return null;
-        $matches = $this->matchingSourceElements($host['selector'], $host['parsed'], $context);
-        $projected = $this->projectSourceAttributeAncestrySelector($host['selector'], $host['parsed'], $matches, $context)
-            ?? $this->projectSourceAttributeSelector($host['selector'], $host['parsed'], $matches, $context);
-        return null === $projected ? null : array_map(static fn (string $target): string => $target . $host['suffix'], $projected);
     }
 
     /** @param array<string, mixed> $parsed @param list<DOMElement> $matches @return list<string>|null */

@@ -408,12 +408,11 @@
             "removed button": 1,
             "removed div": 5,
             "removed nav": 1,
-            "removed span": 2,
             "removed svg": 7,
             "retagged div>p [blocks-engine-lowered-paragraph]": 18,
             "retagged span>div [blocks-engine-semantic]": 19,
             "retagged span>div [wp-block-group]": 4,
-            "retagged span>mark": 16,
+            "retagged span>mark": 18,
             "retagged span>p [blocks-engine-synthetic-paragraph]": 19,
             "retagged svg>img": 1
         },
