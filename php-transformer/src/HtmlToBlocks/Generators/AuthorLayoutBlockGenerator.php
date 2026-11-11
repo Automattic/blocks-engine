@@ -71,7 +71,7 @@ final class AuthorLayoutBlockGenerator
 JS;
 
         return array(
-            'index.js' => str_replace(array('__BLOCK_NAME__', '__BLOCK_ATTRIBUTES__'), array($namespace . '/' . self::LOCAL_NAME, json_encode($this->blockJson($namespace)['attributes'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)), $script),
+            'index.js' => EditorScript::bind($script, $namespace . '/' . self::LOCAL_NAME, $this->blockJson($namespace)['attributes']),
         );
     }
 

@@ -66,7 +66,7 @@ final class AccessibleLinkBlockGenerator
 } )( window.wp.blocks, window.wp.blockEditor, window.wp.components, window.wp.element );
 JS;
 
-        return array( 'index.js' => str_replace(array( '__BLOCK_NAME__', '__BLOCK_ATTRIBUTES__' ), array( $blockName, json_encode($this->blockJson(substr($blockName, 0, strrpos($blockName, '/')))['attributes'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES) ), $script) );
+        return array( 'index.js' => EditorScript::bind($script, $blockName, $this->blockJson(substr($blockName, 0, strrpos($blockName, '/')))['attributes']) );
     }
 
     /** @param array<string, mixed> $attrs */
