@@ -41,6 +41,34 @@ final class CommentTextRunBoundaries
             && self::CARRIER_STYLE === $mark->getAttribute('style');
     }
 
+    /**
+     * Contiguous text is one anonymous flex/grid item. Remove its comment seams
+     * on the serialization clone before a later RichText pass can carry them.
+     * Resolve display on the source, where selector ancestry is still intact.
+     *
+     * @param callable(DOMElement): bool $blockifiesChildren
+     */
+    public static function mergeBlockifiedRuns(DOMElement $source, DOMElement $clone, callable $blockifiesChildren): void
+    {
+        $sources = array( $source, ...iterator_to_array($source->getElementsByTagName('*')) );
+        $targets = array( $clone, ...iterator_to_array($clone->getElementsByTagName('*')) );
+        foreach ( $sources as $index => $container ) {
+            $comments = array();
+            foreach ( $targets[$index]->childNodes as $child ) {
+                if ( $child instanceof DOMComment ) {
+                    $comments[] = $child;
+                }
+            }
+            if ( array() === $comments || ! $blockifiesChildren($container) ) {
+                continue;
+            }
+            foreach ( $comments as $comment ) {
+                $comment->parentNode?->removeChild($comment);
+            }
+            $targets[$index]->normalize();
+        }
+    }
+
     public static function apply(string $content): string
     {
         if ( ! str_contains($content, '<!--') ) {
