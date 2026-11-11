@@ -414,8 +414,40 @@ final class AuthoredFormControlBlockConverter
         );
     }
 
+    /**
+     * The authored button block for a runtime-owned control, carrying the
+     * provenance of the source element it materializes.
+     *
+     * @return array<string, mixed>
+     */
+    public function runtimeButton(DOMElement $element): array
+    {
+        // The authored control saves its descendants as source markup, not
+        // semantic/RichText carriers. Keep author selectors addressing those
+        // actual nodes (including empty CSS-painted icons). A lone close icon is
+        // itself saved inside its inline host.
+        if ( AuthoredButtonBlockGenerator::isCapturedDialogCloseIcon($element) ) {
+            $this->session->authorSelectorProjectionState()->markRetainedSourcePath($element->getNodePath() ?? '');
+        }
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            $this->session->authorSelectorProjectionState()->markRetainedSourcePath($descendant->getNodePath() ?? '');
+        }
+        $generated = $this->runtimeButtonBlock($element);
+        $materialized = $this->createBlock->createBlock(
+            (string) ($generated['blockName'] ?? ''),
+            is_array($generated['attrs'] ?? null) ? $generated['attrs'] : array(),
+            array(),
+            $element
+        );
+        if ( isset($materialized['_source_provenance_id']) ) {
+            $generated['_source_provenance_id'] = $materialized['_source_provenance_id'];
+        }
+
+        return $generated;
+    }
+
     /** @return array<string, mixed> */
-    public function runtimeButton(DOMElement $button): array
+    private function runtimeButtonBlock(DOMElement $button): array
     {
         // SVG controls have no RichText label. Model their artwork as core
         // images and containers rather than an opaque contentParts tree.

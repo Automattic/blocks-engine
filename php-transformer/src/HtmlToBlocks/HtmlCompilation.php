@@ -18,7 +18,6 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\TransformationOptions;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthorLayoutBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredCarouselBlockGenerator;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredMarqueeRecognizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CustomBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\DescriptionListBlockGenerator;
@@ -1943,28 +1942,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private function runtimeAuthoredButton(DOMElement $element): array
     {
         $this->formRuntimeIslandRecorder->recordControl($element);
-        // The authored control saves its descendants as source markup, not
-        // semantic/RichText carriers. Keep author selectors addressing those
-        // actual nodes (including empty CSS-painted icons). A lone close icon is
-        // itself saved inside its inline host.
-        if ( AuthoredButtonBlockGenerator::isCapturedDialogCloseIcon($element) ) {
-            $this->session->authorSelectorProjectionState()->markRetainedSourcePath($element->getNodePath() ?? '');
-        }
-        foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            $this->session->authorSelectorProjectionState()->markRetainedSourcePath($descendant->getNodePath() ?? '');
-        }
-        $generated = $this->authoredFormControlBlockConverter->runtimeButton($element);
-        $materialized = $this->createBlock(
-            (string) ($generated['blockName'] ?? ''),
-            is_array($generated['attrs'] ?? null) ? $generated['attrs'] : array(),
-            array(),
-            $element
-        );
-        if ( isset($materialized['_source_provenance_id']) ) {
-            $generated['_source_provenance_id'] = $materialized['_source_provenance_id'];
-        }
 
-        return $generated;
+        return $this->authoredFormControlBlockConverter->runtimeButton($element);
     }
 
     /**
