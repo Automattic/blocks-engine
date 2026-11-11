@@ -4234,12 +4234,12 @@ final class ArtifactCompiler
         return $shared;
     }
 
-    /** @param array<string,string> $attributes */
+    /** @param array<int|string,string> $attributes */
     private static function sourceShellAttributes(array $attributes): string
     {
         $html = '';
         foreach ($attributes as $name => $value) {
-            if (1 !== preg_match('/^[a-z_:][a-z0-9_:.-]*$/', $name)) continue;
+            if (!is_string($name) || 1 !== preg_match('/^[a-z_:][a-z0-9_:.-]*$/', $name)) continue;
             $html .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
         }
         return $html;
