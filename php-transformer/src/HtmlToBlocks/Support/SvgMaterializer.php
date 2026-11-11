@@ -2091,6 +2091,24 @@ final class SvgMaterializer implements SvgElementMaterializer
         return '' === $formatted ? '' : $formatted;
     }
 
+    /**
+     * Whether an SVG decoration paints nothing in the captured state; such a
+     * decoration is omitted, with an info diagnostic recording the omission.
+     */
+    public function omitsEmptyPaintDecoration(DOMElement $element): bool
+    {
+        if (!$this->paintsNothing($element)) return false;
+        $this->session->transformationEvidenceState()->recordConversionDiagnostic(array(
+            'code' => 'html_empty_svg_decoration_omitted',
+            'severity' => 'info',
+            'loss_class' => 'native_conversion',
+            'selector' => SourceDom::elementSelector($element),
+            'message' => 'Omitted SVG decoration proven to paint nothing in the captured state.',
+        ));
+
+        return true;
+    }
+
     /** Sanitized inline SVG markup with its parser-lowercased names restored. */
     public function inlineSvgMarkup(DOMElement $element): string
     {
