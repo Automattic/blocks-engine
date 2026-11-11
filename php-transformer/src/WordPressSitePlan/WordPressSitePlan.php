@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
 use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlMarkupParser;
@@ -49,7 +51,6 @@ final class WordPressSitePlan
     /** Blocks whose serialized `url` attribute names a route rather than an asset. */
     public const ROUTE_URL_BLOCKS = array('navigation-link', 'navigation-submenu', 'button', 'social-link');
     public const MAX_DOCUMENT_IDENTITY_DIAGNOSTICS = 50;
-    /** Generated, document-namespaced class names the projected author CSS selects on. */
     /** Marks the post-content block of a template that holds a page's hoisted layout frame. */
     public const FRAME_CONTENT_CLASS = 'blocks-engine-frame-content';
     private const GENERATED_CLASS_PATTERN = '/blocks-engine-[a-z-]+-[0-9a-f]{12}-\d+/';
@@ -173,8 +174,7 @@ PHP;
      * @param bool $strictMissingMedia Rejects the whole plan when a media
      *        reference names a local file the artifact never packaged, instead
      *        of recovering it as an explicit placeholder and warning.
-     */
-    /**
+     *
      * @param StepTimer|null $timer Receives one exclusive step per site-plan stage, so callers
      *                             can always see where composition spends its time.
      */
@@ -533,6 +533,14 @@ PHP;
         $projector = new ThemeJsonProjection();
         $themeProjection = $projector->project($assets, array_column($pages, 'source_path'), $this->designSystem);
         $assets = $themeProjection['assets'];
+        $this->presetBinding?->useThemeDefaults($themeProjection['theme']);
+        // Font binding waited for the scoped defaults; do not pin a block to
+        // a preset when the written Global Styles already owns its family.
+        foreach ($pages as &$page) {
+            $page['canonical_block_markup'] = $this->presetBinding?->bind($page['canonical_block_markup']) ?? $page['canonical_block_markup'];
+            $page['content_hash'] = self::contentHash($page['canonical_block_markup']);
+        }
+        unset($page);
         $routes = $this->routesForPages($pages);
         // Entry shells remain in compiled-site/v1 for existing consumers; the
         // canonical plan rebuilds them from full page shell candidates.
@@ -543,7 +551,7 @@ PHP;
         $pages = $explicitBindings['pages'];
         $existingParts = $explicitBindings['parts'];
         $reservedPartSlugs = array_fill_keys(array_column($existingParts, 'slug'), true);
-        $canonicalInlineParts = $this->documents(is_array($compiled['inline_shell_artifacts'] ?? null) ? $compiled['inline_shell_artifacts'] : array(), true, $tokens, $references, $routeMap);
+        $canonicalInlineParts = $this->documents(ArrayField::array($compiled, 'inline_shell_artifacts'), true, $tokens, $references, $routeMap);
         $pages = $this->shellExtraction->withSourceSharedShellIdentity($pages, $canonicalInlineParts, $runtimeDeclarations, $runtimeEntityRecords);
         $inlineShells = $this->shellExtraction->inlineSharedShells($pages, $reservedPartSlugs, $runtimeDeclarations, $canonicalInlineParts, $runtimeEntityRecords, $assets);
         $reservedPartSlugs += array_fill_keys(array_column($inlineShells['parts'], 'slug'), true);
@@ -1323,8 +1331,8 @@ PHP;
      */
     public static function compiledSiteIdentityFailures(array $compiledSite): array
     {
-        $pages = is_array($compiledSite['pages'] ?? null) ? $compiledSite['pages'] : array();
-        $parts = is_array($compiledSite['template_parts'] ?? null) ? $compiledSite['template_parts'] : array();
+        $pages = ArrayField::array($compiledSite, 'pages');
+        $parts = ArrayField::array($compiledSite, 'template_parts');
         $parts = array_values(array_filter($parts, static fn (mixed $part): bool => is_array($part) && 'entry_shell' !== ($part['placement']['kind'] ?? null)));
 
         return array_merge(
@@ -1447,7 +1455,7 @@ PHP;
             $canonical = $this->routeLinks($markup, $document['source_path'], $routes);
             $target = $part ? 'parts/' . self::value($document, 'slug') . '.html' : self::value($document, 'source_path');
             $area = $part ? self::value($document, 'area', 'uncategorized') : null;
-            $row = array('source_path' => $document['source_path'], 'slug' => self::value($document, 'slug'), 'title' => self::value($document, 'title'), 'post_type' => self::value((array) ($document['metadata'] ?? array()), 'post_type', 'page'), 'parent_source_path' => self::value((array) ($document['metadata'] ?? array()), 'parent_source_path'), 'entrypoint' => ! empty($document['entrypoint']), 'area' => $area, 'tag_name' => $part ? self::value($document, 'tag_name', ShellLandmarkPolicy::templatePartAreaTagName((string) $area)) : null, 'placement' => $part && is_array($document['placement'] ?? null) ? $document['placement'] : ($part ? array('kind' => 'unbound') : null), 'canonical_block_markup' => $canonical, '_projected_source_block_markup' => $document['block_markup'], 'metadata' => is_array($document['metadata'] ?? null) ? $document['metadata'] : array(), 'document_metadata' => $this->documentMetadata($document, $references, $routes), 'provenance' => is_array($document['provenance'] ?? null) ? $document['provenance'] : array(), 'reconciliation_identity' => self::identity($part ? 'template-part' : 'page', $document['source_path'], $target), 'content_hash' => self::contentHash($canonical));
+            $row = array('source_path' => $document['source_path'], 'slug' => self::value($document, 'slug'), 'title' => self::value($document, 'title'), 'post_type' => self::value((array) ($document['metadata'] ?? array()), 'post_type', 'page'), 'parent_source_path' => self::value((array) ($document['metadata'] ?? array()), 'parent_source_path'), 'entrypoint' => ! empty($document['entrypoint']), 'area' => $area, 'tag_name' => $part ? self::value($document, 'tag_name', ShellLandmarkPolicy::templatePartAreaTagName((string) $area)) : null, 'placement' => $part && is_array($document['placement'] ?? null) ? $document['placement'] : ($part ? array('kind' => 'unbound') : null), 'canonical_block_markup' => $canonical, '_projected_source_block_markup' => $document['block_markup'], 'metadata' => ArrayField::array($document, 'metadata'), 'document_metadata' => $this->documentMetadata($document, $references, $routes), 'provenance' => ArrayField::array($document, 'provenance'), 'reconciliation_identity' => self::identity($part ? 'template-part' : 'page', $document['source_path'], $target), 'content_hash' => self::contentHash($canonical));
             if (!$part && is_array($document['content_decision'] ?? null)) {
                 $row['content_decision'] = $document['content_decision'];
                 if (is_string($document['publication_timestamp'] ?? null)) $row['publication_timestamp'] = $document['publication_timestamp'];
@@ -1525,7 +1533,7 @@ PHP;
             $contentHash = $reference['sha256'] ?? self::contentHash($payload);
             $priorReferences = array();
             if (isset($rowByTarget[strtolower($target)])) [$target, $priorReferences] = $this->collidingAssetTarget($rows, $rowByTarget, $target, (string) $asset['path'], $contentHash);
-            $rows[] = array_filter(array('source_path' => $asset['path'], 'target_path' => $target, 'token' => 'asset-' . substr(hash('sha256', $target), 0, 16), 'source' => self::value($asset, 'source'), 'source_role' => self::value($asset, 'source_role'), 'pipeline_sanitized' => $asset['pipeline_sanitized'] ?? null, 'kind' => self::value($asset, 'kind'), 'role' => self::value($asset, 'role'), 'stylesheet_placement' => self::value($asset, 'stylesheet_placement'), 'stylesheet_target' => 'css' === ($asset['kind'] ?? '') ? (self::value($asset, 'stylesheet_target') ?? 'both') : null, 'intent' => self::value($asset, 'intent'), 'mime_type' => self::value($asset, 'mime_type'), 'media' => self::value($asset, 'media'), 'placement' => self::value($asset, 'placement'), 'defer' => !empty($asset['defer']) ? true : null, 'async' => !empty($asset['async']) ? true : null, 'selector' => self::value($asset, 'selector'), 'references' => is_array($asset['references'] ?? null) || array() !== $priorReferences ? self::mergedReferences($priorReferences, is_array($asset['references'] ?? null) ? $asset['references'] : array()) : null, 'bytes' => (int) ($asset['bytes'] ?? 0), 'hash' => self::value($asset, 'hash'), 'content' => $assetContent, 'content_base64' => $asset['content_base64'] ?? null, 'payload_reference' => $reference, 'raw_sha256' => $reference['sha256'] ?? ($asset['raw_sha256'] ?? null), 'transport_sha256' => $transportHash, 'binary' => ! empty($asset['binary']), 'compilation' => is_array($asset['compilation'] ?? null) ? $asset['compilation'] : null, 'stylesheet_link_position' => is_int($asset['stylesheet_link_position'] ?? null) ? $asset['stylesheet_link_position'] : null, 'reconciliation_identity' => self::identity('asset', $asset['path'], $target), 'content_hash' => $contentHash), static fn(mixed $value): bool => null !== $value);
+            $rows[] = array_filter(array('source_path' => $asset['path'], 'target_path' => $target, 'token' => 'asset-' . substr(hash('sha256', $target), 0, 16), 'source' => self::value($asset, 'source'), 'source_role' => self::value($asset, 'source_role'), 'pipeline_sanitized' => $asset['pipeline_sanitized'] ?? null, 'kind' => self::value($asset, 'kind'), 'role' => self::value($asset, 'role'), 'stylesheet_placement' => self::value($asset, 'stylesheet_placement'), 'stylesheet_target' => 'css' === ($asset['kind'] ?? '') ? (self::value($asset, 'stylesheet_target') ?? 'both') : null, 'intent' => self::value($asset, 'intent'), 'mime_type' => self::value($asset, 'mime_type'), 'media' => self::value($asset, 'media'), 'placement' => self::value($asset, 'placement'), 'defer' => !empty($asset['defer']) ? true : null, 'async' => !empty($asset['async']) ? true : null, 'selector' => self::value($asset, 'selector'), 'references' => is_array($asset['references'] ?? null) || array() !== $priorReferences ? self::mergedReferences($priorReferences, ArrayField::array($asset, 'references')) : null, 'bytes' => (int) ($asset['bytes'] ?? 0), 'hash' => self::value($asset, 'hash'), 'content' => $assetContent, 'content_base64' => $asset['content_base64'] ?? null, 'payload_reference' => $reference, 'raw_sha256' => $reference['sha256'] ?? ($asset['raw_sha256'] ?? null), 'transport_sha256' => $transportHash, 'binary' => ! empty($asset['binary']), 'compilation' => is_array($asset['compilation'] ?? null) ? $asset['compilation'] : null, 'stylesheet_link_position' => is_int($asset['stylesheet_link_position'] ?? null) ? $asset['stylesheet_link_position'] : null, 'reconciliation_identity' => self::identity('asset', $asset['path'], $target), 'content_hash' => $contentHash), static fn(mixed $value): bool => null !== $value);
             $rowByTarget[strtolower($target)] = array_key_last($rows);
             if (isset($asset['inline_references'])) $rows[array_key_last($rows)]['inline_references'] = $asset['inline_references'];
             if (isset($asset['source_media']) && is_string($asset['source_media'])) $rows[array_key_last($rows)]['source_media'] = $asset['source_media'];
@@ -1567,7 +1575,7 @@ PHP;
         if ($contentHash === ($prior['content_hash'] ?? null)) {
             unset($rows[$index]);
             $this->recordUnitFinding($finding + array('message' => 'Two assets resolved to one target with identical content; they were written once.', 'reason_code' => 'identical_content', 'resolved_target_path' => $target));
-            return array($target, is_array($prior['references'] ?? null) ? $prior['references'] : array());
+            return array($target, ArrayField::array($prior, 'references'));
         }
         $dot = strrpos($target, '.');
         $slash = strrpos($target, '/');
@@ -1624,7 +1632,7 @@ PHP;
             }
             if (null === $compilation) {
                 $referencedPages = array();
-                foreach (is_array($asset['references'] ?? null) ? $asset['references'] : array() as $reference) {
+                foreach (ArrayField::array($asset, 'references') as $reference) {
                     $sourcePath = is_array($reference) && 'link' === ($reference['element'] ?? null) ? ($reference['source_path'] ?? null) : null;
                     if (is_string($sourcePath) && is_array($documentsBySource[$sourcePath] ?? null)) $referencedPages[$sourcePath] = $documentsBySource[$sourcePath];
                 }
@@ -1711,10 +1719,7 @@ PHP;
                     // archive) is never evidence that a rule is inert there.
                     if (!is_string($documentsBySource[$source]['canonical_block_markup'] ?? null) || '' === trim($documentsBySource[$source]['canonical_block_markup'])) continue;
                     $dom = new \DOMDocument();
-                    $previous = libxml_use_internal_errors(true);
-                    $loaded = $dom->loadHTML('<?xml encoding="UTF-8"><html><body>' . $documentsBySource[$source]['canonical_block_markup'] . "\n" . $sharedMarkup . '</body></html>');
-                    libxml_clear_errors();
-                    libxml_use_internal_errors($previous);
+                    $loaded = HtmlSerialization::loadHtml($dom, '<?xml encoding="UTF-8"><html><body>' . $documentsBySource[$source]['canonical_block_markup'] . "\n" . $sharedMarkup . '</body></html>');
                     if (!$loaded) continue;
                     foreach (array('html' => 'root_attributes', 'body' => 'body_attributes') as $tag => $key) {
                         $element = $dom->getElementsByTagName($tag)->item(0);
@@ -2112,12 +2117,6 @@ PHP;
         return ':is(' . implode(' ', array_slice($compounds, 0, $run)) . ',:where(' . implode(',', $wrappers) . ')) ' . implode(' ', array_slice($compounds, $run));
     }
 
-    /**
-     * The responsive variant root classes a compound consists of, such as
-     * `:where(.data-blocks-engine-capture-mobile-document)`; null for any other compound.
-     *
-     * @return list<string>|null
-     */
     /** Rendered elements rooting a captured document copy; at least one. */
     private static function documentCopyCount(string $markup): int
     {
@@ -2239,21 +2238,6 @@ PHP;
         return 1 === preg_match('/^(?:wp-|blocks-engine-|has-|is-|be-)/', $name) ? null : array('class', $name);
     }
 
-    /**
-     * Whether a selector targets a shared-chrome generated class or rich-text
-     * marker. A class named only inside `:not(...)` is an exclusion: the rule
-     * still applies to the page's own elements (for example
-     * `.text-sm:not(:where(.control))`), so it stays in the page stylesheet in
-     * its source cascade position.
-     *
-     * Document-namespaced rich-text markers are rewritten onto attribute
-     * selectors (`mark[style*="--blocks-engine-richtext-marker:…"]`), not class
-     * selectors. Identity comparison strips those markers so pages still
-     * cluster; the matching rules must follow the canonical marker onto the
-     * shared part instead of remaining page-scoped.
-     *
-     * @param array{patterns:list<string>,richtext:list<string>} $matcher from generatedClassMatcher()
-     */
     /**
      * The side of a selector that one stylesheet keeps when its `:is()` or
      * `:where()` lists group generated classes the shared parts carry with
@@ -3487,7 +3471,7 @@ PHP;
         // Tokens and file names anything still links, imports or url()s, and
         // the stylesheets page slices hang off: those keep their identity.
         $named = array();
-        foreach (array_merge(array((string) json_encode($documents, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)), array_map(static fn (array $asset): string => is_string($asset['content'] ?? null) ? $asset['content'] : '', $assets)) as $text) {
+        foreach (array_merge(array((string) json_encode($documents, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)), array_map(static fn (array $asset): string => ArrayField::string($asset, 'content'), $assets)) as $text) {
             if (preg_match_all('/\{\{wordpress-site-plan:asset:([^}]+)\}\}/', $text, $matches)) $named += array_fill_keys($matches[1], true);
             if (preg_match_all('/(?:url\(\s*|@import\s+(?!url\()|(?:href|src)=)\\\\?["\']?([^"\'()\s\\\\]+)/i', $text, $matches)) {
                 foreach ($matches[1] as $reference) $named[strtolower(basename((string) parse_url($reference, PHP_URL_PATH)))] = true;
@@ -3497,7 +3481,7 @@ PHP;
         $instancesBySource = array();
         foreach ($assets as $asset) {
             if (is_string($asset['stylesheet_parent'] ?? null)) $parents[$asset['stylesheet_parent']] = true;
-            if (is_string($asset['source_path'] ?? null) && !isset($instancesBySource[$asset['source_path']])) $instancesBySource[$asset['source_path']] = is_array($asset['stylesheet_instances'] ?? null) ? $asset['stylesheet_instances'] : array();
+            if (is_string($asset['source_path'] ?? null) && !isset($instancesBySource[$asset['source_path']])) $instancesBySource[$asset['source_path']] = ArrayField::array($asset, 'stylesheet_instances');
         }
         $firstManaged = count($assets);
         foreach ($assets as $index => $asset) if (!empty($asset['stylesheet_instances'])) $firstManaged = min($firstManaged, $index);
@@ -3517,7 +3501,7 @@ PHP;
             if ('css' !== ($asset['kind'] ?? null)) return null;
             $own = $pagesOf($asset);
             $applies = null === $own || isset($own[$page]);
-            $occurrences = is_array($asset['stylesheet_instances'] ?? null) ? $asset['stylesheet_instances'] : array();
+            $occurrences = ArrayField::array($asset, 'stylesheet_instances');
             if (array() === $occurrences && is_string($asset['stylesheet_parent'] ?? null)) $occurrences = $instancesBySource[$asset['stylesheet_parent']] ?? array();
             if (array() === $occurrences) return $applies || !empty($asset['frame_fallback']) ? array('flat' => true) : null;
             $orders = array();
@@ -3564,7 +3548,7 @@ PHP;
                 $head['scopes'] = array_merge($head['scopes'], $asset['scopes']);
                 if (!empty($asset['frame_fallback'])) $head['frame_fallback'] = true;
                 if (isset($asset['stylesheet_instances']) || isset($head['stylesheet_instances'])) $head['stylesheet_instances'] = array_merge($head['stylesheet_instances'] ?? array(), $asset['stylesheet_instances'] ?? array());
-                if (isset($asset['references']) || isset($head['references'])) $head['references'] = self::mergedReferences(is_array($head['references'] ?? null) ? $head['references'] : array(), is_array($asset['references'] ?? null) ? $asset['references'] : array());
+                if (isset($asset['references']) || isset($head['references'])) $head['references'] = self::mergedReferences(ArrayField::array($head, 'references'), ArrayField::array($asset, 'references'));
                 $merged[$position] = $head;
                 $folded = true;
                 break;
@@ -3576,21 +3560,6 @@ PHP;
         return $merged;
     }
 
-    /** @param array<string,mixed> $asset */
-    /**
-     * A selector without the `:where()` arguments that name a rich-text
-     * marker no emitted markup carries, or null when the selector can only
-     * match such an element.
-     *
-     * A dead marker matches nothing, so dropping an argument that requires
-     * it leaves what the `:where()` matches unchanged, and `:where()` adds no
-     * specificity. A `:not(:where(...))` left with no arguments excluded
-     * nothing and is removed. Each route's copy of extracted chrome carries
-     * its own marker, so without this the shared chrome rules differ per
-     * route only by dead markers and every route ships its own copy.
-     *
-     * @param array<string,true> $live
-     */
     /**
      * An element marker no emitted markup, runtime declaration or entity
      * record carries names an element the plan replaced or dropped, so every
@@ -3995,7 +3964,7 @@ PHP;
     {
         if (1 === preg_match('~/(?:blog|news|posts?|articles?|journal|stories|insights)(?:/|$)~i', $route)) return true;
         foreach (array_filter(array($document, $parent)) as $candidate) {
-            $html = is_string($candidate['html'] ?? null) ? $candidate['html'] : (is_string($candidate['block_markup'] ?? null) ? $candidate['block_markup'] : '');
+            $html = is_string($candidate['html'] ?? null) ? $candidate['html'] : (ArrayField::string($candidate, 'block_markup'));
             foreach (($candidate['document_metadata']['meta'] ?? array()) as $meta) {
                 if (is_array($meta) && 'og:type' === strtolower((string) ($meta['property'] ?? $meta['name'] ?? '')) && 'article' === strtolower(trim((string) ($meta['content'] ?? '')))) return true;
             }
@@ -4125,7 +4094,7 @@ PHP;
         $dateSlotsByIndex = array();
         foreach ($documents as $index => $document) {
             if (!is_array($document) || !self::safePath($document['source_path'] ?? null)) throw new InvalidArgumentException('Compiled site document is invalid.');
-            $metadata = is_array($document['metadata'] ?? null) ? $document['metadata'] : array();
+            $metadata = ArrayField::array($document, 'metadata');
             $path = is_string($metadata['route_path'] ?? null) && '' !== $metadata['route_path'] ? $metadata['route_path'] : self::pageRoutePath((string) $document['source_path'], $entryRoot);
             $routes[$index] = '/' === $path ? '/' : '/' . trim($path, '/');
             $structuredTypes[$index] = self::structuredPageTypes($document);
@@ -4189,10 +4158,10 @@ PHP;
         $inferredPostCount = 0;
         $datedPostCount = 0;
         foreach ($documents as $index => &$document) {
-            $metadata = is_array($document['metadata'] ?? null) ? $document['metadata'] : array();
+            $metadata = ArrayField::array($document, 'metadata');
             // CollectionPage is page evidence, not proof that a native archive
             // exists. Taxonomy/author projection below owns archive promotion.
-            $frontmatter = is_array($metadata['frontmatter'] ?? null) ? $metadata['frontmatter'] : array();
+            $frontmatter = ArrayField::array($metadata, 'frontmatter');
             $explicit = null;
             $provenance = null;
             foreach (array('post_type', 'type') as $key) {
@@ -4451,7 +4420,7 @@ PHP;
     /** @param array<string,mixed> $document @param array<string,string> $localTimes Non-zero-offset representations keyed by UTC instant. @return array<int,array<string,string>> */
     private function publicationEvidence(array $document, array &$localTimes, array &$dateSlots): array
     {
-        $html = is_string($document['html'] ?? null) ? $document['html'] : '';
+        $html = ArrayField::string($document, 'html');
         if ('' === trim($html) && is_string($document['block_markup'] ?? null)) $html = $document['block_markup'];
         $evidence = array(); $add = static function (array &$rows, string $source, ?string $value = null): void { if (count($rows) >= 16) return; $row = array('source' => $source); if (null !== $value) $row['publication_timestamp'] = $value; $rows[] = $row; };
         // Keep offset candidates separate from evidence: a plain <time> must
@@ -4494,7 +4463,7 @@ PHP;
                 if ('tag' !== ($node['kind'] ?? null) || !is_int($node['inner_offset'] ?? null)) {
                     continue;
                 }
-                $attributes = is_array($node['attributes'] ?? null) ? $node['attributes'] : array();
+                $attributes = ArrayField::array($node, 'attributes');
                 $visibleDate = self::isVisibleDateElement((string) ($node['name'] ?? ''), $attributes);
                 $identities = array();
                 if (in_array($node['name'] ?? '', array('p', 'span', 'div', 'li', 'td', 'mark'), true)) {
@@ -4609,7 +4578,7 @@ PHP;
         $derived = array(); $explicit = array();
         foreach ($documents as $order => $document) {
             if (!is_array($document) || !self::safePath($document['source_path'] ?? null)) throw new InvalidArgumentException('Compiled site route source is invalid.');
-            $metadata = is_array($document['metadata'] ?? null) ? $document['metadata'] : array();
+            $metadata = ArrayField::array($document, 'metadata');
             $explicit[$order] = is_string($metadata['route_path'] ?? null) && '' !== $metadata['route_path'];
             if ('' !== $entryRoot && ! str_starts_with((string) $document['source_path'], $entryRoot . '/') && !$explicit[$order]) throw new InvalidArgumentException('Compiled site document is outside the entrypoint content root.');
             $derived[$order] = $explicit[$order] ? self::canonicalRoutePath($metadata['route_path']) : self::pageRoutePath($document['source_path'], $entryRoot);
@@ -4641,7 +4610,7 @@ PHP;
                 $this->recordRouteCollision($kept, $sourcePath, $derived[$order], $path);
                 $taken[$path] = $sourcePath;
             }
-            $metadata = is_array($document['metadata'] ?? null) ? $document['metadata'] : array();
+            $metadata = ArrayField::array($document, 'metadata');
             $previous = $legacy[$sourcePath] ?? array();
             $routes[] = array('kind' => 'route', 'source_path' => $document['source_path'], 'target_path' => $path, 'target_slug' => self::value($document, 'slug', self::routeSlug($path)), 'title' => self::value($document, 'title'), 'parent_source_path' => self::value($metadata, 'parent_source_path'), 'source_relation' => !empty($document['entrypoint']) ? 'entrypoint' : ($previous['source_relation'] ?? 'document'), 'order' => $order);
             if (preg_match('~^/author/[^/]+$~', $derived[$order])) $routes[array_key_last($routes)]['source_claim_path'] = $derived[$order];
@@ -4819,7 +4788,7 @@ PHP;
      */
     public static function renderedTemplates(array $plan): array
     {
-        $templates = array_column(is_array($plan['templates'] ?? null) ? $plan['templates'] : array(), 'canonical_block_markup', 'slug');
+        $templates = array_column(ArrayField::array($plan, 'templates'), 'canonical_block_markup', 'slug');
         $archives = array('author', 'category', 'date', 'tag', 'taxonomy');
         $rendered = array();
         foreach (array_unique(array_merge(self::NATIVE_TEMPLATE_SLUGS, $archives, array('home'), array_map('strval', array_keys($templates)))) as $slug) {
@@ -5454,7 +5423,7 @@ PHP;
             $payload = $declaration['payload'] ?? array();
             $entities = RuntimeEntityManifest::SCHEMA === ($payload['schema'] ?? null)
                 ? RuntimeEntityManifest::resolve($payload, $records)
-                : (is_array($payload['entities'] ?? null) ? $payload['entities'] : array());
+                : (ArrayField::array($payload, 'entities'));
             foreach ($entities as $entity) foreach (is_array($entity) ? ($entity['bindings'] ?? array()) : array() as $binding) {
                 if (($binding['source_path'] ?? null) !== ($post['source_path'] ?? null)) continue;
                 $search = $binding['search_block_markup'] ?? null;
@@ -5468,10 +5437,6 @@ PHP;
         }
         return $ranges;
     }
-    /**
-     * @param array<int,array<string,mixed>> $posts
-     * @return array<string,true>
-     */
     /**
      * Post-chrome matching normalizes every nested range of every post, and
      * the same ranges are matched again while factoring and placing slots.
@@ -6588,7 +6553,7 @@ PHP;
             if ('tag' !== ($node['kind'] ?? null) || !is_int($node['inner_offset'] ?? null)) {
                 continue;
             }
-            $attributes = is_array($node['attributes'] ?? null) ? $node['attributes'] : array();
+            $attributes = ArrayField::array($node, 'attributes');
             $datedTime = null !== $timestamp && 'time' === ($node['name'] ?? '') && is_string($attributes['datetime'] ?? null);
             // A machine-readable datetime proves the slot even when the visible
             // text only carries the day of a timestamp that has a time of day.
@@ -6917,14 +6882,14 @@ PHP;
         $themeOwnedRequiredScripts = RuntimeIslandPackageBuilder::themeOwnedRequiredScriptOccurrences($package, $compiledPages);
         foreach ( $package['islands'] ?? array() as $island ) {
             if ( !is_array($island) ) continue;
-            $sourcePath = is_string($island['source_path'] ?? null) ? $island['source_path'] : '';
-            $selector = is_string($island['selector'] ?? null) ? $island['selector'] : '';
+            $sourcePath = ArrayField::string($island, 'source_path');
+            $selector = ArrayField::string($island, 'selector');
             if ( isset($superseded[$sourcePath . "\n" . $selector]) ) continue;
             $drop = 'drop' === ($island['disposition'] ?? null);
             $carried = false;
             foreach ( $island['scripts'] ?? array() as $script ) {
                 if ( !is_array($script) ) continue;
-                $scriptSelector = is_string($script['selector'] ?? null) ? $script['selector'] : '';
+                $scriptSelector = ArrayField::string($script, 'selector');
                 if ( isset($themeOwnedRequiredScripts[$sourcePath . "\n" . $scriptSelector]) ) continue;
                 $scriptDropped = 'telemetry' === ($script['role'] ?? null);
                 $scriptCarried = !$scriptDropped && is_string($script['content'] ?? null) && '' !== trim($script['content']);
@@ -6941,7 +6906,7 @@ PHP;
     private function withoutOwnedRuntimeScripts(array $documents, array $owned): array
     {
         foreach ( $documents as &$document ) {
-            $sourcePath = is_string($document['source_path'] ?? null) ? $document['source_path'] : '';
+            $sourcePath = ArrayField::string($document, 'source_path');
             if ( !is_array($document['document_metadata']['scripts'] ?? null) ) continue;
             $document['document_metadata']['scripts'] = array_values(array_filter(
                 $document['document_metadata']['scripts'],
@@ -6957,7 +6922,7 @@ PHP;
     {
         $assets = array();
         foreach ( $documents as $document ) {
-            $sourcePath = is_string($document['source_path'] ?? null) ? $document['source_path'] : '';
+            $sourcePath = ArrayField::string($document, 'source_path');
             foreach ( $document['document_metadata']['scripts'] ?? array() as $script ) {
                 if ( !is_array($script) || !is_string($script['url'] ?? null) ) continue;
                 $url = $script['url'];
@@ -7703,10 +7668,10 @@ PHP;
      */
     public static function documentStylesheets(array $plan, string $sourcePath): array
     {
-        $assets = is_array($plan['assets'] ?? null) ? $plan['assets'] : array();
+        $assets = ArrayField::array($plan, 'assets');
         $importLoaded = self::importLoadedStylesheets($assets);
         $sequence = array();
-        foreach (self::stylesheetEnqueues($assets, is_array($plan['pages'] ?? null) ? $plan['pages'] : array(), $plan['theme']['document_roots'] ?? array()) as $enqueue) {
+        foreach (self::stylesheetEnqueues($assets, ArrayField::array($plan, 'pages'), $plan['theme']['document_roots'] ?? array()) as $enqueue) {
             $asset = $enqueue['asset'];
             if (!empty($enqueue['fallback']) || isset($importLoaded[$asset['target_path']])) continue;
             $owned = isset($enqueue['route']) ? $sourcePath === $enqueue['route'] : ('global' === $enqueue['scope']['kind'] || $sourcePath === ($enqueue['scope']['source_path'] ?? null));
@@ -7746,7 +7711,7 @@ PHP;
             if ('css' !== ($asset['kind'] ?? null)) continue;
             $linked = false;
             $imported = false;
-            foreach (is_array($asset['references'] ?? null) ? $asset['references'] : array() as $reference) {
+            foreach (ArrayField::array($asset, 'references') as $reference) {
                 if (!is_array($reference)) continue;
                 if ('link' === ($reference['element'] ?? null)) $linked = true;
                 $importer = (string) ($reference['source_path'] ?? '');
@@ -8147,9 +8112,9 @@ PHP;
                 'message' => self::unanchoredBindingMessage($drop['reason_code']),
                 'source_path' => (string) $binding['source_path'],
                 'reason_code' => $drop['reason_code'],
-                'declaration_source_path' => is_string($declaration['source_path'] ?? null) ? $declaration['source_path'] : '',
-                'entity_id' => is_string($entity['id'] ?? null) ? $entity['id'] : '',
-                'role' => is_string($binding['role'] ?? null) ? $binding['role'] : '',
+                'declaration_source_path' => ArrayField::string($declaration, 'source_path'),
+                'entity_id' => ArrayField::string($entity, 'id'),
+                'role' => ArrayField::string($binding, 'role'),
             ), static fn(string $value): bool => '' !== $value));
             unset($declarations[$drop['declaration']]['payload']['entities'][$drop['entity']]['bindings'][$drop['binding']]);
         }
@@ -8196,8 +8161,8 @@ PHP;
     public static function mapEntityMarkup(array $entity, callable $map): array
     {
         if (is_string($entity['item_template']['block_markup'] ?? null)) $entity['item_template']['block_markup'] = $map($entity['item_template']['block_markup']);
-        foreach (is_array($entity['items'] ?? null) ? $entity['items'] : array() as $itemIndex => $item) {
-            foreach (is_array($item['slots'] ?? null) ? $item['slots'] : array() as $slotId => $slot) {
+        foreach (ArrayField::array($entity, 'items') as $itemIndex => $item) {
+            foreach (ArrayField::array($item, 'slots') as $slotId => $slot) {
                 if (is_string($slot['markup'] ?? null)) $entity['items'][$itemIndex]['slots'][$slotId]['markup'] = $map($slot['markup']);
             }
         }
@@ -8223,7 +8188,7 @@ PHP;
                 if (preg_match('~^<!-- wp:\S+ (\{.*\}) /-->$~s', $comment, $match) && is_array($attrs = json_decode($match[1], true))) $block['attrs'] = $attrs;
             }
             if (is_string($block['innerHTML'] ?? null)) $block['innerHTML'] = $map($block['innerHTML']);
-            foreach (is_array($block['innerContent'] ?? null) ? $block['innerContent'] : array() as $contentIndex => $content) {
+            foreach (ArrayField::array($block, 'innerContent') as $contentIndex => $content) {
                 if (is_string($content)) $block['innerContent'][$contentIndex] = $map($content);
             }
             if (is_array($block['innerBlocks'] ?? null)) $block['innerBlocks'] = self::mapBlockTreeMarkup($block['innerBlocks'], $map);
@@ -8437,7 +8402,6 @@ PHP;
         if ($this->omittedUnresolvedNavigationDiagnostics > 0) $diagnostics[] = array('code' => 'wordpress_site_plan_unresolved_navigation_link', 'severity' => 'warning', 'message' => sprintf('%d more unresolved navigation links were resolved or neutralized; omitted from this diagnostic list.', $this->omittedUnresolvedNavigationDiagnostics), 'reason' => 'truncated', 'omitted_count' => $this->omittedUnresolvedNavigationDiagnostics);
         return $diagnostics;
     }
-    /** @param array<int,array<string,mixed>> $routes */
     /** Preserve fixed section destinations also referenced by other routes. */
     public function shellFragmentReference(string $value, string $origin): string
     {

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\FormatBridge;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformationOptions;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
@@ -137,7 +138,7 @@ final class FormatBridge
             $normalizedContent = $this->normalize($content, $from, $options);
             $adapterResult = $sourceAdapter instanceof HtmlAdapter ? $sourceAdapter->transformResult($normalizedContent, $options) : array();
             $blocks = array_values(array() !== $adapterResult
-                ? (is_array($adapterResult['blocks'] ?? null) ? $adapterResult['blocks'] : array())
+                ? (ArrayField::array($adapterResult, 'blocks'))
                 : $sourceAdapter->toBlocks($normalizedContent, $options));
             if ( $from === $to ) {
                 $output = $normalizedContent;
@@ -148,9 +149,9 @@ final class FormatBridge
             } else {
                 $output = $targetAdapter->fromBlocks($blocks, $options);
             }
-            $assets = is_array($adapterResult['assets'] ?? null) ? $adapterResult['assets'] : array();
-            $fallbacks = is_array($adapterResult['fallbacks'] ?? null) ? $adapterResult['fallbacks'] : array();
-            $diagnostics = array_merge(is_array($adapterResult['diagnostics'] ?? null) ? $adapterResult['diagnostics'] : array(), array(
+            $assets = ArrayField::array($adapterResult, 'assets');
+            $fallbacks = ArrayField::array($adapterResult, 'fallbacks');
+            $diagnostics = array_merge(ArrayField::array($adapterResult, 'diagnostics'), array(
                 array(
                     'code'    => 'format_bridge_conversion_completed',
                     'message' => sprintf('Converted %s content to %s through the format bridge.', $from, $to),
@@ -167,7 +168,7 @@ final class FormatBridge
             $status = 'success';
             if ( $sourceAdapter instanceof HtmlAdapter ) {
                 $status = (string) ($adapterResult['status'] ?? 'success');
-                $metrics = array_merge(is_array($adapterResult['metrics'] ?? null) ? $adapterResult['metrics'] : array(), array(
+                $metrics = array_merge(ArrayField::array($adapterResult, 'metrics'), array(
                     'input_bytes'      => strlen($content),
                     'output_bytes'     => strlen($output),
                     'block_count'      => $this->countBlocks($blocks),
@@ -175,7 +176,7 @@ final class FormatBridge
                     'diagnostic_count' => count($diagnostics),
                 ));
             }
-            $sourceReports = is_array($adapterResult['source_reports'] ?? null) ? $adapterResult['source_reports'] : array();
+            $sourceReports = ArrayField::array($adapterResult, 'source_reports');
             $sourceReports['format_bridge'] = array(
                     'source_format' => $from,
                     'target_format' => $to,

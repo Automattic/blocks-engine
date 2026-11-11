@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
@@ -112,11 +113,8 @@ final class RouteStateProjector
         $qualified = array();
         foreach ($files as $index => $file) {
             if ('html' !== ($file['kind'] ?? null) || !is_string($file['content'] ?? null)) continue;
-            $document = new DOMDocument('1.0', 'UTF-8');
-            $previous = libxml_use_internal_errors(true);
-            $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $file['content'], LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-            libxml_clear_errors(); libxml_use_internal_errors($previous);
-            if (!$loaded) continue;
+            $document = HtmlSerialization::utf8Document($file['content'], LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+            if (null === $document) continue;
             $documents[$index] = $document;
             foreach ((new DOMXPath($document))->query('//*[a[@href]]') ?: array() as $element) {
                 if (!$element instanceof DOMElement) continue;
@@ -158,18 +156,15 @@ final class RouteStateProjector
         $root = WordPressSitePlan::entryRootFromDocuments(array(array('entrypoint' => true, 'source_path' => $entryPath)));
         foreach ($files as $index => $file) {
             if ('html' !== ($file['kind'] ?? null) || !is_string($file['content'] ?? null) || !preg_match('/<nav\b|\brole=["\']?navigation\b/i', $file['content'])) continue;
-            $document = new DOMDocument('1.0', 'UTF-8');
-            $previous = libxml_use_internal_errors(true);
-            $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $file['content'], LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-            libxml_clear_errors(); libxml_use_internal_errors($previous);
-            if (!$loaded) continue;
+            $document = HtmlSerialization::utf8Document($file['content'], LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+            if (null === $document) continue;
             $documents[$index] = $document;
             foreach ((new DOMXPath($document))->query('//*[self::nav or @role="navigation"]//a[@href]') ?: array() as $link) {
                 if (!$link instanceof DOMElement) continue;
                 $label = $link;
                 while ($label->parentNode instanceof DOMElement && !self::isNavigationLandmark($label->parentNode) && 'label' !== strtolower($label->tagName) && 1 === $label->parentNode->getElementsByTagName('a')->length) $label = $label->parentNode;
                 $nodes = array(); $shape = array(); $current = false;
-                foreach (array_merge(array($label), iterator_to_array($label->getElementsByTagName('*'))) as $node) {
+                foreach (SourceDom::subtreeElements($label) as $node) {
                     if ('input' === strtolower($node->tagName)) continue;
                     $nodes[] = $node; $shape[] = $node->tagName;
                     foreach ($node->attributes as $attribute) {
@@ -190,7 +185,7 @@ final class RouteStateProjector
                 // core/navigation), so its links carry their route state like a label.
                 $dialog = false;
                 if ('nav' !== strtolower($navigation->tagName)) {
-                    for ($cursor = $navigation; $cursor instanceof DOMElement; $cursor = $cursor->parentNode) $dialog = $dialog || 'dialog' === strtolower($cursor->tagName) || 'dialog' === strtolower(trim($cursor->getAttribute('role')));
+                    for ($cursor = $navigation; $cursor instanceof DOMElement; $cursor = $cursor->parentNode) $dialog = $dialog || 'dialog' === strtolower($cursor->tagName) || 'dialog' === SourceDom::role($cursor);
                 }
                 $self = self::labelRoute($target) === self::labelRoute((string) ($file['path'] ?? ''));
                 $menus[$menu][$index]['self'] = ($menus[$menu][$index]['self'] ?? 0) + (int) $self;
@@ -276,7 +271,7 @@ final class RouteStateProjector
                     // A class token every current copy has and no resting copy
                     // has (or the reverse) is route state, even when another
                     // route's copy differs in its other tokens.
-                    $tokens = static fn(array $values): array => array_map(static fn(?string $value): array => preg_split('/\s+/', trim((string) $value)) ?: array(), $values);
+                    $tokens = static fn(array $values): array => array_map(static fn(?string $value): array => SourceDom::tokens((string) $value), $values);
                     $marks = static fn(array $own, array $other): array => array_diff(array_intersect(...array_merge($own, array(array_merge(...$own)))), array_merge(...$other));
                     $paired = 'class' === $name
                         ? array() !== $marks($tokens($active), $tokens($rest)) || array() !== $marks($tokens($rest), $tokens($active))
@@ -307,7 +302,7 @@ final class RouteStateProjector
 
     private static function isNavigationLandmark(DOMElement $element): bool
     {
-        return 'nav' === strtolower($element->tagName) || 'navigation' === strtolower(trim($element->getAttribute('role')));
+        return 'nav' === strtolower($element->tagName) || 'navigation' === SourceDom::role($element);
     }
 
     /** Use the same route identity for self-target evidence and replay bindings. */
@@ -370,7 +365,7 @@ final class RouteStateProjector
 
     private static function sortedClasses(string $classes): string
     {
-        $list = preg_split('/\s+/', trim($classes)) ?: array();
+        $list = SourceDom::tokens($classes);
         sort($list, SORT_STRING);
         return implode(' ', array_unique($list));
     }
@@ -398,11 +393,8 @@ final class RouteStateProjector
         $items = array();
         foreach ($files as $index => $file) {
             if ('html' !== ($file['kind'] ?? null) || !is_string($file['content'] ?? null) || 1 !== preg_match('/<nav\b|\brole=["\']?(?:navigation|menu|menubar)\b/i', $file['content'])) continue;
-            $document = new DOMDocument('1.0', 'UTF-8');
-            $previous = libxml_use_internal_errors(true);
-            $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $file['content'], LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-            libxml_clear_errors(); libxml_use_internal_errors($previous);
-            if (!$loaded) continue;
+            $document = HtmlSerialization::utf8Document($file['content'], LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+            if (null === $document) continue;
             $documents[$index] = $document;
             $xpath = new DOMXPath($document);
             foreach ($xpath->query('//*[' . self::NAVIGATION_ROOT . '][not(ancestor::*[' . self::NAVIGATION_ROOT . '])]') ?: array() as $position => $navigation) {
@@ -500,11 +492,8 @@ final class RouteStateProjector
         $elements = array();
         $stylesheets = null;
         foreach (array_keys($documents) as $index) {
-            $document = new DOMDocument('1.0', 'UTF-8');
-            $previous = libxml_use_internal_errors(true);
-            $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $files[$index]['content'], LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-            libxml_clear_errors(); libxml_use_internal_errors($previous);
-            if (!$loaded) { unset($documents[$index]); continue; }
+            $document = HtmlSerialization::utf8Document($files[$index]['content'], LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+            if (null === $document) { unset($documents[$index]); continue; }
             $documents[$index] = $document;
             $xpath = new DOMXPath($document);
             $landmarks = array();
@@ -601,7 +590,7 @@ final class RouteStateProjector
         foreach ($carriers as $index => $file) {
             $content = preg_replace_callback('/(\sclass\s*=\s*)(["\'])(.*?)\2/is', static function (array $match) use ($prefix, $aliasPattern, $isStyled): string {
                 if (!str_contains($match[3], $prefix)) return $match[0];
-                $classes = preg_split('/\s+/', trim($match[3])) ?: array();
+                $classes = SourceDom::tokens($match[3]);
                 $kept = array_values(array_filter($classes, static fn(string $class): bool => !preg_match($aliasPattern, $class) || $isStyled($class)));
                 return $kept === $classes ? $match[0] : $match[1] . $match[2] . implode(' ', $kept) . $match[2];
             }, $file['content']);
@@ -650,11 +639,8 @@ final class RouteStateProjector
         $named = static fn(string $class): string => '/\.' . preg_quote($class, '/') . '(?![A-Za-z0-9_-])/';
         $scoped = array(); $meanings = array(); $worn = array();
         foreach (array_keys($documents) as $index) {
-            $document = new DOMDocument('1.0', 'UTF-8');
-            $previous = libxml_use_internal_errors(true);
-            $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $files[$index]['content'], LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-            libxml_clear_errors(); libxml_use_internal_errors($previous);
-            if (!$loaded) { unset($documents[$index]); continue; }
+            $document = HtmlSerialization::utf8Document($files[$index]['content'], LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+            if (null === $document) { unset($documents[$index]); continue; }
             $documents[$index] = $document;
             foreach ((new DOMXPath($document))->query('//*[self::nav or self::header or self::footer or @role="navigation" or @role="banner" or @role="contentinfo"]/descendant-or-self::*[@class]') ?: array() as $element) {
                 if (!$element instanceof DOMElement) continue;
@@ -770,7 +756,7 @@ final class RouteStateProjector
 
     private static function isChromeLandmark(DOMElement $element): bool
     {
-        return in_array(strtolower($element->tagName), array('header', 'footer'), true) || in_array(strtolower(trim($element->getAttribute('role'))), array('banner', 'contentinfo'), true);
+        return in_array(strtolower($element->tagName), array('header', 'footer'), true) || in_array(SourceDom::role($element), array('banner', 'contentinfo'), true);
     }
 
     /**
@@ -894,12 +880,8 @@ final class RouteStateProjector
         if (! preg_match('/\saria-current\s*=|\sdata-status\s*=\s*["\']?active|\sstyle\s*=\s*(?:"[\s;]*"|\'[\s;]*\')/i', $html)) {
             return $html;
         }
-        $previous = libxml_use_internal_errors(true);
-        $document = new DOMDocument('1.0', 'UTF-8');
-        $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
-        if (! $loaded) {
+        $document = HtmlSerialization::utf8Document($html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+        if (null === $document) {
             return $html;
         }
 
@@ -1051,6 +1033,6 @@ final class RouteStateProjector
     /** @return list<string> */
     private static function classes(DOMElement $element): array
     {
-        return array_values(array_unique(array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn(string $class): bool => '' !== $class)));
+        return array_values(array_unique(array_filter(SourceDom::tokens($element->getAttribute('class')), static fn(string $class): bool => '' !== $class)));
     }
 }

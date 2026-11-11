@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
@@ -31,12 +33,6 @@ final class RuntimeDependencyParityReport
         $this->ownsRuntimeScriptEvidenceAnalyzer = null === $runtimeScriptEvidenceAnalyzer;
         $this->runtimeScriptEvidenceAnalyzer = $runtimeScriptEvidenceAnalyzer ?? new RuntimeScriptEvidenceAnalyzer();
     }
-
-    /**
-     * Tag-only script selectors whose native DOM shape can be behavior-bearing.
-     *
-     * @var array<int, string>
-     */
 
     /**
      * Acceptable disposition for a missing-DOM-target finding whose selector the
@@ -99,7 +95,7 @@ final class RuntimeDependencyParityReport
                 $bodyExists = $this->targetExists($dependency, $generatedTargets) || $this->targetExists($dependency, $companionTargets) || $this->targetExists($dependency, $rendererTargets);
                 $exists = $headTarget ? $this->targetExists($dependency, $wordpressHeadTargets) : $bodyExists;
                 $canvasApi = true === $dependency['canvas_api'] && 'canvas' === ($target['tag'] ?? '');
-                $dependencyRow = array_filter(array(
+                $facts = array(
                     'source_path'       => $target['source_path'] ?? $sourcePath,
                     'script_path'       => $scriptPath,
                     'script_kind'       => $scriptKind,
@@ -110,6 +106,8 @@ final class RuntimeDependencyParityReport
                     'dependency_kind'   => $dependency['kind'],
                     'events'            => $dependency['events'],
                     'canvas_api'        => $canvasApi,
+                );
+                $dependencyRow = array_filter($facts + array(
                     'source_present'    => array() !== $target,
                     'generated_present' => $exists,
                     'generated_target_evidence' => $headTarget ? ($exists ? 'wordpress_document_head' : '') : $this->generatedTargetEvidence($dependency, $companionTargets, $rendererTargets),
@@ -144,16 +142,7 @@ final class RuntimeDependencyParityReport
                 $findings[] = array_filter(array(
                     'code'              => 'runtime_dependency_target_missing',
                     'severity'          => $severity,
-                    'source_path'       => $target['source_path'] ?? $sourcePath,
-                    'script_path'       => $scriptPath,
-                    'script_kind'       => $scriptKind,
-                    'selector'          => $selector,
-                    'target_id'         => $target['id'] ?? '',
-                    'target_class'      => $target['class'] ?? '',
-                    'target_kind'       => $target['tag'] ?? '',
-                    'dependency_kind'   => $dependency['kind'],
-                    'events'            => $dependency['events'],
-                    'canvas_api'        => $canvasApi,
+                ) + $facts + array(
                     'repair_bucket'     => $repairBucket,
                     'suggested_primitive' => $canvasApi ? 'runtime_canvas' : 'runtime_dom_target',
                     'actionability'     => $canvasApi ? 'preserve_canvas_markup_with_matching_script_runtime_or_rebuild_canvas_behavior' : 'preserve_or_recreate_the_referenced_dom_target_for_script_runtime',
@@ -205,11 +194,8 @@ final class RuntimeDependencyParityReport
      */
     private function controlledTargetFindings(array $sourceTargets, string $sourceHtml, string $generatedHtml, string $sourcePath): array
     {
-        $previous = libxml_use_internal_errors(true);
         $document = new DOMDocument();
-        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $generatedHtml . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
+        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . $generatedHtml . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
         if (!$loaded) return array();
         $findings = array();
         $scopedTargets = array();
@@ -224,7 +210,7 @@ final class RuntimeDependencyParityReport
             if (!isset($scopedTargets[$scopeKey])) {
                 $scopedTargets[$scopeKey] = $this->withBlockCommentAnchorTargets($this->htmlTargets((string) $document->saveHTML($scope)), (string) $document->saveHTML($scope));
             }
-            foreach (preg_split('/\s+/', trim($control->getAttribute('aria-controls'))) ?: array() as $id) {
+            foreach (SourceDom::tokens($control->getAttribute('aria-controls')) as $id) {
                 if ('' === $id || !isset($sourceTargets['#' . $id]) || isset($scopedTargets[$scopeKey]['ids'][$id])) continue;
                 // Like an id the source never had: when the same source document
                 // scope has no such target (a phone popup built only when it
@@ -260,11 +246,8 @@ final class RuntimeDependencyParityReport
     private function documentVariantIds(string $html): array
     {
         $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
         $documentHtml = array() !== HtmlTagScanner::scan($html, 'html') ? $html : '<body>' . $html . '</body>';
-        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?>' . $documentHtml, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
+        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?>' . $documentHtml, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
         if (!$loaded) return array();
         $ids = array();
         foreach ($document->getElementsByTagName('*') as $root) {
@@ -283,7 +266,7 @@ final class RuntimeDependencyParityReport
     {
         $device = trim(EngineMarker::deviceScopeValue($root));
         if ('' !== $device && $root->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE)) return 'device:' . $device;
-        foreach (preg_split('/\s+/', trim($root->getAttribute('class'))) ?: array() as $class) {
+        foreach (SourceDom::tokens($root->getAttribute('class')) as $class) {
             if (null !== DocumentVariantIds::suffixForClass($class)) return 'class:' . $class;
         }
         return null;
@@ -481,7 +464,7 @@ final class RuntimeDependencyParityReport
                 continue;
             }
 
-            $attributes = is_array($island['attributes'] ?? null) ? $island['attributes'] : array();
+            $attributes = ArrayField::array($island, 'attributes');
             $src = trim((string) ($attributes['src'] ?? ''));
             if ( '' === $src ) {
                 continue;
@@ -801,11 +784,8 @@ final class RuntimeDependencyParityReport
     {
         $targets = array();
         $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
         $documentHtml = array() !== HtmlTagScanner::scan($html, 'html') ? $html : '<body>' . $html . '</body>';
-        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?>' . $documentHtml, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
+        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?>' . $documentHtml, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
         if ( ! $loaded ) {
             return array();
         }
@@ -823,7 +803,7 @@ final class RuntimeDependencyParityReport
             if ( '' !== $id ) {
                 $targets['#' . $id] = array_filter(array('tag' => $tag, 'source_path' => $sourcePath, 'id' => $id, 'src' => $src), static fn (string $value): bool => '' !== $value);
             }
-            foreach ( preg_split('/\s+/', trim($element->hasAttribute('class') ? $element->getAttribute('class') : '')) ?: array() as $class ) {
+            foreach ( SourceDom::tokens($element->hasAttribute('class') ? $element->getAttribute('class') : '') as $class ) {
                 if ( '' !== $class ) {
                     $targets['.' . $class] = array_filter(array('tag' => $tag, 'source_path' => $sourcePath, 'class' => $class, 'src' => $src), static fn (string $value): bool => '' !== $value);
                     $targets[$tag . '.' . $class] = array_filter(array('tag' => $tag, 'source_path' => $sourcePath, 'class' => $class, 'src' => $src), static fn (string $value): bool => '' !== $value);
@@ -898,7 +878,7 @@ final class RuntimeDependencyParityReport
         }
         if ( preg_match_all('/\sclass\s*=\s*(["\'])(.*?)\1/is', $html, $matches) ) {
             foreach ( $matches[2] as $classList ) {
-                foreach ( preg_split('/\s+/', trim(html_entity_decode((string) $classList, ENT_QUOTES | ENT_HTML5, 'UTF-8'))) ?: array() as $class ) {
+                foreach ( SourceDom::tokens(html_entity_decode((string) $classList, ENT_QUOTES | ENT_HTML5, 'UTF-8')) as $class ) {
                     if ( '' !== $class ) {
                         $targets['classes'][$class] = true;
                     }
@@ -910,7 +890,7 @@ final class RuntimeDependencyParityReport
                 $tag = strtolower((string) $element[1]);
                 $attrs = (string) $element[2];
                 if ( preg_match('/\sclass\s*=\s*(["\'])(.*?)\1/is', $attrs, $classMatch) ) {
-                    foreach ( preg_split('/\s+/', trim(html_entity_decode((string) $classMatch[2], ENT_QUOTES | ENT_HTML5, 'UTF-8'))) ?: array() as $class ) {
+                    foreach ( SourceDom::tokens(html_entity_decode((string) $classMatch[2], ENT_QUOTES | ENT_HTML5, 'UTF-8')) as $class ) {
                         if ( '' !== $class ) {
                             $targets['selectors'][$tag . '.' . $class] = true;
                         }
@@ -958,7 +938,7 @@ final class RuntimeDependencyParityReport
                 $targets['classes'][substr($selector, 1)] = true;
             }
 
-            $attributes = is_array($island['attributes'] ?? null) ? $island['attributes'] : array();
+            $attributes = ArrayField::array($island, 'attributes');
             $id = is_string($attributes['id'] ?? null) ? trim($attributes['id']) : '';
             if ( '' !== $id ) {
                 $targets['ids'][$id] = true;

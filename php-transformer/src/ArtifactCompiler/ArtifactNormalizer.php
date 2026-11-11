@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CaptureReplayScripts;
@@ -345,7 +346,7 @@ final class ArtifactNormalizer
             if ('html' === $file['kind']) $file['layout_geometry_proof'] = $layoutGeometryProof['proof'];
         }
         unset($file);
-        $sourceHash = $this->sourceHash($files, $runtimeDeclarations);
+        $sourceHash = self::sourceHash($files, $runtimeDeclarations);
         if ( 0 < $rejected ) {
             ksort($rejectionCounts);
             $diagnostics[] = $this->diagnostic('artifact_inputs_rejected', 'warning', 'One or more artifact inputs were ignored during normalization.', array(
@@ -511,7 +512,7 @@ final class ArtifactNormalizer
     /** @param array<string,mixed> $artifact @return array{max_files:int,max_file_bytes:int,max_total_bytes:int,max_media_files:int,max_media_file_bytes:int,max_media_total_bytes:int,max_report_file_bytes:int,max_report_total_bytes:int} */
     private function limits(array $artifact): array
     {
-        $requested = is_array($artifact['compiler_limits'] ?? null) ? $artifact['compiler_limits'] : array();
+        $requested = ArrayField::array($artifact, 'compiler_limits');
         return array(
             'max_files'       => min(self::MAX_FILES, max(1, (int) ($requested['max_files'] ?? self::DEFAULT_MAX_FILES))),
             'max_file_bytes'  => min(self::MAX_FILE_BYTES, max(1, (int) ($requested['max_file_bytes'] ?? self::DEFAULT_MAX_FILE_BYTES))),
@@ -538,7 +539,7 @@ final class ArtifactNormalizer
     public static function declaredReports(array $artifact): array
     {
         $reports = array();
-        foreach (is_array($artifact['reports'] ?? null) ? $artifact['reports'] : array() as $report) {
+        foreach (ArrayField::array($artifact, 'reports') as $report) {
             if (!is_string($report)) continue;
             $path = ArtifactPath::safeRelativePath($report);
             if ('' !== $path) $reports[$path] = true;
@@ -1097,15 +1098,18 @@ final class ArtifactNormalizer
     }
 
     /**
+     * The canonical source hash: file paths, kinds, MIME types and content (or
+     * payload digests), plus the runtime declarations.
+     *
      * @param array<int, array<string, mixed>> $files
      */
-    private function sourceHash(array $files, array $runtimeDeclarations): string
+    public static function sourceHash(array $files, array $runtimeDeclarations): string
     {
         // Source identity is independent of transport and preparation order.
         usort($files, static fn(array $left, array $right): int => strcmp((string) $left['path'], (string) $right['path']));
         $context = hash_init('sha256');
         foreach ( $files as $file ) {
-            $content = isset($file['content_base64']) ? (string) $file['content_base64'] : (isset($file['payload_reference']) ? (string) $file['payload_reference']['sha256'] : (string) $file['content']);
+            $content = isset($file['content_base64']) ? (string) $file['content_base64'] : (isset($file['payload_reference']) ? (string) $file['payload_reference']['sha256'] : (string) ($file['content'] ?? ''));
             hash_update($context, $file['path'] . "\0" . $file['kind'] . "\0" . ($file['mime_type'] ?? '') . "\0");
             hash_update($context, $content);
             hash_update($context, "\0");
@@ -1145,7 +1149,7 @@ final class ArtifactNormalizer
         $slug = is_string($surface['slug'] ?? null) ? strtolower(trim($surface['slug'])) : '';
         $surface['logical_surface_id'] ??= $role . ':' . $slug;
         $surface['responsive_variant_id'] ??= $sourcePath;
-        $provenance = is_array($surface['declaration_provenance'] ?? null) ? $surface['declaration_provenance'] : array();
+        $provenance = ArrayField::array($surface, 'declaration_provenance');
         $provenance['schema'] ??= 'blocks-engine/template-surface-provenance/v1';
         $provenance['kind'] ??= 'artifact_metadata';
         $provenance['source_path'] ??= $sourcePath;

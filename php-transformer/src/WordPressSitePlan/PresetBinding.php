@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ResponsiveCorrespondence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
@@ -199,6 +200,7 @@ final class PresetBinding
     private int $bound = 0;
     /** Projected font defaults, keyed by the HTML target that inherits them. @var array<string,string> */
     private array $fontDefaults = array();
+    private bool $themeDefaultsReady = false;
     /** Whether an author rule selects `mark` elements, which a span made a mark would join. */
     private bool $markRules = false;
     /** Author font rules that may compete with a heading default. @var list<array{selector:string,value:?string}> */
@@ -254,7 +256,18 @@ final class PresetBinding
             if (!array_key_exists($name, $this->variables)) $this->variables[$name] = false;
         }
         $this->classStyles = self::mergeClassStyles($usageBySource);
-        $theme = (new ThemeJsonProjection())->project($assets, array_keys($usageBySource), $system)['theme'];
+    }
+
+    /**
+     * Only the theme that will be written may own inherited font defaults.
+     * Before that projection is available, binding conservatively keeps fonts.
+     *
+     * @param array<string,mixed> $theme
+     */
+    public function useThemeDefaults(array $theme): void
+    {
+        $this->themeDefaultsReady = true;
+        $this->fontDefaults = array();
         $families = array_column($theme['settings']['typography']['fontFamilies'] ?? array(), 'fontFamily', 'slug');
         $styles = $theme['styles'] ?? array();
         foreach (array('body', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6') as $tag) {
@@ -380,7 +393,7 @@ final class PresetBinding
             // The author's link classes ride on the item, or on the anchor
             // the item renders (`blocksEngineNavigationAnchor`).
             $attributes = json_decode($block[2] ?? '', true);
-            $classes = (is_string($attributes['className'] ?? null) ? $attributes['className'] : '') . ' ' . (is_string($attributes['metadata']['blocksEngineNavigationAnchor']['className'] ?? null) ? $attributes['metadata']['blocksEngineNavigationAnchor']['className'] : '');
+            $classes = (ArrayField::string($attributes, 'className')) . ' ' . (is_string($attributes['metadata']['blocksEngineNavigationAnchor']['className'] ?? null) ? $attributes['metadata']['blocksEngineNavigationAnchor']['className'] : '');
             $observation = $this->classStyles[self::authoredClassKey($classes)]['color'] ?? null;
             $slug = $this->presetSlug('color', null, $observation, $reason);
             $links[] = $slug;
@@ -844,6 +857,7 @@ final class PresetBinding
             'fontFamily' => array('fontFamily', 'font-family', 'has-%s-font-family'),
         );
         foreach ($typography as $key => [$attribute, $property, $presetClass]) {
+            if ('fontFamily' === $key && !$this->themeDefaultsReady) continue;
             if ($isLink) {
                 // Button links carry no font preset class; a family equal to
                 // a preset stack reads its variable from the same inline
@@ -1436,20 +1450,6 @@ final class PresetBinding
         return array($match[1][1], $match[1][1] + strlen($match[1][0]), $match[1][0]);
     }
 
-    /**
-     * Whether binding a property keeps the cascade outcome.
-     *
-     * A preset class is `!important`, so any other `!important` rule that can
-     * reach the element competes with it; a rule that excludes one of the
-     * classes the binding adds (`:not(.has-text-color)`) cannot. Spacing stays
-     * inline (as a preset variable), so only selectors on the style text can
-     * observe it, and only through a fragment longer than the property name,
-     * unless the declaration is new. Interaction-state rules for the property
-     * make the resting value one of several, so they block binding too.
-     *
-     * @param array<string,true> $tokens
-     * @param list<string> $addedClasses
-     */
     /**
      * Whether adding `has-background` keeps the block's padding: the block
      * already has the class, its core style does not pad it, or every side
@@ -2075,7 +2075,7 @@ final class PresetBinding
         ksort($usageBySource, SORT_STRING);
         $observations = array();
         foreach ($usageBySource as $usage) {
-            foreach (is_array($usage['class_styles'] ?? null) ? $usage['class_styles'] : array() as $row) {
+            foreach (ArrayField::array($usage, 'class_styles') as $row) {
                 $key = self::authoredClassKey((string) ($row['classes'] ?? ''));
                 if ('' === $key) continue;
                 foreach (self::CLASS_STYLE_PROPERTIES as $property) {
@@ -2126,7 +2126,6 @@ final class PresetBinding
         return (string) preg_replace_callback('/\s*\/?>$/', static fn(array $end): string => $encoded . $end[0], $html, 1);
     }
 
-    /** @return list<array{0:string,1:string}> */
     /**
      * Properties whose value another device document writes inline through
      * capture device-inline evidence. They stay inline declarations, which

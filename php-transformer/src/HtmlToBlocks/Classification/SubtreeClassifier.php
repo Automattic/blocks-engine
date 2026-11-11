@@ -25,10 +25,6 @@ use DOMText;
  *    returns {@see self::BUCKET_UNKNOWN} (low confidence) so the caller can fall
  *    back to `core/html` + a diagnostic rather than misclassify.
  *  - Pure: no I/O, no global state; the same inputs always yield the same verdict.
- *
- * This module is intentionally standalone and is NOT wired into the conversion
- * flow yet; wiring lands as a follow-up after the HtmlTransformer decomposition
- * (#242). See PR for issue #497.
  */
 final class SubtreeClassifier
 {
@@ -409,7 +405,7 @@ final class SubtreeClassifier
     private function hasInteractiveRole(array $elements): bool
     {
         foreach ( $elements as $element ) {
-            $role = strtolower(trim(SourceDom::attr($element, 'role')));
+            $role = SourceDom::role($element);
             if ( '' !== $role && in_array($role, self::INTERACTIVE_ROLES, true) ) {
                 return true;
             }

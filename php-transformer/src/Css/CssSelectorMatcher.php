@@ -1064,11 +1064,11 @@ final class CssSelectorMatcher
             return $element->parentNode instanceof DOMElement && self::matchesAt($element->parentNode, $compounds, $combinators, $index - 1, $cache);
         }
         if ( '+' === $combinator ) {
-            $previous = self::previousElementSibling($element);
+            $previous = $element->previousElementSibling;
             return null !== $previous && self::matchesAt($previous, $compounds, $combinators, $index - 1, $cache);
         }
         if ( '~' === $combinator ) {
-            for ( $previous = self::previousElementSibling($element); null !== $previous; $previous = self::previousElementSibling($previous) ) {
+            for ( $previous = $element->previousElementSibling; null !== $previous; $previous = $previous->previousElementSibling ) {
                 if ( self::matchesAt($previous, $compounds, $combinators, $index - 1, $cache) ) {
                     return true;
                 }
@@ -1146,7 +1146,7 @@ final class CssSelectorMatcher
         }
         if ( null !== $compound['nth_child'] || $compound['first_child'] || $compound['last_child'] ) {
             $childIndex = 1;
-            for ( $previous = self::previousElementSibling($element); null !== $previous; $previous = self::previousElementSibling($previous) ) {
+            for ( $previous = $element->previousElementSibling; null !== $previous; $previous = $previous->previousElementSibling ) {
                 ++$childIndex;
             }
         }
@@ -1155,13 +1155,13 @@ final class CssSelectorMatcher
         }
         if (null !== ($compound['nth_type'] ?? null)) {
             $typeIndex = 1;
-            for ($previous = self::previousElementSibling($element); null !== $previous; $previous = self::previousElementSibling($previous)) {
+            for ($previous = $element->previousElementSibling; null !== $previous; $previous = $previous->previousElementSibling) {
                 if (strtolower($previous->tagName) === strtolower($element->tagName)) ++$typeIndex;
             }
             if (!self::matchesNthExpression($typeIndex, $compound['nth_type'])) return false;
         }
         if ( ! empty($compound['last_type']) ) {
-            for ( $next = self::nextElementSibling($element); null !== $next; $next = self::nextElementSibling($next) ) {
+            for ( $next = $element->nextElementSibling; null !== $next; $next = $next->nextElementSibling ) {
                 if ( strtolower($next->tagName) === strtolower($element->tagName) ) return false;
             }
         }
@@ -1208,14 +1208,14 @@ final class CssSelectorMatcher
             $combinators = $alternative['combinators'];
             $anchor = $alternative['anchor'];
             if ( '+' === $anchor ) {
-                $next = self::nextElementSibling($element);
+                $next = $element->nextElementSibling;
                 if ( null !== $next && self::matchesRelativeFrom($next, $compounds, $combinators, 0, $cache) ) {
                     return true;
                 }
                 continue;
             }
             if ( '~' === $anchor ) {
-                for ( $next = self::nextElementSibling($element); null !== $next; $next = self::nextElementSibling($next) ) {
+                for ( $next = $element->nextElementSibling; null !== $next; $next = $next->nextElementSibling ) {
                     if ( self::matchesRelativeFrom($next, $compounds, $combinators, 0, $cache) ) {
                         return true;
                     }
@@ -1256,11 +1256,11 @@ final class CssSelectorMatcher
             return false;
         }
         if ( '+' === $combinator ) {
-            $next = self::nextElementSibling($element);
+            $next = $element->nextElementSibling;
             return null !== $next && self::matchesRelativeFrom($next, $compounds, $combinators, $index + 1, $cache);
         }
         if ( '~' === $combinator ) {
-            for ( $next = self::nextElementSibling($element); null !== $next; $next = self::nextElementSibling($next) ) {
+            for ( $next = $element->nextElementSibling; null !== $next; $next = $next->nextElementSibling ) {
                 if ( self::matchesRelativeFrom($next, $compounds, $combinators, $index + 1, $cache) ) {
                     return true;
                 }
@@ -1298,16 +1298,6 @@ final class CssSelectorMatcher
         return $descendants;
     }
 
-    private static function nextElementSibling(DOMElement $element): ?DOMElement
-    {
-        for ( $next = $element->nextSibling; null !== $next; $next = $next->nextSibling ) {
-            if ( $next instanceof DOMElement ) {
-                return $next;
-            }
-        }
-        return null;
-    }
-
     /** @param array{name: string, operator: string|null, value: string|null, flag: string|null} $attribute */
     private static function matchesAttribute(DOMElement $element, array $attribute, ?CssSelectorMatchCache $cache): bool
     {
@@ -1341,16 +1331,6 @@ final class CssSelectorMatcher
         };
     }
 
-
-    private static function previousElementSibling(DOMElement $element): ?DOMElement
-    {
-        for ( $node = $element->previousSibling; $node instanceof DOMNode; $node = $node->previousSibling ) {
-            if ( $node instanceof DOMElement ) {
-                return $node;
-            }
-        }
-        return null;
-    }
 
     private static function isIdentifierStartCharacter(string $character): bool
     {

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\GeneratedGutenbergClassPolicy;
 use DOMElement;
 use DOMNode;
@@ -140,7 +141,7 @@ final class ReusableComponentRecognizer
     {
         if ('class' !== $name) return trim($value);
         $classes = array();
-        foreach (preg_split('/\s+/', trim($value)) ?: array() as $class) {
+        foreach (SourceDom::tokens($value) as $class) {
             // These names are emitted by WordPress core, unlike CSS-module-like
             // source classes whose styling provenance cannot be proven here.
             if (!GeneratedGutenbergClassPolicy::isGeneratedClassName($class)) $classes[] = $class;

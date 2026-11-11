@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
@@ -624,9 +625,9 @@ final class FormControlMetadataBuilder
             return $presentation;
         }
         $mapped = (new StyleAttributeMapper())->map($declarations)['style'];
-        $resolved = is_array($mapped['color'] ?? null) ? $mapped['color'] : array();
-        $style = is_array($presentation['style'] ?? null) ? $presentation['style'] : array();
-        $color = is_array($style['color'] ?? null) ? $style['color'] : array();
+        $resolved = ArrayField::array($mapped, 'color');
+        $style = ArrayField::array($presentation, 'style');
+        $color = ArrayField::array($style, 'color');
         foreach ( array( 'background', 'text' ) as $field ) {
             $value = trim((string) ($resolved[ $field ] ?? ''));
             if ( '' === $value || '' !== trim((string) ($color[ $field ] ?? '')) || CssValueInspector::isTransparentColor($value) ) {
@@ -648,7 +649,7 @@ final class FormControlMetadataBuilder
     private function adjacentChoiceSelect(DOMElement $control): ?DOMElement
     {
         if ( 'button' !== strtolower($control->tagName)
-            || ( 'combobox' !== strtolower(trim($control->getAttribute('role')))
+            || ( 'combobox' !== SourceDom::role($control)
                 && 'listbox' !== strtolower(trim($control->getAttribute('aria-haspopup'))) ) ) {
             return null;
         }
@@ -668,7 +669,7 @@ final class FormControlMetadataBuilder
                 continue;
             }
             if ( ! $sibling->hasAttribute('hidden')
-                && ! ( 'true' === strtolower(trim($sibling->getAttribute('aria-hidden')))
+                && ! ( SourceDom::isAriaHidden($sibling)
                     && '-1' === trim($sibling->getAttribute('tabindex')) ) ) {
                 continue;
             }
@@ -726,7 +727,7 @@ final class FormControlMetadataBuilder
             return array();
         }
         $targets = array();
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($control, 'aria-labelledby'))) ?: array() as $id ) {
+        foreach ( SourceDom::tokens(SourceDom::attr($control, 'aria-labelledby')) as $id ) {
             $target = '' === $id ? null : $document->getElementById($id);
             if ( $target instanceof DOMElement ) {
                 $targets[] = $target;
@@ -814,7 +815,6 @@ final class FormControlMetadataBuilder
         return null;
     }
 
-    /** The element that labels this control, by `for`, by wrapping, or by field position. */
     /**
      * Whether the label's caption follows the control in document order: a
      * sibling label after it, or a wrapping label whose first content is it.
@@ -1010,7 +1010,7 @@ final class FormControlMetadataBuilder
 
         $options = array();
         foreach ( $panel->getElementsByTagName('*') as $option ) {
-            if ( ! $option instanceof DOMElement || 'option' !== strtolower(trim($option->getAttribute('role'))) ) {
+            if ( ! $option instanceof DOMElement || 'option' !== SourceDom::role($option) ) {
                 continue;
             }
             $label = $this->collapsedElementText($option);
@@ -1055,7 +1055,7 @@ final class FormControlMetadataBuilder
             return null;
         }
 
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($control, 'aria-controls'))) ?: array() as $id ) {
+        foreach ( SourceDom::tokens(SourceDom::attr($control, 'aria-controls')) as $id ) {
             if ( '' === $id ) {
                 continue;
             }
@@ -1074,7 +1074,7 @@ final class FormControlMetadataBuilder
             return $element;
         }
         foreach ( $element->getElementsByTagName('*') as $candidate ) {
-            if ( $candidate instanceof DOMElement && 'listbox' === strtolower(trim($candidate->getAttribute('role'))) ) {
+            if ( $candidate instanceof DOMElement && 'listbox' === SourceDom::role($candidate) ) {
                 return $element;
             }
         }
@@ -1090,7 +1090,7 @@ final class FormControlMetadataBuilder
                 break;
             }
             foreach ( $wrapper->getElementsByTagName('*') as $candidate ) {
-                if ( ! $candidate instanceof DOMElement || 'listbox' !== strtolower(trim($candidate->getAttribute('role'))) ) {
+                if ( ! $candidate instanceof DOMElement || 'listbox' !== SourceDom::role($candidate) ) {
                     continue;
                 }
                 if ( SourceDom::elementContains($control, $candidate) || $this->panelOwnedByOtherTrigger($candidate, $control) ) {
@@ -1121,7 +1121,7 @@ final class FormControlMetadataBuilder
 
     private function isListboxPanel(DOMElement $element): bool
     {
-        return 'listbox' === strtolower(trim($element->getAttribute('role')))
+        return 'listbox' === SourceDom::role($element)
             || '' !== trim($element->getAttribute(CaptureEvidence::LISTBOX_PANEL));
     }
 
@@ -1229,6 +1229,13 @@ final class FormControlMetadataBuilder
             return '';
         }
         if ( $node instanceof DOMElement && FormControlClassifier::isControlElement($node) ) {
+            return '';
+        }
+        // Composite captions can contain a description paragraph alongside
+        // their title. It is caption copy, not part of the field's name.
+        // Keep inline required markers on the existing normalization path.
+        if ( $node instanceof DOMElement && 'p' === strtolower($node->tagName)
+            && in_array('description', SourceDom::classNames($node), true) ) {
             return '';
         }
 

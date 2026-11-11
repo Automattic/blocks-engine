@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use InvalidArgumentException;
 
@@ -195,7 +197,7 @@ final class FontMaterializationPlanBuilder
         if (!is_array($fonts) || !array_is_list($fonts)) throw new InvalidArgumentException('Font materialization plan fonts are malformed.');
         $families = array();
         foreach ($fonts as $font) {
-            $weights = is_array($font['weights'] ?? null) ? $font['weights'] : array(); $sorted = $weights; sort($sorted, SORT_NUMERIC);
+            $weights = ArrayField::array($font, 'weights'); $sorted = $weights; sort($sorted, SORT_NUMERIC);
             if (!is_array($font) || !is_string($font['family'] ?? null) || '' === trim($font['family']) || !array_is_list($weights) || $weights !== array_values(array_unique($weights)) || $weights !== $sorted || array_filter($weights, static fn(mixed $weight): bool => !is_int($weight) || $weight < 1)) throw new InvalidArgumentException('Font materialization plan has invalid typed fonts.');
             $families[] = $font['family'];
         }
@@ -213,7 +215,7 @@ final class FontMaterializationPlanBuilder
         if (!is_array($contract) || 'blocks-engine/webfont-materialization/v1' !== ($contract['schema'] ?? null) || !is_array($contract['imports'] ?? null) || !array_is_list($contract['imports']) || !is_array($contract['faces'] ?? null) || !array_is_list($contract['faces']) || !is_array($contract['receipts'] ?? null) || !array_is_list($contract['receipts']) || !is_array($contract['browser_readiness'] ?? null)) throw new InvalidArgumentException('Webfont materialization contract is malformed.');
         $imports = array();
         foreach ($contract['imports'] as $import) {
-            $source = is_array($import['source'] ?? null) ? $import['source'] : array(); $id = $import['id'] ?? null;
+            $source = ArrayField::array($import, 'source'); $id = $import['id'] ?? null;
             if (!is_array($import) || !is_string($id) || '' === $id || isset($imports[$id]) || !in_array($import['provider'] ?? null, array('google_fonts', 'direct', 'unsupported'), true) || !in_array($import['state'] ?? null, array('declared', 'unresolved', 'unsupported'), true) || !is_string($source['url'] ?? null) || '' === $source['url'] || !in_array($source['format'] ?? null, array('css', 'font'), true) || !is_array($import['provenance'] ?? null) || !is_array($import['diagnostics'] ?? null)) throw new InvalidArgumentException('Webfont materialization import is malformed.');
             if (('google_fonts' === $import['provider'] && 'css' !== $source['format']) || ('direct' === $import['provider'] && 'font' !== $source['format']) || ('unsupported' === $import['provider'] && 'unsupported' !== $import['state'])) throw new InvalidArgumentException('Webfont materialization import provider is inconsistent.');
             $imports[$id] = $import;
@@ -307,7 +309,7 @@ final class FontMaterializationPlanBuilder
 
         $usage = array();
         foreach ( $matches[0] as $tag ) {
-            $href = $this->htmlAttributeValue((string) $tag, 'href');
+            $href = HtmlSerialization::tagAttribute((string) $tag, 'href');
             if ( '' === $href ) {
                 continue;
             }
@@ -327,7 +329,7 @@ final class FontMaterializationPlanBuilder
         $imports = array();
         $seen = array();
         foreach ( $matches[0] as $index => $tag ) {
-            $href = $this->htmlAttributeValue((string) $tag, 'href');
+            $href = HtmlSerialization::tagAttribute((string) $tag, 'href');
             if ( '' === $href || isset($seen[$href]) ) continue;
             $usage = $this->fontUsageFromFontHref($href);
             if ( array() === $usage ) continue;
@@ -890,26 +892,13 @@ final class FontMaterializationPlanBuilder
         return array_filter($roles, static fn (string $family): bool => in_array($family, $families, true));
     }
 
-    private function htmlAttributeValue(string $tag, string $name): string
-    {
-        if ( preg_match('/(?:^|\s)' . preg_quote($name, '/') . '\s*=\s*(["\'])(.*?)\1/is', $tag, $match) ) {
-            return html_entity_decode((string) $match[2], ENT_QUOTES | ENT_HTML5);
-        }
-
-        if ( preg_match('/(?:^|\s)' . preg_quote($name, '/') . '\s*=\s*([^\s"\'>]+)/is', $tag, $match) ) {
-            return html_entity_decode((string) $match[1], ENT_QUOTES | ENT_HTML5);
-        }
-
-        return '';
-    }
-
     /** @return array<int,string> */
     private function svgFontFamilies(string $svg): array
     {
         preg_match_all('/<text\b[^>]*>/i', $svg, $texts);
         $families = array();
         foreach ($texts[0] as $text) {
-            $value = $this->htmlAttributeValue($text, 'font-family');
+            $value = HtmlSerialization::tagAttribute($text, 'font-family');
             if ('' === $value && preg_match('/\bfont-family\s*:\s*([^;}]+)/i', $text, $match)) $value = $match[1];
             foreach ($this->fontFamilyList($value) as $family) $families[strtolower($family)] = $family;
         }

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
@@ -20,13 +21,8 @@ use DOMElement;
  * Decides which elements carry a runtime contract the block output cannot
  * express natively — canvas and DOM targets, app-shell roots, workspace
  * surfaces, bounded data-attribute targets — and records the islands and
- * preservation fallbacks that follow.
- *
- * Previously `RuntimeIslandTrait`, whose own docblock recorded that it had been
- * "moved verbatim out of HtmlTransformer under #242". That move relocated the
- * code without changing anything: as a single-consumer trait every method still
- * resolved against the transformer's `$this`. Here the same logic owns its
- * DOM queries and is exercised without a transformer.
+ * preservation fallbacks that follow. It owns its DOM queries and is
+ * exercised without a transformer.
  */
 final class RuntimeIslandAnalyzer implements RuntimeDomTargets
 {
@@ -77,7 +73,7 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
             return true;
         }
 
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $class ) {
+        foreach ( SourceDom::tokens(SourceDom::attr($element, 'class')) as $class ) {
             if ( '' !== $class && $this->session->runtimeSelectorState()->hasDom('.' . $class) && ! $this->isPresentationalRuntimeSelector('.' . $class) ) {
                 return true;
             }
@@ -125,7 +121,7 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
         $selectors = array();
         $id = trim(SourceDom::attr($element, 'id'));
         if ( '' !== $id && $this->session->runtimeSelectorState()->hasDom('#' . $id) ) $selectors[] = '#' . $id;
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $class ) if ( '' !== $class && $this->session->runtimeSelectorState()->hasDom('.' . $class) ) $selectors[] = '.' . $class;
+        foreach ( SourceDom::tokens(SourceDom::attr($element, 'class')) as $class ) if ( '' !== $class && $this->session->runtimeSelectorState()->hasDom('.' . $class) ) $selectors[] = '.' . $class;
         foreach ( array_keys($this->session->runtimeSelectorState()->domSelectors()) as $selector ) {
             if ( str_starts_with((string) $selector, '.') || str_starts_with((string) $selector, '#') || strtolower((string) $selector) === strtolower($element->tagName) ) continue;
             if ( ! $this->isPresentationalRuntimeSelector((string) $selector) && $this->elementMatchesRuntimeSelector($element, (string) $selector) ) $selectors[] = (string) $selector;
@@ -149,6 +145,27 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
         }
 
         return false;
+    }
+
+    /**
+     * Records a client-rendered app shell as a runtime island when it must be
+     * preserved, so the caller keeps its markup.
+     */
+    public function recordRuntimeAppShell(DOMElement $element): bool
+    {
+        if ( ! $this->shouldPreserveRuntimeAppShell($element) ) {
+            return false;
+        }
+        $targets = $this->runtimeTargetsInSubtree($element, 8);
+        $this->recordRuntimeIsland($element, 'app_shell', 'runtime_app_shell', 'client_script_execution', array(
+            'events' => SourceDom::eventMetadata($element),
+            'target_count' => count($targets),
+            'targets' => $targets,
+            'app_shell_signals' => $this->runtimeAppShellSignals($element),
+            'required_scripts' => $this->session->fallbackEmitter()->requiredScriptsForElement($element),
+        ));
+
+        return true;
     }
 
     public function shouldPreserveRuntimeAppShell(DOMElement $element): bool
@@ -706,7 +723,7 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
                 return false;
             }
         }
-        foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'))) as $candidate ) {
+        foreach ( SourceDom::subtreeElements($element) as $candidate ) {
             if ( ! $candidate instanceof DOMElement ) {
                 continue;
             }
@@ -776,10 +793,7 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
         }
 
         $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . SourceDom::normalizeHtml5VoidElements($html) . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
+        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . SourceDom::normalizeHtml5VoidElements($html) . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
         if ( ! $loaded ) {
             return null;
         }

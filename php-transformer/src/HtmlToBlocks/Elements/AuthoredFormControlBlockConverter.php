@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
@@ -86,19 +88,13 @@ final class AuthoredFormControlBlockConverter
             'sourceAttributes' => SourceAttribute::staticAttributes(SourceDom::htmlAttributes($label), array_values(AuthoredLabelBlockGenerator::HOST_ATTRIBUTES)),
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== $value);
         $markup = $generator->markup($attrs);
-        return array(
-            'blockName' => $registry->blockName(AuthoredLabelBlockGenerator::LOCAL_NAME),
-            'attrs' => $attrs,
-            'innerBlocks' => array(),
-            'innerHTML' => $markup,
-            'innerContent' => array($markup),
-        );
+        return BlockFactory::leaf($registry->blockName(AuthoredLabelBlockGenerator::LOCAL_NAME), $attrs, $markup);
     }
 
-    /** @return array<string, mixed>|null */
     /**
      * @param bool $runtimeTarget The control is a script's DOM target: it stays native and keeps
      *                            the data-* hooks and the id the script finds it by.
+     * @return array<string, mixed>|null
      */
     public function select(DOMElement $select, bool $forceNative = false, ?DOMElement $labelElement = null, bool $runtimeTarget = false): ?array
     {
@@ -183,7 +179,7 @@ final class AuthoredFormControlBlockConverter
             foreach ($document->getElementsByTagName('*') as $candidate) {
                 if ($candidate instanceof DOMElement
                     && $candidate->getAttribute(CaptureEvidence::LISTBOX_PANEL) === $key
-                    && 'listbox' === strtolower(trim($candidate->getAttribute('role')))) {
+                    && 'listbox' === SourceDom::role($candidate)) {
                     $panel = $candidate;
                     break;
                 }
@@ -231,7 +227,7 @@ final class AuthoredFormControlBlockConverter
             'placeholder' => $triggerLabel,
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== $value);
         $markup = $generator->markup($attrs);
-        $control = array('blockName' => $registry->blockName(AuthoredSelectBlockGenerator::LOCAL_NAME), 'attrs' => $attrs, 'innerBlocks' => array(), 'innerHTML' => $markup, 'innerContent' => array($markup));
+        $control = BlockFactory::leaf($registry->blockName(AuthoredSelectBlockGenerator::LOCAL_NAME), $attrs, $markup);
         return $this->createBlock->createBlock('core/group', array('className' => 'blocks-engine-authored-select-wrapper'), array($control), null);
     }
 
@@ -358,13 +354,7 @@ final class AuthoredFormControlBlockConverter
         $attrs = array_replace($attrs, $state ?? array());
         $markup = $generator->markup($attrs);
 
-        return array(
-            'blockName' => $registry->blockName(AuthoredTextareaBlockGenerator::LOCAL_NAME),
-            'attrs' => $attrs,
-            'innerBlocks' => array(),
-            'innerHTML' => $markup,
-            'innerContent' => array( $markup ),
-        );
+        return BlockFactory::leaf($registry->blockName(AuthoredTextareaBlockGenerator::LOCAL_NAME), $attrs, $markup);
     }
 
     /**
@@ -405,17 +395,43 @@ final class AuthoredFormControlBlockConverter
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : (is_bool($value) ? $value : '' !== $value));
         $markup = $generator->markup($attrs);
 
-        return array(
-            'blockName' => $registry->blockName(AuthoredButtonBlockGenerator::LOCAL_NAME),
-            'attrs' => $attrs,
-            'innerBlocks' => array(),
-            'innerHTML' => $markup,
-            'innerContent' => array( $markup ),
+        return BlockFactory::leaf($registry->blockName(AuthoredButtonBlockGenerator::LOCAL_NAME), $attrs, $markup);
+    }
+
+    /**
+     * The authored button block for a runtime-owned control, carrying the
+     * provenance of the source element it materializes.
+     *
+     * @return array<string, mixed>
+     */
+    public function runtimeButton(DOMElement $element): array
+    {
+        // The authored control saves its descendants as source markup, not
+        // semantic/RichText carriers. Keep author selectors addressing those
+        // actual nodes (including empty CSS-painted icons). A lone close icon is
+        // itself saved inside its inline host.
+        if ( AuthoredButtonBlockGenerator::isCapturedDialogCloseIcon($element) ) {
+            $this->session->authorSelectorProjectionState()->markRetainedSourcePath($element->getNodePath() ?? '');
+        }
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            $this->session->authorSelectorProjectionState()->markRetainedSourcePath($descendant->getNodePath() ?? '');
+        }
+        $generated = $this->runtimeButtonBlock($element);
+        $materialized = $this->createBlock->createBlock(
+            (string) ($generated['blockName'] ?? ''),
+            ArrayField::array($generated, 'attrs'),
+            array(),
+            $element
         );
+        if ( isset($materialized['_source_provenance_id']) ) {
+            $generated['_source_provenance_id'] = $materialized['_source_provenance_id'];
+        }
+
+        return $generated;
     }
 
     /** @return array<string, mixed> */
-    public function runtimeButton(DOMElement $button): array
+    private function runtimeButtonBlock(DOMElement $button): array
     {
         // SVG controls have no RichText label. Model their artwork as core
         // images and containers rather than an opaque contentParts tree.
@@ -434,13 +450,7 @@ final class AuthoredFormControlBlockConverter
             : $this->runtimeButtonAttributes($button);
         $markup = $generator->markup($attrs);
 
-        return array(
-            'blockName' => $registry->blockName(AuthoredButtonBlockGenerator::LOCAL_NAME),
-            'attrs' => $attrs,
-            'innerBlocks' => array(),
-            'innerHTML' => $markup,
-            'innerContent' => array( $markup ),
-        );
+        return BlockFactory::leaf($registry->blockName(AuthoredButtonBlockGenerator::LOCAL_NAME), $attrs, $markup);
     }
 
     private function isCssDrawnControl(DOMElement $element): bool

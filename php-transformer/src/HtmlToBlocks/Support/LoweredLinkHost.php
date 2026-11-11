@@ -52,7 +52,7 @@ final class LoweredLinkHost
         }
 
         $classes = array_values(array_filter(
-            preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array(),
+            SourceDom::tokens((string) ($attrs['className'] ?? '')),
             static fn (string $class): bool => '' !== $class && ! in_array($class, $sourceClasses, true)
         ));
         if ( array() === $classes ) {
@@ -90,7 +90,7 @@ final class LoweredLinkHost
     private static function sourceClasses(DOMElement $link): array
     {
         return array_values(array_filter(
-            preg_split('/\s+/', trim(SourceDom::attr($link, 'class'))) ?: array(),
+            SourceDom::tokens(SourceDom::attr($link, 'class')),
             static fn (string $class): bool => '' !== $class
         ));
     }

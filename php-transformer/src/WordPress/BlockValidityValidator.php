@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPress;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+
 final class BlockValidityValidator
 {
     public const SCHEMA = 'blocks-engine/php-transformer/wp-block-validity-report/v1';
@@ -139,8 +141,8 @@ final class BlockValidityValidator
      */
     private function validateLinkLikeBlock(array $block, string $path, array &$findings, string $textAttr, string $urlAttr, string $kind): void
     {
-        $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
-        $html = is_string($block['innerHTML'] ?? null) ? $block['innerHTML'] : '';
+        $attrs = ArrayField::array($block, 'attrs');
+        $html = ArrayField::string($block, 'innerHTML');
         $blockName = is_string($block['blockName'] ?? null) ? $block['blockName'] : null;
 
         $expectedText = $this->normalizeText(strip_tags((string) ($attrs[$textAttr] ?? '')));

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CanvasBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
@@ -108,7 +109,7 @@ final class RuntimeResourceElementConverter implements ElementConverter
     /** @param array<string, mixed> $metadata @return array<string, mixed> */
     private function staticJsonTargetBlock(DOMElement $element, array $metadata): array
     {
-        $attributes = is_array($metadata['attributes'] ?? null) ? $metadata['attributes'] : array();
+        $attributes = ArrayField::array($metadata, 'attributes');
         ksort($attributes, SORT_STRING);
         $attributeHtml = '';
         foreach ( $attributes as $name => $value ) {

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\SchemaProductEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CustomElementRuntimeDependency;
@@ -795,7 +796,7 @@ final class CommerceFallbackReporter
                 $children = array();
             }
             if ( array() === $children ) {
-                $leaves[$path] = $this->leaf(is_string($blockMarkup) ? $blockMarkup : '', is_string($block['innerHTML'] ?? null) ? $block['innerHTML'] : '', (string) $block['blockName'], $className, $ancestors);
+                $leaves[$path] = $this->leaf(is_string($blockMarkup) ? $blockMarkup : '', ArrayField::string($block, 'innerHTML'), (string) $block['blockName'], $className, $ancestors);
                 return;
             }
             foreach ( $children as $index => $child ) {
@@ -1221,7 +1222,7 @@ final class CommerceFallbackReporter
             if ( ! is_array($fallback) || ! in_array((string) ($fallback['diagnostic_code'] ?? ''), array( 'html_unsupported_element', CustomElementRuntimeDependency::UNPROVEN_CODE, 'html_cart_view_fallback' ), true) ) {
                 return true;
             }
-            $findingSelector = is_string($fallback['selector'] ?? null) ? $fallback['selector'] : '';
+            $findingSelector = ArrayField::string($fallback, 'selector');
 
             return '' === $findingSelector || ! $covered($findingSelector);
         }));
@@ -1356,7 +1357,7 @@ final class CommerceFallbackReporter
                     return $block;
                 }
             }
-            $nested = $this->blockForSourceSelector(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array(), $selector);
+            $nested = $this->blockForSourceSelector(ArrayField::array($block, 'innerBlocks'), $selector);
             if ( null !== $nested ) {
                 return $nested;
             }

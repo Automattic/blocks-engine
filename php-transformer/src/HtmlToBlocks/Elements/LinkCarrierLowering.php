@@ -29,8 +29,11 @@ final class LinkCarrierLowering implements ElementConverter
     ) {
     }
 
-    /** Lowers a link-bearing unknown element; see {@see self::linkBearingElementBlock()}. */
-    /** @param array<int, array<string, mixed>> $fallbacks */
+    /**
+     * Lowers a link-bearing unknown element; see {@see self::linkBearingElementBlock()}.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     */
     public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
         $block = $this->linkBearingElementBlock($element);

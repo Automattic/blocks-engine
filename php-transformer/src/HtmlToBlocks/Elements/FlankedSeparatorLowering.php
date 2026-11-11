@@ -43,7 +43,7 @@ final class FlankedSeparatorLowering
                 return null;
             }
 
-            $declarations = $this->styleResolver->cssDeclarations(SourceDom::attr($flank, 'style'));
+            $declarations = $this->styleResolver->inlineDeclarations($flank);
             if ( array() !== array_diff(array_keys($declarations), array( 'height', 'overflow', 'width' ))
                 || 'hidden' !== strtolower(trim((string) ($declarations['overflow'] ?? '')))
                 || ! in_array(strtolower(trim((string) ($declarations['width'] ?? ''))), array( '', '100%' ), true)

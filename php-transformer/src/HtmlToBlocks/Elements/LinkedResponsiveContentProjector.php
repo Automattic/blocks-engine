@@ -381,7 +381,7 @@ final class LinkedResponsiveContentProjector
     private function idRef(string $value): string
     {
         $ids = array();
-        foreach ( preg_split('/\s+/', trim($value)) ?: array() as $id ) {
+        foreach ( SourceDom::tokens($value) as $id ) {
             $safe = SourceDom::anchorAttributeValue($id);
             if ( '' === $safe || $safe !== $id ) {
                 return '';

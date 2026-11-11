@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\TransformOptions;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformationOptions;
@@ -200,11 +202,11 @@ final class HtmlTransformerSession
     public function rememberNativeTabControls(DOMElement $tabsRoot): void
     {
         foreach ( $tabsRoot->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement || 'tablist' !== strtolower(trim($child->getAttribute('role'))) ) {
+            if ( ! $child instanceof DOMElement || 'tablist' !== SourceDom::role($child) ) {
                 continue;
             }
             foreach ( $child->getElementsByTagName('*') as $candidate ) {
-                if ( $candidate instanceof DOMElement && 'tab' === strtolower(trim($candidate->getAttribute('role'))) ) {
+                if ( $candidate instanceof DOMElement && 'tab' === SourceDom::role($candidate) ) {
                     $this->runtimeBehaviorState->rememberNativeTabControl($candidate->getNodePath() ?? '');
                 }
             }
@@ -312,10 +314,10 @@ final class HtmlTransformerSession
         $this->configurePolicy(! empty($options['extract_global_shell']), ! empty($options['fallback_reduction_mode']));
         $this->runtimeBehaviorState()->installRuntimeScriptMetadata(TransformOptions::runtimeScriptMetadataFromOptions($options));
         $this->runtimeBehaviorState()->installRuntimeProjectionScriptAssets(
-            is_array($options['runtime_projection_script_assets'] ?? null) ? $options['runtime_projection_script_assets'] : array()
+            ArrayField::array($options, 'runtime_projection_script_assets')
         );
         $this->runtimeBehaviorState()->installThemePreferenceOwnership(
-            is_array($options['theme_preference_ownership'] ?? null) ? $options['theme_preference_ownership'] : array()
+            ArrayField::array($options, 'theme_preference_ownership')
         );
         $this->installSourcePath((string) ($options['source'] ?? 'html'));
         $this->installRuntimeSelectorState(new RuntimeSelectorState(

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CapturedDialogBlockGenerator;
@@ -74,7 +75,7 @@ final class CapturedDialogProjector
         }
         $retired = array();
         if (!CapturedInteractionReport::valid($report)
-            || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null)) {
+            || null === $receipt) {
             return array('files' => $files, 'projected_count' => 0, 'native_runtime_replacements' => array());
         }
         $routes = CaptureReceiptRoutes::resolve($files, $receipt);
@@ -82,12 +83,8 @@ final class CapturedDialogProjector
             $path = $routes[CaptureReceiptRoutes::normalizedUrl((string) ($page['sourceUrl'] ?? ''))] ?? '';
             foreach ($files as &$file) {
                 if ('' === $path || $path !== ($file['path'] ?? null) || !is_string($file['content'] ?? null)) continue;
-                $document = new DOMDocument('1.0', 'UTF-8');
-                $previous = libxml_use_internal_errors(true);
-                $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $file['content'], LIBXML_NONET);
-                libxml_clear_errors();
-                libxml_use_internal_errors($previous);
-                if (!$loaded) continue;
+                $document = HtmlSerialization::utf8Document($file['content'], LIBXML_NONET);
+                if (null === $document) continue;
                 $changed = false;
                 $selectors = array();
                 $bindings = new ScriptOccurrenceBindings($document);
@@ -118,10 +115,7 @@ final class CapturedDialogProjector
                                 // Preserve editable captions and other frame content, but not the
                                 // capture's translated/hidden geometry or source media URLs.
                                 $snapshot = new DOMDocument('1.0', 'UTF-8');
-                                $previous = libxml_use_internal_errors(true);
-                                $snapshot->loadHTML('<?xml encoding="UTF-8"><html><body>' . SourceDom::safeFallbackHtmlString(substr((string) ($frame['html'] ?? ''), 0, 524288)) . '</body></html>', LIBXML_NONET);
-                                libxml_clear_errors();
-                                libxml_use_internal_errors($previous);
+                                HtmlSerialization::loadHtml($snapshot, '<?xml encoding="UTF-8"><html><body>' . SourceDom::safeFallbackHtmlString(substr((string) ($frame['html'] ?? ''), 0, 524288)) . '</body></html>', LIBXML_NONET);
                                 $used = 0;
                                 foreach (iterator_to_array($snapshot->getElementsByTagName('*')) as $node) {
                                     foreach (iterator_to_array($node->attributes) as $attribute) {
@@ -175,10 +169,7 @@ final class CapturedDialogProjector
                         foreach (array_slice($component['states'], 0, 24) as $state) {
                             if (!is_string($state['html'] ?? null) || strlen($state['html']) > 524288) continue;
                             $snapshot = new DOMDocument('1.0', 'UTF-8');
-                            $previous = libxml_use_internal_errors(true);
-                            $snapshot->loadHTML('<?xml encoding="UTF-8">' . SourceDom::safeFallbackHtmlString($state['html']), LIBXML_NONET);
-                            libxml_clear_errors();
-                            libxml_use_internal_errors($previous);
+                            HtmlSerialization::loadHtml($snapshot, '<?xml encoding="UTF-8">' . SourceDom::safeFallbackHtmlString($state['html']), LIBXML_NONET);
                             $active = array();
                             foreach ($snapshot->getElementsByTagName('*') as $slide) {
                                 if ('slide' === $slide->getAttribute('aria-roledescription') && !$slide->hasAttribute('hidden')
@@ -239,7 +230,7 @@ final class CapturedDialogProjector
         }
 
         $receipt = CaptureReceiptReport::read($files);
-        if (null === $receipt || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null) || ! is_array($receipt['routes'] ?? null)) {
+        if (null === $receipt || ! is_array($receipt['routes'] ?? null)) {
             return $this->adoptNativeDialogsWithoutReport($files, array_merge($diagnostics, array($this->diagnostic('captured_interactions_route_map_missing', 'warning', 'Captured dialogs were not projected because the capture receipt route map is unavailable.'))));
         }
 
@@ -313,12 +304,8 @@ final class CapturedDialogProjector
             $content = $file['content'] ?? null;
             $path = (string) ($file['path'] ?? '');
             if (! preg_match('/\.html?$/i', $path) || ! is_string($content) || 1 !== preg_match('/\spopover(?:\s|=|>)/i', $content) || ! str_contains(strtolower($content), 'popovertarget')) continue;
-            $previous = libxml_use_internal_errors(true);
-            $document = new DOMDocument('1.0', 'UTF-8');
-            $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $content, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-            libxml_clear_errors();
-            libxml_use_internal_errors($previous);
-            if (! $loaded || $this->hasRestingInlinePanel($document)) continue;
+            $document = HtmlSerialization::utf8Document($content, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+            if (null === $document || $this->hasRestingInlinePanel($document)) continue;
             $count = 0;
             $xpath = new DOMXPath($document);
             foreach (iterator_to_array($xpath->query('//*[@popover][@id]') ?: array()) as $popover) {
@@ -365,7 +352,7 @@ final class CapturedDialogProjector
             // open content, and the popover dialog now owns its binding.
             $panel->removeAttribute('hidden');
             foreach (array(CaptureEvidence::DIALOG_PANEL, CaptureEvidence::EXISTING_PANEL) as $attribute) $panel->removeAttribute($attribute);
-            $classes = array_diff(preg_split('/\s+/', trim($panel->getAttribute('class'))) ?: array(), array(CaptureEvidence::DROPDOWN_CLASS, CaptureEvidence::DIALOG_CLASS));
+            $classes = array_diff(SourceDom::tokens($panel->getAttribute('class')), array(CaptureEvidence::DROPDOWN_CLASS, CaptureEvidence::DIALOG_CLASS));
             if (array() === array_filter($classes)) $panel->removeAttribute('class'); else $panel->setAttribute('class', implode(' ', $classes));
             foreach ($triggers as $trigger) {
                 foreach (array(CaptureEvidence::DIALOG_TRIGGER, CaptureEvidence::DIALOG_PANEL_STATE, CaptureEvidence::DIALOG_ANCESTOR_STATE, CaptureEvidence::DISCLOSURE_LABEL) as $attribute) $trigger->removeAttribute($attribute);
@@ -455,13 +442,10 @@ final class CapturedDialogProjector
      */
     private function projectPage(string $html, array $states, string $sourcePath): array
     {
-        $previous = libxml_use_internal_errors(true);
         $document = new DOMDocument('1.0', 'UTF-8');
         // Implied document containers keep sibling fragment panels outside the
         // first trigger element; NOIMPLIED can nest them inside that button.
-        $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NONET);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
+        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8">' . $html, LIBXML_NONET);
         if (! $loaded) {
             return array('html' => $html, 'diagnostics' => array($this->diagnostic('captured_interaction_source_invalid', 'warning', 'Captured dialogs were not projected because the source HTML could not be parsed.', array('source_path' => $sourcePath))), 'projected_count' => 0, 'retired_scripts' => array(), 'script_bindings' => null);
         }
@@ -489,7 +473,7 @@ final class CapturedDialogProjector
                 continue;
             }
             $dialog = $state['dialog'];
-            $dialogHtml = is_string($dialog['html'] ?? null) ? $dialog['html'] : '';
+            $dialogHtml = ArrayField::string($dialog, 'html');
             $declaredBytes = is_int($dialog['htmlBytes'] ?? null) ? $dialog['htmlBytes'] : -1;
             if ('' === $dialogHtml || ! empty($dialog['htmlTruncated']) || strlen($dialogHtml) > self::MAX_DIALOG_BYTES || $declaredBytes !== strlen($dialogHtml)) {
                 $diagnostics[] = $this->diagnostic('captured_dialog_unsafe_or_truncated', 'warning', 'A captured dialog was ignored because its HTML is empty, truncated, or exceeds the byte limit.', array('source_path' => $sourcePath));
@@ -664,7 +648,6 @@ final class CapturedDialogProjector
         return $count;
     }
 
-    /** Current-page selection is render state, not a dialog's identity. */
     /**
      * A projected dialog is named by its content and its handle within the
      * route document, never by the route: the same dialog on many routes then
@@ -681,7 +664,7 @@ final class CapturedDialogProjector
     {
         $html = preg_replace('/(<a\b[^>]*?)\s+aria-current\s*=\s*(["\'])page\2/i', '$1', $html) ?? $html;
         return preg_replace_callback('/\bclass\s*=\s*(["\'])(.*?)\1/s', static function (array $match): string {
-            $classes = preg_split('/\s+/', trim($match[2])) ?: array();
+            $classes = SourceDom::tokens($match[2]);
             $classes = array_values(array_filter($classes, static fn(string $class): bool => !preg_match('/^blocks-engine-(?:current-navigation-(?:item|underline)|navigation-current-color-[a-f0-9]{64})$/', $class)));
             return 'class=' . $match[1] . implode(' ', $classes) . $match[1];
         }, $html) ?? $html;
@@ -874,7 +857,7 @@ final class CapturedDialogProjector
                 // The producer marks an in-place dropdown panel with `data-blocks-engine-capture-dropdown`.
                 // A panel the source already rendered in place (an existing-panel
                 // snapshot) is a dropdown too, whatever it rests as.
-                $dropdown = array() !== $resting || $panel->hasAttribute(CaptureEvidence::OBSERVED_PLACEMENT) || in_array(CaptureEvidence::DROPDOWN_CLASS, preg_split('/\s+/', trim($panel->getAttribute('class'))) ?: array(), true);
+                $dropdown = array() !== $resting || $panel->hasAttribute(CaptureEvidence::OBSERVED_PLACEMENT) || SourceDom::hasClass($panel, CaptureEvidence::DROPDOWN_CLASS);
                 // The producer placed a dropdown panel where the source rendered
                 // it (`data-blocks-engine-capture-observed-placement`); the dialog stays there.
                 $scopedPanel = array() === $resting && $nativeScopedWiring && $scope->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) && $dropdown;
@@ -1077,12 +1060,8 @@ final class CapturedDialogProjector
         foreach ($files as &$file) {
             $html = $file['content'] ?? null;
             if (!is_string($html) || !preg_match('/\.html?$/i', (string) ($file['path'] ?? '')) || !str_contains($html, CaptureEvidence::EXISTING_PANEL)) continue;
-            $document = new DOMDocument('1.0', 'UTF-8');
-            $previous = libxml_use_internal_errors(true);
-            $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NONET);
-            libxml_clear_errors();
-            libxml_use_internal_errors($previous);
-            if (!$loaded || $this->hasUnrecognizedRuntime($document)) continue;
+            $document = HtmlSerialization::utf8Document($html, LIBXML_NONET);
+            if (null === $document || $this->hasUnrecognizedRuntime($document)) continue;
             $xpath = new DOMXPath($document);
             $changed = false;
             foreach ($document->getElementsByTagName('*') as $trigger) {
@@ -1120,12 +1099,8 @@ final class CapturedDialogProjector
         foreach ($files as &$file) {
             $html = $file['content'] ?? null;
             if (!is_string($html) || !preg_match('/\.html?$/i', (string) ($file['path'] ?? '')) || !str_contains($html, CaptureEvidence::EXISTING_PANEL)) continue;
-            $document = new DOMDocument('1.0', 'UTF-8');
-            $previous = libxml_use_internal_errors(true);
-            $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NONET);
-            libxml_clear_errors();
-            libxml_use_internal_errors($previous);
-            if (!$loaded || $this->hasUnrecognizedRuntime($document)) continue;
+            $document = HtmlSerialization::utf8Document($html, LIBXML_NONET);
+            if (null === $document || $this->hasUnrecognizedRuntime($document)) continue;
             $xpath = new DOMXPath($document);
             $changed = false;
             foreach ($xpath->query('//*[@' . CaptureEvidence::DIALOG_PANEL . '][@' . CaptureEvidence::EXISTING_PANEL . ']') ?: array() as $panel) {
@@ -1271,12 +1246,8 @@ final class CapturedDialogProjector
                 || $content !== ($files[$index]['content'] ?? null)
                 || !str_contains($content, CaptureEvidence::DIALOG_PANEL)
                 || !str_contains($content, CaptureEvidence::DIALOG_TRIGGER)) continue;
-            $previous = libxml_use_internal_errors(true);
-            $document = new DOMDocument('1.0', 'UTF-8');
-            $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $content, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-            libxml_clear_errors();
-            libxml_use_internal_errors($previous);
-            if (!$loaded) continue;
+            $document = HtmlSerialization::utf8Document($content, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+            if (null === $document) continue;
             $xpath = new DOMXPath($document);
             $matched = false;
             foreach ($document->getElementsByTagName('dialog') as $panel) {
@@ -1313,12 +1284,8 @@ final class CapturedDialogProjector
             $content = $file['content'] ?? null;
             $path = (string) ($file['path'] ?? '');
             if (!preg_match('/\.html?$/i', $path) || !is_string($content) || !str_contains($content, CaptureEvidence::DISCLOSURE_RUNTIME) || !str_contains($content, CaptureEvidence::DIALOG_TRIGGER)) continue;
-            $previous = libxml_use_internal_errors(true);
-            $document = new DOMDocument('1.0', 'UTF-8');
-            $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $content, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-            libxml_clear_errors();
-            libxml_use_internal_errors($previous);
-            if (!$loaded || $this->hasUnrecognizedRuntime($document)) continue;
+            $document = HtmlSerialization::utf8Document($content, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+            if (null === $document || $this->hasUnrecognizedRuntime($document)) continue;
             if ($this->hasRestingInlinePanel($document)) {
                 $diagnostics[] = $this->restingInlineDiagnostic($path);
                 continue;
@@ -1368,7 +1335,7 @@ final class CapturedDialogProjector
         $bound = array();
         foreach ((new DOMXPath($document))->query('//*[@data-blocks-engine-captured-dialog="true"]') ?: array() as $dialog) {
             if (!$dialog instanceof DOMElement) continue;
-            foreach (preg_split('/\s+/', trim($dialog->getAttribute('data-blocks-engine-triggers'))) ?: array() as $id) {
+            foreach (SourceDom::tokens($dialog->getAttribute('data-blocks-engine-triggers')) as $id) {
                 if ('' !== $id) $bound[$id] = true;
             }
         }
@@ -1481,7 +1448,7 @@ final class CapturedDialogProjector
         if (str_starts_with($selector, '#') && 1 === preg_match('/^#[A-Za-z][A-Za-z0-9_.:-]*$/', $selector)) {
             $query = './/*[@id=' . $this->xpathLiteral(substr($selector, 1)) . ']';
         } else {
-            $bindings = is_array($trigger['dataBindings'] ?? null) ? $trigger['dataBindings'] : array();
+            $bindings = ArrayField::array($trigger, 'dataBindings');
             foreach ($bindings as $name => $value) {
                 if (is_string($name) && is_string($value) && 1 === preg_match('/^data-(?:popup|modal|dialog)(?:id|target)?$/i', $name) && '' !== $value) {
                     $query = './/*[@' . strtolower($name) . '=' . $this->xpathLiteral($value) . ']';
@@ -1511,60 +1478,12 @@ final class CapturedDialogProjector
      */
     private function selectorMatches(DOMElement $scope, array $trigger): array
     {
-        $selector = is_string($trigger['selector'] ?? null) ? trim($trigger['selector']) : '';
-        if ('' === $selector || str_contains($selector, ',') || ! str_contains($selector, '>')) {
-            return array();
-        }
-        $parts = preg_split('/\s*>\s*/', $selector);
-        if (! is_array($parts) || array() === $parts) {
-            return array();
-        }
-        if ('body' === strtolower($parts[0])) {
-            array_shift($parts);
-        }
-        if (array() === $parts) {
-            return array();
-        }
-        $current = array($scope);
-        foreach ($parts as $index => $part) {
-            if (1 !== preg_match('/^([a-z][a-z0-9]*)(#([A-Za-z][A-Za-z0-9_.:-]*))?(:nth-of-type\((\d+)\))?$/i', $part, $tokens)) {
-                return array();
-            }
-            $tag = strtolower($tokens[1]);
-            $id = $tokens[3] ?? '';
-            $nth = isset($tokens[5]) && '' !== $tokens[5] ? (int) $tokens[5] : 0;
-            $isLast = $index === array_key_last($parts);
-            $next = array();
-            foreach ($current as $node) {
-                $seen = array();
-                foreach ($node->childNodes as $child) {
-                    if (! $child instanceof DOMElement) {
-                        continue;
-                    }
-                    $childTag = strtolower($child->tagName);
-                    $seen[$childTag] = ($seen[$childTag] ?? 0) + 1;
-                    $tagMatches = $childTag === $tag || ($isLast && $this->tagCompatible($tag, $childTag));
-                    if (! $tagMatches) {
-                        continue;
-                    }
-                    if ('' !== $id && $child->getAttribute('id') !== $id) {
-                        continue;
-                    }
-                    if ($nth > 0 && ($seen[$tag] ?? 0) !== $nth) {
-                        continue;
-                    }
-                    $next[] = $child;
-                }
-            }
-            if (array() === $next) {
-                return array();
-            }
-            if (count($next) > self::MAX_STATES_PER_PAGE) {
-                return $next;
-            }
-            $current = $next;
-        }
-        return $current;
+        return CapturedSelectorPath::matches(
+            $scope,
+            is_string($trigger['selector'] ?? null) ? trim($trigger['selector']) : '',
+            limit: self::MAX_STATES_PER_PAGE,
+            lastTagMatches: fn (string $tag, string $childTag): bool => $this->tagCompatible($tag, $childTag),
+        );
     }
 
     /**
@@ -1573,7 +1492,7 @@ final class CapturedDialogProjector
      */
     private function evidenceMatches(DOMElement $scope, array $trigger): array
     {
-        $label = $this->normalizedLabel(is_string($trigger['label'] ?? null) ? $trigger['label'] : '');
+        $label = $this->normalizedLabel(ArrayField::string($trigger, 'label'));
         if ('' === $label) {
             return array();
         }
@@ -1598,8 +1517,8 @@ final class CapturedDialogProjector
     private function filterCandidates(array $elements, array $trigger): array
     {
         $tag = is_string($trigger['tag'] ?? null) ? strtolower(trim($trigger['tag'])) : '';
-        $label = $this->normalizedLabel(is_string($trigger['label'] ?? null) ? $trigger['label'] : '');
-        $capturedPopup = strtolower(trim(is_string($trigger['ariaHaspopup'] ?? null) ? $trigger['ariaHaspopup'] : ''));
+        $label = $this->normalizedLabel(ArrayField::string($trigger, 'label'));
+        $capturedPopup = strtolower(trim(ArrayField::string($trigger, 'ariaHaspopup')));
         $filtered = array();
         foreach ($elements as $element) {
             if (! $this->tagCompatible($tag, strtolower($element->tagName)) || ! $this->isInteractiveControl($element)) {
@@ -1623,7 +1542,7 @@ final class CapturedDialogProjector
     /** @param array<string, mixed> $trigger */
     private function bindingsCompatible(DOMElement $element, array $trigger): bool
     {
-        $bindings = is_array($trigger['dataBindings'] ?? null) ? $trigger['dataBindings'] : array();
+        $bindings = ArrayField::array($trigger, 'dataBindings');
         foreach ($bindings as $name => $value) {
             if (! is_string($name) || ! is_string($value) || '' === $value || 1 !== preg_match('/^data-[a-z0-9_.:-]+$/i', $name)) {
                 if (is_string($value) && '' !== $value) {
@@ -1659,7 +1578,7 @@ final class CapturedDialogProjector
         if ('input' === $tag && in_array(strtolower($element->getAttribute('type')), array('button', 'submit'), true)) {
             return true;
         }
-        if ('button' === strtolower(trim($element->getAttribute('role')))) {
+        if ('button' === SourceDom::role($element)) {
             return true;
         }
         return in_array(strtolower(trim($element->getAttribute('aria-haspopup'))), array('dialog', 'menu', 'true'), true);
@@ -1692,12 +1611,8 @@ final class CapturedDialogProjector
     /** @return array{nodes:array<int, \DOMNode>, class:string, id:string, aria_label:string, aria_labelledby:string, aria_describedby:string, has_close_control:bool, self_positioned:bool}|null */
     private function safeDialogFragment(string $html, string $panelId = ''): ?array
     {
-        $previous = libxml_use_internal_errors(true);
-        $document = new DOMDocument('1.0', 'UTF-8');
-        $loaded = $document->loadHTML('<?xml encoding="UTF-8"><div data-dialog-root="true">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
-        if (! $loaded) return null;
+        $document = HtmlSerialization::utf8Document('<div data-dialog-root="true">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+        if (null === $document) return null;
         $xpath = new DOMXPath($document);
         foreach (array('script', 'iframe', 'object', 'embed', 'template') as $tag) {
             $matches = $xpath->query('//' . $tag);

@@ -54,7 +54,6 @@ final class HtmlTagScanner
         return $attributes;
     }
 
-    /** @return list<array{tag:string,attributes:string,content:string,offset:int,end_offset:int,placement:string}> */
     /**
      * The 1-based occurrence of $search that starts at $offset in $markup, or 0
      * when no occurrence starts there.

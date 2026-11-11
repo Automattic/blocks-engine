@@ -214,15 +214,20 @@ final class ReadableFormBlockBuilder
                 || (FormControlClassifier::isControlElement($node) && FormControlClassifier::isHoneypotControl($node)) ) {
                 continue;
             }
+            // A legend is one group caption even when its nested wrappers
+            // also appear in the layout graph. Do not walk those parts again
+            // as independent flow content after lowering the whole caption.
+            if ('legend' === strtolower($node->tagName)) {
+                $legend = $this->controlBlockConverter->convert($node);
+                if (null !== $legend) {
+                    $legend['_form_legend'] = true;
+                    $blocks[] = $legend;
+                }
+                continue;
+            }
             $entry = $entriesByPath[ (string) $node->getNodePath() ] ?? null;
             if ( null === $entry ) {
-                if ('legend' === strtolower($node->tagName)) {
-                    $legend = $this->controlBlockConverter->convert($node);
-                    if (null !== $legend) {
-                        $legend['_form_legend'] = true;
-                        $blocks[] = $legend;
-                    }
-                } elseif ( $this->isFlowContent($node) ) {
+                if ( $this->isFlowContent($node) ) {
                     $this->pushFlowContent($blocks, $node, $fallbacks);
                 }
                 continue;
@@ -286,7 +291,20 @@ final class ReadableFormBlockBuilder
                 continue;
             }
             if ($isFieldset) {
+                // A fieldset's caption is outside its anonymous flex/grid
+                // content box. Keep source identity on the content group so
+                // projected author layout and field selectors still match.
+                $captions = array();
+                if ( $this->authorLayoutOwnership->isAuthorOwnedLayout($element) ) {
+                    $captions = array_values(array_filter($inner, static fn (array $block): bool => ! empty($block['_form_legend'])));
+                    if ( array() !== $captions ) {
+                        $inner = array_values(array_filter($inner, static fn (array $block): bool => empty($block['_form_legend'])));
+                    }
+                }
                 $group = $this->createBlock->createBlock('core/group', $this->presentationAttributes($element), $inner, $element);
+                if ( array() !== $captions ) {
+                    $group = $this->createBlock->createBlock('core/group', array('className' => 'blocks-engine-css-owned-layout blocks-engine-css-owned-flow'), array_merge($captions, array($group)));
+                }
                 $legend = null;
                 foreach ($element->childNodes as $child) {
                     if ($child instanceof DOMElement && 'legend' === strtolower($child->tagName)) {

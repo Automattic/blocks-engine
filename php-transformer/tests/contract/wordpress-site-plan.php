@@ -1801,6 +1801,16 @@ $companionCanonicalizer = new AssetReferenceCanonicalizer(array(array('source_pa
 $escapedCompanionBlock = '<!-- wp:blocks-engine/responsive-layout ' . json_encode(array('content' => '<picture><source srcset="/uploads/logo.png 1x, /uploads/logo.png?retina=1 2x"><img src="/uploads/logo.png" style="background-image:url(/uploads/logo.png)"></picture>')) . ' /-->';
 $canonicalCompanionBlock = $companionCanonicalizer->content($escapedCompanionBlock, 'website/index.html');
 $assert(4 === substr_count($canonicalCompanionBlock, WordPressSitePlan::TOKEN_PREFIX . 'asset-0123456789abcdef}}') && !str_contains($canonicalCompanionBlock, '\\/uploads\\/logo.png'), 'Default JSON slash escaping does not hide companion HTML assets from canonicalization.');
+// Mirrored HTML must retain non-asset attributes in both JSON quote transports.
+$mirroredHtml = '<picture><source data-srcset="/uploads/logo.png 1x" srcset="/uploads/logo.png 1x"><img data-src="/uploads/logo.png" src="/uploads/logo.png" data-poster="/uploads/logo.png" poster="/uploads/logo.png" data-style="background:url(/uploads/logo.png)" style="background:url(/uploads/logo.png)"><a data-href="/uploads/logo.png" href="/uploads/logo.png"></a></picture>';
+foreach (array(0, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_QUOT | JSON_HEX_APOS | JSON_UNESCAPED_SLASHES) as $jsonFlags) {
+    $mirroredBlock = '<!-- wp:custom/accessible-link ' . json_encode(array('content' => $mirroredHtml), $jsonFlags) . ' -->' . $mirroredHtml . '<!-- /wp:custom/accessible-link -->';
+    $canonicalMirror = $companionCanonicalizer->content($mirroredBlock, 'website/index.html');
+    preg_match('~^<!-- wp:custom/accessible-link (.*?) -->(.*)<!-- /wp:custom/accessible-link -->$~s', $canonicalMirror, $mirrorParts);
+    $mirrorAttributes = json_decode($mirrorParts[1], true);
+    $expectedMirror = str_replace(array(' srcset="/uploads/logo.png', ' src="/uploads/logo.png', ' poster="/uploads/logo.png', ' style="background:url(/uploads/logo.png)', ' href="/uploads/logo.png'), array(' srcset="' . WordPressSitePlan::TOKEN_PREFIX . 'asset-0123456789abcdef}}', ' src="' . WordPressSitePlan::TOKEN_PREFIX . 'asset-0123456789abcdef}}', ' poster="' . WordPressSitePlan::TOKEN_PREFIX . 'asset-0123456789abcdef}}', ' style="background:url(' . WordPressSitePlan::TOKEN_PREFIX . 'asset-0123456789abcdef}})', ' href="' . WordPressSitePlan::TOKEN_PREFIX . 'asset-0123456789abcdef}}'), $mirroredHtml);
+    $assert($expectedMirror === $mirrorParts[2] && $expectedMirror === $mirrorAttributes['content'], 'Mirrored block HTML canonicalizes exact asset attributes identically while preserving data-* attributes across JSON quote transports.');
+}
 $unicodeCanonicalizer = new AssetReferenceCanonicalizer(array(array('source_path' => 'assets/JOHN-OATES-‘ARKANSAS.jpg', 'token' => 'asset-0123456789abcdef')));
 $assert(WordPressSitePlan::TOKEN_PREFIX . 'asset-0123456789abcdef}}' === $unicodeCanonicalizer->reference('../assets/JOHN-OATES-%E2%80%98ARKANSAS.jpg', 'pages/home.html'), 'Canonical matching resolves percent-encoded Unicode references to declared artifact paths.');
 $authorLayoutReference = array('source_path' => 'assets/materialized-svg/logo.svg', 'target_path' => 'assets/materialized-svg/logo.svg', 'token' => 'materialized-svg');

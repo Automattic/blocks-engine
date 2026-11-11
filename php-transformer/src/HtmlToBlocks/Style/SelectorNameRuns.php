@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use DOMElement;
 
@@ -41,7 +42,7 @@ final class SelectorNameRuns
             }
             $runs[] = '#' . $id;
         }
-        foreach ( preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $className ) {
+        foreach ( SourceDom::tokens($element->getAttribute('class')) as $className ) {
             if ( '' === $className ) {
                 continue;
             }

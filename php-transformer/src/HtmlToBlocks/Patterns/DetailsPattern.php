@@ -114,7 +114,7 @@ final class DetailsPattern implements PatternRecognizerInterface
         if ('' !== $label) return $label;
 
         $panels = array();
-        foreach (preg_split('/\s+/', trim($summary->getAttribute('aria-controls'))) ?: array() as $id) {
+        foreach (SourceDom::tokens($summary->getAttribute('aria-controls')) as $id) {
             $panel = $summary->ownerDocument?->getElementById($id);
             if ($panel instanceof DOMElement) $panels[] = $panel;
         }
@@ -122,7 +122,7 @@ final class DetailsPattern implements PatternRecognizerInterface
             if ($child instanceof DOMElement && !$child->isSameNode($summary)) $panels[] = $child;
         }
         foreach ($panels as $panel) {
-            if (!in_array(strtolower(trim($panel->getAttribute('role'))), array('dialog', 'region'), true)) continue;
+            if (!in_array(SourceDom::role($panel), array('dialog', 'region'), true)) continue;
             $label = $this->accessibleName($panel);
             if ('' !== $label) return $label;
         }
@@ -134,7 +134,7 @@ final class DetailsPattern implements PatternRecognizerInterface
         $label = trim($element->getAttribute('aria-label'));
         if ('' !== $label) return $label;
         $parts = array();
-        foreach (preg_split('/\s+/', trim($element->getAttribute('aria-labelledby'))) ?: array() as $id) {
+        foreach (SourceDom::tokens($element->getAttribute('aria-labelledby')) as $id) {
             $target = $element->ownerDocument?->getElementById($id);
             $text = trim($target?->textContent ?? '');
             if ('' !== $text) $parts[] = $text;

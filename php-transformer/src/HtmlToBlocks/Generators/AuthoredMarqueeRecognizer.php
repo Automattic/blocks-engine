@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
@@ -51,7 +52,7 @@ final class AuthoredMarqueeRecognizer
             return null;
         }
 
-        $children = $this->authoredMarqueeElementChildren($element);
+        $children = SourceDom::elementElementChildren($element);
         $count = count($children);
         if ( 0 === $count || 0 !== $count % 2 ) {
             return null;
@@ -114,24 +115,7 @@ final class AuthoredMarqueeRecognizer
         }
         $markup = $generator->markup($attributes);
 
-        return array(
-            'blockName' => $this->generatedBlocks()->blockName(AuthoredMarqueeBlockGenerator::LOCAL_NAME),
-            'attrs' => $attributes,
-            'innerBlocks' => array(),
-            'innerHTML' => $markup,
-            'innerContent' => array( $markup ),
-        );
-    }
-
-    /**
-     * @return list<DOMElement>
-     */
-    private function authoredMarqueeElementChildren(DOMElement $element): array
-    {
-        return array_values(array_filter(
-            iterator_to_array($element->childNodes),
-            static fn (mixed $child): bool => $child instanceof DOMElement
-        ));
+        return BlockFactory::leaf($this->generatedBlocks()->blockName(AuthoredMarqueeBlockGenerator::LOCAL_NAME), $attributes, $markup);
     }
 
     /**
@@ -151,7 +135,7 @@ final class AuthoredMarqueeRecognizer
             return array_slice($children, 0, $half);
         }
         if ( 2 === count($children) && 0 < $children[0]->childElementCount ) {
-            $items = $this->authoredMarqueeElementChildren($children[0]);
+            $items = SourceDom::elementElementChildren($children[0]);
             return array() === $items ? null : $items;
         }
 
@@ -166,7 +150,7 @@ final class AuthoredMarqueeRecognizer
         }
 
         $content = $this->richTextMaterializer->content($item);
-        if ( '' === trim($this->runtime->stripAllTags($content))
+        if ( ! $this->runtime->hasVisibleText($content)
             || $this->richTextMaterializer->hasStructuralHtml($content)
             || $this->richTextMaterializer->requiresHtmlFallback($content)
         ) {
@@ -344,9 +328,9 @@ final class AuthoredMarqueeRecognizer
         $this->generatedBlocks()->register(AuthoredMarqueeBlockGenerator::class, ( new AuthoredMarqueeBlockGenerator() )->definition($this->generatedBlocks()->namespace()));
 
         $duration = 40.0;
-        $durationCandidates = array( $this->styleResolver->cssDeclarations(SourceDom::attr($track, 'style'))['--marquee-duration'] ?? '' );
+        $durationCandidates = array( $this->styleResolver->inlineDeclarations($track)['--marquee-duration'] ?? '' );
         for ( $carrier = $element; $carrier instanceof DOMElement && 'body' !== strtolower($carrier->tagName); $carrier = $carrier->parentNode instanceof DOMElement ? $carrier->parentNode : null ) {
-            $durationCandidates[] = $this->styleResolver->cssDeclarations(SourceDom::attr($carrier, 'style'))['--marquee-duration'] ?? '';
+            $durationCandidates[] = $this->styleResolver->inlineDeclarations($carrier)['--marquee-duration'] ?? '';
         }
         foreach ( $durationCandidates as $value ) {
             if ( preg_match('/^([0-9]+(?:\.[0-9]+)?)s$/', trim((string) $value), $matches) ) {
@@ -365,13 +349,7 @@ final class AuthoredMarqueeRecognizer
         }
         $markup = ( new AuthoredMarqueeBlockGenerator() )->markup($attributes);
 
-        return array(
-            'blockName' => $this->generatedBlocks()->blockName(AuthoredMarqueeBlockGenerator::LOCAL_NAME),
-            'attrs' => $attributes,
-            'innerBlocks' => array(),
-            'innerHTML' => $markup,
-            'innerContent' => array( $markup ),
-        );
+        return BlockFactory::leaf($this->generatedBlocks()->blockName(AuthoredMarqueeBlockGenerator::LOCAL_NAME), $attributes, $markup);
     }
 
     /**
@@ -443,13 +421,7 @@ final class AuthoredMarqueeRecognizer
             $attributes['sourceClassName'] = trim(SourceDom::attr($element, 'class'));
         }
         $markup = $generator->markup($attributes);
-        return array(
-            'blockName' => $this->generatedBlocks()->blockName(AuthoredMarqueeBlockGenerator::LOCAL_NAME),
-            'attrs' => $attributes,
-            'innerBlocks' => array(),
-            'innerHTML' => $markup,
-            'innerContent' => array( $markup ),
-        );
+        return BlockFactory::leaf($this->generatedBlocks()->blockName(AuthoredMarqueeBlockGenerator::LOCAL_NAME), $attributes, $markup);
     }
 
     /** @return array<string, string> */
@@ -473,7 +445,7 @@ final class AuthoredMarqueeRecognizer
         }
         $this->applyAuthoredAnimationCascade(
             $cascade,
-            $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style')),
+            $this->styleResolver->inlineDeclarations($element),
             PHP_INT_MAX,
             $sequence
         );

@@ -62,7 +62,7 @@ final class StructuredInlineItemLowering
             // semantic inline elements (time, links, emphasis, etc.) must retain
             // their source markup inside the editable RichText content.
             $content = 'span' === strtolower($child->tagName) ? $this->styleResolver->innerHtml($child) : SourceDom::outerHtml($child);
-            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+            if ( ! $this->runtime->hasVisibleText($content) ) {
                 return null;
             }
             // Items share the wrapper's inline flow, so a span's boundary

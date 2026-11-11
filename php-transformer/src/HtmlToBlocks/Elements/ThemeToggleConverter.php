@@ -3,13 +3,17 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeScriptEvidenceAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ThemeToggleBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer;
-use Closure;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use DOMElement;
 use LogicException;
 
@@ -18,15 +22,10 @@ final class ThemeToggleConverter implements ElementConverter
 {
     private const MAX_THEME_CSS_EVIDENCE_BYTES = 2097152;
     private const MAX_THEME_RUNTIME_EVIDENCE_BYTES = 1048576;
-    /**
-     * @param Closure(DOMElement): string $sanitizeInlineSvgMarkup
-     * @param Closure(DOMElement): array<string, mixed> $themeControlPresentation
-     */
     public function __construct(
         private readonly SvgMaterializer $svgMaterializer,
         private readonly HtmlTransformerSession $session,
-        private readonly Closure $sanitizeInlineSvgMarkup,
-        private readonly Closure $themeControlPresentation
+        private readonly StyleResolver $styles
     ) {
     }
 
@@ -114,11 +113,11 @@ final class ThemeToggleConverter implements ElementConverter
             if ( ! preg_match('/(?:^|[^a-z0-9])(?:lucide[-_ ])?' . $semantic . '(?:[^a-z0-9]|$)/', $identity) ) {
                 return null;
             }
-            $icon = $this->svgMaterializer->restoreSvgCasing(($this->sanitizeInlineSvgMarkup)($svg));
+            $icon = $this->svgMaterializer->inlineSvgMarkup($svg);
             if ( '' === $icon || ! SourceDom::isSafeSvgContent($icon) ) {
                 return null;
             }
-            $presentation = ($this->themeControlPresentation)($button);
+            $presentation = $this->themeControlPresentation($button);
             $safeAttributes = array();
             foreach ( $buttonAttributes as $name => $value ) {
                 $name = strtolower($name);
@@ -132,9 +131,9 @@ final class ThemeToggleConverter implements ElementConverter
                 'mode' => $mode,
                 'ariaLabel' => $label,
                 'iconSemantic' => $semantic,
-                'className' => implode(' ', array_values(array_unique(array_filter(preg_split('/\s+/', trim(SourceDom::attr($button, 'class') . ' ' . (string) ($presentation['className'] ?? ''))) ?: array())))),
+                'className' => implode(' ', array_values(array_unique(array_filter(SourceDom::tokens(SourceDom::attr($button, 'class') . ' ' . (string) ($presentation['className'] ?? '')))))),
                 'attributes' => $safeAttributes,
-                'style' => is_array($presentation['style'] ?? null) ? $presentation['style'] : array(),
+                'style' => ArrayField::array($presentation, 'style'),
                 'icon' => $icon,
                 'selected' => 'true' === strtolower(SourceDom::attr($button, 'aria-pressed'))
                     || 'true' === strtolower(SourceDom::attr($button, 'aria-selected'))
@@ -159,7 +158,7 @@ final class ThemeToggleConverter implements ElementConverter
         $defaultTheme = (string) ($operator['default_preference'] ?? $defaultTheme);
         if ( 'class' === $rootAttribute ) {
             if ( ! preg_match('/(?:^|})\.' . preg_quote($darkValue, '/') . '(?:\s[^{}]*)?\{[^}]*(?:color-scheme|--(?:background|foreground)|background(?:-color)?\s*:|color\s*:)/i', $css) ) return null;
-            $runtimeClassValues = is_array($ownership['rootClassValues'] ?? null) ? $ownership['rootClassValues'] : array();
+            $runtimeClassValues = ArrayField::array($ownership, 'rootClassValues');
             if ( array() !== $runtimeClassValues
                 && ( ! in_array($darkValue, $runtimeClassValues, true)
                     || ( '' !== $lightValue && ! in_array($lightValue, $runtimeClassValues, true) ) ) ) return null;
@@ -174,9 +173,9 @@ final class ThemeToggleConverter implements ElementConverter
         $blockName = $registry->blockName(ThemeToggleBlockGenerator::LOCAL_NAME);
         $registry->register(ThemeToggleBlockGenerator::class, $generator->definition($registry->namespace()));
         $selectedIndex = array_search(true, array_column($entries, 'selected'), true);
-        $groupPresentation = ($this->themeControlPresentation)($element);
+        $groupPresentation = $this->themeControlPresentation($element);
         $groupClassName = trim(SourceDom::attr($element, 'class') . ' ' . (string) ($groupPresentation['className'] ?? ''));
-        $groupStyle = is_array($groupPresentation['style'] ?? null) ? $groupPresentation['style'] : array();
+        $groupStyle = ArrayField::array($groupPresentation, 'style');
         $attributes = array(
             'themeModes' => $modes,
             'selectionButtons' => $entries,
@@ -200,7 +199,7 @@ final class ThemeToggleConverter implements ElementConverter
             }
         }
         $markup = $generator->markup($attributes, $blockName);
-        return array('blockName' => $blockName, 'attrs' => $attributes, 'innerBlocks' => array(), 'innerHTML' => $markup, 'innerContent' => array($markup));
+        return BlockFactory::leaf($blockName, $attributes, $markup);
     }
 
     /** @param array<int, array<string, mixed>> $entries @param array<int, array<string, mixed>> $runtimeOwners @return array{operator:array<string, mixed>,runtime_ownership:array<string, mixed>}|null */
@@ -229,7 +228,7 @@ final class ThemeToggleConverter implements ElementConverter
                 || '(prefers-color-scheme: dark)' !== trim((string) ($operator['system_query'] ?? '')) ) {
                 continue;
             }
-            $root = is_array($operator['root'] ?? null) ? $operator['root'] : array();
+            $root = ArrayField::array($operator, 'root');
             if ( ! in_array($root['selector'] ?? null, array('html', ':root'), true)
                 || ($root['attribute'] ?? null) !== ($scriptOwner['rootAttribute'] ?? null)
                 || ! is_string($root['dark_value'] ?? null) || '' === $root['dark_value']
@@ -368,7 +367,7 @@ final class ThemeToggleConverter implements ElementConverter
             return null;
         }
 
-        $icon = $this->svgMaterializer->restoreSvgCasing(($this->sanitizeInlineSvgMarkup)($svg));
+        $icon = $this->svgMaterializer->inlineSvgMarkup($svg);
         if ( '' === $icon || ! SourceDom::isSafeSvgContent($icon) ) {
             return null;
         }
@@ -410,6 +409,36 @@ final class ThemeToggleConverter implements ElementConverter
             'storageKey' => 'theme',
         );
         $markup = $generator->markup($attributes, $blockName);
-        return array('blockName' => $blockName, 'attrs' => $attributes, 'innerBlocks' => array(), 'innerHTML' => $markup, 'innerContent' => array($markup));
+        return BlockFactory::leaf($blockName, $attributes, $markup);
+    }
+
+    /**
+     * A theme control's class, layout and safe inline style: layout properties
+     * and plain dimension lengths survive from the source style attribute.
+     *
+     * @return array<string, mixed>
+     */
+    private function themeControlPresentation(DOMElement $element): array
+    {
+        $presentation = $this->styles->presentationAttributes($element);
+        $inline = $this->styles->inlineDeclarations($element);
+        $mapped = $this->styles->styleAttributeMapper()->map($inline);
+        $css = (string) ($this->styles->styleAttributeMapper()->serialize($mapped['style'] ?? array())['style'] ?? '');
+        $declarations = $this->styles->cssDeclarations($css);
+        foreach ( array('display', 'flex-direction', 'flex-wrap', 'justify-content', 'align-items', 'gap', 'row-gap', 'column-gap', 'grid-template-columns', 'grid-template-rows') as $layoutProperty ) {
+            if ( isset($inline[$layoutProperty]) ) $declarations[$layoutProperty] = $inline[$layoutProperty];
+        }
+        foreach ( array('width', 'min-width', 'max-width', 'height', 'min-height', 'max-height') as $dimension ) {
+            $value = trim((string) ($inline[$dimension] ?? ''));
+            $safeLength = CssValueInspector::isAbsoluteLength($value)
+                || 1 === preg_match('/^[+-]?(?:\d+(?:\.\d+)?|\.\d+)%$/', $value)
+                || (preg_match('/^(?:calc|min|max|clamp|var)\s*\(/i', $value) && CssValueSplitter::hasBalancedParens($value));
+            if ( '' !== $value && $safeLength && ! preg_match('/(?:url\s*\(|expression\s*\(|javascript\s*:)/i', $value) ) $declarations[$dimension] = $value;
+        }
+        return array(
+            'className' => (string) ($presentation['className'] ?? ''),
+            'style' => $declarations,
+            'layout' => ArrayField::array($presentation, 'layout'),
+        );
     }
 }

@@ -551,7 +551,7 @@ final class CommerceStructureRecognizer
         if ( '' === $this->collapsedText($element) ) {
             return false;
         }
-        foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'))) as $node ) {
+        foreach ( SourceDom::subtreeElements($element) as $node ) {
             if ( $this->isPriceElement($node)
                 || $this->classifier->hasCommerceToken($node, array( 'badge', 'badges', 'cart', 'buy', 'purchase', 'quickview', 'quick', 'controls' ))
                 || in_array(strtolower($node->tagName), array( 'button', 'input', 'select', 'textarea' ), true)
@@ -596,7 +596,7 @@ final class CommerceStructureRecognizer
         }
 
         $declared = array();
-        foreach ( array_merge(array( $card ), iterator_to_array($card->getElementsByTagName('*'))) as $node ) {
+        foreach ( SourceDom::subtreeElements($card) as $node ) {
             if ( $this->classifier->hasCommerceToken($node, array( 'price', 'amount', 'cost' )) || 'price' === strtolower(SourceDom::attr($node, 'itemprop')) ) {
                 $declared[] = $node;
             }
@@ -1066,7 +1066,7 @@ final class CommerceStructureRecognizer
     {
         for ($node = $svg; $node instanceof DOMElement; $node = $node->parentNode) {
             if ($node->hasAttribute('hidden')
-                || 'true' === strtolower(trim(SourceDom::attr($node, 'aria-hidden')))
+                || SourceDom::isAriaHidden($node)
                 || in_array(strtolower($node->tagName), array('button', 'input', 'select', 'textarea'), true)
                 || in_array(strtolower(SourceDom::attr($node, 'role')), array('button', 'checkbox', 'switch'), true)
                 || $this->classifier->hasCommerceToken($node, array('cart', 'wishlist', 'quickview'))

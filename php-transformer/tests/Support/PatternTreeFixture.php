@@ -32,6 +32,11 @@ final class PatternTreeFixture implements PatternTreeConverter
         return array();
     }
 
+    public function text(string $text): array
+    {
+        return array();
+    }
+
     public function patterns(DOMElement $element, array &$fallbacks, array $allowed): ?array
     {
         return null === $this->patterns ? null : ($this->patterns)($element, $fallbacks, $allowed);

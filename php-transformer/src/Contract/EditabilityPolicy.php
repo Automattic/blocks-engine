@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\Contract;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+
 /** Enforces substantive, source-agnostic editability limits on a measured report. */
 final class EditabilityPolicy
 {
@@ -34,15 +36,15 @@ final class EditabilityPolicy
             foreach ($report['documents'] as $document) {
                 if (!is_array($document)) continue;
                 $breaches = array_merge($breaches, $this->breaches(
-                    is_array($document['metrics'] ?? null) ? $document['metrics'] : array(),
-                    is_string($document['source_path'] ?? null) ? $document['source_path'] : ''
+                    ArrayField::array($document, 'metrics'),
+                    ArrayField::string($document, 'source_path')
                 ));
             }
         } else {
-            $scope = is_array($report['scope'] ?? null) ? $report['scope'] : array();
+            $scope = ArrayField::array($report, 'scope');
             $breaches = $this->breaches(
-                is_array($report['metrics'] ?? null) ? $report['metrics'] : array(),
-                is_string($scope['source_path'] ?? null) ? $scope['source_path'] : ''
+                ArrayField::array($report, 'metrics'),
+                ArrayField::string($scope, 'source_path')
             );
         }
 

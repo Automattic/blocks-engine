@@ -69,8 +69,7 @@ __CONTROL_HELPERS__
 })(window.wp.blocks,window.wp.blockEditor,window.wp.components,window.wp.element);
 JS;
         $script = AuthoredFormLabelEditorScript::synchronize($script);
-        return array('index.js' => str_replace(array('__BLOCK_NAME__', '__BLOCK_ATTRIBUTES__', '__CONTROL_HELPERS__'),
-            array($namespace . '/' . self::LOCAL_NAME, json_encode($this->blockJson($namespace)['attributes'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), AuthoredControlState::editorHelpers()), $script),
+        return array('index.js' => EditorScript::bind($script, $namespace . '/' . self::LOCAL_NAME, $this->blockJson($namespace)['attributes'], array('__CONTROL_HELPERS__' => AuthoredControlState::editorHelpers())),
             'style.css' => '.wp-block-group.blocks-engine-authored-select-wrapper{display:contents}');
     }
 

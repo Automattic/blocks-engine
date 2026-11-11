@@ -52,15 +52,19 @@ $markedStructural = (new HtmlTransformer())->transform('<style>.quote span{color
 $markedBlocks = $markedStructural['blocks'] ?? array();
 $markedMarkup = (string) ($markedStructural['serialized_blocks'] ?? '');
 $markedReport = $markedStructural['source_reports']['editability_report'] ?? array();
-$markedChildren = $markedBlocks[0]['innerBlocks'][0]['innerBlocks'][0]['innerBlocks'] ?? array();
-if ('core/group' !== ($markedBlocks[0]['blockName'] ?? null) || array('core/heading', 'core/paragraph', 'core/image') !== array_column($markedChildren, 'blockName') || 0 !== ($markedReport['metrics']['structural_rich_text_attribute_count'] ?? -1)) throw new RuntimeException('Selector-addressed inline containers retain native Groups and editable children instead of structural RichText.');
+$markedOuter = $markedBlocks[0] ?? array();
+$markedMiddle = $markedOuter['innerBlocks'][0] ?? array();
+$markedInner = $markedMiddle['innerBlocks'][0] ?? array();
+if ('core/group' !== ($markedOuter['blockName'] ?? null) || 'core/group' !== ($markedMiddle['blockName'] ?? null) || 'core/group' !== ($markedInner['blockName'] ?? null) || 'core/heading' !== ($markedInner['innerBlocks'][0]['blockName'] ?? null) || 'core/paragraph' !== ($markedInner['innerBlocks'][1]['blockName'] ?? null) || 'core/image' !== ($markedInner['innerBlocks'][2]['blockName'] ?? null) || 0 !== ($markedReport['metrics']['structural_rich_text_attribute_count'] ?? -1)) throw new RuntimeException('Selector-addressed containers retain native wrapper boundaries and editable children instead of RichText attributes.');
 if (!str_contains($markedMarkup, '<em>heading</em>') || !str_contains($markedMarkup, '<a href="/source">link</a>') || 'pass' !== ((new BlockValidityValidator())->validateBlocks($markedBlocks)['status'] ?? '')) throw new RuntimeException('Structural lowering retains genuine inline formatting and Gutenberg block validity.');
 $runtime = new Runtime();
 $persisted = $runtime->parseBlocks($runtime->serializeBlocks($markedBlocks));
-$persisted[0]['innerBlocks'][0]['innerBlocks'][0]['innerBlocks'][0]['innerHTML'] = '<h3 class="wp-block-heading">Edited <em>heading</em></h3>';
-$persisted[0]['innerBlocks'][0]['innerBlocks'][0]['innerBlocks'][0]['innerContent'] = array('<h3 class="wp-block-heading">Edited <em>heading</em></h3>');
-$persisted[0]['innerBlocks'][0]['innerBlocks'][0]['innerBlocks'][1]['innerHTML'] = '<p>Edited <a href="/updated">link</a></p>';
-$persisted[0]['innerBlocks'][0]['innerBlocks'][0]['innerBlocks'][1]['innerContent'] = array('<p>Edited <a href="/updated">link</a></p>');
+$editableChildren = &$persisted[0]['innerBlocks'][0]['innerBlocks'][0]['innerBlocks'];
+$editableChildren[0]['innerHTML'] = '<h3 class="wp-block-heading">Edited <em>heading</em></h3>';
+$editableChildren[0]['innerContent'] = array('<h3 class="wp-block-heading">Edited <em>heading</em></h3>');
+$editableChildren[1]['innerHTML'] = '<p>Edited <a href="/updated">link</a></p>';
+$editableChildren[1]['innerContent'] = array('<p>Edited <a href="/updated">link</a></p>');
+unset($editableChildren);
 $edited = $runtime->serializeBlocks($persisted);
 if (!str_contains($edited, 'Edited <em>heading</em>') || !str_contains($edited, '<a href="/updated">link</a>') || 'pass' !== ((new BlockValidityValidator())->validateBlocks($runtime->parseBlocks($edited))['status'] ?? '')) throw new RuntimeException('Native structural children persist text and link edits through parse and serialize.');
 

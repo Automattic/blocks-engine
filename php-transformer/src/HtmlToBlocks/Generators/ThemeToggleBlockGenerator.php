@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
@@ -199,7 +200,7 @@ JS;
                     $html .= ' ' . strtolower($name) . '="' . (is_bool($value) ? '' : $escape((string) $value)) . '"';
                 }
             }
-            $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
+            $style = ArrayField::array($attrs, 'style');
             $declarations = array();
             foreach ($style as $property => $value) {
                 if (is_string($property) && is_scalar($value) && preg_match('/^(?:--[a-zA-Z0-9_-]+|[a-zA-Z][a-zA-Z0-9-]*)$/', $property) && ! preg_match('/(?:url\s*\(|expression\s*\(|javascript\s*:)/i', (string) $value)) {
@@ -224,7 +225,7 @@ JS;
             if (! in_array($selected, $modes, true)) $selected = 'dark';
             $context = $escape((string) json_encode(array('rootAttribute' => (string) ($attributes['rootAttribute'] ?? 'class'), 'rootClass' => (string) ($attributes['rootClass'] ?? 'dark'), 'darkValue' => (string) ($attributes['darkValue'] ?? $attributes['rootClass'] ?? 'dark'), 'lightValue' => (string) ($attributes['lightValue'] ?? 'light'), 'rootAttributeRemoved' => ! empty($attributes['rootAttributeRemoved']), 'defaultTheme' => (string) ($attributes['defaultTheme'] ?? 'dark'), 'selectedMode' => $selected, 'storageKey' => (string) ($attributes['storageKey'] ?? 'theme'), 'themeModes' => $modes), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
             $tag = preg_match('/^[A-Za-z][A-Za-z0-9-]*$/', (string) ($attributes['groupTag'] ?? 'div')) ? (string) $attributes['groupTag'] : 'div';
-            $groupAttrs = is_array($attributes['groupAttributes'] ?? null) ? $attributes['groupAttributes'] : array();
+            $groupAttrs = ArrayField::array($attributes, 'groupAttributes');
             $html = '<' . $tag . ' data-wp-interactive="' . $escape($blockName) . '" data-wp-context="' . $context . '" data-wp-init="callbacks.init"';
             $class = trim((string) ($attributes['groupClassName'] ?? '') . ' ' . (string) ($groupAttrs['class'] ?? ''));
             if ('' !== $class) $html .= ' class="' . $escape($class) . '"';

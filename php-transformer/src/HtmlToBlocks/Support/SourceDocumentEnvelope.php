@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use DOMDocument;
 use DOMElement;
@@ -45,10 +46,7 @@ final class SourceDocumentEnvelope
         }
 
         $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $loaded   = $document->loadHTML('<?xml encoding="utf-8" ?>' . $html);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
+        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?>' . $html);
 
         if ( ! $loaded ) {
             return $html;
@@ -67,7 +65,7 @@ final class SourceDocumentEnvelope
         if ( ! preg_match('/<html\b[^>]*\bclass\s*=\s*(["\'])(.*?)\1/is', $html, $match) ) {
             return '';
         }
-        $classes = preg_split('/\s+/', trim(html_entity_decode($match[2], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'))) ?: array();
+        $classes = SourceDom::tokens(html_entity_decode($match[2], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'));
         if ( in_array('dark', $classes, true) ) {
             return 'dark';
         }
@@ -82,15 +80,12 @@ final class SourceDocumentEnvelope
         }
 
         $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?>' . $html);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
+        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?>' . $html);
         $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
         if ( ! $body instanceof DOMElement ) {
             return array();
         }
 
-        return array_values(array_filter(array_unique(preg_split('/\s+/', trim(SourceDom::attr($body, 'class'))) ?: array())));
+        return array_values(array_filter(array_unique(SourceDom::tokens(SourceDom::attr($body, 'class')))));
     }
 }

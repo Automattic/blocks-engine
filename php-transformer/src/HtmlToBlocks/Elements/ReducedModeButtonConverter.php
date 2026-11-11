@@ -28,7 +28,7 @@ final class ReducedModeButtonConverter implements ElementConverter
     {
         if ($this->session->usesFallbackReductionMode() && ( 'button' === $tagName || ( 'a' === $tagName && ! $this->sourceElementClassifier->hasBlockLevelDescendant($element) && '' === trim(SourceDom::attr($element, 'aria-label')) ) )) {
             $text = $this->styleResolver->innerHtml($element);
-            if ('' !== trim($this->runtime->stripAllTags($text))) {
+            if ($this->runtime->hasVisibleText($text)) {
                 $attrs = array_merge($this->styleResolver->presentationAttributes($element), array('text' => $text));
                 if ('a' === $tagName && '' !== trim(SourceDom::attr($element, 'href'))) {
                     $attrs['url'] = SourceDom::attr($element, 'href');

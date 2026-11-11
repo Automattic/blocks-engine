@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\Contract;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+
 /** Bounded, payload-safe evidence for raw HTML escape-hatch emissions. */
 final class CoreHtmlFallbackEvidence
 {
@@ -45,7 +47,7 @@ final class CoreHtmlFallbackEvidence
     public static function merge(array $evidence): array
     {
         $emissions = array();
-        foreach ($evidence as $entry) foreach (is_array($entry['emissions'] ?? null) ? $entry['emissions'] : array() as $emission) if (is_array($emission)) $emissions[] = $emission;
+        foreach ($evidence as $entry) foreach (ArrayField::array($entry, 'emissions') as $emission) if (is_array($emission)) $emissions[] = $emission;
         usort($emissions, static fn (array $a, array $b): int => strcmp((string) ($a['source_path'] ?? '') . "\0" . (string) ($a['block_path'] ?? ''), (string) ($b['source_path'] ?? '') . "\0" . (string) ($b['block_path'] ?? '')));
         $total = array_sum(array_map(static fn (array $entry): int => (int) ($entry['totals']['emissions'] ?? 0), $evidence));
         $reported = min(count($emissions), self::MAX_EMISSIONS);

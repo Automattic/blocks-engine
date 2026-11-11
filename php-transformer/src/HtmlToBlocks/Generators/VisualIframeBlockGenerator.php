@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
@@ -156,11 +157,7 @@ final class VisualIframeBlockGenerator
 JS;
 
         return array(
-            'index.js' => str_replace(
-                array( '__BLOCK_NAME__', '__BLOCK_ATTRIBUTES__' ),
-                array( $blockName, json_encode($this->blockJson($namespace)['attributes'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES) ),
-                $script
-            ),
+            'index.js' => EditorScript::bind($script, $blockName, $this->blockJson($namespace)['attributes']),
             'style.css' => 'iframe{max-width:100%}',
         );
     }
@@ -335,7 +332,7 @@ JS;
         $rawValues = array();
         $unsafe = false;
         $srcdoc = false;
-        foreach ( array_merge(array( $host ), iterator_to_array($host->getElementsByTagName('*'))) as $element ) {
+        foreach ( SourceDom::subtreeElements($host) as $element ) {
             if ( ! $element instanceof DOMElement ) {
                 continue;
             }
@@ -564,8 +561,11 @@ JS;
         ), static fn (mixed $value): bool => '' !== $value && false !== $value);
     }
 
-    /** Any source sizing rule owns geometry, even outside the reference viewport. */
-    /** @param list<string> $properties */
+    /**
+     * Any source sizing rule owns geometry, even outside the reference viewport.
+     *
+     * @param list<string> $properties
+     */
     private function sourceOwnsIframeGeometry(DOMElement $iframe, StyleResolver $styleResolver, array $properties = array( 'width', 'height', 'aspect-ratio', 'position' )): bool
     {
         return array() !== $styleResolver->authorDeclaredPropertyValues($iframe, $properties)
@@ -746,7 +746,7 @@ JS;
         }
 
         parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
-        $videoUrl = $this->safeEmbedUrl(is_string($query['href'] ?? null) ? $query['href'] : '');
+        $videoUrl = $this->safeEmbedUrl(ArrayField::string($query, 'href'));
         $videoHost = strtolower((string) parse_url($videoUrl, PHP_URL_HOST));
 
         return str_ends_with($videoHost, 'facebook.com') ? $videoUrl : '';

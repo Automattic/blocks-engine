@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\FormatBridge;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
@@ -34,7 +35,7 @@ final class HtmlAdapter implements FormatAdapterInterface
 
         $result = $this->transformResult($content, $options);
 
-        return is_array($result['blocks'] ?? null) ? $result['blocks'] : array();
+        return ArrayField::array($result, 'blocks');
     }
 
     /**

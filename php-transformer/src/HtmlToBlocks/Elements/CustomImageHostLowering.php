@@ -278,7 +278,7 @@ final class CustomImageHostLowering implements ElementConverter
     private function imageHasDefinitePixelBox(DOMElement $image): bool
     {
         foreach ( array( 'width', 'height' ) as $property ) {
-            $inline = $this->styleResolver->cssDeclarations(SourceDom::attr($image, 'style'))[$property] ?? '';
+            $inline = $this->styleResolver->inlineDeclarations($image)[$property] ?? '';
             $value = trim(CssValueInspector::withoutImportant((string) $inline));
             if ( '' === $value ) {
                 $pixels = HtmlDimensionAttribute::pixels(SourceDom::attr($image, $property));

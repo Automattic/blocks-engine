@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+
 /**
  * Producer for the WordPress companion-plugin payload.
  *
@@ -128,7 +130,7 @@ final class CompanionPluginPayload
         $entries = array();
         $seen = array();
         $islands = array_values(array_filter(
-            is_array($runtimeIslandPackage['islands'] ?? null) ? $runtimeIslandPackage['islands'] : array(),
+            ArrayField::array($runtimeIslandPackage, 'islands'),
             static fn (mixed $island): bool => is_array($island)
         ));
         usort($islands, static fn (array $left, array $right): int => ('script' === ($right['kind'] ?? '')) <=> ('script' === ($left['kind'] ?? '')));
@@ -240,7 +242,7 @@ final class CompanionPluginPayload
             return array();
         }
 
-        $blockJson = is_array($block['block_json'] ?? null) ? $block['block_json'] : array();
+        $blockJson = ArrayField::array($block, 'block_json');
         if ( array() === $blockJson ) {
             return array();
         }
@@ -331,7 +333,7 @@ final class CompanionPluginPayload
             return array();
         }
 
-        $blockJson = is_array($blockType['block_json'] ?? null) ? $blockType['block_json'] : array();
+        $blockJson = ArrayField::array($blockType, 'block_json');
         if ( array() === $blockJson ) {
             return array();
         }

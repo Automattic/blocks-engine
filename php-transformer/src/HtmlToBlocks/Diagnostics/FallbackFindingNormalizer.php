@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 
 final class FallbackFindingNormalizer
@@ -14,7 +15,7 @@ final class FallbackFindingNormalizer
     public static function normalize(array $fields): array
     {
         $selector = is_string($fields['selector'] ?? null) ? trim($fields['selector']) : '';
-        $context = is_array($fields['context'] ?? null) ? $fields['context'] : array();
+        $context = ArrayField::array($fields, 'context');
         $patternFamily = self::patternFamily($fields);
 
         $metadata = array_filter(array(
@@ -223,7 +224,7 @@ final class FallbackFindingNormalizer
             return false;
         }
 
-        $attributes = is_array($fields['attributes'] ?? null) ? $fields['attributes'] : array();
+        $attributes = ArrayField::array($fields, 'attributes');
         foreach ( array_keys($attributes) as $name ) {
             $attributeName = strtolower((string) $name);
             if ( 'class' === $attributeName || 'id' === $attributeName || 'role' === $attributeName || str_starts_with($attributeName, 'aria-') || str_starts_with($attributeName, 'data-') ) {

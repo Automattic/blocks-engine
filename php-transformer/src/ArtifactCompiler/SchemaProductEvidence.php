@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlMarkupParser;
 
 /**
@@ -198,11 +199,11 @@ final class SchemaProductEvidence
         $found = (is_array($types) || is_string($types)) && array_intersect($accepted, (array) $types) ? array($value) : array();
         if (array_is_list($value)) foreach ($value as $child) $found = array_merge($found, self::typedNodes($child, $type));
         // hasVariant children belong to the group, never separate simple products.
-        foreach (is_array($value['@graph'] ?? null) ? $value['@graph'] : array() as $child) $found = array_merge($found, self::typedNodes($child, $type));
+        foreach (ArrayField::array($value, '@graph') as $child) $found = array_merge($found, self::typedNodes($child, $type));
         $mainEntity = $value['mainEntity'] ?? null;
         if (is_array($mainEntity) && !array_is_list($mainEntity)) $mainEntity = array($mainEntity);
         foreach (is_array($mainEntity) ? $mainEntity : array() as $child) $found = array_merge($found, self::typedNodes($child, $type));
-        foreach (is_array($value['itemListElement'] ?? null) ? $value['itemListElement'] : array() as $item) if (is_array($item)) $found = array_merge($found, self::typedNodes($item['item'] ?? null, $type));
+        foreach (ArrayField::array($value, 'itemListElement') as $item) if (is_array($item)) $found = array_merge($found, self::typedNodes($item['item'] ?? null, $type));
         return $found;
     }
 
@@ -257,7 +258,7 @@ final class SchemaProductEvidence
             }
         }
         if ('' === $name || '' === $regularPrice) return null;
-        $url = is_string($product['url'] ?? null) ? $product['url'] : (is_string($offers['url'] ?? null) ? $offers['url'] : '');
+        $url = is_string($product['url'] ?? null) ? $product['url'] : (ArrayField::string($offers, 'url'));
         if ('' === trim($url) && $isGroup) $url = '/' . $pagePath;
         $urlPath = (string) (parse_url($url, PHP_URL_PATH) ?: '');
         $segments = array_values(array_filter(explode('/', trim($urlPath, '/')), 'strlen'));

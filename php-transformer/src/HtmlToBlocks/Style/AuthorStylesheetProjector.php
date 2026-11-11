@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
@@ -14,6 +15,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSpecificityProjection;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ImageLowering;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\WordPressCommentForm;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMarkerSelector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -88,6 +90,47 @@ final class AuthorStylesheetProjector
             }
         );
         $projected .= implode('', array_keys($bridges));
+        if ( str_contains($context->emittedMarkup, ImageLowering::BACKGROUND_IMAGE_CLASS) ) {
+            // A materialized background is paint, not another author subject.
+            // Exclude both its synthetic wrapper and leaf without changing the
+            // author's specificity or resetting legitimate inherited values.
+            // Those elements are a figure and an img carrying only engine
+            // classes, so only a subject compound typed for them (or untyped)
+            // and without a class or id hook can reach them.
+            $projected = (new CssStylesheetTransformer())->transformStyleRules($projected, static function (string $prelude, string $body): string {
+                $arms = CssStylesheetTransformer::splitSelectorList($prelude);
+                if ( null === $arms ) return $prelude . '{' . $body . '}';
+                $class = '.' . ImageLowering::BACKGROUND_IMAGE_CLASS;
+                $guard = ':where(:not(' . $class . ',' . $class . ' *))';
+                foreach ( $arms as &$arm ) {
+                    $tokens = CssSelectorTokenizer::tokenize($arm);
+                    if ( ! $tokens['supported'] ) continue;
+                    $span = $tokens['compound_spans'][count($tokens['compound_spans']) - 1];
+                    $insert = $span['end'];
+                    $hooked = 1 === preg_match('/\G(?:[a-z][\w-]*\|)?([a-z][\w-]*)/i', $arm, $type, 0, $span['start'])
+                        && ! in_array(strtolower($type[1]), array( 'img', 'figure' ), true);
+                    $state = CssSyntaxScanner::state();
+                    for ( $offset = $span['start']; ! $hooked && $offset < $span['end']; ) {
+                        $topLevel = CssSyntaxScanner::isTopLevel($state);
+                        $next = CssSyntaxScanner::consume($arm, $offset, $state);
+                        if ( null === $next ) break;
+                        if ( $topLevel && ('.' === $arm[$offset] || '#' === $arm[$offset] || preg_match('/\G(?::(?:where|is)\([.#][\w-]+(?:\s*,\s*[.#][\w-]+)*\)|\[(?!(?:src|srcset|alt|class|style|sizes|width|height|loading|decoding)\b))/i', $arm, $_, 0, $offset)) ) {
+                            $hooked = true;
+                            break;
+                        }
+                        if ( $topLevel && ':' === $arm[$offset]
+                            && (':' === ($arm[$offset + 1] ?? '') || preg_match('/\G:(?:before|after|first-line|first-letter)(?![\w-])/i', $arm, $_, 0, $offset)) ) {
+                            $insert = $offset;
+                            break;
+                        }
+                        $offset = $next;
+                    }
+                    if ( ! $hooked ) $arm = substr($arm, 0, $insert) . $guard . substr($arm, $insert);
+                }
+                unset($arm);
+                return implode(',', $arms) . '{' . $body . '}';
+            });
+        }
         // Engine class tokens must not satisfy an authored class substring.
         $projected = $context->authorStyles->classAttributeSelectors()->stylesheet($projected);
         $ids = ScopedAnchorSelectorProjection::identities($context->authorStyles);
@@ -201,7 +244,7 @@ final class AuthorStylesheetProjector
             // Native site plans must retain these selectors: route metadata
             // (including an authoritative empty body) owns their truth there.
             $selectors = CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude);
-            $classes = preg_split('/\s+/', trim($context->authorStyles->sourceBody()->getAttribute('class'))) ?: array();
+            $classes = SourceDom::tokens($context->authorStyles->sourceBody()->getAttribute('class'));
             $selectors = array_filter($selectors, static fn (string $selector): bool =>
                 !preg_match('/^body:not\(\.([A-Za-z0-9_-]+)\)(?=\s|>|\+|~)/', trim($selector), $predicate)
                 || !in_array($predicate[1], $classes, true));
@@ -2549,16 +2592,24 @@ final class AuthorStylesheetProjector
         }
 
         $markers = array();
+        $hasNonProjected = false;
         foreach ( $this->matchingSourceElements($leafSelector, $leafParsed, $context) as $element ) {
             $marker = $context->selectorProjections->controlMarker($element->getNodePath() ?? '');
             if ( '' !== $marker ) {
                 $markers[] = $marker;
+            } else {
+                $hasNonProjected = true;
             }
         }
         $markers = array_values(array_unique($markers));
         $prefix = substr($selector, 0, (int) $rightmost['start']);
         $subject = $subjectArms && array() !== $markers ? $this->contextFreeSubject('control', $leafParsed, $markers, $context) : null;
         $projected = array();
+        // A dormant ancestor (including a route-owned body id) does not make
+        // the leaf control-only. Keep its other subjects addressable too.
+        if ( $hasNonProjected && array() !== $markers ) {
+            $projected[] = $this->rewriteSourceTagTypes($selector, $parsed, $context, ':not(:where(.blocks-engine-role-control))');
+        }
         if ( null !== $subject ) {
             $projected[] = $prefix . $this->projectControlTarget($subject['target'], $leafSelector, $leafParsed, $context, $wrapper);
             $markers = $subject['rest'];
@@ -2714,7 +2765,7 @@ final class AuthorStylesheetProjector
                 $pattern = '/#' . preg_quote($id, '/') . '(?![\w-])/';
                 $specificityShim = ':not(#' . $context->authorStyles->idSpecificityShim() . ')';
             } else {
-                foreach ( preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $className ) {
+                foreach ( SourceDom::tokens($element->getAttribute('class')) as $className ) {
                     if ( '' !== $className && 1 === preg_match('/' . CssIdent::classSelectorRegex($className) . '(?![\w-])/', $selector) ) {
                         $pattern = '/' . CssIdent::classSelectorRegex($className) . '(?![\w-])/';
                         $specificityShim = ':not(.' . $context->authorStyles->classSpecificityShim() . ')';
@@ -3194,7 +3245,7 @@ final class AuthorStylesheetProjector
         }
         $matches = array();
         foreach ( $context->authorStyles->sourceBody()->getElementsByTagName('img') as $image ) {
-            if ( $image instanceof DOMElement && in_array($match[1], preg_split('/\s+/', trim($image->getAttribute('class'))) ?: array(), true) ) {
+            if ( $image instanceof DOMElement && SourceDom::hasClass($image, $match[1]) ) {
                 $matches[] = $image;
             }
         }
@@ -3208,7 +3259,7 @@ final class AuthorStylesheetProjector
         }
         for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
             $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->mediaTextPresentationStyle($parent));
-            if ( in_array(CssValueInspector::comparable((string) ($declarations['display'] ?? '')), array( 'flex', 'grid' ), true)
+            if ( in_array(CssValueInspector::declared($declarations, 'display'), array( 'flex', 'grid' ), true)
                 && $this->hasMediaTextBranches($parent, $element) ) {
                 return true;
             }
@@ -3468,7 +3519,7 @@ final class AuthorStylesheetProjector
         }
         if (!isset($declarations['max-width'])) $bridge[] = 'max-width:100%';
         foreach (array('width', 'height') as $property) {
-            if ('auto' === CssValueInspector::comparable((string) ($declarations[$property] ?? ''))) {
+            if ('auto' === CssValueInspector::declared($declarations, $property)) {
                 $bridge[] = $property . ':' . $declarations[$property];
             }
         }
@@ -4770,12 +4821,12 @@ final class AuthorStylesheetProjector
         foreach ( $context->authorStyles->styleRules() as $rule ) {
             $conditions = array_values(array_filter(array_map(
                 static fn ($condition): string => trim((string) preg_replace('#/\*.*?\*/#s', '', (string) $condition)),
-                is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array()
+                ArrayField::array($rule, 'conditions')
             )));
             if ( array() !== $conditions && ! $this->styleResolver->conditionsApplyAtViewport($conditions, StyleResolver::DESKTOP_REFERENCE_WIDTH) ) {
                 continue;
             }
-            foreach ( is_array($rule['selectors'] ?? null) ? $rule['selectors'] : array() as $record ) {
+            foreach ( ArrayField::array($rule, 'selectors') as $record ) {
                 $selector = trim((string) ( $record['selector'] ?? '' ));
                 if ( 1 !== preg_match('/^(.+?)::?after$/i', $selector, $subject) ) {
                     continue;

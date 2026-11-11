@@ -67,7 +67,7 @@ final class FlowContainerElementConverter implements ElementConverter
         // as div[role=dialog]. Keep them in the ordinary recognizer order rather
         // than flattening their children through transparent-wrapper lowering.
         $isCustomDialog = CustomElementRuntimeDependency::isCustomElementTag($tagName)
-            && 'dialog' === strtolower(trim(SourceDom::attr($element, 'role')));
+            && 'dialog' === SourceDom::role($element);
         if ( ! $this->handles($tagName) && ! $isCustomDialog ) {
             return ConversionOutcome::unhandled();
         }
@@ -110,7 +110,7 @@ final class FlowContainerElementConverter implements ElementConverter
             return ConversionOutcome::handled($this->authorLayout->authorLayoutBlockFromElement($element, $fallbacks));
         }
         if (in_array($tagName, array('header', 'footer'), true)
-            && in_array('wp-block-template-part', preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), true)
+            && SourceDom::hasClass($element, 'wp-block-template-part')
         ) {
             return ConversionOutcome::handled($this->group($element, $this->context->convertChildren($element, $fallbacks)));
         }

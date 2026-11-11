@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -47,17 +49,17 @@ final class CoreHtmlIslandReducer
                 continue;
             }
 
-            $name = is_string($block['blockName'] ?? null) ? $block['blockName'] : '';
+            $name = ArrayField::string($block, 'blockName');
             if (in_array($name, array('core/html', 'core/freeform'), true)) {
                 $html = is_string($block['attrs']['content'] ?? null)
                     ? $block['attrs']['content']
-                    : (is_string($block['innerHTML'] ?? null) ? $block['innerHTML'] : '');
+                    : (ArrayField::string($block, 'innerHTML'));
                 $replacement = $this->fragmentBlocks($html, $sourceRoot);
                 array_push($reduced, ...($replacement ?? array($block)));
                 continue;
             }
 
-            $children = is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array();
+            $children = ArrayField::array($block, 'innerBlocks');
             if (array() !== $children) {
                 $reducedChildren = array();
                 $childReplacements = array();
@@ -69,7 +71,7 @@ final class CoreHtmlIslandReducer
                 $block['innerBlocks'] = $reducedChildren;
                 $innerContent = array();
                 $childIndex = 0;
-                foreach (is_array($block['innerContent'] ?? null) ? $block['innerContent'] : array() as $content) {
+                foreach (ArrayField::array($block, 'innerContent') as $content) {
                     if (null !== $content) {
                         $innerContent[] = $content;
                         continue;
@@ -100,10 +102,7 @@ final class CoreHtmlIslandReducer
             return null;
         }
         $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $loaded = $document->loadHTML('<!doctype html><html><body>' . $html . '</body></html>');
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
+        $loaded = HtmlSerialization::loadHtml($document, '<!doctype html><html><body>' . $html . '</body></html>');
         if ($loaded) {
             foreach ($document->getElementsByTagName('*') as $element) {
                 if ($element instanceof DOMElement && $this->runtimeIslands->isRuntimeDomTarget($element)) {
@@ -130,7 +129,7 @@ final class CoreHtmlIslandReducer
             }
         }
         [ $data, $fragmentSession ] = ($this->compileFragment)($html, $sourceBoxes);
-        $blocks = is_array($data['blocks'] ?? null) ? $data['blocks'] : array();
+        $blocks = ArrayField::array($data, 'blocks');
         if (array() === $blocks || array() !== ($data['fallbacks'] ?? array())) {
             return null;
         }

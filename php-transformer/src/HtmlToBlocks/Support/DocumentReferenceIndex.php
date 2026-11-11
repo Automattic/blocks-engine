@@ -41,7 +41,7 @@ final class DocumentReferenceIndex
             $hash = strpos($href, '#');
             if (false !== $hash) $ids[] = SourceDom::anchorAttributeValue(rawurldecode(substr($href, $hash + 1)));
             foreach (array('aria-labelledby', 'aria-describedby', 'aria-controls') as $attribute) {
-                foreach (preg_split('/\s+/', trim(SourceDom::attr($candidate, $attribute))) ?: array() as $id) $ids[] = $id;
+                foreach (SourceDom::tokens(SourceDom::attr($candidate, $attribute)) as $id) $ids[] = $id;
             }
             $ids[] = SourceDom::attr($candidate, 'for');
             foreach (array_unique($ids) as $id) {
@@ -49,7 +49,7 @@ final class DocumentReferenceIndex
             }
             if ('true' === SourceDom::attr($candidate, 'data-blocks-engine-captured-dialog')) {
                 foreach (array('data-blocks-engine-triggers', 'data-blocks-engine-closers') as $binding) {
-                    foreach (preg_split('/\s+/', trim(SourceDom::attr($candidate, $binding))) ?: array() as $id) {
+                    foreach (SourceDom::tokens(SourceDom::attr($candidate, $binding)) as $id) {
                         if ('' !== $id) $index->dialogControls[$binding][$id] = true;
                     }
                 }
