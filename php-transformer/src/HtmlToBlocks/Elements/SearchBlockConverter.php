@@ -251,7 +251,7 @@ final class SearchBlockConverter implements ElementConverter
             $svg = $carrier->firstElementChild;
             if ( ! $svg instanceof DOMElement || 'svg' !== strtolower($svg->tagName)
                 || 1 !== SourceDom::childElementCount($carrier)
-                || 'absolute' !== CssValueInspector::withoutImportant($this->context->presentationDeclarations($carrier)['position'] ?? '') ) {
+                || ! $this->presentationResolver->hasPropertyValueAtEveryViewport($carrier, 'position', 'absolute') ) {
                 continue;
             }
             $markup = SvgMaterializer::ensureSvgImageNamespace($this->svgMaterializer->restoreSvgCasing(SourceDom::outerHtml($svg)));

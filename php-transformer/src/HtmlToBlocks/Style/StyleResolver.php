@@ -4943,9 +4943,15 @@ final class StyleResolver implements ElementPresentationResolver
      */
     public function isDisplayNoneAtEveryViewport(DOMElement $element): bool
     {
-        foreach ( $this->propertyViewportWidths($element, array( 'display' )) as $width ) {
-            $display = (string) ( $this->cssDeclarations($this->resolvedCascadeStyle($element, 'static-conditional', $width))['display'] ?? '' );
-            if ( 'none' !== CssValueInspector::comparable($display) ) {
+        return $this->hasPropertyValueAtEveryViewport($element, 'display', 'none');
+    }
+
+    /** Recognition only: the resolved author value must match across every viewport partition. */
+    public function hasPropertyValueAtEveryViewport(DOMElement $element, string $property, string $value): bool
+    {
+        foreach ( $this->propertyViewportWidths($element, array( $property )) as $width ) {
+            $resolved = (string) ( $this->cssDeclarations($this->resolvedCascadeStyle($element, 'static-conditional', $width))[$property] ?? '' );
+            if ( CssValueInspector::comparable($value) !== CssValueInspector::comparable($resolved) ) {
                 return false;
             }
         }
