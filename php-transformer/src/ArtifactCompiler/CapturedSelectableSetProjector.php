@@ -702,24 +702,7 @@ final class CapturedSelectableSetProjector
         if ('' === $selector) {
             return array('status' => 'unmatched', 'elements' => array());
         }
-        $scopes = $this->documentScopes($document);
-        if (count($scopes) > self::MAX_SETS_PER_PAGE) {
-            return array('status' => 'ambiguous', 'elements' => array());
-        }
-        $elements = array();
-        foreach ($scopes as $scope) {
-            $matched = $this->selectorMatches($scope, $selector);
-            if (count($matched) > 1) {
-                return array('status' => 'ambiguous', 'elements' => array());
-            }
-            if (1 === count($matched)) {
-                $elements[] = $matched[0];
-            }
-        }
-        if (array() === $elements) {
-            return array('status' => 'unmatched', 'elements' => array());
-        }
-        return array('status' => 'matched', 'elements' => $elements);
+        return $this->uniqueScopeMatches($document, fn(DOMElement $scope): array => $this->selectorMatches($scope, $selector), self::MAX_SETS_PER_PAGE);
     }
 
     /**
