@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
@@ -86,13 +87,7 @@ final class AuthoredFormControlBlockConverter
             'sourceAttributes' => SourceAttribute::staticAttributes(SourceDom::htmlAttributes($label), array_values(AuthoredLabelBlockGenerator::HOST_ATTRIBUTES)),
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== $value);
         $markup = $generator->markup($attrs);
-        return array(
-            'blockName' => $registry->blockName(AuthoredLabelBlockGenerator::LOCAL_NAME),
-            'attrs' => $attrs,
-            'innerBlocks' => array(),
-            'innerHTML' => $markup,
-            'innerContent' => array($markup),
-        );
+        return BlockFactory::leaf($registry->blockName(AuthoredLabelBlockGenerator::LOCAL_NAME), $attrs, $markup);
     }
 
     /**
@@ -231,7 +226,7 @@ final class AuthoredFormControlBlockConverter
             'placeholder' => $triggerLabel,
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== $value);
         $markup = $generator->markup($attrs);
-        $control = array('blockName' => $registry->blockName(AuthoredSelectBlockGenerator::LOCAL_NAME), 'attrs' => $attrs, 'innerBlocks' => array(), 'innerHTML' => $markup, 'innerContent' => array($markup));
+        $control = BlockFactory::leaf($registry->blockName(AuthoredSelectBlockGenerator::LOCAL_NAME), $attrs, $markup);
         return $this->createBlock->createBlock('core/group', array('className' => 'blocks-engine-authored-select-wrapper'), array($control), null);
     }
 
@@ -358,13 +353,7 @@ final class AuthoredFormControlBlockConverter
         $attrs = array_replace($attrs, $state ?? array());
         $markup = $generator->markup($attrs);
 
-        return array(
-            'blockName' => $registry->blockName(AuthoredTextareaBlockGenerator::LOCAL_NAME),
-            'attrs' => $attrs,
-            'innerBlocks' => array(),
-            'innerHTML' => $markup,
-            'innerContent' => array( $markup ),
-        );
+        return BlockFactory::leaf($registry->blockName(AuthoredTextareaBlockGenerator::LOCAL_NAME), $attrs, $markup);
     }
 
     /**
@@ -405,13 +394,7 @@ final class AuthoredFormControlBlockConverter
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : (is_bool($value) ? $value : '' !== $value));
         $markup = $generator->markup($attrs);
 
-        return array(
-            'blockName' => $registry->blockName(AuthoredButtonBlockGenerator::LOCAL_NAME),
-            'attrs' => $attrs,
-            'innerBlocks' => array(),
-            'innerHTML' => $markup,
-            'innerContent' => array( $markup ),
-        );
+        return BlockFactory::leaf($registry->blockName(AuthoredButtonBlockGenerator::LOCAL_NAME), $attrs, $markup);
     }
 
     /**
@@ -466,13 +449,7 @@ final class AuthoredFormControlBlockConverter
             : $this->runtimeButtonAttributes($button);
         $markup = $generator->markup($attrs);
 
-        return array(
-            'blockName' => $registry->blockName(AuthoredButtonBlockGenerator::LOCAL_NAME),
-            'attrs' => $attrs,
-            'innerBlocks' => array(),
-            'innerHTML' => $markup,
-            'innerContent' => array( $markup ),
-        );
+        return BlockFactory::leaf($registry->blockName(AuthoredButtonBlockGenerator::LOCAL_NAME), $attrs, $markup);
     }
 
     private function isCssDrawnControl(DOMElement $element): bool

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CopyToClipboardBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
@@ -87,13 +88,7 @@ final class CopyToClipboardConverter implements ElementConverter
         ), static fn (mixed $value): bool => '' !== $value);
         $markup = $generator->markup($attrs);
 
-        return array(
-            'blockName' => $registry->blockName(CopyToClipboardBlockGenerator::LOCAL_NAME),
-            'attrs' => $attrs,
-            'innerBlocks' => array(),
-            'innerHTML' => $markup,
-            'innerContent' => array( $markup ),
-        );
+        return BlockFactory::leaf($registry->blockName(CopyToClipboardBlockGenerator::LOCAL_NAME), $attrs, $markup);
     }
 
     private function isCopyControlElement(DOMElement $element, string $tagName = ''): bool
