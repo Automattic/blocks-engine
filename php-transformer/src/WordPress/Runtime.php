@@ -496,7 +496,7 @@ final class Runtime
                 continue;
             }
 
-            $name = is_string($block['blockName'] ?? null) ? $block['blockName'] : '';
+            $name = ArrayField::string($block, 'blockName');
             $attributes = $this->blockAttributes($name);
             if ( is_array($attributes) && is_array($block['attrs'] ?? null) ) {
                 foreach ( $attributes as $attribute => $schema ) {

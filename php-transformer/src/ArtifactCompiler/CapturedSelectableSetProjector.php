@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
@@ -238,7 +239,7 @@ final class CapturedSelectableSetProjector
                 $probed[$probedSelector]['size'] = is_int($state['set']['size'] ?? null) ? $state['set']['size'] : 0;
                 $probed[$probedSelector]['indexes'][$state['set']['index']] = true;
             }
-            $status = is_string($state['status'] ?? null) ? $state['status'] : '';
+            $status = ArrayField::string($state, 'status');
             ++$recorded;
             $statusCounts[$status] = ($statusCounts[$status] ?? 0) + 1;
             if ('no-dialog' === $status) {
@@ -257,7 +258,7 @@ final class CapturedSelectableSetProjector
                 continue;
             }
             $dialog = $state['dialog'];
-            $dialogHtml = is_string($dialog['html'] ?? null) ? $dialog['html'] : '';
+            $dialogHtml = ArrayField::string($dialog, 'html');
             $declaredBytes = is_int($dialog['htmlBytes'] ?? null) ? $dialog['htmlBytes'] : -1;
             if ('' === $dialogHtml || ! empty($dialog['htmlTruncated']) || strlen($dialogHtml) > self::MAX_REGION_BYTES || $declaredBytes !== strlen($dialogHtml)) {
                 $diagnostics[] = $this->diagnostic('captured_selectable_set_member_truncated', 'warning', 'A selectable-set member was omitted because its HTML is empty, truncated, or exceeds the byte limit.', array('source_url' => $sourceUrl));
@@ -410,7 +411,7 @@ final class CapturedSelectableSetProjector
         $keys = array();
         foreach ($members as $index => $member) {
             $generated[$index] = 'blocks-engine-set-' . $identity . '-panel-' . $index;
-            $keys[$index] = is_string($member['key'] ?? null) ? $member['key'] : '';
+            $keys[$index] = ArrayField::string($member, 'key');
         }
         if (in_array('', $keys, true) || count(array_unique($keys)) !== count($keys)) {
             return $generated;

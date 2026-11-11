@@ -577,7 +577,7 @@ final class ArtifactCompiler
             'layout_geometry_proof' => array_merge($entryBlocks['layout_geometry_proof'] ?? array(), ...array_values(array_map(static fn(array $document): array => $document['layout_geometry_proof'] ?? array(), $compiledHtmlDocuments))),
             'artifact' => array(
                 'schema'          => self::INPUT_SCHEMA,
-                'original_schema' => is_string($artifact['schema'] ?? null) ? $artifact['schema'] : '',
+                'original_schema' => ArrayField::string($artifact, 'schema'),
                 'entry_path'      => $entryPath,
                 'entrypoints'     => $normalized['entrypoints'],
                 'file_count'      => count($normalized['files']),
@@ -638,7 +638,7 @@ final class ArtifactCompiler
             $sourceFile = $fileMetadata[$sourcePath] ?? array();
             $editabilityDocuments[(string) $sourcePath] = array(
                 'blocks' => ArrayField::array($compiledHtmlDocument, 'blocks'),
-                'serialized_blocks' => is_string($compiledHtmlDocument['serialized_blocks'] ?? null) ? $compiledHtmlDocument['serialized_blocks'] : '',
+                'serialized_blocks' => ArrayField::string($compiledHtmlDocument, 'serialized_blocks'),
                 'generated_carrier_css' => $this->cssAssetContent(ArrayField::array($compiledHtmlDocument, 'assets')),
                 'runtime_block_paths' => $compiledHtmlDocument['runtime_block_paths'],
                 'visual_block_paths' => $compiledHtmlDocument['visual_block_paths'],
@@ -1226,7 +1226,7 @@ final class ArtifactCompiler
             $code = (string) ($fallback['diagnostic_code'] ?? $fallback['kind'] ?? '');
             $sourcePath = is_string($fallback['source'] ?? null) ? $fallback['source'] : $entryPath;
             if ( 'html_product_grid_fallback' === $code ) {
-                $container = is_string($fallback['container_selector'] ?? null) ? $fallback['container_selector'] : (is_string($fallback['selector'] ?? null) ? $fallback['selector'] : '');
+                $container = is_string($fallback['container_selector'] ?? null) ? $fallback['container_selector'] : (ArrayField::string($fallback, 'selector'));
                 if ( true === ($fallback['_collection_binding_declined'] ?? false) ) {
                     $diagnostics[] = $this->declinedProductGridBindingDiagnostic($fallback, $sourcePath, $container);
                 }
@@ -1320,7 +1320,7 @@ final class ArtifactCompiler
             } elseif ( 'html_cart_view_fallback' === $code ) {
                 // A cart view is provider-bindable only through its page-owned
                 // anchor; without one a provider cannot locate it in the page.
-                $selector = is_string($fallback['selector'] ?? null) ? $fallback['selector'] : '';
+                $selector = ArrayField::string($fallback, 'selector');
                 $binding = $fallback['binding'] ?? null;
                 if ( '' === $selector || ! is_array($binding) || 'generic/block-binding/v1' !== ($binding['schema'] ?? null) || ! is_string($binding['search_block_markup'] ?? null) || '' === trim($binding['search_block_markup']) ) continue;
                 $carts[$sourcePath . "\n" . $selector] = array('source_path' => $sourcePath, 'selector' => $selector, 'bindings' => array(array_merge($binding, array('source_path' => $sourcePath))));
@@ -1328,12 +1328,12 @@ final class ArtifactCompiler
                 // A checkout view binds through its page-owned anchor exactly
                 // like a cart view; the reporter already superseded the cart
                 // finding over the same region, so the two never co-declare.
-                $selector = is_string($fallback['selector'] ?? null) ? $fallback['selector'] : '';
+                $selector = ArrayField::string($fallback, 'selector');
                 $binding = $fallback['binding'] ?? null;
                 if ( '' === $selector || ! is_array($binding) || 'generic/block-binding/v1' !== ($binding['schema'] ?? null) || ! is_string($binding['search_block_markup'] ?? null) || '' === trim($binding['search_block_markup']) ) continue;
                 $checkouts[$sourcePath . "\n" . $selector] = array('source_path' => $sourcePath, 'selector' => $selector, 'bindings' => array(array_merge($binding, array('source_path' => $sourcePath))));
             } elseif ( 'html_form_fallback' === $code && is_array($fallback['controls'] ?? null) ) {
-                $selector = is_string($fallback['selector'] ?? null) ? $fallback['selector'] : '';
+                $selector = ArrayField::string($fallback, 'selector');
                 // Only a finding carrying data-entry metadata describes a form a
                 // provider could materialize, so only that finding is worth
                 // reporting when a contract stops it from being declared.
@@ -4607,7 +4607,7 @@ final class ArtifactCompiler
             }
         }
 
-        $content = is_string($file['content'] ?? null) ? $file['content'] : '';
+        $content = ArrayField::string($file, 'content');
         if ( '' !== $content ) {
             return $content;
         }
@@ -5449,7 +5449,7 @@ final class ArtifactCompiler
                 }
                 $href = is_string($attrs['url'] ?? null) ? trim($attrs['url']) : '';
                 $host = parse_url($href, PHP_URL_HOST);
-                $label = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags(is_string($attrs['label'] ?? null) ? $attrs['label'] : ''), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
+                $label = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags(ArrayField::string($attrs, 'label')), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
                 if ( '' !== $href && '' !== $label && ( ! is_string($host) || '' === $host ) ) {
                     $anchors[] = array('href' => $href, 'label' => $label);
                 }

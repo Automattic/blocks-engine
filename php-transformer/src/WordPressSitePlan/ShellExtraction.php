@@ -529,7 +529,7 @@ final class ShellExtraction
             // page could otherwise make ambiguous.
             $range = $this->topLevelShellRange($index, (string) $candidate['area'], $markup);
             $identity = self::normalizeNestedChromeMarkup($markup);
-            $row = array('area' => $candidate['area'], 'markup' => $markup, 'template_part_markup' => $templatePartMarkup, 'identity_markup' => $identity, 'source_path' => $sourcePath, 'source_hash' => is_string($candidate['source_hash'] ?? null) ? $candidate['source_hash'] : '');
+            $row = array('area' => $candidate['area'], 'markup' => $markup, 'template_part_markup' => $templatePartMarkup, 'identity_markup' => $identity, 'source_path' => $sourcePath, 'source_hash' => ArrayField::string($candidate, 'source_hash'));
             if (is_array($range)) { $row['offset'] = $range['offset']; $row['length'] = $range['length']; }
             if ('header' === $row['area'] && is_array($range)) $row = $this->withLeadingHeaderChrome($index, $row);
             $candidates[] = $row;
@@ -3048,7 +3048,7 @@ final class ShellExtraction
     private function shellProvenance(string $area, string $decision, string $reason, array $candidates = array(), ?string $identity = null): array
     {
         $sources = array();
-        foreach ($candidates as $rows) foreach ($rows as $candidate) if (is_array($candidate) && is_string($candidate['source_path'] ?? null)) $sources[$candidate['source_path']] = is_string($candidate['source_hash'] ?? null) ? $candidate['source_hash'] : '';
+        foreach ($candidates as $rows) foreach ($rows as $candidate) if (is_array($candidate) && is_string($candidate['source_path'] ?? null)) $sources[$candidate['source_path']] = ArrayField::string($candidate, 'source_hash');
         ksort($sources, SORT_STRING);
         return array_filter(array('schema' => 'blocks-engine/shell-extraction/v1', 'area' => $area, 'decision' => $decision, 'reason' => $reason, 'sources' => $sources, 'shell_identity' => $identity), static fn(mixed $value): bool => null !== $value);
     }

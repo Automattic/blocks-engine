@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
@@ -176,7 +177,7 @@ final class RestyleCoverage
      */
     private function classes(array $attributes): array
     {
-        $classes = is_string($attributes['className'] ?? null) ? $attributes['className'] : '';
+        $classes = ArrayField::string($attributes, 'className');
         $anchor = $attributes['metadata']['blocksEngineNavigationAnchor']['className'] ?? null;
         if (is_string($anchor)) $classes .= ' ' . $anchor;
         return preg_split('/\s+/', trim($classes)) ?: array();

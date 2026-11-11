@@ -357,7 +357,7 @@ final class BlockFactory
             $height = (string) ($attrs['height'] ?? '');
             $width = (string) ($attrs['width'] ?? '');
             $style = trim(implode(';', array_filter(array(
-                '' !== $height ? 'height:' . $height : (is_string($attrs['style'] ?? null) ? $attrs['style'] : ''),
+                '' !== $height ? 'height:' . $height : (ArrayField::string($attrs, 'style')),
                 '' !== $width ? 'width:' . $width : '',
                 (string) ($attrs['inlineGeometryStyle'] ?? ''),
             ))), ';');

@@ -546,7 +546,7 @@ final class MaterializationPlanBuilder
                 continue;
             }
             $href = is_string($attrs['url'] ?? null) ? trim($attrs['url']) : '';
-            $label = trim(html_entity_decode(strip_tags(is_string($attrs['label'] ?? null) ? $attrs['label'] : ''), ENT_QUOTES | ENT_HTML5));
+            $label = trim(html_entity_decode(strip_tags(ArrayField::string($attrs, 'label')), ENT_QUOTES | ENT_HTML5));
             if ( '' === $href || '' === $label ) {
                 continue;
             }

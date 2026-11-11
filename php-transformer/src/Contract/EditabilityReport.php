@@ -85,8 +85,8 @@ final class EditabilityReport
             $report = is_array($document['editability_report'] ?? null) ? $document['editability_report'] : $this->fromBlocks(
                 ArrayField::array($document, 'blocks'),
                 (string) $sourcePath,
-                is_string($document['serialized_blocks'] ?? null) ? $document['serialized_blocks'] : '',
-                is_string($document['generated_carrier_css'] ?? null) ? $document['generated_carrier_css'] : '',
+                ArrayField::string($document, 'serialized_blocks'),
+                ArrayField::string($document, 'generated_carrier_css'),
                 ArrayField::array($document, 'runtime_block_paths'),
                 ArrayField::array($document, 'visual_block_paths'),
                 ArrayField::array($document, 'source_provenance'),
@@ -221,7 +221,7 @@ final class EditabilityReport
                 $metrics['raw_html_block_count']++;
                 $signals[] = $this->signal('raw_html_block', $sourcePath, $blockPath, $name);
             }
-            $className = is_string($attrs['className'] ?? null) ? $attrs['className'] : '';
+            $className = ArrayField::string($attrs, 'className');
             foreach (preg_split('/\s+/', trim($className)) ?: array() as $class) {
                 if (str_starts_with($class, 'blocks-engine-source-')) $metrics['source_marker_class_count']++;
                 if (str_starts_with($class, 'be-inline-geometry-')) $metrics['generated_geometry_class_count']++;
@@ -376,7 +376,7 @@ final class EditabilityReport
             'block_path' => implode('.', $path),
             'block_name' => $blockName,
             'attribute' => $attribute,
-            'source_selector' => is_string($provenance['selector'] ?? null) ? $provenance['selector'] : '',
+            'source_selector' => ArrayField::string($provenance, 'selector'),
             'source_fragment' => is_string($provenance['source_fragment'] ?? null) ? mb_strcut($provenance['source_fragment'], 0, 512, 'UTF-8') : '',
         ), static fn(string $value): bool => '' !== $value);
     }

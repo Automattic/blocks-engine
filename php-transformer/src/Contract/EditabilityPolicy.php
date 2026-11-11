@@ -37,14 +37,14 @@ final class EditabilityPolicy
                 if (!is_array($document)) continue;
                 $breaches = array_merge($breaches, $this->breaches(
                     ArrayField::array($document, 'metrics'),
-                    is_string($document['source_path'] ?? null) ? $document['source_path'] : ''
+                    ArrayField::string($document, 'source_path')
                 ));
             }
         } else {
             $scope = ArrayField::array($report, 'scope');
             $breaches = $this->breaches(
                 ArrayField::array($report, 'metrics'),
-                is_string($scope['source_path'] ?? null) ? $scope['source_path'] : ''
+                ArrayField::string($scope, 'source_path')
             );
         }
 

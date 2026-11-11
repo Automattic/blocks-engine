@@ -723,7 +723,7 @@ trait StagedTransport
             'limits' => $normalized['limits'],
             'runtime_declarations' => $normalized['runtime_declarations'],
             'layout_geometry_proof' => $normalized['layout_geometry_proof'],
-            'schema' => is_string($artifact['schema'] ?? null) ? $artifact['schema'] : '',
+            'schema' => ArrayField::string($artifact, 'schema'),
             // Every stage re-normalizes its own envelope, so the report
             // declaration has to travel with it or a partition would budget a
             // declared report as page source.
