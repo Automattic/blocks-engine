@@ -35,6 +35,9 @@ interface ElementPresentationResolver
     /** Everything the source stylesheet declares for one property, conditions included. */
     public function declaredPresentation(DOMElement $element, string $property): DeclaredPresentation;
 
+    /** Recognition only: whether the resolved author value matches at every viewport. */
+    public function hasPropertyValueAtEveryViewport(DOMElement $element, string $property, string $value): bool;
+
     /** Whether the element's own resolved author cascade is `display:none` at every viewport. */
     public function isDisplayNoneAtEveryViewport(DOMElement $element): bool;
 }
