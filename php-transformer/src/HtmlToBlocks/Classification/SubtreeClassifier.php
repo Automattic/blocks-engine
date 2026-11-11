@@ -247,7 +247,7 @@ final class SubtreeClassifier
      */
     private function gatherSignals(DOMElement $element, ClassificationContext $context): array
     {
-        $elements = $this->collectElements($element);
+        $elements = SourceDom::subtreeElements($element);
         $css      = $context->cssText();
         $js       = $context->jsText();
 
@@ -311,21 +311,6 @@ final class SubtreeClassifier
             'js_global_scope'    => $jsGlobal,
             'js_component_scoped' => $jsScoped,
         );
-    }
-
-    /**
-     * @return array<int, DOMElement>
-     */
-    private function collectElements(DOMElement $element): array
-    {
-        $out = array( $element );
-        foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement ) {
-                $out[] = $descendant;
-            }
-        }
-
-        return $out;
     }
 
     /**

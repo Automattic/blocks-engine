@@ -931,6 +931,23 @@ final class SourceDom
             && 1 === preg_match('/^[A-Za-z0-9_-][A-Za-z0-9_.:-]*$/D', $token);
     }
 
+    /**
+     * The element followed by all of its descendant elements, in document order.
+     *
+     * @return array<int, DOMElement>
+     */
+    public static function subtreeElements(DOMElement $element): array
+    {
+        $out = array( $element );
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement ) {
+                $out[] = $descendant;
+            }
+        }
+
+        return $out;
+    }
+
     public static function childElementCount(DOMElement $element): int
     {
         $count = 0;
@@ -1406,18 +1423,6 @@ final class SourceDom
             'bytes'     => $bytes,
             'truncated' => false,
         );
-    }
-
-    public static function directElementChildCount(DOMElement $element): int
-    {
-        $count = 0;
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement ) {
-                ++$count;
-            }
-        }
-
-        return $count;
     }
 
     public static function mergeClassNames(string ...$classNames): string
