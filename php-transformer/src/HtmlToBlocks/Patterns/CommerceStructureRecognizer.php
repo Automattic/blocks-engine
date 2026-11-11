@@ -342,8 +342,8 @@ final class CommerceStructureRecognizer
             $tagName = strtolower($descendant->tagName);
             $role = strtolower(SourceDom::attr($descendant, 'role'));
             $isControl = in_array($tagName, array( 'button', 'a', 'input' ), true) || 'button' === $role;
-            // Hidden inputs carry data, not an action a shopper can take.
-            if ( ! $isControl || ('input' === $tagName && 'hidden' === strtolower(SourceDom::attr($descendant, 'type'))) ) {
+            // Only action inputs are controls; other inputs carry data.
+            if ( ! $isControl || ('input' === $tagName && ! in_array(strtolower(SourceDom::attr($descendant, 'type')), array( 'submit', 'button', 'image' ), true)) ) {
                 continue;
             }
             if ( ! $includeNavigation && $this->isInCardNavigation($descendant, $card) ) {
