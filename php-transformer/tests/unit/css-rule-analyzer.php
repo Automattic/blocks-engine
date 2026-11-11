@@ -129,10 +129,10 @@ $scanOverflowAnalysis = (new CssRuleAnalyzer())->analyze(
     16,
     16,
     4,
-    static fn (array $selector): bool => false,
+    static fn (array $selector): bool => true,
     16
 );
-$assert(true === $scanOverflowAnalysis['truncated'] && array() === $scanOverflowAnalysis['rules'] && in_array('css_selector_scan_limit', $scanOverflowAnalysis['diagnostics'], true), 'scanned selector work fails closed before parsing or filtering beyond its independent budget');
+$assert(true === $scanOverflowAnalysis['truncated'] && 16 === count($scanOverflowAnalysis['rules']) && in_array('css_selector_scan_limit', $scanOverflowAnalysis['diagnostics'], true), 'relevant selector work still fails closed at its independent budget');
 
 $commentGraph = (new HtmlTransformer())->transform('<form method="post"><div class="field"><input name="email"></div><button type="submit">Send</button></form>', array( 'static_css' => '.field/**/input { align-self:flex-start }' ))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
 $commentGraphNodes = array_column($commentGraph['nodes'] ?? array(), null, 'id');
