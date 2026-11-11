@@ -1949,9 +1949,9 @@ PHP;
 
     /**
      * authoredChromeHooks() grouped by the element (HTML start tag or block
-     * comment) that carries them.
+     * comment) that carries them, with the generated marker classes it carries.
      *
-     * @return list<array{class:array<string,true>,id:array<string,true>}>
+     * @return list<array{class:array<string,true>,id:array<string,true>,marker:array<string,true>}>
      */
     private static function authoredChromeElementHooks(string $markup): array
     {
@@ -1960,16 +1960,27 @@ PHP;
         foreach ($tags[1] as $attributes) {
             $classes = preg_match('/\sclass="([^"]*)"/', $attributes, $class) ? preg_split('/\s+/', html_entity_decode($class[1], ENT_QUOTES | ENT_HTML5)) : array();
             $ids = preg_match('/\sid="([^"]+)"/', $attributes, $id) ? array(html_entity_decode($id[1], ENT_QUOTES | ENT_HTML5)) : array();
-            if (array() !== $classes || array() !== $ids) $elements[] = self::selectorHooks($classes ?: array(), $ids);
+            if (array() !== $classes || array() !== $ids) $elements[] = self::selectorHooks($classes ?: array(), $ids) + array('marker' => self::generatedMarkers($classes ?: array()));
         }
         preg_match_all('/<!--\s*wp:[a-z0-9\/-]+\s+(\{.*?\})\s*\/?-->/s', $markup, $comments);
         foreach ($comments[1] as $json) {
             $attrs = json_decode($json, true);
             $classes = is_string($attrs['className'] ?? null) ? (preg_split('/\s+/', $attrs['className']) ?: array()) : array();
             $ids = is_string($attrs['anchor'] ?? null) ? array($attrs['anchor']) : array();
-            if (array() !== $classes || array() !== $ids) $elements[] = self::selectorHooks($classes, $ids);
+            if (array() !== $classes || array() !== $ids) $elements[] = self::selectorHooks($classes, $ids) + array('marker' => self::generatedMarkers($classes));
         }
         return $elements;
+    }
+
+    /**
+     * @param array<int,mixed> $classes
+     * @return array<string,true>
+     */
+    private static function generatedMarkers(array $classes): array
+    {
+        $markers = array();
+        foreach ($classes as $class) if (is_string($class) && 1 === preg_match(self::GENERATED_CLASS_PATTERN, $class, $match)) $markers[$match[0]] = true;
+        return $markers;
     }
 
     /**
@@ -3030,10 +3041,12 @@ PHP;
         }
         // Hooks that route content also uses belong to that content too; rules
         // for them stay with the route instead of becoming global chrome rules.
-        $routeHooks = array('class' => array(), 'id' => array());
+        // So are generated markers route content carries, such as an author
+        // attribute selector lowered onto a marker class.
+        $routeHooks = array('class' => array(), 'id' => array(), 'marker' => array());
         foreach ($pages as $page) {
-            foreach (self::authoredChromeHooks(self::withoutLandmarks((string) ($page['canonical_block_markup'] ?? ''))) as $kind => $names) {
-                $routeHooks[$kind] += $names;
+            foreach (self::authoredChromeElementHooks(self::withoutLandmarks((string) ($page['canonical_block_markup'] ?? ''))) as $element) {
+                foreach ($routeHooks as $kind => $names) $routeHooks[$kind] += $element[$kind];
             }
         }
         // A hook whose rules differ between the routes rendering its chrome
@@ -3055,14 +3068,16 @@ PHP;
         do {
             $grown = false;
             foreach ($chromeElements as $element) {
-                if (array() === array_intersect_key($element['class'], $routeHooks['class']) && array() === array_intersect_key($element['id'], $routeHooks['id'])) continue;
-                foreach (array('class', 'id') as $kind) {
+                if (array() === array_intersect_key($element['class'], $routeHooks['class']) && array() === array_intersect_key($element['id'], $routeHooks['id']) && array() === array_intersect_key($element['marker'], $routeHooks['marker'])) continue;
+                foreach (array('class', 'id', 'marker') as $kind) {
                     if (array() === array_diff_key($element[$kind], $routeHooks[$kind])) continue;
                     $routeHooks[$kind] += $element[$kind];
                     $grown = true;
                 }
             }
         } while ($grown);
+        $classes = array_diff_key($classes, $routeHooks['marker']);
+        unset($routeHooks['marker']);
         foreach ($routeHooks as $kind => $names) $authored[$kind] = array_diff_key($authored[$kind], $names);
         // A route-kept hook that a detached part also carries still styles that
         // part wherever a rule reaches it through the ancestors it was hoisted
