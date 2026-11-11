@@ -107,7 +107,7 @@ final class InertElements implements ElementConverter
         }
 
         foreach ( $store->ownerDocument->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement || $this->sourceElementClassifier->isDescendantOf($candidate, $store) ) {
+            if ( ! $candidate instanceof DOMElement || SourceDom::elementContains($store, $candidate) ) {
                 continue;
             }
             foreach ( $candidate->attributes as $attribute ) {

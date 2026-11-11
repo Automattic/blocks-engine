@@ -925,7 +925,7 @@ final class SourceBlockAttributeProjector
     /** @param array<string, mixed> $attrs @return array<string, mixed> */
     private function withSyntheticHeaderAnchorCarrier(array $attrs, DOMElement $anchor, GeneratedSupportStylesheetState $generatedStyles): array
     {
-        if ( ! self::hasAncestorTag($anchor, 'header') ) {
+        if ( null === SourceDom::ancestorElement($anchor, 'header') ) {
             return $attrs;
         }
         $direct = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($anchor));
@@ -971,15 +971,5 @@ final class SourceBlockAttributeProjector
         }
         $landmark = ShellLandmarkPolicy::landmarkKind($tag, $element->getAttribute('role'));
         return in_array($landmark, array( 'header', 'footer' ), true) ? $landmark : null;
-    }
-
-    private static function hasAncestorTag(DOMElement $element, string $tagName): bool
-    {
-        for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
-            if ( $tagName === strtolower($parent->tagName) ) {
-                return true;
-            }
-        }
-        return false;
     }
 }

@@ -1317,7 +1317,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         $definitions = array();
         foreach ( $element->ownerDocument->getElementsByTagName('*') as $definition ) {
             $id = $definition instanceof DOMElement ? trim(SourceDom::attr($definition, 'id')) : '';
-            if ( '' === $id || ! isset($references[$id]) || $this->svgDefinitionBelongsTo($definition, $element) ) {
+            if ( '' === $id || ! isset($references[$id]) || SourceDom::elementContains($element, $definition) ) {
                 continue;
             }
             unset($references[$id]);
@@ -1355,17 +1355,6 @@ final class SvgMaterializer implements SvgElementMaterializer
         }
 
         return $svg;
-    }
-
-    private function svgDefinitionBelongsTo(DOMElement $definition, DOMElement $svg): bool
-    {
-        for ( $node = $definition; $node instanceof DOMElement; $node = $node->parentNode ) {
-            if ( $node->isSameNode($svg) ) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private function svgImageAssetIdentity(string $html): string
