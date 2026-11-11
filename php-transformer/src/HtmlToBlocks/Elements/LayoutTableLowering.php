@@ -127,7 +127,7 @@ final class LayoutTableLowering
     public function layoutTableUsesAutoTracks(DOMElement $table): bool
     {
         $declarations = $this->styleResolver->structuralPresentationDeclarations($table);
-        return 'fixed' !== CssValueInspector::comparable((string) ($declarations['table-layout'] ?? ''));
+        return 'fixed' !== CssValueInspector::declared($declarations, 'table-layout');
     }
 
     /**
@@ -194,7 +194,7 @@ final class LayoutTableLowering
         if ( null === $cssWidth ) {
             return null;
         }
-        if ( str_ends_with($cssWidth, '%') || 'border-box' === CssValueInspector::comparable((string) ($declarations['box-sizing'] ?? '')) ) {
+        if ( str_ends_with($cssWidth, '%') || 'border-box' === CssValueInspector::declared($declarations, 'box-sizing') ) {
             return $cssWidth;
         }
 
@@ -218,7 +218,7 @@ final class LayoutTableLowering
         }
 
         $declarations = $this->styleResolver->structuralPresentationDeclarations($cell);
-        $shorthand    = CssValueInspector::comparable((string) ($declarations['padding'] ?? ''));
+        $shorthand    = CssValueInspector::declared($declarations, 'padding');
         [ , $end, , $start ] = CssValueInspector::expandBoxShorthand( '' !== $shorthand ? $shorthand : $default );
         if ( isset($declarations['padding-left']) ) {
             $start = CssValueInspector::comparable((string) $declarations['padding-left']);
@@ -236,10 +236,10 @@ final class LayoutTableLowering
     private function layoutTableCellInlineBorderWidths(DOMElement $cell): array
     {
         $declarations = $this->styleResolver->structuralPresentationDeclarations($cell);
-        $shorthand    = CssValueInspector::comparable((string) ($declarations['border-width'] ?? ''));
+        $shorthand    = CssValueInspector::declared($declarations, 'border-width');
         [ , $end, , $start ] = CssValueInspector::expandBoxShorthand( '' !== $shorthand ? $shorthand : '0px' );
-        $left  = CssValueInspector::comparable((string) ($declarations['border-left-width'] ?? ''));
-        $right = CssValueInspector::comparable((string) ($declarations['border-right-width'] ?? ''));
+        $left  = CssValueInspector::declared($declarations, 'border-left-width');
+        $right = CssValueInspector::declared($declarations, 'border-right-width');
         if ( null !== $this->parseLayoutTableAbsoluteLength($left) ) {
             $start = $left;
         }
@@ -409,11 +409,11 @@ final class LayoutTableLowering
             ? $element
             : ( SourceDom::ancestorElement($element, 'table') ?? $element );
         $declarations = $this->styleResolver->structuralPresentationDeclarations($table);
-        if ( 'collapse' === CssValueInspector::comparable((string) ($declarations['border-collapse'] ?? '')) ) {
+        if ( 'collapse' === CssValueInspector::declared($declarations, 'border-collapse') ) {
             return null;
         }
 
-        $spacing = CssValueInspector::comparable((string) ($declarations['border-spacing'] ?? ''));
+        $spacing = CssValueInspector::declared($declarations, 'border-spacing');
         if ( '' === $spacing ) {
             $cellspacing = trim(SourceDom::attr($table, 'cellspacing'));
             $spacing     = '' !== $cellspacing && is_numeric($cellspacing) ? $cellspacing . 'px' : '2px';

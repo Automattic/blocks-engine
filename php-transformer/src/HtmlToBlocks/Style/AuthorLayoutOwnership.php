@@ -169,7 +169,7 @@ final class AuthorLayoutOwnership
             return false;
         }
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+        $display = CssValueInspector::declared($declarations, 'display');
         if ( in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
             return true;
         }

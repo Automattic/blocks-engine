@@ -15,6 +15,16 @@ final class CssValueInspector
     }
 
     /**
+     * One declaration's value in comparable form; empty when it is absent.
+     *
+     * @param array<string, mixed> $declarations
+     */
+    public static function declared(array $declarations, string $property): string
+    {
+        return self::comparable((string) ($declarations[$property] ?? ''));
+    }
+
+    /**
      * Expand a 1–4 value CSS box shorthand into physical sides.
      *
      * @return array{0: string, 1: string, 2: string, 3: string} top, right, bottom, left

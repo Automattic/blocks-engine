@@ -3002,7 +3002,7 @@ final class StyleResolver implements ElementPresentationResolver
         $conditional = array() !== $this->session->sourceStyleResolutionState()->conditionalRules();
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
             $declarations = $this->cssDeclarations($this->specificityResolvedPresentationStyle($node));
-            $value = CssValueInspector::comparable((string) ($declarations['text-align'] ?? ''));
+            $value = CssValueInspector::declared($declarations, 'text-align');
             if ( in_array($value, array( '', 'inherit', 'unset' ), true) ) {
                 // Only resting at this width: a media-conditional rule here
                 // overrides the inherited value elsewhere, so lifting the
@@ -4629,7 +4629,7 @@ final class StyleResolver implements ElementPresentationResolver
 
         $responsiveDisplay = null;
         if (
-            'none' === CssValueInspector::comparable((string) ($declarations['display'] ?? ''))
+            'none' === CssValueInspector::declared($declarations, 'display')
             && $this->hasConditionalVisibleDisplay($element)
         ) {
             $responsiveDisplay = $declarations['display'];
@@ -4704,15 +4704,15 @@ final class StyleResolver implements ElementPresentationResolver
             }
 
             $revealed = (array) ($rule['declarations'] ?? array());
-            $opacity = CssValueInspector::comparable((string) ($declarations['opacity'] ?? ''));
-            $revealedOpacity = CssValueInspector::comparable((string) ($revealed['opacity'] ?? ''));
+            $opacity = CssValueInspector::declared($declarations, 'opacity');
+            $revealedOpacity = CssValueInspector::declared($revealed, 'opacity');
             if (is_numeric($opacity) && 0.0 === (float) $opacity && is_numeric($revealedOpacity) && 0.0 < (float) $revealedOpacity) {
                 return true;
             }
-            if ('none' === CssValueInspector::comparable((string) ($declarations['display'] ?? '')) && $this->isVisibleDisplay((string) ($revealed['display'] ?? ''))) {
+            if ('none' === CssValueInspector::declared($declarations, 'display') && $this->isVisibleDisplay((string) ($revealed['display'] ?? ''))) {
                 return true;
             }
-            if ('hidden' === CssValueInspector::comparable((string) ($declarations['visibility'] ?? '')) && 'visible' === CssValueInspector::comparable((string) ($revealed['visibility'] ?? ''))) {
+            if ('hidden' === CssValueInspector::declared($declarations, 'visibility') && 'visible' === CssValueInspector::declared($revealed, 'visibility')) {
                 return true;
             }
         }
@@ -4751,10 +4751,10 @@ final class StyleResolver implements ElementPresentationResolver
                 continue;
             }
             $state = (array) ($rule['declarations'] ?? array());
-            if ('none' === CssValueInspector::comparable((string) ($declarations['display'] ?? '')) && $this->isVisibleDisplay((string) ($state['display'] ?? ''))) {
+            if ('none' === CssValueInspector::declared($declarations, 'display') && $this->isVisibleDisplay((string) ($state['display'] ?? ''))) {
                 $revealed['display'] = true;
             }
-            if ('hidden' === CssValueInspector::comparable((string) ($declarations['visibility'] ?? '')) && 'visible' === CssValueInspector::comparable((string) ($state['visibility'] ?? ''))) {
+            if ('hidden' === CssValueInspector::declared($declarations, 'visibility') && 'visible' === CssValueInspector::declared($state, 'visibility')) {
                 $revealed['visibility'] = true;
             }
             $revealsGeometry = false;
@@ -4766,7 +4766,7 @@ final class StyleResolver implements ElementPresentationResolver
             }
             if (
                 $revealsGeometry
-                && 'visible' === CssValueInspector::comparable((string) ($state['overflow'] ?? ''))
+                && 'visible' === CssValueInspector::declared($state, 'overflow')
             ) {
                 $revealed['overflow'] = true;
             }
@@ -4821,8 +4821,8 @@ final class StyleResolver implements ElementPresentationResolver
     private function isHiddenPositionedLayer(DOMElement $element, array $declarations): bool
     {
         $opacity = CssValueInspector::comparable((string) ($declarations['opacity'] ?? '1'));
-        $hidden = 'none' === CssValueInspector::comparable((string) ($declarations['display'] ?? ''))
-            || 'hidden' === CssValueInspector::comparable((string) ($declarations['visibility'] ?? ''))
+        $hidden = 'none' === CssValueInspector::declared($declarations, 'display')
+            || 'hidden' === CssValueInspector::declared($declarations, 'visibility')
             || (is_numeric($opacity) && 0.0 === (float) $opacity);
         if ( ! $hidden ) {
             return false;
@@ -4834,7 +4834,7 @@ final class StyleResolver implements ElementPresentationResolver
         }
         $resolved = $this->mergeCssDeclarationMaps($resolved, $this->inlineDeclarations($element));
         $resolved = $this->mergeCssDeclarationMaps($resolved, $declarations);
-        $position = CssValueInspector::comparable((string) ($resolved['position'] ?? ''));
+        $position = CssValueInspector::declared($resolved, 'position');
         return in_array($position, array( 'absolute', 'fixed' ), true);
     }
 
@@ -6853,7 +6853,7 @@ final class StyleResolver implements ElementPresentationResolver
     private function hasSourceSlideRuntimeState(array $declarations, array $runtimeProperties): bool
     {
         return array() !== array_intersect_key($declarations, $runtimeProperties)
-            || 'none' === CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+            || 'none' === CssValueInspector::declared($declarations, 'display');
     }
 
     private function hasAuthorClassSelector(string $className): bool

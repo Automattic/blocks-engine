@@ -86,7 +86,7 @@ final class LinkWrapperPropagator
         $declarations = $this->styleResolver->presentationDeclarations($anchor);
         // An author utility such as `text-decoration:none!important` still
         // leaves the wrapper undecorated.
-        $textDecoration = CssValueInspector::comparable((string) ($declarations['text-decoration'] ?? ''));
+        $textDecoration = CssValueInspector::declared($declarations, 'text-decoration');
 
         return array_filter(array(
             'href'           => $href,

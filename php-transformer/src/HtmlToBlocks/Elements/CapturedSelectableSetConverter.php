@@ -304,7 +304,7 @@ final class CapturedSelectableSetConverter implements ElementConverter
                 }
             }
         }
-        $display = CssValueInspector::comparable((string) ($rowDeclarations['display'] ?? ''));
+        $display = CssValueInspector::declared($rowDeclarations, 'display');
         $direction = strtolower(trim((string) ($rowDeclarations['flex-direction'] ?? '')));
         if (str_contains($display, 'flex')) {
             $vertical = str_starts_with($direction, 'column');

@@ -468,7 +468,7 @@ final class ButtonsPattern
                     continue;
                 }
                 $declarations = $buttons->resolvedDeclarations($node);
-                $position = CssValueInspector::comparable((string) ($declarations['position'] ?? ''));
+                $position = CssValueInspector::declared($declarations, 'position');
                 if ( ! in_array($position, array( 'absolute', 'fixed' ), true) ) {
                     continue;
                 }

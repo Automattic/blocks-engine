@@ -333,7 +333,7 @@ final class RevealAnimationSettler
         if ( in_array($startVisibility, array( 'hidden', 'collapse' ), true) && $startVisibility !== strtolower(trim((string) ($end['visibility'] ?? ''))) ) {
             return true;
         }
-        if ( 'none' === CssValueInspector::comparable((string) ($start['display'] ?? '')) && 'none' !== CssValueInspector::comparable((string) ($end['display'] ?? '')) ) {
+        if ( 'none' === CssValueInspector::declared($start, 'display') && 'none' !== CssValueInspector::declared($end, 'display') ) {
             return true;
         }
 

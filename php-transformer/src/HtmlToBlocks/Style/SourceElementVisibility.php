@@ -65,9 +65,9 @@ final class SourceElementVisibility
             return false;
         }
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
-        $visibility = CssValueInspector::comparable((string) ($declarations['visibility'] ?? ''));
-        $opacity = CssValueInspector::comparable((string) ($declarations['opacity'] ?? ''));
+        $display = CssValueInspector::declared($declarations, 'display');
+        $visibility = CssValueInspector::declared($declarations, 'visibility');
+        $opacity = CssValueInspector::declared($declarations, 'opacity');
         return 'none' === $display
             || in_array($visibility, array( 'hidden', 'collapse' ), true)
             || (is_numeric($opacity) && 0.0 === (float) $opacity);
@@ -113,15 +113,15 @@ final class SourceElementVisibility
                 return false;
             }
             $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->controlSurfaceResolvedStyle($candidate));
-            $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+            $display = CssValueInspector::declared($declarations, 'display');
             if ( 'none' === $display ) {
                 return true;
             }
-            $visibility = CssValueInspector::comparable((string) ($declarations['visibility'] ?? ''));
+            $visibility = CssValueInspector::declared($declarations, 'visibility');
             if ( in_array($visibility, array( 'hidden', 'collapse' ), true) ) {
                 return true;
             }
-            $opacity = CssValueInspector::comparable((string) ($declarations['opacity'] ?? ''));
+            $opacity = CssValueInspector::declared($declarations, 'opacity');
             if ( is_numeric($opacity) && 0.0 === (float) $opacity ) {
                 return true;
             }
@@ -147,8 +147,8 @@ final class SourceElementVisibility
                 return false;
             }
             $declarations = $this->styleResolver->collapsedViewportDeclarations($candidate, array( 'display', 'visibility' ));
-            if ( 'none' === CssValueInspector::comparable((string) ($declarations['display'] ?? ''))
-                || in_array(CssValueInspector::comparable((string) ($declarations['visibility'] ?? '')), array( 'hidden', 'collapse' ), true) ) {
+            if ( 'none' === CssValueInspector::declared($declarations, 'display')
+                || in_array(CssValueInspector::declared($declarations, 'visibility'), array( 'hidden', 'collapse' ), true) ) {
                 return true;
             }
         }

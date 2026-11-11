@@ -163,8 +163,8 @@ final class SourceBlockAttributeProjector
                 $context->generatedStyles->registerVideoSizeHint($marker, $rule);
             }
             $declarations = $this->styleResolver->resolvedPresentationDeclarations($sourceElement);
-            if ( '100%' === CssValueInspector::comparable((string) ($declarations['width'] ?? ''))
-                && '100%' === CssValueInspector::comparable((string) ($declarations['height'] ?? '')) ) {
+            if ( '100%' === CssValueInspector::declared($declarations, 'width')
+                && '100%' === CssValueInspector::declared($declarations, 'height') ) {
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS);
             }
         }
@@ -342,15 +342,15 @@ final class SourceBlockAttributeProjector
             $tag = strtolower($element->tagName);
             if ( 'img' !== $tag && ('a' !== $tag || 1 !== $element->getElementsByTagName('img')->length || '' !== trim($element->textContent)) ) return false;
             $declarations = $this->styleResolver->resolvedPresentationDeclarations($element);
-            $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+            $display = CssValueInspector::declared($declarations, 'display');
             if ( ! in_array($display, array('', 'inline', 'inline-block'), true) ) return false;
-            if ( ! in_array(CssValueInspector::comparable((string) ($declarations['float'] ?? '')), array('', 'none'), true) ) return false;
+            if ( ! in_array(CssValueInspector::declared($declarations, 'float'), array('', 'none'), true) ) return false;
         }
         // A real space in flex/grid does not create a layout item. Keep it that way.
         $parent = $item->parentNode;
         if ( $parent instanceof DOMElement ) {
             $declarations = $this->styleResolver->resolvedPresentationDeclarations($parent);
-            if ( in_array(CssValueInspector::comparable((string) ($declarations['display'] ?? '')), array('flex', 'inline-flex', 'grid', 'inline-grid'), true) ) return false;
+            if ( in_array(CssValueInspector::declared($declarations, 'display'), array('flex', 'inline-flex', 'grid', 'inline-grid'), true) ) return false;
         }
         return true;
     }
@@ -445,7 +445,7 @@ final class SourceBlockAttributeProjector
     {
         $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->mergedPresentationStyle($element));
         $classes = array();
-        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+        $display = CssValueInspector::declared($declarations, 'display');
         if ( in_array($display, array( 'inline-block', 'block', 'flex', 'inline-flex', 'inline-grid', 'inline-table' ), true) ) {
             $classes[] = self::LAYOUT_NEUTRAL_BUTTON_CLASS . '-display-' . $display;
         }
@@ -469,7 +469,7 @@ final class SourceBlockAttributeProjector
     /** @param array<string, string> $declarations */
     private function hasAbsoluteHorizontalInsets(array $declarations): bool
     {
-        if ( ! in_array(CssValueInspector::comparable((string) ($declarations['position'] ?? '')), array( 'absolute', 'fixed' ), true) ) {
+        if ( ! in_array(CssValueInspector::declared($declarations, 'position'), array( 'absolute', 'fixed' ), true) ) {
             return false;
         }
         $left = CssValueInspector::comparable((string) ($declarations['left'] ?? $declarations['inset-inline-start'] ?? ''));
@@ -489,10 +489,10 @@ final class SourceBlockAttributeProjector
         if ( ! $parent instanceof DOMElement || LayoutParticipation::GRID_ITEM !== LayoutParticipation::resolve($element, $this->styleResolver)->context ) {
             return false;
         }
-        $justifySelf = CssValueInspector::comparable((string) ($declarations['justify-self'] ?? ''));
+        $justifySelf = CssValueInspector::declared($declarations, 'justify-self');
         if ( in_array($justifySelf, array( '', 'auto', 'normal' ), true) ) {
             $parentDeclarations = $this->styleResolver->cssDeclarations($this->styleResolver->mergedPresentationStyle($parent));
-            $justifySelf = CssValueInspector::comparable((string) ($parentDeclarations['justify-items'] ?? ''));
+            $justifySelf = CssValueInspector::declared($parentDeclarations, 'justify-items');
         }
         return in_array($justifySelf, array( '', 'normal', 'stretch', 'legacy' ), true);
     }
@@ -576,7 +576,7 @@ final class SourceBlockAttributeProjector
                         // Offsets on a display:contents carrier have no effect.
                         // Use the absorbed wrapper, not its 100%-sized inner paint
                         // surface, as the positioning authority (even when unsized).
-                        $position = CssValueInspector::comparable((string) ($surface['position'] ?? ''));
+                        $position = CssValueInspector::declared($surface, 'position');
                         if ( in_array($position, array( 'absolute', 'fixed', 'relative', 'sticky' ), true) ) {
                             $positioning = array('position:' . $position);
                             foreach ( array( 'top', 'right', 'bottom', 'left', 'inset', 'inset-block', 'inset-inline', 'inset-block-start', 'inset-block-end', 'inset-inline-start', 'inset-inline-end', 'z-index' ) as $property ) {
@@ -602,14 +602,14 @@ final class SourceBlockAttributeProjector
                                 $child = $candidate->firstElementChild;
                                 if ( ! $child instanceof DOMElement || trim($child->textContent) !== trim($sourceElement->textContent) ) break;
                                 $childStyle = array_replace($this->styleResolver->matchedCascadedDeclarations($child), $this->styleResolver->cssDeclarations($this->styleResolver->mergedPresentationStyle($child)));
-                                if ( in_array(CssValueInspector::comparable((string) ($childStyle['display'] ?? '')), array( 'flex', 'inline-flex' ), true) ) {
+                                if ( in_array(CssValueInspector::declared($childStyle, 'display'), array( 'flex', 'inline-flex' ), true) ) {
                                     $paint = array_replace($childStyle, $this->styleResolver->authoredControlPresentation($child, array( 'box-sizing', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left' ))[''] ?? array());
                                     $paint = $this->styleResolver->cssDeclarations($this->styleResolver->cssDeclarationString($paint));
                                     break;
                                 }
                                 $candidate = $child;
                             }
-                            $display = CssValueInspector::comparable((string) ($paint['display'] ?? ''));
+                            $display = CssValueInspector::declared($paint, 'display');
                             $flex = in_array($display, array( 'flex', 'inline-flex' ), true);
                             $attrs['className'] = SourceDom::mergeClassNames((string) $attrs['className'], self::LAYOUT_NEUTRAL_BUTTON_CLASS . '-display-' . ($flex ? $display : 'inline-block'));
                             $declarations = array_merge(array('box-sizing:' . ($paint['box-sizing'] ?? 'content-box')), $dimensions);

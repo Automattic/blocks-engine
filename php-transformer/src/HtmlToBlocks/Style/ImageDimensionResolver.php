@@ -472,12 +472,12 @@ final class ImageDimensionResolver
     /** @param array<string, string> $declarations */
     private function passesFillThrough(DOMElement $wrapper, array $declarations): bool
     {
-        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+        $display = CssValueInspector::declared($declarations, 'display');
         if ( '' === $display ) {
             $display = $this->styles->defaultTagDisplay($wrapper);
         }
-        $position = CssValueInspector::comparable((string) ($declarations['position'] ?? ''));
-        $float = CssValueInspector::comparable((string) ($declarations['float'] ?? ''));
+        $position = CssValueInspector::declared($declarations, 'position');
+        $float = CssValueInspector::declared($declarations, 'float');
         if ( ! in_array($display, array( 'block', 'flow-root', 'flex', 'grid', 'list-item' ), true)
             || in_array($position, array( 'absolute', 'fixed' ), true)
             || ! in_array($float, array( '', 'none' ), true) ) {

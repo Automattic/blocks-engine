@@ -733,7 +733,7 @@ final class WrapperCoalescer
     public function isStructuralLayoutElement(DOMElement $element): bool
     {
         $declarations = array_merge($this->styleResolver->presentationDeclarations($element), $this->authorSemanticDeclarations($element));
-        return in_array(CssValueInspector::comparable((string) ($declarations['display'] ?? '')), array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
+        return in_array(CssValueInspector::declared($declarations, 'display'), array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
     }
 
     /** @return array<string, string> */
@@ -833,7 +833,7 @@ final class WrapperCoalescer
                 return true;
             }
         }
-        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+        $display = CssValueInspector::declared($declarations, 'display');
         return '' !== $display && ! in_array($display, array( 'block', 'flow-root' ), true);
     }
 

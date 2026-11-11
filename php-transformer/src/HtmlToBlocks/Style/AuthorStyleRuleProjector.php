@@ -159,7 +159,7 @@ final class AuthorStyleRuleProjector
                     return $body;
                 }
                 $box = $this->cascadedBoxModel($authorStyles, $element, $conditions);
-                $resolved = CssValueInspector::comparable((string) ($box['box-sizing'] ?? ''));
+                $resolved = CssValueInspector::declared($box, 'box-sizing');
                 if ( ! in_array($resolved, array( '', 'content-box', 'initial', 'unset', 'revert', 'revert-layer' ), true) ) {
                     return $body;
                 }

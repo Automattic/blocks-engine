@@ -533,7 +533,7 @@ final class NavigationToggleSuppressor
             return false;
         }
         $declarations = $this->styleResolver->referenceViewportAuthorDeclarations($target, array('position'), true);
-        $position = CssValueInspector::comparable((string) ($declarations['position'] ?? ''));
+        $position = CssValueInspector::declared($declarations, 'position');
 
         return ! in_array($position, array('absolute', 'fixed'), true);
     }
@@ -2266,8 +2266,8 @@ final class NavigationToggleSuppressor
             }
             $declarations = $this->styleResolver->referenceViewportAuthorDeclarations($node, array('display', 'visibility', 'opacity'), true);
             $display = CssValueInspector::comparable($this->styleResolver->resolveCssVariablesAtViewport((string) ($declarations['display'] ?? ''), $node, StyleResolver::DESKTOP_REFERENCE_WIDTH));
-            $visibility = CssValueInspector::comparable((string) ($declarations['visibility'] ?? ''));
-            $opacity = CssValueInspector::comparable((string) ($declarations['opacity'] ?? ''));
+            $visibility = CssValueInspector::declared($declarations, 'visibility');
+            $opacity = CssValueInspector::declared($declarations, 'opacity');
             if ( $this->sourceElementIsHiddenByMarkup($node, $display, true)
                 || 'none' === $display
                 || in_array($visibility, array('hidden', 'collapse'), true)

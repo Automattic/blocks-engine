@@ -482,9 +482,9 @@ final class InertScaffoldingSuppressor implements ElementConverter
     private function sourceElementStartsHidden(DOMElement $element): bool
     {
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
-        $visibility = CssValueInspector::comparable((string) ($declarations['visibility'] ?? ''));
-        $opacity = CssValueInspector::comparable((string) ($declarations['opacity'] ?? ''));
+        $display = CssValueInspector::declared($declarations, 'display');
+        $visibility = CssValueInspector::declared($declarations, 'visibility');
+        $opacity = CssValueInspector::declared($declarations, 'opacity');
         return 'none' === $display
             || in_array($visibility, array( 'hidden', 'collapse' ), true)
             || (is_numeric($opacity) && 0.0 === (float) $opacity);
