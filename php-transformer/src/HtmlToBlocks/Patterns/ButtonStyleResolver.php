@@ -162,7 +162,7 @@ final class ButtonStyleResolver
         }
         // A collapsed wrapper is still placement geometry (for example a
         // zero-sized skip-link carrier), not a positive link height to preserve.
-        if ( $height > 0 && in_array(CssValueInspector::comparable((string) ($declarations['position'] ?? '')), array( 'fixed', 'absolute' ), true) ) {
+        if ( $height > 0 && in_array(CssValueInspector::declared($declarations, 'position'), array( 'fixed', 'absolute' ), true) ) {
             return true;
         }
         $css = '';

@@ -321,16 +321,16 @@ final class SvgMaterializer implements SvgElementMaterializer
 
         $dimensions = $this->cssOwnsMediaBox($element) ? array() : $this->svgImageDimensions($element, $html);
         $presentation = $this->styleResolver->presentationDeclarations($element);
-        $sourceDisplay = CssValueInspector::comparable((string) ($presentation['display'] ?? ''));
+        $sourceDisplay = CssValueInspector::declared($presentation, 'display');
         $parent = $element->parentNode;
         $parentPresentation = $parent instanceof DOMElement ? $this->styleResolver->structuralPresentationDeclarations($parent) : array();
         // display:contents is not a percentage containing block. The effective
         // parent is the nearest ancestor that actually establishes a box.
-        while ( $parent instanceof DOMElement && 'contents' === CssValueInspector::comparable((string) ($parentPresentation['display'] ?? '')) ) {
+        while ( $parent instanceof DOMElement && 'contents' === CssValueInspector::declared($parentPresentation, 'display') ) {
             $parent = $parent->parentNode;
             $parentPresentation = $parent instanceof DOMElement ? $this->styleResolver->structuralPresentationDeclarations($parent) : array();
         }
-        $parentDisplay = CssValueInspector::comparable((string) ($parentPresentation['display'] ?? ''));
+        $parentDisplay = CssValueInspector::declared($parentPresentation, 'display');
         $isFlexOrGridItem = in_array($parentDisplay, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
         $sourceObjectFit = strtolower(trim((string) ($presentation['object-fit'] ?? '')));
         $isPositionedMediaBox = $parent instanceof DOMElement
@@ -643,11 +643,11 @@ final class SvgMaterializer implements SvgElementMaterializer
         if ( ! isset($declarations['visibility']) && isset($author['visibility']) ) {
             $declarations['visibility'] = $author['visibility'];
         }
-        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+        $display = CssValueInspector::declared($declarations, 'display');
         if ( 'none' === $display ) {
             return true;
         }
-        $visibility = CssValueInspector::comparable((string) ($declarations['visibility'] ?? ''));
+        $visibility = CssValueInspector::declared($declarations, 'visibility');
         if ( in_array($visibility, array( 'hidden', 'collapse' ), true) ) {
             return true;
         }
@@ -897,7 +897,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         if ( 1 !== preg_match('/\sviewBox\s*=\s*(["\'])\s*[-\d.]+[\s,]+[-\d.]+[\s,]+[\d.]*[1-9][\d.]*[\s,]+[\d.]*[1-9][\d.]*\s*\1/i', $html) ) {
             return array();
         }
-        $parentDisplay = CssValueInspector::comparable((string) ($parentPresentation['display'] ?? ''));
+        $parentDisplay = CssValueInspector::declared($parentPresentation, 'display');
         $parentPosition = strtolower(trim((string) ($parentPresentation['position'] ?? '')));
         $parentFloat = strtolower(trim((string) ($parentPresentation['float'] ?? '')));
 

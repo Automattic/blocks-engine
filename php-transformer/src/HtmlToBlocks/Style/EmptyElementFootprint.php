@@ -45,7 +45,7 @@ final class EmptyElementFootprint
                     return false;
                 case 'hidden':
                     $inline = $this->styleResolver->inlineDeclarations($element);
-                    $opacity = CssValueInspector::comparable((string) ($inline['opacity'] ?? ''));
+                    $opacity = CssValueInspector::declared($inline, 'opacity');
                     $paintDeclarations = array_merge($this->styleResolver->structuralPresentationDeclarations($element), $inline);
                     $authoredPaint = array() !== array_intersect_key($paintDeclarations, array_flip(array( 'background', 'background-color', 'background-image' )));
                     if ( $value && ! (is_numeric($opacity) && 0.0 === (float) $opacity && $authoredPaint) ) return false;
@@ -81,7 +81,7 @@ final class EmptyElementFootprint
     {
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
         if ( $this->isOutOfFlow($declarations)
-            || in_array(CssValueInspector::comparable((string) ($declarations['display'] ?? '')), array( 'none', 'contents' ), true)
+            || in_array(CssValueInspector::declared($declarations, 'display'), array( 'none', 'contents' ), true)
         ) {
             return false;
         }
@@ -139,17 +139,17 @@ final class EmptyElementFootprint
 
     private function emptyFlexItemHasFootprint(DOMElement $element, array $parentDeclarations, array $declarations): bool
     {
-        $display = CssValueInspector::comparable((string) ($parentDeclarations['display'] ?? ''));
+        $display = CssValueInspector::declared($parentDeclarations, 'display');
         if ( ! in_array($display, array( 'flex', 'inline-flex' ), true) ) {
             return false;
         }
         if ( $this->isOutOfFlow($declarations)
-            || in_array(CssValueInspector::comparable((string) ($declarations['display'] ?? '')), array( 'none', 'contents' ), true)
+            || in_array(CssValueInspector::declared($declarations, 'display'), array( 'none', 'contents' ), true)
         ) {
             return false;
         }
 
-        $column = in_array(CssValueInspector::comparable((string) ($parentDeclarations['flex-direction'] ?? '')), array( 'column', 'column-reverse' ), true);
+        $column = in_array(CssValueInspector::declared($parentDeclarations, 'flex-direction'), array( 'column', 'column-reverse' ), true);
         $properties = $column ? array( 'height', 'min-height', 'flex-basis' ) : array( 'width', 'min-width', 'flex-basis' );
         $hasSize = fn (string $value): bool => $this->sourceElementClassifier->isPositiveCssLength($value)
             || (1 === preg_match('/^\+?(\d+(?:\.\d+)?|\.\d+)%$/', trim($value), $matches) && 0 < (float) $matches[1]);
@@ -161,7 +161,7 @@ final class EmptyElementFootprint
         }
         // Positive growth reserves free space even with a zero basis. A
         // shrink factor alone (including the default 0 1 auto) does not.
-        $grow = CssValueInspector::comparable((string) ($declarations['flex-grow'] ?? ''));
+        $grow = CssValueInspector::declared($declarations, 'flex-grow');
         if ( is_numeric($grow) && 0 < (float) $grow ) {
             return true;
         }
@@ -379,7 +379,7 @@ final class EmptyElementFootprint
             return false;
         }
         $parentDeclarations = $this->styleResolver->structuralPresentationDeclarations($parent);
-        if ( ! in_array(CssValueInspector::comparable((string) ($parentDeclarations['display'] ?? '')), array( 'grid', 'inline-grid' ), true) ) {
+        if ( ! in_array(CssValueInspector::declared($parentDeclarations, 'display'), array( 'grid', 'inline-grid' ), true) ) {
             return false;
         }
         foreach ( array( 'grid-template-rows', 'grid-template-columns' ) as $property ) {
@@ -391,7 +391,7 @@ final class EmptyElementFootprint
             $this->styleResolver->structuralPresentationDeclarations($element),
             $this->styleResolver->inlineDeclarations($element)
         );
-        return ! in_array(CssValueInspector::comparable((string) ($declarations['display'] ?? '')), array( 'none', 'contents' ), true)
+        return ! in_array(CssValueInspector::declared($declarations, 'display'), array( 'none', 'contents' ), true)
             && ! $this->isOutOfFlow($declarations);
     }
 
@@ -416,7 +416,7 @@ final class EmptyElementFootprint
     public function hasAuthoredGridTracks(DOMElement $element): bool
     {
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        if ( ! in_array(CssValueInspector::comparable((string) ($declarations['display'] ?? '')), array( 'grid', 'inline-grid' ), true) ) {
+        if ( ! in_array(CssValueInspector::declared($declarations, 'display'), array( 'grid', 'inline-grid' ), true) ) {
             return false;
         }
         foreach ( array( 'grid-template-rows', 'grid-auto-rows' ) as $property ) {
@@ -437,7 +437,7 @@ final class EmptyElementFootprint
                 return false;
             }
         }
-        return in_array(CssValueInspector::comparable((string) ($declarations['display'] ?? '')), array( 'block', 'flow-root', 'flex', 'grid', 'inline-block', 'inline-flex', 'inline-grid' ), true);
+        return in_array(CssValueInspector::declared($declarations, 'display'), array( 'block', 'flow-root', 'flex', 'grid', 'inline-block', 'inline-flex', 'inline-grid' ), true);
     }
 
     public function isEmptyVisualInlineCandidate(DOMElement $element): bool

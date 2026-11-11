@@ -50,7 +50,7 @@ final class EmptyVisualSpacerLowering
         }
 
         $parentDeclarations = $this->styleResolver->structuralPresentationDeclarations($parent);
-        $parentDisplay = CssValueInspector::comparable((string) ($parentDeclarations['display'] ?? ''));
+        $parentDisplay = CssValueInspector::declared($parentDeclarations, 'display');
         if ( ! in_array($parentDisplay, array( 'flex', 'inline-flex' ), true) ) {
             return $attrs;
         }

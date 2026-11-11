@@ -172,7 +172,7 @@ final class InlineContentElementConverter implements ElementConverter
                 $attrs = array(
                     'content' => '<mark style="' . htmlspecialchars($this->styleResolver->cssDeclarationString($declarations), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</mark>',
                 );
-                if ( 'none' === CssValueInspector::comparable((string) ($declarations['display'] ?? '')) ) {
+                if ( 'none' === CssValueInspector::declared($declarations, 'display') ) {
                     $attrs['className'] = SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS;
                 }
                 return ConversionOutcome::handled($this->createBlock->createBlock('core/paragraph', $attrs, array(), $element));

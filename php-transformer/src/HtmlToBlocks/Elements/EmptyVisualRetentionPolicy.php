@@ -99,7 +99,7 @@ final class EmptyVisualRetentionPolicy implements EmptyVisualRetention
             $this->styleResolver->matchedCascadedDeclarations($element),
             $this->styleResolver->inlineDeclarations($element)
         );
-        $position = CssValueInspector::comparable((string) ($declarations['position'] ?? ''));
+        $position = CssValueInspector::declared($declarations, 'position');
         $opacity = CssValueInspector::comparable($this->styleResolver->resolveCssVariablesInValue((string) ($declarations['opacity'] ?? ''), $element));
         $authoredPaint = array() !== array_intersect_key($declarations, array_flip(array( 'background', 'background-color', 'background-image', 'border', 'border-top', 'border-right', 'border-bottom', 'border-left', 'box-shadow', 'outline', 'mask', 'mask-image' )));
 

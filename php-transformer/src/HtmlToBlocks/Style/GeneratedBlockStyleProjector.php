@@ -267,7 +267,7 @@ final class GeneratedBlockStyleProjector
                 || array() !== $this->styleResolver->authorDeclaredPropertyValues($sourceControl, array( 'width' ));
             $definiteAncestorWidth = $hasAuthoredWidth ? '' : $this->definiteAncestorWidth($sourceControl, $sourceDeclarations);
             $stretchingFlex = $this->sourceControlStretchesFlex($sourceDeclarations);
-            $height = CssValueInspector::comparable((string) ($sourceDeclarations['height'] ?? ''));
+            $height = CssValueInspector::declared($sourceDeclarations, 'height');
             $resolvedBox = $this->styleResolver->resolvedSourceStateDeclarations($sourceControl);
             // Width-fill rules size the source control, not a synthetic carrier.
             // Keep its box model, including the content-box default for links.
@@ -283,8 +283,8 @@ final class GeneratedBlockStyleProjector
                 $declarations[] = 'box-sizing:' . ($hasAuthoredWidth ? $sourceBoxSizing : 'border-box');
                 $declarations[] = 'width:100%';
                 $declarations[] = 'max-width:100%';
-                $absoluteFill = 'absolute' === CssValueInspector::comparable((string) ($sourceDeclarations['position'] ?? ''))
-                    && '100%' === CssValueInspector::comparable((string) ($sourceDeclarations['min-width'] ?? ''));
+                $absoluteFill = 'absolute' === CssValueInspector::declared($sourceDeclarations, 'position')
+                    && '100%' === CssValueInspector::declared($sourceDeclarations, 'min-width');
                 if ( '100%' === $height && ! $absoluteFill ) {
                     $wrapperDeclarations[] = 'height:100%';
                     $declarations[] = 'height:100%!important';
@@ -298,7 +298,7 @@ final class GeneratedBlockStyleProjector
             // justification — which needs a wrapper that fills its parent to
             // have room to act, mirroring the full-width block the source
             // centered the control inside of.
-            } elseif ( ! $hasAuthoredWidth && ! in_array(CssValueInspector::comparable((string) ($sourceDeclarations['float'] ?? '')), array( '', 'none' ), true) ) {
+            } elseif ( ! $hasAuthoredWidth && ! in_array(CssValueInspector::declared($sourceDeclarations, 'float'), array( '', 'none' ), true) ) {
                 // The outer carrier participates in the source float context.
                 // Size that float to the decorated link rather than the space
                 // left alongside earlier floats (possibly a zero-width slot).
@@ -317,7 +317,7 @@ final class GeneratedBlockStyleProjector
                 // A block-level control in a grid cell stretches to the cell by
                 // default. The wrapper is already a block there, so it needs no
                 // width; an intrinsic one would shrink it to its label.
-            } elseif ( ! $hasAuthoredWidth && in_array(CssValueInspector::comparable((string) ($sourceDeclarations['display'] ?? '')), array( 'flex', 'inline-flex', 'inline-block', 'inline-grid', 'inline-table' ), true) ) {
+            } elseif ( ! $hasAuthoredWidth && in_array(CssValueInspector::declared($sourceDeclarations, 'display'), array( 'flex', 'inline-flex', 'inline-block', 'inline-grid', 'inline-table' ), true) ) {
                 if ( 'center' === $inheritedTextAlignment ) {
                     // A flex or grid item shrinks to its content unless told to
                     // fill. In block flow the wrapper already spans its line,
@@ -358,8 +358,8 @@ final class GeneratedBlockStyleProjector
                 $declarations[] = 'height:100%!important';
             } elseif (
                 '100%' === $height
-                && 'absolute' === CssValueInspector::comparable((string) ($sourceDeclarations['position'] ?? ''))
-                && '100%' === CssValueInspector::comparable((string) ($sourceDeclarations['min-width'] ?? ''))
+                && 'absolute' === CssValueInspector::declared($sourceDeclarations, 'position')
+                && '100%' === CssValueInspector::declared($sourceDeclarations, 'min-width')
             ) {
                 $outerWrapperDeclarations[] = 'height:100%';
                 $wrapperDeclarations[] = 'height:100%';
@@ -374,12 +374,12 @@ final class GeneratedBlockStyleProjector
                 $declarations[] = 'height:100%!important';
             }
             foreach ( array( 'border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius' ) as $property ) {
-                $value = CssValueInspector::comparable((string) ($sourceStructuralDeclarations[$property] ?? ''));
+                $value = CssValueInspector::declared($sourceStructuralDeclarations, $property);
                 if ( '' !== $value && ! preg_match('/[{}<>;]/', $value) ) {
                     $declarations[] = $property . ':' . $value . '!important';
                 }
             }
-            if ( $ownsRadius && ( 'a' === strtolower($sourceControl->tagName) || '0' === CssValueInspector::comparable((string) ($sourceDeclarations['border-width'] ?? '')) ) && '' === trim((string) ($style['border']['radius'] ?? '')) ) {
+            if ( $ownsRadius && ( 'a' === strtolower($sourceControl->tagName) || '0' === CssValueInspector::declared($sourceDeclarations, 'border-width') ) && '' === trim((string) ($style['border']['radius'] ?? '')) ) {
                 $hasCornerRadius = $hasLogicalCorners;
                 foreach ( array( 'border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius', 'border-start-start-radius', 'border-start-end-radius', 'border-end-start-radius', 'border-end-end-radius' ) as $property ) {
                     if ( '' !== trim((string) ($sourceStructuralDeclarations[$property] ?? '')) ) {
@@ -532,8 +532,8 @@ final class GeneratedBlockStyleProjector
     /** @param array<string, string> $sourceDeclarations */
     private function sourceControlNeedsDefaultButtonBackgroundGuard(DOMElement $sourceControl, array $sourceDeclarations): bool
     {
-        $background = CssValueInspector::comparable((string) ($sourceDeclarations['background'] ?? ''));
-        $backgroundColor = CssValueInspector::comparable((string) ($sourceDeclarations['background-color'] ?? ''));
+        $background = CssValueInspector::declared($sourceDeclarations, 'background');
+        $backgroundColor = CssValueInspector::declared($sourceDeclarations, 'background-color');
         $sourceHasNoFill = '' === $background && '' === $backgroundColor;
         $sourceHasTransparentFill = self::isTransparentBackgroundValue($background)
             || self::isTransparentBackgroundValue($backgroundColor);
@@ -592,7 +592,7 @@ final class GeneratedBlockStyleProjector
             $this->styleResolver->controlSurfaceResolvedStyle($sourceControl)
         );
         foreach ( array( 'background', 'background-color' ) as $property ) {
-            $value = CssValueInspector::comparable((string) ($declarations[$property] ?? ''));
+            $value = CssValueInspector::declared($declarations, $property);
             if ( '' === $value || preg_match('/^(?:0(?:px)?(?:\s+0(?:px)?)*|none|transparent|initial|inherit|unset|revert)(?:\s+none)?$/', $value)
                 || self::isTransparentBackgroundValue($value)
             ) {
@@ -619,15 +619,15 @@ final class GeneratedBlockStyleProjector
      */
     private static function sourceControlPinsToItsWrapper(array $sourceDeclarations): bool
     {
-        if ( 'absolute' !== CssValueInspector::comparable((string) ($sourceDeclarations['position'] ?? '')) ) {
+        if ( 'absolute' !== CssValueInspector::declared($sourceDeclarations, 'position') ) {
             return false;
         }
-        $inset = CssValueInspector::comparable((string) ($sourceDeclarations['inset'] ?? ''));
+        $inset = CssValueInspector::declared($sourceDeclarations, 'inset');
         if ( 1 === preg_match('/^0(?:px)?(?:\s+0(?:px)?){0,3}$/', $inset) ) {
             return true;
         }
         foreach ( array( 'top', 'right', 'bottom', 'left' ) as $edge ) {
-            if ( 1 !== preg_match('/^0(?:px)?$/', CssValueInspector::comparable((string) ($sourceDeclarations[$edge] ?? ''))) ) {
+            if ( 1 !== preg_match('/^0(?:px)?$/', CssValueInspector::declared($sourceDeclarations, $edge)) ) {
                 return false;
             }
         }
@@ -676,7 +676,7 @@ final class GeneratedBlockStyleProjector
             $parentDisplays = array_merge($parentDisplays, array_values($this->styleResolver->conditionalDisplayRules($parent)));
         }
         $isFlex = (bool) array_intersect(array_map(CssValueInspector::comparable(...), $parentDisplays), array('flex', 'inline-flex'));
-        $isGrid = in_array(CssValueInspector::comparable((string) ($parentStyle['display'] ?? '')), array('grid', 'inline-grid'), true);
+        $isGrid = in_array(CssValueInspector::declared($parentStyle, 'display'), array('grid', 'inline-grid'), true);
         $controlStyle = $this->styleResolver->cssDeclarations($this->styleResolver->controlSurfaceResolvedStyle($control));
         $alignment = CssValueInspector::comparable((string) ($controlStyle['align-self'] ?? 'auto'));
         if ( 'auto' === $alignment ) $alignment = CssValueInspector::comparable((string) ($parentStyle['align-items'] ?? 'normal'));
@@ -740,7 +740,7 @@ final class GeneratedBlockStyleProjector
             return false;
         }
 
-        $alignItems = CssValueInspector::comparable((string) ($parentStyle['align-items'] ?? ''));
+        $alignItems = CssValueInspector::declared($parentStyle, 'align-items');
 
         return '' === $alignItems || in_array($alignItems, array( 'stretch', 'normal' ), true);
     }
@@ -774,7 +774,7 @@ final class GeneratedBlockStyleProjector
      */
     private static function sourceControlKeepsAutomaticMinimum(array $restingDeclarations, array $authorDeclarations): bool
     {
-        $minWidth = CssValueInspector::comparable((string) ($restingDeclarations['min-width'] ?? ''));
+        $minWidth = CssValueInspector::declared($restingDeclarations, 'min-width');
         if ( '' !== $minWidth && 'auto' !== $minWidth && ! str_contains($minWidth, 'var(') ) {
             return CssValueInspector::isNonZero($minWidth);
         }
@@ -860,42 +860,42 @@ final class GeneratedBlockStyleProjector
         $styles = array_merge(array('border-style'), array_map(static fn (string $side): string => $side . '-style', $sides));
         // A reset can pair border-style:solid with zero width. Style alone
         // cannot paint a border; only later nonzero side widths can override it.
-        $width = CssValueInspector::comparable((string) ($sourceDeclarations['border-width'] ?? ''));
+        $width = CssValueInspector::declared($sourceDeclarations, 'border-width');
         if ( '' !== $width && 1 === preg_match('/^0(?:px)?(?:\s+0(?:px)?){0,3}$/', $width) ) {
             $nonzeroSide = false;
             foreach ( array_diff($widths, array('border-width')) as $property ) {
-                $value = CssValueInspector::comparable((string) ($sourceDeclarations[$property] ?? ''));
+                $value = CssValueInspector::declared($sourceDeclarations, $property);
                 $nonzeroSide = $nonzeroSide || ('' !== $value && CssValueInspector::isNonZero($value));
             }
             foreach ( array_merge(array('border'), $sides) as $property ) {
-                $value = CssValueInspector::comparable((string) ($sourceDeclarations[$property] ?? ''));
+                $value = CssValueInspector::declared($sourceDeclarations, $property);
                 $nonzeroSide = $nonzeroSide || ('' !== $value && self::borderSideShorthandIsVisible($value));
             }
             if ( ! $nonzeroSide ) {
                 return false;
             }
         }
-        $shorthand = CssValueInspector::comparable((string) ($sourceDeclarations['border'] ?? ''));
+        $shorthand = CssValueInspector::declared($sourceDeclarations, 'border');
         if ( '' !== $shorthand && ! preg_match('/^(?:0(?:px)?|none)$/', $shorthand) ) {
             return true;
         }
 
         foreach ( $sides as $property ) {
-            $value = CssValueInspector::comparable((string) ($sourceDeclarations[$property] ?? ''));
+            $value = CssValueInspector::declared($sourceDeclarations, $property);
             if ( '' !== $value && self::borderSideShorthandIsVisible($value) ) {
                 return true;
             }
         }
 
         foreach ( $widths as $property ) {
-            $value = CssValueInspector::comparable((string) ($sourceDeclarations[$property] ?? ''));
+            $value = CssValueInspector::declared($sourceDeclarations, $property);
             if ( '' !== $value && ( str_contains($value, 'var(') || str_contains($value, 'calc(') || CssValueInspector::isNonZero($value) ) ) {
                 return true;
             }
         }
 
         foreach ( $styles as $property ) {
-            $value = CssValueInspector::comparable((string) ($sourceDeclarations[$property] ?? ''));
+            $value = CssValueInspector::declared($sourceDeclarations, $property);
             if ( '' === $value ) {
                 continue;
             }
@@ -946,13 +946,13 @@ final class GeneratedBlockStyleProjector
         // exactly like a block. Only the `inline-*` forms size to content.
         // A `<button>` keeps its fit-content width as a flex or grid
         // container, so only other controls span the line that way.
-        $display = CssValueInspector::comparable((string) ($sourceDeclarations['display'] ?? ''));
+        $display = CssValueInspector::declared($sourceDeclarations, 'display');
         $blockLevel = 'button' === strtolower($sourceControl->tagName) ? array( 'block' ) : array( 'block', 'flex', 'grid', 'table' );
         if ( ! in_array($display, $blockLevel, true) ) {
             return false;
         }
-        $float = CssValueInspector::comparable((string) ($sourceDeclarations['float'] ?? ''));
-        $position = CssValueInspector::comparable((string) ($sourceDeclarations['position'] ?? ''));
+        $float = CssValueInspector::declared($sourceDeclarations, 'float');
+        $position = CssValueInspector::declared($sourceDeclarations, 'position');
         if ( in_array($float, array( 'left', 'right' ), true) || in_array($position, array( 'absolute', 'fixed' ), true) ) {
             return false;
         }
@@ -977,13 +977,13 @@ final class GeneratedBlockStyleProjector
 
     private function sourceControlFillsGridCell(DOMElement $sourceControl, array $sourceDeclarations): bool
     {
-        if ( ! in_array(CssValueInspector::comparable((string) ($sourceDeclarations['display'] ?? '')), array( 'flex', 'grid', 'table' ), true) ) {
+        if ( ! in_array(CssValueInspector::declared($sourceDeclarations, 'display'), array( 'flex', 'grid', 'table' ), true) ) {
             return false;
         }
-        if ( in_array(CssValueInspector::comparable((string) ($sourceDeclarations['position'] ?? '')), array( 'absolute', 'fixed' ), true) ) {
+        if ( in_array(CssValueInspector::declared($sourceDeclarations, 'position'), array( 'absolute', 'fixed' ), true) ) {
             return false;
         }
-        if ( ! in_array(CssValueInspector::comparable((string) ($sourceDeclarations['justify-self'] ?? '')), array( '', 'auto', 'normal', 'stretch' ), true) ) {
+        if ( ! in_array(CssValueInspector::declared($sourceDeclarations, 'justify-self'), array( '', 'auto', 'normal', 'stretch' ), true) ) {
             return false;
         }
         $parent = $sourceControl->parentNode;
@@ -997,14 +997,14 @@ final class GeneratedBlockStyleProjector
 
     private function sourceControlStretchesFlex(array $sourceDeclarations): bool
     {
-        $display = CssValueInspector::comparable((string) ($sourceDeclarations['display'] ?? ''));
+        $display = CssValueInspector::declared($sourceDeclarations, 'display');
         if ( ! in_array($display, array( 'flex', 'inline-flex' ), true) ) {
             return false;
         }
-        $height = CssValueInspector::comparable((string) ($sourceDeclarations['height'] ?? ''));
-        $width = CssValueInspector::comparable((string) ($sourceDeclarations['width'] ?? ''));
-        $flexGrow = CssValueInspector::comparable((string) ($sourceDeclarations['flex-grow'] ?? ''));
-        $flex = CssValueInspector::comparable((string) ($sourceDeclarations['flex'] ?? ''));
+        $height = CssValueInspector::declared($sourceDeclarations, 'height');
+        $width = CssValueInspector::declared($sourceDeclarations, 'width');
+        $flexGrow = CssValueInspector::declared($sourceDeclarations, 'flex-grow');
+        $flex = CssValueInspector::declared($sourceDeclarations, 'flex');
 
         return '100%' === $height
             || '100%' === $width
@@ -1028,13 +1028,13 @@ final class GeneratedBlockStyleProjector
         }
         for ( $ancestor = $sourceControl->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
             $declarations = $this->styleResolver->presentationDeclarations($ancestor);
-            $width = CssValueInspector::comparable((string) ($declarations['width'] ?? ''));
+            $width = CssValueInspector::declared($declarations, 'width');
             if ( preg_match('/^(?:\d+(?:\.\d+)?)px$/', $width) ) {
                 return $width;
             }
-            if ( ! in_array(CssValueInspector::comparable((string) ($declarations['display'] ?? '')), array( '', 'block', 'flow-root', 'list-item' ), true)
-                || in_array(CssValueInspector::comparable((string) ($declarations['float'] ?? '')), array( 'left', 'right' ), true)
-                || in_array(CssValueInspector::comparable((string) ($declarations['position'] ?? '')), array( 'absolute', 'fixed' ), true) ) {
+            if ( ! in_array(CssValueInspector::declared($declarations, 'display'), array( '', 'block', 'flow-root', 'list-item' ), true)
+                || in_array(CssValueInspector::declared($declarations, 'float'), array( 'left', 'right' ), true)
+                || in_array(CssValueInspector::declared($declarations, 'position'), array( 'absolute', 'fixed' ), true) ) {
                 return '';
             }
         }

@@ -72,7 +72,7 @@ final class NamePriceRowLowering
     private function hasEqualWidthFlexColumnsGeometry(DOMElement $element, array $children): bool
     {
         $container = $this->styleResolver->structuralPresentationDeclarations($element);
-        if ( 'flex' !== CssValueInspector::comparable((string) ($container['display'] ?? '')) ) {
+        if ( 'flex' !== CssValueInspector::declared($container, 'display') ) {
             return false;
         }
 

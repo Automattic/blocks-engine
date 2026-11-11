@@ -94,8 +94,8 @@ final class RichTextMaterializer implements RichTextMaterialization
             $parent->replaceChild($element, $bare);
         }
         foreach ( array( 'font-weight', 'font-size' ) as $property ) {
-            $value = CssValueInspector::comparable((string) ($declarations[$property] ?? ''));
-            if ( '' !== $value && $value === CssValueInspector::comparable((string) ($kept[$property] ?? ''))
+            $value = CssValueInspector::declared($declarations, $property);
+            if ( '' !== $value && $value === CssValueInspector::declared($kept, $property)
                 && 1 === preg_match('/^(?:bolder|lighter|smaller|larger|[\d.]+(?:em|%))$/', $value) ) {
                 unset($declarations[$property]);
             }

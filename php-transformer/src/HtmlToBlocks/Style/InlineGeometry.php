@@ -228,12 +228,12 @@ final class InlineGeometry
      */
     public function inlineDeclaresPositioning(DOMElement $element, array $declarations): bool
     {
-        $float = CssValueInspector::comparable((string) ($declarations['float'] ?? ''));
+        $float = CssValueInspector::declared($declarations, 'float');
         if ( '' !== $float && 'none' !== $float ) {
             return true;
         }
 
-        $position = CssValueInspector::comparable((string) ($declarations['position'] ?? ''));
+        $position = CssValueInspector::declared($declarations, 'position');
         if ( in_array($position, array( 'relative', 'fixed', 'sticky' ), true) ) {
             return true;
         }
@@ -250,7 +250,7 @@ final class InlineGeometry
      */
     private function authorResolvedPositionCarriesOffsets(DOMElement $element, array $declarations): bool
     {
-        $inlinePosition = CssValueInspector::comparable((string) ($declarations['position'] ?? ''));
+        $inlinePosition = CssValueInspector::declared($declarations, 'position');
         if ( in_array($inlinePosition, array( 'relative', 'absolute', 'fixed', 'sticky' ), true) ) {
             return false;
         }
@@ -411,7 +411,7 @@ final class InlineGeometry
         }
         $properties = array_merge($properties, $this->positioningPropertiesFor($element, $declarations));
         if ( ($this->inlineDisplayOverridesAuthorLayout)($element, $declarations) ) {
-            $inlineDisplay = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+            $inlineDisplay = CssValueInspector::declared($declarations, 'display');
             if ( ! in_array($inlineDisplay, array( 'flex', 'inline-flex' ), true) ) {
                 $properties = array_values(array_diff(
                     $properties,
@@ -439,17 +439,17 @@ final class InlineGeometry
         // strip, which keeps only intentional hiding (a positioned alternate
         // layer, an inactive state, a decorative node). Carry them, or the
         // hidden layer renders over the content it alternates with.
-        if ('hidden' === CssValueInspector::comparable((string) ($declarations['visibility'] ?? ''))) {
+        if ('hidden' === CssValueInspector::declared($declarations, 'visibility')) {
             $properties[] = 'visibility';
         }
-        $opacity = CssValueInspector::comparable((string) ($declarations['opacity'] ?? ''));
+        $opacity = CssValueInspector::declared($declarations, 'opacity');
         if (is_numeric($opacity) && 0.0 === (float) $opacity) {
             $properties[] = 'opacity';
         }
         $collapsedHeight = CssValueInspector::comparable((string) ($declarations['height'] ?? $declarations['max-height'] ?? ''));
         if (
             1 === preg_match('/^0(?:px|em|rem|%|vh|vw)?$/', $collapsedHeight)
-            && in_array(CssValueInspector::comparable((string) ($declarations['overflow'] ?? '')), array('hidden', 'clip'), true)
+            && in_array(CssValueInspector::declared($declarations, 'overflow'), array('hidden', 'clip'), true)
         ) {
             $properties[] = 'overflow';
         }
@@ -646,7 +646,7 @@ final class InlineGeometry
             // in the canvas flow so viewport chrome cannot cover editable blocks.
             $rules[] = ':root .editor-styles-wrapper ' . $importantCompound . '{position:relative !important;inset:auto !important;z-index:auto !important}';
         }
-        $float = strtolower(CssValueInspector::comparable((string) ($geometry['float'] ?? '')));
+        $float = strtolower(CssValueInspector::declared($geometry, 'float'));
         if ( in_array($float, array( 'left', 'right' ), true) ) {
             // WordPress flow groups are flex containers. Float is ignored on a
             // flex item, so the parent that owns the floated box has to be a

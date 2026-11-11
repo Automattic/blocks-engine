@@ -271,7 +271,7 @@ final class AnchorLowering implements ButtonLinkLeftovers
         }
         $declarations = $this->styleResolver->presentationDeclarations($box);
         foreach ( array( 'width', 'height', 'max-width', 'max-height', 'min-width', 'min-height', 'aspect-ratio' ) as $property ) {
-            $value = CssValueInspector::comparable((string) ($declarations[$property] ?? ''));
+            $value = CssValueInspector::declared($declarations, $property);
             if ( '' !== $value && ! in_array($value, array( 'auto', 'none', 'initial', 'unset', 'inherit' ), true) ) {
                 return true;
             }

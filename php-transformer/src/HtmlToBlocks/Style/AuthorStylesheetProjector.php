@@ -3216,7 +3216,7 @@ final class AuthorStylesheetProjector
         }
         for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
             $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->mediaTextPresentationStyle($parent));
-            if ( in_array(CssValueInspector::comparable((string) ($declarations['display'] ?? '')), array( 'flex', 'grid' ), true)
+            if ( in_array(CssValueInspector::declared($declarations, 'display'), array( 'flex', 'grid' ), true)
                 && $this->hasMediaTextBranches($parent, $element) ) {
                 return true;
             }
@@ -3476,7 +3476,7 @@ final class AuthorStylesheetProjector
         }
         if (!isset($declarations['max-width'])) $bridge[] = 'max-width:100%';
         foreach (array('width', 'height') as $property) {
-            if ('auto' === CssValueInspector::comparable((string) ($declarations[$property] ?? ''))) {
+            if ('auto' === CssValueInspector::declared($declarations, $property)) {
                 $bridge[] = $property . ':' . $declarations[$property];
             }
         }

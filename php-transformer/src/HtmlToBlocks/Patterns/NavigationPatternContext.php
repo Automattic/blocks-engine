@@ -1618,15 +1618,15 @@ final class NavigationPatternContext
         }
 
         $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->controlSurfaceResolvedStyle($element));
-        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+        $display = CssValueInspector::declared($declarations, 'display');
         if ( 'none' === $display ) {
             return true;
         }
-        $visibility = CssValueInspector::comparable((string) ($declarations['visibility'] ?? ''));
+        $visibility = CssValueInspector::declared($declarations, 'visibility');
         if ( in_array($visibility, array( 'hidden', 'collapse' ), true) ) {
             return true;
         }
-        $opacity = CssValueInspector::comparable((string) ($declarations['opacity'] ?? ''));
+        $opacity = CssValueInspector::declared($declarations, 'opacity');
 
         return is_numeric($opacity) && 0.0 === (float) $opacity;
     }

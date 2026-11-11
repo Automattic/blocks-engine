@@ -2265,7 +2265,7 @@ JS;
         $layout = $pagerRoot instanceof DOMElement ? $this->commonAncestor(array($pagerRoot, $stageTrack)) : null;
         if ($layout instanceof DOMElement && SourceDom::elementContains($carouselRoot, $layout)) {
             $declarations = $styleResolver->structuralPresentationDeclarations($layout);
-            $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+            $display = CssValueInspector::declared($declarations, 'display');
             if (in_array($display, array('flex', 'inline-flex', 'grid', 'inline-grid'), true)) {
                 $flex = str_contains($display, 'flex');
                 $direction = trim((string) ($declarations[$flex ? 'flex-direction' : 'grid-auto-flow'] ?? 'row'));
@@ -2362,7 +2362,7 @@ JS;
             return $block;
         }
         $declarations = $styleResolver->sourceGeometryPresentationDeclarations($sourceItem);
-        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+        $display = CssValueInspector::declared($declarations, 'display');
         if (!in_array($display, array('flex', 'inline-flex'), true)) {
             return $block;
         }
