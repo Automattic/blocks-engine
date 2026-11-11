@@ -85,7 +85,7 @@ final class CapturedSelectableSetProjector
         }
 
         $receipt = CaptureReceiptReport::read($files);
-        if (null === $receipt || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null) || ! is_array($receipt['routes'] ?? null)) {
+        if (null === $receipt || ! is_array($receipt['routes'] ?? null)) {
             return array('files' => $files, 'diagnostics' => array_merge($diagnostics, array($this->diagnostic('captured_selectable_set_route_map_missing', 'warning', 'Captured selectable sets were not projected because the capture receipt route map is unavailable.'))), 'projected_count' => 0);
         }
 
@@ -138,7 +138,7 @@ final class CapturedSelectableSetProjector
         $count = 0;
         $retired = array();
         if (!CapturedInteractionReport::valid($report)
-            || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null)) {
+            || null === $receipt) {
             return array('files' => $files, 'projected_count' => 0, 'native_runtime_replacements' => array());
         }
         $routes = CaptureReceiptRoutes::resolve($files, $receipt);

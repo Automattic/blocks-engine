@@ -227,7 +227,7 @@ final class CapturedChoiceGroupProjector
         $diagnostics = array();
 
         $receipt = CaptureReceiptReport::read($files);
-        if (null === $receipt || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null) || ! is_array($receipt['routes'] ?? null)) {
+        if (null === $receipt || ! is_array($receipt['routes'] ?? null)) {
             return array('files' => $files, 'diagnostics' => $diagnostics, 'projected_count' => 0);
         }
         $routes = CaptureReceiptRoutes::resolve($files, $receipt);

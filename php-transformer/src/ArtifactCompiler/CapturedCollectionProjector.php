@@ -32,7 +32,7 @@ final class CapturedCollectionProjector
             $indices[$path] = $index;
         }
         if (!CapturedInteractionReport::valid($report)
-            || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null)
+            || null === $receipt
             || !is_array($report['pages'] ?? null) || !is_array($receipt['routes'] ?? null)) {
             return array('files' => $files, 'diagnostics' => array(), 'projected_count' => 0);
         }
