@@ -70,4 +70,15 @@ foreach ($cases as $input => $expected) {
     $actual = PublicationDate::fromVisibleText($input);
     $assert((null === $expected ? null : $expected . 'T00:00:00Z') === $actual, "Visible month: {$input}");
 }
+// A recognized date reprints in its source form; English forms keep their existing formats.
+$formats = array(
+    'Sep 11, 2023' => 'M j, Y', 'September 11, 2023' => 'F j, Y', '11 Sep 2023' => 'j M Y', '11 September 2023' => 'j F Y',
+    'Monday, March 4, 2024' => 'l, F j, Y', '9/11/2023' => 'n/j/Y', '13-9-2023' => 'j-n-Y',
+    '09/11/2023' => 'm/d/Y', '11.09.2023' => 'd.m.Y', '8.2.2023' => 'j.n.Y', '2023-09-11' => 'Y-m-d',
+    '11 septembre 2023' => 'j F Y', '11 sept. 2023' => 'j M Y', '11. September 2023' => 'j. F Y',
+    '12 de julio de 2024' => 'j \\d\\e F \\d\\e Y', 'Sept. 11, 2023' => 'M j, Y', 'not a date' => null,
+);
+foreach ($formats as $input => $expected) {
+    $assert($expected === PublicationDate::visibleFormat($input), "Visible format: {$input} => " . var_export(PublicationDate::visibleFormat($input), true));
+}
 fwrite(STDOUT, "wordpress site plan visible month tests: passed\n");
