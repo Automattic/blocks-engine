@@ -1090,16 +1090,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     {
         return new TableElementContext(
             $this->tableClassificationPolicy,
-            function (DOMElement $element, array &$fallbacks): ?array {
-                return $this->layoutTables->nestedLayoutTableColumnsBlock($element, $fallbacks);
-            },
-            function (DOMElement $element, array &$fallbacks): ?array {
-                return $this->layoutTables->singleColumnLayoutTableGroupBlock($element, $fallbacks);
-            },
-            function (DOMElement $element, array &$fallbacks): ?array {
-                return $this->layoutTables->mediaLayoutTableColumnsBlock($element, $fallbacks);
-            },
-            fn (DOMElement $element): array => $this->tableAttributesBuilder->tableAttributes($element)
+            $this->layoutTables->nestedLayoutTableColumnsBlock(...),
+            $this->layoutTables->singleColumnLayoutTableGroupBlock(...),
+            $this->layoutTables->mediaLayoutTableColumnsBlock(...),
+            $this->tableAttributesBuilder->tableAttributes(...)
         );
     }
 
@@ -1116,32 +1110,21 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     }
 
     /**
-     * Records a disclosure folded into a native `core/details`. Capture-owned
-     * local-disclosure panels it absorbed no longer exist as DOM targets, so the
-     * capture runtime selectors that addressed them are superseded by the block.
-     */
-    /**
      * Collaborator surface for {@see RichTextElementConverter}.
      */
     private function createRichTextElementContext(): RichTextElementContext
     {
         return new RichTextElementContext(
-            fn (DOMElement $element): ?array => $this->authoredMarqueeRecognizer->authoredMarqueeBlock($element),
+            $this->authoredMarqueeRecognizer->authoredMarqueeBlock(...),
             $this->emptyVisualRetention->hasEmptyVisualInlineChild(...),
             $this->authorLayoutOwnership->hasBoxChromeWrapperStyling(...),
             $this->runtimeIslands,
             fn (DOMElement $element): ?array => $this->paragraphImages->unwrappedParagraphImageBlock($element),
-            function (DOMElement $element, array &$fallbacks): ?array {
-                return $this->anchors->mixedMediaLinkGroupFromParagraph($element, $fallbacks);
-            },
-            function (DOMElement $element): ?array {
-                return $this->linkedIconTextRows->fromParagraph($element);
-            },
+            $this->anchors->mixedMediaLinkGroupFromParagraph(...),
+            $this->linkedIconTextRows->fromParagraph(...),
             $this->text(...),
             $this,
-            function (DOMElement $element, array &$fallbacks): ?array {
-                return $this->emptyInlineGeometry->emptyInlineGeometryBlock($element, $fallbacks);
-            },
+            $this->emptyInlineGeometry->emptyInlineGeometryBlock(...),
             function (DOMElement $element, array &$fallbacks): ?array {
                 $block = $this->patterns($element, $fallbacks, array( DetailsPattern::class ));
                 if ( null !== $block ) {
@@ -1149,7 +1132,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 }
                 return $block;
             },
-            fn (DOMElement $element): ?array => $this->svgMaterializer->decorativeTextSvgBlock($element),
+            $this->svgMaterializer->decorativeTextSvgBlock(...),
             function (DOMElement $element, array &$fallbacks): ?array {
                 return $this->textlessMedia->mediaBlockFromTextlessElement($element, $fallbacks);
             },
@@ -1720,7 +1703,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             ),
             $this->styleResolver,
             $this->session,
-            fn (DOMElement $sourceElement): string => $this->richTextStylingHooks->inlineContent($sourceElement)
+            $this->richTextStylingHooks->inlineContent(...)
         );
     }
 
