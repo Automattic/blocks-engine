@@ -978,8 +978,12 @@ final class ButtonsPattern
         }
 
         $normalized = strtolower($style);
-        if ( preg_match('/(?:^|;)\s*background(?:-color)?\s*:\s*([^;]+)/i', $normalized, $backgroundMatches) ) {
-            $resolvedBackground = trim((string) ($backgroundMatches[1] ?? ''));
+        // The resolved cascade is ordered from lower to higher priority. Both
+        // shorthand and longhand set the fill; unrelated background-* properties
+        // do not. Consult the last fill declaration, not an earlier reset.
+        $resolvedBackground = '';
+        if ( preg_match_all('/(?:^|;)\s*background(?:-color)?\s*:\s*([^;]+)/i', $normalized, $backgroundMatches) ) {
+            $resolvedBackground = trim((string) end($backgroundMatches[1]));
             if ( '' !== $resolvedBackground
                 && ! in_array($resolvedBackground, array( 'transparent', 'none' ), true)
                 && ! preg_match('/^rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\)$/i', $resolvedBackground) ) {
@@ -996,11 +1000,11 @@ final class ButtonsPattern
             return false;
         }
 
-        if ( ! preg_match('/(?:^|;)\s*background(?:-color)?\s*:\s*([^;]+)/i', $normalized, $matches) ) {
+        if ( '' === $resolvedBackground ) {
             return true;
         }
 
-        return preg_match('/^(?:transparent|none|rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\))\s*$/i', trim((string) ($matches[1] ?? ''))) === 1;
+        return preg_match('/^(?:transparent|none|rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\))\s*$/i', $resolvedBackground) === 1;
     }
 
     private function isRichTextAnchorLabel(DOMElement $anchor, ButtonPatternContext $buttons): bool
