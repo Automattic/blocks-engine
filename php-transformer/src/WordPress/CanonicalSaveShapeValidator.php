@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPress;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+
 /**
  * Asserts that every emitted static core wrapper block carries only the class
  * and id tokens WordPress' own block `save()` would reproduce, so the block
@@ -144,7 +146,7 @@ final class CanonicalSaveShapeValidator
         $wrapperClasses = $this->classTokens($wrapper);
         $wrapperId      = $this->attributeValue($wrapper, 'id');
 
-        $attrs          = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
+        $attrs          = ArrayField::array($block, 'attrs');
         $classNameValue = is_string($attrs['className'] ?? null) ? $attrs['className'] : '';
         $classNameTokens = $this->tokens($classNameValue);
         $anchor          = is_string($attrs['anchor'] ?? null) ? $attrs['anchor'] : '';

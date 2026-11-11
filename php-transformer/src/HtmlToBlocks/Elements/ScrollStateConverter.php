@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ScrollStateBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
@@ -59,7 +60,7 @@ final class ScrollStateConverter implements ElementConverter
         // property the runtime toggles on the wrapper itself stays out of the
         // carrier, whose !important rule would pin it against the toggle.
         $toggled = array();
-        foreach (is_array($decodedConfig['styleTargets'] ?? null) ? $decodedConfig['styleTargets'] : array() as $target) {
+        foreach (ArrayField::array($decodedConfig, 'styleTargets') as $target) {
             if (is_array($target) && in_array($target['selector'] ?? '', array('', ':scope'), true) && is_array($target['properties'] ?? null)) {
                 $toggled = array_merge($toggled, array_map('strtolower', array_map('strval', array_keys($target['properties']))));
             }

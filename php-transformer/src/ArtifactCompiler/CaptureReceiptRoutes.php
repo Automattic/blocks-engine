@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+
 /** Resolves capture-root receipt routes against either artifact staging layout. */
 final class CaptureReceiptRoutes
 {
@@ -22,7 +24,7 @@ final class CaptureReceiptRoutes
             }
         }
         $routes = array();
-        foreach (is_array($receipt['routes'] ?? null) ? $receipt['routes'] : array() as $route) {
+        foreach (ArrayField::array($receipt, 'routes') as $route) {
             if (!is_array($route) || !is_string($route['url'] ?? null) || !is_string($route['path'] ?? null)) continue;
             $path = $route['path'];
             if (!isset($htmlPaths[$path]) && str_starts_with($path, $root . '/')) {

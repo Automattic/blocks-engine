@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CaptureReplayScripts;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
@@ -2035,7 +2036,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             }
             $innerBlocks[ $index ] = $this->blockFactory->rebuild(
                 $innerBlock,
-                array_merge(is_array($innerBlock['attrs'] ?? null) ? $innerBlock['attrs'] : array(), array( 'align' => $alignment ))
+                array_merge(ArrayField::array($innerBlock, 'attrs'), array( 'align' => $alignment ))
             );
         }
 

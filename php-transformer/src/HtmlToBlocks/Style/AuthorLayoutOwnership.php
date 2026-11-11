@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListStructure;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
@@ -67,7 +68,7 @@ final class AuthorLayoutOwnership
             // serialize blockGap, so source gap remains stylesheet owned by
             // the normalization in createBlock().
             $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-            $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
+            $style = ArrayField::array($attrs, 'style');
             unset($style['spacing']['blockGap']);
             if ( empty($style['spacing']) ) {
                 unset($style['spacing']);
@@ -78,7 +79,7 @@ final class AuthorLayoutOwnership
                 && ! isset($style['color']['background'])
                 && ! $this->styleResolver->hasConditionalStyleFamily($element, 'background')
             ) {
-                $style['color'] = array_merge(is_array($style['color'] ?? null) ? $style['color'] : array(), array( 'background' => $background ));
+                $style['color'] = array_merge(ArrayField::array($style, 'color'), array( 'background' => $background ));
             }
             if ( array() !== $style ) {
                 $attrs['style'] = $style;
@@ -110,8 +111,8 @@ final class AuthorLayoutOwnership
             (string) $attrs['className'],
             self::CSS_OWNED_FLOW_CLASS
         );
-        $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
-        $spacing = is_array($style['spacing'] ?? null) ? $style['spacing'] : array();
+        $style = ArrayField::array($attrs, 'style');
+        $spacing = ArrayField::array($style, 'spacing');
         if ( ! isset($spacing['blockGap']) ) {
             $spacing['blockGap'] = '0';
             $style['spacing'] = $spacing;

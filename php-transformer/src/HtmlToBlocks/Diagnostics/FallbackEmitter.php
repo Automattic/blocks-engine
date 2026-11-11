@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\ClassificationContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SubtreeClassifier;
@@ -828,7 +829,7 @@ final class FallbackEmitter
         return array_filter(array(
             'flags'  => $flags,
             'counts' => $counts,
-            'scores' => is_array($signals['scores'] ?? null) ? $signals['scores'] : array(),
+            'scores' => ArrayField::array($signals, 'scores'),
         ), static fn (mixed $value): bool => array() !== $value);
     }
 

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use DOMDocument;
@@ -194,7 +195,7 @@ final class ScrollStateProjector
             }
             $target = $toggle['target'];
             $thresholdPx = is_numeric($toggle['thresholdPx'] ?? null) ? (float) $toggle['thresholdPx'] : 0.0;
-            $classes = is_array($toggle['classes'] ?? null) ? $toggle['classes'] : array();
+            $classes = ArrayField::array($toggle, 'classes');
             $addClasses = $this->stringList($classes['add'] ?? null);
             $removeClasses = $this->stringList($classes['remove'] ?? null);
             $styleTargets = $this->normalizedStyleTargets($toggle['styleTargets'] ?? null);

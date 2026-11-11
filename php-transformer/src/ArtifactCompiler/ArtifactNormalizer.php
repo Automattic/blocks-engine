@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CaptureReplayScripts;
@@ -511,7 +512,7 @@ final class ArtifactNormalizer
     /** @param array<string,mixed> $artifact @return array{max_files:int,max_file_bytes:int,max_total_bytes:int,max_media_files:int,max_media_file_bytes:int,max_media_total_bytes:int,max_report_file_bytes:int,max_report_total_bytes:int} */
     private function limits(array $artifact): array
     {
-        $requested = is_array($artifact['compiler_limits'] ?? null) ? $artifact['compiler_limits'] : array();
+        $requested = ArrayField::array($artifact, 'compiler_limits');
         return array(
             'max_files'       => min(self::MAX_FILES, max(1, (int) ($requested['max_files'] ?? self::DEFAULT_MAX_FILES))),
             'max_file_bytes'  => min(self::MAX_FILE_BYTES, max(1, (int) ($requested['max_file_bytes'] ?? self::DEFAULT_MAX_FILE_BYTES))),
@@ -538,7 +539,7 @@ final class ArtifactNormalizer
     public static function declaredReports(array $artifact): array
     {
         $reports = array();
-        foreach (is_array($artifact['reports'] ?? null) ? $artifact['reports'] : array() as $report) {
+        foreach (ArrayField::array($artifact, 'reports') as $report) {
             if (!is_string($report)) continue;
             $path = ArtifactPath::safeRelativePath($report);
             if ('' !== $path) $reports[$path] = true;
@@ -1145,7 +1146,7 @@ final class ArtifactNormalizer
         $slug = is_string($surface['slug'] ?? null) ? strtolower(trim($surface['slug'])) : '';
         $surface['logical_surface_id'] ??= $role . ':' . $slug;
         $surface['responsive_variant_id'] ??= $sourcePath;
-        $provenance = is_array($surface['declaration_provenance'] ?? null) ? $surface['declaration_provenance'] : array();
+        $provenance = ArrayField::array($surface, 'declaration_provenance');
         $provenance['schema'] ??= 'blocks-engine/template-surface-provenance/v1';
         $provenance['kind'] ??= 'artifact_metadata';
         $provenance['source_path'] ??= $sourcePath;

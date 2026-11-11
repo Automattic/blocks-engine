@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\StaticSite;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
@@ -41,7 +42,7 @@ final class MaterializationPlanBuilder
         $pages = array_values(array_filter($pages, static fn(array $page): bool => !isset($page['metadata']['template_surface'])));
         $templateParts = $this->templateParts((array) ($compiledSite['template_parts'] ?? array()));
         $assets = $this->assets((array) ($compiledSite['assets'] ?? array()));
-        $visualRepair = is_array($compiledSite['visual_repair'] ?? null) ? $compiledSite['visual_repair'] : array();
+        $visualRepair = ArrayField::array($compiledSite, 'visual_repair');
         $routes = $this->routes($pages, (string) ($compiledSite['entry_path'] ?? ''));
         $navigationLinks = $this->navigationLinks($pages, $templateParts, $routes);
         $menus = $this->menus($navigationLinks);
@@ -119,8 +120,8 @@ final class MaterializationPlanBuilder
                 'body_format' => (string) ($page['body_format'] ?? ''),
                 'block_markup' => (string) ($page['block_markup'] ?? ''),
                 'entrypoint'  => ! empty($page['entrypoint']),
-                'metadata'    => is_array($page['metadata'] ?? null) ? $page['metadata'] : array(),
-                'provenance'  => is_array($page['provenance'] ?? null) ? $page['provenance'] : array(),
+                'metadata'    => ArrayField::array($page, 'metadata'),
+                'provenance'  => ArrayField::array($page, 'provenance'),
             ), static fn (mixed $value): bool => '' !== $value && array() !== $value);
         }
         return $planned;
@@ -263,7 +264,7 @@ final class MaterializationPlanBuilder
                 'area'        => (string) ($part['area'] ?? 'uncategorized'),
                 'body_format' => (string) ($part['body_format'] ?? ''),
                 'block_markup' => (string) ($part['block_markup'] ?? ''),
-                'metadata'    => is_array($part['metadata'] ?? null) ? $part['metadata'] : array(),
+                'metadata'    => ArrayField::array($part, 'metadata'),
             ), static fn (mixed $value): bool => '' !== $value && array() !== $value);
         }
         return $planned;
@@ -331,7 +332,7 @@ final class MaterializationPlanBuilder
                 'async'            => ! empty($asset['async']),
                 'source_path'      => (string) ($asset['source_path'] ?? ''),
                 'selector'         => (string) ($asset['selector'] ?? ''),
-                'references'       => is_array($asset['references'] ?? null) ? $asset['references'] : array(),
+                'references'       => ArrayField::array($asset, 'references'),
             ), static fn (mixed $value): bool => null !== $value && '' !== $value && 0 !== $value && false !== $value);
         }
         return $planned;
@@ -346,7 +347,7 @@ final class MaterializationPlanBuilder
      */
     private function theme(array $theme, array $templateParts, array $assets, array $visualRepair): array
     {
-        $fontMaterialization = is_array($theme['font_materialization'] ?? null) ? $theme['font_materialization'] : array();
+        $fontMaterialization = ArrayField::array($theme, 'font_materialization');
         if ( empty($fontMaterialization) && is_array($theme['font_usage'] ?? null) && array() !== $theme['font_usage'] ) {
             $fontMaterialization = ( new FontMaterializationPlanBuilder() )->googleFonts($theme['font_usage']);
         }
@@ -354,7 +355,7 @@ final class MaterializationPlanBuilder
             $fontHtml = (string) ($theme['font_link_html'] ?? '');
             $fontCss = (string) ($theme['static_css'] ?? '');
             if ( '' !== $fontHtml || '' !== $fontCss ) {
-                $fontMaterialization = ( new FontMaterializationPlanBuilder() )->fromWebFontSources($fontHtml, $fontCss, is_array($theme['font_css_sources'] ?? null) ? $theme['font_css_sources'] : array());
+                $fontMaterialization = ( new FontMaterializationPlanBuilder() )->fromWebFontSources($fontHtml, $fontCss, ArrayField::array($theme, 'font_css_sources'));
             }
         }
         if ( isset($fontMaterialization['webfont_contract']) ) {
@@ -365,7 +366,7 @@ final class MaterializationPlanBuilder
             'stylesheets' => $theme['stylesheets'] ?? $this->assetPathsByRole($assets, 'stylesheet'),
             'scripts' => $theme['scripts'] ?? $this->assetPathsByRole($assets, 'script'),
             'fonts' => $theme['fonts'] ?? $this->assetPathsByRole($assets, 'font'),
-            'font_usage' => is_array($theme['font_usage'] ?? null) ? $theme['font_usage'] : array(),
+            'font_usage' => ArrayField::array($theme, 'font_usage'),
             'font_materialization' => $fontMaterialization,
             'images' => $theme['images'] ?? $this->assetPathsByRole($assets, 'image'),
             'template_parts' => array_values(array_map(static fn (array $part): string => (string) ($part['source_path'] ?? ''), $templateParts)),

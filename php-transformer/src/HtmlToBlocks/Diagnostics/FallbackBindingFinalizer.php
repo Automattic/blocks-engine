@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
@@ -183,7 +184,7 @@ final class FallbackBindingFinalizer
                 }
             }
             ++$index;
-            $this->bindingProvenanceIndexes(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array(), $provenanceIndexes, $index);
+            $this->bindingProvenanceIndexes(ArrayField::array($block, 'innerBlocks'), $provenanceIndexes, $index);
         }
     }
 
@@ -222,7 +223,7 @@ final class FallbackBindingFinalizer
             $selector = $block['_source_anchor_selector'] ?? null;
             if ( is_string($selector) && '' !== $selector && ! array_key_exists($selector, $anchorIndexes) ) $anchorIndexes[$selector] = $index;
             ++$index;
-            $this->sourceAnchorSelectorIndexes(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array(), $anchorIndexes, $index);
+            $this->sourceAnchorSelectorIndexes(ArrayField::array($block, 'innerBlocks'), $anchorIndexes, $index);
         }
     }
 

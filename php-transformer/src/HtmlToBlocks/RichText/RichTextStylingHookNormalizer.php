@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
@@ -560,7 +561,7 @@ final class RichTextStylingHookNormalizer
         if ( array() !== $hoistedDeclarations ) {
             $mapped = $this->styleResolver->styleAttributeMapper()->map($hoistedDeclarations)['style'];
             if ( array() !== $mapped ) {
-                $existing       = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
+                $existing       = ArrayField::array($attrs, 'style');
                 $attrs['style'] = array_replace_recursive($mapped, $existing);
                 // A size on the content overrides the host's size in the source
                 // cascade too, even when the host carries a reset such as 100%.

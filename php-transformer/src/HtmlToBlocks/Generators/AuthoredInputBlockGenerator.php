@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\SourceAttribute;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 
@@ -137,7 +138,7 @@ JS;
                 $value = (string) ($attrs[$key] ?? '');
                 if ('' !== $value) $html .= ' ' . (array('className' => 'class', 'ariaLabel' => 'aria-label')[$key] ?? $key) . '="' . $escape($value) . '"';
             }
-            $source = SourceAttribute::staticAttributes(is_array($attrs['indicatorAttributes'] ?? null) ? $attrs['indicatorAttributes'] : array());
+            $source = SourceAttribute::staticAttributes(ArrayField::array($attrs, 'indicatorAttributes'));
             return $html . SourceDom::htmlAttributeString($source) . '>' . $escape($attrs['fallbackText'] ?? '') . '</' . $tag . '>';
         }
         $html = '<input';

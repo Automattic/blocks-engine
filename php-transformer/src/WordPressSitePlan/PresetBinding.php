@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ResponsiveCorrespondence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
@@ -2061,7 +2062,7 @@ final class PresetBinding
         ksort($usageBySource, SORT_STRING);
         $observations = array();
         foreach ($usageBySource as $usage) {
-            foreach (is_array($usage['class_styles'] ?? null) ? $usage['class_styles'] : array() as $row) {
+            foreach (ArrayField::array($usage, 'class_styles') as $row) {
                 $key = self::authoredClassKey((string) ($row['classes'] ?? ''));
                 if ('' === $key) continue;
                 foreach (self::CLASS_STYLE_PROPERTIES as $property) {

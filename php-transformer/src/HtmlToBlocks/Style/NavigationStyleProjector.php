@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
@@ -400,7 +401,7 @@ final class NavigationStyleProjector
                 continue;
             }
 
-            $margins = $this->inlineAxisAutoMargins(is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array());
+            $margins = $this->inlineAxisAutoMargins(ArrayField::array($rule, 'declarations'));
             if ( array() === $margins ) {
                 continue;
             }
@@ -633,7 +634,7 @@ final class NavigationStyleProjector
 
             $declarations = array();
             $itemNeutralizers = array();
-            foreach ( is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array() as $property => $value ) {
+            foreach ( ArrayField::array($rule, 'declarations') as $property => $value ) {
                 $property = trim((string) $property);
                 $value = trim((string) $value);
                 if ( '' === $property || '' === $value ) {
@@ -677,7 +678,7 @@ final class NavigationStyleProjector
             }
             $emitted[$emissionKey] = true;
 
-            $conditions = is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array();
+            $conditions = ArrayField::array($rule, 'conditions');
             if ( isset($anchorAliases[$class]) ) {
                 // Native subjects already retain the complete authored cascade.
                 // Replay only the editor paint/transition contested by Core's
@@ -808,7 +809,7 @@ final class NavigationStyleProjector
         $authoredRules = $this->navigationAuthorStyleRules();
         $rules = array();
         foreach ( $authoredRules as $rule ) {
-            $conditions = is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array();
+            $conditions = ArrayField::array($rule, 'conditions');
             if ( array() !== $conditions && ! $this->navigationConditionsAreProjectable($conditions) ) {
                 continue;
             }
@@ -857,7 +858,7 @@ final class NavigationStyleProjector
                 continue;
             }
 
-            $source = is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array();
+            $source = ArrayField::array($rule, 'declarations');
             $source = isset($source['color']) ? array( 'color' => $source['color'] ) : array();
             if ( array() === $source ) {
                 continue;
@@ -940,15 +941,15 @@ final class NavigationStyleProjector
         $order = 0;
         foreach ( $this->session->authorStyleAnalysis()->styleRules() as $authorRule ) {
             $declarations = $this->styleResolver->safeVisualDeclarations(
-                is_array($authorRule['declarations'] ?? null) ? $authorRule['declarations'] : array()
+                ArrayField::array($authorRule, 'declarations')
             );
             if ( array() === $declarations ) {
                 continue;
             }
             $ruleId = $order++;
-            foreach ( is_array($authorRule['selectors'] ?? null) ? $authorRule['selectors'] : array() as $authorSelector ) {
+            foreach ( ArrayField::array($authorRule, 'selectors') as $authorSelector ) {
                 $selector = trim((string) ($authorSelector['selector'] ?? ''));
-                $parsed = is_array($authorSelector['parsed'] ?? null) ? $authorSelector['parsed'] : array();
+                $parsed = ArrayField::array($authorSelector, 'parsed');
                 if ( '' === $selector || ! ($parsed['supported'] ?? false) ) {
                     continue;
                 }
@@ -962,7 +963,7 @@ final class NavigationStyleProjector
                     'selector' => $selector,
                     'parsed' => $parsed,
                     'declarations' => $declarations,
-                    'conditions' => is_array($authorRule['conditions'] ?? null) ? $authorRule['conditions'] : array(),
+                    'conditions' => ArrayField::array($authorRule, 'conditions'),
                     'pseudo' => $pseudo,
                     'specificity' => $this->navigationSelectorSpecificity($parsed, $pseudo),
                     'order' => $ruleId,
@@ -1089,7 +1090,7 @@ final class NavigationStyleProjector
             foreach ( $authoredRules as $rule ) {
                 if ( ($candidate['conditions'] ?? array()) !== ($rule['conditions'] ?? array())
                     || ($candidate['pseudo'] ?? '') !== ($rule['pseudo'] ?? '')
-                    || ! array_key_exists($property, is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array())
+                    || ! array_key_exists($property, ArrayField::array($rule, 'declarations'))
                 ) {
                     continue;
                 }
@@ -1144,12 +1145,12 @@ final class NavigationStyleProjector
     private function navigationRuleHasConditionalPropertyCompetitorOnAnchors(array $candidate, string $property, array $authoredRules, array $anchors): bool
     {
         foreach ( $authoredRules as $rule ) {
-            $conditions = is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array();
+            $conditions = ArrayField::array($rule, 'conditions');
             if ( array() === $conditions
                 || $this->navigationConditionsAreStaticLayers($conditions)
                 || ($candidate['id'] ?? null) === ($rule['id'] ?? null)
                 || ($candidate['pseudo'] ?? '') !== ($rule['pseudo'] ?? '')
-                || ! array_key_exists($property, is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array())
+                || ! array_key_exists($property, ArrayField::array($rule, 'declarations'))
             ) {
                 continue;
             }
@@ -1232,7 +1233,7 @@ final class NavigationStyleProjector
         $virtualRules = array();
         foreach ( $authoredRules as $rule ) {
             $virtualValue = null;
-            foreach ( is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array() as $property => $value ) {
+            foreach ( ArrayField::array($rule, 'declarations') as $property => $value ) {
                 if ( $this->navigationBorderDeclarationAffectsVirtualProperty((string) $property, $virtualProperty) ) {
                     $virtualValue = (string) $value;
                 }
@@ -1483,7 +1484,7 @@ final class NavigationStyleProjector
     {
         $matched = array();
         foreach ( $this->session->sourceStyleResolutionState()->navigationStateRules() as $rule ) {
-            $conditions = is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array();
+            $conditions = ArrayField::array($rule, 'conditions');
             if ( (array() !== $conditions && ! $this->navigationConditionsAreProjectable($conditions))
                 || ! isset($rule['declarations']['color'])
                 || ! $this->styleResolver->matchesCssSelector($element, $rule['base_selector'])
@@ -2051,7 +2052,7 @@ final class NavigationStyleProjector
                 continue;
             }
 
-            $declarations = is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array();
+            $declarations = ArrayField::array($rule, 'declarations');
             $candidate = trim((string) ($declarations['background-color'] ?? $declarations['background'] ?? ''));
             if ( '' !== $candidate && ! in_array(strtolower($candidate), array( 'none', 'transparent', 'inherit', 'initial', 'unset' ), true) ) {
                 $background = $candidate;

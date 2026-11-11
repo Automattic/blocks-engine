@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
@@ -58,7 +59,7 @@ final class CoreHtmlIslandReducer
                 continue;
             }
 
-            $children = is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array();
+            $children = ArrayField::array($block, 'innerBlocks');
             if (array() !== $children) {
                 $reducedChildren = array();
                 $childReplacements = array();
@@ -70,7 +71,7 @@ final class CoreHtmlIslandReducer
                 $block['innerBlocks'] = $reducedChildren;
                 $innerContent = array();
                 $childIndex = 0;
-                foreach (is_array($block['innerContent'] ?? null) ? $block['innerContent'] : array() as $content) {
+                foreach (ArrayField::array($block, 'innerContent') as $content) {
                     if (null !== $content) {
                         $innerContent[] = $content;
                         continue;
@@ -128,7 +129,7 @@ final class CoreHtmlIslandReducer
             }
         }
         [ $data, $fragmentSession ] = ($this->compileFragment)($html, $sourceBoxes);
-        $blocks = is_array($data['blocks'] ?? null) ? $data['blocks'] : array();
+        $blocks = ArrayField::array($data, 'blocks');
         if (array() === $blocks || array() !== ($data['fallbacks'] ?? array())) {
             return null;
         }

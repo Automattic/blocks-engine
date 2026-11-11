@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMaterializer;
@@ -193,8 +194,8 @@ final class StructuredCardListLowering
         }
 
         $attrs['className'] = SourceDom::mergeClassNames($className, AuthorLayoutOwnership::CSS_OWNED_FLOW_CLASS);
-        $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
-        $spacing = is_array($style['spacing'] ?? null) ? $style['spacing'] : array();
+        $style = ArrayField::array($attrs, 'style');
+        $spacing = ArrayField::array($style, 'spacing');
         if ( ! isset($spacing['blockGap']) ) {
             $spacing['blockGap'] = '0';
             $style['spacing'] = $spacing;

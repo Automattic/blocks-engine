@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
@@ -2381,7 +2382,7 @@ final class NavigationToggleSuppressor
     /** @param array<string, mixed> $block */
     private function isLandmarkNavigationCarrier(DOMElement $element, array $block): bool
     {
-        $innerBlocks = is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array();
+        $innerBlocks = ArrayField::array($block, 'innerBlocks');
 
         return $this->isNavigationLandmark($element)
             && 'core/group' === ($block['blockName'] ?? '')

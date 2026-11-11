@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackEmitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
@@ -266,7 +267,7 @@ final class LinkWrapperPropagator
 
     private function propagateLinkOntoImage(array &$block, array $linkAttrs): bool
     {
-        $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
+        $attrs = ArrayField::array($block, 'attrs');
         if ( '' !== (string) ($attrs['href'] ?? '') ) {
             return false;
         }
@@ -297,7 +298,7 @@ final class LinkWrapperPropagator
      */
     private function propagateInlineLink(array &$block, array $linkAttrs): bool
     {
-        $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
+        $attrs = ArrayField::array($block, 'attrs');
         $content = (string) ($attrs['content'] ?? '');
         if ( '' === trim($content) ) {
             return false;
@@ -329,8 +330,8 @@ final class LinkWrapperPropagator
                 (string) ($replacementAttrs['className'] ?? ''),
                 SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS
             );
-            $style = is_array($replacementAttrs['style'] ?? null) ? $replacementAttrs['style'] : array();
-            $typography = is_array($style['typography'] ?? null) ? $style['typography'] : array();
+            $style = ArrayField::array($replacementAttrs, 'style');
+            $typography = ArrayField::array($style, 'typography');
             $typography['textDecoration'] = 'none';
             $style['typography'] = $typography;
             $replacementAttrs['style'] = $style;

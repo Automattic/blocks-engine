@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonStyleResolver;
@@ -228,7 +229,7 @@ final class GeneratedBlockStyleProjector
         string $inheritedTextAlignment = '',
         ?DOMElement $sourceControl = null
     ): void {
-        $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
+        $style = ArrayField::array($attrs, 'style');
         $declarations = array();
         $guardedDeclarations = array();
         $wrapperDeclarations = array();

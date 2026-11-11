@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeScriptEvidenceAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
@@ -132,7 +133,7 @@ final class ThemeToggleConverter implements ElementConverter
                 'iconSemantic' => $semantic,
                 'className' => implode(' ', array_values(array_unique(array_filter(SourceDom::tokens(SourceDom::attr($button, 'class') . ' ' . (string) ($presentation['className'] ?? '')))))),
                 'attributes' => $safeAttributes,
-                'style' => is_array($presentation['style'] ?? null) ? $presentation['style'] : array(),
+                'style' => ArrayField::array($presentation, 'style'),
                 'icon' => $icon,
                 'selected' => 'true' === strtolower(SourceDom::attr($button, 'aria-pressed'))
                     || 'true' === strtolower(SourceDom::attr($button, 'aria-selected'))
@@ -157,7 +158,7 @@ final class ThemeToggleConverter implements ElementConverter
         $defaultTheme = (string) ($operator['default_preference'] ?? $defaultTheme);
         if ( 'class' === $rootAttribute ) {
             if ( ! preg_match('/(?:^|})\.' . preg_quote($darkValue, '/') . '(?:\s[^{}]*)?\{[^}]*(?:color-scheme|--(?:background|foreground)|background(?:-color)?\s*:|color\s*:)/i', $css) ) return null;
-            $runtimeClassValues = is_array($ownership['rootClassValues'] ?? null) ? $ownership['rootClassValues'] : array();
+            $runtimeClassValues = ArrayField::array($ownership, 'rootClassValues');
             if ( array() !== $runtimeClassValues
                 && ( ! in_array($darkValue, $runtimeClassValues, true)
                     || ( '' !== $lightValue && ! in_array($lightValue, $runtimeClassValues, true) ) ) ) return null;
@@ -174,7 +175,7 @@ final class ThemeToggleConverter implements ElementConverter
         $selectedIndex = array_search(true, array_column($entries, 'selected'), true);
         $groupPresentation = $this->themeControlPresentation($element);
         $groupClassName = trim(SourceDom::attr($element, 'class') . ' ' . (string) ($groupPresentation['className'] ?? ''));
-        $groupStyle = is_array($groupPresentation['style'] ?? null) ? $groupPresentation['style'] : array();
+        $groupStyle = ArrayField::array($groupPresentation, 'style');
         $attributes = array(
             'themeModes' => $modes,
             'selectionButtons' => $entries,
@@ -227,7 +228,7 @@ final class ThemeToggleConverter implements ElementConverter
                 || '(prefers-color-scheme: dark)' !== trim((string) ($operator['system_query'] ?? '')) ) {
                 continue;
             }
-            $root = is_array($operator['root'] ?? null) ? $operator['root'] : array();
+            $root = ArrayField::array($operator, 'root');
             if ( ! in_array($root['selector'] ?? null, array('html', ':root'), true)
                 || ($root['attribute'] ?? null) !== ($scriptOwner['rootAttribute'] ?? null)
                 || ! is_string($root['dark_value'] ?? null) || '' === $root['dark_value']
@@ -437,7 +438,7 @@ final class ThemeToggleConverter implements ElementConverter
         return array(
             'className' => (string) ($presentation['className'] ?? ''),
             'style' => $declarations,
-            'layout' => is_array($presentation['layout'] ?? null) ? $presentation['layout'] : array(),
+            'layout' => ArrayField::array($presentation, 'layout'),
         );
     }
 }

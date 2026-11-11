@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ImageLowering;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\NavigationLabelNormalizer;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
@@ -462,7 +463,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 // anchor metadata; repeating them on the LI paints them twice.
                 if ( in_array($link['blockName'] ?? '', array( 'core/navigation-link', 'core/navigation-submenu' ), true)
                     && ! isset($link['attrs']['metadata']['blocksEngineNavigationAnchor']['boxes']) ) {
-                    $links[$linkIndex]['attrs'] = $this->withClassName(is_array($link['attrs'] ?? null) ? $link['attrs'] : array(), $sharedWrapperClasses);
+                    $links[$linkIndex]['attrs'] = $this->withClassName(ArrayField::array($link, 'attrs'), $sharedWrapperClasses);
                 }
             }
         }
@@ -1237,7 +1238,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
 
             if ( $this->resolvedStyleDeclaresFamily($navigationContext->resolvedStyle($element), 'padding') ) {
-                $padding = is_array($clusterSpacing['padding'] ?? null) ? $clusterSpacing['padding'] : array();
+                $padding = ArrayField::array($clusterSpacing, 'padding');
                 if ( array() !== $padding ) {
                     // The carrier adds an inner nav that the authored outer-nav
                     // selector also reaches. Inline source-list padding restores
@@ -1647,9 +1648,9 @@ final class NavigationPattern implements PatternRecognizerInterface
      */
     private function withBlockClassName(array $block, string $className, callable $createBlock, DOMElement $source): array
     {
-        $attrs = $this->withClassName(is_array($block['attrs'] ?? null) ? $block['attrs'] : array(), $className);
+        $attrs = $this->withClassName(ArrayField::array($block, 'attrs'), $className);
 
-        return $createBlock((string) $block['blockName'], $attrs, is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array(), $source);
+        return $createBlock((string) $block['blockName'], $attrs, ArrayField::array($block, 'innerBlocks'), $source);
     }
 
     /**
@@ -1663,7 +1664,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function markDirectNavigationLinkColors(array $links): array
     {
         foreach ( $links as &$link ) {
-            $attrs = is_array($link['attrs'] ?? null) ? $link['attrs'] : array();
+            $attrs = ArrayField::array($link, 'attrs');
             $color = trim((string) ($attrs['style']['color']['text'] ?? ''));
             if ( '' !== $color ) {
                 $link['attrs'] = $this->withClassName(
@@ -2137,7 +2138,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             return $attrs;
         }
 
-        $layout = is_array($attrs['layout'] ?? null) ? $attrs['layout'] : array();
+        $layout = ArrayField::array($attrs, 'layout');
         $layout['justifyContent'] = $justification;
         if ( ! isset($layout['type']) ) {
             $layout['type'] = 'flex';
@@ -2235,8 +2236,8 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         $mapped = ( new StyleAttributeMapper() )->map($declarations);
-        $styleObject = is_array($mapped['style'] ?? null) ? $mapped['style'] : array();
-        return is_array($styleObject['spacing'] ?? null) ? $styleObject['spacing'] : array();
+        $styleObject = ArrayField::array($mapped, 'style');
+        return ArrayField::array($styleObject, 'spacing');
     }
 
     private function hasDirectNavigationBoxCollision(string $landmarkStyle, string $clusterStyle): bool
@@ -2521,7 +2522,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         $counts = array();
         $values = array();
         foreach ( $links as $link ) {
-            $linkAttrs = is_array($link['attrs'] ?? null) ? $link['attrs'] : array();
+            $linkAttrs = ArrayField::array($link, 'attrs');
             $candidate = $value($linkAttrs);
             if ( ! is_string($candidate) || '' === trim($candidate) ) {
                 continue;
@@ -2583,7 +2584,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         // about the resting colour, and exists on some routes only. Leaving it
         // out of the vote keeps the shared menu's default route-independent.
         $links = array_values(array_filter($links, static function (array $link) use ($restingColorClass): bool {
-            $attrs = is_array($link['attrs'] ?? null) ? $link['attrs'] : array();
+            $attrs = ArrayField::array($link, 'attrs');
 
             return null !== $restingColorClass($attrs)
                 || ! str_contains((string) ($attrs['className'] ?? ''), self::CURRENT_COLOR_CLASS_PREFIX);
@@ -2596,7 +2597,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function allNavigationLinksShare(array $links, callable $value, mixed $expected): bool
     {
         foreach ( $links as $link ) {
-            $linkAttrs = is_array($link['attrs'] ?? null) ? $link['attrs'] : array();
+            $linkAttrs = ArrayField::array($link, 'attrs');
             if ( $value($linkAttrs) !== $expected ) {
                 return false;
             }
@@ -4019,7 +4020,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         $colors = array();
         $collect = static function (array $items) use (&$collect, &$colors): void {
             foreach ( $items as $link ) {
-                $attrs = is_array($link['attrs'] ?? null) ? $link['attrs'] : array();
+                $attrs = ArrayField::array($link, 'attrs');
                 $className = (string) ($attrs['className'] ?? '');
                 if ( str_contains($className, 'blocks-engine-current-navigation-item')
                     && preg_match('/(?:^|\s)(' . preg_quote(self::CURRENT_COLOR_CLASS_PREFIX, '/') . '[a-f0-9]{64})(?:\s|$)/', $className, $match)
@@ -4027,7 +4028,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                     $colors[$match[1]] = true;
                 }
 
-                $collect(is_array($link['innerBlocks'] ?? null) ? $link['innerBlocks'] : array());
+                $collect(ArrayField::array($link, 'innerBlocks'));
             }
         };
         $collect($links);
@@ -4056,8 +4057,8 @@ final class NavigationPattern implements PatternRecognizerInterface
             $attrs['textColor'] = $anchorAttrs['textColor'];
         }
 
-        $style = is_array($anchorAttrs['style'] ?? null) ? $anchorAttrs['style'] : array();
-        $typography = is_array($style['typography'] ?? null) ? $style['typography'] : array();
+        $style = ArrayField::array($anchorAttrs, 'style');
+        $typography = ArrayField::array($style, 'typography');
         $textColor = $style['color']['text'] ?? null;
         if ( $includeTypography && array() !== $typography ) {
             $attrs['style']['typography'] = $typography;

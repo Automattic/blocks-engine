@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
@@ -473,7 +474,7 @@ final class RuntimeDependencyParityReport
                 continue;
             }
 
-            $attributes = is_array($island['attributes'] ?? null) ? $island['attributes'] : array();
+            $attributes = ArrayField::array($island, 'attributes');
             $src = trim((string) ($attributes['src'] ?? ''));
             if ( '' === $src ) {
                 continue;
@@ -950,7 +951,7 @@ final class RuntimeDependencyParityReport
                 $targets['classes'][substr($selector, 1)] = true;
             }
 
-            $attributes = is_array($island['attributes'] ?? null) ? $island['attributes'] : array();
+            $attributes = ArrayField::array($island, 'attributes');
             $id = is_string($attributes['id'] ?? null) ? trim($attributes['id']) : '';
             if ( '' !== $id ) {
                 $targets['ids'][$id] = true;

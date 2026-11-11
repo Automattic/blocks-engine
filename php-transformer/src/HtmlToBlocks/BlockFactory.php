@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
@@ -89,7 +90,7 @@ final class BlockFactory
     public function rebuild(array $block, array $attrs): array
     {
         $name = (string) ($block['blockName'] ?? '');
-        $innerBlocks = is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array();
+        $innerBlocks = ArrayField::array($block, 'innerBlocks');
         $rebuilt = $this->create($name, $attrs, $innerBlocks);
         foreach ( $block as $key => $value ) {
             if ( is_string($key) && str_starts_with($key, '_') ) {
@@ -422,7 +423,7 @@ final class BlockFactory
 
         if ( 'core/tab-list' === $name ) {
             $buttons = '';
-            foreach ( is_array($attrs['tabs'] ?? null) ? $attrs['tabs'] : array() as $tab ) {
+            foreach ( ArrayField::array($attrs, 'tabs') as $tab ) {
                 $label = is_array($tab) ? (string) ($tab['label'] ?? '') : '';
                 $buttons .= '<button type="button" role="tab">' . $this->preserveRichTextPunctuation($label) . '</button>';
             }
@@ -1075,7 +1076,7 @@ final class BlockFactory
             $classes[] = 'has-background';
         }
 
-        $border = is_array($style['border'] ?? null) ? $style['border'] : array();
+        $border = ArrayField::array($style, 'border');
         if ( isset($border['color']) && '' !== (string) $border['color'] ) {
             $classes[] = 'has-border-color';
             $declarations[] = 'border-color:' . (string) $border['color'];
@@ -1122,7 +1123,7 @@ final class BlockFactory
             }
         }
 
-        $typography = is_array($style['typography'] ?? null) ? $style['typography'] : array();
+        $typography = ArrayField::array($style, 'typography');
         if ( isset($typography['fontSize']) && '' !== (string) $typography['fontSize'] ) {
             $classes[] = 'has-custom-font-size';
         }

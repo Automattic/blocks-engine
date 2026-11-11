@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\Contract;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationPlanBuilder;
 
@@ -48,8 +49,8 @@ final class ConversionReportProjection
             'asset_refs'            => self::assetReferences($blockAssetReferences, $sourceReports),
             'navigation_candidates' => self::navigationCandidates($blockNavigationCandidates, $sourceReports),
             'semantic_parity'       => self::semanticParity($sourceReports),
-            'editability_report'    => is_array($sourceReports['editability_report'] ?? null) ? $sourceReports['editability_report'] : array(),
-            'editability_policy'    => is_array($sourceReports['editability_policy'] ?? null) ? $sourceReports['editability_policy'] : array(),
+            'editability_report'    => ArrayField::array($sourceReports, 'editability_report'),
+            'editability_policy'    => ArrayField::array($sourceReports, 'editability_policy'),
             'runtime_dependency_parity' => self::runtimeDependencyParity($sourceReports),
             'runtime_islands'      => $runtimeIslands,
             'interaction_candidates' => self::interactionCandidates($sourceReports),
@@ -58,7 +59,7 @@ final class ConversionReportProjection
             'available_core_blocks' => self::stringList($sourceReports, 'available_core_blocks'),
             'bundled_snapshot_blocks' => self::stringList($sourceReports, 'bundled_snapshot_blocks'),
             'runtime_registered_blocks' => self::nullableStringList($sourceReports, 'runtime_registered_blocks'),
-            'core_block_capabilities' => is_array($sourceReports['core_block_capabilities'] ?? null) ? $sourceReports['core_block_capabilities'] : array(),
+            'core_block_capabilities' => ArrayField::array($sourceReports, 'core_block_capabilities'),
             'metrics'               => $metrics,
         );
 
@@ -75,9 +76,9 @@ final class ConversionReportProjection
      */
     private static function sourceSummary(string $sourceFormat, array $blocks, array $fallbacks, array $sourceReports, array $assets, array $metrics): array
     {
-        $artifact = is_array($sourceReports['artifact'] ?? null) ? $sourceReports['artifact'] : array();
-        $compiledSite = is_array($sourceReports['compiled_site'] ?? null) ? $sourceReports['compiled_site'] : array();
-        $wordpressSitePlan = is_array($sourceReports['wordpress_site_plan'] ?? null) ? $sourceReports['wordpress_site_plan'] : array();
+        $artifact = ArrayField::array($sourceReports, 'artifact');
+        $compiledSite = ArrayField::array($sourceReports, 'compiled_site');
+        $wordpressSitePlan = ArrayField::array($sourceReports, 'wordpress_site_plan');
         $legacySummary = array() === $wordpressSitePlan && array() !== $compiledSite ? (new MaterializationPlanBuilder())->fromCompiledSite($compiledSite) : array();
 
         return array_filter(
@@ -293,8 +294,8 @@ final class ConversionReportProjection
     {
         $gaps = array();
 
-        $html = is_array($sourceReports['html'] ?? null) ? $sourceReports['html'] : array();
-        $signals = is_array($html['presentation_signals'] ?? null) ? $html['presentation_signals'] : array();
+        $html = ArrayField::array($sourceReports, 'html');
+        $signals = ArrayField::array($html, 'presentation_signals');
         foreach ( $signals as $signal ) {
             if ( ! is_array($signal) ) {
                 continue;
@@ -311,7 +312,7 @@ final class ConversionReportProjection
             );
         }
 
-        $structureSignals = is_array($html['structure_signals'] ?? null) ? $html['structure_signals'] : array();
+        $structureSignals = ArrayField::array($html, 'structure_signals');
         foreach ( $structureSignals as $signal ) {
             if ( ! is_array($signal) ) {
                 continue;
@@ -328,9 +329,9 @@ final class ConversionReportProjection
             );
         }
 
-        $compiledSite = is_array($sourceReports['compiled_site'] ?? null) ? $sourceReports['compiled_site'] : array();
-        $visualRepair = is_array($compiledSite['visual_repair'] ?? null) ? $compiledSite['visual_repair'] : array();
-        $stylesheets = is_array($visualRepair['stylesheets'] ?? null) ? $visualRepair['stylesheets'] : array();
+        $compiledSite = ArrayField::array($sourceReports, 'compiled_site');
+        $visualRepair = ArrayField::array($compiledSite, 'visual_repair');
+        $stylesheets = ArrayField::array($visualRepair, 'stylesheets');
         foreach ( $stylesheets as $stylesheet ) {
             if ( ! is_array($stylesheet) ) {
                 continue;
@@ -376,8 +377,8 @@ final class ConversionReportProjection
             $islands = array();
         }
 
-        $html = is_array($sourceReports['html'] ?? null) ? $sourceReports['html'] : array();
-        $htmlIslands = is_array($html['runtime_islands'] ?? null) ? $html['runtime_islands'] : array();
+        $html = ArrayField::array($sourceReports, 'html');
+        $htmlIslands = ArrayField::array($html, 'runtime_islands');
 
         return DeterministicRowDeduplicator::dedupe(array_values(array_filter(array_merge($islands, $htmlIslands), static fn (mixed $island): bool => is_array($island))));
     }
@@ -490,14 +491,14 @@ final class ConversionReportProjection
      */
     private static function sourceProvenance(array $sourceReports): array
     {
-        $html = is_array($sourceReports['html'] ?? null) ? $sourceReports['html'] : array();
-        return is_array($html['source_provenance'] ?? null) ? $html['source_provenance'] : array();
+        $html = ArrayField::array($sourceReports, 'html');
+        return ArrayField::array($html, 'source_provenance');
     }
 
     /** @param array<string, mixed> $sourceReports @return array<string, mixed> */
     private static function coreHtmlFallbackEvidence(array $sourceReports): array
     {
-        $html = is_array($sourceReports['html'] ?? null) ? $sourceReports['html'] : array();
+        $html = ArrayField::array($sourceReports, 'html');
         $evidence = $sourceReports['core_html_fallback_evidence'] ?? ($html['core_html_fallback_evidence'] ?? array());
         return is_array($evidence) ? $evidence : array();
     }
@@ -517,8 +518,8 @@ final class ConversionReportProjection
      */
     private static function artifactInternalLinks(array $sourceReports): array
     {
-        $artifact = is_array($sourceReports['artifact'] ?? null) ? $sourceReports['artifact'] : array();
-        return is_array($artifact['internal_links'] ?? null) ? $artifact['internal_links'] : array();
+        $artifact = ArrayField::array($sourceReports, 'artifact');
+        return ArrayField::array($artifact, 'internal_links');
     }
 
     /**
@@ -527,8 +528,8 @@ final class ConversionReportProjection
      */
     private static function artifactAssetReferences(array $sourceReports): array
     {
-        $artifact = is_array($sourceReports['artifact'] ?? null) ? $sourceReports['artifact'] : array();
-        return is_array($artifact['asset_references'] ?? null) ? $artifact['asset_references'] : array();
+        $artifact = ArrayField::array($sourceReports, 'artifact');
+        return ArrayField::array($artifact, 'asset_references');
     }
 
     /**
@@ -583,7 +584,7 @@ final class ConversionReportProjection
 
             $blockPath = $path . '.' . $index;
             $blockName = (string) ($block['blockName'] ?? '');
-            $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
+            $attrs = ArrayField::array($block, 'attrs');
             if ( $collectAssetReferences ) {
                 foreach ( array('url', 'src', 'href', 'poster') as $attribute ) {
                     if ( is_string($attrs[$attribute] ?? null) && '' !== $attrs[$attribute] ) {

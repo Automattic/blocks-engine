@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -173,7 +174,7 @@ final class AccordionPattern implements PatternRecognizerInterface
             return $attributes;
         }
         $mapped = ( new StyleAttributeMapper() )->map($box, static fn (string $value): string => $value);
-        $style = is_array($mapped['style'] ?? null) ? $mapped['style'] : array();
+        $style = ArrayField::array($mapped, 'style');
         $style = array_intersect_key($style, array_flip(array('spacing', 'border')));
         if ( isset($style['spacing']) && is_array($style['spacing']) ) {
             $style['spacing'] = array_intersect_key($style['spacing'], array_flip(array('padding')));
@@ -182,7 +183,7 @@ final class AccordionPattern implements PatternRecognizerInterface
         if ( array() === $style ) {
             return $attributes;
         }
-        $existing = is_array($attributes['style'] ?? null) ? $attributes['style'] : array();
+        $existing = ArrayField::array($attributes, 'style');
         $attributes['style'] = array_replace_recursive($style, $existing);
 
         return $attributes;

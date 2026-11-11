@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
@@ -187,7 +188,7 @@ final class HostBlockGapEncoder
 
         $group['innerBlocks'] = $children;
         if ( null !== $gap ) {
-            $group['attrs'] = $this->withBlockGap(is_array($group['attrs'] ?? null) ? $group['attrs'] : array(), self::cssLength($gap));
+            $group['attrs'] = $this->withBlockGap(ArrayField::array($group, 'attrs'), self::cssLength($gap));
         }
 
         return $group;
@@ -260,7 +261,7 @@ final class HostBlockGapEncoder
         $gap = abs($row - $column) < 0.001
             ? self::cssLength($row)
             : array( 'top' => self::cssLength($row), 'left' => self::cssLength($column) );
-        $group['attrs'] = $this->withBlockGap(is_array($group['attrs'] ?? null) ? $group['attrs'] : array(), $gap);
+        $group['attrs'] = $this->withBlockGap(ArrayField::array($group, 'attrs'), $gap);
 
         // Core zeroes flex and grid item margins; items keep the source's.
         $children = is_array($group['innerBlocks'] ?? null) ? array_values($group['innerBlocks']) : array();
@@ -679,7 +680,7 @@ final class HostBlockGapEncoder
      */
     private function withMargins(array $block, array $sides): array
     {
-        $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
+        $attrs = ArrayField::array($block, 'attrs');
         // The factory drops a group's blockGap (layout renders it, save does
         // not); carry the one this encoder wrote across the rebuild.
         $blockGap = $attrs['style']['spacing']['blockGap'] ?? null;
@@ -696,7 +697,7 @@ final class HostBlockGapEncoder
         }
         $rebuilt = $this->blockFactory->rebuild($block, $attrs);
         if ( null !== $blockGap ) {
-            $rebuilt['attrs'] = $this->withBlockGap(is_array($rebuilt['attrs'] ?? null) ? $rebuilt['attrs'] : array(), $blockGap);
+            $rebuilt['attrs'] = $this->withBlockGap(ArrayField::array($rebuilt, 'attrs'), $blockGap);
         }
 
         return $rebuilt;
@@ -726,8 +727,8 @@ final class HostBlockGapEncoder
      */
     private function withBlockGap(array $attrs, mixed $gap): array
     {
-        $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
-        $spacing = is_array($style['spacing'] ?? null) ? $style['spacing'] : array();
+        $style = ArrayField::array($attrs, 'style');
+        $spacing = ArrayField::array($style, 'spacing');
         $spacing['blockGap'] = $gap;
         $style['spacing'] = $spacing;
         $attrs['style'] = $style;

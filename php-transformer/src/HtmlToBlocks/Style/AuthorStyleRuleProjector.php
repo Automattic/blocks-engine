@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
@@ -290,18 +291,18 @@ final class AuthorStyleRuleProjector
         }
         $index = array();
         foreach ( $authorStyles->styleRules() as $rule ) {
-            $declarations = array_intersect_key(is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array(), self::boxModelProperties());
+            $declarations = array_intersect_key(ArrayField::array($rule, 'declarations'), self::boxModelProperties());
             if ( array() === $declarations ) {
                 continue;
             }
             $atRules = array_values(array_map(
                 static fn (mixed $condition): string => trim((string) preg_replace('#/\*.*?\*/#s', '', (string) $condition)),
-                is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array()
+                ArrayField::array($rule, 'conditions')
             ));
             $conditions = self::restatableConditions($atRules);
-            foreach ( is_array($rule['selectors'] ?? null) ? $rule['selectors'] : array() as $record ) {
+            foreach ( ArrayField::array($rule, 'selectors') as $record ) {
                 $selector = (string) ($record['selector'] ?? '');
-                $parsed = is_array($record['parsed'] ?? null) ? $record['parsed'] : array();
+                $parsed = ArrayField::array($record, 'parsed');
                 if ( '' === $selector || ! ($parsed['supported'] ?? false) || StyleResolver::selectorCarriesPseudoState($selector) ) {
                     continue;
                 }

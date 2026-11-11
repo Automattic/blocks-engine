@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
@@ -28,11 +29,11 @@ final class WordPressSitePlanComposer
         $diagnostics = $data['diagnostics'];
         $metrics = $data['metrics'];
         $status = $data['status'];
-        $editabilityPolicy = is_array($sourceReports['editability_policy'] ?? null) ? $sourceReports['editability_policy'] : array();
-        $editabilityReport = is_array($sourceReports['editability_report'] ?? null) ? $sourceReports['editability_report'] : array();
-        $compiledSite = is_array($sourceReports['compiled_site'] ?? null) ? $sourceReports['compiled_site'] : array();
-        $runtimeIslandPackage = is_array($sourceReports['runtime_island_package'] ?? null) ? $sourceReports['runtime_island_package'] : array();
-        $fallbackEvidence = is_array($sourceReports['core_html_fallback_evidence'] ?? null) ? $sourceReports['core_html_fallback_evidence'] : array();
+        $editabilityPolicy = ArrayField::array($sourceReports, 'editability_policy');
+        $editabilityReport = ArrayField::array($sourceReports, 'editability_report');
+        $compiledSite = ArrayField::array($sourceReports, 'compiled_site');
+        $runtimeIslandPackage = ArrayField::array($sourceReports, 'runtime_island_package');
+        $fallbackEvidence = ArrayField::array($sourceReports, 'core_html_fallback_evidence');
         $identityFailures = WordPressSitePlan::compiledSiteIdentityFailures($compiledSite);
         $wordpressSitePlan = null;
         // Editability failures retain a failed-quality plan as review evidence;

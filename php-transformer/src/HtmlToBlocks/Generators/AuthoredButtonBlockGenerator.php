@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use DOMDocument;
 use DOMElement;
@@ -312,11 +313,11 @@ JS;
         }
 
         $label = $escape($attrs['text'] ?? '');
-        foreach (array_reverse(array_slice(is_array($attrs['labelWrappers'] ?? null) ? $attrs['labelWrappers'] : array(), 0, 16)) as $wrapper) {
+        foreach (array_reverse(array_slice(ArrayField::array($attrs, 'labelWrappers'), 0, 16)) as $wrapper) {
             $tag = strtolower((string) ($wrapper['tagName'] ?? ''));
             if (!in_array($tag, self::LABEL_TAGS, true)) continue;
             $opening = '<' . $tag;
-            foreach (is_array($wrapper['attributes'] ?? null) ? $wrapper['attributes'] : array() as $name => $value) {
+            foreach (ArrayField::array($wrapper, 'attributes') as $name => $value) {
                 if (1 === preg_match('/^(?:class|id|style|data-(?!wp-)[a-z0-9_.:-]+)$/', (string) $name)) {
                     $opening .= ' ' . $name . '="' . $escape($value) . '"';
                 }
@@ -330,7 +331,7 @@ JS;
     private function sourceAttributes(array $attrs): array
     {
         $attributes = array();
-        foreach ( is_array($attrs['sourceAttributes'] ?? null) ? $attrs['sourceAttributes'] : array() as $attribute ) {
+        foreach ( ArrayField::array($attrs, 'sourceAttributes') as $attribute ) {
             $name = strtolower((string) ($attribute['name'] ?? ''));
             if ( ! self::isSourceAttributeName($name) ) {
                 continue;
@@ -422,7 +423,7 @@ JS;
     /** @param array<string, mixed> $attrs @param callable(mixed): string $escape */
     private function contentPartsMarkup(array $attrs, callable $escape): ?string
     {
-        $parts = array_slice(is_array($attrs['contentParts'] ?? null) ? $attrs['contentParts'] : array(), 0, 32);
+        $parts = array_slice(ArrayField::array($attrs, 'contentParts'), 0, 32);
         if ( array() === $parts ) {
             return null;
         }
@@ -463,7 +464,7 @@ JS;
             return $inner;
         }
         $opening = '<' . $tag;
-        foreach ( is_array($part['attributes'] ?? null) ? $part['attributes'] : array() as $name => $value ) {
+        foreach ( ArrayField::array($part, 'attributes') as $name => $value ) {
             if ( 1 === preg_match('/^(?:class|id|style|data-(?!wp-)[a-z0-9_.:-]+)$/', (string) $name) ) {
                 $opening .= ' ' . $name . '="' . $escape($value) . '"';
             }

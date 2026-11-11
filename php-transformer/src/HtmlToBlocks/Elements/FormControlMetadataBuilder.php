@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
@@ -624,9 +625,9 @@ final class FormControlMetadataBuilder
             return $presentation;
         }
         $mapped = (new StyleAttributeMapper())->map($declarations)['style'];
-        $resolved = is_array($mapped['color'] ?? null) ? $mapped['color'] : array();
-        $style = is_array($presentation['style'] ?? null) ? $presentation['style'] : array();
-        $color = is_array($style['color'] ?? null) ? $style['color'] : array();
+        $resolved = ArrayField::array($mapped, 'color');
+        $style = ArrayField::array($presentation, 'style');
+        $color = ArrayField::array($style, 'color');
         foreach ( array( 'background', 'text' ) as $field ) {
             $value = trim((string) ($resolved[ $field ] ?? ''));
             if ( '' === $value || '' !== trim((string) ($color[ $field ] ?? '')) || CssValueInspector::isTransparentColor($value) ) {
