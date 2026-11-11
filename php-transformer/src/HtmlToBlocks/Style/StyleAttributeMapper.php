@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 
 /**
  * Translates a block element's resolved CSS declarations (inline style plus the
@@ -679,6 +680,51 @@ final class StyleAttributeMapper
             }
         }
         return true;
+    }
+
+    /**
+     * Button paint must not expose root chrome unless every side paints equally.
+     * Reuse the mapper's cascade candidates, including shorthand resets, rather
+     * than inferring visibility from the presence of a border declaration.
+     *
+     * @param array<string, string> $declarations
+     * @return array<string, mixed>
+     */
+    public function paintedBorder(array $declarations): array
+    {
+        $positions = array_flip(array_keys($declarations));
+        $global = array();
+        foreach (array('width', 'style', 'color') as $component) {
+            $global[$component] = $this->borderComponentCandidate($declarations, $positions, $component);
+        }
+        $painted = array();
+        foreach (array('top', 'right', 'bottom', 'left') as $index => $side) {
+            $values = array();
+            foreach ($global as $component => $root) {
+                $candidate = $this->borderComponentCandidate($declarations, $positions, $component, $side);
+                $winner = $candidate['index'] > $root['index'] ? $candidate : $root;
+                $value = trim('color' !== $component && $candidate['index'] <= $root['index']
+                    ? CssValueInspector::expandBoxShorthand($winner['value'])[$index]
+                    : $winner['value']);
+                if ($winner['declared'] && '' !== $value) {
+                    $values[$component] = 'color' === $component ? $this->cssColor($value, null) : $value;
+                }
+            }
+            $style = strtolower((string) ($values['style'] ?? 'none'));
+            $width = (string) ($values['width'] ?? 'medium');
+            if (!in_array($style, array('none', 'hidden'), true) && 0.0 !== CssLength::toPx($width, 16.0, 16.0)) {
+                $painted[$side] = array_filter($values, static fn (string $value): bool => '' !== $value);
+            }
+        }
+        $border = $painted;
+        if (4 === count($painted) && $painted['top'] === $painted['right'] && $painted['top'] === $painted['bottom'] && $painted['top'] === $painted['left']) {
+            $border = $painted['top'];
+        }
+        $radius = trim((string) ($declarations['border-radius'] ?? ''));
+        if ('' !== $radius) {
+            $border['radius'] = $radius;
+        }
+        return $border;
     }
 
     private function isMappedBorderProperty(string $name): bool
