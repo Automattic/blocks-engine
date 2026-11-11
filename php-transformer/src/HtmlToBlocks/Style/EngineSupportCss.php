@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ImageLowering;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\EmptyVisualSpacerLowering;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\LayoutTableLowering;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ElementConversionPrelude;
@@ -36,21 +38,21 @@ final class EngineSupportCss
         return ':root .' . $marker . ':has(.wp-block-navigation__responsive-container.is-menu-open){' . implode(';', $declarations) . '}';
     }
 
-    private const EMPTY_FLEX_ITEM_CLASS = 'blocks-engine-empty-flex-item';
+    private const EMPTY_FLEX_ITEM_CLASS = EmptyVisualSpacerLowering::EMPTY_FLEX_ITEM_CLASS;
 
-    private const EMPTY_FLEX_ITEM_COLUMN_CLASS = 'blocks-engine-empty-flex-column-item';
+    private const EMPTY_FLEX_ITEM_COLUMN_CLASS = EmptyVisualSpacerLowering::EMPTY_FLEX_ITEM_COLUMN_CLASS;
 
-    private const LAYOUT_TABLE_COLUMNS_CLASS = 'blocks-engine-layout-table-columns';
+    private const LAYOUT_TABLE_COLUMNS_CLASS = LayoutTableLowering::LAYOUT_TABLE_COLUMNS_CLASS;
 
     private const SLIDESHOW_GALLERY_CLASS = 'blocks-engine-slideshow-gallery';
 
     private const PROPAGATED_LINK_COLOR_CARRIER_CLASS = SourceBlockAttributeProjector::PROPAGATED_LINK_COLOR_CLASS;
 
-    private const CSS_OWNED_LAYOUT_CLASS = 'blocks-engine-css-owned-layout';
+    private const CSS_OWNED_LAYOUT_CLASS = AuthorLayoutOwnership::CSS_OWNED_LAYOUT_CLASS;
 
-    private const CSS_OWNED_FLOW_CLASS = 'blocks-engine-css-owned-flow';
+    private const CSS_OWNED_FLOW_CLASS = AuthorLayoutOwnership::CSS_OWNED_FLOW_CLASS;
 
-    private const CSS_OWNED_GRID_CLASS = 'blocks-engine-css-owned-grid';
+    private const CSS_OWNED_GRID_CLASS = AuthorLayoutOwnership::CSS_OWNED_GRID_CLASS;
 
 
     /**
