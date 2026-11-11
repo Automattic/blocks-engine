@@ -56,8 +56,8 @@ $makeRuntimeIslands = static function (array $domSelectors): RuntimeIslandAnalyz
         $behavioral,
         array()
     ));
-    $metadataBuilder = new FormControlMetadataBuilder(static fn (DOMElement $e): string => strtolower($e->tagName));
-    return new RuntimeIslandAnalyzer($session, new SourceElementClassifier(), new PseudoFormAnalyzer($metadataBuilder, static fn (DOMElement $e): string => strtolower($e->tagName)));
+    $metadataBuilder = new FormControlMetadataBuilder();
+    return new RuntimeIslandAnalyzer($session, new SourceElementClassifier(), new PseudoFormAnalyzer($metadataBuilder));
 };
 
 $makeDispatcher = static function (array $overrides = array()) use ($makeRuntimeIslands): ButtonLinkDispatcher {
@@ -106,7 +106,7 @@ $islandRecorded = false;
 $runtimeButton  = $makeDispatcher(array(
     'runtimeIslands' => $makeRuntimeIslands(array('#mount')),
     'formRuntimeIslands' => new FormRuntimeIslandRecorder(
-        new FormControlMetadataBuilder(static fn (DOMElement $e): string => strtolower($e->tagName)),
+        new FormControlMetadataBuilder(),
         static function (DOMElement $e, string $kind) use (&$islandRecorded): void {
             $islandRecorded = 'control' === $kind;
         },

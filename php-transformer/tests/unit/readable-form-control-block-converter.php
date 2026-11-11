@@ -44,7 +44,7 @@ $createBlock = new SourceBlockCreatorFixture(static fn (string $name, array $att
 $presentation = new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array( 'className' => 'presented' ));
 $echoStart = count($session->transformationEvidenceState()->formControlEchoTexts());
 $recorded = array();
-$metadataBuilder = new FormControlMetadataBuilder(static fn (DOMElement $element): string => strtolower($element->tagName));
+$metadataBuilder = new FormControlMetadataBuilder();
 $runtimeRecorder = new FormRuntimeIslandRecorder(
     $metadataBuilder,
     static function (DOMElement $element, string $kind, string $reason, string $capability, array $metadata) use (&$recorded): void {

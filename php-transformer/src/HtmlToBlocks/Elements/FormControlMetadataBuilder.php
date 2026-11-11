@@ -37,7 +37,6 @@ final class FormControlMetadataBuilder
     private ?FormPresentationGraphBuilder $formPresentationGraph = null;
 
     /**
-     * @param Closure(DOMElement): string $elementSelector
      * @param HtmlTransformerSession|null $session Source stylesheets for the form presentation graph's
      *     typography, paint and hidden-state cascade; without one those facts are not resolved.
      * @param Closure(DOMElement): list<string>|null $controlCarrierClasses Registered author-selector wrapper classes.
@@ -46,7 +45,6 @@ final class FormControlMetadataBuilder
      *     no inline markup that is safe to carry.
      */
     public function __construct(
-        private readonly Closure $elementSelector,
         private readonly ?ElementPresentationResolver $presentation = null,
         private readonly ?HtmlTransformerSession $session = null,
         private readonly ?Closure $richTextContent = null,
@@ -267,7 +265,7 @@ final class FormControlMetadataBuilder
             return null;
         }
 
-        $item['source_selector'] = ($this->elementSelector)($node);
+        $item['source_selector'] = SourceDom::elementSelector($node);
 
         // Author rules address the element itself, so a consumer reproducing
         // this copy as a block needs the classes to re-apply those rules.
@@ -431,7 +429,7 @@ final class FormControlMetadataBuilder
         }
         $metadata = array_filter(array(
             'tag'              => $tagName,
-            'selector'         => ($this->elementSelector)($control),
+            'selector'         => SourceDom::elementSelector($control),
             'id'               => SourceDom::attr($control, 'id'),
             'class'            => $this->classNames($control),
             'label_id'         => $labelElement instanceof DOMElement ? SourceDom::attr($labelElement, 'id') : '',
@@ -588,7 +586,7 @@ final class FormControlMetadataBuilder
             // Keep the visible trigger and the native value carrier as separate
             // controls in the topology, but connect their source evidence here.
             $metadata['options'] = $this->options($sourceSelect);
-            $metadata['choice_source_selector'] = ($this->elementSelector)($sourceSelect);
+            $metadata['choice_source_selector'] = SourceDom::elementSelector($sourceSelect);
             if ( $sourceSelect->hasAttribute('required') || 'true' === strtolower(trim($sourceSelect->getAttribute('aria-required'))) ) {
                 $metadata['required'] = true;
             }

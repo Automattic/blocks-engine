@@ -25,10 +25,6 @@ $elementFrom = static function (string $html): DOMElement {
     throw new RuntimeException('No element parsed');
 };
 
-$selector = static function (DOMElement $element): string {
-    $id = $element->getAttribute('id');
-    return '' !== $id ? '#' . $id : strtolower($element->tagName);
-};
 $session = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession(new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()));
 $innerHtml = static function (DOMElement $element): string {
     $html = '';
@@ -37,11 +33,11 @@ $innerHtml = static function (DOMElement $element): string {
     }
     return trim($html);
 };
-$builder = new FormSuccessPanelMetadataBuilder($selector, $session, $innerHtml);
+$builder = new FormSuccessPanelMetadataBuilder($session, $innerHtml);
 
 $form = $elementFrom('<form></form>   <div id="sent" class="notice success" role="status" aria-live="polite"> Thanks <strong>Chris</strong> &amp; team </div>');
 $metadata = $builder->build($form);
-$assert('#sent' === ($metadata['selector'] ?? ''), 'real-form-finds-adjacent-panel-after-whitespace');
+$assert('div:nth-of-type(1)' === ($metadata['selector'] ?? ''), 'real-form-finds-adjacent-panel-after-whitespace');
 $assert('notice success' === ($metadata['class'] ?? ''), 'panel-attributes-are-retained');
 $assert('Thanks Chris & team' === ($metadata['text'] ?? ''), 'nested-confirmation-text-is-normalized');
 $assert(false === ($metadata['html_truncated'] ?? null), 'bounded-html-state-is-retained');
@@ -54,19 +50,18 @@ $commentBlocked = $elementFrom('<form></form><!-- boundary --><div role="status"
 $assert(array() === $builder->build($commentBlocked), 'non-element-adjacent-node-blocks-panel-discovery');
 
 $pseudoForm = $elementFrom('<div id="signup"><label>Email<input></label><div><p id="confirmation-message">Submitted</p></div></div>');
-$assert('#confirmation-message' === ($builder->build($pseudoForm)['selector'] ?? ''), 'pseudo-form-finds-descendant-token-panel');
+$assert('div:nth-of-type(1) > div:nth-of-type(1) > p:nth-of-type(1)' === ($builder->build($pseudoForm)['selector'] ?? ''), 'pseudo-form-finds-descendant-token-panel');
 
 $firstPanel = $elementFrom('<div><p role="alert" id="first">Try again</p><p role="status" id="second">Sent</p></div>');
-$assert('#first' === ($builder->build($firstPanel)['selector'] ?? ''), 'pseudo-form-uses-first-signaled-descendant');
+$assert('div:nth-of-type(1) > p:nth-of-type(1)' === ($builder->build($firstPanel)['selector'] ?? ''), 'pseudo-form-uses-first-signaled-descendant');
 
 $ariaToken = $elementFrom('<div><output aria-live="confirmed">Complete</output></div>');
-$assert('output' === ($builder->build($ariaToken)['selector'] ?? ''), 'confirmation-token-in-aria-live-is-a-signal');
+$assert('div:nth-of-type(1) > output:nth-of-type(1)' === ($builder->build($ariaToken)['selector'] ?? ''), 'confirmation-token-in-aria-live-is-a-signal');
 
 $partialToken = $elementFrom('<div><p class="unsuccessful">No match</p></div>');
 $assert(array() === $builder->build($partialToken), 'partial-success-token-is-not-a-signal');
 
 $boundedBuilder = new FormSuccessPanelMetadataBuilder(
-    $selector,
     $session,
     $innerHtml
 );

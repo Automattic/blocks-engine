@@ -50,7 +50,7 @@ $presentation = new ElementPresentationResolverFixture($presentationAttributes);
 $runtimeDomTargets = new RuntimeDomTargetsFixture(static fn (DOMElement $element): bool => $element->hasAttribute('data-runtime'));
 $recorded = array();
 $echoStart = count($session->transformationEvidenceState()->formControlEchoTexts());
-$metadataBuilder = new FormControlMetadataBuilder(static fn (DOMElement $element): string => strtolower($element->tagName));
+$metadataBuilder = new FormControlMetadataBuilder();
 $runtimeRecorder = new FormRuntimeIslandRecorder(
     $metadataBuilder,
     static function (DOMElement $element, string $kind, string $reason, string $capability, array $metadata) use (&$recorded): void {

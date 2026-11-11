@@ -3947,6 +3947,27 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Whether any of `$properties` resolves to a non-zero structural
+     * declaration. Reads the raw matched declarations rather than the
+     * post-projection presentation set: box-model properties such as padding
+     * are consumed into block-supports attributes and would otherwise be
+     * invisible here.
+     *
+     * @param array<int, string> $properties
+     */
+    public function hasNonZeroStructuralDeclaration(DOMElement $element, array $properties): bool
+    {
+        $declarations = $this->structuralPresentationDeclarations($element);
+        foreach ( $properties as $property ) {
+            if ( isset($declarations[$property]) && CssValueInspector::isNonZero((string) $declarations[$property]) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Resolve structural context even when the element is not itself a style
      * boundary. Child classification still needs parent flex/grid semantics.
      *

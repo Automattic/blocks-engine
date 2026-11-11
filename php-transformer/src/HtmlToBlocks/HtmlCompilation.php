@@ -464,7 +464,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         );
         $this->tableAttributesBuilder = new TableAttributesBuilder($this->styleResolver, $this->navigationToggleSuppressor, $this->session);
         $formControlMetadataBuilder = new FormControlMetadataBuilder(
-            fn (DOMElement $element): string => SourceDom::elementSelector($element),
             $this->styleResolver,
             $this->session,
             fn (DOMElement $element): string => $this->formContextRichText($element),
@@ -485,7 +484,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             },
             $this->styleResolver
         );
-        $pseudoFormAnalyzer = new PseudoFormAnalyzer($formControlMetadataBuilder, fn (DOMElement $element): string => SourceDom::elementSelector($element));
+        $pseudoFormAnalyzer = new PseudoFormAnalyzer($formControlMetadataBuilder);
         $this->runtimeIslands = new RuntimeIslandAnalyzer($this->session, $this->sourceElementClassifier, $pseudoFormAnalyzer);
         $this->generatedComponents = new Elements\GeneratedComponentLowering($this->session, $this->runtimeIslands, $this, $this);
         $this->layoutShells = new Elements\LayoutShellLowering($this, $this->session, $this->styleResolver, $this->runtimeIslands);
@@ -731,7 +730,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->runtimeIslands
         );
         $formSuccessPanelMetadataBuilder = new FormSuccessPanelMetadataBuilder(
-            fn (DOMElement $element): string => SourceDom::elementSelector($element),
             $this->session,
             fn (DOMElement $element): string => $this->styleResolver->innerHtml($element)
         );
@@ -3225,7 +3223,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
      *
      * @var array<int, string>
      */
-    /** @var array<int, string> */
     private const MARGIN_WRAPPER_PROPERTIES = array( 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left' );
 
     private function hasVisualTextWrapperSignal(DOMElement $element): bool
@@ -3239,35 +3236,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return false;
         }
 
-        return $this->hasBoxModelWrapperStyling($element);
-    }
-
-    private function hasBoxModelWrapperStyling(DOMElement $element): bool
-    {
-        return $this->wrapperStylingMatches($element, self::BOX_MODEL_WRAPPER_PROPERTIES);
-    }
-
-    private function hasMarginWrapperStyling(DOMElement $element): bool
-    {
-        return $this->wrapperStylingMatches($element, self::MARGIN_WRAPPER_PROPERTIES);
-    }
-
-    /**
-     * @param array<int, string> $properties
-     */
-    private function wrapperStylingMatches(DOMElement $element, array $properties): bool
-    {
-        // Read the raw matched declarations rather than the post-projection
-        // presentation set: box-model properties such as padding are consumed
-        // into block-supports attributes and would otherwise be invisible here.
-        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        foreach ( $properties as $property ) {
-            if ( isset($declarations[$property]) && CssValueInspector::isNonZero((string) $declarations[$property]) ) {
-                return true;
-            }
-        }
-
-        return false;
+        return $this->styleResolver->hasNonZeroStructuralDeclaration($element, self::BOX_MODEL_WRAPPER_PROPERTIES);
     }
 
     /**
@@ -3354,7 +3323,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return null;
         }
 
-        if ( 'div' === strtolower($element->tagName) && $this->hasMarginWrapperStyling($element) ) {
+        if ( 'div' === strtolower($element->tagName) && $this->styleResolver->hasNonZeroStructuralDeclaration($element, self::MARGIN_WRAPPER_PROPERTIES) ) {
             $attrs = $this->styleResolver->presentationAttributes($element);
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::LOWERED_PARAGRAPH_CLASS);
             return $this->createBlock(
