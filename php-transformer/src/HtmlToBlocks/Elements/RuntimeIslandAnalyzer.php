@@ -151,6 +151,27 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
         return false;
     }
 
+    /**
+     * Records a client-rendered app shell as a runtime island when it must be
+     * preserved, so the caller keeps its markup.
+     */
+    public function recordRuntimeAppShell(DOMElement $element): bool
+    {
+        if ( ! $this->shouldPreserveRuntimeAppShell($element) ) {
+            return false;
+        }
+        $targets = $this->runtimeTargetsInSubtree($element, 8);
+        $this->recordRuntimeIsland($element, 'app_shell', 'runtime_app_shell', 'client_script_execution', array(
+            'events' => SourceDom::eventMetadata($element),
+            'target_count' => count($targets),
+            'targets' => $targets,
+            'app_shell_signals' => $this->runtimeAppShellSignals($element),
+            'required_scripts' => $this->session->fallbackEmitter()->requiredScriptsForElement($element),
+        ));
+
+        return true;
+    }
+
     public function shouldPreserveRuntimeAppShell(DOMElement $element): bool
     {
         if ( ! $this->session->runtimeSelectorState()->hasRuntimeTargets() ) {

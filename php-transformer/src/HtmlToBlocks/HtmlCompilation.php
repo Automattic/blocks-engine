@@ -600,17 +600,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             function (DOMElement $element, array &$fallbacks): void {
                 $this->session->fallbackEmitter()->captureInlineSvgFallback($element, $fallbacks);
             },
-            function (DOMElement $element): bool {
-                if (!$this->svgMaterializer->paintsNothing($element)) return false;
-                $this->session->transformationEvidenceState()->recordConversionDiagnostic(array(
-                    'code' => 'html_empty_svg_decoration_omitted',
-                    'severity' => 'info',
-                    'loss_class' => 'native_conversion',
-                    'selector' => SourceDom::elementSelector($element),
-                    'message' => 'Omitted SVG decoration proven to paint nothing in the captured state.',
-                ));
-                return true;
-            },
+            $this->svgMaterializer->omitsEmptyPaintDecoration(...),
             (new Elements\ForeignObjectFitTextLowering($this, $this->richTextConverter, $this->styleResolver, $this->blockFactory))->block(...)
         ), $this->svgMaterializer, new SvgTextRunLowering(
             $this->styleResolver,
@@ -888,20 +878,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $figureConverter,
         ));
         $this->flowContainerConverter = new FlowContainerElementConverter($this->sourceElementClassifier, $this, $this->styleResolver, new FlowContainerElementContext(
-            runtimeAppShellBlock: function (DOMElement $element, array &$fallbacks): ?array {
-                if ( ! $this->runtimeIslands->shouldPreserveRuntimeAppShell($element) ) {
-                    return null;
-                }
-                $targets = $this->runtimeIslands->runtimeTargetsInSubtree($element, 8);
-                $this->runtimeIslands->recordRuntimeIsland($element, 'app_shell', 'runtime_app_shell', 'client_script_execution', array(
-                    'events' => SourceDom::eventMetadata($element),
-                    'target_count' => count($targets),
-                    'targets' => $targets,
-                    'app_shell_signals' => $this->runtimeIslands->runtimeAppShellSignals($element),
-                    'required_scripts' => $this->session->fallbackEmitter()->requiredScriptsForElement($element),
-                ));
-                return $this->htmlPreservationBlock($element);
-            },
+            runtimeAppShellBlock: fn (DOMElement $element, array &$fallbacks): ?array => $this->runtimeIslands->recordRuntimeAppShell($element) ? $this->htmlPreservationBlock($element) : null,
             tree: $this,
             authorLayoutOwnership: $this->authorLayoutOwnership,
             runtimeDomTargets: $this->runtimeIslands,
