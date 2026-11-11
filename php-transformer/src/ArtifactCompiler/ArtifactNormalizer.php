@@ -346,7 +346,7 @@ final class ArtifactNormalizer
             if ('html' === $file['kind']) $file['layout_geometry_proof'] = $layoutGeometryProof['proof'];
         }
         unset($file);
-        $sourceHash = $this->sourceHash($files, $runtimeDeclarations);
+        $sourceHash = self::sourceHash($files, $runtimeDeclarations);
         if ( 0 < $rejected ) {
             ksort($rejectionCounts);
             $diagnostics[] = $this->diagnostic('artifact_inputs_rejected', 'warning', 'One or more artifact inputs were ignored during normalization.', array(
@@ -1098,15 +1098,18 @@ final class ArtifactNormalizer
     }
 
     /**
+     * The canonical source hash: file paths, kinds, MIME types and content (or
+     * payload digests), plus the runtime declarations.
+     *
      * @param array<int, array<string, mixed>> $files
      */
-    private function sourceHash(array $files, array $runtimeDeclarations): string
+    public static function sourceHash(array $files, array $runtimeDeclarations): string
     {
         // Source identity is independent of transport and preparation order.
         usort($files, static fn(array $left, array $right): int => strcmp((string) $left['path'], (string) $right['path']));
         $context = hash_init('sha256');
         foreach ( $files as $file ) {
-            $content = isset($file['content_base64']) ? (string) $file['content_base64'] : (isset($file['payload_reference']) ? (string) $file['payload_reference']['sha256'] : (string) $file['content']);
+            $content = isset($file['content_base64']) ? (string) $file['content_base64'] : (isset($file['payload_reference']) ? (string) $file['payload_reference']['sha256'] : (string) ($file['content'] ?? ''));
             hash_update($context, $file['path'] . "\0" . $file['kind'] . "\0" . ($file['mime_type'] ?? '') . "\0");
             hash_update($context, $content);
             hash_update($context, "\0");
