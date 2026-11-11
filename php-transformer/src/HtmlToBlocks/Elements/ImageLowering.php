@@ -46,6 +46,18 @@ final class ImageLowering
     public function backgroundImageBlock(DOMElement $element): ?array
     {
         $declarations = $this->styleResolver->presentationDeclarations($element);
+        // The inline URL can be sized and positioned by author stylesheets,
+        // including link/import media conditions active at the reference viewport.
+        $author = $this->styleResolver->referenceViewportAuthorDeclarations($element, array('background-size', 'background-position'));
+        foreach (array('background-size', 'background-position') as $property) {
+            $value = $this->styleResolver->declaredPresentation($element, $property)->resolvedValue();
+            if ('' !== $value) {
+                $declarations[$property] = $value;
+            } elseif (isset($author[$property])) {
+                $declarations[$property] = $author[$property];
+            }
+        }
+        $declarations = array_replace($declarations, array_intersect_key($this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style')), array_flip(array('background-size', 'background-position'))));
         $url = $this->backgroundImageExtractor->urlFromStyle($this->styleResolver->mergedPresentationStyle($element));
         if ( '' === $url ) {
             return null;
