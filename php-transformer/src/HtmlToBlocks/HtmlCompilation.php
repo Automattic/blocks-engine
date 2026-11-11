@@ -157,7 +157,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DeclarativeCount
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DefaultCommentAttributes;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorLayoutOwnership;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NonRenderedMetadata;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\HeadMetadataReport;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceProvenance;
@@ -2305,7 +2304,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // Every RichText carrier a block stores passes through here, so this is
         // where each one gets its role and subject classes; the saved markup
         // is built from these attributes and so carries them too.
-        $attrs = $this->withRichTextCarrierClasses($attrs);
+        $attrs = $this->session->authorSelectorProjectionState()->withRichTextCarrierAttrs($attrs);
 
         return $this->sourceInterItemSpaces->apply($this->blockMaterializer->materialize(
             $name,
@@ -2314,22 +2313,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $sourceMaterializationFacts,
             $this->session->transformationProvenanceState()
         ), $sourceElement);
-    }
-
-    /**
-     * @param array<mixed> $attrs
-     * @return array<mixed>
-     */
-    private function withRichTextCarrierClasses(array $attrs): array
-    {
-        foreach ( $attrs as $key => $value ) {
-            if ( is_string($value) ) {
-                $attrs[$key] = $this->session->authorSelectorProjectionState()->withRichTextCarrierClasses($value);
-            } elseif ( is_array($value) ) {
-                $attrs[$key] = $this->withRichTextCarrierClasses($value);
-            }
-        }
-        return $attrs;
     }
 
     /**
@@ -2928,7 +2911,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // before the existing carrier and image materialization can run. Beside
         // its own text it is part of one line box: splitting there would turn
         // each text run into a paragraph and drop the spaces between them.
-        if ( $this->hasSemanticCarrierChild($element) || ( null === $withLowered && $this->hasRichTextMarkedDescendant($element) && 2 > SourceDom::childElementCount($element) && ! SourceDom::hasDirectText($element) ) ) {
+        if ( $this->session->authorSelectorProjectionState()->hasSemanticCarrierChild($element) || ( null === $withLowered && $this->hasRichTextMarkedDescendant($element) && 2 > SourceDom::childElementCount($element) && ! SourceDom::hasDirectText($element) ) ) {
             return null;
         }
 
@@ -2993,22 +2976,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     {
         foreach ( $element->childNodes as $child ) {
             if ( $child instanceof DOMElement && $this->session->authorSelectorProjectionState()->hasSemanticMarker($child) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Whether a direct child needs a semantic carrier of its own. Attribute
-     * markers are classes an inline element keeps inside RichText, so they
-     * leave the phrasing run one paragraph.
-     */
-    private function hasSemanticCarrierChild(DOMElement $element): bool
-    {
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && '' !== $this->session->authorSelectorProjectionState()->semanticMarker(SourceDom::sourceElementIdentity($child)) ) {
                 return true;
             }
         }
