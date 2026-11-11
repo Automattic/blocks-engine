@@ -46,7 +46,6 @@ final class DesignUsageCollector
 
     private const SKIPPED_TAGS = array('script', 'style', 'noscript', 'template', 'head', 'meta', 'link', 'title', 'svg', 'math', 'iframe', 'object', 'select', 'option', 'datalist', 'canvas', 'video', 'audio', 'picture', 'img');
 
-    /** User-agent heading sizes, in em of the parent. */
     /** Inherited text properties whose media-conditional variants usage rows record. */
     private const CONDITIONAL_TEXT_FAMILIES = array('color', 'font-family', 'font-size', 'font-weight');
 

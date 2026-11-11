@@ -80,46 +80,6 @@ final class StyleResolver implements ElementPresentationResolver
     private array $coreGridParentCache = array();
 
     /**
-     * Resolved presentation attributes for the active transform, keyed by the
-     * DOMElement wrapper object id plus node path. PHP may reuse wrapper object
-     * ids within one traversal as transient DOMElement wrappers are released.
-     *
-     * @var array<string, array<string, mixed>>
-     */
-
-    /**
-     * @var array<string, array<string, string>>
-     */
-
-    /**
-     * @var array<string, string>
-     */
-
-    /**
-     * @var array<string, string>
-     */
-
-    /**
-     * Inline presentation declarations which core block supports cannot serialize
-     * are carried by deterministic classes in a generated stylesheet.
-     *
-     * @var array<string, string>
-     */
-
-
-    /** Source-selector cache remains valid only between source-DOM mutations. */
-
-    /** @var array<string, array<string, mixed>> */
-
-    /**
-     * Author-declared values for the properties an element's inline style could
-     * be overriding, keyed by element plus the queried property set. Resolving
-     * this walks every matched rule, so it is memoized per element.
-     *
-     * @var array<string, array<string, array<int, string>>>
-     */
-
-    /**
      * Properties carried when NO author rule declares them at all.
      *
      * Deliberately NOT general. Decorative paint is safe to preserve without
@@ -5042,8 +5002,7 @@ final class StyleResolver implements ElementPresentationResolver
      * Resolve the authored resting cascade for recognition and presentation.
      * A later low-specificity rule cannot replace an earlier, stronger rule
      * when its declarations become rendered block attributes.
-     */
-    /**
+     *
      * @param ?callable(string): bool $excludeSelector Rules whose selector it accepts do not apply.
      * @param bool $inline Whether the element's own style attribute applies.
      */
@@ -5181,8 +5140,9 @@ final class StyleResolver implements ElementPresentationResolver
      * given viewport (the reference one by default). That test is a no-op for the static collection, whose
      * rules carry no conditions by construction, so it does not need to be a
      * parameter.
+     *
+     * @param ?callable(string): bool $excludeSelector Rules whose selector it accepts do not apply.
      */
-    /** @param ?callable(string): bool $excludeSelector Rules whose selector it accepts do not apply. */
     private function resolvedCascadeStyle(DOMElement $element, string $collection, float $viewportWidth = self::DESKTOP_REFERENCE_WIDTH, ?callable $excludeSelector = null, bool $inline = true): string
     {
         $cascade = array();
@@ -6924,14 +6884,6 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
-     * Expand `var(--token)` references against source custom properties, with
-     * ancestor-declared properties layered over them when an element is given.
-     *
-     * Lives here rather than beside SVG materialization because it is CSS
-     * custom-property resolution and already depends on this resolver's own
-     * structural declarations.
-     */
-    /**
      * The element's resolved presentation declarations, as a property map.
      *
      * Reading presentation took a three-call incantation —
@@ -7167,8 +7119,8 @@ final class StyleResolver implements ElementPresentationResolver
 
     /**
      * @param array<string, string> $customProperties
+     * @param array<string,true> $live Names kept as live references.
      */
-    /** @param array<string,true> $live Names kept as live references. */
     private function expandCssVariableReferences(string $value, array $customProperties, array $live = array()): string
     {
         $keep = array() === $live ? null : static fn(string $name): bool => isset($live[$name]);

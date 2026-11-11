@@ -95,10 +95,10 @@ final class AuthoredFormControlBlockConverter
         );
     }
 
-    /** @return array<string, mixed>|null */
     /**
      * @param bool $runtimeTarget The control is a script's DOM target: it stays native and keeps
      *                            the data-* hooks and the id the script finds it by.
+     * @return array<string, mixed>|null
      */
     public function select(DOMElement $select, bool $forceNative = false, ?DOMElement $labelElement = null, bool $runtimeTarget = false): ?array
     {

@@ -1512,9 +1512,6 @@ final class SourceDom
     }
 
     /**
-     * @return array<int, array<string, string>>
-     */
-    /**
      * Whether the element is a standalone run of text: it holds only text, and
      * some of it, with no inline event handlers, and its parent holds no loose
      * text beside it, so it stands alone as one block's content.

@@ -54,8 +54,7 @@ final class TextLeafElementConverter implements ElementConverter
      * Returns a `ConversionOutcome` so a legitimate `null` block (the element
      * intentionally produces nothing, e.g. `br`) stays distinguishable from
      * "this converter does not own the tag".
-     */
-    /**
+     *
      * @param array<int, array<string, mixed>> $fallbacks
      */
     public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome

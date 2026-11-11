@@ -207,7 +207,6 @@ final class ShellExtraction
         return $pages;
     }
 
-    /** @return array<string,mixed>|null */
     /** @return array<int,string> Visible text runs of block markup. */
     private static function textRuns(string $markup): array
     {

@@ -4111,9 +4111,6 @@ final class NavigationPattern implements PatternRecognizerInterface
     }
 
     /**
-     * @return array<string, mixed>
-     */
-    /**
      * Whether the element sits inside a hidden panel that an opener outside it
      * reveals, for a menu that stays collapsed at every width. A collapse
      * panel shown inline on desktop (a Bootstrap `.navbar-collapse`) is the

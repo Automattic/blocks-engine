@@ -814,7 +814,6 @@ final class FormControlMetadataBuilder
         return null;
     }
 
-    /** The element that labels this control, by `for`, by wrapping, or by field position. */
     /**
      * Whether the label's caption follows the control in document order: a
      * sibling label after it, or a wrapping label whose first content is it.

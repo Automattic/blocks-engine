@@ -714,7 +714,6 @@ final class WrapperCoalescer
         return $survives;
     }
 
-    /** @return list<array{key: string, selector: string, parsed: array<string, mixed>, direct_child_parsed: array<string, mixed>, declarations: array<string, string>, rule_order: int}> */
     /**
      * A source `div` establishing flex/grid is structural layout; a direct
      * child of one loses its own eligibility for coalescing (its geometry is

@@ -459,9 +459,6 @@ final class RichTextStylingHookNormalizer
     }
 
     /**
-     * Replace an element with its children in place, dropping only the wrapper.
-     */
-    /**
      * Lift class/style styling hooks out of a block's RichText source so the
      * stored block round-trips through RichText unchanged.
      *

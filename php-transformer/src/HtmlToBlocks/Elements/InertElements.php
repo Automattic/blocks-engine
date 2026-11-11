@@ -26,8 +26,11 @@ final class InertElements implements ElementConverter
     ) {
     }
 
-    /** Omits an inert runtime media placeholder: it renders nothing until a script fills it. */
-    /** @param array<int, array<string, mixed>> $fallbacks */
+    /**
+     * Omits an inert runtime media placeholder: it renders nothing until a script fills it.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     */
     public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
         return $this->isInertRuntimeMediaPlaceholder($element) ? ConversionOutcome::handled(null) : ConversionOutcome::unhandled();

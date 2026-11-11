@@ -664,7 +664,6 @@ final class CapturedDialogProjector
         return $count;
     }
 
-    /** Current-page selection is render state, not a dialog's identity. */
     /**
      * A projected dialog is named by its content and its handle within the
      * route document, never by the route: the same dialog on many routes then

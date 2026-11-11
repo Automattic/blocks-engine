@@ -130,19 +130,6 @@ final class CssStylesheetTransformer
     }
 
     /**
-     * Concatenate stylesheets in order, dropping every rule that recurs later in
-     * the result with the same text inside the same conditional group rules.
-     *
-     * The later copy has the same selectors, specificity and declarations and
-     * comes after the earlier one, so the earlier copy can never win the cascade.
-     * Named block layers are grouping contexts whose rules dedupe like any
-     * other; layer statements and anonymous layers stay whole. The unit that
-     * first names a layer is always kept, because it fixes the layer's order.
-     * Malformed input is concatenated unchanged.
-     *
-     * @param list<string> $stylesheets
-     */
-    /**
      * The stylesheet without rules a later identical rule in the same
      * conditional groups repeats: the later copy wins wherever the earlier
      * one would, so the cascade is unchanged. Malformed input is returned
@@ -759,13 +746,6 @@ final class CssStylesheetTransformer
     }
 
     /**
-     * Drop top-level @import rules that follow other rules. CSS ignores them,
-     * so they are inert on every route; concatenated sheets often repeat them.
-     *
-     * @param list<array{context:list<string>,text:string,dedupable:bool}> $units
-     * @return list<array{context:list<string>,text:string,dedupable:bool}>
-     */
-    /**
      * Align a route's unit keys with the shared ones by patience diff: match the
      * common prefix and suffix, anchor on the longest ordered run of keys unique
      * to both windows, and recurse between anchors. A key repeated later in the
@@ -931,12 +911,6 @@ final class CssStylesheetTransformer
         return $arms;
     }
 
-    /**
-     * Standalone enumerated scopes and validation probes. Prefix as an ancestor
-     * and retain a merged-root alternative for compounds that can match html.
-     * @param list<string> $arms
-     * @return list<string>|null
-     */
     /**
      * Gate selector arms to the documents whose root matches $scope (a
      * zero-weight `:where(:root...)`), or null when an arm cannot be gated.
@@ -1108,7 +1082,6 @@ final class CssStylesheetTransformer
         return md5(implode("\0", array_map(self::normalizedCss(...), $unit['context'])) . "\0" . self::normalizedCss($unit['text']), true);
     }
 
-    /** @param list<array{context: list<string>, text: string, dedupable: bool}> $units */
     /** The arm without a final `:not(:where(...))` (zero specificity), or the arm itself. */
     private static function withoutTrailingZeroWeightExclusion(string $arm): string
     {
