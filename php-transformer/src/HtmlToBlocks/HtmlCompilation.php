@@ -6,9 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CaptureReplayScripts;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\AssetMaterializationState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeSelectorState;
 use Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput;
 use Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
@@ -136,7 +134,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorSema
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleRuleProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStylesheetMaterialization;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStylesheetProjector;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutGeometryState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjectionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
@@ -1301,37 +1298,14 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $validationEvidence = \Automattic\BlocksEngine\PhpTransformer\Contract\ValidationEvidencePolicy::fromOptions($options);
         $context = TransformationOptions::context($options);
         $startedAt = hrtime(true);
-        $this->session->transformationProvenanceState()->installFallback(TransformationOptions::provenance($options));
-        $this->session->installGeneratedBlockRegistry(new GeneratedBlockRegistry(TransformOptions::generatedBlockNamespaceFromOptions($options)));
-        $this->session->installAssetMaterializationState(new AssetMaterializationState(
-            trim((string) ($options['generated_asset_root'] ?? ''), '/'),
-            TransformOptions::assetMetadataFromOptions($options)
-        ));
-        $this->session->configurePolicy(! empty($options['extract_global_shell']), ! empty($options['fallback_reduction_mode']));
-        $this->session->runtimeBehaviorState()->installRuntimeScriptMetadata(TransformOptions::runtimeScriptMetadataFromOptions($options));
-        $this->session->runtimeBehaviorState()->installRuntimeProjectionScriptAssets(
-            is_array($options['runtime_projection_script_assets'] ?? null) ? $options['runtime_projection_script_assets'] : array()
-        );
-        $this->session->runtimeBehaviorState()->installThemePreferenceOwnership(
-            is_array($options['theme_preference_ownership'] ?? null) ? $options['theme_preference_ownership'] : array()
-        );
+        $this->session->installTransformOptions($options);
         $this->documentAuthorCss = '';
-        $this->session->installSourcePath((string) ($options['source'] ?? 'html'));
         $sharedStylesheetPaths = TransformOptions::sharedStylesheetPaths($options);
         $staticCss = (string) ($options['static_css'] ?? '');
         $styleAnalysis = $this->stylesheetAnalysisComposer->composedStyleAnalysis(
             $this->stylesheetAnalysisComposer->stylesheetPayloads($html, $staticCss, $options)
         );
         $this->session->sourceStyleResolutionState()->installStylesheetAnalysis(StaticClassPromotions::detect($html), $styleAnalysis);
-        $runtimeDomSelectors = TransformOptions::runtimeSelectorsFromOptions($options, 'runtime_dom_selectors');
-        $this->session->installRuntimeSelectorState(new RuntimeSelectorState(
-            $runtimeDomSelectors,
-            TransformOptions::runtimeSelectorsFromOptions($options, 'runtime_behavioral_selectors'),
-            TransformOptions::runtimeSelectorsFromOptions($options, 'runtime_canvas_selectors')
-        ));
-        $this->session->installLayoutGeometryState(new LayoutGeometryState(
-            is_array($options['layout_geometry_proof']['reductions'] ?? null) ? $options['layout_geometry_proof']['reductions'] : array()
-        ));
         $provenance               = array(
             array_merge(array(
                 'source_format' => 'html',
