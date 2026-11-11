@@ -40,6 +40,24 @@ final class BlockFactory
     }
 
     /**
+     * A block with no inner blocks whose saved markup is already rendered:
+     * the attributes and HTML are carried as given.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    public static function leaf(string $name, array $attrs, string $html): array
+    {
+        return array(
+            'blockName'    => $name,
+            'attrs'        => $attrs,
+            'innerBlocks'  => array(),
+            'innerHTML'    => $html,
+            'innerContent' => array( $html ),
+        );
+    }
+
+    /**
      * @param array<string, mixed> $attrs
      * @param array<int, array<string, mixed>> $innerBlocks
      * @return array<string, mixed>

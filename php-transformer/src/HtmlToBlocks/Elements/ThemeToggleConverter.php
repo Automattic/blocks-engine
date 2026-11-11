@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeScriptEvidenceAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ThemeToggleBlockGenerator;
@@ -197,7 +198,7 @@ final class ThemeToggleConverter implements ElementConverter
             }
         }
         $markup = $generator->markup($attributes, $blockName);
-        return array('blockName' => $blockName, 'attrs' => $attributes, 'innerBlocks' => array(), 'innerHTML' => $markup, 'innerContent' => array($markup));
+        return BlockFactory::leaf($blockName, $attributes, $markup);
     }
 
     /** @param array<int, array<string, mixed>> $entries @param array<int, array<string, mixed>> $runtimeOwners @return array{operator:array<string, mixed>,runtime_ownership:array<string, mixed>}|null */
@@ -407,7 +408,7 @@ final class ThemeToggleConverter implements ElementConverter
             'storageKey' => 'theme',
         );
         $markup = $generator->markup($attributes, $blockName);
-        return array('blockName' => $blockName, 'attrs' => $attributes, 'innerBlocks' => array(), 'innerHTML' => $markup, 'innerContent' => array($markup));
+        return BlockFactory::leaf($blockName, $attributes, $markup);
     }
 
     /**

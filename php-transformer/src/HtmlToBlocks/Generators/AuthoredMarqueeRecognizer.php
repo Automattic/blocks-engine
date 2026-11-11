@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
@@ -114,13 +115,7 @@ final class AuthoredMarqueeRecognizer
         }
         $markup = $generator->markup($attributes);
 
-        return array(
-            'blockName' => $this->generatedBlocks()->blockName(AuthoredMarqueeBlockGenerator::LOCAL_NAME),
-            'attrs' => $attributes,
-            'innerBlocks' => array(),
-            'innerHTML' => $markup,
-            'innerContent' => array( $markup ),
-        );
+        return BlockFactory::leaf($this->generatedBlocks()->blockName(AuthoredMarqueeBlockGenerator::LOCAL_NAME), $attributes, $markup);
     }
 
     /**
@@ -354,13 +349,7 @@ final class AuthoredMarqueeRecognizer
         }
         $markup = ( new AuthoredMarqueeBlockGenerator() )->markup($attributes);
 
-        return array(
-            'blockName' => $this->generatedBlocks()->blockName(AuthoredMarqueeBlockGenerator::LOCAL_NAME),
-            'attrs' => $attributes,
-            'innerBlocks' => array(),
-            'innerHTML' => $markup,
-            'innerContent' => array( $markup ),
-        );
+        return BlockFactory::leaf($this->generatedBlocks()->blockName(AuthoredMarqueeBlockGenerator::LOCAL_NAME), $attributes, $markup);
     }
 
     /**
@@ -432,13 +421,7 @@ final class AuthoredMarqueeRecognizer
             $attributes['sourceClassName'] = trim(SourceDom::attr($element, 'class'));
         }
         $markup = $generator->markup($attributes);
-        return array(
-            'blockName' => $this->generatedBlocks()->blockName(AuthoredMarqueeBlockGenerator::LOCAL_NAME),
-            'attrs' => $attributes,
-            'innerBlocks' => array(),
-            'innerHTML' => $markup,
-            'innerContent' => array( $markup ),
-        );
+        return BlockFactory::leaf($this->generatedBlocks()->blockName(AuthoredMarqueeBlockGenerator::LOCAL_NAME), $attributes, $markup);
     }
 
     /** @return array<string, string> */

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AccessibleLinkBlockGenerator;
@@ -310,13 +311,7 @@ final class ButtonPatternContext
         ), static fn (mixed $value, string $key): bool => '' !== $value && ( ! is_array($value) || array() !== $value || 'sourceAttributes' === $key ), ARRAY_FILTER_USE_BOTH);
         $markup = $generator->markup($attrs);
 
-        return new PatternRecognitionResult(array(
-            'blockName' => $namespace . '/' . AccessibleLinkBlockGenerator::LOCAL_NAME,
-            'attrs' => $attrs,
-            'innerBlocks' => array(),
-            'innerHTML' => $markup,
-            'innerContent' => array( $markup ),
-        ));
+        return new PatternRecognitionResult(BlockFactory::leaf($namespace . '/' . AccessibleLinkBlockGenerator::LOCAL_NAME, $attrs, $markup));
     }
 
     /** @return array<string, string> */

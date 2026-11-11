@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CollectionFilterBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
@@ -95,7 +96,7 @@ final class CapturedCollectionConverter implements ElementConverter
             $attrs = array_merge($attrs, $status);
             $html = $generator->statusMarkup($attrs, $registry->namespace());
             if ('' === $html) return ConversionOutcome::unhandled();
-            return ConversionOutcome::handled(array('blockName' => $registry->blockName($local), 'attrs' => $attrs, 'innerBlocks' => array(), 'innerHTML' => $html, 'innerContent' => array($html)));
+            return ConversionOutcome::handled(BlockFactory::leaf($registry->blockName($local), $attrs, $html));
         } else {
             $children = $this->tree->children($element, $fallbacks, true);
         }

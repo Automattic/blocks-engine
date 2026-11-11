@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LinkedResponsiveContentBlockGenerator;
@@ -171,13 +172,7 @@ final class AnchorLowering implements ButtonLinkLeftovers
         $this->session->requireGeneratedBlockRegistry()->register(LinkedResponsiveContentBlockGenerator::class, $generator->definition($this->session->requireGeneratedBlockRegistry()->namespace()));
         $markup = $generator->markup($attrs);
 
-        return array(
-            'blockName' => $this->session->requireGeneratedBlockRegistry()->blockName(LinkedResponsiveContentBlockGenerator::LOCAL_NAME),
-            'attrs' => $generator->commentAttributes($attrs),
-            'innerBlocks' => array(),
-            'innerHTML' => $markup,
-            'innerContent' => array( $markup ),
-        );
+        return BlockFactory::leaf($this->session->requireGeneratedBlockRegistry()->blockName(LinkedResponsiveContentBlockGenerator::LOCAL_NAME), $generator->commentAttributes($attrs), $markup);
     }
 
     /**
