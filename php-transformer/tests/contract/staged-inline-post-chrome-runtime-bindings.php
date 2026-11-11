@@ -6,6 +6,9 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ListingQueryLoops;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\PostChrome;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
 $assert = static function (bool $condition, string $message): void {
@@ -17,7 +20,7 @@ $roundTrip = static fn(array $value): array => json_decode(json_encode($value, J
 // shell compiles per post with a distinct generated document marker (the
 // `main p` author rule needs a per-document source-tag hook), and a
 // page-local newsletter-controls form sits inside the shared shell. Shell
-// identity strips the markers, so `sharedPostChromeIdentities` recognizes the
+// identity strips the markers, so `PostChrome` recognizes the
 // repeated ancestors and article factoring wants to move the whole shell --
 // form anchors included -- into one global single template while every form
 // declaration keeps its post as the owner document.
@@ -166,15 +169,14 @@ foreach ($unitPosts as $post) {
     $assert(null !== $index, 'The bound form block resolves to one emitted block position.');
     $boundEntities[] = array('bindings' => array(array('role' => 'form', 'source_path' => $post['source_path'], 'search_block_markup' => $form, 'occurrence' => 1, 'position' => array('schema' => 'blocks-engine/runtime-binding-position/v1', 'block_index' => $index, 'offset' => $offset, 'length' => strlen($form)))));
 }
-$extract = new ReflectionMethod(WordPressSitePlan::class, 'extractPostArticleChrome');
-$extract->setAccessible(true);
-$engine = new WordPressSitePlan();
+$identity = static fn(string $markup): string => ShellExtraction::identityMarkup($markup);
+$chrome = new PostChrome(new ListingQueryLoops('', $identity), $identity, static function (array $finding): void {});
 
 // Manifest-backed records: a bound form whose entity lives in a manifest
 // record still keeps the complete articles page-owned.
 $manifest = RuntimeEntityManifest::fromEntities('generic/forms/v1', $boundEntities);
 $manifestDeclarations = RuntimeDeclarations::normalizeList(array(array('kind' => 'entity_collection', 'type' => 'forms', 'source_path' => 'index.html', 'payload' => $manifest['payload'])));
-$retained = $extract->invoke($engine, $unitPosts, array(), $manifestDeclarations, $manifest['records']);
+$retained = $chrome->extractArticleChrome($unitPosts, array(), $manifestDeclarations, $manifest['records']);
 $assert(null === $retained['single'], 'Factoring retains the articles when a manifest record owns the bound newsletter forms.');
 foreach ($retained['pages'] as $page) if ('post' === ($page['post_type'] ?? null)) {
     $assert(str_contains($page['canonical_block_markup'], 'newsletter-controls'), "The manifest-backed form stays in its owner post: {$page['source_path']}.");
@@ -182,7 +184,7 @@ foreach ($retained['pages'] as $page) if ('post' === ($page['post_type'] ?? null
 
 // The same bindings held inline behave identically.
 $inlineDeclarations = RuntimeDeclarations::normalizeList(array(array('kind' => 'entity_collection', 'type' => 'forms', 'source_path' => 'index.html', 'payload' => array('schema' => 'generic/forms/v1', 'entities' => $boundEntities))));
-$retained = $extract->invoke($engine, $unitPosts, array(), $inlineDeclarations, array());
+$retained = $chrome->extractArticleChrome($unitPosts, array(), $inlineDeclarations, array());
 $assert(null === $retained['single'], 'Factoring retains the articles when an inline declaration owns the bound newsletter forms.');
 foreach ($retained['pages'] as $page) if ('post' === ($page['post_type'] ?? null)) {
     $assert(str_contains($page['canonical_block_markup'], 'newsletter-controls'), "The inline-bound form stays in its owner post: {$page['source_path']}.");
@@ -200,14 +202,14 @@ foreach ($unitPosts as $post) {
     $contentEntities[] = array('bindings' => array(array('role' => 'summary', 'source_path' => $post['source_path'], 'search_block_markup' => $search, 'occurrence' => 1, 'position' => array('schema' => 'blocks-engine/runtime-binding-position/v1', 'block_index' => $index, 'offset' => $offset, 'length' => strlen($search)))));
 }
 $contentDeclarations = RuntimeDeclarations::normalizeList(array(array('kind' => 'entity_collection', 'type' => 'forms', 'source_path' => 'index.html', 'payload' => array('schema' => 'generic/forms/v1', 'entities' => $contentEntities))));
-$factored = $extract->invoke($engine, $unitPosts, array(), $contentDeclarations, array());
+$factored = $chrome->extractArticleChrome($unitPosts, array(), $contentDeclarations, array());
 $assert(null !== $factored['single'] && str_contains($factored['single'], '<!-- wp:post-content'), 'Factoring proceeds when the only bound region is the retained post-content.');
 foreach ($factored['pages'] as $page) if ('post' === ($page['post_type'] ?? null)) {
     $assert(str_contains($page['canonical_block_markup'], 'Unique body for ' . basename($page['source_path'], '.html') . '.'), "The bound content region stays in its owner document: {$page['source_path']}.");
 }
 
 // Unbound posts still factor into the global single template.
-$unbound = $extract->invoke($engine, $unitPosts, array(), array(), array());
+$unbound = $chrome->extractArticleChrome($unitPosts, array(), array(), array());
 $assert(null !== $unbound['single'] && str_contains($unbound['single'], '<!-- wp:post-content'), 'Unbound posts still factor into one global single template.');
 foreach ($unbound['pages'] as $page) if ('post' === ($page['post_type'] ?? null)) {
     $assert(!str_contains($page['canonical_block_markup'], 'newsletter-compact'), "Factored chrome leaves the post body: {$page['source_path']}.");
