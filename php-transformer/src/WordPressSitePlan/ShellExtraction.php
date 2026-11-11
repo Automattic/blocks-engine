@@ -1756,7 +1756,7 @@ final class ShellExtraction
             foreach ($candidates as $index => $rows) {
                 if (1 !== count($rows)) continue;
                 $identityPages[] = $index;
-                $identityInputs[] = (string) ($rows[0]['identity_markup'] ?? $rows[0]['markup']);
+                $identityInputs[] = $this->plan->withoutShellSelfReferences((string) ($rows[0]['identity_markup'] ?? $rows[0]['markup']), $pages[$index], $pages);
             }
             $clusterIdentities = array_combine($identityPages, self::canonicalizeRouteNumberedShellIds($identityInputs, $stylesheetIds));
             foreach ($applicable as $index => $page) {
@@ -3544,7 +3544,13 @@ final class ShellExtraction
     /** @param array<string,mixed> $candidate @param array<string,mixed> $current */
     private static function prefersScrollStateCarrier(array $candidate, array $current): bool
     {
-        return str_contains((string) ($candidate['markup'] ?? ''), '/scroll-state') && !str_contains((string) ($current['markup'] ?? ''), '/scroll-state');
+        $score = static function (array $row): int {
+            $markup = (string) ($row['markup'] ?? '');
+            return (int) str_contains($markup, '/scroll-state')
+                + (int) str_contains($markup, 'data-blocks-engine-capture-responsive-class-')
+                + (int) str_contains($markup, 'blocks-engine-captured-glyph-paint');
+        };
+        return $score($candidate) > $score($current);
     }
 
     /**
@@ -4049,6 +4055,26 @@ final class ShellExtraction
 
     private static function normalizeNestedChromeMarkup(string $markup): string
     {
+        // Only paint explicitly supplied by capture is comparison-only. Authored
+        // SVG fills still distinguish different chrome.
+        $withoutPaint = static function (string $markup): string {
+            return preg_replace_callback('/<svg\b[^>]*>/i', static function (array $match): string {
+                if (!str_contains($match[0], 'blocks-engine-captured-glyph-paint')) return $match[0];
+                $tag = str_replace('blocks-engine-captured-glyph-paint', '', $match[0]);
+                $tag = preg_replace('/;fill:\s*#[a-f0-9]{6}(?=")/i', '', $tag) ?? $tag;
+                return preg_replace('/\s+(?:class|style)="\s*"/', '', $tag) ?? $tag;
+            }, $markup) ?? $markup;
+        };
+        $markup = preg_replace_callback('/<!--\s*wp:([\w\/-]+)\s+(\{.*?\})(\s*\/)?\s*-->/s', static function (array $match) use ($withoutPaint): string {
+            if (!str_contains($match[2], 'blocks-engine-captured-glyph-paint')) return $match[0];
+            $attrs = json_decode($match[2], true);
+            if (!is_array($attrs)) return $match[0];
+            array_walk_recursive($attrs, static function (&$value) use ($withoutPaint): void {
+                if (is_string($value)) $value = $withoutPaint($value);
+            });
+            return '<!-- wp:' . $match[1] . ' ' . BlockAttributes::encode($attrs) . (!empty($match[3]) ? ' /-->' : ' -->');
+        }, $markup) ?? $markup;
+        $markup = $withoutPaint($markup);
         // Emission-only landmark transport must not prevent producer/capture matching.
         $markup = str_replace(array(',"className":"blocks-engine-shell-landmark"', ' blocks-engine-shell-landmark'), '', $markup);
         $markup = RestingNavigation::markup($markup, true);
