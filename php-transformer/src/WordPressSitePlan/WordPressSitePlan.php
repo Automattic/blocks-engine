@@ -533,6 +533,14 @@ PHP;
         $projector = new ThemeJsonProjection();
         $themeProjection = $projector->project($assets, array_column($pages, 'source_path'), $this->designSystem);
         $assets = $themeProjection['assets'];
+        $this->presetBinding?->useThemeDefaults($themeProjection['theme']);
+        // Font binding waited for the scoped defaults; do not pin a block to
+        // a preset when the written Global Styles already owns its family.
+        foreach ($pages as &$page) {
+            $page['canonical_block_markup'] = $this->presetBinding?->bind($page['canonical_block_markup']) ?? $page['canonical_block_markup'];
+            $page['content_hash'] = self::contentHash($page['canonical_block_markup']);
+        }
+        unset($page);
         $routes = $this->routesForPages($pages);
         // Entry shells remain in compiled-site/v1 for existing consumers; the
         // canonical plan rebuilds them from full page shell candidates.

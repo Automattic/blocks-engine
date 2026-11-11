@@ -200,6 +200,7 @@ final class PresetBinding
     private int $bound = 0;
     /** Projected font defaults, keyed by the HTML target that inherits them. @var array<string,string> */
     private array $fontDefaults = array();
+    private bool $themeDefaultsReady = false;
     /** Whether an author rule selects `mark` elements, which a span made a mark would join. */
     private bool $markRules = false;
     /** Author font rules that may compete with a heading default. @var list<array{selector:string,value:?string}> */
@@ -255,7 +256,18 @@ final class PresetBinding
             if (!array_key_exists($name, $this->variables)) $this->variables[$name] = false;
         }
         $this->classStyles = self::mergeClassStyles($usageBySource);
-        $theme = (new ThemeJsonProjection())->project($assets, array_keys($usageBySource), $system)['theme'];
+    }
+
+    /**
+     * Only the theme that will be written may own inherited font defaults.
+     * Before that projection is available, binding conservatively keeps fonts.
+     *
+     * @param array<string,mixed> $theme
+     */
+    public function useThemeDefaults(array $theme): void
+    {
+        $this->themeDefaultsReady = true;
+        $this->fontDefaults = array();
         $families = array_column($theme['settings']['typography']['fontFamilies'] ?? array(), 'fontFamily', 'slug');
         $styles = $theme['styles'] ?? array();
         foreach (array('body', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6') as $tag) {
@@ -845,6 +857,7 @@ final class PresetBinding
             'fontFamily' => array('fontFamily', 'font-family', 'has-%s-font-family'),
         );
         foreach ($typography as $key => [$attribute, $property, $presetClass]) {
+            if ('fontFamily' === $key && !$this->themeDefaultsReady) continue;
             if ($isLink) {
                 // Button links carry no font preset class; a family equal to
                 // a preset stack reads its variable from the same inline

@@ -86,15 +86,15 @@ final class ImageLowering
         if ( $sized ) {
             $className .= ' ' . self::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . $scale;
             $position = CssValueInspector::carriableDeclarationValue((string) ($declarations['background-position'] ?? ''));
-            if ( '' !== $position ) {
-                // core/image cannot save object-position itself. The figure
-                // carries the focal point and its img inherits it, agreeing with
-                // the image projection bridge's own `object-position:inherit`
-                // (same specificity) whichever stylesheet loads last.
-                $carrier = $this->session->layoutGeometryState()->allocateCarrier('background-image-position' . "\n" . $position);
-                $this->session->layoutGeometryState()->registerRule($carrier, '.' . $carrier . '{object-position:' . $position . '}.' . $carrier . '>img{object-position:inherit}');
-                $className .= ' ' . $carrier;
-            }
+            // Backgrounds default to top-left, whereas object-position defaults to center.
+            $position = '' !== $position ? $position : '0% 0%';
+            // core/image cannot save object-position itself. The figure
+            // carries the focal point and its img inherits it, agreeing with
+            // the image projection bridge's own `object-position:inherit`
+            // (same specificity) whichever stylesheet loads last.
+            $carrier = $this->session->layoutGeometryState()->allocateCarrier('background-image-position' . "\n" . $position);
+            $this->session->layoutGeometryState()->registerRule($carrier, '.' . $carrier . '{object-position:' . $position . '}.' . $carrier . '>img{object-position:inherit}');
+            $className .= ' ' . $carrier;
         }
 
         $image = $this->blocks->createBlock('core/image', array_filter(array(

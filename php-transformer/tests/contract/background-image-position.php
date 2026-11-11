@@ -12,6 +12,7 @@ foreach (array(
     'contain' => array('right bottom', true, 'contain'),
     'absent inline' => array('', false),
     'absent author rule' => array('', true),
+    'absent contain' => array('', true, 'contain'),
 ) as $label => $case) {
     [$position, $authorRule] = $case;
     $style = 'background-image:url(x.jpg);background-size:' . ($case[2] ?? 'cover');
@@ -28,12 +29,9 @@ foreach (array(
         || !str_contains($figure[1], 'blocks-engine-background-image')) {
         throw new RuntimeException($label . ': background must materialize as core/image.');
     }
-    if ('' === $position) {
-        if (str_contains($css, 'object-position:')) {
-            throw new RuntimeException($label . ': absent position must not emit object-position.');
-        }
-    } elseif (!preg_match('/\b(be-inline-geometry-[a-f0-9]+)\b/', $figure[1], $carrier)
-        || !str_contains($css, '.' . $carrier[1] . '{object-position:' . $position . '}.' . $carrier[1] . '>img{object-position:inherit}')) {
+    $expectedPosition = '' === $position ? '0% 0%' : $position;
+    if (!preg_match('/\b(be-inline-geometry-[a-f0-9]+)\b/', $figure[1], $carrier)
+        || !str_contains($css, '.' . $carrier[1] . '{object-position:' . $expectedPosition . '}.' . $carrier[1] . '>img{object-position:inherit}')) {
         throw new RuntimeException($label . ': image geometry carrier must preserve object-position.');
     }
 }
