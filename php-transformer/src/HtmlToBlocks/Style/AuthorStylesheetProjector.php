@@ -80,6 +80,7 @@ final class AuthorStylesheetProjector
     public function project(string $stylesheet, AuthorStylesheetProjectionContext $context, array $outerConditions = array()): string
     {
         $bridges = array();
+        $stylesheet = CapturedDialogWrapperSelectorProjection::stylesheet($stylesheet, $context->authorStyles->sourceBody());
         $clips = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::replacements($context->authorStyles->sourceBody());
         $projected = ( new CssStylesheetTransformer() )->transformStyleRules(
             $stylesheet,
