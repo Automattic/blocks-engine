@@ -6,11 +6,54 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
+use DOMDocument;
 use DOMElement;
+use WeakMap;
 
 /** Determines whether a form depends on behavior that native blocks cannot retain. */
 final class FormRuntimeRequirementAnalyzer
 {
+    /** @var WeakMap<DOMDocument, array<string, true>>|null */
+    private static ?WeakMap $sourceBehaviorForms = null;
+
+    /** Retain behavior evidence removed by script extraction or URL sanitization. */
+    public static function indexSourceBehavior(DOMDocument $document, string $sourceHtml): void
+    {
+        $forms = $document->getElementsByTagName('form');
+        if ( 0 === $forms->length || '' === $sourceHtml ) {
+            return;
+        }
+        $source = HtmlSerialization::utf8Document($sourceHtml);
+        if ( null === $source ) {
+            return;
+        }
+        $sourceForms = $source->getElementsByTagName('form');
+        $behavior = array();
+        foreach ( $sourceForms as $index => $form ) {
+            if ( self::hasSourceBehavior($form) ) {
+                $behavior[$index] = true;
+            }
+        }
+        $paths = array();
+        foreach ( $forms as $index => $form ) {
+            // If normalization changed the form count, do not guess which
+            // remaining form owned the removed behavior.
+            if ( isset($behavior[$index]) || (array() !== $behavior && $forms->length !== $sourceForms->length) ) {
+                $paths[(string) $form->getNodePath()] = true;
+            }
+        }
+        self::$sourceBehaviorForms ??= new WeakMap();
+        self::$sourceBehaviorForms[$document] = $paths;
+    }
+
+    public static function releaseSourceBehavior(DOMDocument $document): void
+    {
+        if ( null !== self::$sourceBehaviorForms ) {
+            unset(self::$sourceBehaviorForms[$document]);
+        }
+    }
+
     /**
      */
     public function __construct(
@@ -172,6 +215,9 @@ final class FormRuntimeRequirementAnalyzer
      */
     private static function hasSourceBehavior(DOMElement $form): bool
     {
+        if ( null !== $form->ownerDocument && isset(self::$sourceBehaviorForms[$form->ownerDocument][(string) $form->getNodePath()]) ) {
+            return true;
+        }
         $elements = array( $form, ...iterator_to_array($form->getElementsByTagName('*'), false) );
         foreach ( $elements as $element ) {
             if ( in_array(strtolower($element->tagName), array( 'script', 'iframe', 'frame', 'object', 'embed' ), true)
@@ -180,7 +226,8 @@ final class FormRuntimeRequirementAnalyzer
             }
             foreach ( array( 'action', 'formaction', 'href', 'src', 'xlink:href' ) as $attribute ) {
                 $url = trim(SourceDom::attr($element, $attribute));
-                if ( '' !== $url && '' === LinkUrlSanitizer::sanitize($url) ) {
+                $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
+                if ( '' !== $url && ('' === LinkUrlSanitizer::sanitize($url) || ! in_array($scheme, array( '', 'http', 'https' ), true)) ) {
                     return true;
                 }
             }
@@ -209,14 +256,14 @@ final class FormRuntimeRequirementAnalyzer
 
     private static function hasCommerceSubmissionSignal(DOMElement $form, bool $addToCartOnly = false): bool
     {
-        $host = strtolower((string) parse_url(SourceDom::attr($form, 'action'), PHP_URL_HOST));
-        $paymentDestination = ! $addToCartOnly && 1 === preg_match('/(?:^|\.)paypal\.com$/', $host);
         foreach ( $form->getElementsByTagName('*') as $control ) {
             if ( ! FormControlClassifier::isSubmitLikeControl($control) ) {
                 continue;
             }
 
-            if ( $paymentDestination ) {
+            $action = $control->hasAttribute('formaction') ? SourceDom::attr($control, 'formaction') : SourceDom::attr($form, 'action');
+            $host = rtrim(strtolower((string) parse_url(trim($action), PHP_URL_HOST)), '.');
+            if ( ! $addToCartOnly && 1 === preg_match('/(?:^|\.)paypal\.com$/', $host) ) {
                 return true;
             }
 

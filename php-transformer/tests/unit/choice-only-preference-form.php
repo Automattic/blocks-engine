@@ -36,7 +36,10 @@ $cases = array(
     'radios with register button' => array('post', '<input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B"><button>Register</button>', 'unknown', true),
     'radios with pay button' => array('post', '<input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B"><button>Pay now</button>', 'unknown', true),
     'radios with label handler' => array('post', '<label><input type="radio" name="choice" value="A">A<img src="a.png" onerror="void 0"></label><input type="radio" name="choice" value="B"><button>Send</button>', 'unknown', true),
-    'radios with script link' => array('post', '<input type="radio" name="choice" value="A"><label><input type="radio" name="choice" value="B"><a href="javascript:void 0">B</a></label><button>Send</button>', 'unknown', false),
+    'radios with script link' => array('post', '<input type="radio" name="choice" value="A"><label><input type="radio" name="choice" value="B"><a href="javascript:void 0">B</a></label><button>Send</button>', 'unknown', true),
+    'radios with mail link' => array('post', '<input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B"><a href="mailto:help@example.org">Help</a><button>Send</button>', 'unknown', true),
+    'radios with extracted inline script' => array('post', '<input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B"><script>document.querySelector("form").addEventListener("submit", function (event) { event.preventDefault(); });</script><button>Send</button>', 'unknown', true),
+    'radios with extracted external script' => array('post', '<input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B"><script src="vote.js"></script><button>Send</button>', 'unknown', true),
     'radios with embedded frame' => array('post', '<label><input type="radio" name="choice" value="A">A<iframe srcdoc="&lt;p&gt;A&lt;/p&gt;"></iframe></label><input type="radio" name="choice" value="B"><button>Send</button>', 'unknown', true),
     'radios with embedded object' => array('post', '<label><input type="radio" name="choice" value="A">A<object data="a.svg"></object></label><input type="radio" name="choice" value="B"><button>Send</button>', 'unknown', true),
     'radios with hidden product' => array('post', '<input type="hidden" name="product_id" value="9"><input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B"><button>Send</button>', 'unknown', true),
@@ -91,6 +94,23 @@ foreach ( array( 'www.paypal.com' => 'unknown', 'paypal.com.example.org' => 'cho
     }
 }
 $choices = '<input type="radio" name="choice" value="A"><input type="radio" name="choice" value="B"><button>Send</button>';
+$destinationChoices = '<label><input type="radio" name="choice" value="A">A</label><label><input type="radio" name="choice" value="B">B</label>';
+foreach ( array(
+    'PayPal override' => '<form method="post" action="/step">' . $destinationChoices . '<button formaction="https://www.paypal.com/cgi-bin/webscr">Continue</button></form>',
+    'PayPal image override' => '<form method="post" action="/step">' . $destinationChoices . '<input type="image" src="send.png" alt="Continue" formaction="https://www.paypal.com/cgi-bin/webscr"></form>',
+    'PayPal dotted host' => '<form method="post" action="https://www.paypal.com./cgi-bin/webscr">' . $destinationChoices . '<button>Continue</button></form>',
+    'mail submission' => '<form method="post" action="mailto:answers@example.org">' . $destinationChoices . '<button>Send</button></form>',
+    'mail override' => '<form method="post" action="/step">' . $destinationChoices . '<button formaction="mailto:answers@example.org">Send</button></form>',
+) as $label => $form ) {
+    $dom = new DOMDocument();
+    $dom->loadHTML($form);
+    $assert('unknown' === FormRuntimeRequirementAnalyzer::formIntent($dom->getElementsByTagName('form')->item(0)), $label . ' is not a choice submission');
+    $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<!doctype html><html><head><title>Question</title></head><body><main>' . $form . '</main></body></html>')))->toArray();
+    $findings = array_values(array_filter($result['fallbacks'] ?? array(), static fn (array $finding): bool => 'html_form_fallback' === ($finding['diagnostic_code'] ?? '')));
+    $assert(1 === count($findings), $label . ' retains form fallback');
+    $assert(str_contains($result['serialized_blocks'], 'wp:html'), $label . ' retains source representation');
+    $assert(! in_array('choice_submission', array_column($result['source_reports']['runtime_islands'] ?? array(), 'form_intent'), true), $label . ' is not counted as an editable choice submission');
+}
 foreach ( array( 'form handler' => '<form required onsubmit="void 0">', 'script action' => '<form required action="javascript:void 0">' ) as $label => $open ) {
     $sourceForm = '<!doctype html><html><head><title>Question</title></head><body><main>' . $open . $choices . '</form></main></body></html>';
     $dom = new DOMDocument();
@@ -107,6 +127,15 @@ $assert(1 === count($eventResult['fallbacks']), 'event-bearing form retains unsu
 $repeatedForms = '<!doctype html><html><head><title>Questions</title></head><body><main>' . str_repeat('<form class="survey"><input type="radio" name="question" value="A"><input type="radio" name="question" value="B"><button>Send</button></form>', 2) . '</main></body></html>';
 $repeatedResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $repeatedForms)))->toArray();
 $assert(2 === count($repeatedResult['source_reports']['runtime_islands'] ?? array()), 'identical forms retain distinct runtime records');
+$plainForm = '<form class="survey" method="post" action="/vote">' . $choices . '</form>';
+$scriptedForm = '<form class="survey" method="post" action="/vote">' . $choices . '<script src="vote.js"></script></form>';
+foreach ( array($plainForm . $scriptedForm, $scriptedForm . $plainForm) as $forms ) {
+    $mixedResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<!doctype html><html><head><title>Questions</title></head><body><main>' . $forms . '</main></body></html>')))->toArray();
+    $formIslands = array_values(array_filter($mixedResult['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'form' === ($island['kind'] ?? '')));
+    $assert(1 === count(array_filter($formIslands, static fn (array $island): bool => 'choice_submission' === ($island['form_intent'] ?? ''))), 'source behavior stays attached to its own form');
+    $formFallbacks = array_values(array_filter($mixedResult['fallbacks'] ?? array(), static fn (array $finding): bool => 'html_form_fallback' === ($finding['diagnostic_code'] ?? '')));
+    $assert(1 === count($formFallbacks), 'only the scripted peer retains a form fallback');
+}
 if ( $failures ) {
     fwrite(STDERR, implode("\n", $failures) . "\n");
     exit(1);
