@@ -1441,17 +1441,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // Capture ownership before resolveBlockPaths consumes the internal IDs.
         // Shared-shell compilation can materialize a source control more than
         // once; the collector observes each DOM identity only once.
-        $buttonElements = array();
-        $collectButtonElements = function (array $tree) use (&$collectButtonElements, &$buttonElements): void {
-            foreach ($tree as $block) {
-                if ('core/button' === ($block['blockName'] ?? '')) {
-                    $element = $this->session->transformationProvenanceState()->sourceElement((int) ($block['_source_provenance_id'] ?? 0));
-                    if ($element instanceof DOMElement) $buttonElements[] = $element;
-                }
-                $collectButtonElements($block['innerBlocks'] ?? array());
-            }
-        };
-        $collectButtonElements($blocks);
+        $buttonElements = $this->session->transformationProvenanceState()->sourceElementsOfBlockType($blocks, 'core/button');
         $sourceProvenance = $this->session->transformationProvenanceState()->resolveBlockPaths($blocks);
         $responsiveCounterpartContracts = (new ResponsiveCorrespondence())->declare($blocks, $sourceProvenance);
         $this->session->authorSelectorProjectionState()->confirmRichTextCarriers($serializedBlocks);
@@ -1533,11 +1523,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // document root (root-owned attribute states). Only the real root
         // registry can materialize them, so they travel with the compilation
         // facts instead of dying with the analysis DOM.
-        $documentRootMarkers = array();
-        $analysisRoot = $document->documentElement;
-        if ( $analysisRoot instanceof DOMElement && 'html' === strtolower($analysisRoot->tagName) ) {
-            $documentRootMarkers = EngineMarker::all($analysisRoot->getAttribute('class'));
-        }
+        $documentRootMarkers = EngineMarker::onDocumentRoot($document);
         // Design usage is observation after conversion. Cache metrics report
         // conversion work, so they are read before the collector reuses the
         // resolver's caches.
