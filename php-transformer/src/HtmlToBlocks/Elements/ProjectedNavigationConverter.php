@@ -310,7 +310,7 @@ final class ProjectedNavigationConverter implements ElementConverter
         $host = '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation.' . $marker;
         $hostDeclarations = $this->nativeNavigationToggleHostDeclarations($always, $display, $sourceDeclarations, array() !== $placement);
         $drawer = $this->collapsedContainingBlock($toggle);
-        $drawerPlacement = $drawer instanceof DOMElement && $this->containsNavigation($drawer, $navigation)
+        $drawerPlacement = $drawer instanceof DOMElement && SourceDom::elementContains($drawer, $navigation)
             ? $this->portableCollapsedPlacement($drawer, array('position')) : array();
         $outOfFlowRule = '';
         if ( 'fixed' === ($placement['position'] ?? '') && 'fixed' === ($drawerPlacement['position'] ?? '') ) {
@@ -1095,7 +1095,7 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
         $toggleContainingBlock = $this->collapsedContainingBlock($toggle);
         $navigationContainingBlock = $this->collapsedContainingBlock($navigation);
-        if ( $toggleContainingBlock instanceof DOMElement && $this->containsNavigation($toggleContainingBlock, $navigation) ) {
+        if ( $toggleContainingBlock instanceof DOMElement && SourceDom::elementContains($toggleContainingBlock, $navigation) ) {
             $drawer = $this->portableCollapsedPlacement($toggleContainingBlock, self::CONTAINING_BLOCK_PROPERTIES);
             // An absolute control inside a viewport-fixed drawer is itself
             // viewport anchored. Promote only simple physical edge offsets:
@@ -1140,17 +1140,6 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
 
         return $portable;
-    }
-
-    /** Whether the drawer is the converted navigation or one of its ancestors. */
-    private function containsNavigation(DOMElement $drawer, DOMElement $navigation): bool
-    {
-        for ( $node = $navigation; $node instanceof DOMElement; $node = $node->parentNode ) {
-            if ( $drawer->isSameNode($node) ) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /** @param list<string> $properties @return array<string, string> */

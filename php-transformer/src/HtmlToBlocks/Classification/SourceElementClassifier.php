@@ -1534,17 +1534,6 @@ final class SourceElementClassifier
         return $hasDefinition;
     }
 
-    public function isDescendantOf(DOMElement $element, DOMElement $ancestor): bool
-    {
-        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
-            if ( $node->isSameNode($ancestor) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     public function isUnsafeIframeDestination(string $value): bool
     {
         return 1 === preg_match('/^(?:javascript|data|vbscript)\s*:/i', $value);

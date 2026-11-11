@@ -472,13 +472,7 @@ final class FormControlClassifier
 
     public static function hasFormAncestor(DOMElement $element): bool
     {
-        for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
-            if ( 'form' === strtolower($parent->tagName) ) {
-                return true;
-            }
-        }
-
-        return false;
+        return null !== SourceDom::ancestorElement($element, 'form');
     }
 
     /**

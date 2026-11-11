@@ -10,6 +10,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButto
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\AssetMaterializationState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutParticipation;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMDocument;
 use DOMElement;
@@ -1274,7 +1275,7 @@ final class ButtonsPattern
         }
 
         $type = strtolower(trim($surface->getAttribute('type')));
-        if ( ! in_array($type, array( '', 'button' ), true) || ( '' === $type && $this->hasFormAncestor($surface) ) ) {
+        if ( ! in_array($type, array( '', 'button' ), true) || ( '' === $type && FormControlClassifier::hasFormAncestor($surface) ) ) {
             return null;
         }
 
@@ -1330,17 +1331,6 @@ final class ButtonsPattern
     public function requiresWrappedButtonPreservation(DOMElement $anchor): bool
     {
         return $this->wrappedButtonRequiresPreservation($anchor);
-    }
-
-    private function hasFormAncestor(DOMElement $element): bool
-    {
-        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
-            if ( 'form' === strtolower($ancestor->tagName) ) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**
