@@ -20,8 +20,9 @@ $cases = array(
     'percentage leading' => array($address . '<br>' . $phone, 'section{font-size:20px;line-height:150%}', 1, '30px'),
     'normal leading fallback' => array($address . '<br>' . $phone, 'section{line-height:normal}', 1, null),
     'whitespace alone' => array($address . "\n  " . $phone, '', 0, null),
-    'leading break' => array('<br>' . $address . $phone, '', 0, null),
-    'trailing break' => array($address . $phone . '<br>', '', 0, null),
+    // A break run at a container edge still forms one line box per break.
+    'leading break' => array('<br>' . $address . $phone, '', 1, null),
+    'trailing break' => array($address . $phone . '<br>', '', 1, null),
     'inline paragraph break' => array($address . $phone, '', 0, null),
     'adjacent inline content' => array('<span>Before</span><br><span>After</span>', '', 0, null),
 );
@@ -37,7 +38,12 @@ foreach ($cases as $name => [$html, $css, $expected, $height]) {
     $assert(count($lines) === $expected, $name . ': expected blank-line blocks ' . $expected . ', got ' . count($lines));
     if (null !== $height) $assert(str_contains($lines[0][0], '"height":"' . $height . '"'), $name . ': spacer height');
     if ($expected > 0) {
-        $assert(strpos($markup, 'Town') < strpos($markup, $lines[0][0]) && strpos($markup, $lines[0][0]) < strpos($markup, 'Tel:'), $name . ': blank lines between paragraphs');
+        $at = strpos($markup, $lines[0][0]);
+        $assert(match ($name) {
+            'leading break' => $at < strpos($markup, '1 Main St'),
+            'trailing break' => $at > strpos($markup, 'Tel:'),
+            default => strpos($markup, 'Town') < $at && $at < strpos($markup, 'Tel:'),
+        }, $name . ': blank lines where the source breaks sit');
     }
     if (str_contains($html, 'Town')) $assert(1 === preg_match('/1 Main St.*?<br\s*\/?>.*?Town/s', $markup), $name . ': inline break retained');
     $assert(!str_contains($markup, '<!-- wp:html'), $name . ': no HTML fallback');
