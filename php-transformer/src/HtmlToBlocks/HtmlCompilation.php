@@ -145,7 +145,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutGeometryStat
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjectionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\RevealAnimationSettler;
-use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\AdminBarAccommodation;
 use Automattic\BlocksEngine\PhpTransformer\Css\TemplatePartStickyContainment;
@@ -192,7 +191,7 @@ use DOMElement;
 use DOMNode;
 
 /** Run-scoped compiler for one HTML document. */
-final class HtmlCompilation extends SourceBlockCreator implements RichTextInlinePolicy, PatternTreeConverter, Elements\EmptyVisualRetention, Elements\AuthorLayoutLowering
+final class HtmlCompilation extends SourceBlockCreator implements RichTextInlinePolicy, PatternTreeConverter, Elements\AuthorLayoutLowering
 {
     use DomHelpersTrait;
 
@@ -289,6 +288,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly Elements\ParagraphImageUnwrapping $paragraphImages;
     private readonly Elements\TextlessMediaLowering $textlessMedia;
     private readonly Support\StyledSourceClassBoundary $styledClassBoundaries;
+    private readonly Elements\EmptyVisualRetentionPolicy $emptyVisualRetention;
     private readonly SourceProvenance $sourceProvenance;
 
 
@@ -887,6 +887,18 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         );
         $this->textlessMedia = new Elements\TextlessMediaLowering($visualIframeGenerator, $this->paragraphImages);
         $this->styledClassBoundaries = new Support\StyledSourceClassBoundary($this->session);
+        $this->emptyVisualRetention = new Elements\EmptyVisualRetentionPolicy(
+            $this->styleResolver,
+            $this->session,
+            $this->sourceElementClassifier,
+            $this->sourceElementDescription,
+            $this->runtimeIslands,
+            $this->emptyElementFootprint,
+            $this->sourceVisibility,
+            $this->renderNeutral,
+            $this->styledClassBoundaries,
+            $this->generatedComponents
+        );
         $customBlockGenerator = new CustomBlockGenerator(
             $this->sourceElementClassifier,
             $this->styleResolver,
@@ -942,11 +954,11 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             paragraphBlockFromInlineContentWrapper: fn (DOMElement $element): ?array => $this->paragraphBlockFromInlineContentWrapper($element),
             inlineAddressableRunGroupBlock: fn (DOMElement $element): ?array => $this->inlineAddressableRunGroupBlock($element),
             proofBackedWrapperCoalescing: fn (DOMElement $element, array &$fallbacks): ?array => $this->proofBackedWrapperCoalescing($element, $fallbacks),
-            isInertEmptyElement: fn (DOMElement $element): bool => $this->isInertOutOfFlowEmptyElement($element),
+            isInertEmptyElement: $this->emptyVisualRetention->isInertOutOfFlowEmptyElement(...),
             patternContext: $this->patternContext,
             visualTextWrapperBlock: fn (DOMElement $element): ?array => $this->visualTextWrapperBlockFromElement($element),
             coalescedSingleGroupWrapper: fn (DOMElement $element, array $child): ?array => $this->coalescedSingleGroupWrapper($element, $child),
-            shouldPreserveWrapper: fn (DOMElement $element, ?string $asTag = null): bool => $this->shouldPreserveWrapper($element, $asTag)
+            shouldPreserveWrapper: $this->emptyVisualRetention->shouldPreserveWrapper(...)
         ),
             $emptyFeatureShells,
             $formDispatcher,
@@ -954,7 +966,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->imageLowering,
             $this,
             $this->generatedComponents,
-            $this,
+            $this->emptyVisualRetention,
             $this->session,
             $this->runtimeIslands,
             $metadataGrid,
@@ -994,7 +1006,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 $this->runtimeIslands,
                 $this->sourceElementClassifier,
                 fn (DOMElement $element): ?DOMElement => $this->soleElementChild($element),
-                fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element)
+                $this->emptyVisualRetention->shouldPreserveEmptyVisualElement(...)
             ),
             $this->projectedNavigation,
             new PhrasingSvgConverter($this->svgMaterializer, $this, $this->inertElements),
@@ -1095,7 +1107,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $mediaDispatchConverter,
             new Elements\FocusRevealedSkipLinkConverter($this->styleResolver, $this->session),
             new Elements\ReducedModeButtonConverter($this->session, $this->styleResolver, $this->sourceElementClassifier, $this->runtime, $this),
-            new Elements\AnchorElementConverter($this->buttonLinkDispatcher, $this->emptyVisualSpacers, $this, $this->unsupportedRecorder),
+            new Elements\AnchorElementConverter($this->buttonLinkDispatcher, $this->emptyVisualSpacers, $this->emptyVisualRetention, $this->unsupportedRecorder),
             $structuralContentConverters,
             new Elements\LabelElementConverter($this->readableFormControlBlockConverter, $this->flowContainerConverter),
             // These delegates own disjoint tags; their declaration order is the
@@ -1105,6 +1117,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->flowContainerConverter,
             new Elements\AuthoredCarouselElementConverter($this->authoredCarouselGenerator, $this->runtimeIslands, $this->styleResolver, $this, $this),
             new Elements\NavigationHostConverter($this, $this->layoutShells, $this),
+
             $this->generatedComponents,
             new Elements\StandaloneFormControlConverter($this->readableFormControlBlockConverter, $this->formRuntimeIslandRecorder),
             $this->linkCarriers,
@@ -1117,7 +1130,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             new Elements\CustomElementRuntimeConverter($this->session, $this->styleResolver, $this->sourceElementDescription, $this->runtimeIslands, $this->generatedComponents, $this),
         ));
     }
-
 
     /** Collaborator surface for {@see StyleResolver}. */
     private function createStyleResolutionContext(): StyleResolutionContext
@@ -1920,14 +1932,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private function authoredCssText(string $html, string $staticCss): string
     {
         return $this->stylesheetAnalysisComposer->combinedAuthorStylesheet($html, $staticCss);
-    }
-
-    private function containsGeneratedComponentCandidate(DOMElement $element): bool
-    {
-        foreach (SourceDom::descendantElements($element) as $descendant) {
-            if ($this->generatedComponents->isCandidate($descendant)) return true;
-        }
-        return false;
     }
 
     /**
@@ -2787,7 +2791,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 SourceDom::htmlAttributes($sourceElement),
                 $this->sourceElementDescription->structureSignals($sourceElement, $attrs),
                 array() === $innerBlocks && 'core/group' === $name
-                    ? $this->emptyVisualTopologyEvidence($sourceElement)
+                    ? $this->emptyVisualRetention->emptyVisualTopologyEvidence($sourceElement)
                     : array(),
                 'core/navigation' === $name && $this->sourceWrapperHiddenAtCollapsedViewport($sourceElement)
             );
@@ -3211,6 +3215,17 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $this->elementPrelude->capturedDialogBlock($element, $fallbacks);
     }
 
+    /** Read lazily: closures built before the retention policy call it. */
+    private function shouldPreserveEmptyVisualElement(DOMElement $element): bool
+    {
+        return $this->emptyVisualRetention->shouldPreserveEmptyVisualElement($element);
+    }
+
+    public function retainsEmptyRichTextInline(DOMElement $element): bool
+    {
+        return $this->emptyVisualRetention->retainsEmptyRichTextInline($element);
+    }
+
     public function richTextMarker(DOMElement $element): string
     {
         return $this->authorLayoutOwnership->richTextMarker($element);
@@ -3256,26 +3271,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         return $content;
-    }
-
-
-    private function shouldPreserveWrapper(DOMElement $element, ?string $asTag = null): bool
-    {
-        $tag = $asTag ?? $element->tagName;
-
-        // Elide only a neutral chain, not a media shell whose positioned child
-        // requires an intrinsic-size carrier. Keep identity on its real box.
-        $child = 1 === SourceDom::childElementCount($element) ? $element->firstElementChild : null;
-        if ('div' === strtolower($tag) && '' === trim(SourceDom::attr($element, 'id'))
-            && $child instanceof DOMElement && 'div' === strtolower($child->tagName)
-            && !$this->hasAuthorSemanticMarker($element) && !$this->styledClassBoundaries->hasStyledSourceClassBoundary($element)
-            && $this->renderNeutral->isRenderNeutralWrapper($element) && $this->renderNeutral->isRenderNeutralWrapper($child)
-            && $this->containsGeneratedComponentCandidate($element)
-        ) {
-            return false;
-        }
-
-        return ( ShellLandmarkPolicy::isWrapperPreservingTag($tag) || RichTextInlineTags::isUnknownHtmlElement($element) ) && ( $this->runtimeIslands->isRuntimeDomTarget($element) || $this->hasAuthorSemanticMarker($element) || array() !== $this->styleResolver->presentationAttributes($element) || array() !== $this->sourceElementDescription->structureSignals($element, array()) || $this->styledClassBoundaries->hasStyledSourceClassBoundary($element) );
     }
 
     /**
@@ -3329,7 +3324,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             if ( XML_COMMENT_NODE === $node->nodeType ) {
                 continue;
             }
-            if ( $node instanceof DOMElement && ($this->isInertHiddenEmptyElement($node) || $this->isExplicitlyDisplayNoneEmptyElement($node)) ) {
+            if ( $node instanceof DOMElement && ($this->emptyVisualRetention->isInertHiddenEmptyElement($node) || $this->isExplicitlyDisplayNoneEmptyElement($node)) ) {
                 continue;
             }
             if ( ! $node instanceof DOMElement || $child instanceof DOMElement ) {
@@ -3341,110 +3336,12 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $child;
     }
 
-    /**
-     * Return resting stylesheet declarations which prove an otherwise empty group
-     * is authored layout, paint, or control topology. Stateful selectors never
-     * contribute: source capture has no interaction state to prove.
-     *
-     * @return list<array{selector: string, declarations: array<string, string>, specificity: int, order: int, source_path: string, source_hash: string}>
-     */
-    private function emptyVisualTopologyEvidence(DOMElement $element): array
-    {
-        $evidence = array();
-        $matchedRules = array();
-        foreach ( $this->session->authorStyleRuleCandidates($element) as $candidate ) {
-            $ruleOrder = (int) $candidate['rule_order'];
-            if ( isset($matchedRules[$ruleOrder])
-                || ! ($candidate['parsed']['supported'] ?? false)
-                || null !== ($candidate['parsed']['pseudo_state_suffix_span'] ?? null)
-                || ! $this->session->sourceStyleResolutionState()->selectorMatchCache->matches($element, $candidate['selector'], $candidate['parsed'])['matches']
-            ) {
-                continue;
-            }
-            $matchedRules[$ruleOrder] = true;
-            $declarations = array_filter(
-                $candidate['declarations'],
-                fn (string $value, string $property): bool => $this->sourceElementClassifier->isNonNeutralVisualTopologyDeclaration($property, $value),
-                ARRAY_FILTER_USE_BOTH
-            );
-            if ( array() !== $declarations ) {
-                $evidence[] = array(
-                    'selector' => $candidate['selector'],
-                    'declarations' => $declarations,
-                    'specificity' => CssSelectorMatcher::specificity($candidate['parsed']),
-                    'order' => $ruleOrder,
-                    'source_path' => (string) ($candidate['source_path'] ?? ''),
-                    'source_hash' => (string) ($candidate['source_hash'] ?? ''),
-                );
-            }
-        }
-        return $evidence;
-    }
-
     /** @return list<array{key: string, selector: string, parsed: array<string, mixed>, direct_child_parsed: array<string, mixed>, declarations: array<string, string>, rule_order: int}> */
-    public function shouldPreserveEmptyVisualElement(DOMElement $element): bool { return $this->emptyElementFootprint->shouldPreserveEmptyVisualElement($element, $this->emptyVisualRetentionPolicy($element)); }
-
-    /** Non-style retention decisions, evaluated only when the footprint query needs them. */
-    private function emptyVisualRetentionPolicy(DOMElement $element): iterable
-    {
-        if ( '' !== SourceDom::renderedTextContent($element) || $this->isInertOutOfFlowEmptyElement($element) ) {
-            yield 'drop' => true;
-            return;
-        }
-        yield 'hidden' => $this->isInertHiddenEmptyElement($element);
-        if ( $this->hasSubstantiveSourceDescendant($element) && $this->shouldPreserveWrapper($element) ) {
-            yield 'keep' => true;
-        }
-        yield 'layout' => true;
-        if ( $this->sourceElementClassifier->isInlineContentElement(strtolower($element->tagName)) ) {
-            yield 'inline' => $this->runtimeIslands->isRuntimeDomTarget($element)
-                || in_array(strtolower(SourceDom::attr($element, 'role')), array( 'presentation', 'none' ), true)
-                || 'true' === strtolower(SourceDom::attr($element, 'aria-hidden'));
-            return;
-        }
-        $id = SourceDom::namedFragmentTargetId($element);
-        yield 'block' => $this->runtimeIslands->isRuntimeDomTarget($element)
-            || ( '' !== $id && SourceDom::documentReferencesFragmentId($element, $id) )
-            || array() !== SourceDom::eventMetadata($element)
-            || array() !== $this->sourceElementDescription->structureSignals($element, array());
-        yield 'keep' => $this->hasStaticPseudoElementRule($element);
-        yield 'viewport' => $this->emptyVisualTopologyEvidence($element);
-    }
-
-    public function retainsEmptyRichTextInline(DOMElement $sourceInline): bool
-    {
-        return $this->runtimeIslands->isRuntimeDomTarget($sourceInline)
-            || $this->shouldPreserveEmptyVisualElement($sourceInline)
-            || $this->hasStaticPseudoElementRule($sourceInline);
-    }
-
-    private function hasSubstantiveSourceDescendant(DOMElement $element): bool
-    {
-        if ( '' !== SourceDom::renderedTextContent($element) ) {
-            return true;
-        }
-        foreach ( array( 'audio', 'button', 'canvas', 'form', 'iframe', 'img', 'input', 'object', 'picture', 'select', 'svg', 'textarea', 'video' ) as $tagName ) {
-            if ( 0 < $element->getElementsByTagName($tagName)->length ) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private function hasStaticPseudoElementRule(DOMElement $element): bool
-    {
-        foreach ( $this->session->sourceStyleResolutionState()->pseudoElementRules() as $rule ) {
-            if ( $this->styleResolver->matchesCssSelector($element, $rule['selector']) ) {
-                return true;
-            }
-        }
-        return false;
-    }
 
     private function preservesScriptStateWrapper(DOMElement $element): bool
     {
         if (SourceDom::isCaptureDeviceVisibilityCarrier($element)) return true;
-        if ( $this->isInertHiddenEmptyElement($element) ) {
+        if ( $this->emptyVisualRetention->isInertHiddenEmptyElement($element) ) {
             return false;
         }
         foreach ( $element->attributes ?? array() as $attribute ) {
@@ -3457,65 +3354,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             }
         }
         return false;
-    }
-
-    /**
-     * Page builders lay click-capture layers over media: an empty, positioned,
-     * fully transparent box their own script listens on. It takes no flex gap
-     * or grid cell, paints nothing at rest or in any state, and nothing in
-     * WordPress interacts with it, so it is not a box the author can see or edit.
-     */
-    private function isInertOutOfFlowEmptyElement(DOMElement $element): bool
-    {
-        if ( 0 !== SourceDom::childElementCount($element)
-            || $this->runtimeIslands->isRuntimeDomTarget($element)
-            || array() !== $this->sourceElementDescription->interactiveAttributes($element)
-            || $this->hasStaticPseudoElementRule($element)
-        ) {
-            return false;
-        }
-        foreach ( array( 'opacity', 'visibility', 'background', 'border', 'outline', 'box-shadow', 'filter', 'layout' ) as $family ) {
-            if ( $this->styleResolver->hasStateStyleFamily($element, $family)
-                || $this->styleResolver->hasConditionalStyleFamily($element, $family)
-            ) {
-                return false;
-            }
-        }
-        $declarations = array_merge(
-            $this->styleResolver->structuralPresentationDeclarations($element),
-            $this->styleResolver->matchedCascadedDeclarations($element),
-            $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'))
-        );
-        $position = CssValueInspector::comparable((string) ($declarations['position'] ?? ''));
-        $opacity = CssValueInspector::comparable($this->styleResolver->resolveCssVariablesInValue((string) ($declarations['opacity'] ?? ''), $element));
-        $authoredPaint = array() !== array_intersect_key($declarations, array_flip(array( 'background', 'background-color', 'background-image', 'border', 'border-top', 'border-right', 'border-bottom', 'border-left', 'box-shadow', 'outline', 'mask', 'mask-image' )));
-
-        return in_array($position, array( 'absolute', 'fixed' ), true)
-            && is_numeric($opacity) && 0.0 === (float) $opacity
-            && ! $authoredPaint;
-    }
-
-    private function isInertHiddenEmptyElement(DOMElement $element): bool
-    {
-        if ( 0 !== SourceDom::childElementCount($element)
-            || '' !== trim($element->textContent ?? '')
-            || ! $this->sourceVisibility->startsHidden($element)
-            || $this->emptyElementFootprint->occupiesInFlowSpace($element)
-            || $this->runtimeIslands->isRuntimeDomTarget($element)
-            || $this->styleResolver->hasConditionalStyleFamily($element, 'layout')
-            || $this->styleResolver->hasConditionalStyleFamily($element, 'visibility')
-            || $this->styleResolver->hasConditionalStyleFamily($element, 'opacity')
-        ) {
-            return false;
-        }
-
-        foreach ( array( 'id', 'role', 'title', 'aria-label', 'aria-labelledby', 'aria-describedby' ) as $attribute ) {
-            if ( '' !== trim(SourceDom::attr($element, $attribute)) ) {
-                return false;
-            }
-        }
-
-        return true;
     }
 
     private function isExplicitlyDisplayNoneEmptyElement(DOMElement $element): bool
@@ -4044,7 +3882,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->session->fallbackEmitter()->captureInlineSvgFallback($element, $fallbacks);
     }
 
-
     /** @return array<string, mixed> */
     private function svgArtworkBlock(DOMElement $element, string $svg): array
     {
@@ -4090,3 +3927,4 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     }
 
 }
+
