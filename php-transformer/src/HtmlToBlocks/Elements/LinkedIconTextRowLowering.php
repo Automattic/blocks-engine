@@ -96,7 +96,7 @@ final class LinkedIconTextRowLowering
             }
         }
         $text = $this->richTextMaterializer->content($textSpan);
-        if ( '' === trim($this->runtime->stripAllTags($text)) ) {
+        if ( ! $this->runtime->hasVisibleText($text) ) {
             return null;
         }
 

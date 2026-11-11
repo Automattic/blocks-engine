@@ -36,7 +36,7 @@ final class QuotePattern implements PatternRecognizerInterface
 
         $citation = $quotes->citationFromElement($element);
         $value = SourceDom::innerHtmlWithoutTags($element, array( 'cite', 'footer' ));
-        if ( '' === trim($this->runtime->stripAllTags($value)) ) {
+        if ( ! $this->runtime->hasVisibleText($value) ) {
             return null;
         }
 
@@ -99,7 +99,7 @@ final class QuotePattern implements PatternRecognizerInterface
         }
 
         $value = SourceDom::innerHtmlWithoutTags($blockquote, array( 'cite', 'footer' ));
-        if ( '' === trim($this->runtime->stripAllTags($value)) ) {
+        if ( ! $this->runtime->hasVisibleText($value) ) {
             return null;
         }
 
@@ -117,7 +117,7 @@ final class QuotePattern implements PatternRecognizerInterface
                 continue;
             }
             $content = SourceDom::innerHtml($child);
-            if ( 'true' !== strtolower(trim(SourceDom::attr($child, 'aria-hidden'))) || '' === trim($this->runtime->stripAllTags($content)) ) {
+            if ( 'true' !== strtolower(trim(SourceDom::attr($child, 'aria-hidden'))) || ! $this->runtime->hasVisibleText($content) ) {
                 continue;
             }
             $innerBlocks[] = $createBlock('core/paragraph', array_merge($context->presentationAttributes($child), array( 'content' => $content )), array(), $child);

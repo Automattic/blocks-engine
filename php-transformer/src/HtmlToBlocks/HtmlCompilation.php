@@ -802,7 +802,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->imageLowering->convertImage($image, $figure, $picture, $link),
             SourceDom::figureMediaElement(...),
             (new Elements\GenericFigureLowering($this, $this, $this->styleResolver, $this->runtime, $this->emptyVisualRetention, $this->emptyVisualSpacers, $this->emptyElementFootprint, $this->session))->block(...),
-            fn (string $html): bool => '' !== trim($this->runtime->stripAllTags($html))
+            $this->runtime->hasVisibleText(...)
         ));
         $quoteConverter = new QuoteElementConverter($this);
         $listConverter = new ListElementConverter($this->styleResolver, $this, new ListElementContext(
@@ -866,7 +866,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $definitionLists->definitionListItems(...),
             $this->authorLayoutOwnership,
             $this,
-            fn (string $html): bool => '' !== trim($this->runtime->stripAllTags($html))
+            $this->runtime->hasVisibleText(...)
         ));
         $structuralContentConverters = new OrderedElementConverterRegistry(array(
             $inlineContentConverter,

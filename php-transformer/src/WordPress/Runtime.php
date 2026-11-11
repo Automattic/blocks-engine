@@ -592,6 +592,12 @@ final class Runtime
         return $removeBreaks ? preg_replace('/[\r\n\t ]+/', ' ', $text) ?? $text : $text;
     }
 
+    /** Whether markup leaves any non-whitespace text once its tags are stripped. */
+    public function hasVisibleText(string $html): bool
+    {
+        return '' !== trim($this->stripAllTags($html));
+    }
+
     public function containsShortcode(string $text): bool
     {
         return array() !== $this->parseShortcodes($text);

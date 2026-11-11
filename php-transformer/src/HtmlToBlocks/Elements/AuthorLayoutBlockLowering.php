@@ -135,7 +135,7 @@ final class AuthorLayoutBlockLowering implements AuthorLayoutLowering
             return null;
         }
         $content = $this->richTextMaterializer->content($element);
-        if ( '' === trim($this->runtime->stripAllTags($content)) || $this->richTextMaterializer->requiresHtmlFallback($content) ) {
+        if ( ! $this->runtime->hasVisibleText($content) || $this->richTextMaterializer->requiresHtmlFallback($content) ) {
             return null;
         }
         $attrs = $this->styleResolver->presentationAttributes($element);

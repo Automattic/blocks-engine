@@ -68,7 +68,7 @@ final class NavigationElementConverter implements ElementConverter
         if ( null !== $inlineSvgContent ) {
             $content = $inlineSvgContent;
         }
-        if ( '' === trim($this->runtime->stripAllTags($content)) || $this->richTextMaterializer->requiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
+        if ( ! $this->runtime->hasVisibleText($content) || $this->richTextMaterializer->requiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
             return null;
         }
 

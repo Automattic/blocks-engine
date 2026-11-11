@@ -155,7 +155,7 @@ final class RichTextElementConverter implements ElementConverter
             return $this->createBlock->htmlPreservationBlock($element);
         }
 
-        if ( ! $hasStructuralHtml && '' === trim($this->runtime->stripAllTags($content))
+        if ( ! $hasStructuralHtml && ! $this->runtime->hasVisibleText($content)
             && ! SourceDom::carriesOnlyRichTextInlineImages($element)
             && ! $this->richTextMaterializer->containsNativeSvgImageObject($content) ) {
             return $this->emptySourceTextBlock($element, 'core/heading', array('level' => $level));
@@ -447,7 +447,7 @@ final class RichTextElementConverter implements ElementConverter
             }
         }
 
-        if ( '' === trim($this->runtime->stripAllTags($content))
+        if ( ! $this->runtime->hasVisibleText($content)
             && ! SourceDom::carriesOnlyRichTextInlineImages($element)
             && ! $this->richTextMaterializer->containsNativeSvgImageObject($content) ) {
             // An empty paragraph that scripts address by selector must keep a
