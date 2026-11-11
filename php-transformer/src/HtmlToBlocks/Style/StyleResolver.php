@@ -6610,6 +6610,17 @@ final class StyleResolver implements ElementPresentationResolver
         return $rules;
     }
 
+    /** Whether any rule in the static or conditional collection selects the element. */
+    public function matchesStaticConditionalRule(DOMElement $element): bool
+    {
+        foreach ( $this->styleRuleCandidates($element, 'static-conditional') as $rule ) {
+            if ( $this->matchesCssSelector($element, (string) $rule['selector']) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public function styleRuleCandidates(DOMElement $element, string $collection): array
     {
         $cache = $this->session->sourceStyleResolutionState();
