@@ -316,7 +316,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         $icons ??= json_decode((string) file_get_contents(dirname(__DIR__, 3) . '/resources/wordpress-social-link-icons.json'), true);
         if (null === $service || !isset($icons[$service])) return false;
         $core = new \DOMDocument();
-        $core->loadXML($icons[$service]);
+        if (!@$core->loadXML($icons[$service]) || !$core->documentElement instanceof DOMElement) return false;
         $signature = static function (DOMElement $element): string {
             $parts = array();
             foreach ($element->getElementsByTagName('*') as $child) {
