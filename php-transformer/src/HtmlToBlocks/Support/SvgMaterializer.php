@@ -125,6 +125,9 @@ final class SvgMaterializer implements SvgElementMaterializer
             }
         }
 
+        // Standalone images need intrinsic dimensions; inline artwork must
+        // keep the authored box, with the viewBox supplying only its ratio.
+        $inlineHtml = $this->restoreSvgCasing($html);
         $html = $this->materializeSanitizedSvgMarkup($html, $element);
         $imageBlock = $this->inlineSvgImageBlockFromMarkup($element, $html);
         if ( null !== $imageBlock ) {
@@ -135,11 +138,11 @@ final class SvgMaterializer implements SvgElementMaterializer
         // the typed artwork companion, but only when links are the sole reason
         // this SVG fails the native image compatibility checks.
         if ( $this->hasSvgRegionLink($element) && $this->isNativeImageCompatibleSvg($element, $html, true) ) {
-            return $this->svgArtworkBlock($element, $html);
+            return $this->svgArtworkBlock($element, $inlineHtml);
         }
 
         if ( $this->hasPageCssAnimatedDescendant($element) ) {
-            return $this->svgArtworkBlock($element, $html);
+            return $this->svgArtworkBlock($element, $inlineHtml);
         }
 
         // Honest floor: keep SVGs that need inline document context as sanitized
