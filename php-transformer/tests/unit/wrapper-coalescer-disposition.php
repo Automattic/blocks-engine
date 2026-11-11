@@ -99,6 +99,7 @@ $makeCoalescer = static function (array $runtimeDomSelectors = array(), array $o
     $defaults = array(
         'soleElementChild' => static fn (DOMElement $e): ?DOMElement => $e->firstElementChild,
         'isImageOnlyAnchor' => static fn (DOMElement $e): bool => false,
+        'preservesScriptStateWrapper' => static fn (DOMElement $e): bool => false,
     );
     $c = array_merge($defaults, $overrides);
 
@@ -110,7 +111,8 @@ $makeCoalescer = static function (array $runtimeDomSelectors = array(), array $o
         $session,
         new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()),
         $c['soleElementChild'],
-        $c['isImageOnlyAnchor']
+        $c['isImageOnlyAnchor'],
+        $c['preservesScriptStateWrapper']
     );
 };
 

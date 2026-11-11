@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConv
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMaterializer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorLayoutOwnership;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
@@ -26,8 +27,57 @@ final class ListItemLowering
         private readonly HtmlTransformerSession $session,
         private readonly StyleResolver $styleResolver,
         private readonly ListStructure $listStructure,
-        private readonly RichTextMaterializer $richTextMaterializer
+        private readonly RichTextMaterializer $richTextMaterializer,
+        private readonly WrapperCoalescer $wrapperCoalescer,
+        private readonly AuthorLayoutOwnership $authorLayoutOwnership
     ) {
+    }
+
+    /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed> */
+    public function decomposeStructuralList(DOMElement $list, array &$fallbacks): array
+    {
+        $items = array();
+        foreach ( $this->listStructure->listMemberElements($list) as $child ) {
+            if ( 'li' !== strtolower($child->tagName) ) {
+                if ( ! $this->listStructure->listNonItemChildCarriesContent($child) ) {
+                    continue;
+                }
+
+                $block = $this->tree->element($child, $fallbacks, true);
+                if ( null !== $block ) {
+                    $items[] = $block;
+                }
+                continue;
+            }
+
+            $children = $this->tree->children($child, $fallbacks, true);
+            if ( array() === $children ) {
+                continue;
+            }
+            if ( 1 === count($children) ) {
+                $coalesced = $this->wrapperCoalescer->coalescedSingleGroupWrapper($child, $children[0]);
+                if ( null !== $coalesced ) {
+                    $items[] = $coalesced;
+                    continue;
+                }
+            }
+            $items[] = $this->blocks->createBlock(
+                'core/group',
+                array_merge($this->authorLayoutOwnership->cssOwnedGroupAttributes($child), array( 'tagName' => 'li' )),
+                $children,
+                $child
+            );
+        }
+
+        return $this->blocks->createBlock(
+            'core/group',
+            // This list is already materializing as a Group, so carrying its own
+            // alignment cannot introduce the extra topology avoided by the
+            // generic presentation resolver's text-align gate.
+            array_merge($this->authorLayoutOwnership->cssOwnedGroupAttributes($list, true), array( 'tagName' => strtolower($list->tagName) )),
+            $items,
+            $list
+        );
     }
 
     /**

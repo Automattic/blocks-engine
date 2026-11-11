@@ -494,7 +494,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->session,
             $this->sourceElementDescription,
             $this->emptyVisualRetention->soleElementChild(...),
-            fn (DOMElement $element): bool => $this->imageLowering->isImageOnlyAnchor($element)
+            fn (DOMElement $element): bool => $this->imageLowering->isImageOnlyAnchor($element),
+            $this->emptyVisualRetention->preservesScriptStateWrapper(...)
         );
         $this->authorLayoutOwnership = new AuthorLayoutOwnership(
             $this->styleResolver,
@@ -509,7 +510,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->generatedComponentCandidates = new Support\GeneratedComponentCandidates($this->session, $this->sourceElementClassifier);
         $this->documentEnvelope = new Support\SourceDocumentEnvelope($this->styleResolver);
         $customVideoHosts = new Elements\CustomVideoHostLowering($this->session, $this->styleResolver, $this->imageUrls, $this->runtimeIslands, $this->mediaLowering, $this->imageLowering, $this->layoutShells, $this);
-        $listItemLowering = new Elements\ListItemLowering($this, $this, $this->runtime, $this->session, $this->styleResolver, $this->listStructure, $this->richTextMaterializer);
+        $listItemLowering = new Elements\ListItemLowering($this, $this, $this->runtime, $this->session, $this->styleResolver, $this->listStructure, $this->richTextMaterializer, $this->wrapperCoalescer, $this->authorLayoutOwnership);
         $this->structuredInlineItemLowering = new Elements\StructuredInlineItemLowering($this, $this->runtime, $this->sourceElementClassifier, $this->styleResolver, $inlineSvgTextGroups);
         $this->inertElements = new Elements\InertElements($this->styleResolver, $this->sourceElementClassifier, $this->sourceVisibility, $this->runtimeIslands);
         $this->emptyInlineGeometry = new Elements\EmptyInlineGeometryLowering($this, $this->session, $this->sourceElementClassifier, $this->emptyElementFootprint, $authoredStateButtons, $this->layoutShells, $this->runtimeIslands);
@@ -812,9 +813,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 return $structuredCardLists->decomposeStructuredCardList($element, $fallbacks);
             },
             fn (DOMElement $element): bool => $this->listStructure->listContainsStructuralItemContent($element),
-            function (DOMElement $element, array &$fallbacks): ?array {
-                return $this->decomposeStructuralList($element, $fallbacks);
-            },
+            $listItemLowering->decomposeStructuralList(...),
             function (DOMElement $element, array &$fallbacks) use ($listItemLowering): array {
                 return $listItemLowering->listItems($element, $fallbacks);
             },
@@ -918,7 +917,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             isInertEmptyElement: $this->emptyVisualRetention->isInertOutOfFlowEmptyElement(...),
             patternContext: $this->patternContext,
             visualTextWrapperBlock: $inlineTextWrappers->visualTextWrapperBlockFromElement(...),
-            coalescedSingleGroupWrapper: fn (DOMElement $element, array $child): ?array => $this->coalescedSingleGroupWrapper($element, $child),
+            coalescedSingleGroupWrapper: $this->wrapperCoalescer->coalescedSingleGroupWrapper(...),
             shouldPreserveWrapper: $this->emptyVisualRetention->shouldPreserveWrapper(...)
         ),
             $emptyFeatureShells,
@@ -2292,7 +2291,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             && 0 < $sourceChildCount
             && ( $sourceChildCount !== count($children) || $sourceTags !== $blockTags );
         if ( 1 === count($children) && ! $topologyChanged ) {
-            $coalesced = $this->coalescedSingleGroupWrapper($element, $children[0]);
+            $coalesced = $this->wrapperCoalescer->coalescedSingleGroupWrapper($element, $children[0]);
             if ( null !== $coalesced ) {
                 return $coalesced;
             }
@@ -2380,20 +2379,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     public function richTextMarker(DOMElement $element): string
     {
         return $this->authorLayoutOwnership->richTextMarker($element);
-    }
-
-    /**
-     * @param array<string, mixed> $childBlock
-     * @return array<string, mixed>|null
-     * @see WrapperCoalescer::coalescedSingleGroupWrapper()
-     * @see WrapperCoalescer::coalescingDisposition() for the named disqualification reasons.
-     */
-    private function coalescedSingleGroupWrapper(DOMElement $element, array $childBlock): ?array
-    {
-        if ( $this->emptyVisualRetention->preservesScriptStateWrapper($element) ) {
-            return null;
-        }
-        return $this->wrapperCoalescer->coalescedSingleGroupWrapper($element, $childBlock);
     }
 
     /**
@@ -2571,53 +2556,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         return $blocks;
-    }
-
-    /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed> */
-    private function decomposeStructuralList(DOMElement $list, array &$fallbacks): array
-    {
-        $items = array();
-        foreach ( $this->listStructure->listMemberElements($list) as $child ) {
-            if ( 'li' !== strtolower($child->tagName) ) {
-                if ( ! $this->listStructure->listNonItemChildCarriesContent($child) ) {
-                    continue;
-                }
-
-                $block = $this->convertElement($child, $fallbacks, true);
-                if ( null !== $block ) {
-                    $items[] = $block;
-                }
-                continue;
-            }
-
-            $children = $this->convertChildren($child, $fallbacks, true);
-            if ( array() === $children ) {
-                continue;
-            }
-            if ( 1 === count($children) ) {
-                $coalesced = $this->coalescedSingleGroupWrapper($child, $children[0]);
-                if ( null !== $coalesced ) {
-                    $items[] = $coalesced;
-                    continue;
-                }
-            }
-            $items[] = $this->createBlock(
-                'core/group',
-                array_merge($this->authorLayoutOwnership->cssOwnedGroupAttributes($child), array( 'tagName' => 'li' )),
-                $children,
-                $child
-            );
-        }
-
-        return $this->createBlock(
-            'core/group',
-            // This list is already materializing as a Group, so carrying its own
-            // alignment cannot introduce the extra topology avoided by the
-            // generic presentation resolver's text-align gate.
-            array_merge($this->authorLayoutOwnership->cssOwnedGroupAttributes($list, true), array( 'tagName' => strtolower($list->tagName) )),
-            $items,
-            $list
-        );
     }
 
     /**
