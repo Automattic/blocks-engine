@@ -26,7 +26,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButto
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredMarqueeRecognizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CustomBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\DescriptionListBlockGenerator;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\SvgArtworkBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\VisualIframeBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionContext;
@@ -2126,7 +2125,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // Control boxes already transport the exact source attributes through
         // the core group's runtime metadata. A shell would discard that core
         // identity without preserving any additional DOM contract.
-        if ( 'core/group' === $name && ! isset($attrs['metadata']['blocksEngineControlBox']) && $sourceElement instanceof DOMElement && $this->preservesScriptStateWrapper($sourceElement) ) {
+        if ( 'core/group' === $name && ! isset($attrs['metadata']['blocksEngineControlBox']) && $sourceElement instanceof DOMElement && $this->emptyVisualRetention->preservesScriptStateWrapper($sourceElement) ) {
             return $this->layoutShells->blockForElements(array( $sourceElement ), $innerBlocks, $sourceElement);
         }
         if ( $sourceElement instanceof DOMElement
@@ -2459,14 +2458,14 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     /** @param array<int, array<string, mixed>> $fallbacks */
     public function authorLayoutBlockFromElement(DOMElement $element, array &$fallbacks): array
     {
-        if ( ! $this->preservesScriptStateWrapper($element) ) {
+        if ( ! $this->emptyVisualRetention->preservesScriptStateWrapper($element) ) {
             $paragraph = $this->textOnlyLayoutDivParagraph($element);
             if ( null !== $paragraph ) {
                 return $paragraph;
             }
         }
         $children = $this->convertChildren($element, $fallbacks, true);
-        if ( $this->preservesScriptStateWrapper($element) ) {
+        if ( $this->emptyVisualRetention->preservesScriptStateWrapper($element) ) {
             return $this->layoutShells->blockForElements(array( $element ), $children, $element);
         }
         $isAuthorOwnedLayout = $this->authorLayoutOwnership->isAuthorOwnedLayout($element);
@@ -2628,7 +2627,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
      */
     private function coalescedSingleGroupWrapper(DOMElement $element, array $childBlock): ?array
     {
-        if ( $this->preservesScriptStateWrapper($element) ) {
+        if ( $this->emptyVisualRetention->preservesScriptStateWrapper($element) ) {
             return null;
         }
         return $this->wrapperCoalescer->coalescedSingleGroupWrapper($element, $childBlock);
@@ -2659,24 +2658,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     }
 
     /** @return list<array{key: string, selector: string, parsed: array<string, mixed>, direct_child_parsed: array<string, mixed>, declarations: array<string, string>, rule_order: int}> */
-
-    private function preservesScriptStateWrapper(DOMElement $element): bool
-    {
-        if (SourceDom::isCaptureDeviceVisibilityCarrier($element)) return true;
-        if ( $this->emptyVisualRetention->isInertHiddenEmptyElement($element) ) {
-            return false;
-        }
-        foreach ( $element->attributes ?? array() as $attribute ) {
-            $name = strtolower($attribute->nodeName);
-            if ( LayoutShellBlockGenerator::isBooleanAttribute($name) ) {
-                return true;
-            }
-            if ( $this->runtimeIslands->isRuntimeDomTarget($element) && ( str_starts_with($name, 'data-') || str_starts_with($name, 'aria-') || 'role' === $name ) ) {
-                return true;
-            }
-        }
-        return false;
-    }
 
     /**
      * Lower a foreignObject-only "fit text" SVG to the native text block its

@@ -15,6 +15,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\StyledSourceClassBoundary;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBlockGenerator;
 use DOMElement;
 
 /**
@@ -276,6 +277,24 @@ final class EmptyVisualRetentionPolicy implements EmptyVisualRetention
             }
         }
 
+        return false;
+    }
+
+    public function preservesScriptStateWrapper(DOMElement $element): bool
+    {
+        if (SourceDom::isCaptureDeviceVisibilityCarrier($element)) return true;
+        if ( $this->isInertHiddenEmptyElement($element) ) {
+            return false;
+        }
+        foreach ( $element->attributes ?? array() as $attribute ) {
+            $name = strtolower($attribute->nodeName);
+            if ( LayoutShellBlockGenerator::isBooleanAttribute($name) ) {
+                return true;
+            }
+            if ( $this->runtimeIslands->isRuntimeDomTarget($element) && ( str_starts_with($name, 'data-') || str_starts_with($name, 'aria-') || 'role' === $name ) ) {
+                return true;
+            }
+        }
         return false;
     }
 }
