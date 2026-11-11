@@ -1073,6 +1073,11 @@ final class AuthorSelectorProjectionState
         return $this->semanticMarkersForPath($path);
     }
 
+    public function hasSemanticMarker(DOMElement $element): bool
+    {
+        return array() !== $this->semanticMarkersForElement($element);
+    }
+
     /** @return list<string> */
     public function semanticMarkersForPath(string $path): array
     {

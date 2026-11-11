@@ -193,14 +193,14 @@ final class EmptyVisualRetentionPolicy implements EmptyVisualRetention
         $child = 1 === SourceDom::childElementCount($element) ? $element->firstElementChild : null;
         if ('div' === strtolower($tag) && '' === trim(SourceDom::attr($element, 'id'))
             && $child instanceof DOMElement && 'div' === strtolower($child->tagName)
-            && !$this->hasAuthorSemanticMarker($element) && !$this->styledClassBoundaries->hasStyledSourceClassBoundary($element)
+            && !$this->session->authorSelectorProjectionState()->hasSemanticMarker($element) && !$this->styledClassBoundaries->hasStyledSourceClassBoundary($element)
             && $this->renderNeutral->isRenderNeutralWrapper($element) && $this->renderNeutral->isRenderNeutralWrapper($child)
             && $this->containsGeneratedComponentCandidate($element)
         ) {
             return false;
         }
 
-        return ( ShellLandmarkPolicy::isWrapperPreservingTag($tag) || RichTextInlineTags::isUnknownHtmlElement($element) ) && ( $this->runtimeIslands->isRuntimeDomTarget($element) || $this->hasAuthorSemanticMarker($element) || array() !== $this->styleResolver->presentationAttributes($element) || array() !== $this->sourceElementDescription->structureSignals($element, array()) || $this->styledClassBoundaries->hasStyledSourceClassBoundary($element) );
+        return ( ShellLandmarkPolicy::isWrapperPreservingTag($tag) || RichTextInlineTags::isUnknownHtmlElement($element) ) && ( $this->runtimeIslands->isRuntimeDomTarget($element) || $this->session->authorSelectorProjectionState()->hasSemanticMarker($element) || array() !== $this->styleResolver->presentationAttributes($element) || array() !== $this->sourceElementDescription->structureSignals($element, array()) || $this->styledClassBoundaries->hasStyledSourceClassBoundary($element) );
     }
 
     private function containsGeneratedComponentCandidate(DOMElement $element): bool
@@ -266,10 +266,5 @@ final class EmptyVisualRetentionPolicy implements EmptyVisualRetention
         return $this->runtimeIslands->isRuntimeDomTarget($sourceInline)
             || $this->shouldPreserveEmptyVisualElement($sourceInline)
             || $this->hasStaticPseudoElementRule($sourceInline);
-    }
-
-    private function hasAuthorSemanticMarker(DOMElement $element): bool
-    {
-        return array() !== $this->session->authorSelectorProjectionState()->semanticMarkersForElement($element);
     }
 }
