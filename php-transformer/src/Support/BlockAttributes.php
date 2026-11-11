@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\Support;
 
-/** WordPress core's serialize_block_attributes() escaping. */
+/** WordPress core's serialize_block_attributes() escaping, and reading those attributes back from a block comment. */
 final class BlockAttributes
 {
     public static function encode(array|object $attributes, int $flags = 0): string
@@ -23,5 +23,18 @@ final class BlockAttributes
             '&' => '\\u0026',
             '\\"' => '\\u0022',
         ));
+    }
+
+    /**
+     * The attributes of a block comment's body (`wp:name {...}`), or null when
+     * it carries none or they are not a JSON object.
+     *
+     * @return array<string,mixed>|null
+     */
+    public static function decodeComment(string $comment): ?array
+    {
+        if (!preg_match('~^\s*wp:[^\s{]+\s+(\{.*\})\s*/?\s*$~s', $comment, $payload)) return null;
+        $attributes = json_decode($payload[1], true);
+        return is_array($attributes) ? $attributes : null;
     }
 }
