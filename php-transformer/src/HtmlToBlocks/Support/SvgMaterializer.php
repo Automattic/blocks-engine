@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\SvgArtworkBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementMaterializer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssVariableExpander;
@@ -18,18 +19,20 @@ use DOMNode;
  * Materializes source SVG into emitted blocks: inline SVG hosts, decorative
  * classification, casing restoration, box styling and asset extraction.
  *
- * Extracted from HtmlTransformer as a collaborator rather than a mixin: every
- * dependency it needs from the transformer is declared on
- * {@see SvgMaterializationContext}, so this class has no $this access to the
- * transformer and can be exercised without constructing one.
+ * Extracted from HtmlTransformer as a collaborator rather than a mixin: blocks
+ * are created through {@see \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator},
+ * and per-transform state is read from the session.
  */
 final class SvgMaterializer implements SvgElementMaterializer
 {
+    use DomHelpersTrait {
+        sanitizeInlineSvgMarkup as public;
+    }
+
     public function __construct(
         private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock,
         private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession $session,
         private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier $sourceElementClassifier,
-        private readonly SvgMaterializationContext $context,
         private readonly StyleResolver $styleResolver,
         private readonly Runtime $runtime
     ) {
@@ -40,7 +43,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         if (!SourceDom::svgHasDrawableContent($element) || $this->paintsNothing($element)) {
             return null;
         }
-        $html = $this->context->sanitizeInlineSvgMarkup($element);
+        $html = $this->sanitizeInlineSvgMarkup($element);
         if (!SourceDom::isSafeSvgContent($html)) {
             return null;
         }
@@ -76,7 +79,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         // the moment one unsafe attribute or element appears. The shape and
         // structure markup (svg/path/circle/rect/g/text/...) is kept so the
         // image renders, rather than collapsing to an empty block.
-        $html = $this->context->sanitizeInlineSvgMarkup($element);
+        $html = $this->sanitizeInlineSvgMarkup($element);
 
         // Safety gate: only emit raw inline SVG once the sanitized markup is
         // provably free of script/event-handler/javascript: vectors and still
@@ -90,7 +93,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         // severs page-local fragment consumers, even when CSS supplies the URL.
         // Keep their authored box (including zero dimensions) in the document.
         if ($definitionsOnly && self::isPassiveSvgMarkup($element)) {
-            return $this->context->svgArtworkBlock($element, $this->restoreSvgCasing($html));
+            return $this->svgArtworkBlock($element, $this->restoreSvgCasing($html));
         }
         if ($definitionsOnly) {
             // Non-passive document stores retain their existing inline fallback;
@@ -117,7 +120,7 @@ final class SvgMaterializer implements SvgElementMaterializer
                         );
                         return $image;
                     }
-                    return $this->context->svgArtworkBlock($element, $this->restoreSvgCasing($html));
+                    return $this->svgArtworkBlock($element, $this->restoreSvgCasing($html));
                 }
             }
         }
@@ -132,11 +135,11 @@ final class SvgMaterializer implements SvgElementMaterializer
         // the typed artwork companion, but only when links are the sole reason
         // this SVG fails the native image compatibility checks.
         if ( $this->hasSvgRegionLink($element) && $this->isNativeImageCompatibleSvg($element, $html, true) ) {
-            return $this->context->svgArtworkBlock($element, $html);
+            return $this->svgArtworkBlock($element, $html);
         }
 
         if ( $this->hasPageCssAnimatedDescendant($element) ) {
-            return $this->context->svgArtworkBlock($element, $html);
+            return $this->svgArtworkBlock($element, $html);
         }
 
         // Honest floor: keep SVGs that need inline document context as sanitized
@@ -161,7 +164,7 @@ final class SvgMaterializer implements SvgElementMaterializer
     /** Sanitized SVG markup that renders as an isolated image, author paint included. */
     public function standaloneSvgMarkup(DOMElement $element): string
     {
-        $html = $this->context->sanitizeInlineSvgMarkup($element);
+        $html = $this->sanitizeInlineSvgMarkup($element);
         if ( '' === $html || ! SourceDom::isSafeSvgContent($html) ) {
             return '';
         }
@@ -217,7 +220,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             return $html;
         }
 
-        $bakedHtml = $this->context->sanitizeInlineSvgMarkup($clone);
+        $bakedHtml = $this->sanitizeInlineSvgMarkup($clone);
 
         return SourceDom::isSafeSvgContent($bakedHtml) ? $this->materializeSanitizedSvgMarkup($bakedHtml, $element) : $html;
     }
@@ -270,7 +273,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         $occurrence = array_filter(array(
             'source_path' => $this->transformSourcePath(),
             'selector' => SourceDom::elementSelector($element),
-            'fingerprint' => $this->context->reusableComponentFingerprintFor($element),
+            'fingerprint' => $this->session->reusableComponentState()->fingerprintForPath((string) $element->getNodePath()),
         ), static fn (mixed $value): bool => is_string($value) && '' !== $value);
         $asset = array(
             'source'      => 'inline-svg',
@@ -524,7 +527,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             return '';
         }
 
-        $html = $this->context->sanitizeInlineSvgMarkup($element);
+        $html = $this->sanitizeInlineSvgMarkup($element);
         if ( ! SourceDom::isSafeSvgContent($html) ) {
             return null;
         }
@@ -1339,8 +1342,8 @@ final class SvgMaterializer implements SvgElementMaterializer
             while ( $defs instanceof DOMElement && 'defs' !== strtolower($defs->tagName) ) {
                 $defs = $defs->parentNode;
             }
-            $copy = $defs instanceof DOMElement ? $this->context->safeFallbackHtml($defs)
-                : ( in_array(strtolower($definition->tagName), array( 'symbol', 'svg' ), true) ? '<defs>' . $this->context->safeFallbackHtml($definition) . '</defs>' : '' );
+            $copy = $defs instanceof DOMElement ? SourceDom::safeFallbackHtml($defs, $this->session->authorSelectorProjectionState()->tagMarkers())
+                : ( in_array(strtolower($definition->tagName), array( 'symbol', 'svg' ), true) ? '<defs>' . SourceDom::safeFallbackHtml($definition, $this->session->authorSelectorProjectionState()->tagMarkers()) . '</defs>' : '' );
             // A <use> instance inherits custom properties from the <use>, so
             // its copied paint resolves var() in that scope.
             $definitions[] = str_contains($copy, 'var(') ? $this->resolveCssVariablesInSvgMarkup($copy, $this->svgReferrer($element, $id)) : $copy;
@@ -2085,11 +2088,6 @@ final class SvgMaterializer implements SvgElementMaterializer
         return '' === $formatted ? '' : $formatted;
     }
 
-    public function sanitizeInlineSvgMarkup(DOMElement $element): string
-    {
-        return $this->context->sanitizeInlineSvgMarkup($element);
-    }
-
     /**
      * Restore the canonical camelCase casing of SVG element and attribute names
      * that the HTML parser lowercases (e.g. `viewbox` -> `viewBox`,
@@ -2349,5 +2347,43 @@ final class SvgMaterializer implements SvgElementMaterializer
         }
 
         return true;
+    }
+
+    /** @return array<string, mixed> */
+    public function svgArtworkBlock(DOMElement $element, string $svg): array
+    {
+        $generator = new SvgArtworkBlockGenerator();
+        $this->session->requireGeneratedBlockRegistry()->register(SvgArtworkBlockGenerator::class, $generator->definition($this->session->requireGeneratedBlockRegistry()->namespace()));
+
+        return $this->createBlock->createBlock(
+            $this->session->requireGeneratedBlockRegistry()->blockName(SvgArtworkBlockGenerator::LOCAL_NAME),
+            array( 'svg' => $svg ),
+            array(),
+            $element
+        );
+    }
+
+    /** @return array<string, mixed>|null */
+    public function decorativeTextSvgBlock(DOMElement $element): ?array
+    {
+        if (!SourceDom::isSafeSvgContent(SourceDom::outerHtml($element)) || !self::isPassiveSvgMarkup($element)) {
+            return null;
+        }
+        foreach ($element->attributes as $attribute) {
+            if (str_starts_with(strtolower($attribute->name), 'aria-') || in_array(strtolower($attribute->name), array('role', 'tabindex'), true)) {
+                return null;
+            }
+        }
+        $declarations = $this->styleResolver->presentationDeclarations($element);
+        if ('absolute' !== strtolower(trim((string) ($declarations['position'] ?? '')))) {
+            return null;
+        }
+        return $this->svgArtworkBlock($element, $this->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element)));
+    }
+
+    /** Fallback markup carries the session's author-selector tag markers. */
+    protected function fallbackSourceTagMarker(string $tagName): string
+    {
+        return $this->session->authorSelectorProjectionState()->tagMarker($tagName);
     }
 }

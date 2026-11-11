@@ -24,7 +24,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButto
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredMarqueeRecognizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CustomBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\DescriptionListBlockGenerator;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\SvgArtworkBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\VisualIframeBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\IntrinsicVisualMediaHeight;
@@ -166,7 +165,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceInterItemSpaces;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\TransformOptions;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ImageUrlResolver;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializationContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use DOMDocument;
@@ -409,7 +407,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->styleResolver
         );
         $this->svgMaterializer = new SvgMaterializer($this, $this->session, $this->sourceElementClassifier,
-            $this->createSvgMaterializationContext(),
             $this->styleResolver,
             $this->runtime
         );
@@ -561,7 +558,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $svgConverter = new SvgElementConverter($this, $this->sourceElementClassifier, $this->styleResolver, new SvgElementContext(
             fn (DOMElement $element): bool => $this->inertElements->isInertHiddenSvgStorage($element),
             $this->runtimeIslands,
-            fn (DOMElement $element): string => $this->sanitizeInlineSvgMarkup($element),
+            fn (DOMElement $element): string => $this->svgMaterializer->sanitizeInlineSvgMarkup($element),
             fn (string $html): bool => SourceDom::isSafeSvgContent($html),
             fn (DOMElement $element): bool => SourceDom::svgHasDrawableContent($element),
             function (DOMElement $element, array &$fallbacks): void {
@@ -617,7 +614,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this,
             $this,
             $this->runtimeIslands,
-            fn (DOMElement $element): string => $this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element))
+            fn (DOMElement $element): string => $this->svgMaterializer->restoreSvgCasing($this->svgMaterializer->sanitizeInlineSvgMarkup($element))
         );
         $this->patternContext = $this->createPatternContext();
         $this->interactionFallbackReporter = new InteractionFallbackReporter(
@@ -635,7 +632,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->sourceElementDescription,
             $blockBindings->binding(...),
             fn (DOMElement $element, string $value): string => $this->styleResolver->resolveCssVariablesInValue($value, $element),
-            fn (DOMElement $element): string => $this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element))
+            fn (DOMElement $element): string => $this->svgMaterializer->restoreSvgCasing($this->svgMaterializer->sanitizeInlineSvgMarkup($element))
         );
         $this->commerceReporter = new CommerceFallbackReporter(
             $this->commercePattern,
@@ -999,7 +996,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             new ThemeToggleConverter(
                 $this->svgMaterializer,
                 $this->session,
-                fn (DOMElement $element): string => $this->sanitizeInlineSvgMarkup($element),
+                fn (DOMElement $element): string => $this->svgMaterializer->sanitizeInlineSvgMarkup($element),
                 function (DOMElement $element): array {
                     $presentation = $this->styleResolver->presentationAttributes($element);
                     $inline = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
@@ -1100,16 +1097,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->sourceVisibility,
             PatternRecognizerRegistry::createDefault(new ProbeBlockCreator(), $this->runtime, $this->sourceElementClassifier, $this->richTextMaterializer),
             $this->patternProbeContext
-        );
-    }
-
-    /** Collaborator surface for {@see SvgMaterializer}. */
-    private function createSvgMaterializationContext(): SvgMaterializationContext
-    {
-        return new SvgMaterializationContext(
-            $this->session,
-            fn (DOMElement $element): string => $this->sanitizeInlineSvgMarkup($element),
-            fn (DOMElement $element, string $svg): array => $this->svgArtworkBlock($element, $svg)
         );
     }
 
@@ -1217,30 +1204,12 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 }
                 return $block;
             },
-            fn (DOMElement $element): ?array => $this->decorativeTextSvgBlock($element),
+            fn (DOMElement $element): ?array => $this->svgMaterializer->decorativeTextSvgBlock($element),
             function (DOMElement $element, array &$fallbacks): ?array {
                 return $this->textlessMedia->mediaBlockFromTextlessElement($element, $fallbacks);
             },
             fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element)
         );
-    }
-
-    /** @return array<string, mixed>|null */
-    private function decorativeTextSvgBlock(DOMElement $element): ?array
-    {
-        if (!SourceDom::isSafeSvgContent(SourceDom::outerHtml($element)) || !SvgMaterializer::isPassiveSvgMarkup($element)) {
-            return null;
-        }
-        foreach ($element->attributes as $attribute) {
-            if (str_starts_with(strtolower($attribute->name), 'aria-') || in_array(strtolower($attribute->name), array('role', 'tabindex'), true)) {
-                return null;
-            }
-        }
-        $declarations = $this->styleResolver->presentationDeclarations($element);
-        if ('absolute' !== strtolower(trim((string) ($declarations['position'] ?? '')))) {
-            return null;
-        }
-        return $this->svgArtworkBlock($element, $this->svgMaterializer->restoreSvgCasing($this->svgMaterializer->sanitizeInlineSvgMarkup($element)));
     }
 
     private ?\Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CodePresentation $codePresentation = null;
@@ -1271,12 +1240,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         );
     }
 
-    /**
-     * Backs {@see DomHelpersTrait::safeFallbackHtml()}, still used here only
-     * through {@see DomHelpersTrait::sanitizeInlineSvgMarkup()} (every other
-     * fallback-HTML path now calls {@see SourceDom::safeFallbackHtml()}
-     * directly with this same source).
-     */
+    /** Backs {@see DomHelpersTrait::sourceTagProjectedClone()} with the session's author-selector tag markers. */
     protected function fallbackSourceTagMarker(string $tagName): string
     {
         return $this->session->authorSelectorProjectionState()->tagMarker($tagName);
@@ -1845,7 +1809,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             new DisclosureControlPresentation(
                 $this->styleResolver,
                 $this->session->generatedSupportStylesheetState(),
-                fn (DOMElement $element): string => SvgMaterializer::ensureSvgImageNamespace($this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element)))
+                fn (DOMElement $element): string => SvgMaterializer::ensureSvgImageNamespace($this->svgMaterializer->restoreSvgCasing($this->svgMaterializer->sanitizeInlineSvgMarkup($element)))
             ),
             $this->styleResolver,
             $this->session,
@@ -1933,7 +1897,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
              disclosure: new DisclosureControlPresentation(
                  $this->styleResolver,
                  $this->session->generatedSupportStylesheetState(),
-                 fn (DOMElement $element): string => SvgMaterializer::ensureSvgImageNamespace($this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element)))
+                 fn (DOMElement $element): string => SvgMaterializer::ensureSvgImageNamespace($this->svgMaterializer->restoreSvgCasing($this->svgMaterializer->sanitizeInlineSvgMarkup($element)))
              ),
              styles: $this->styleResolver
          );
@@ -2899,20 +2863,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             array_merge($this->authorLayoutOwnership->cssOwnedGroupAttributes($list, true), array( 'tagName' => strtolower($list->tagName) )),
             $items,
             $list
-        );
-    }
-
-    /** @return array<string, mixed> */
-    private function svgArtworkBlock(DOMElement $element, string $svg): array
-    {
-        $generator = new SvgArtworkBlockGenerator();
-        $this->session->requireGeneratedBlockRegistry()->register(SvgArtworkBlockGenerator::class, $generator->definition($this->session->requireGeneratedBlockRegistry()->namespace()));
-
-        return $this->createBlock(
-            $this->session->requireGeneratedBlockRegistry()->blockName(SvgArtworkBlockGenerator::LOCAL_NAME),
-            array( 'svg' => $svg ),
-            array(),
-            $element
         );
     }
 
