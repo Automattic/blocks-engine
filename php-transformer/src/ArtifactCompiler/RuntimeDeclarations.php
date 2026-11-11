@@ -40,8 +40,9 @@ final class RuntimeDeclarations
     }
 
     /**
-     * Composition passes `$enforceByteLimits = false`: declarations are still
-     * being edited then, and site-plan factoring applies the byte limits once.
+     * Composition and resolved site-plan projections pass `$enforceByteLimits = false`:
+     * composition is still editing declarations before site-plan factoring applies
+     * the limits; resolved projections can grow beyond the already-validated canonical plan.
      *
      * @return array<int,array<string,mixed>>
      */
@@ -290,9 +291,9 @@ final class RuntimeDeclarations
     }
 
     /** @param array<int,mixed> $declarations */
-    public static function assertNormalized(array $declarations): void
+    public static function assertNormalized(array $declarations, bool $enforceByteLimits = true): void
     {
-        if ($declarations !== self::normalizeList($declarations)) throw new InvalidArgumentException('Runtime declarations are not canonically normalized or have stale hashes.');
+        if ($declarations !== self::normalizeList($declarations, $enforceByteLimits)) throw new InvalidArgumentException('Runtime declarations are not canonically normalized or have stale hashes.');
     }
 
     /**

@@ -17,7 +17,6 @@ use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
-use DOMDocument;
 use DOMElement;
 
 final class RuntimeDependencyParityReport
@@ -194,9 +193,7 @@ final class RuntimeDependencyParityReport
      */
     private function controlledTargetFindings(array $sourceTargets, string $sourceHtml, string $generatedHtml, string $sourcePath): array
     {
-        $document = new DOMDocument();
-        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . $generatedHtml . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-        if (!$loaded) return array();
+        $document = HtmlSerialization::parseFragment('<body>' . $generatedHtml . '</body>');
         $findings = array();
         $scopedTargets = array();
         $sourceVariantIds = null;
@@ -245,10 +242,7 @@ final class RuntimeDependencyParityReport
      */
     private function documentVariantIds(string $html): array
     {
-        $document = new DOMDocument();
-        $documentHtml = array() !== HtmlTagScanner::scan($html, 'html') ? $html : '<body>' . $html . '</body>';
-        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?>' . $documentHtml, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-        if (!$loaded) return array();
+        $document = HtmlSerialization::parseFragment(array() !== HtmlTagScanner::scan($html, 'html') ? $html : '<body>' . $html . '</body>');
         $ids = array();
         foreach ($document->getElementsByTagName('*') as $root) {
             if (!SourceDom::isDocumentVariantRoot($root) || null === ($key = self::documentVariantKey($root))) continue;
@@ -783,12 +777,7 @@ final class RuntimeDependencyParityReport
     private function sourceTargets(string $html, string $sourcePath): array
     {
         $targets = array();
-        $document = new DOMDocument();
-        $documentHtml = array() !== HtmlTagScanner::scan($html, 'html') ? $html : '<body>' . $html . '</body>';
-        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?>' . $documentHtml, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        if ( ! $loaded ) {
-            return array();
-        }
+        $document = HtmlSerialization::parseFragment(array() !== HtmlTagScanner::scan($html, 'html') ? $html : '<body>' . $html . '</body>');
 
         foreach ( $document->getElementsByTagName('*') as $element ) {
             if ( ! $element instanceof DOMElement ) {

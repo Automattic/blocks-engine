@@ -1062,7 +1062,7 @@ PHP;
         }
         self::assertSource($plan['source']);
         $sourceCatalog = self::sourceDocumentCatalogFromSource($plan['source']);
-        RuntimeDeclarations::assertNormalized($plan['runtime_declarations']);
+        RuntimeDeclarations::assertNormalized($plan['runtime_declarations'], !isset($plan['resolution']));
         $records = RuntimeEntityManifest::normalizeRecords($plan['runtime_entity_records']);
         if ($records !== $plan['runtime_entity_records']) throw new InvalidArgumentException('WordPress site plan runtime entity records are not canonically normalized.');
         foreach ($plan['runtime_declarations'] as $declaration) if (RuntimeEntityManifest::SCHEMA === ($declaration['payload']['schema'] ?? null)) RuntimeEntityManifest::resolve($declaration['payload'], $records);
@@ -1718,9 +1718,7 @@ PHP;
                     // A document without emitted markup (a WordPress-rendered
                     // archive) is never evidence that a rule is inert there.
                     if (!is_string($documentsBySource[$source]['canonical_block_markup'] ?? null) || '' === trim($documentsBySource[$source]['canonical_block_markup'])) continue;
-                    $dom = new \DOMDocument();
-                    $loaded = HtmlSerialization::loadHtml($dom, '<?xml encoding="UTF-8"><html><body>' . $documentsBySource[$source]['canonical_block_markup'] . "\n" . $sharedMarkup . '</body></html>');
-                    if (!$loaded) continue;
+                    $dom = HtmlSerialization::parseDocument('<html><body>' . $documentsBySource[$source]['canonical_block_markup'] . "\n" . $sharedMarkup . '</body></html>');
                     foreach (array('html' => 'root_attributes', 'body' => 'body_attributes') as $tag => $key) {
                         $element = $dom->getElementsByTagName($tag)->item(0);
                         foreach ($documentsBySource[$source]['document_metadata'][$key] ?? array() as $name => $value) $element?->setAttribute((string) $name, (string) $value);
@@ -2474,8 +2472,7 @@ PHP;
         foreach ($pages as $page) {
             $sourcePaths = $part['placement']['source_paths'] ?? array();
             if (array() !== $sourcePaths && !in_array($page['source_path'] ?? '', $sourcePaths, true)) continue;
-            $document = new \DOMDocument();
-            $document->loadHTML('<?xml encoding="UTF-8"><html><body>' . (string) ($page['canonical_block_markup'] ?? '') . '</body></html>', LIBXML_NOERROR | LIBXML_NOWARNING);
+            $document = HtmlSerialization::parseDocument('<html><body>' . (string) ($page['canonical_block_markup'] ?? '') . '</body></html>');
             foreach ((new \DOMXPath($document))->query('//*[@class or @id]') ?: array() as $element) {
                 if (!$element instanceof \DOMElement) continue;
                 $elementClasses = preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array();
@@ -2506,8 +2503,7 @@ PHP;
         if (array() === $classes && array() === $ids) return array();
         $elements = array();
         foreach ($pages as $page) {
-            $document = new \DOMDocument();
-            $document->loadHTML('<?xml encoding="UTF-8"><html><body>' . ($page['canonical_block_markup'] ?? '') . '</body></html>', LIBXML_NOERROR | LIBXML_NOWARNING);
+            $document = HtmlSerialization::parseDocument('<html><body>' . ($page['canonical_block_markup'] ?? '') . '</body></html>');
             foreach ((new \DOMXPath($document))->query('//*[@class or @id]') ?: array() as $element) {
                 if (!$element instanceof \DOMElement) continue;
                 $hooks = array_intersect(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), $classes);
@@ -2684,8 +2680,7 @@ PHP;
         $index = CssSubjectIndex::build(array_values($rules));
         $result = array();
         foreach ($pages as $page) {
-            $document = new \DOMDocument();
-            $document->loadHTML('<?xml encoding="UTF-8"><html><body>' . ($page['canonical_block_markup'] ?? '') . '</body></html>', LIBXML_NOERROR | LIBXML_NOWARNING);
+            $document = HtmlSerialization::parseDocument('<html><body>' . ($page['canonical_block_markup'] ?? '') . '</body></html>');
             foreach ((new \DOMXPath($document))->query('//*[@id or @class]') ?: array() as $element) {
                 if (!$element instanceof \DOMElement) continue;
                 $hook = isset($ids[$element->getAttribute('id')]) ? '#' . CssIdent::escape($element->getAttribute('id')) : '';
@@ -2733,8 +2728,7 @@ PHP;
         foreach ($pages as $page) {
             $markup = (string) ($page['canonical_block_markup'] ?? '');
             if (!str_contains($markup, 'id="' . htmlspecialchars($id, ENT_QUOTES) . '"')) continue;
-            $document = new \DOMDocument();
-            $document->loadHTML('<?xml encoding="UTF-8"><html><body><div class="wp-site-blocks"><div class="entry-content wp-block-post-content">' . $markup . '</div></div></body></html>', LIBXML_NOERROR | LIBXML_NOWARNING);
+            $document = HtmlSerialization::parseDocument('<html><body><div class="wp-site-blocks"><div class="entry-content wp-block-post-content">' . $markup . '</div></div></body></html>');
             foreach ((new \DOMXPath($document))->query('//*[@id]') ?: array() as $node) {
                 if ($node instanceof \DOMElement && $id === $node->getAttribute('id')) {
                     $element = $node;
@@ -4035,8 +4029,7 @@ PHP;
     {
         $html = is_string($document['html'] ?? null) ? $document['html'] : (string) ($document['block_markup'] ?? '');
         if ('' === trim($html) || array() === $childRoutes) return array();
-        $dom = new \DOMDocument();
-        @$dom->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NOERROR | LIBXML_NOWARNING);
+        $dom = HtmlSerialization::parseDocument($html);
         $xpath = new \DOMXPath($dom);
         $cards = array();
         foreach ($xpath->query('//a[@href]') ?: array() as $anchor) {
@@ -4283,8 +4276,7 @@ PHP;
     private static function visibleH1s(string $html, bool $contentOnly): array
     {
         if ('' === trim($html)) return array();
-        $dom = new \DOMDocument();
-        @$dom->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NOERROR | LIBXML_NOWARNING);
+        $dom = HtmlSerialization::parseDocument($html);
         $xpath = new \DOMXPath($dom);
         foreach ($xpath->query('//*[@hidden or translate(@aria-hidden, "TRUE", "true") = "true"] | //template | //dialog[not(@open)] | //nav | //footer | //aside') ?: array() as $hidden) {
             $hidden->parentNode?->removeChild($hidden);
@@ -4904,8 +4896,7 @@ PHP;
     {
         if (!in_array($area, array('header', 'footer'), true)) return false;
         if (1 === preg_match('~"area"\\s*:\\s*"' . $area . '"~i', $markup)) return true;
-        $dom = new \DOMDocument();
-        @$dom->loadHTML('<?xml encoding="UTF-8"><html><body>' . $markup . '</body></html>');
+        $dom = HtmlSerialization::parseDocument('<html><body>' . $markup . '</body></html>');
         $xpath = new \DOMXPath($dom);
         return $xpath->query('//' . $area . '[not(ancestor::article) and not(ancestor::main) and not(ancestor::section)]')->length > 0;
     }
@@ -7212,12 +7203,7 @@ PHP;
         $templateAssetTokens = array();
         foreach ($tokens as $token) if (isset($referenced[$token['token'] ?? null]) && is_string($token['target_path'] ?? null)) $templateAssetTokens[self::TOKEN_PREFIX . $token['token'] . '}}'] = $token['target_path'];
         if (array() !== $templateAssetTokens) {
-            // These are runtime lookup keys, not materialization references.
-            // Keep the reserved token syntax out of the published PHP so a
-            // materializer cannot replace (or reject) the dictionary's keys.
-            $runtimeTokens = array();
-            foreach ($templateAssetTokens as $token => $path) $runtimeTokens[] = "    ('{{' . " . var_export(substr($token, 2), true) . ') => ' . var_export($path, true);
-            $lines[] = '$blocks_engine_template_asset_tokens = array(' . implode(",\n", $runtimeTokens) . ');';
+            $lines[] = '$blocks_engine_template_asset_tokens = ' . var_export($templateAssetTokens, true) . ';';
             $lines[] = '$blocks_engine_template_attachment_ids = array();';
             $lines[] = '$blocks_engine_resolve_template_assets = static function ( string $content ) use ( $blocks_engine_template_asset_tokens, $blocks_engine_template_attachment_ids ): string {';
             // A file-system path and a URL path are different encodings of the

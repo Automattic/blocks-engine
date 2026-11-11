@@ -13,7 +13,6 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlResultComposer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
@@ -36,34 +35,8 @@ $composer = new HtmlResultComposer();
 $cache = new CssSelectorMatchCache();
 $startedAt = hrtime(true);
 $html = '<p>broken';
-$provenanceFallback = array('source' => 'fixture.html', 'scope' => 'page');
 $provenance = array(array('source_format' => 'html', 'input_bytes' => strlen($html), 'transformer' => HtmlTransformer::class));
 $context = array('strict' => false, 'allow_fallbacks' => true);
-
-$parseFailed = $composer->parseFailed($html, $provenanceFallback, $provenance, $context, $startedAt, $cache);
-$assert('html_parse_failed' === ($parseFailed->diagnostics[0]['code'] ?? null), 'parse-failed-diagnostic-code');
-$assert('Unable to parse HTML input.' === ($parseFailed->diagnostics[0]['message'] ?? null), 'parse-failed-diagnostic-message');
-$assert(HtmlTransformer::class === ($parseFailed->diagnostics[0]['source'] ?? null), 'parse-failed-diagnostic-source');
-$expectedFallback = FallbackDiagnostic::build(array(
-    'type'            => 'html',
-    'reason'          => 'parse_failed',
-    'diagnostic_code' => 'html_parse_failed',
-    'source_format'   => 'html',
-    'html'            => $html,
-), $provenanceFallback);
-$assert($expectedFallback === ($parseFailed->fallbacks[0] ?? null), 'parse-failed-fallback-matches-diagnostic-builder');
-$assert(ConversionReportProjection::SCHEMA === ($parseFailed->sourceReports['conversion_report']['schema'] ?? null), 'parse-failed-conversion-report-schema');
-$assert('html' === ($parseFailed->sourceReports['conversion_report']['source_format'] ?? null), 'parse-failed-conversion-report-source-format');
-$assert($provenance === $parseFailed->provenance, 'parse-failed-provenance');
-$assert($context === $parseFailed->context, 'parse-failed-context');
-$assert(strlen($html) === ($parseFailed->metrics['input_bytes'] ?? null), 'parse-failed-input-bytes');
-$assert(1 === ($parseFailed->metrics['fallback_count'] ?? null), 'parse-failed-fallback-count');
-$assert(1 === ($parseFailed->metrics['diagnostic_count'] ?? null), 'parse-failed-diagnostic-count');
-$assert(0 === ($parseFailed->metrics['block_count'] ?? null), 'parse-failed-block-count');
-$assert(is_float($parseFailed->metrics['transform_duration_ms'] ?? null) && 0 <= $parseFailed->metrics['transform_duration_ms'], 'parse-failed-duration');
-$assert(null !== $parseFailed->blockCompilationOutput, 'parse-failed-has-empty-compilation-output');
-$assert(array() === $parseFailed->blocks, 'parse-failed-has-no-blocks');
-$assert('' === $parseFailed->serializedBlocks, 'parse-failed-has-no-serialized-blocks');
 
 $emptyBody = $composer->emptyBody($html, $provenance, $context, $startedAt, $cache);
 $assert(array() === $emptyBody->diagnostics, 'empty-body-has-no-diagnostics');

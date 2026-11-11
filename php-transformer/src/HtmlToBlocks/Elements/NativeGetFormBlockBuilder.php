@@ -11,7 +11,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredNativ
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
-use DOMDocument;
 use DOMElement;
 
 /**
@@ -206,11 +205,7 @@ final class NativeGetFormBlockBuilder
         if ( 1 !== preg_match('#<head\b[^>]*>(.*?)</head\s*>#is', $html, $matches) ) {
             return array();
         }
-        $document = new DOMDocument();
-        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><head>' . $matches[1] . '</head>');
-        if ( ! $loaded ) {
-            return array();
-        }
+        $document = HtmlSerialization::parseDocument('<head>' . $matches[1] . '</head>');
         $urls = array();
         foreach ( $document->getElementsByTagName('base') as $base ) {
             $urls[] = SourceDom::attr($base, 'href');

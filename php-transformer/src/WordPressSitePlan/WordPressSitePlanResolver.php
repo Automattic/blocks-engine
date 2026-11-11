@@ -174,9 +174,7 @@ final class WordPressSitePlanResolver
             // Publish only IDs: the generated runtime looks up URLs on the current host.
             $ids = array();
             foreach ($attachments as $token => $attachment) $ids[WordPressSitePlan::TOKEN_PREFIX . $token . '}}'] = $attachment['id'];
-            $entries = array();
-            foreach ($ids as $token => $id) $entries[] = "('{' . " . var_export(substr($token, 1), true) . ') => ' . var_export($id, true);
-            return str_replace('$blocks_engine_template_attachment_ids = array();', '$blocks_engine_template_attachment_ids = array(' . implode(', ', $entries) . ');', $content);
+            return str_replace('$blocks_engine_template_attachment_ids = array();', '$blocks_engine_template_attachment_ids = ' . var_export($ids, true) . ';', $content);
         }
         if (str_starts_with($targetPath, 'templates/') || str_starts_with($targetPath, 'parts/')) return $content;
         if (str_ends_with(strtolower($targetPath), '.css')) $content = self::resolveCustomPropertyTokens($content, $tokens, $themeUri, $attachments);
@@ -275,7 +273,7 @@ final class WordPressSitePlanResolver
         }
         foreach ($declarations as &$declaration) unset($declaration['payload_hash'], $declaration['content_hash']);
         unset($declaration);
-        return $normalize ? RuntimeDeclarations::normalizeList($declarations) : $declarations;
+        return $normalize ? RuntimeDeclarations::normalizeList($declarations, false) : $declarations;
     }
     /** @param array<int,array<string,mixed>> $declarations @param array<int,array<string,mixed>> $records @param array<int,array<string,mixed>> $pages @param array<string,string> $references @return array<int,array<string,mixed>> */
     private static function resolveManifestEntities(array $declarations, array $records, array $pages, array $references, array $attachments = array()): array

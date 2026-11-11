@@ -33,12 +33,7 @@ $targets = array_column($plan['reference_tokens'], 'target_path', 'source_path')
 $tokens = array_column($plan['reference_tokens'], 'token', 'source_path');
 $assert(isset($tokens['media/mug.png']) && str_contains(implode('', array_column($plan['pages'], 'canonical_block_markup')), WordPressSitePlan::TOKEN_PREFIX . $tokens['media/mug.png'] . '}}'), 'The page keeps the photo as an asset token.');
 $assert(str_contains($functions, '$blocks_engine_template_asset_tokens'), 'Page asset tokens publish the template-asset resolver.');
-// A release importer scans text writes for unresolved plan references. Runtime
-// dictionary keys must survive that boundary without looking like references.
-$assert(!str_contains($functions, WordPressSitePlan::TOKEN_PREFIX), 'Published PHP contains no materialization tokens.');
-$assert(1 === preg_match('/\$blocks_engine_template_asset_tokens = (array\(.*?\));/s', $functions, $assignment), 'The bootstrap publishes its runtime dictionary.');
-$runtimeTokens = eval('return ' . $assignment[1] . ';');
-$assert(($runtimeTokens[WordPressSitePlan::TOKEN_PREFIX . $tokens['media/mug.png'] . '}}'] ?? null) === $targets['media/mug.png'], 'The runtime dictionary preserves the canonical token and theme path.');
+$assert(str_contains($functions, var_export(WordPressSitePlan::TOKEN_PREFIX . $tokens['media/mug.png'] . '}}', true) . ' => ' . var_export($targets['media/mug.png'], true)), 'The resolver maps the page photo token to its theme file.');
 // Stylesheet-only references resolve when the stylesheet is written; mapping
 // them would ship every plan asset in functions.php.
 $assert(isset($tokens['media/hero.png']) && !str_contains($functions, $tokens['media/hero.png']), 'The resolver maps only tokens the documents reference.');

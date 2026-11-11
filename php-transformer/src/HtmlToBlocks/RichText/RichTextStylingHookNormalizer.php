@@ -505,10 +505,9 @@ final class RichTextStylingHookNormalizer
             return $attrs;
         }
 
-        $document = new DOMDocument();
-        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . $content . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        $document = HtmlSerialization::parseFragment('<body>' . $content . '</body>');
 
-        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
+        $body = $document->getElementsByTagName('body')->item(0);
         if ( ! $body instanceof DOMElement ) {
             return $attrs;
         }
@@ -605,9 +604,8 @@ final class RichTextStylingHookNormalizer
     {
         $content = $this->richTextMaterializer->content($element);
         if ('' === $content) return '';
-        $document = new DOMDocument();
-        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . $content . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
+        $document = HtmlSerialization::parseFragment('<body>' . $content . '</body>');
+        $body = $document->getElementsByTagName('body')->item(0);
         if (!$body instanceof DOMElement) return $content;
         $this->normalize($body);
         return SourceDom::innerHtml($body);

@@ -6,7 +6,6 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
-use DOMDocument;
 use DOMElement;
 
 /**
@@ -45,12 +44,7 @@ final class SourceDocumentEnvelope
             return $html;
         }
 
-        $document = new DOMDocument();
-        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?>' . $html);
-
-        if ( ! $loaded ) {
-            return $html;
-        }
+        $document = HtmlSerialization::parseDocument($html);
 
         $body = $document->getElementsByTagName('body')->item(0);
         if ( ! $body instanceof DOMElement ) {
@@ -79,9 +73,8 @@ final class SourceDocumentEnvelope
             return array();
         }
 
-        $document = new DOMDocument();
-        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?>' . $html);
-        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
+        $document = HtmlSerialization::parseDocument($html);
+        $body = $document->getElementsByTagName('body')->item(0);
         if ( ! $body instanceof DOMElement ) {
             return array();
         }

@@ -472,6 +472,10 @@ final class StyleAttributeMapper
         $sides = array( 'top' => '', 'right' => '', 'bottom' => '', 'left' => '' );
 
         $shorthand = trim(CssValueInspector::withoutImportant((string) ($declarations[ $property ] ?? '')));
+        if ( '' !== $shorthand && ! CssValueInspector::hasPositionalSides($shorthand) ) {
+            // Left to the author CSS on the retained class.
+            $shorthand = '';
+        }
         if ( '' !== $shorthand ) {
             $consumed[ $property ] = true;
             [ $sides['top'], $sides['right'], $sides['bottom'], $sides['left'] ] = CssValueInspector::expandBoxShorthand($shorthand);

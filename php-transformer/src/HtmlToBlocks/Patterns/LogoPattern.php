@@ -10,7 +10,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LoweredLinkHost;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
-use DOMDocument;
 use DOMElement;
 
 final class LogoPattern implements PatternRecognizerInterface
@@ -272,9 +271,8 @@ final class LogoPattern implements PatternRecognizerInterface
     /** Parses label markup into a detached `<body>` holding it, or null when it does not parse. */
     private function labelFragment(string $html): ?DOMElement
     {
-        $document = new DOMDocument();
-        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
+        $document = HtmlSerialization::parseFragment('<body>' . $html . '</body>');
+        $body = $document->getElementsByTagName('body')->item(0);
 
         return $body instanceof DOMElement ? $body : null;
     }

@@ -411,8 +411,7 @@ final class ShellExtraction
         $replacements = array();
         // Read the original copy, not its normalized identity, with its document
         // ancestors intact. Boundary comments add no selector-visible wrapper.
-        $document = new \DOMDocument();
-        $document->loadHTML('<?xml encoding="UTF-8"><html><body>' . $documentMarkup . '</body></html>', LIBXML_NOERROR | LIBXML_NOWARNING);
+        $document = HtmlSerialization::parseDocument('<html><body>' . $documentMarkup . '</body></html>');
         $elements = (new \DOMXPath($document))->query('//*[preceding::comment()[.="engine-chrome-start"] and following::comment()[.="engine-chrome-end"]]');
         foreach ($classes as $class) {
             $kind = EngineMarker::withoutDocumentSeeds($class);
@@ -3604,8 +3603,7 @@ final class ShellExtraction
                         [$text, $classes, $styles, $links, $presentation, $valid] = $fragments[$fragment];
                     } else {
                         $fragments[$fragment] = false;
-                        $dom = new \DOMDocument();
-                        @$dom->loadHTML('<?xml encoding="UTF-8"><body>' . $fragment . '</body>', LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
+                        $dom = HtmlSerialization::parseDocument('<body>' . $fragment . '</body>');
                         $body = $dom->getElementsByTagName('body')->item(0);
                         if (null === $body) continue;
                         $text = trim(preg_replace('/\s+/u', ' ', $body->textContent) ?? '');
@@ -4189,8 +4187,7 @@ final class ShellExtraction
             foreach (array('resting', 'opened') as $state) {
                 if (!is_string($data[$state]['html'] ?? null)) continue;
                 $html = $data[$state]['html'];
-                $dom = new \DOMDocument();
-                HtmlSerialization::loadHtml($dom, '<?xml encoding="UTF-8"><div id="be-snapshot-root">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+                $dom = HtmlSerialization::parseFragment('<div id="be-snapshot-root">' . $html . '</div>');
                 $xpath = new \DOMXPath($dom);
                 foreach ($xpath->query('//*[@aria-current="page"]') as $current) {
                     $siblings = array();

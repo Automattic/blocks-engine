@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
@@ -2477,12 +2478,9 @@ final class AuthorStylesheetProjector
         static $document = null;
         if ( $cachedMarkup !== $markup ) {
             $cachedMarkup = $markup;
-            $document = new \DOMDocument();
-            if ( '' !== $markup ) {
-                @$document->loadHTML($markup);
-            }
+            $document = HtmlSerialization::parseDocument($markup);
         }
-        foreach ( $document?->getElementsByTagName('*') ?? array() as $element ) {
+        foreach ( $document->getElementsByTagName('*') as $element ) {
             $match = CssSelectorMatcher::matches($element, $parsed);
             if ( $match['supported'] && $match['matches'] ) {
                 return true;

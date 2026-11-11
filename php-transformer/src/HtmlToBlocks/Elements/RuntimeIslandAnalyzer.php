@@ -12,7 +12,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBl
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveMediaBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
-use DOMDocument;
 use DOMElement;
 
 /**
@@ -792,11 +791,7 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
             return null;
         }
 
-        $document = new DOMDocument();
-        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . SourceDom::normalizeHtml5VoidElements($html) . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        if ( ! $loaded ) {
-            return null;
-        }
+        $document = HtmlSerialization::parseFragment('<body>' . SourceDom::normalizeHtml5VoidElements($html) . '</body>');
 
         $body = $document->getElementsByTagName('body')->item(0);
         if ( ! $body instanceof DOMElement ) {

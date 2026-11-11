@@ -11,8 +11,7 @@ final class AuthorProjection
     private static function hasAuthorBodyClasses(string $html, string $slug): bool
     {
         if ('' === $html || !class_exists(\DOMDocument::class)) return false;
-        $document = new \DOMDocument();
-        if (!HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8">' . $html, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING)) return false;
+        $document = HtmlSerialization::parseDocument($html);
         $body = $document->getElementsByTagName('body')->item(0);
         if (!$body instanceof \DOMElement) return false;
         $classes = preg_split('/[\x20\t\r\n\f]+/', $body->getAttribute('class'), -1, PREG_SPLIT_NO_EMPTY);

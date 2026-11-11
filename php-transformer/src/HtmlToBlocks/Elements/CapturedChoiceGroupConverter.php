@@ -68,8 +68,7 @@ final class CapturedChoiceGroupConverter implements ElementConverter
         foreach ($decoded['states'] as &$state) {
             if (!is_string($state['html'] ?? null) || !str_contains($state['html'], CaptureEvidence::NATIVE_CONTROL_STATE)) continue;
             $typed = true;
-            $document = new DOMDocument();
-            HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8"><div data-control-state-fragment="true">' . $state['html'] . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+            $document = HtmlSerialization::parseFragment('<div data-control-state-fragment="true">' . $state['html'] . '</div>');
             $root = $document->getElementsByTagName('div')->item(0);
             if (!$root instanceof DOMElement) continue;
             foreach ($root->getElementsByTagName('*') as $control) {

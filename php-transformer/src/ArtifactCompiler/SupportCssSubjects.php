@@ -6,7 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
-use DOMDocument;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 
 /** Conservative presence proof, not dead-code elimination of authored CSS. */
 final class SupportCssSubjects
@@ -24,8 +24,7 @@ final class SupportCssSubjects
             foreach (preg_split('/\s+/', (string) ($attributes['className'] ?? '')) ?: array() as $class) $this->classes[$class] = true;
             if (isset($attributes['anchor'])) $this->ids[$attributes['anchor']] = true;
         }
-        $document = new DOMDocument();
-        @$document->loadHTML('<?xml encoding="UTF-8"><html><body>' . $markup . '</body></html>');
+        $document = HtmlSerialization::parseDocument('<html><body>' . $markup . '</body></html>');
         foreach ($document->getElementsByTagName('*') as $element) {
             foreach (SourceDom::tokens($element->getAttribute('class')) as $class) $this->classes[$class] = true;
             if ($element->hasAttribute('id')) $this->ids[$element->getAttribute('id')] = true;
