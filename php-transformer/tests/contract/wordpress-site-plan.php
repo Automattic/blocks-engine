@@ -558,7 +558,7 @@ $persistedV1Graph = array(
     'schema' => 'generic/computed-layout-graph/v1',
     'basis' => 'source_css_cascade',
     'truncated' => false,
-    'limits' => array('nodes' => 128, 'depth' => 8, 'rules_per_node' => 16),
+    'limits' => array('nodes' => 256, 'depth' => 8, 'rules_per_node' => 16),
     'nodes' => array(array('id' => 'form', 'kind' => 'container', 'order' => 0, 'source' => array('tag' => 'form', 'classes' => array('contact')), 'layout' => array('display' => 'grid'), 'provenance' => array(array('source_path' => 'css/form.css', 'source_sha256' => str_repeat('a', 64), 'selector' => '.contact', 'condition' => null, 'properties' => array('display'))))),
     'variants' => array(),
     'diagnostics' => array(),
@@ -755,9 +755,21 @@ $interleavedCopyResult = (new ArtifactCompiler())->compile(array('entrypoint' =>
 $interleavedCopyDiagnostics = array_values(array_filter($interleavedCopyResult['diagnostics'] ?? array(), static fn(array $diagnostic): bool => 'form_field_context_unrepresented' === ($diagnostic['code'] ?? null)));
 $assert(1 === count($interleavedCopyDiagnostics) && array('Second section') === ($interleavedCopyDiagnostics[0]['unrepresented_text'] ?? null), 'Copy interleaved between two controls is named by a diagnostic instead of only recording a boolean flag.');
 
+// Widget-heavy booking forms retain all visible buttons within the graph bounds.
+$bookingFields = '<div><label>Name<input name="name"></label></div><div><label>Email<input type="email" name="email"></label></div><div><label>Phone<input type="tel" name="phone"></label></div>';
+for ($index = 0; $index < 8; ++$index) $bookingFields .= '<div><button role="radio" name="guests" type="button" value="' . $index . '">' . ($index + 1) . ' guests</button></div>';
+for ($index = 0; $index < 55; ++$index) $bookingFields .= '<div><button type="button">Slot ' . $index . '</button></div>';
+$bookingResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<style>form, form div { display: grid; gap: 8px; } form input, form button, form textarea, form label { display: block; }</style><main><form method="post" action="/book">' . $bookingFields . '<textarea name="message"></textarea><button type="submit">Book</button></form></main>')))->toArray();
+$bookingDeclaration = current(array_filter($bookingResult['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
+$bookingEntity = $bookingDeclaration['payload']['entities'][0] ?? array();
+$assert(68 === count($bookingEntity['controls'] ?? array()), 'The booking form declares every named input, guest choice, unnamed slot button, textarea and submit.');
+$assert(false === ($bookingEntity['control_topology']['truncated'] ?? null), 'The booking form declares an untruncated control topology.');
+$assert(false === ($bookingEntity['layout_graph']['truncated'] ?? null) && count($bookingEntity['layout_graph']['nodes'] ?? array()) > 128 && array() === ($bookingEntity['layout_graph']['source_contract_losses'] ?? array()), 'The booking form declares an untruncated layout graph without source contract losses.');
+$assert(array() === array_filter($bookingResult['diagnostics'] ?? array(), static fn(array $diagnostic): bool => 'runtime_form_declaration_declined' === ($diagnostic['code'] ?? null)), 'The booking form has no runtime declaration decline.');
+
 // A prepared form declaration is never dropped silently: a failed contract is
 // named so a consumer can see which check declined the metadata.
-$truncatedFormFields = ''; for ($index = 0; $index < 70; ++$index) $truncatedFormFields .= '<div class="field"><input type="text" name="field-' . $index . '"></div>';
+$truncatedFormFields = ''; for ($index = 0; $index < 140; ++$index) $truncatedFormFields .= '<div class="field"><input type="text" name="field-' . $index . '"></div>';
 $truncatedFormResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><form method="post" action="/apply">' . $truncatedFormFields . '<button type="submit">Send</button></form></main>')))->toArray();
 $truncatedFormFallback = current(array_filter($truncatedFormResult['fallbacks'] ?? array(), static fn(array $fallback): bool => 'html_form_fallback' === ($fallback['diagnostic_code'] ?? null)));
 $truncatedFormPlan = $truncatedFormResult['source_reports']['wordpress_site_plan'] ?? array();

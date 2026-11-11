@@ -13,7 +13,7 @@ final class FormControlTopologyBuilder
 {
     private const MAX_DEPTH = 16;
 
-    private const MAX_NODES = 128;
+    private const MAX_NODES = 256;
 
     private const MAX_CLASSES = 8;
 
