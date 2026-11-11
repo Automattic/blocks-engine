@@ -635,8 +635,11 @@ final class WrapperCoalescer
             return false;
         }
 
+        // Descendants retain their identity, but lose ancestors too. Checking
+        // only the merged wrapper misses rules whose subject is below it.
+        $descendants = SourceDom::descendantElements($child);
         $beforeCandidatesByKey = array();
-        foreach ( $chain as $node ) {
+        foreach ( array_merge($chain, $descendants) as $node ) {
             foreach ( $this->session->authorStyleRuleCandidates($node) as $selector ) {
                 $beforeCandidatesByKey[$selector['key']] = $selector;
             }
@@ -648,6 +651,14 @@ final class WrapperCoalescer
                 $chain,
                 fn (DOMElement $node): bool => $this->session->sourceStyleResolutionState()->selectorMatchCache->matches($node, $selector['selector'], $selector['parsed'], true)['matches']
             );
+        }
+
+        $descendantMatchesBefore = array();
+        foreach ( $descendants as $index => $node ) {
+            foreach ( $beforeCandidates as $selector ) {
+                $descendantMatchesBefore[$index][$selector['key']] = $selector['parsed']['supported']
+                    && $this->session->sourceStyleResolutionState()->selectorMatchCache->matches($node, $selector['selector'], $selector['parsed'], true)['matches'];
+            }
         }
 
         $childClass = SourceDom::attr($child, 'class');
@@ -679,6 +690,9 @@ final class WrapperCoalescer
         $survives = true;
         $temporarySelectorCache = new CssSelectorMatchCache();
         $afterCandidates = $this->session->authorStyleRuleCandidates($matchNode, $temporarySelectorCache);
+        foreach ( $descendants as $node ) {
+            $afterCandidates = array_merge($afterCandidates, $this->session->authorStyleRuleCandidates($node, $temporarySelectorCache));
+        }
         $candidates = array();
         foreach ( array_merge($beforeCandidates, $afterCandidates) as $selector ) {
             $candidates[$selector['key']] = $selector;
@@ -689,6 +703,17 @@ final class WrapperCoalescer
             if ( ($matchesBefore[$key] ?? false) !== $matchesAfter && ($exact || ! $this->hasOnlyRenderNeutralDeclarations($selector['declarations'])) ) {
                 $survives = false;
                 break;
+            }
+        }
+
+        foreach ( $descendants as $index => $node ) {
+            foreach ( $candidates as $key => $selector ) {
+                $matchesAfter = $selector['parsed']['supported']
+                    && $temporarySelectorCache->matches($node, $selector['selector'], $selector['parsed'], true)['matches'];
+                if ( ($descendantMatchesBefore[$index][$key] ?? false) !== $matchesAfter ) {
+                    $survives = false;
+                    break 2;
+                }
             }
         }
 
