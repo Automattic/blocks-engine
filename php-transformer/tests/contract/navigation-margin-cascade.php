@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 $assert = static function (bool $condition, string $message): void {
@@ -34,6 +35,25 @@ $assert(1 === preg_match('/margin-left:\s*0\s*;/', $coreRule[1]), 'Core reset is
 $endAligned = $cssFor('<style>nav{display:flex;gap:20px}.navlinks{list-style:none;display:flex;gap:16px;padding:0;margin:0 0 0 auto}</style>'
     . '<nav aria-label="Primary"><a class="mark" href="/"><span>Harbor</span><span>Pilots</span></a><ul class="navlinks"><li><a href="/a">A</a></li><li><a href="/b">B</a></li></ul></nav>');
 $assert(str_contains($endAligned, '.wp-block-navigation:where(.blocks-engine-list-navigation).navlinks{margin-left:auto;margin-right:0}'), 'the original end-aligned menu keeps its host auto and opposite-side zero without important');
+
+// #5429: a class reset on the item (0,1,0) loses to the typed descendant rule
+// (0,1,2) in the source. The projected rules must keep that outcome.
+$reduced = '<style>.txt{margin:0}.menu--desktop ul li{margin:0 16px}</style><nav class="menu--desktop"><ul><li class="txt"><a href="/">Home</a></li></ul></nav>';
+$projected = $cssFor($reduced);
+$ruleFor = static function (string $css, string $declarations) use ($assert): array {
+    $assert(1 === preg_match_all('/([^{}]+)\{' . preg_quote($declarations, '/') . '\}/', $css, $found, PREG_OFFSET_CAPTURE), "exactly one projected rule carries {$declarations} in: {$css}");
+    $parsed = CssSelectorMatcher::parse(trim($found[1][0][0]));
+    $assert((bool) $parsed['supported'], 'projected selector parses: ' . $found[1][0][0]);
+    $weight = CssSelectorMatcher::specificityCounts($parsed);
+    return array('selector' => trim($found[1][0][0]), 'specificity' => array($weight['ids'], $weight['classes'], $weight['types']), 'offset' => $found[1][0][1]);
+};
+$reset = $ruleFor($projected, 'margin:0');
+$spacing = $ruleFor($projected, 'margin:0 16px');
+$order = $spacing['specificity'] <=> $reset['specificity'];
+$assert(1 === $order || (0 === $order && $spacing['offset'] > $reset['offset']), sprintf(
+    'typed item margin %s (%s) must outrank class reset %s (%s), as it does in the source',
+    $spacing['selector'], implode(',', $spacing['specificity']), $reset['selector'], implode(',', $reset['specificity'])
+));
 
 // Same class, separate gates: neither may be flattened or deduplicated away.
 $conditional = $cssFor(str_replace(

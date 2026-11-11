@@ -2050,6 +2050,15 @@ final class AuthorStylesheetProjector
                     $otherSubjects[] = $element;
                     continue;
                 }
+                if (in_array(strtolower($element->tagName), array('li', 'ul', 'ol'), true) && null === ($subject['type'] ?? null)
+                    && $this->typedItemRuleOutranks($element, $parsed, $context)) {
+                    // A typed rule on this item stays on the structural tier
+                    // above. When it beat this subject in the source, join it
+                    // there: the carrier baseline would lift this subject above
+                    // it and invert the authored cascade.
+                    $otherSubjects[] = $element;
+                    continue;
+                }
                 if ('' === $target) {
                     $otherSubjects[] = $element;
                     continue;
@@ -4943,6 +4952,36 @@ final class AuthorStylesheetProjector
             $offset = $replacement['end'];
         }
         return $output . substr($selector, $offset);
+    }
+
+    /**
+     * Whether a typed selector whose subject is this source item has at least
+     * the given selector's source specificity. Typed item subjects keep the
+     * structural projection, so an untyped rival must share that tier for the
+     * source specificity and order to keep arbitrating between them.
+     *
+     * @param array<string, mixed> $parsed
+     */
+    private function typedItemRuleOutranks(DOMElement $element, array $parsed, AuthorStylesheetProjectionContext $context): bool
+    {
+        $own = array_values(CssSelectorMatcher::specificityCounts($parsed));
+        foreach ($context->authorStyles->styleRules() as $rule) {
+            foreach ((array) ($rule['selectors'] ?? array()) as $candidate) {
+                $typed = $candidate['parsed'] ?? array();
+                if (!($typed['supported'] ?? false) || str_contains((string) ($candidate['selector'] ?? ''), '::')
+                    || null === (CssSelectorCompoundInspector::rightmost($typed['compounds'])['type'] ?? null)
+                ) {
+                    continue;
+                }
+                $weight = CssSelectorMatcher::specificityCounts($typed);
+                if (array($weight['ids'], $weight['classes'], $weight['types']) >= $own
+                    && CssSelectorMatcher::matches($element, $typed)['matches']
+                ) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /** @param array<string, mixed> $parsed @return list<DOMElement> */
