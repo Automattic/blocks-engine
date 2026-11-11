@@ -20,7 +20,7 @@ use DOMElement;
  */
 final class EmptyVisualSpacerLowering
 {
-    private const EMPTY_FLEX_ITEM_CLASS = 'blocks-engine-empty-flex-item';
+    public const EMPTY_FLEX_ITEM_CLASS = 'blocks-engine-empty-flex-item';
 
     /**
      * Marks a childless flex item inside a column-direction (or
@@ -28,7 +28,7 @@ final class EmptyVisualSpacerLowering
      * so the compatibility box this class carries zeroes the opposite
      * properties from {@see EMPTY_FLEX_ITEM_CLASS}'s row-axis assumption.
      */
-    private const EMPTY_FLEX_ITEM_COLUMN_CLASS = 'blocks-engine-empty-flex-column-item';
+    public const EMPTY_FLEX_ITEM_COLUMN_CLASS = 'blocks-engine-empty-flex-column-item';
 
     public function __construct(
         private readonly SourceBlockCreator $blocks,

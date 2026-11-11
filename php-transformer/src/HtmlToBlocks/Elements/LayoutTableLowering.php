@@ -23,7 +23,7 @@ use DOMElement;
  */
 final class LayoutTableLowering
 {
-    private const LAYOUT_TABLE_COLUMNS_CLASS = 'blocks-engine-layout-table-columns';
+    public const LAYOUT_TABLE_COLUMNS_CLASS = 'blocks-engine-layout-table-columns';
 
     public function __construct(
         private readonly SourceBlockCreator $blocks,

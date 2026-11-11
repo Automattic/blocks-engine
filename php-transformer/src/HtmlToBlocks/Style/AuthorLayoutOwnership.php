@@ -33,8 +33,8 @@ final class AuthorLayoutOwnership
         'align-content', 'align-items', 'justify-content', 'place-content',
     );
 
-    private const CSS_OWNED_LAYOUT_CLASS = 'blocks-engine-css-owned-layout';
-    private const CSS_OWNED_GRID_CLASS = 'blocks-engine-css-owned-grid';
+    public const CSS_OWNED_LAYOUT_CLASS = 'blocks-engine-css-owned-layout';
+    public const CSS_OWNED_GRID_CLASS = 'blocks-engine-css-owned-grid';
 
     public function __construct(
         private readonly StyleResolver $styleResolver,
@@ -107,10 +107,18 @@ final class AuthorLayoutOwnership
         if ( ! $this->authorOwnsChildFlowSpacing($element) && ! $this->isStructuralListContext($element) ) {
             return $this->markUnsafeFixedHeightTopologyChange($attrs, $topologyChanged);
         }
-        $attrs['className'] = SourceDom::mergeClassNames(
-            (string) $attrs['className'],
-            self::CSS_OWNED_FLOW_CLASS
-        );
+        return $this->markUnsafeFixedHeightTopologyChange(self::withCssOwnedFlow($attrs), $topologyChanged);
+    }
+
+    /**
+     * The author's CSS owns child flow spacing: mark the flow class and zero any unset block gap.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    public static function withCssOwnedFlow(array $attrs): array
+    {
+        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::CSS_OWNED_FLOW_CLASS);
         $style = ArrayField::array($attrs, 'style');
         $spacing = ArrayField::array($style, 'spacing');
         if ( ! isset($spacing['blockGap']) ) {
@@ -119,7 +127,7 @@ final class AuthorLayoutOwnership
             $attrs['style'] = $style;
         }
 
-        return $this->markUnsafeFixedHeightTopologyChange($attrs, $topologyChanged);
+        return $attrs;
     }
 
     /**

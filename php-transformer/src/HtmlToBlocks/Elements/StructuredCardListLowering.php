@@ -23,8 +23,6 @@ use DOMElement;
  */
 final class StructuredCardListLowering
 {
-    private const CSS_OWNED_GRID_CLASS = 'blocks-engine-css-owned-grid';
-
     public function __construct(
         private readonly SourceBlockCreator $blocks,
         private readonly StyleResolver $styleResolver,
@@ -189,20 +187,11 @@ final class StructuredCardListLowering
     private function withStructuredCardFlowNeutralization(array $attrs): array
     {
         $className = (string) ($attrs['className'] ?? '');
-        if ( str_contains($className, self::CSS_OWNED_GRID_CLASS) || str_contains($className, AuthorLayoutOwnership::CSS_OWNED_FLOW_CLASS) ) {
+        if ( str_contains($className, AuthorLayoutOwnership::CSS_OWNED_GRID_CLASS) || str_contains($className, AuthorLayoutOwnership::CSS_OWNED_FLOW_CLASS) ) {
             return $attrs;
         }
 
-        $attrs['className'] = SourceDom::mergeClassNames($className, AuthorLayoutOwnership::CSS_OWNED_FLOW_CLASS);
-        $style = ArrayField::array($attrs, 'style');
-        $spacing = ArrayField::array($style, 'spacing');
-        if ( ! isset($spacing['blockGap']) ) {
-            $spacing['blockGap'] = '0';
-            $style['spacing'] = $spacing;
-            $attrs['style'] = $style;
-        }
-
-        return $attrs;
+        return AuthorLayoutOwnership::withCssOwnedFlow($attrs);
     }
 
     /**
