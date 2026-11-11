@@ -38,14 +38,13 @@ $elementFrom = static function (string $html): DOMElement {
 $makeRecorder = static function (array $overrides = array()): UnsupportedElementRecorder {
     $defaults = array(
         'generatedBlock'  => static fn (array $g, DOMElement $e): array => array('blockName' => 'blocks-engine/generated', 'from' => $g),
-        'selector'        => static fn (DOMElement $e): string => strtolower($e->tagName) . '.sel',
         'sourceElementDescription' => new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()),
     );
     $c = array_merge($defaults, $overrides);
 
     $session = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession(new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime(), $c['sourceElementDescription']);
     $session->installGeneratedBlockRegistry(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry('fixture'));
-    $metadataBuilder = new FormControlMetadataBuilder($c['selector']);
+    $metadataBuilder = new FormControlMetadataBuilder();
     return new UnsupportedElementRecorder($session, new UnsupportedElementContext(
         $session,
         $c['generatedBlock'],

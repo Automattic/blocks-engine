@@ -25,10 +25,6 @@ $elementFrom = static function (string $html): DOMElement {
     throw new RuntimeException('No element parsed');
 };
 
-$selector = static function (DOMElement $element): string {
-    $id = $element->getAttribute('id');
-    return '' !== $id ? '#' . $id : strtolower($element->tagName);
-};
 $session = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession(new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()));
 $innerHtml = static function (DOMElement $element): string {
     $html = '';
@@ -37,7 +33,7 @@ $innerHtml = static function (DOMElement $element): string {
     }
     return trim($html);
 };
-$builder = new FormSuccessPanelMetadataBuilder($selector, $session, $innerHtml);
+$builder = new FormSuccessPanelMetadataBuilder($session, $innerHtml);
 
 $form = $elementFrom('<form></form>   <div id="sent" class="notice success" role="status" aria-live="polite"> Thanks <strong>Chris</strong> &amp; team </div>');
 $metadata = $builder->build($form);
@@ -66,7 +62,6 @@ $partialToken = $elementFrom('<div><p class="unsuccessful">No match</p></div>');
 $assert(array() === $builder->build($partialToken), 'partial-success-token-is-not-a-signal');
 
 $boundedBuilder = new FormSuccessPanelMetadataBuilder(
-    $selector,
     $session,
     $innerHtml
 );
