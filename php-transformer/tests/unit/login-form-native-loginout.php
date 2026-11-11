@@ -35,17 +35,35 @@ $cases = array(
     'extra text' => array( $username . $password . '<input name="full_name">' . $submit, false ),
     'select' => array( $username . $password . '<select name="role"><option>Member</option></select>' . $submit, false ),
     'textarea' => array( $username . $password . '<textarea name="bio"></textarea>' . $submit, false ),
-    'register value' => array( $username . $password . '<input type="submit" value="Register">', false ),
-    'sign-up button' => array( $username . $password . '<button>Sign up</button>', false ),
-    'registration button' => array( $username . $password . '<button>Registration</button>', false ),
+    'register value' => array( $username . $password . '<input type="submit" value="Register">', true, 'Register' ),
+    'sign-up button' => array( $username . $password . '<button>Sign up</button>', true, 'Sign up' ),
+    'registration button' => array( $username . $password . '<button>Registration</button>', true, 'Registration' ),
     'extra checkbox' => array( $username . $password . $remember . $remember . $submit, false ),
     'terms checkbox' => array( $username . $password . '<label><input type="checkbox" name="terms">Accept terms</label>' . $submit, false ),
     'no submit' => array( $username . $password, false ),
     'two submits' => array( $username . $password . $submit . $submit, false ),
 );
 
-foreach ( $cases as $label => [$controls, $converted] ) {
-    $result = ( new HtmlTransformer() )->transform('<h2>Member access</h2><form name="loginform" id="loginform" action="/wp-login.php" method="post">' . $controls . '</form><p>After the form</p>')->toArray();
+$identity = '<input name="firstName"><input name="userName"><input type="email" name="email">';
+$registration = $identity . $password . '<input type="hidden" name="token" value="source-secret"><button>Create account</button>';
+$cases += array(
+    'plain registration' => array( $registration, true, 'Create account' ),
+    'registration confirmation' => array( $registration . '<input type="password" name="confirm_password">', true, 'Create account' ),
+    'registration terms' => array( $registration . '<label><input type="checkbox" name="terms">Accept terms</label>', true, 'Create account' ),
+    'registration extra password' => array( $registration . '<input type="password" name="other">', false ),
+    'registration two confirmations' => array( $registration . '<input type="password" name="confirm"><input type="password" name="repeat">', false ),
+    'registration non-identity text' => array( $registration . '<input name="favorite_color">', false ),
+    'registration select' => array( $registration . '<select name="role"><option>Member</option></select>', false ),
+    'registration textarea' => array( $registration . '<textarea name="bio"></textarea>', false ),
+    'registration file' => array( $registration . '<input type="file" name="avatar">', false ),
+    'registration checkbox' => array( $registration . '<input type="checkbox" name="newsletter">', false ),
+    'registration two submits' => array( $registration . '<button>Sign up</button>', false ),
+);
+
+foreach ( $cases as $label => $case ) {
+    [$controls, $converted] = $case;
+    $registrationText = $case[2] ?? null;
+    $result = ( new HtmlTransformer() )->transform('<h2>Member access</h2><form name="loginform" id="loginform" action="/Auth/Register" method="post">' . $controls . '</form><p>After the form</p>')->toArray();
     $blocks = $flatten($result['blocks'] ?? array());
     $named = static fn (string $name): array => array_values(array_filter($blocks, static fn (array $block): bool => $name === ($block['blockName'] ?? '')));
     $assert(1 === count($named('core/heading')), "{$label}: heading preserved");
@@ -58,7 +76,17 @@ foreach ( $cases as $label => [$controls, $converted] ) {
         $assert(array() === $named('core/html'), "{$label}: no HTML fallback block");
         $assert(array() === ($result['fallbacks'] ?? array()), "{$label}: no fallback or loss diagnostic");
         $assert(str_contains($serialized, 'wp:loginout {"displayLoginAsForm":true}'), "{$label}: native block serialized");
-        foreach ( array( '/wp-login.php', 'redirect_to', 'rememberme', 'user_pass', 'capture-native-control-state' ) as $dropped ) {
+        $buttons = $named('core/button');
+        $assert((null === $registrationText ? 0 : 1) === count($buttons), "{$label}: registration button count");
+        if ( null !== $registrationText ) {
+            $assert($registrationText === ($buttons[0]['attrs']['text'] ?? null), "{$label}: editable source submit text");
+            $assert('/wp-login.php?action=register' === ($buttons[0]['attrs']['url'] ?? null), "{$label}: WordPress registration URL");
+            $groups = $named('core/group');
+            $children = $groups[0]['innerBlocks'] ?? array();
+            $assert(array( 'core/loginout', 'core/buttons' ) === array_column($children, 'blockName'), "{$label}: login then buttons");
+            $assert('core/button' === ($children[1]['innerBlocks'][0]['blockName'] ?? null), "{$label}: button inside buttons");
+        }
+        foreach ( array( '/Auth/Register', 'source-secret', 'firstName', 'redirect_to', 'rememberme', 'user_pass', 'capture-native-control-state' ) as $dropped ) {
             $assert(! str_contains($serialized, $dropped), "{$label}: drops {$dropped}");
         }
         $validity = ( new BlockValidityValidator() )->validateBlocks($result['blocks']);
