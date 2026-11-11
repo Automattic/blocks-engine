@@ -170,6 +170,17 @@ foreach ( $unsafe as $label => [ $html, $needle ] ) {
     }
 }
 
+// 6. The figure stands in for the heading, so an author rule that sizes the
+//    image through the heading's class reaches the image through the figure.
+foreach ( array( 'heading' => '<h1 class="logo"><a href="/">%s</a></h1>', 'paragraph' => '<p class="logo">%s</p>' ) as $label => $wrapper ) {
+    $result = $transform('<!doctype html><html><head><style>.brand .logo img{max-height:40px}</style></head><body class="brand">' . sprintf($wrapper, '<img src="logo.png" alt="Brand">') . '<p>Copy</p></body></html>');
+    $css    = (string) ($result['source_reports']['author_stylesheet_projections'][0]['content'] ?? '');
+    $figure = preg_match('/<figure class="[^"]*\\b(blocks-engine-semantic-[a-f0-9]+-\\d+)\\b/', (string) ($result['serialized_blocks'] ?? ''), $match) ? $match[1] : '';
+    if ( '' === $figure || 1 !== preg_match('/:where\\(\\.' . preg_quote($figure, '/') . '\\)\\.wp-block-image > (?:a > )?img[^{]*\\{[^}]*max-height:40px/', $css) ) {
+        $failures[] = 'Image-only ' . $label . ' rule reaches its image through the figure: ' . $css;
+    }
+}
+
 if ( array() !== $failures ) {
     fwrite(STDERR, implode("\n", $failures) . "\n");
     exit(1);

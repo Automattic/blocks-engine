@@ -768,6 +768,21 @@ final class SourceDom
         return $attributes;
     }
 
+    /** Replaces an element with its children, in place. */
+    public static function unwrapElement(DOMElement $element): void
+    {
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMNode ) {
+            return;
+        }
+
+        while ( null !== $element->firstChild ) {
+            $parent->insertBefore($element->firstChild, $element);
+        }
+
+        $parent->removeChild($element);
+    }
+
     /**
      * Unwraps links whose only content is line breaks: an image link whose
      * image was deleted (`<a href="photo.jpg"><br></a>`, common in Blogger
@@ -2318,5 +2333,10 @@ final class SourceDom
         }
 
         return false;
+    }
+
+    public static function normalizeHtml5VoidElements(string $html): string
+    {
+        return preg_replace('/<source\b([^>]*?)(?<!\/)\s*>/i', '<source$1></source>', $html) ?? $html;
     }
 }

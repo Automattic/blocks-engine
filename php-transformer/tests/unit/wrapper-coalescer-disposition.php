@@ -19,7 +19,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceEle
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\PseudoFormAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\WrapperCoalescer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
@@ -72,25 +71,12 @@ $makeCoalescer = static function (array $runtimeDomSelectors = array(), array $o
     $session->installLayoutGeometryState(new LayoutGeometryState());
 
     $sourceElementClassifier = new SourceElementClassifier();
-    $metadataBuilder = new FormControlMetadataBuilder(static fn (DOMElement $e): string => strtolower($e->tagName));
-    $pseudoFormAnalyzer = new PseudoFormAnalyzer($metadataBuilder, static fn (DOMElement $e): string => strtolower($e->tagName));
-    $runtimeIslands = new RuntimeIslandAnalyzer($session, $sourceElementClassifier, new RuntimeIslandContext(
-        static function (DOMElement $element): array {
-            $out = array();
-            foreach ( $element->getElementsByTagName('*') as $node ) {
-                if ( $node instanceof DOMElement ) {
-                    $out[] = $node;
-                }
-            }
-            return $out;
-        },
-        static fn (string $html): ?DOMElement => null,
-        static fn (DOMElement $element): bool => false
-    ), $pseudoFormAnalyzer);
+    $metadataBuilder = new FormControlMetadataBuilder();
+    $pseudoFormAnalyzer = new PseudoFormAnalyzer($metadataBuilder);
+    $runtimeIslands = new RuntimeIslandAnalyzer($session, $sourceElementClassifier, $pseudoFormAnalyzer);
 
     $styleResolver = new StyleResolver($session,
         new StyleResolutionContext(
-            static fn (string $value): string => $value,
             static fn (string $selector): array => array(),
             static fn (string $className): string => $className,
             static fn (string $url): string => $url

@@ -1,0 +1,41 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-inline-svg-numeric-local-id",
+  "description": "Materializes an inline SVG whose local definition id is all digits. PHP turns a numeric-string array key into an int, so the document-order id identity pass must treat each id as a string instead of failing the whole page compile; the image keeps its gradient and url(#) reference.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-inline-svg-numeric-local-id.json",
+    "notes": "Product-neutral fixture: site builders commonly emit purely numeric element ids."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><svg width=\"100\" height=\"100\" viewBox=\"0 0 100 100\" xmlns=\"http://www.w3.org/2000/svg\"><defs><linearGradient id=\"12345\"><stop offset=\"0\" stop-color=\"#c33\"></stop><stop offset=\"1\" stop-color=\"#33c\"></stop></linearGradient></defs><rect width=\"100\" height=\"100\" fill=\"url(#12345)\"></rect></svg></main>"
+  },
+  "expect": [
+    {
+      "path": "status",
+      "assert": "equals",
+      "value": "success"
+    },
+    {
+      "path": "assets.0.content",
+      "assert": "contains",
+      "value": "<linearGradient id=\"12345\">"
+    },
+    {
+      "path": "assets.0.content",
+      "assert": "contains",
+      "value": "fill=\"url(#12345)\""
+    }
+  ],
+  "expected_blocks": [
+    {
+      "path": "blocks.0",
+      "name": "core/image"
+    }
+  ]
+}

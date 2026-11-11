@@ -10,6 +10,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\AuthoredFormControlBlockConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\NativeGetFormBlockBuilder;
@@ -72,20 +73,18 @@ $assert($sawInside, 'native-get-form-depth-is-active-while-converting-children')
 $assert(! $builder->isInside(), 'native-get-form-depth-restores-after-build');
 $assert(null !== $built, 'safe-native-get-form-builds');
 
-$metadataBuilder = new FormControlMetadataBuilder(static fn (DOMElement $element): string => strtolower($element->tagName));
+$metadataBuilder = new FormControlMetadataBuilder();
 $authored = new AuthoredFormControlBlockConverter(
     $metadataBuilder,
     static fn (DOMElement $element): array => array(),
-    static fn (DOMElement $element): array => array(),
+    new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array()),
     $createBlock,
     $session,
     $runtime,
-    static fn (string $id): string => $id,
     static fn (DOMElement $element): DOMElement => $element
 );
 $styleResolver = new StyleResolver($session,
     new StyleResolutionContext(
-        static fn (string $value): string => $value,
         static fn (string $selector): array => array(),
         static fn (string $className): string => $className,
         static fn (string $url): string => $url

@@ -616,7 +616,9 @@ final class RouteStateProjector
      * `c2-19` on one route and `c2-1c` on another for the same declaration,
      * while `c2-19` means something else on the second route. A class is read
      * by its meaning: every rule of the document's own style elements that
-     * names it, with the class itself left out of the selector. On chrome
+     * names it, with the class itself left out of the selector and with the
+     * classes chrome does not wear (a route-numbered page scope such as
+     * `.framer-7gg9x` around `.framer-1499lr3`) read as an ancestor slot. On chrome
      * (navigation and landmark subtrees), a meaning whose class name differs
      * across routes, or whose name means something else on another route, is
      * given one content-addressed name on every route: the element swaps the
@@ -646,7 +648,7 @@ final class RouteStateProjector
         $transformer = new CssStylesheetTransformer();
         $classPattern = '/\.(-?[A-Za-z_][A-Za-z0-9_-]*)/';
         $named = static fn(string $class): string => '/\.' . preg_quote($class, '/') . '(?![A-Za-z0-9_-])/';
-        $scoped = array(); $meanings = array();
+        $scoped = array(); $meanings = array(); $worn = array();
         foreach (array_keys($documents) as $index) {
             $document = new DOMDocument('1.0', 'UTF-8');
             $previous = libxml_use_internal_errors(true);
@@ -657,13 +659,16 @@ final class RouteStateProjector
             foreach ((new DOMXPath($document))->query('//*[self::nav or self::header or self::footer or @role="navigation" or @role="banner" or @role="contentinfo"]/descendant-or-self::*[@class]') ?: array() as $element) {
                 if (!$element instanceof DOMElement) continue;
                 $scoped[$index][] = $element;
+                foreach (self::classes($element) as $class) $worn[$class] = true;
             }
+        }
+        foreach (array_keys($documents) as $index) {
             // Each class's rules in this document's own style elements, in order.
             $rules = array(); $unaliasable = array();
             $own = $sheets[(string) $files[$index]['path']];
             ksort($own);
             foreach ($own as $sheet) {
-                $transformer->visitStyleRules(CssSyntaxScanner::withoutComments((string) $files[$sheet]['content']), static function (string $prelude, string $body, array $ancestors) use (&$rules, &$unaliasable, $classPattern, $named): void {
+                $transformer->visitStyleRules(CssSyntaxScanner::withoutComments((string) $files[$sheet]['content']), static function (string $prelude, string $body, array $ancestors) use (&$rules, &$unaliasable, $classPattern, $named, $worn): void {
                     foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) {
                         if (!preg_match_all($classPattern, $selector, $classes)) continue;
                         foreach (array_unique($classes[1]) as $class) {
@@ -673,7 +678,9 @@ final class RouteStateProjector
                                 if (preg_match($named($class), $compound) && (str_contains($compound, '(') || preg_match_all($classPattern, $compound) > 1)) $alone = false;
                             }
                             if (!$alone) { $unaliasable[$class] = true; continue; }
-                            $rules[$class][] = implode("\0", $ancestors) . "\0" . preg_replace($named($class), ".\x01", trim($selector)) . "\0" . RenderEquivalentMarkup::canonicalStyle($body);
+                            // Copies keep each route's own scope, so the slot only lets equal rules meet.
+                            $read = preg_replace_callback($classPattern, static fn(array $other): string => isset($worn[$other[1]]) ? $other[0] : ".\x02", (string) preg_replace($named($class), ".\x01", trim($selector)));
+                            $rules[$class][] = implode("\0", $ancestors) . "\0" . $read . "\0" . RenderEquivalentMarkup::canonicalStyle($body);
                         }
                     }
                 });

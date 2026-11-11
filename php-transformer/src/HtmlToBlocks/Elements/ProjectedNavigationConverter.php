@@ -29,8 +29,8 @@ final class ProjectedNavigationConverter implements ElementConverter
         private readonly HtmlTransformerSession $session,
         private readonly PatternTreeConverter $tree,
         private readonly SourceBlockCreator $createBlock,
-        private readonly ?Closure $isRuntimeDomTarget = null,
-        private readonly ?Closure $svgMarkup = null
+        private readonly RuntimeDomTargets $runtimeDomTargets,
+        private readonly Closure $svgMarkup
     ) {
     }
 
@@ -38,8 +38,7 @@ final class ProjectedNavigationConverter implements ElementConverter
     public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
         $runtimeButton = ('button' === $tagName || AuthoredButtonBlockGenerator::isRoleButton($element))
-            && $this->isRuntimeDomTarget instanceof Closure
-            && ($this->isRuntimeDomTarget)($element)
+            && $this->runtimeDomTargets->isRuntimeDomTarget($element)
             && $this->retainsRuntimeButtonBinding($element);
         $projectedNavigation = $runtimeButton ? $this->navigationToggleSuppressor->projectedNavigationTargetForControl($element) : null;
         if ( $runtimeButton && ! $projectedNavigation instanceof DOMElement ) {

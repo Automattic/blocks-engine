@@ -36,6 +36,8 @@ $bar = static fn(string $row, string $item): string => '<style>*{box-sizing:bord
 foreach ( array(
     'row, border-box' => array( 'flex-direction:row', 'flex:1 0 0;width:1px;padding:16px 24px', 'flex-basis:calc(24px + 24px)' ),
     'column, border-box' => array( 'flex-direction:column;height:200px', 'flex:1 0 0;padding:12px 24px 8px', 'flex-basis:calc(12px + 8px)' ),
+    // A bar shown only on small screens is still the items' flex container.
+    'row, hidden at desktop' => array( 'flex-direction:row}@media (min-width:1200px){.bar{display:none!important}', 'flex:1 0 0;width:1px;padding:16px 24px', 'flex-basis:calc(24px + 24px)' ),
     'row, content-box' => array( 'flex-direction:row', 'box-sizing:content-box;flex:1 0 10px;padding:0 20px;border:2px solid #000', 'flex-basis:calc(10px + 20px + 2px + 20px + 2px)' ),
 ) as $case => [ $row, $item, $basis ] ) {
     $css = $cssOf($bar($row, $item));

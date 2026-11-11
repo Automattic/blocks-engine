@@ -81,6 +81,7 @@ final class SchemaProductEvidence
         }
         foreach ($documents as $path => $content) {
             $pagePath = self::routePath(self::entryRelative($path, $entryRoot));
+            $canonicalPagePath = ltrim(self::pageRoute('/' . self::entryRelative($path, $entryRoot), $path, $entryRoot), '/');
             $language = '';
             $schemas = array();
             foreach (HtmlMarkupParser::htmlMarkupNodes($content) as $node) {
@@ -128,13 +129,13 @@ final class SchemaProductEvidence
                     if ('' !== $identity) $tokens = array('id:' . $identity);
                     $routeUrl = !isset($product['url']) && !isset($product['offers']['url']) ? '/' . self::entryRelative($path, $entryRoot) : ($fields['url'] ?? '/' . self::entryRelative($path, $entryRoot));
                     $route = ltrim(self::pageRoute($routeUrl, $path, $entryRoot), '/');
-                    if (!$listing && 1 === count($pageClaims) && '' !== $pagePath && $route === $pagePath) $detailPages[$path] = '/' . $route;
+                    if (!$listing && 1 === count($pageClaims) && '' !== $pagePath && $route === $canonicalPagePath) $detailPages[$path] = '/' . $route;
                     $hasRoute = isset($product['url']) || isset($product['offers']['url']) || in_array('ProductGroup', (array) ($product['@type'] ?? array()), true);
                     if ($hasRoute) {
                         $tokens[] = 'route:' . $route;
                         foreach ($alternates[$route] ?? array() as $alternate) $tokens[] = 'route:' . $alternate;
                     }
-                    $entries[] = array('language' => $language, 'path' => $path, 'fields' => $fields, 'tokens' => $tokens, 'routes' => $hasRoute ? array($route) : array(), 'score' => (isset($defaults[$route]) ? 2 : 0) + ($route === $pagePath ? 1 : 0));
+                    $entries[] = array('language' => $language, 'path' => $path, 'fields' => $fields, 'tokens' => $tokens, 'routes' => $hasRoute ? array($route) : array(), 'score' => (isset($defaults[$route]) ? 2 : 0) + ($route === $canonicalPagePath ? 1 : 0));
                 }
             }
         }
@@ -198,6 +199,9 @@ final class SchemaProductEvidence
         if (array_is_list($value)) foreach ($value as $child) $found = array_merge($found, self::typedNodes($child, $type));
         // hasVariant children belong to the group, never separate simple products.
         foreach (is_array($value['@graph'] ?? null) ? $value['@graph'] : array() as $child) $found = array_merge($found, self::typedNodes($child, $type));
+        $mainEntity = $value['mainEntity'] ?? null;
+        if (is_array($mainEntity) && !array_is_list($mainEntity)) $mainEntity = array($mainEntity);
+        foreach (is_array($mainEntity) ? $mainEntity : array() as $child) $found = array_merge($found, self::typedNodes($child, $type));
         foreach (is_array($value['itemListElement'] ?? null) ? $value['itemListElement'] : array() as $item) if (is_array($item)) $found = array_merge($found, self::typedNodes($item['item'] ?? null, $type));
         return $found;
     }

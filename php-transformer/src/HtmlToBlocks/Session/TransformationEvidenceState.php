@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+
 final class TransformationEvidenceState
 {
     /** @var list<array<string, mixed>> */
@@ -16,6 +18,29 @@ final class TransformationEvidenceState
     public function conversionDiagnostics(): array
     {
         return $this->conversionDiagnostics;
+    }
+
+    /** @var array<string, array<string, mixed>> Undecodable glyph findings keyed by format and source. */
+    private array $glyphColorUndecodable = array();
+
+    public function recordGlyphColorUndecodable(string $mimeType, string $src, string $sourcePath): void
+    {
+        $format = '' !== $mimeType ? strtolower($mimeType) : 'unknown';
+        $this->glyphColorUndecodable[$format . "\0" . $src] = array(
+            'code'        => 'glyph_color_undecodable',
+            'severity'    => 'warning',
+            'message'     => 'A social icon glyph could not be decoded by this PHP image library, so its authored icon colour was not carried and core default icon colours apply.',
+            'source'      => HtmlTransformer::class,
+            'mime_type'   => $format,
+            'src'         => $src,
+            'source_path' => $sourcePath,
+        );
+    }
+
+    /** @return array<string, array<string, mixed>> */
+    public function glyphColorUndecodableFindings(): array
+    {
+        return $this->glyphColorUndecodable;
     }
 
     /** @var list<string> */

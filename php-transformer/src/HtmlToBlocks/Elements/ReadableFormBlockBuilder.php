@@ -67,7 +67,6 @@ final class ReadableFormBlockBuilder
     private array $controlBoxes = array();
 
     /**
-     * @param Closure(DOMElement): bool                                                                     $isRuntimeDomTarget
      * @param Closure(DOMElement): array<string, mixed>                                                     $cssOwnedGroupAttributes
      * @param Closure(list<DOMElement>, list<array<string, mixed>>, DOMElement): array<string, mixed>       $layoutShellBlockForElements
      * @param Closure(list<DOMElement>): (array<string, mixed>|null)                                        $fieldBoxShell
@@ -76,7 +75,7 @@ final class ReadableFormBlockBuilder
         private readonly FormControlMetadataBuilder $metadataBuilder,
         private readonly ReadableFormControlBlockConverter $controlBlockConverter,
         private readonly FormRuntimeIslandRecorder $runtimeIslandRecorder,
-        private readonly Closure $isRuntimeDomTarget,
+        private readonly RuntimeDomTargets $runtimeDomTargets,
         private readonly Closure $cssOwnedGroupAttributes,
         private readonly AuthorLayoutOwnership $authorLayoutOwnership,
         private readonly ElementPresentationResolver $presentationResolver,
@@ -135,7 +134,7 @@ final class ReadableFormBlockBuilder
                 return null;
             }
 
-            if ( ($this->isRuntimeDomTarget)($control) ) {
+            if ( $this->runtimeDomTargets->isRuntimeDomTarget($control) ) {
                 $this->runtimeIslandRecorder->recordControl($control);
             }
             // The walk reads each box before it reaches the control, so a

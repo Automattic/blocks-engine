@@ -14,7 +14,7 @@ final class ButtonElementContext
         private readonly Closure $isReplacedSearchClusterControl,
         private readonly PatternTreeConverter $tree,
         private readonly Closure $convertButton,
-        private readonly ?Closure $isRuntimeDomTarget = null,
+        private readonly ?RuntimeDomTargets $runtimeDomTargets = null,
         private readonly ?Closure $runtimeButton = null,
         private readonly ?Closure $convertButtonWrapperGroup = null,
         private readonly ?Closure $imageMinimumPixelSize = null
@@ -46,7 +46,7 @@ final class ButtonElementContext
 
     public function isRuntimeDomTarget(DOMElement $element): bool
     {
-        return $this->isRuntimeDomTarget instanceof Closure && ($this->isRuntimeDomTarget)($element);
+        return true === $this->runtimeDomTargets?->isRuntimeDomTarget($element);
     }
 
     /** @return array<string, mixed>|null */

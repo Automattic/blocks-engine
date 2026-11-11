@@ -34,7 +34,8 @@ $themeUri = 'https://example.test/wp-content/themes/site';
 $references = WordPressSitePlanResolver::references($plan['reference_tokens'], $themeUri);
 $baseline = $resolver->resolve($plan, array('theme_uri' => $themeUri));
 foreach (array('pages', 'templates', 'template_parts') as $kind) foreach ($plan[$kind] as $index => $document) $assert(strtr($document['canonical_block_markup'], $references) === $baseline[$kind][$index]['resolved_block_markup'], "Without attachments, {$kind} resolve byte-identically to theme URLs.");
-foreach ($plan['writes'] as $index => $write) if ('utf8' === $write['payload']['encoding']) $assert(strtr($write['payload']['data'], WordPressSitePlanResolver::referencesForWrite($plan['reference_tokens'], $themeUri, $write['target_path'])) === $baseline['writes'][$index]['payload']['data'], 'Without attachments, writes resolve byte-identically to trunk.');
+// functions.php keeps its template-asset token table verbatim; its runtime resolves those tokens.
+foreach ($plan['writes'] as $index => $write) if ('utf8' === $write['payload']['encoding']) $assert(('functions.php' === $write['target_path'] ? $write['payload']['data'] : strtr($write['payload']['data'], WordPressSitePlanResolver::referencesForWrite($plan['reference_tokens'], $themeUri, $write['target_path']))) === $baseline['writes'][$index]['payload']['data'], 'Without attachments, writes resolve byte-identically to trunk.');
 $assert(count($plan['writes']) === count($baseline['writes']) && !isset($baseline['resolution']['attachment_resolutions']), 'Without attachments, every theme write is kept.');
 
 $resolved = $resolver->resolve($plan, array('theme_uri' => $themeUri, 'attachment_resolutions' => array(

@@ -3,29 +3,27 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
-use Closure;
 use DOMElement;
 
 /** Converts labels, group captions, and native controls into readable editable blocks. */
 final class ReadableFormControlBlockConverter
 {
     /**
-     * @param Closure(DOMElement): bool                                                                     $isRuntimeDomTarget
-     * @param Closure(DOMElement): array<string, mixed>                                                     $presentationAttributes
      */
     public function __construct(
         private readonly FormControlMetadataBuilder $metadataBuilder,
         private readonly AuthoredFormControlBlockConverter $authoredBlockConverter,
         private readonly FormRuntimeIslandRecorder $runtimeIslandRecorder,
         private readonly Runtime $runtime,
-        private readonly Closure $isRuntimeDomTarget,
-        private readonly Closure $presentationAttributes,
+        private readonly RuntimeDomTargets $runtimeDomTargets,
+        private readonly ElementPresentationResolver $presentation,
         private readonly SourceBlockCreator $createBlock,
         private readonly HtmlTransformerSession $session
     ) {
@@ -69,7 +67,7 @@ final class ReadableFormControlBlockConverter
             return null;
         }
 
-        if ( ($this->isRuntimeDomTarget)($element) ) {
+        if ( $this->runtimeDomTargets->isRuntimeDomTarget($element) ) {
             $this->runtimeIslandRecorder->recordControl($element);
             if ( 'input' === $tagName ) {
                 $inputBlock = $this->authoredBlockConverter->input($element, $label, true);
@@ -156,7 +154,7 @@ final class ReadableFormControlBlockConverter
             return null;
         }
 
-        return $this->createBlock->createBlock('core/paragraph', array_merge(($this->presentationAttributes)($element), array( 'content' => $summary )), array(), $element);
+        return $this->createBlock->createBlock('core/paragraph', array_merge($this->presentation->presentationAttributes($element), array( 'content' => $summary )), array(), $element);
     }
 
     /** @return array<string, mixed>|null */
@@ -170,7 +168,7 @@ final class ReadableFormControlBlockConverter
                     return null;
                 }
 
-                if ( ($this->isRuntimeDomTarget)($control) ) {
+                if ( $this->runtimeDomTargets->isRuntimeDomTarget($control) ) {
                     $this->runtimeIslandRecorder->recordControl($control);
                     if ( 1 === count($controls) && 'input' === strtolower($control->tagName) ) {
                         $inputBlock = $this->authoredBlockConverter->input($control, $element, true);
@@ -198,7 +196,7 @@ final class ReadableFormControlBlockConverter
             }
 
             return array() !== $blocks
-                ? $this->createBlock->createBlock('core/group', ($this->presentationAttributes)($element), $blocks, $element)
+                ? $this->createBlock->createBlock('core/group', $this->presentation->presentationAttributes($element), $blocks, $element)
                 : null;
         }
 
@@ -215,7 +213,7 @@ final class ReadableFormControlBlockConverter
         }
 
         return '' !== $label
-            ? $this->createBlock->createBlock('core/paragraph', array_merge(($this->presentationAttributes)($element), array( 'content' => $label )), array(), $element)
+            ? $this->createBlock->createBlock('core/paragraph', array_merge($this->presentation->presentationAttributes($element), array( 'content' => $label )), array(), $element)
             : null;
     }
 

@@ -31,12 +31,12 @@ final class RichTextStylingHookNormalizer
         // assigning highlighted-text semantics to mechanical carriers.
         foreach ($this->richTextStylingHookElements($body) as $inline) {
             if ('font' === strtolower($inline->tagName) && !$inline->hasAttributes()) {
-                $this->unwrapElement($inline);
+                SourceDom::unwrapElement($inline);
                 continue;
             }
             if ($this->replaceRichTextStylingHookWithMark($inline)) continue;
             if ('span' === strtolower($inline->tagName) || RichTextInlineTags::isUnknownHtmlElement($inline)) {
-                $this->unwrapElement($inline);
+                SourceDom::unwrapElement($inline);
             }
         }
         foreach ($this->richTextAnchors($body) as $anchor) {
@@ -461,20 +461,6 @@ final class RichTextStylingHookNormalizer
     /**
      * Replace an element with its children in place, dropping only the wrapper.
      */
-    public function unwrapElement(DOMElement $element): void
-    {
-        $parent = $element->parentNode;
-        if ( ! $parent instanceof DOMNode ) {
-            return;
-        }
-
-        while ( null !== $element->firstChild ) {
-            $parent->insertBefore($element->firstChild, $element);
-        }
-
-        $parent->removeChild($element);
-    }
-
     /**
      * Lift class/style styling hooks out of a block's RichText source so the
      * stored block round-trips through RichText unchanged.
@@ -557,7 +543,7 @@ final class RichTextStylingHookNormalizer
                 }
                 $hoistedDeclarations = array_merge($hoistedDeclarations, $wrapperDeclarations);
             }
-            $this->unwrapElement($wrapper);
+            SourceDom::unwrapElement($wrapper);
         }
 
         $this->normalize($body);

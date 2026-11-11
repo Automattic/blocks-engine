@@ -57,8 +57,12 @@ final class LayoutParticipation
         if ( $parent instanceof DOMElement ) {
             $parentDisplays[] = self::resolvedDisplay($parent, $styleResolver);
             // Synthesized wrappers must preserve item participation even when
-            // the parent only establishes that context at another breakpoint.
-            foreach ( $styleResolver->conditionalDisplayRules($parent) as $display ) {
+            // the parent only establishes that context at another breakpoint,
+            // including its unconditional one: a bar hidden at the reference
+            // viewport is still a flex container wherever it shows.
+            $base = $styleResolver->declaredPresentation($parent, 'display')->base();
+            $displays = '' === $base ? array() : array( $base );
+            foreach ( array_merge($displays, array_values($styleResolver->conditionalDisplayRules($parent))) as $display ) {
                 $parentDisplays[] = CssValueInspector::comparable(
                     $styleResolver->resolveCssVariablesInValue($display, $parent)
                 );

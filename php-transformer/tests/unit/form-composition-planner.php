@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormCompositionPlanner;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
@@ -44,22 +45,13 @@ $planner = new FormCompositionPlanner(
             ? array( array( 'blockName' => 'core/group', 'innerBlocks' => array( array( 'blockName' => 'core/html', '_binding_token' => $token ) ) ) )
             : $children;
     }),
-    static fn (DOMElement $element): array => array( 'className' => 'presented-' . strtolower($element->tagName) ),
+    new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array( 'className' => 'presented-' . strtolower($element->tagName) )),
     new SourceBlockCreatorFixture(static fn (string $name, array $attrs, array $innerBlocks, ?DOMElement $sourceElement): array => array(
         'blockName' => $name,
         'attrs' => $attrs,
         'innerBlocks' => $innerBlocks,
         'sourceTag' => $sourceElement?->tagName,
-    )),
-    static function (DOMElement $container, DOMElement $element): bool {
-        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
-            if ( $node === $container ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
+    ))
 );
 
 $fallbacks = array();

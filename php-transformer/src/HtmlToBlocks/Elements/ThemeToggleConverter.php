@@ -20,14 +20,12 @@ final class ThemeToggleConverter implements ElementConverter
     private const MAX_THEME_RUNTIME_EVIDENCE_BYTES = 1048576;
     /**
      * @param Closure(DOMElement): string $sanitizeInlineSvgMarkup
-     * @param Closure(): string $capturedRootTheme
      * @param Closure(DOMElement): array<string, mixed> $themeControlPresentation
      */
     public function __construct(
         private readonly SvgMaterializer $svgMaterializer,
         private readonly HtmlTransformerSession $session,
         private readonly Closure $sanitizeInlineSvgMarkup,
-        private readonly Closure $capturedRootTheme,
         private readonly Closure $themeControlPresentation
     ) {
     }
@@ -63,7 +61,7 @@ final class ThemeToggleConverter implements ElementConverter
             }
             $buttons[] = $child;
         }
-        $defaultTheme = ($this->capturedRootTheme)();
+        $defaultTheme = $this->session->sourceRootTheme();
         if ( 3 !== count($buttons) ) {
             return null;
         }
@@ -374,7 +372,7 @@ final class ThemeToggleConverter implements ElementConverter
         if ( '' === $icon || ! SourceDom::isSafeSvgContent($icon) ) {
             return null;
         }
-        $capturedRootTheme = ($this->capturedRootTheme)();
+        $capturedRootTheme = $this->session->sourceRootTheme();
         if ( ! in_array($capturedRootTheme, array( 'dark', 'light' ), true) ) {
             return null;
         }

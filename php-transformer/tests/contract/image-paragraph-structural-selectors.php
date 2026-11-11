@@ -104,8 +104,8 @@ foreach (array('route-scoped shared copy' => '', 'site-wide copy plus page copy'
         if (! in_array('*', $sources, true) && ! in_array($article, $sources, true)) continue;
         $content = (string) ($asset['content'] ?? '');
         $routeCss .= $content;
-        // Author copies are the ones carrying the author's rich-text rules.
-        if (str_contains($content, 'u-rich-text')) {
+        // Author copies come from the source files; engine support CSS does not.
+        if ('files' === ($asset['source'] ?? '')) {
             if (in_array('*', $sources, true)) $sharedCss .= $content;
             else ++$pageCopies;
         }

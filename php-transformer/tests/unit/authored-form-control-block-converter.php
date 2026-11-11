@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\AuthoredFormControlBlockConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
@@ -36,11 +37,11 @@ $elementFrom = static function (string $html, string $tagName): DOMElement {
 
 $registry = $session->requireGeneratedBlockRegistry();
 $echoStart = count($session->transformationEvidenceState()->formControlEchoTexts());
-$metadataBuilder = new FormControlMetadataBuilder(static fn (DOMElement $element): string => strtolower($element->tagName));
+$metadataBuilder = new FormControlMetadataBuilder();
 $converter = new AuthoredFormControlBlockConverter(
     $metadataBuilder,
     static fn (DOMElement $element): array => $element->hasAttribute('data-styled') ? array( 'display' => 'block' ) : array(),
-    static fn (DOMElement $element): array => array( 'className' => 'presented' ),
+    new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array( 'className' => 'presented' )),
     new SourceBlockCreatorFixture(static fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => array(
         'blockName' => $name,
         'attrs' => $attrs,
@@ -48,7 +49,6 @@ $converter = new AuthoredFormControlBlockConverter(
     )),
     $session,
     new Runtime(),
-    static fn (string $id): string => 'safe-' . $id,
     static fn (DOMElement $element): DOMElement => $element
 );
 

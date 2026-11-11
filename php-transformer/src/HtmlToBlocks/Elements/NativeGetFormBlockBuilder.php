@@ -24,9 +24,8 @@ final class NativeGetFormBlockBuilder
 
     /**
      * @param Closure(DOMElement): array<string, mixed> $presentationAttributes
-     * @param Closure(): list<string> $documentHosts Hosts the source document declares as its own.
      */
-    public function __construct(private readonly PatternTreeConverter $tree, private readonly Closure $presentationAttributes, private readonly SourceBlockCreator $createBlock, private readonly HtmlTransformerSession $session, private readonly ?Closure $documentHosts = null)
+    public function __construct(private readonly PatternTreeConverter $tree, private readonly Closure $presentationAttributes, private readonly SourceBlockCreator $createBlock, private readonly HtmlTransformerSession $session)
     {
     }
 
@@ -145,7 +144,7 @@ final class NativeGetFormBlockBuilder
             return false;
         }
         $host = self::absoluteHttpHost(SourceDom::attr($form, 'action'));
-        if ( null === $host || in_array($host, null !== $this->documentHosts ? ($this->documentHosts)() : array(), true) ) {
+        if ( null === $host || in_array($host, $this->session->declaredDocumentHosts(), true) ) {
             return false;
         }
 

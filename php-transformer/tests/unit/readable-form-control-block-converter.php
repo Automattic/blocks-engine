@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\RuntimeDomTargetsFixture;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\AuthoredFormControlBlockConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeIslandRecorder;
@@ -39,10 +41,10 @@ $createBlock = new SourceBlockCreatorFixture(static fn (string $name, array $att
     'attrs' => $attrs,
     'innerBlocks' => $innerBlocks,
 ));
-$presentationAttributes = static fn (DOMElement $element): array => array( 'className' => 'presented' );
+$presentation = new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array( 'className' => 'presented' ));
 $echoStart = count($session->transformationEvidenceState()->formControlEchoTexts());
 $recorded = array();
-$metadataBuilder = new FormControlMetadataBuilder(static fn (DOMElement $element): string => strtolower($element->tagName));
+$metadataBuilder = new FormControlMetadataBuilder();
 $runtimeRecorder = new FormRuntimeIslandRecorder(
     $metadataBuilder,
     static function (DOMElement $element, string $kind, string $reason, string $capability, array $metadata) use (&$recorded): void {
@@ -54,11 +56,10 @@ $authoredRegistry = $session->requireGeneratedBlockRegistry();
 $authoredConverter = new AuthoredFormControlBlockConverter(
     $metadataBuilder,
     static fn (DOMElement $element): array => $element->hasAttribute('data-styled') ? array( 'display' => 'block' ) : array(),
-    $presentationAttributes,
+    $presentation,
     $createBlock,
     $session,
     new Runtime(),
-    static fn (string $id): string => $id,
     static fn (DOMElement $element): DOMElement => $element
 );
 $converter = new ReadableFormControlBlockConverter(
@@ -66,8 +67,8 @@ $converter = new ReadableFormControlBlockConverter(
     $authoredConverter,
     $runtimeRecorder,
     new Runtime(),
-    static fn (DOMElement $element): bool => $element->hasAttribute('data-runtime'),
-    $presentationAttributes,
+    new RuntimeDomTargetsFixture(static fn (DOMElement $element): bool => $element->hasAttribute('data-runtime')),
+    $presentation,
     $createBlock,
     $session
 );

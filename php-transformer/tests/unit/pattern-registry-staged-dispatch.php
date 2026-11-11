@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
@@ -26,7 +27,7 @@ if ( ! $spacerElement instanceof DOMElement ) {
     throw new RuntimeException('Spacer fixture did not produce a DOM element.');
 }
 $spacerContext = new PatternContext(
-    static fn (DOMElement $source, array $excluded = array()): array => array( 'style' => array( 'dimensions' => array( 'minHeight' => '1rem' ) ) )
+    new ElementPresentationResolverFixture(static fn (DOMElement $source, array $excluded = array()): array => array( 'style' => array( 'dimensions' => array( 'minHeight' => '1rem' ) ) ))
 );
 $spacerResult = (new PatternRecognizerRegistry(array( new SpacerPattern(new SourceBlockCreatorFixture(static fn (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null): array => array( 'blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $children ))) )))->firstMatch($spacerElement, $spacerContext, array( SpacerPattern::class ));
 $assert('core/spacer' === ($spacerResult?->block()['blockName'] ?? null), 'Spacer is dispatched directly by class through the pattern registry.');
@@ -174,7 +175,7 @@ $navigationConverter = new class implements PatternTreeConverter {
     }
 };
 $navigationContext = new PatternContext(
-    static fn (DOMElement $source, array $excluded = array()): array => array(),
+    new ElementPresentationResolverFixture(static fn (DOMElement $source, array $excluded = array()): array => array()),
     $navigationConverter,
     new NavigationPatternContext()
 );
@@ -182,7 +183,7 @@ $navigationResult = (new NavigationPattern($createBlock))->recognize($navigation
 $assert('core/group' === ($navigationResult?->block()['blockName'] ?? null), 'Navigation brand carrier wins with a recursively converted brand.');
 $assert('brand_fallback' === ($navigationResult?->fallbacks()[0]['diagnostic_code'] ?? null), 'Navigation commits recursive brand diagnostics through its winning carrier.');
 
-$probeContext = new PatternContext(static fn (DOMElement $source): array => array());
+$probeContext = new PatternContext(new ElementPresentationResolverFixture(static fn (DOMElement $source): array => array()));
 (new NavigationPattern($createBlock))->recognize($navigationElement, $probeContext);
 $assert(1 === $navigationConverter->calls, 'Navigation probe context performs no recursive conversion side effects.');
 

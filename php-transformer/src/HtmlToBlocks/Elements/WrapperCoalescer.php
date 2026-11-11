@@ -116,9 +116,9 @@ final class WrapperCoalescer
         $candidate = $this->collectWrapperChain($block, $depth);
         $chain = $candidate['chain'];
         $terminal = $candidate['terminal'];
-        // Div ancestors have an exact native representation regardless of the
-        // terminal's editing surface (including an empty extracted subtree).
-        // Depth is diagnostic-only; folding adds debt without changing the DOM.
+        // Div wrappers already have an exact native representation, including
+        // around empty/extracted or generated terminals. Folding them trades
+        // independently editable Groups for a companion without changing DOM.
         $nativeGroupTree = array() === array_filter($chain, static fn (array $entry): bool => 'div' !== ($entry['descriptor']['tagName'] ?? null));
         $terminalIsShell = $this->sourceElementClassifier->isLayoutShellBlock($terminal);
         if (!$nativeGroupTree && (2 <= count($chain) || (array() !== $chain && $terminalIsShell))) {

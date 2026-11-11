@@ -22,7 +22,6 @@ final class RichTextElementContext
      * @param Closure(DOMElement): ?array<string, mixed>                                                     $authoredMarqueeBlock
      * @param Closure(DOMElement): bool                                                                      $hasEmptyVisualInlineChild
      * @param Closure(DOMElement): bool                                                                      $hasBoxChromeWrapperStyling
-     * @param Closure(DOMElement): bool                                                                      $isRuntimeDomTarget
      * @param Closure(DOMElement): ?array<string, mixed>                                                     $imageBlockFromParagraph
      * @param Closure(DOMElement, array<int, array<string, mixed>>): ?array<string, mixed>                   $mixedMediaLinkGroupFromParagraph
      * @param Closure(DOMElement): ?array<string, mixed>                                                     $compactLinkedIconTextRowFromParagraph
@@ -34,7 +33,7 @@ final class RichTextElementContext
         private readonly Closure $authoredMarqueeBlock,
         private readonly Closure $hasEmptyVisualInlineChild,
         private readonly Closure $hasBoxChromeWrapperStyling,
-        private readonly Closure $isRuntimeDomTarget,
+        private readonly RuntimeDomTargets $runtimeDomTargets,
         private readonly Closure $imageBlockFromParagraph,
         private readonly Closure $mixedMediaLinkGroupFromParagraph,
         private readonly Closure $compactLinkedIconTextRowFromParagraph,
@@ -79,7 +78,7 @@ final class RichTextElementContext
 
     public function isRuntimeDomTarget(DOMElement $element): bool
     {
-        return ($this->isRuntimeDomTarget)($element);
+        return $this->runtimeDomTargets->isRuntimeDomTarget($element);
     }
 
     /** @return array<string, mixed>|null */

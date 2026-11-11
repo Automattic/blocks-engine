@@ -612,6 +612,7 @@ PHP;
         $assets = self::placeSharedStylesheetProjections($assets, $pages);
         $assets = self::mergeIdenticalPageStylesheets($assets, array_merge($pages, $parts, $frameParts));
         $assets = EditorStaticStateAssets::share($assets, $references);
+        $assets = self::foldDocumentSupport($assets, self::assetOwnerDocuments($pages, $rootDocuments), self::canonicalSupportDocuments(self::assetOwnerDocuments($assetPages, $rootDocuments)), implode("\n", array_column(array_merge($parts, $frameParts), 'canonical_block_markup')));
         $tokens = $this->tokens($assets);
         if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
         $runtimeDeclarations = $shells['runtime_declarations'];
@@ -1643,7 +1644,130 @@ PHP;
             $asset['scopes'] = array(self::stylesheetDocumentScope($page));
         }
         unset($asset);
-        return self::allocateDocumentSupport($assets, array_keys(array_filter($documentsBySource, static fn(array $page): bool => empty($page['synthetic']))));
+        return self::allocateDocumentSupport($assets, self::canonicalSupportDocuments($documentsBySource));
+    }
+
+    /**
+     * @param array<string,array<string,mixed>> $documentsBySource
+     * @return list<string>
+     */
+    private static function canonicalSupportDocuments(array $documentsBySource): array
+    {
+        return array_keys(array_filter($documentsBySource, static fn(array $page): bool => empty($page['synthetic'])));
+    }
+
+    /**
+     * Fold each run of adjacent allocated support sheets with one delivery
+     * into a single resource, in their existing rule order. A rule reaches
+     * routes outside its owners only where it provably matches nothing in
+     * their documents; otherwise a zero-weight route gate keeps it on its
+     * owners. Rules that can be neither proven nor gated keep their sheet.
+     *
+     * Each document is proven with every template part's markup, since any
+     * of them may render on it.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @param array<string,array<string,mixed>> $documentsBySource
+     * @param list<string> $canonicalSources
+     * @return array<int,array<string,mixed>>
+     */
+    private static function foldDocumentSupport(array $assets, array $documentsBySource, array $canonicalSources, string $sharedMarkup = ''): array
+    {
+        $routeClasses = array();
+        foreach ($canonicalSources as $source) {
+            $class = (string) ($documentsBySource[$source]['document_metadata']['root_attributes']['class'] ?? '');
+            if (preg_match('/(?:^|\s)(be-r-[0-9a-f]+)(?:\s|$)/', $class, $match)) $routeClasses[$source] = $match[1];
+        }
+        $index = null;
+        $transformer = new \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer();
+        // The rules a member contributes to a fold, or null when one of them
+        // can be neither proven inert outside its owners nor gated to them.
+        $foldable = static function (array $asset) use (&$index, $documentsBySource, $canonicalSources, $routeClasses, $transformer, $sharedMarkup): ?string {
+            $owners = array_column($asset['scopes'], 'source_path');
+            if (in_array('global', array_column($asset['scopes'], 'kind'), true)) return (string) $asset['content'];
+            $outside = array_fill_keys(array_diff($canonicalSources, $owners), true);
+            $gate = array();
+            foreach ($owners as $owner) {
+                if (!isset($routeClasses[$owner])) return null;
+                $gate[] = '.' . $routeClasses[$owner];
+            }
+            sort($gate);
+            $scope = ':where(:root:is(' . implode(',', $gate) . '))';
+            if (null === $index) {
+                $documents = array();
+                foreach ($canonicalSources as $source) {
+                    // A document without emitted markup (a WordPress-rendered
+                    // archive) is never evidence that a rule is inert there.
+                    if (!is_string($documentsBySource[$source]['canonical_block_markup'] ?? null) || '' === trim($documentsBySource[$source]['canonical_block_markup'])) continue;
+                    $dom = new \DOMDocument();
+                    $previous = libxml_use_internal_errors(true);
+                    $loaded = $dom->loadHTML('<?xml encoding="UTF-8"><html><body>' . $documentsBySource[$source]['canonical_block_markup'] . "\n" . $sharedMarkup . '</body></html>');
+                    libxml_clear_errors();
+                    libxml_use_internal_errors($previous);
+                    if (!$loaded) continue;
+                    foreach (array('html' => 'root_attributes', 'body' => 'body_attributes') as $tag => $key) {
+                        $element = $dom->getElementsByTagName($tag)->item(0);
+                        foreach ($documentsBySource[$source]['document_metadata'][$key] ?? array() as $name => $value) $element?->setAttribute((string) $name, (string) $value);
+                    }
+                    $documents[$source] = $dom;
+                }
+                $index = new \Automattic\BlocksEngine\PhpTransformer\Css\RouteSelectorMatchIndex($documents);
+            }
+            $failed = false;
+            $content = $transformer->transformStyleRules((string) $asset['content'], static function (string $prelude, string $body) use ($index, $outside, $scope, &$failed): string {
+                $arms = \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer::splitSelectorList($prelude);
+                if (null === $arms) { $failed = true; return ''; }
+                $arms = array_map('trim', $arms);
+                if (array() === array_filter($arms, static fn(string $arm): bool => !$index->inertOutside($arm, $outside))) return $prelude . '{' . $body . '}';
+                $scoped = \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer::routeScopedArms($arms, $scope);
+                if (null === $scoped) { $failed = true; return ''; }
+                return implode(',', $scoped) . '{' . $body . '}';
+            });
+            return $failed ? null : $content;
+        };
+        // A member is still its own support sheet (sheets projected from
+        // support, such as shared chrome, carry their own target) and has no
+        // url() or statement whose meaning its file position decides.
+        $delivery = static fn(array $asset): ?string => 'engine-support' === ($asset['source'] ?? '') && 'css' === ($asset['kind'] ?? null) && str_starts_with(basename((string) ($asset['target_path'] ?? '')), 'engine-support-')
+            && is_string($asset['content'] ?? null) && 1 !== preg_match('/url\(|@import|@charset|@namespace/i', $asset['content'])
+            ? serialize(array($asset['stylesheet_placement'] ?? '', $asset['stylesheet_target'] ?? 'both', $asset['media'] ?? '')) : null;
+        // A fold takes the position of its first member, so other assets keep
+        // their order.
+        $result = $run = array();
+        $slot = 0;
+        $flush = static function () use (&$run, &$result, &$slot, $canonicalSources): void {
+            if (count($run) < 2) {
+                if (array() !== $run) $result[$slot] = $run[0]['asset'];
+                $run = array();
+                return;
+            }
+            $asset = $run[0]['asset'];
+            $scopes = array();
+            foreach ($run as $member) foreach ($member['asset']['scopes'] as $scope) $scopes['global' === $scope['kind'] ? '' : $scope['source_path']] = $scope;
+            $sources = array_diff(array_keys($scopes), array(''));
+            $asset = self::withRewrittenTextContent($asset, implode("\n", array_column($run, 'content')));
+            $path = 'assets/css/engine-support-' . ($asset['stylesheet_placement'] ?? 'after-author') . '-' . substr(hash('sha256', serialize(array_keys($scopes)) . $asset['content']), 0, 16) . '.css';
+            $asset['source_path'] = $path;
+            $asset['target_path'] = 'assets/' . $path;
+            $asset['token'] = 'asset-' . substr(hash('sha256', $asset['target_path']), 0, 16);
+            $asset['reconciliation_identity'] = self::identity('asset', $path, $asset['target_path']);
+            ksort($scopes);
+            $asset['scopes'] = isset($scopes['']) || (count($sources) === count($canonicalSources) && array() === array_diff($canonicalSources, $sources))
+                ? array(array('kind' => 'global')) : array_values($scopes);
+            $result[$slot] = $asset;
+            $run = array();
+        };
+        foreach ($assets as $asset) {
+            $key = $delivery($asset);
+            if ('css' !== ($asset['kind'] ?? null)) { $result[] = $asset; continue; }
+            $content = null === $key ? null : $foldable($asset);
+            if (null === $content || (array() !== $run && $run[0]['key'] !== $key)) $flush();
+            if (null === $content) { $result[] = $asset; continue; }
+            if (array() === $run) $result[$slot = count($result)] = null;
+            $run[] = array('key' => $key, 'asset' => $asset, 'content' => $content);
+        }
+        $flush();
+        return array_values($result);
     }
 
     /**
@@ -2108,6 +2232,51 @@ PHP;
      *
      * @param array{patterns:list<string>,richtext:list<string>} $matcher from generatedClassMatcher()
      */
+    /**
+     * The side of a selector that one stylesheet keeps when its `:is()` or
+     * `:where()` lists group generated classes the shared parts carry with
+     * generated classes only route content carries
+     * (`:where(.blocks-engine-control-a-0,.blocks-engine-control-b-0) > a`).
+     * Shared chrome is enqueued after the route stylesheet, so a lifted
+     * route alternative would override the route's later rules for that
+     * content. The chrome side keeps chrome and neutral alternatives; the
+     * route side keeps route and neutral alternatives, or is null when the
+     * selector groups no route alternative. A side whose list is left empty
+     * matches nothing and is null.
+     * @param array{patterns:list<string>,richtext:list<string>} $matcher
+     */
+    private static function generatedAlternatives(string $selector, array $matcher, bool $chrome): ?string
+    {
+        $result = ''; $offset = 0; $length = strlen($selector); $routeAlternatives = false;
+        while (preg_match('/:(?:is|where)\(/i', $selector, $match, PREG_OFFSET_CAPTURE, $offset)) {
+            $open = $match[0][1] + strlen($match[0][0]);
+            $depth = 1; $quote = null;
+            for ($cursor = $open; $cursor < $length && $depth > 0; ++$cursor) {
+                $char = $selector[$cursor];
+                if (null !== $quote) { if ('\\' === $char) ++$cursor; elseif ($char === $quote) $quote = null; continue; }
+                if ('"' === $char || "'" === $char) $quote = $char;
+                elseif ('\\' === $char) ++$cursor;
+                elseif ('(' === $char) ++$depth;
+                elseif (')' === $char) --$depth;
+            }
+            if (0 !== $depth) return $chrome ? $selector : null;
+            $alternatives = CssStylesheetTransformer::splitSelectorList(substr($selector, $open, $cursor - 1 - $open));
+            if (null === $alternatives) return $chrome ? $selector : null;
+            $kept = array();
+            foreach ($alternatives as $alternative) {
+                $generated = 1 === preg_match(self::GENERATED_CLASS_PATTERN, self::positiveSelector($alternative));
+                $carried = $generated && self::selectorTargetsGeneratedClass($alternative, $matcher);
+                if ($generated && !$carried) $routeAlternatives = true;
+                if (!$generated || $carried === $chrome) $kept[] = trim($alternative);
+            }
+            if (array() === $kept) return null;
+            $result .= substr($selector, $offset, $open - $offset) . implode(',', $kept) . ')';
+            $offset = $cursor;
+        }
+        if (!$chrome && !$routeAlternatives) return null;
+        return $result . substr($selector, $offset);
+    }
+
     private static function selectorTargetsGeneratedClass(string $selector, array $matcher): bool
     {
         $positive = self::positiveSelector($selector);
@@ -2976,7 +3145,7 @@ PHP;
             $unparseable = false;
             $shared = (new CssStylesheetTransformer())->transformStyleRules(
                 $asset['content'],
-                static function (string $prelude, string $body) use ($liftsToChrome, $reanchor, $inheritedContexts, $liveElementMarkers, &$matched, &$unparseable): string {
+                static function (string $prelude, string $body) use ($liftsToChrome, $reanchor, $inheritedContexts, $liveElementMarkers, $classMatcher, &$matched, &$unparseable): string {
                     $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
                     if (null === $selectors) {
                         $unparseable = true;
@@ -3002,6 +3171,9 @@ PHP;
                     }
                     $kept = array_values(array_filter($selectors, $liftsToChrome));
                     if (array() === $kept) return $inherited;
+                    // A grouped selector lifts only the alternatives the parts carry.
+                    $kept = array_values(array_filter(array_map(static fn (string $selector): ?string => self::generatedAlternatives($selector, $classMatcher, true), $kept), 'is_string'));
+                    if (array() === $kept) return $inherited;
                     if (null !== $liveElementMarkers) {
                         $kept = array_values(array_filter(array_map(static fn (string $selector): ?string => self::withoutDeadElementMarkers($selector, $liveElementMarkers), $kept), 'is_string'));
                         // Every selector named only replaced elements: the rule matches nothing.
@@ -3017,10 +3189,11 @@ PHP;
             }
             $route = (new CssStylesheetTransformer())->transformStyleRules(
                 $asset['content'],
-                static function (string $prelude, string $body) use ($targetsChrome): string {
+                static function (string $prelude, string $body) use ($targetsChrome, $classMatcher): string {
                     $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
                     if (null === $selectors) return $prelude . '{' . $body . '}';
-                    $kept = array_values(array_filter($selectors, static fn (string $selector): bool => ! $targetsChrome($selector)));
+                    // Alternatives naming only route content stay in source order on the route.
+                    $kept = array_values(array_filter(array_map(static fn (string $selector): ?string => ! $targetsChrome($selector) ? $selector : self::generatedAlternatives($selector, $classMatcher, false), $selectors), 'is_string'));
                     return array() === $kept ? '' : implode(',', $kept) . '{' . $body . '}';
                 }
             );
@@ -6418,7 +6591,9 @@ PHP;
             return 'body';
         }
         $text = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($slice), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '', " \t\n\r\0\x0B\xC2\xA0");
-        if ('' === $text || in_array($name, array('separator', 'spacer'), true) || preg_match('/\bseparator\b/', (string) (self::listingBlockAttributes($slice)['className'] ?? ''))) {
+        // A separator class marks a divider only while it renders no words;
+        // Blogger also names authored text wrappers "separator".
+        if ('' === $text || in_array($name, array('separator', 'spacer'), true) || (preg_match('/\bseparator\b/', (string) (self::listingBlockAttributes($slice)['className'] ?? '')) && !preg_match('/[\p{L}\p{N}]/u', $text))) {
             return 'chrome';
         }
         // Recognize actual article leaves before considering unbound card text.
@@ -7036,8 +7211,11 @@ PHP;
             // device markers, stylesheet-set titles and disabled states.
             $lines[] = "add_filter( 'css_do_concat', static function ( \$do_concat, \$handle ) use ( \$blocks_engine_stylesheet_attributes ) { return isset( \$blocks_engine_stylesheet_attributes[ \$handle ] ) ? false : \$do_concat; }, 10, 2 );";
         }
+        // Pages count too: a consumer may publish a theme template from a page's
+        // canonical markup (a store's product archive keeps its asset tokens),
+        // and only this resolver turns those tokens into theme URLs on render.
         $templateAssetTokens = array();
-        foreach (array_merge($templates, $parts) as $document) if (str_contains((string) ($document['canonical_block_markup'] ?? ''), self::TOKEN_PREFIX)) foreach ($tokens as $token) if (is_string($token['token'] ?? null) && is_string($token['target_path'] ?? null)) $templateAssetTokens[self::TOKEN_PREFIX . $token['token'] . '}}'] = $token['target_path'];
+        foreach (array_merge($templates, $parts, $pages) as $document) if (str_contains((string) ($document['canonical_block_markup'] ?? ''), self::TOKEN_PREFIX)) foreach ($tokens as $token) if (is_string($token['token'] ?? null) && is_string($token['target_path'] ?? null)) $templateAssetTokens[self::TOKEN_PREFIX . $token['token'] . '}}'] = $token['target_path'];
         if (array() !== $templateAssetTokens) {
             $lines[] = '$blocks_engine_template_asset_tokens = ' . var_export($templateAssetTokens, true) . ';';
             $lines[] = '$blocks_engine_template_attachment_ids = array();';
