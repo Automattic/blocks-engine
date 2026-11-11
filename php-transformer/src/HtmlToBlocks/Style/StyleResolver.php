@@ -2887,8 +2887,18 @@ final class StyleResolver implements ElementPresentationResolver
      * overrides on this element. They never render, so reading them as the
      * element's authored presentation (block attributes, geometry carriers)
      * would project a value the source never showed.
+     *
+     * Applies to every styled descendant of $root, collected up front so the
+     * style rewrites never disturb the iteration.
      */
-    public function dropAuthorOverriddenInlineDeclarations(DOMElement $element): void
+    public function dropAuthorOverriddenInlineDeclarations(DOMElement $root): void
+    {
+        foreach ( iterator_to_array((new \DOMXPath($root->ownerDocument))->query('.//*[@style]', $root)) as $element ) {
+            $this->dropAuthorOverriddenInlineDeclarationsOn($element);
+        }
+    }
+
+    private function dropAuthorOverriddenInlineDeclarationsOn(DOMElement $element): void
     {
         $inline = $this->verbatimCssDeclarations(SourceDom::attr($element, 'style'));
         if ( array() === $inline ) {

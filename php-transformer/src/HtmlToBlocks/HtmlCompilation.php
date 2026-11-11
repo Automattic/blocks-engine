@@ -1313,23 +1313,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         SourceDom::unwrapLineBreakOnlyLinks($body);
         // Resolve before dispatch: controls, rich text, and preserved markup
         // serialize source images without passing through native image lowering.
-        // Use a static node set: indexed iteration of a live DOMNodeList can
-        // repeatedly scan the document as the number of gallery images grows.
-        $sourceImages = (new \DOMXPath($document))->query('.//img', $body);
-        foreach ( $sourceImages as $image ) {
-            $source = $this->imageUrls->sourceUrl($image);
-            if ( '' !== $source && $source !== SourceDom::attr($image, 'src') ) {
-                $image->setAttribute('src', $source);
-            }
-        }
-        $definitionClips = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::replacements($body);
-        if (array() !== $definitionClips) {
-            foreach ($body->getElementsByTagName('*') as $sourceElement) {
-                if ($sourceElement->hasAttribute('style')) {
-                    $sourceElement->setAttribute('style', \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::rewrite($sourceElement->getAttribute('style'), $definitionClips));
-                }
-            }
-        }
+        $this->imageUrls->resolveSourceImages($body);
+        \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::rewriteInlineStyles($body);
         CapturedNavigationPanels::restoreNative($body);
         CapturedNavigationPanels::restoreRestingStates($body);
         // Capture evidence, not content: read before anything serializes the source.
@@ -1347,13 +1332,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
         // Body-only parsing must retain the html ancestor that owns inherited
         // custom properties and participates in authored root selectors.
-        $rootAttributes = \Automattic\BlocksEngine\PhpTransformer\Support\DocumentRootAttributes::fromHtml($html);
-        if (array() !== $rootAttributes) {
-            $root = $document->createElement('html');
-            foreach ($rootAttributes as $name => $value) $root->setAttribute($name, $value);
-            $document->replaceChild($root, $body);
-            $root->appendChild($body);
-        }
+        \Automattic\BlocksEngine\PhpTransformer\Support\DocumentRootAttributes::restoreRoot($body, $html);
 
         // Document metadata (`<link>`, `<meta>`, `<base>`, `<title>`) generates no
         // rendered box and belongs in `<head>`, but browsers tolerate it anywhere
@@ -1392,10 +1371,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // Author-selector preparation marks source nodes for later projection.
         // General style matching begins only after those source mutations settle.
         $this->session->sourceStyleResolutionState()->invalidateSelectorMatches();
-        $styledElements = iterator_to_array((new \DOMXPath($document))->query('.//*[@style]', $body));
-        foreach ( $styledElements as $styledElement ) {
-            $this->styleResolver->dropAuthorOverriddenInlineDeclarations($styledElement);
-        }
+        $this->styleResolver->dropAuthorOverriddenInlineDeclarations($body);
         $this->session->sourceStyleResolutionState()->invalidateSelectorMatches();
         $this->styleResolver->collectEditorHiddenStateFindings($body);
         $this->session->reusableComponentState()->installRecognition($this->reusableComponentRecognizer->recognize($body));
