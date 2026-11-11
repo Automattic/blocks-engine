@@ -902,6 +902,12 @@ final class ShellExtraction
     {
         $markup = $index->markup;
         $children = $index->children($range);
+        // Builder layout carriers can hide the split several levels below the
+        // leading sibling. Inspect that sole child before claiming the entire
+        // page wrapper as chrome; removal must still use the actual header row.
+        if (1 === count($children)) {
+            return self::chromeSplitIsInside($index, $children[0]);
+        }
         if (count($children) < 2) {
             return false;
         }
