@@ -3780,6 +3780,11 @@ final class AuthorStylesheetProjector
             return null;
         }
         $start = (int) $rightmost['start'];
+        // The carrier re-parents the subject, so sibling-indexed pseudo-classes
+        // would be evaluated against different siblings than in the source.
+        if ( 1 === preg_match('/:(?:first|last|only|nth)-|:nth-/i', substr($selector, $start)) ) {
+            return null;
+        }
         $projected = substr($selector, 0, $start) . ':where(.' . self::INLINE_LAYOUT_CARRIER_CLASS . ')>' . substr($selector, $start);
         return $this->matchesEmittedMarkup(CssSelectorMatcher::parse($projected), $context->emittedMarkup) ? $projected : null;
     }

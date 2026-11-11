@@ -56,4 +56,11 @@ $checkDiagnostics = static function (array $value) use (&$checkDiagnostics, $ass
     }
 };
 $checkDiagnostics($plan);
+// Sibling-indexed subjects keep their source arm only: the carrier changes siblings.
+$fixture = dirname(__DIR__, 3) . '/fixtures/solved/89-static-site-importer-architecture';
+$footer = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => (string) file_get_contents($fixture . '/index.html'),
+    'css/site.css' => (string) file_get_contents($fixture . '/css/site.css'),
+)))->toArray();
+$assert(str_contains(json_encode($footer), 'footer > a:last-child') && ! str_contains(json_encode($footer), 'inline-layout-carrier)>a:last-child'), 'A last-child subject must not gain a carrier hop that matches the footer brand link.');
 echo "inline-layout carrier child combinator contract passed.\n";
