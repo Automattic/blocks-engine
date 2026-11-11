@@ -7212,7 +7212,12 @@ PHP;
         $templateAssetTokens = array();
         foreach ($tokens as $token) if (isset($referenced[$token['token'] ?? null]) && is_string($token['target_path'] ?? null)) $templateAssetTokens[self::TOKEN_PREFIX . $token['token'] . '}}'] = $token['target_path'];
         if (array() !== $templateAssetTokens) {
-            $lines[] = '$blocks_engine_template_asset_tokens = ' . var_export($templateAssetTokens, true) . ';';
+            // These are runtime lookup keys, not materialization references.
+            // Keep the reserved token syntax out of the published PHP so a
+            // materializer cannot replace (or reject) the dictionary's keys.
+            $runtimeTokens = array();
+            foreach ($templateAssetTokens as $token => $path) $runtimeTokens[] = "    ('{{' . " . var_export(substr($token, 2), true) . ') => ' . var_export($path, true);
+            $lines[] = '$blocks_engine_template_asset_tokens = array(' . implode(",\n", $runtimeTokens) . ');';
             $lines[] = '$blocks_engine_template_attachment_ids = array();';
             $lines[] = '$blocks_engine_resolve_template_assets = static function ( string $content ) use ( $blocks_engine_template_asset_tokens, $blocks_engine_template_attachment_ids ): string {';
             // A file-system path and a URL path are different encodings of the

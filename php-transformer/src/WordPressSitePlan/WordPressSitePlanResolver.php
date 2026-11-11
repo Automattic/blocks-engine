@@ -174,7 +174,9 @@ final class WordPressSitePlanResolver
             // Publish only IDs: the generated runtime looks up URLs on the current host.
             $ids = array();
             foreach ($attachments as $token => $attachment) $ids[WordPressSitePlan::TOKEN_PREFIX . $token . '}}'] = $attachment['id'];
-            return str_replace('$blocks_engine_template_attachment_ids = array();', '$blocks_engine_template_attachment_ids = ' . var_export($ids, true) . ';', $content);
+            $entries = array();
+            foreach ($ids as $token => $id) $entries[] = "('{' . " . var_export(substr($token, 1), true) . ') => ' . var_export($id, true);
+            return str_replace('$blocks_engine_template_attachment_ids = array();', '$blocks_engine_template_attachment_ids = array(' . implode(', ', $entries) . ');', $content);
         }
         if (str_starts_with($targetPath, 'templates/') || str_starts_with($targetPath, 'parts/')) return $content;
         if (str_ends_with(strtolower($targetPath), '.css')) $content = self::resolveCustomPropertyTokens($content, $tokens, $themeUri, $attachments);
