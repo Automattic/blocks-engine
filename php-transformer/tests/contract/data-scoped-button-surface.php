@@ -10,10 +10,17 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
 };
-$html = file_get_contents(dirname(__DIR__) . '/fixtures/data-scoped-button-surface.html');
+$attributeHtml = file_get_contents(dirname(__DIR__) . '/fixtures/data-scoped-button-surface.html');
+// The same scope as an ancestor predicate (`[data-scope] .action-button`)
+// projects through the ancestry path and must keep the same wrapper contract.
+$ancestryHtml = str_replace(
+    array('.action-button[data-scope]', '<a class="action-button" data-scope="" href="#contact"', 'Contact</a>', '<p>Read the <a class="action-button" data-scope=""'),
+    array('[data-scope] .action-button', '<div data-scope=""><a class="action-button" href="#contact"', 'Contact</a></div>', '<p data-scope="">Read the <a class="action-button"'),
+    $attributeHtml
+);
 // Exercise the complete artifact/site-plan path used by the importer, both a
 // standalone control and one participating directly in an authored flex layout.
-foreach (array(false, true) as $flex) {
+foreach (array(array($attributeHtml, false), array($attributeHtml, true), array($ancestryHtml, false), array($ancestryHtml, true)) as [$html, $flex]) {
     $source = $flex ? str_replace(array('<body>', '</body>'), array('<body><div style="display:flex">', '</div></body>'), $html) : $html;
     $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $source)))->toArray();
     $plan = $result['source_reports']['wordpress_site_plan'];

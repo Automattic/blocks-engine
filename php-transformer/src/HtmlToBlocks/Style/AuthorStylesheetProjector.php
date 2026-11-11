@@ -2880,6 +2880,16 @@ final class AuthorStylesheetProjector
         if ('' === $scope && preg_match('/^\s*((?::where\([^(),]+\)\s+)+)/i', $selector, $scopeMatch)) {
             $scope = trim((string) $scopeMatch[1]) . ' ';
         }
+        // The attribute marker is per selector: when a match lowered to
+        // core/button carries it onto the generated wrappers, the arm for the
+        // selector's other subjects must not paint those wrappers too.
+        $wrapperGuard = '';
+        foreach ( $matches as $element ) {
+            if ( '' !== $context->selectorProjections->controlMarker($element->getNodePath() ?? '') ) {
+                $wrapperGuard = ':not(.wp-block-buttons):not(.wp-block-button)';
+                break;
+            }
+        }
         foreach ( $matches as $element ) {
             $navigationTarget = $context->selectorProjections->navigationSubject($element->getNodePath() ?? '');
             if ( '' !== $navigationTarget ) {
@@ -2937,7 +2947,7 @@ final class AuthorStylesheetProjector
                 $projected[] = $base . '> :where(.wp-block-button)' . $this->buttonLinkTarget($context);
                 continue;
             }
-            $projected[] = $scope . ':where(' . $target . ')' . $shims;
+            $projected[] = $scope . ':where(' . $target . ('#' === $target[0] ? '' : $wrapperGuard) . ')' . $shims;
         }
         return array_values(array_unique($projected));
     }
