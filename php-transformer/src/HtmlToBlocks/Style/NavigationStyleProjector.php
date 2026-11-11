@@ -1110,7 +1110,7 @@ final class NavigationStyleProjector
             }
 
             if ( array() === ($candidate['conditions'] ?? array()) && '' === ($candidate['pseudo'] ?? '') ) {
-                $inline = $this->styleResolver->safeVisualDeclarations($this->styleResolver->cssDeclarations(SourceDom::attr($anchor, 'style')));
+                $inline = $this->styleResolver->safeVisualDeclarations($this->styleResolver->inlineDeclarations($anchor));
                 if ( array_key_exists($property, $inline) ) {
                     $entry = array(
                         'id' => -1,

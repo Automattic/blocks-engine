@@ -44,7 +44,7 @@ final class EmptyElementFootprint
                 case 'drop':
                     return false;
                 case 'hidden':
-                    $inline = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
+                    $inline = $this->styleResolver->inlineDeclarations($element);
                     $opacity = CssValueInspector::comparable((string) ($inline['opacity'] ?? ''));
                     $paintDeclarations = array_merge($this->styleResolver->structuralPresentationDeclarations($element), $inline);
                     $authoredPaint = array() !== array_intersect_key($paintDeclarations, array_flip(array( 'background', 'background-color', 'background-image' )));
@@ -118,8 +118,8 @@ final class EmptyElementFootprint
         }
         $parentBase = $this->styleResolver->structuralPresentationDeclarations($parent);
         $base = $this->styleResolver->structuralPresentationDeclarations($element);
-        $parentInline = $this->styleResolver->cssDeclarations(SourceDom::attr($parent, 'style'));
-        $inline = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
+        $parentInline = $this->styleResolver->inlineDeclarations($parent);
+        $inline = $this->styleResolver->inlineDeclarations($element);
         foreach ($conditions as $stack) {
             // Read both boxes in the same responsive state. Never combine a
             // phone flex parent with a size declared only for desktop (#4276).
@@ -389,7 +389,7 @@ final class EmptyElementFootprint
         }
         $declarations = array_merge(
             $this->styleResolver->structuralPresentationDeclarations($element),
-            $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'))
+            $this->styleResolver->inlineDeclarations($element)
         );
         return ! in_array(CssValueInspector::comparable((string) ($declarations['display'] ?? '')), array( 'none', 'contents' ), true)
             && ! $this->isOutOfFlow($declarations);

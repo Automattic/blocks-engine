@@ -344,9 +344,9 @@ final class AuthoredMarqueeRecognizer
         $this->generatedBlocks()->register(AuthoredMarqueeBlockGenerator::class, ( new AuthoredMarqueeBlockGenerator() )->definition($this->generatedBlocks()->namespace()));
 
         $duration = 40.0;
-        $durationCandidates = array( $this->styleResolver->cssDeclarations(SourceDom::attr($track, 'style'))['--marquee-duration'] ?? '' );
+        $durationCandidates = array( $this->styleResolver->inlineDeclarations($track)['--marquee-duration'] ?? '' );
         for ( $carrier = $element; $carrier instanceof DOMElement && 'body' !== strtolower($carrier->tagName); $carrier = $carrier->parentNode instanceof DOMElement ? $carrier->parentNode : null ) {
-            $durationCandidates[] = $this->styleResolver->cssDeclarations(SourceDom::attr($carrier, 'style'))['--marquee-duration'] ?? '';
+            $durationCandidates[] = $this->styleResolver->inlineDeclarations($carrier)['--marquee-duration'] ?? '';
         }
         foreach ( $durationCandidates as $value ) {
             if ( preg_match('/^([0-9]+(?:\.[0-9]+)?)s$/', trim((string) $value), $matches) ) {
@@ -473,7 +473,7 @@ final class AuthoredMarqueeRecognizer
         }
         $this->applyAuthoredAnimationCascade(
             $cascade,
-            $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style')),
+            $this->styleResolver->inlineDeclarations($element),
             PHP_INT_MAX,
             $sequence
         );

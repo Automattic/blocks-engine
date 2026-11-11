@@ -57,7 +57,7 @@ final class ImageLowering
                 $declarations[$property] = $author[$property];
             }
         }
-        $declarations = array_replace($declarations, array_intersect_key($this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style')), array_flip(array('background-size', 'background-position'))));
+        $declarations = array_replace($declarations, array_intersect_key($this->styleResolver->inlineDeclarations($element), array_flip(array('background-size', 'background-position'))));
         $url = $this->backgroundImageExtractor->urlFromStyle($this->styleResolver->mergedPresentationStyle($element));
         if ( '' === $url ) {
             return null;
@@ -573,7 +573,7 @@ final class ImageLowering
         }
 
         if ($figure instanceof DOMElement && $link instanceof DOMElement) {
-            $imagePresentation = $this->styleResolver->cssDeclarations(SourceDom::attr($image, 'style'));
+            $imagePresentation = $this->styleResolver->inlineDeclarations($image);
             foreach (array('display', 'vertical-align') as $property) {
                 if (! isset($imagePresentation[$property])) {
                     $value = $this->styleResolver->declaredPresentation($image, $property)->resolvedValue();
@@ -588,7 +588,7 @@ final class ImageLowering
                     // Core's bottom alignment would remove the source line-box strut.
                     $attrs['className'] = SourceDom::mergeClassNames((string) $attrs['className'], SourceBlockAttributeProjector::BASELINE_IMAGE_LEAF_CLASS);
                     if ($link instanceof DOMElement) {
-                        $linkPresentation = $this->styleResolver->cssDeclarations(SourceDom::attr($link, 'style'));
+                        $linkPresentation = $this->styleResolver->inlineDeclarations($link);
                         foreach (array('display', 'vertical-align') as $property) {
                             if (! isset($linkPresentation[$property])) {
                                 $value = $this->styleResolver->declaredPresentation($link, $property)->resolvedValue();
@@ -675,7 +675,7 @@ final class ImageLowering
                 SourceDom::attr($link, 'class'),
                 $this->styleResolver->inlineCustomPropertyCarrierClassName($link),
                 $this->styleResolver->inlineGeometryClassName($link, array_values(array_diff(
-                    array_keys($this->styleResolver->cssDeclarations(SourceDom::attr($link, 'style'))),
+                    array_keys($this->styleResolver->inlineDeclarations($link)),
                     array('display')
                 ))),
                 ...$this->session->authorSelectorProjectionState()->semanticMarkersForPath($link->getNodePath() ?? '')
@@ -722,11 +722,11 @@ final class ImageLowering
     /** @return array<string, string> */
     private function imagePresentationAttributes(DOMElement $image, ?DOMElement $figure): array
     {
-        $inlineImagePlacement = array_keys(array_filter($this->styleResolver->cssDeclarations(SourceDom::attr($image, 'style')), NativeImageLeafPresentation::isPlacementProperty(...), ARRAY_FILTER_USE_KEY));
+        $inlineImagePlacement = array_keys(array_filter($this->styleResolver->inlineDeclarations($image), NativeImageLeafPresentation::isPlacementProperty(...), ARRAY_FILTER_USE_KEY));
         $link = $image->parentNode;
         $syntheticLinkedFigure = ! $figure instanceof DOMElement && $link instanceof DOMElement && 'a' === strtolower($link->tagName);
         $imageBoxProperties = $syntheticLinkedFigure
-            ? array_keys(array_filter($this->styleResolver->cssDeclarations(SourceDom::attr($image, 'style')), NativeImageLeafPresentation::isBoxProperty(...), ARRAY_FILTER_USE_KEY))
+            ? array_keys(array_filter($this->styleResolver->inlineDeclarations($image), NativeImageLeafPresentation::isBoxProperty(...), ARRAY_FILTER_USE_KEY))
             : array();
         // A synthetic figure must not inherit the image's preferred ratio:
         // imageBoxConstraintClassName() carries it on the painting leaf instead.

@@ -419,7 +419,7 @@ final class ThemeToggleConverter implements ElementConverter
     private function themeControlPresentation(DOMElement $element): array
     {
         $presentation = $this->styles->presentationAttributes($element);
-        $inline = $this->styles->cssDeclarations(SourceDom::attr($element, 'style'));
+        $inline = $this->styles->inlineDeclarations($element);
         $mapped = $this->styles->styleAttributeMapper()->map($inline);
         $css = (string) ($this->styles->styleAttributeMapper()->serialize($mapped['style'] ?? array())['style'] ?? '');
         $declarations = $this->styles->cssDeclarations($css);

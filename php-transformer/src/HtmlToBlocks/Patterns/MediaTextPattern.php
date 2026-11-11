@@ -188,7 +188,7 @@ final class MediaTextPattern implements PatternRecognizerInterface
         if (
             null === $displayType
             && ! $hasGridTemplateColumns
-            && ! in_array('wp-block-media-text', preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array(), true)
+            && ! SourceDom::hasClass($element, 'wp-block-media-text')
         ) {
             return null;
         }

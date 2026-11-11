@@ -54,7 +54,7 @@ final class DeclarativeCounterMaterializer
             }
             foreach ( $container->getElementsByTagName('*') as $target ) {
                 if ( ! $target instanceof DOMElement
-                    || ! in_array('content-number-bold', preg_split('/\s+/', trim($target->getAttribute('class'))) ?: array(), true)
+                    || ! SourceDom::hasClass($target, 'content-number-bold')
                     || '' !== trim((string) $target->textContent)
                 ) {
                     continue;

@@ -97,7 +97,7 @@ final class EmptyVisualRetentionPolicy implements EmptyVisualRetention
         $declarations = array_merge(
             $this->styleResolver->structuralPresentationDeclarations($element),
             $this->styleResolver->matchedCascadedDeclarations($element),
-            $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'))
+            $this->styleResolver->inlineDeclarations($element)
         );
         $position = CssValueInspector::comparable((string) ($declarations['position'] ?? ''));
         $opacity = CssValueInspector::comparable($this->styleResolver->resolveCssVariablesInValue((string) ($declarations['opacity'] ?? ''), $element));
@@ -177,7 +177,7 @@ final class EmptyVisualRetentionPolicy implements EmptyVisualRetention
     {
         return 0 === SourceDom::childElementCount($element)
             && '' === trim($element->textContent ?? '')
-            && 'none' === CssValueInspector::comparable((string) ($this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'))['display'] ?? ''))
+            && 'none' === CssValueInspector::comparable((string) ($this->styleResolver->inlineDeclarations($element)['display'] ?? ''))
             && '' === trim(SourceDom::attr($element, 'class'))
             && '' === trim(SourceDom::attr($element, 'id'))
             && '' === trim(SourceDom::attr($element, 'role'))

@@ -63,7 +63,7 @@ final class RichTextStylingHookNormalizer
      */
     private function projectRichTextLinkOwnedDeclarations(DOMElement $anchor): void
     {
-        $inline = $this->styleResolver->cssDeclarations(SourceDom::attr($anchor, 'style'));
+        $inline = $this->styleResolver->inlineDeclarations($anchor);
         $visual = $this->richTextMaterializer->inlineVisualDeclarations($anchor);
         $owned = array();
         foreach ($inline as $property => $value) {
@@ -318,7 +318,7 @@ final class RichTextStylingHookNormalizer
         if ( ! $carrierReplacesSource && ! $sourceIsLink ) {
             $declarations = $this->richTextMaterializer->withoutKeptFormatTagDeclarations($element, $declarations);
         }
-        $existingDeclarations = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
+        $existingDeclarations = $this->styleResolver->inlineDeclarations($element);
         if ( $sourceIsLink ) {
             // Only authored inline values move inside links. Author link rules
             // (including hover/media rules) must keep styling the link itself.
@@ -403,7 +403,7 @@ final class RichTextStylingHookNormalizer
     private function isMaterializedRichTextCarrier(DOMElement $element): bool
     {
         return 'mark' === strtolower($element->tagName)
-            && '' !== trim((string) ($this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'))['--blocks-engine-richtext-marker'] ?? ''));
+            && '' !== trim((string) ($this->styleResolver->inlineDeclarations($element)['--blocks-engine-richtext-marker'] ?? ''));
     }
 
     /**
@@ -523,7 +523,7 @@ final class RichTextStylingHookNormalizer
         // onto the block. A source identity needs to remain on the inline node so
         // author selectors continue to address the saved RichText carrier.
         while ( ! $listItemHasBlockContent && ( $wrapper = $this->soleStylingHookSpan($body) ) instanceof DOMElement ) {
-            $wrapperDeclarations = $this->styleResolver->cssDeclarations(SourceDom::attr($wrapper, 'style'));
+            $wrapperDeclarations = $this->styleResolver->inlineDeclarations($wrapper);
             if ( array() !== $this->richTextSafeIdentityAttributes($wrapper) || isset($wrapperDeclarations['--blocks-engine-richtext-marker']) ) {
                 break;
             }

@@ -750,7 +750,7 @@ final class WrapperCoalescer
 
     public function hasOnlyRenderNeutralInlineGeometry(DOMElement $element): bool
     {
-        foreach ($this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style')) as $property => $value) {
+        foreach ($this->styleResolver->inlineDeclarations($element) as $property => $value) {
             if (! $this->isRenderNeutralGeometryDeclaration($property, $value)) return false;
         }
         return true;
@@ -758,7 +758,7 @@ final class WrapperCoalescer
 
     private function hasOnlyFullWidthTransparentInlineGeometry(DOMElement $element): bool
     {
-        $declarations = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
+        $declarations = $this->styleResolver->inlineDeclarations($element);
         if ( '100%' !== strtolower(trim(CssValueInspector::withoutImportant((string) ($declarations['width'] ?? '')))) ) {
             return false;
         }

@@ -321,7 +321,7 @@ final class TableAttributesBuilder
                     continue;
                 }
                 ++$cellIndex;
-                $declarations = $this->styleResolver->cssDeclarations(SourceDom::attr($cell, 'style'));
+                $declarations = $this->styleResolver->inlineDeclarations($cell);
                 $geometry = array();
                 $width = trim((string) ($declarations['width'] ?? ''));
                 if ( '' !== $width && preg_match('/^(?:\d+(?:\.\d+)?(?:%|px|em|rem|vw|ch)|calc\(.+\)|var\(.+\))$/i', $width) ) {

@@ -259,7 +259,7 @@ final class AuthorStyleRuleProjector
                 CssCascade::apply($facts, (string) $property, array( 'value' => $value, 'important' => CssValueInspector::isImportant($value), 'inline' => false, 'specificity' => $fact['specificity'], 'order' => $fact['order'] ));
             }
         }
-        $inline = array_intersect_key($this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style')), self::boxModelProperties());
+        $inline = array_intersect_key($this->styleResolver->inlineDeclarations($element), self::boxModelProperties());
         foreach ( $inline as $property => $value ) {
             CssCascade::apply($facts, (string) $property, array( 'value' => $value, 'important' => CssValueInspector::isImportant($value), 'inline' => true, 'specificity' => array( 0, 0, 0 ), 'order' => PHP_INT_MAX ));
         }
@@ -1285,7 +1285,7 @@ final class AuthorStyleRuleProjector
         $value = $this->styleResolver->declaredPresentation($element, $property)->resolvedValueWhere(
             static fn (array $stack): bool => array() === array_diff(self::restatableConditions($stack), $held)
         );
-        $inline = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
+        $inline = $this->styleResolver->inlineDeclarations($element);
         if ( isset($inline[$property]) && CssCascade::wins(
             array( 'important' => CssValueInspector::isImportant($inline[$property]), 'inline' => true, 'specificity' => 0, 'order' => 1 ),
             array( 'important' => CssValueInspector::isImportant($value), 'inline' => false, 'specificity' => 0, 'order' => 0 )

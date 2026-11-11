@@ -873,7 +873,7 @@ final class CapturedDialogProjector
                 // The producer marks an in-place dropdown panel with `data-blocks-engine-capture-dropdown`.
                 // A panel the source already rendered in place (an existing-panel
                 // snapshot) is a dropdown too, whatever it rests as.
-                $dropdown = array() !== $resting || $panel->hasAttribute(CaptureEvidence::OBSERVED_PLACEMENT) || in_array(CaptureEvidence::DROPDOWN_CLASS, preg_split('/\s+/', trim($panel->getAttribute('class'))) ?: array(), true);
+                $dropdown = array() !== $resting || $panel->hasAttribute(CaptureEvidence::OBSERVED_PLACEMENT) || SourceDom::hasClass($panel, CaptureEvidence::DROPDOWN_CLASS);
                 // The producer placed a dropdown panel where the source rendered
                 // it (`data-blocks-engine-capture-observed-placement`); the dialog stays there.
                 $scopedPanel = array() === $resting && $nativeScopedWiring && $scope->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) && $dropdown;
