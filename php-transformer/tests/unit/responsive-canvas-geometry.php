@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 $failures = 0;
@@ -90,6 +91,41 @@ $gridPercentageHeight = (new HtmlTransformer())->transform(
 $gridPercentageHeightCss = $css($gridPercentageHeight);
 $assert(str_contains($gridPercentageHeightCss, '.image-frame,.image-inner{height:100%}'), 'percentage-height wrapper chains retain the definite block size received from a stretched grid cell');
 $assert(str_contains($gridPercentageHeightCss, '.image-well{height:100%!important;position:relative}'), 'positioned image wells retain their percentage height and declaration priority inside a definite grid');
+
+// The same imported stylesheet is projected under a media-query list, while
+// ancestor declarations retain their individual viewport condition stacks.
+$stretchLayout = '.row{display:flex}.row>div{width:50%}.image{min-height:300px}.image .photo{height:100%;background:url(x.jpg) center/cover}';
+$stretchBody = '<main><section class="row"><div><p>Content sizes the row.</p></div><div class="image"><div class="photo"></div></div></section></main>';
+$rangeImports = '<style media="all">@import url("/s.css") (min-width:641px);</style>'
+    . '<style media="all">@import url("/s.css") (min-width:481px) and (max-width:640px);</style>'
+    . '<style media="all">@import url("/s.css") (max-width:480px);</style>';
+foreach ( array(
+    'unconditioned' => '<style>' . $stretchLayout . '</style>',
+    'one media condition' => '<style>@media(min-width:641px){' . $stretchLayout . '}</style>',
+    'imported per viewport range' => $rangeImports,
+    'only one stretched disjunct' => $rangeImports . '<style>@media(min-width:641px){.row{flex-direction:column}}@media(min-width:481px) and (max-width:640px){.row{flex-direction:column}}</style>',
+    'every disjunct auto-sized' => $rangeImports . '<style>.row{flex-direction:column}</style>',
+) as $label => $head ) {
+    $compiled = (new ArtifactCompiler())->compile(array( 'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<!doctype html><html><head>' . $head . '</head><body>' . $stretchBody . '</body></html>' ),
+        array( 'path' => 's.css', 'kind' => 'css', 'content' => $stretchLayout ),
+    ) ))->toArray();
+    $compiledCss = '';
+    foreach ( $compiled['assets'] as $asset ) {
+        if ( str_ends_with($asset['path'] ?? '', '.css') ) {
+            $compiledCss .= $asset['content'] ?? '';
+        }
+    }
+    $expectedHeight = 'every disjunct auto-sized' === $label ? 'auto' : '100%';
+    $unexpectedHeight = 'auto' === $expectedHeight ? '100%' : 'auto';
+    preg_match_all('/\.image \.photo\{([^}]+)\}/', $compiledCss, $photoRules);
+    $photoDeclarations = implode(';', $photoRules[1]);
+    $assert(
+        str_contains($photoDeclarations, 'height:' . $expectedHeight)
+        && ! str_contains($photoDeclarations, 'height:' . $unexpectedHeight),
+        $label . ': percentage height is rewritten only when every condition domain is auto-sized'
+    );
+}
 
 $viewportRoot = (new HtmlTransformer())->transform(
     '<style>html,body,#root{height:100%}.canvas{height:100%;overflow:hidden}.page{position:absolute;inset:0}</style>'
