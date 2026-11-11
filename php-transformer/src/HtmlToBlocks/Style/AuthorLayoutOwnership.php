@@ -445,6 +445,76 @@ final class AuthorLayoutOwnership
         return CssValueInspector::comparable((string) ($inline['display'] ?? $display));
     }
 
+    /**
+     * A positioned inline leaf cannot survive as RichText: its wrapper owns a
+     * containing-block relationship and/or stacking context, rather than text
+     * formatting. Preserve it as a native group carrier before RichText drops
+     * the source class and geometry.
+     */
+    public function ownsPositioningGeometry(DOMElement $element): bool
+    {
+        if ( ! $this->sourceElementClassifier->isInlineContentElement(strtolower($element->tagName)) || $this->isRichTextInlineContext($element) ) {
+            return false;
+        }
+
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
+        $position = strtolower(trim((string) ($declarations['position'] ?? 'static')));
+        if ( $this->hasPositionedInlineDescendant($element) ) {
+            return true;
+        }
+
+        $zIndex = strtolower(trim((string) ($declarations['z-index'] ?? 'auto')));
+        $hasZIndex = ! in_array($zIndex, array( '', 'auto', 'inherit', 'initial', 'unset' ), true);
+        if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
+            return true;
+        }
+
+        if ( 'sticky' === $position ) {
+            return $this->sourceElementClassifier->hasResolvedInset($declarations) || $hasZIndex;
+        }
+
+        if ( 'relative' === $position ) {
+            return $this->sourceElementClassifier->hasResolvedInset($declarations) || $hasZIndex;
+        }
+
+        return false;
+    }
+
+    private function hasPositionedInlineDescendant(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && $this->ownsPositioningGeometry($descendant) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * A positioned inline carrier keeps its children as blocks when any
+     * descendant positions itself, is not phrasing content, or is
+     * interactive; otherwise its content stays one RichText run.
+     */
+    public function positionedCarrierHasStructuredContent(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( ! $descendant instanceof DOMElement ) {
+                continue;
+            }
+
+            $tagName = strtolower($descendant->tagName);
+            if ( $this->ownsPositioningGeometry($descendant)
+                || ! $this->sourceElementClassifier->isInlineContentElement($tagName)
+                || in_array($tagName, array( 'a', 'button', 'input', 'select', 'textarea' ), true)
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public function isRichTextInlineContext(DOMElement $element): bool
     {
         for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {

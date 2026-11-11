@@ -603,7 +603,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this,
             $this->runtimeIslands,
             fn (DOMElement $element): ?array => $inlineSvgTextGroups->fromElement($element),
-            fn (DOMElement $element): bool => $this->ownsPositioningGeometry($element),
+            $this->authorLayoutOwnership->ownsPositioningGeometry(...),
             fn (DOMElement $element, array &$fallbacks): ?array => $this->positionedInlineCarrierBlock($element, $fallbacks),
             fn (DOMElement $element): bool => $this->hasAuthorSemanticMarker($element),
             $this->authorLayoutOwnership->richTextMarker(...),
@@ -2630,7 +2630,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return false;
         }
 
-        if ( $this->ownsPositioningGeometry($element) ) {
+        if ( $this->authorLayoutOwnership->ownsPositioningGeometry($element) ) {
             return true;
         }
 
@@ -2672,58 +2672,12 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     }
 
     /**
-     * A positioned inline leaf cannot survive as RichText: its wrapper owns a
-     * containing-block relationship and/or stacking context, rather than text
-     * formatting. Preserve it as a native group carrier before RichText drops
-     * the source class and geometry.
-     */
-    private function ownsPositioningGeometry(DOMElement $element): bool
-    {
-        if ( ! $this->sourceElementClassifier->isInlineContentElement(strtolower($element->tagName)) || $this->authorLayoutOwnership->isRichTextInlineContext($element) ) {
-            return false;
-        }
-
-        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        $position = strtolower(trim((string) ($declarations['position'] ?? 'static')));
-        if ( $this->hasPositionedInlineDescendant($element) ) {
-            return true;
-        }
-
-        $zIndex = strtolower(trim((string) ($declarations['z-index'] ?? 'auto')));
-        $hasZIndex = ! in_array($zIndex, array( '', 'auto', 'inherit', 'initial', 'unset' ), true);
-        if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
-            return true;
-        }
-
-        if ( 'sticky' === $position ) {
-            return $this->sourceElementClassifier->hasResolvedInset($declarations) || $hasZIndex;
-        }
-
-        if ( 'relative' === $position ) {
-            return $this->sourceElementClassifier->hasResolvedInset($declarations) || $hasZIndex;
-        }
-
-        return false;
-    }
-
-    private function hasPositionedInlineDescendant(DOMElement $element): bool
-    {
-        foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement && $this->ownsPositioningGeometry($descendant) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
      */
     private function positionedInlineCarrierBlock(DOMElement $element, array &$fallbacks): ?array
     {
-        if ( $this->positionedCarrierHasStructuredContent($element) ) {
+        if ( $this->authorLayoutOwnership->positionedCarrierHasStructuredContent($element) ) {
             $children = $this->positionedInlineCarrierChildren($element, $fallbacks);
             return array() === $children
                 ? null
@@ -2772,25 +2726,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         return $blocks;
-    }
-
-    private function positionedCarrierHasStructuredContent(DOMElement $element): bool
-    {
-        foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( ! $descendant instanceof DOMElement ) {
-                continue;
-            }
-
-            $tagName = strtolower($descendant->tagName);
-            if ( $this->ownsPositioningGeometry($descendant)
-                || ! $this->sourceElementClassifier->isInlineContentElement($tagName)
-                || in_array($tagName, array( 'a', 'button', 'input', 'select', 'textarea' ), true)
-            ) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /** @return array<string, mixed> */
