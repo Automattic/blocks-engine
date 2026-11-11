@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\HtmlDimensionAttribute;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -1069,94 +1070,7 @@ final class MediaTextPattern implements PatternRecognizerInterface
             return true;
         }
 
-        if ( 'display' === $property ) {
-            return in_array($value, array(
-                'block', 'contents', 'flow-root', 'flex', 'grid', 'inline', 'inline-block',
-                'inline-flex', 'inline-grid', 'inline-table', 'list-item', 'none', 'ruby',
-                'ruby-base', 'ruby-base-container', 'ruby-text', 'ruby-text-container',
-                'table', 'table-caption', 'table-cell', 'table-column', 'table-column-group',
-                'table-footer-group', 'table-header-group', 'table-row', 'table-row-group',
-            ), true) || 1 === preg_match('/^(?:block|inline)\s+(?:flow|flow-root|flex|grid|ruby)(?:\s+list-item)?$/', $value);
-        }
-
-        if ( 'flex-direction' === $property ) {
-            return in_array($value, array( 'column', 'column-reverse', 'row', 'row-reverse' ), true);
-        }
-
-        if ( 'flex-flow' === $property ) {
-            $directions = array( 'column', 'column-reverse', 'row', 'row-reverse' );
-            $wraps = array( 'nowrap', 'wrap', 'wrap-reverse' );
-            $seenDirection = false;
-            $seenWrap = false;
-            $components = \Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter::splitTopLevelWhitespace($value);
-            if ( array() === $components || 2 < count($components) ) {
-                return false;
-            }
-            foreach ( $components as $component ) {
-                if ( in_array($component, $directions, true) && ! $seenDirection ) {
-                    $seenDirection = true;
-                    continue;
-                }
-                if ( in_array($component, $wraps, true) && ! $seenWrap ) {
-                    $seenWrap = true;
-                    continue;
-                }
-                return false;
-            }
-            return true;
-        }
-
-        if ( 'order' === $property ) {
-            return is_numeric($value);
-        }
-
-        if ( 'align-items' === $property ) {
-            return in_array($value, array(
-                'anchor-center', 'baseline', 'center', 'dialog', 'end', 'first baseline',
-                'flex-end', 'flex-start', 'last baseline', 'normal', 'self-end', 'self-start',
-                'start', 'stretch',
-            ), true) || 1 === preg_match('/^(?:safe|unsafe)\s+(?:center|end|flex-end|flex-start|self-end|self-start|start)$/', $value);
-        }
-
-        if ( 'direction' === $property ) {
-            return in_array($value, array( 'ltr', 'rtl' ), true);
-        }
-
-        if ( in_array($property, array( 'flex-basis', 'width' ), true) ) {
-            return in_array($value, array( 'auto', 'contain', 'content', 'fit-content', 'max-content', 'min-content', 'stretch' ), true)
-                || 1 === preg_match('/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:%|[a-z]+)?$/i', $value)
-                || 1 === preg_match('/^(?:calc|clamp|fit-content|max|min|var)\(.+\)$/i', $value);
-        }
-
-        if ( 'grid-template-columns' === $property ) {
-            return $this->isValidGridTemplateColumns($value);
-        }
-
-        return true;
-    }
-
-    private function isValidGridTemplateColumns(string $value): bool
-    {
-        if ( in_array($value, array( 'masonry', 'none', 'subgrid' ), true) ) {
-            return true;
-        }
-
-        $tracks = \Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter::splitTopLevelWhitespace($value);
-        if ( array() === $tracks ) {
-            return false;
-        }
-        foreach ( $tracks as $track ) {
-            if ( in_array($track, array( 'auto', 'max-content', 'min-content' ), true)
-                || 1 === preg_match('/^\[[^\]]+\]$/', $track)
-                || 1 === preg_match('/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:%|fr|[a-z]+)$/i', $track)
-                || 1 === preg_match('/^(?:calc|clamp|fit-content|max|min|minmax|repeat|var)\(.+\)$/i', $track)
-            ) {
-                continue;
-            }
-            return false;
-        }
-
-        return true;
+        return CssValueInspector::isValidMediaTextLayoutValue($property, $value);
     }
 
     private function percentageValue(string $value): ?int
