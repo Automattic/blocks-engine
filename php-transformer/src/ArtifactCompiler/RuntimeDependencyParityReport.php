@@ -95,7 +95,7 @@ final class RuntimeDependencyParityReport
                 $bodyExists = $this->targetExists($dependency, $generatedTargets) || $this->targetExists($dependency, $companionTargets) || $this->targetExists($dependency, $rendererTargets);
                 $exists = $headTarget ? $this->targetExists($dependency, $wordpressHeadTargets) : $bodyExists;
                 $canvasApi = true === $dependency['canvas_api'] && 'canvas' === ($target['tag'] ?? '');
-                $dependencyRow = array_filter(array(
+                $facts = array(
                     'source_path'       => $target['source_path'] ?? $sourcePath,
                     'script_path'       => $scriptPath,
                     'script_kind'       => $scriptKind,
@@ -106,6 +106,8 @@ final class RuntimeDependencyParityReport
                     'dependency_kind'   => $dependency['kind'],
                     'events'            => $dependency['events'],
                     'canvas_api'        => $canvasApi,
+                );
+                $dependencyRow = array_filter($facts + array(
                     'source_present'    => array() !== $target,
                     'generated_present' => $exists,
                     'generated_target_evidence' => $headTarget ? ($exists ? 'wordpress_document_head' : '') : $this->generatedTargetEvidence($dependency, $companionTargets, $rendererTargets),
@@ -140,16 +142,7 @@ final class RuntimeDependencyParityReport
                 $findings[] = array_filter(array(
                     'code'              => 'runtime_dependency_target_missing',
                     'severity'          => $severity,
-                    'source_path'       => $target['source_path'] ?? $sourcePath,
-                    'script_path'       => $scriptPath,
-                    'script_kind'       => $scriptKind,
-                    'selector'          => $selector,
-                    'target_id'         => $target['id'] ?? '',
-                    'target_class'      => $target['class'] ?? '',
-                    'target_kind'       => $target['tag'] ?? '',
-                    'dependency_kind'   => $dependency['kind'],
-                    'events'            => $dependency['events'],
-                    'canvas_api'        => $canvasApi,
+                ) + $facts + array(
                     'repair_bucket'     => $repairBucket,
                     'suggested_primitive' => $canvasApi ? 'runtime_canvas' : 'runtime_dom_target',
                     'actionability'     => $canvasApi ? 'preserve_canvas_markup_with_matching_script_runtime_or_rebuild_canvas_behavior' : 'preserve_or_recreate_the_referenced_dom_target_for_script_runtime',
