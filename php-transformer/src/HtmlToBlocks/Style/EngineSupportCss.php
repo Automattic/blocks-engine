@@ -18,7 +18,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CoverPattern;
 /**
  * Marker-class engine-support CSS gated on serialized block markup.
  *
- * Extracted from {@see HtmlCompilation::materializeAuthorStylesheet()}. No
+ * Extracted from {@see AuthorStylesheetMaterialization::materialize()}. No
  * HtmlCompilation `$this` — only marker classes in emitted markup. The
  * after-author methods tag their own
  * {@see CascadeRule} layer, per {@see CascadeLayer}; the compiler only

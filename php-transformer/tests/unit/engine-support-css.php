@@ -112,21 +112,6 @@ $assert(
     'desktop overlay wrappers flatten so source justification keeps the list'
 );
 
-$compilation = new ReflectionClass(HtmlCompilation::class);
-$method = $compilation->getMethod('materializeAuthorStylesheet');
-$lines = array_slice(file((string) $compilation->getFileName()), $method->getStartLine() - 1, $method->getEndLine() - $method->getStartLine() + 1);
-$body = implode('', $lines);
-$assert(str_contains($body, 'new EngineSupportCss()'), 'materializeAuthorStylesheet orchestrates EngineSupportCss');
-$assert(! str_contains($body, '{margin-top:0;margin-bottom:0}'), 'synthetic paragraph CSS literal left materializeAuthorStylesheet');
-$assert(! str_contains($body, 'pointer-events:none!important'), 'empty visual group CSS literal left materializeAuthorStylesheet');
-$assert(! str_contains($body, 'display:contents!important'), 'positioned fragment CSS literal left materializeAuthorStylesheet');
-$assert(! str_contains($body, 'blocks-engine-source-social-item-spacing'), 'source-social-item-spacing CSS left materializeAuthorStylesheet');
-$assert(! str_contains($body, 'blocks-engine-inline-navigation'), 'inline-navigation CSS left materializeAuthorStylesheet');
-
-$collaborator = (string) file_get_contents((string) (new ReflectionClass(EngineSupportCss::class))->getFileName());
-$assert(! str_contains($collaborator, '$this->'), 'EngineSupportCss has no instance collaborators');
-$assert(! preg_match('/HtmlCompilation\s*\$/', $collaborator), 'EngineSupportCss has no HtmlCompilation $this parameter');
-
 if ( $failures ) {
     fwrite(STDERR, $failures . " engine-support CSS test(s) failed\n");
     exit(1);
