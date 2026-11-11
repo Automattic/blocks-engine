@@ -227,7 +227,11 @@ final class EngineSupportCss
             // own box decides the size and the image never overflows it. core's
             // scale attribute only reaches the image when width and height are
             // saved, so the sized cases carry that contract here instead.
-            $parts[] = ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_CLASS . ') img{max-width:100%}'
+            // Author img selectors can newly match the synthetic leaf. Keep
+            // its stacking inside the background figure so it cannot rise
+            // above content that painted over the original background.
+            $parts[] = ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_CLASS . '){isolation:isolate!important}'
+                . "\n" . ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_CLASS . ') img{max-width:100%}'
                 . "\n" . ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'cover,.' . ImageLowering::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'contain){width:100%;height:100%}'
                 . "\n" . ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'cover) img{width:100%;height:100%;object-fit:cover}'
                 . "\n" . ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'contain) img{width:100%;height:100%;object-fit:contain}';

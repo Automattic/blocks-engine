@@ -62,6 +62,7 @@
     "visual:button-padding-height": "node tools/visual-parity/tests/button-padding-height.mjs",
     "visual:source-class-selector-ownership": "node tools/visual-parity/tests/source-class-selector-ownership.mjs",
     "visual:nested-responsive-font-size": "node tools/visual-parity/tests/nested-responsive-font-size.mjs",
+    "test:background-image-stacking-browser": "node tests/contract/background-image-stacking-browser.mjs",
     "test:custom-property-state-paint-browser": "node tests/contract/custom-property-state-paint-browser.mjs",
     "test:detached-auto-inset-backdrop-browser": "node tests/unit/detached-auto-inset-backdrop-browser.mjs",
     "test:social-profile-flex-cluster-browser": "node tests/unit/social-profile-flex-cluster-browser.mjs",
