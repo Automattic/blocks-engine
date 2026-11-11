@@ -1576,8 +1576,7 @@ JS;
         if ('' === trim($markup)) {
             return '';
         }
-        $document = new \DOMDocument('1.0', 'UTF-8');
-        HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><div>' . $markup . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        $document = HtmlSerialization::parseFragment('<div>' . $markup . '</div>');
         $container = $document->getElementsByTagName('div')->item(0);
         $safe = '';
         if ($container instanceof DOMElement) {
@@ -1949,8 +1948,7 @@ JS;
         if (preg_match('/^[\t\n\f\r ]*$/D', $markup)) {
             return '';
         }
-        $document = new \DOMDocument('1.0', 'UTF-8');
-        HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><div>' . $markup . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        $document = HtmlSerialization::parseFragment('<div>' . $markup . '</div>');
         $container = $document->getElementsByTagName('div')->item(0);
         $safe = '';
         if ($container instanceof DOMElement) {

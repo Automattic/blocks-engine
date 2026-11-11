@@ -238,9 +238,8 @@ final class WrapperCoalescer
         $cacheKey = $opening . "\0" . $closing;
         if (! array_key_exists($cacheKey, $this->parsedWrapperCache)) {
             $tagName = strtolower($match[1]);
-            $document = new DOMDocument();
-            $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . $opening . $closing . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-            $element = $loaded ? $document->getElementsByTagName($tagName)->item(0) : null;
+            $document = HtmlSerialization::parseFragment('<body>' . $opening . $closing . '</body>');
+            $element = $document->getElementsByTagName($tagName)->item(0);
             $parsed = null;
             if ($element instanceof DOMElement) {
                 $attributes = array();

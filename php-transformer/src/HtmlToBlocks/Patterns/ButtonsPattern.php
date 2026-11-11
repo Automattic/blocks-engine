@@ -12,7 +12,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutParticipation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
-use DOMDocument;
 use DOMElement;
 use DOMText;
 
@@ -659,9 +658,8 @@ final class ButtonsPattern
         if ( ! str_contains($html, '<') ) {
             return false;
         }
-        $document = new DOMDocument();
-        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
+        $document = HtmlSerialization::parseFragment('<body>' . $html . '</body>');
+        $body = $document->getElementsByTagName('body')->item(0);
         if ( ! $body instanceof DOMElement ) {
             return false;
         }
@@ -791,9 +789,8 @@ final class ButtonsPattern
             return $html;
         }
 
-        $document = new DOMDocument();
-        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
+        $document = HtmlSerialization::parseFragment('<body>' . $html . '</body>');
+        $body = $document->getElementsByTagName('body')->item(0);
         if ( ! $body instanceof DOMElement ) {
             return $html;
         }

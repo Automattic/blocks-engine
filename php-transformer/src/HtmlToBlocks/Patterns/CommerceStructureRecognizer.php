@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use DOMElement;
 use SplObjectStorage;
@@ -322,8 +323,7 @@ final class CommerceStructureRecognizer
             if ( ! is_array($file) || ! is_string($file['content'] ?? null) || ! preg_match('/\.html?$/i', (string) ($file['path'] ?? '')) ) {
                 continue;
             }
-            $document = new \DOMDocument();
-            @$document->loadHTML('<?xml encoding="UTF-8">' . $file['content'], LIBXML_NOERROR | LIBXML_NOWARNING);
+            $document = HtmlSerialization::parseDocument($file['content']);
             if ( $document->documentElement instanceof DOMElement && $recognizer->hasPurchaseAffordance($document->documentElement) ) {
                 return true;
             }

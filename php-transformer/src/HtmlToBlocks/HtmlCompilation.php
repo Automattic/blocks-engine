@@ -162,7 +162,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\TransformOptions
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ImageUrlResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
-use DOMDocument;
 use DOMElement;
 use DOMNode;
 
@@ -1210,22 +1209,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $normalizedHtml = CaptureReplayScripts::withoutReplayScripts(
             SourceDom::normalizeHtml5VoidElements($this->documentEnvelope->documentBodyHtml($this->documentEnvelope->normalizeExplicitPlaintextElements($html)))
         );
-        $document = new DOMDocument();
-        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . $normalizedHtml . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        $document = HtmlSerialization::parseFragment('<body>' . $normalizedHtml . '</body>');
 
         $resultComposer = new HtmlResultComposer();
         $selectorCache = $this->session->sourceStyleResolutionState()->selectorMatchCache;
-
-        if ( ! $loaded ) {
-            return $timer->result($resultComposer->parseFailed(
-                $html,
-                $this->session->transformationProvenanceState()->fallback(),
-                $provenance,
-                $context,
-                $startedAt,
-                $selectorCache
-            ));
-        }
 
         $body = $document->getElementsByTagName('body')->item(0);
         if ( ! $body instanceof DOMElement ) {

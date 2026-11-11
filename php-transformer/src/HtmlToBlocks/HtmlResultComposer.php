@@ -15,33 +15,6 @@ final class HtmlResultComposer
     use \Automattic\BlocksEngine\PhpTransformer\Support\CountsBlocks;
 
     /**
-     * @param array<string, mixed> $provenanceFallback
-     * @param array<int, array<string, mixed>> $provenance
-     * @param array<string, mixed> $context
-     */
-    public function parseFailed(string $html, array $provenanceFallback, array $provenance, array $context, int $startedAt, CssSelectorMatchCache $selectorCache): TransformerResult
-    {
-        $diagnostics = array(
-            array(
-                'code'    => 'html_parse_failed',
-                'message' => 'Unable to parse HTML input.',
-                'source'  => HtmlTransformer::class,
-            ),
-        );
-        $fallbacks = array(
-            FallbackDiagnostic::build(array(
-                'type'            => 'html',
-                'reason'          => 'parse_failed',
-                'diagnostic_code' => 'html_parse_failed',
-                'source_format'   => 'html',
-                'html'            => $html,
-            ), $provenanceFallback),
-        );
-
-        return $this->earlyResult($html, $fallbacks, $diagnostics, $provenance, $context, $startedAt, $selectorCache);
-    }
-
-    /**
      * @param array<int, array<string, mixed>> $provenance
      * @param array<string, mixed> $context
      */

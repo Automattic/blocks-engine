@@ -5,7 +5,6 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use DOMComment;
-use DOMDocument;
 use DOMElement;
 use DOMNode;
 use DOMText;
@@ -48,10 +47,9 @@ final class CommentTextRunBoundaries
             return $content;
         }
 
-        $document = new DOMDocument();
-        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . $content . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        $document = HtmlSerialization::parseFragment('<body>' . $content . '</body>');
 
-        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
+        $body = $document->getElementsByTagName('body')->item(0);
         if ( ! $body instanceof DOMElement ) {
             return preg_replace('/<!--.*?-->/s', '', $content) ?? $content;
         }

@@ -123,7 +123,7 @@ final class ScrollStateProjector
         $document = function (string $path) use (&$documents, $files, $fileIndexes): ?DOMDocument {
             if (! array_key_exists($path, $documents)) {
                 $index = $fileIndexes[$path] ?? null;
-                $documents[$path] = is_int($index) && is_string($files[$index]['content'] ?? null) ? $this->loadDocument((string) $files[$index]['content']) : null;
+                $documents[$path] = is_int($index) && is_string($files[$index]['content'] ?? null) ? HtmlSerialization::parseFragment((string) $files[$index]['content']) : null;
             }
             return $documents[$path];
         };
@@ -168,11 +168,6 @@ final class ScrollStateProjector
         return $togglesByPath;
     }
 
-    private function loadDocument(string $html): ?DOMDocument
-    {
-        return HtmlSerialization::utf8Document($html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-    }
-
     /**
      * @param array<int, mixed> $toggles
      * @param array<int, string> $documentScopeClasses
@@ -180,10 +175,7 @@ final class ScrollStateProjector
      */
     private function projectPage(string $html, array $toggles, string $sourcePath, array $documentScopeClasses): array
     {
-        $document = $this->loadDocument($html);
-        if (null === $document) {
-            return array('html' => $html, 'diagnostics' => array($this->diagnostic('captured_scroll_state_source_invalid', 'warning', 'A captured scroll state was not projected because the source HTML could not be parsed.', array('source_path' => $sourcePath))), 'projected_count' => 0);
-        }
+        $document = HtmlSerialization::parseFragment($html);
 
         $diagnostics = array();
         $projected = 0;

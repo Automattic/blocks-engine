@@ -8,37 +8,43 @@ use DOMDocument;
 use DOMProcessingInstruction;
 
 /**
- * Serializes a whole document that was parsed with the `<?xml encoding="UTF-8">`
- * hint DOMDocument::loadHTML() needs to read UTF-8.
+ * Owns the UTF-8 HTML round trip through DOMDocument.
  *
- * The hint is parser input, never page content. libxml2 2.9 keeps it as an
- * `xml` processing instruction and libxml2 2.14+ keeps it as a bogus comment
- * (`<!--?xml encoding="UTF-8"-->`); either way saveHTML() would write it into
- * the page, and a page projected more than once would accumulate one per pass.
- * Removing the parsed nodes keeps every libxml version's output free of it.
+ * DOMDocument::loadHTML() reads UTF-8 only behind an `<?xml encoding="UTF-8">`
+ * hint. The hint is parser input, never page content: libxml2 2.9 keeps it as
+ * an `xml` processing instruction and libxml2 2.14+ as a bogus comment
+ * (`<!--?xml encoding="UTF-8"-->`). Parsing removes those nodes at once, so
+ * every caller gets a clean tree and saveHTML() never writes the hint back.
  */
 final class HtmlSerialization
 {
-    /**
-     * DOMDocument::loadHTML() with libxml's parse warnings collected and
-     * discarded, leaving the caller's libxml error mode as it was.
-     */
-    public static function loadHtml(DOMDocument $document, string $html, int $options = 0): bool
+    /** A UTF-8 document parsed from HTML, with the implied html, body and doctype libxml adds. */
+    public static function parseDocument(string $html): DOMDocument
     {
-        $previous = libxml_use_internal_errors(true);
-        $loaded = $document->loadHTML($html, $options);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
-
-        return $loaded;
+        return self::parse($html, 0);
     }
 
-    /** A UTF-8 DOMDocument parsed by {@see self::loadHtml()}, or null when it fails. */
-    public static function utf8Document(string $html, int $options = 0): ?DOMDocument
+    /** A UTF-8 document whose top-level nodes are the markup's own: no implied html, body or doctype. */
+    public static function parseFragment(string $html): DOMDocument
+    {
+        return self::parse($html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+    }
+
+    /**
+     * loadHTML() never fails behind the hint, so the document is always
+     * returned; parse warnings are discarded and the caller's libxml error
+     * mode is left as it was.
+     */
+    private static function parse(string $html, int $options): DOMDocument
     {
         $document = new DOMDocument('1.0', 'UTF-8');
+        $previous = libxml_use_internal_errors(true);
+        $document->loadHTML('<?xml encoding="UTF-8">' . $html, $options | LIBXML_NONET);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        self::removeEncodingHints($document);
 
-        return self::loadHtml($document, '<?xml encoding="UTF-8">' . $html, $options) ? $document : null;
+        return $document;
     }
 
     /**
@@ -85,7 +91,7 @@ final class HtmlSerialization
         return is_string($html) ? $html : null;
     }
 
-    public static function removeEncodingHints(DOMDocument $document): void
+    private static function removeEncodingHints(DOMDocument $document): void
     {
         foreach ( iterator_to_array($document->childNodes) as $node ) {
             if ( self::isEncodingHint($node) ) {

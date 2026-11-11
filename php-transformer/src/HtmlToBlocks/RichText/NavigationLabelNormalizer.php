@@ -6,7 +6,6 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
-use DOMDocument;
 use DOMElement;
 
 /** Compact presentation-only label chains after source markers have been carried. */
@@ -16,10 +15,9 @@ final class NavigationLabelNormalizer
     {
         if (!str_contains($html, '<span')) return $html;
 
-        $document = new DOMDocument();
-        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        $document = HtmlSerialization::parseFragment('<body>' . $html . '</body>');
         $body = $document->getElementsByTagName('body')->item(0);
-        if (!$loaded || !$body instanceof DOMElement) return $html;
+        if (!$body instanceof DOMElement) return $html;
         self::compact($body);
         $result = '';
         foreach ($body->childNodes as $child) $result .= $document->saveHTML($child);

@@ -4,7 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
-use DOMDocument;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use DOMElement;
 use DOMXPath;
 
@@ -18,8 +18,7 @@ final class WordPressComments
 
     public static function entities(string $html, string $sourcePath): array
     {
-        $dom = new DOMDocument();
-        @$dom->loadHTML('<?xml encoding="utf-8" ?>' . $html);
+        $dom = HtmlSerialization::parseDocument($html);
         $xpath = new DOMXPath($dom);
         $rows = array();
         // A responsive document copy renders the same comments again with

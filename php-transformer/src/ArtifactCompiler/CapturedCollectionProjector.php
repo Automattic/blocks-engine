@@ -49,7 +49,7 @@ final class CapturedCollectionProjector
             $pageCount = 0;
             foreach ($page['components'] as $component) {
                 if ('collection' !== ($component['kind'] ?? null)) continue;
-                $document ??= $this->document($files[$index]['content']);
+                $document ??= HtmlSerialization::parseDocument($files[$index]['content']);
                 // Membership exposed by opening a panel does not prove a
                 // collection predicate. Leave that content and its toggle alone.
                 if ($this->isDisclosureMembership($document, $component, $page['components'])) continue;
@@ -78,7 +78,7 @@ final class CapturedCollectionProjector
                     $diagnostics[] = $this->diagnostic('Captured collection evidence is incomplete; native local filtering remains unproven.');
                     continue;
                 }
-                $document ??= $this->document($files[$index]['content']);
+                $document ??= HtmlSerialization::parseDocument($files[$index]['content']);
                 $candidate = clone $document;
                 $added = $this->annotateAvailable($candidate, $evidence, $files[$index]['path']);
                 if ($added < 1) {
@@ -299,7 +299,7 @@ final class CapturedCollectionProjector
         if (!is_array($nodes)) return 'schema';
         foreach ($nodes as $node) {
             if (!is_array($node) || !is_string($node['html'] ?? null)) return 'schema';
-            $imported = $this->importStatusNode($this->document('<div></div>'), $node['html']);
+            $imported = $this->importStatusNode(HtmlSerialization::parseDocument('<div></div>'), $node['html']);
             if (!$imported) return 'html';
             $attribute = $this->firstUnsafeStatusAttribute($imported);
             if (null !== $attribute) return $attribute;
@@ -345,7 +345,7 @@ final class CapturedCollectionProjector
         $tokens = $this->statusTokens($node['template']);
         if (null === $tokens || $tokens !== $node['binds']) return false;
         if (str_contains($node['template'], CaptureEvidence::NO_MATCH_PROBE) || str_contains($node['template'], CaptureEvidence::FINITE_PROBE)) return false;
-        $imported = $this->importStatusNode($this->document('<div></div>'), $node['html']);
+        $imported = $this->importStatusNode(HtmlSerialization::parseDocument('<div></div>'), $node['html']);
         if (!$imported || $this->text($imported) !== $node['template'] || 1 !== $this->markStatusTemplates($imported)) return false;
         return $this->statusTemplateValue($imported) === $node['template'] && !$this->unsafeStatus($imported);
     }
@@ -467,7 +467,7 @@ final class CapturedCollectionProjector
 
     private function disclosureLabel(string $html): string
     {
-        $document = $this->document($html);
+        $document = HtmlSerialization::parseDocument($html);
         foreach (array('button', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6') as $tag) {
             $node = $document->getElementsByTagName($tag)->item(0);
             if ($node instanceof DOMElement) return mb_strtolower($this->normalize($node->textContent ?? ''));
@@ -669,7 +669,7 @@ final class CapturedCollectionProjector
         }
         if (!$empty) {
             $empty = $document->createElement('div');
-            $fragment = $this->document('<div>' . $evidence['emptyHtml'] . '</div>');
+            $fragment = HtmlSerialization::parseDocument('<div>' . $evidence['emptyHtml'] . '</div>');
             $body = $fragment->getElementsByTagName('body')->item(0);
             $container = $body?->firstChild;
             if ($container) foreach (iterator_to_array($container->childNodes) as $node) $empty->appendChild($document->importNode($node, true));
@@ -694,7 +694,7 @@ final class CapturedCollectionProjector
         }
         if (!is_array($countNode) || !is_string($countNode['template'] ?? null) || str_contains($countNode['template'], '{query}')) return;
         $zero = str_replace('{count}', '0', $countNode['template']);
-        $source = $this->importStatusNode($this->document('<div></div>'), (string) ($countNode['html'] ?? ''));
+        $source = $this->importStatusNode(HtmlSerialization::parseDocument('<div></div>'), (string) ($countNode['html'] ?? ''));
         foreach ($empty->childNodes as $child) {
             if (!$child instanceof DOMElement || $this->text($child) !== $zero || !$this->sameStatusIdentity($child, $source)) continue;
             $child->setAttribute('data-blocks-engine-collection-status', 'true');
@@ -816,7 +816,7 @@ final class CapturedCollectionProjector
 
     private function importStatusNode(DOMDocument $document, string $html): ?DOMElement
     {
-        $fragment = $this->document('<div>' . $html . '</div>');
+        $fragment = HtmlSerialization::parseDocument('<div>' . $html . '</div>');
         $body = $fragment->getElementsByTagName('body')->item(0);
         $holder = $body?->firstChild;
         if (!$holder instanceof DOMElement) return null;
@@ -890,7 +890,7 @@ final class CapturedCollectionProjector
 
     private function importItem(DOMDocument $document, string $html): ?DOMElement
     {
-        $fragment = $this->document('<div>' . $html . '</div>');
+        $fragment = HtmlSerialization::parseDocument('<div>' . $html . '</div>');
         $body = $fragment->getElementsByTagName('body')->item(0);
         $holder = $body?->firstChild;
         if (!$holder instanceof DOMElement) return null;
@@ -918,7 +918,7 @@ final class CapturedCollectionProjector
 
     private function buttonAttributes(string $html): ?array
     {
-        $document = $this->document($html);
+        $document = HtmlSerialization::parseDocument($html);
         $buttons = $document->getElementsByTagName('button');
         if (1 !== $buttons->length) return null;
         return $this->controlState($buttons->item(0));
@@ -926,7 +926,7 @@ final class CapturedCollectionProjector
 
     private function controlAttributes(string $html): ?array
     {
-        $document = $this->document($html);
+        $document = HtmlSerialization::parseDocument($html);
         $body = $document->getElementsByTagName('body')->item(0);
         $element = null;
         if ($body) foreach ($body->childNodes as $child) {
@@ -1062,7 +1062,7 @@ final class CapturedCollectionProjector
         $identity = substr(hash('sha256', $component['selector']), 0, 16);
         foreach ($evidence['members'] as $offset => $member) {
             if (!is_string($member['html'] ?? null)) return false;
-            $fragment = $this->document($member['html']);
+            $fragment = HtmlSerialization::parseDocument($member['html']);
             $body = $fragment->getElementsByTagName('body')->item(0);
             $children = array_values(array_filter(iterator_to_array($body->childNodes), static fn($node) => $node instanceof DOMElement));
             if (1 !== count($children)) return false;
@@ -1112,13 +1112,6 @@ final class CapturedCollectionProjector
         };
         $walk($node);
         return trim(preg_replace('/\s+/u', ' ', implode(' ', $parts)) ?? '');
-    }
-
-    private function document(string $html): DOMDocument
-    {
-        $document = new DOMDocument('1.0', 'UTF-8');
-        HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8">' . $html, LIBXML_NONET);
-        return $document;
     }
 
     private function diagnostic(string $message): array
