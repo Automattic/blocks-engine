@@ -863,12 +863,14 @@ final class StyleResolver implements ElementPresentationResolver
      */
     public function richTextSerializationSource(DOMElement $element): DOMElement
     {
-        $serialized = SourceDom::withoutBlockifiedBoundaryWhitespace($element, function (DOMElement $container): bool {
+        $blockifiesChildren = function (DOMElement $container): bool {
             $display = CssValueInspector::comparable($this->referenceViewportAuthorDeclarations($container, array( 'display' ))['display'] ?? '');
 
             return 1 === preg_match('/(?<![\w-])(?:inline-)?(?:flex|grid)(?![\w-])/', $display);
-        });
+        };
+        $serialized = SourceDom::withoutBlockifiedBoundaryWhitespace($element, $blockifiesChildren);
         $clone = SourceDom::canonicalizedSerializationClone($serialized);
+        \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CommentTextRunBoundaries::mergeBlockifiedRuns($element, $clone, $blockifiesChildren);
         SourceDom::projectInlineStyles($element, $clone, $this->serializedInlineStyle(...));
         return $clone;
     }

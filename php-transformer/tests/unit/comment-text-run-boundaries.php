@@ -12,6 +12,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 
 $failures = 0;
 $passes = 0;
@@ -62,6 +63,22 @@ $markBlocks = (string) ($marked['serialized_blocks'] ?? '');
 $assert(0 === preg_match('/(?:^|[},])\s*(?:\.mark\s*,\s*)?mark\s*[{,]/', $markCss), 'no author mark rule keeps a bare mark subject that reaches engine carriers', $markCss);
 $assert(1 === preg_match('/:where\(\.blocks-engine-source-mark-[0-9a-f]+-\d+\)[^{]*\{padding:\.1875em/', $markCss), 'the author mark rule addresses the source mark marker', $markCss);
 $assert(str_contains($markBlocks, '<mark style="padding:.1875em;background-color:#fcf8e3;color:inherit">hit</mark>'), 'a source mark keeps its author presentation', $markBlocks);
+
+// Resolve display through author CSS, not just inline declarations.
+foreach ( array(
+    'inline-flex' => array( '<a class="b" href="/calc/">Use the <!-- -->Rate Calculator<!-- --> <svg viewBox="0 0 10 10"><path d="M0 0L10 10"/></svg></a>', 'Use the Rate Calculator', false ),
+    'flex' => array( '<p class="b">Use the <!-- -->Rate Calculator<!-- --></p>', 'Use the Rate Calculator', false ),
+    'grid' => array( '<p class="b">Use the <!-- -->Rate Calculator<!-- --></p>', 'Use the Rate Calculator', false ),
+    'inline-grid' => array( '<p class="b">Use the <!-- -->Rate Calculator<!-- --></p>', 'Use the Rate Calculator', false ),
+    'block' => array( '<p>Download the <!-- -->Four Seasons<!-- --> catalogue.</p>', 'Download the ' . $carrier . 'Four Seasons</mark> catalogue.', true ),
+) as $display => [$markup, $expected, $hasCarrier] ) {
+    $compiled = (new ArtifactCompiler())->compile(array(
+        'entrypoint' => 'index.html',
+        'files' => array( 'index.html' => '<html><head><style>.b{display:' . $display . ';align-items:center;gap:.5rem}</style></head><body><main>' . $markup . '</main></body></html>' ),
+    ))->toArray();
+    $output = (string) ($compiled['serialized_blocks'] ?? '');
+    $assert(str_contains($output, $expected) && $hasCarrier === str_contains($output, '<mark'), $display . ' preserves the direct parent text-item contract', $output);
+}
 
 if ( 0 < $failures ) {
     fwrite(STDERR, "comment text run boundaries FAILED: {$passes} passed, {$failures} failed\n");
