@@ -28,12 +28,15 @@ $cards = '';
 foreach (array('Mug', 'Bowl') as $index => $name) {
     $cards .= '<li><h2>' . $name . '</h2><span class="price">' . (8 + $index) . '.50</span><img src="media/' . strtolower($name) . '.png" alt="' . $name . '" width="400" height="400"></li>';
 }
-[$plan, $functions] = $bootstrap('<h1>Shop</h1><ul>' . $cards . '</ul>', array($image('media/mug.png'), $image('media/bowl.png')));
+[$plan, $functions] = $bootstrap('<link rel="stylesheet" href="site.css"><h1 class="hero">Shop</h1><ul>' . $cards . '</ul>', array($image('media/mug.png'), $image('media/bowl.png'), $image('media/hero.png'), array('path' => 'site.css', 'kind' => 'css', 'mime_type' => 'text/css', 'content' => '.hero{background:url(media/hero.png)}')));
 $targets = array_column($plan['reference_tokens'], 'target_path', 'source_path');
 $tokens = array_column($plan['reference_tokens'], 'token', 'source_path');
 $assert(isset($tokens['media/mug.png']) && str_contains(implode('', array_column($plan['pages'], 'canonical_block_markup')), WordPressSitePlan::TOKEN_PREFIX . $tokens['media/mug.png'] . '}}'), 'The page keeps the photo as an asset token.');
 $assert(str_contains($functions, '$blocks_engine_template_asset_tokens'), 'Page asset tokens publish the template-asset resolver.');
 $assert(str_contains($functions, var_export(WordPressSitePlan::TOKEN_PREFIX . $tokens['media/mug.png'] . '}}', true) . ' => ' . var_export($targets['media/mug.png'], true)), 'The resolver maps the page photo token to its theme file.');
+// Stylesheet-only references resolve when the stylesheet is written; mapping
+// them would ship every plan asset in functions.php.
+$assert(isset($tokens['media/hero.png']) && !str_contains($functions, $tokens['media/hero.png']), 'The resolver maps only tokens the documents reference.');
 
 // A plan whose documents carry no asset token keeps a resolver-free bootstrap.
 [, $functions] = $bootstrap('<h1>About</h1><p>Plain text.</p>');
