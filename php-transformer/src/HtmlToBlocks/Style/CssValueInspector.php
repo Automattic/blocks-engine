@@ -43,6 +43,17 @@ final class CssValueInspector
         };
     }
 
+    /**
+     * Whether a box shorthand's sides are known from its tokens alone. With
+     * fewer than four tokens, a var() may itself carry several sides
+     * (`--pad: 64px 20px`), so positional expansion would be wrong.
+     */
+    public static function hasPositionalSides(string $value): bool
+    {
+        return 4 <= count(CssValueSplitter::splitTopLevelWhitespace(trim($value)))
+            || 1 !== preg_match('/\bvar\(/i', $value);
+    }
+
     public static function isBorderWidthToken(string $token): bool
     {
         $lower = strtolower($token);
