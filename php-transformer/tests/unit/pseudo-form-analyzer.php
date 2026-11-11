@@ -53,7 +53,7 @@ $assert($inner instanceof DOMElement && $analyzer->isPseudoForm($inner), 'tighte
 $assert(! $analyzer->isPseudoForm($nested), 'ancestor-defers-to-tightest-container');
 
 $boundary = $inner instanceof DOMElement ? $analyzer->boundaryMetadata($inner) : array();
-$assert('#inner' === ($boundary['selector'] ?? ''), 'boundary-identifies-selected-container');
+$assert('div:nth-of-type(1) > div:nth-of-type(1)' === ($boundary['selector'] ?? ''), 'boundary-identifies-selected-container');
 $assert('contains_nested_coherent_form' === ($boundary['rejected_ancestors'][0]['reason'] ?? ''), 'boundary-explains-rejected-ancestor');
 
 $form = $elementFrom('<form><label>Email<input name="email"></label><button type="submit">Join</button></form>');

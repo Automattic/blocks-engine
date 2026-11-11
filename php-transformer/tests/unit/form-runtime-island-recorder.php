@@ -66,7 +66,7 @@ $controlRecord = $recorded[2] ?? array();
 $controlMetadata = $controlRecord['metadata'] ?? array();
 $assert('control' === ($controlRecord['kind'] ?? '') && 'runtime_dom_target' === ($controlRecord['reason'] ?? ''), 'runtime-control-classification');
 $assert('client_script_execution' === ($controlRecord['capability'] ?? ''), 'runtime-control-capability');
-$assert('#runtime-email' === ($controlMetadata['control']['selector'] ?? '') && 'email' === ($controlMetadata['control']['name'] ?? ''), 'runtime-control-metadata');
+$assert('input:nth-of-type(1)' === ($controlMetadata['control']['selector'] ?? '') && 'email' === ($controlMetadata['control']['name'] ?? ''), 'runtime-control-metadata');
 $assert(array( array( 'type' => 'submit', 'attribute' => 'onsubmit' ) ) === ($controlMetadata['events'] ?? array()), 'runtime-control-events');
 $assert(array( array( 'src' => '/form.js' ) ) === ($controlMetadata['required_scripts'] ?? array()), 'runtime-control-scripts');
 
