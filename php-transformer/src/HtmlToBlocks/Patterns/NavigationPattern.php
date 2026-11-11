@@ -4497,6 +4497,11 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         $links = array();
         foreach ( $label->getElementsByTagName('a') as $link ) {
+            // Empty responsive counterparts are not competing toggle labels,
+            // even when a title would supply anchorLabel()'s fallback name.
+            if ( '' === trim($innerHtml($link)) ) {
+                continue;
+            }
             if ( '' !== $this->anchorLabel($link, $innerHtml, $navigationContext) ) {
                 $links[] = $link;
             }
