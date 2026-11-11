@@ -286,7 +286,20 @@ final class ReadableFormBlockBuilder
                 continue;
             }
             if ($isFieldset) {
+                // A fieldset's caption is outside its anonymous flex/grid
+                // content box. Keep source identity on the content group so
+                // projected author layout and field selectors still match.
+                $captions = array();
+                if ( $this->authorLayoutOwnership->isAuthorOwnedLayout($element) ) {
+                    $captions = array_values(array_filter($inner, static fn (array $block): bool => ! empty($block['_form_legend'])));
+                    if ( array() !== $captions ) {
+                        $inner = array_values(array_filter($inner, static fn (array $block): bool => empty($block['_form_legend'])));
+                    }
+                }
                 $group = $this->createBlock->createBlock('core/group', $this->presentationAttributes($element), $inner, $element);
+                if ( array() !== $captions ) {
+                    $group = $this->createBlock->createBlock('core/group', array('className' => 'blocks-engine-css-owned-layout blocks-engine-css-owned-flow'), array_merge($captions, array($group)));
+                }
                 $legend = null;
                 foreach ($element->childNodes as $child) {
                     if ($child instanceof DOMElement && 'legend' === strtolower($child->tagName)) {
