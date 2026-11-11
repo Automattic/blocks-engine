@@ -171,11 +171,7 @@ final class LinkedResponsiveContentBlockGenerator
 JS;
 
         return array(
-            'index.js' => str_replace(
-                array( '__BLOCK_NAME__', '__BLOCK_ATTRIBUTES__' ),
-                array( $blockName, json_encode($this->blockJson(substr($blockName, 0, (int) strrpos($blockName, '/')))['attributes'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES) ),
-                $script
-            ),
+            'index.js' => EditorScript::bind($script, $blockName, $this->blockJson(substr($blockName, 0, (int) strrpos($blockName, '/')))['attributes']),
         );
     }
 

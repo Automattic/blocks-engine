@@ -263,7 +263,7 @@ JS;
 JS;
 
         return array(
-            'index.js' => str_replace(array('__BLOCK_NAME__', '__BLOCK_ATTRIBUTES__', '__LABEL_TAGS__'), array($namespace . '/' . self::LOCAL_NAME, json_encode($this->blockJson($namespace)['attributes'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), json_encode(self::LABEL_TAGS, JSON_THROW_ON_ERROR)), $script),
+            'index.js' => EditorScript::bind($script, $namespace . '/' . self::LOCAL_NAME, $this->blockJson($namespace)['attributes'], array('__LABEL_TAGS__' => json_encode(self::LABEL_TAGS, JSON_THROW_ON_ERROR))),
             'view.js' => str_replace('__DIRECTION_ATTRIBUTE__', CaptureEvidence::GALLERY_DIRECTION, $view),
         );
     }

@@ -123,8 +123,10 @@ __CONTROL_HELPERS__
 })(window.wp.blocks,window.wp.blockEditor,window.wp.components,window.wp.element);
 JS;
         $script = AuthoredFormLabelEditorScript::synchronize($script);
-        return array('index.js' => str_replace(array('__BLOCK_NAME__', '__BLOCK_ATTRIBUTES__', '__CONTROL_HELPERS__', '__INDICATOR_POLICY__'),
-            array($namespace . '/' . self::LOCAL_NAME, json_encode($this->blockJson($namespace)['attributes'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), AuthoredControlState::editorHelpers(), json_encode(SourceAttribute::staticPolicy(), JSON_THROW_ON_ERROR)), $script));
+        return array('index.js' => EditorScript::bind($script, $namespace . '/' . self::LOCAL_NAME, $this->blockJson($namespace)['attributes'], array(
+            '__CONTROL_HELPERS__' => AuthoredControlState::editorHelpers(),
+            '__INDICATOR_POLICY__' => json_encode(SourceAttribute::staticPolicy(), JSON_THROW_ON_ERROR),
+        )));
     }
 
     /** @param array<string,mixed> $attrs */
