@@ -233,6 +233,10 @@ final class EngineSupportCss
             $parts[] = ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_CLASS . '){isolation:isolate!important}'
                 . "\n" . ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_CLASS . ') img{max-width:100%}'
                 . "\n" . ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'cover,.' . ImageLowering::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'contain){width:100%;height:100%}'
+                // A propagated link has no source box. Size Core's auto-height
+                // inline-block link to the figure (or the source host when the
+                // figure is display:contents) so the image percentages resolve.
+                . "\n" . ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'cover,.' . ImageLowering::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'contain)>a{display:block;width:100%;height:100%}'
                 . "\n" . ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'cover) img{width:100%;height:100%;object-fit:cover}'
                 . "\n" . ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'contain) img{width:100%;height:100%;object-fit:contain}';
         }
