@@ -74,8 +74,7 @@ final class CapturedChoiceGroupProjector
             $this->removeInlineEvidence($document);
             $output = HtmlSerialization::documentHtml($document);
             if (is_string($output)) {
-                $files[$index]['content'] = $output;
-                $files[$index]['bytes'] = strlen($output);
+                $files[$index] = ArtifactNormalizer::withTextPayload($files[$index], $output);
                 $projected += $count;
             }
         }
@@ -252,8 +251,7 @@ final class CapturedChoiceGroupProjector
             $result = $this->projectPage((string) $files[$index]['content'], $groups, $path);
             $diagnostics = array_merge($diagnostics, $result['diagnostics']);
             if (0 < $result['projected_count']) {
-                $files[$index]['content'] = $result['html'];
-                $files[$index]['bytes'] = strlen($result['html']);
+                $files[$index] = ArtifactNormalizer::withTextPayload($files[$index], $result['html']);
                 $projected += $result['projected_count'];
             }
         }

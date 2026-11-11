@@ -115,8 +115,7 @@ final class CapturedSelectableSetProjector
             $projection = $this->projectPage((string) $files[$index]['content'], $sets, $path, is_array($consumedBindings[$path] ?? null) ? $consumedBindings[$path] : array());
             $diagnostics = array_merge($diagnostics, $projection['diagnostics']);
             if (0 < $projection['projected_count']) {
-                $files[$index]['content'] = $projection['html'];
-                $files[$index]['bytes'] = strlen($projection['html']);
+                $files[$index] = ArtifactNormalizer::withTextPayload($files[$index], $projection['html']);
                 $projected += $projection['projected_count'];
             }
         }
@@ -200,8 +199,7 @@ final class CapturedSelectableSetProjector
             }
             if ($changed) {
                 $retired[$path] = CapturedComponentStates::retireRuntime($document, CaptureEvidence::COMPONENT_RUNTIME, array());
-                $file['content'] = HtmlSerialization::documentHtml($document);
-                $file['bytes'] = strlen($file['content']);
+                $file = ArtifactNormalizer::withTextPayload($file, (string) HtmlSerialization::documentHtml($document));
                 $bindings->rebind($files, $path);
             }
             unset($file);

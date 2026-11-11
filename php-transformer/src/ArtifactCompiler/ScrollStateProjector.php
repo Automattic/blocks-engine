@@ -93,8 +93,7 @@ final class ScrollStateProjector
             $projection = $this->projectPage((string) $files[$index]['content'], $toggles, $path, $documentScopeClasses);
             $diagnostics = array_merge($diagnostics, $projection['diagnostics']);
             if (0 < $projection['projected_count']) {
-                $files[$index]['content'] = $projection['html'];
-                $files[$index]['bytes'] = strlen($projection['html']);
+                $files[$index] = ArtifactNormalizer::withTextPayload($files[$index], $projection['html']);
                 $projected += $projection['projected_count'];
             }
         }

@@ -109,9 +109,7 @@ final class CapturedCollectionProjector
                         $node->parentNode?->removeChild($node);
                     }
                 }
-                $html = HtmlSerialization::documentHtml($document) ?? '';
-                $files[$index]['content'] = $html;
-                $files[$index]['bytes'] = strlen($html);
+                $files[$index] = ArtifactNormalizer::withTextPayload($files[$index], HtmlSerialization::documentHtml($document) ?? '');
             }
         }
         $superseded = $this->omitRetiredRuntimeFiles($files, $retired);

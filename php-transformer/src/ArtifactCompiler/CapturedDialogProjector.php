@@ -202,8 +202,7 @@ final class CapturedDialogProjector
             }
             if ($changed) {
                 $retired[$path] = CapturedComponentStates::retireRuntime($document, CaptureEvidence::COMPONENT_CAROUSEL_RUNTIME, $selectors);
-                $file['content'] = HtmlSerialization::documentHtml($document);
-                $file['bytes'] = strlen($file['content']);
+                $file = ArtifactNormalizer::withTextPayload($file, (string) HtmlSerialization::documentHtml($document));
                 $bindings->rebind($files, $path);
             }
             unset($file);
