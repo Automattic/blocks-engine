@@ -1196,4 +1196,15 @@ final class AuthorSelectorProjectionState
 
         return false;
     }
+
+    public function hasSemanticMarkedChild(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && $this->hasSemanticMarker($child) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }

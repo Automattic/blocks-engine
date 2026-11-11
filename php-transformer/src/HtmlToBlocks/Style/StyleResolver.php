@@ -7485,4 +7485,22 @@ final class StyleResolver implements ElementPresentationResolver
 
         return $this->expandCssVariableReferences($value, $this->cascadedCustomProperties($element));
     }
+
+    /** A `<br>` breaks a line only in flow: a flex or grid parent blockifies each run into its own item. */
+    public function breakEndsInlineLine(DOMElement $break): bool
+    {
+        $parent = $break->parentNode;
+        $display = $parent instanceof DOMElement ? strtolower($this->resolvedPresentationDeclarations($parent)['display'] ?? 'block') : 'block';
+        return ! in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
+    }
+
+    /** @return array<string, mixed> */
+    public function positionedInlineCarrierAttributes(DOMElement $element): array
+    {
+        return $this->presentationAttributes($element, array(), array(
+            'position', 'z-index', 'inset', 'inset-block', 'inset-inline',
+            'inset-block-start', 'inset-block-end', 'inset-inline-start',
+            'inset-inline-end', 'top', 'right', 'bottom', 'left',
+        ));
+    }
 }
