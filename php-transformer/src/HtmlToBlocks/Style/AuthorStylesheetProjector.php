@@ -2549,16 +2549,24 @@ final class AuthorStylesheetProjector
         }
 
         $markers = array();
+        $hasNonProjected = false;
         foreach ( $this->matchingSourceElements($leafSelector, $leafParsed, $context) as $element ) {
             $marker = $context->selectorProjections->controlMarker($element->getNodePath() ?? '');
             if ( '' !== $marker ) {
                 $markers[] = $marker;
+            } else {
+                $hasNonProjected = true;
             }
         }
         $markers = array_values(array_unique($markers));
         $prefix = substr($selector, 0, (int) $rightmost['start']);
         $subject = $subjectArms && array() !== $markers ? $this->contextFreeSubject('control', $leafParsed, $markers, $context) : null;
         $projected = array();
+        // A dormant ancestor (including a route-owned body id) does not make
+        // the leaf control-only. Keep its other subjects addressable too.
+        if ( $hasNonProjected && array() !== $markers ) {
+            $projected[] = $this->rewriteSourceTagTypes($selector, $parsed, $context, ':not(:where(.blocks-engine-role-control))');
+        }
         if ( null !== $subject ) {
             $projected[] = $prefix . $this->projectControlTarget($subject['target'], $leafSelector, $leafParsed, $context, $wrapper);
             $markers = $subject['rest'];
