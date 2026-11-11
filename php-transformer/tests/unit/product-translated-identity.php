@@ -71,7 +71,7 @@ foreach (array(
     $assert(array('p/a/index.html') === $purchasePaths, $identity . ': ambiguous and schema-less pages receive no purchase binding');
 }
 $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'products/desk-lamp.html', 'files' => array(
-    'products/desk-lamp.html' => '<html><head><title>Desk Lamp</title><script type="application/ld+json">{"@type":"ProductGroup","name":"Desk Lamp","offers":{"@type":"Offer","price":"20"}}</script></head><body><main><h1>Desk Lamp</h1></main></body></html>',
+    'products/desk-lamp.html' => '<html><head><title>Desk Lamp</title><script type="application/ld+json">{"@type":"ProductGroup","name":"Desk Lamp","offers":{"@type":"Offer","price":"20"}}</script></head><body><a href="/cart/">Cart</a><main><h1>Desk Lamp</h1></main></body></html>',
 )))->toArray();
 $entities = array();
 foreach ($result['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array() as $declaration) {

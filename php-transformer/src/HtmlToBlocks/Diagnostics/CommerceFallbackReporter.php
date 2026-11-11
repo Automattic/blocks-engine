@@ -82,8 +82,11 @@ final class CommerceFallbackReporter
      * @param array<int, array<string, mixed>> $fallbacks
      * @param array<int, array<string, mixed>> $blocks
      */
-    public function appendProductGridFallbacks(DOMElement $body, array &$fallbacks, array $blocks): void
+    public function appendProductGridFallbacks(DOMElement $body, array &$fallbacks, array $blocks, ?bool $hasPurchaseAffordance = null): void
     {
+        if ( ! ($hasPurchaseAffordance ?? $this->recognizer->hasPurchaseAffordance($body)) ) {
+            return;
+        }
         $emitted = 0;
         $candidates = array();
         foreach ( $body->getElementsByTagName('*') as $element ) {

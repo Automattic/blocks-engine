@@ -467,7 +467,9 @@ PHP;
         // representation owns the landmark wrapper until extraction is accepted.
         foreach ($pages as &$page) {
             foreach ($page['shell_candidates'] ?? array() as $candidate) {
-                $restored = $this->shellExtraction->replaceTopLevelShell($page['canonical_block_markup'], (string) ($candidate['area'] ?? ''), (string) ($candidate['markup'] ?? ''));
+                // A leading-chrome candidate still owns its original landmark
+                // until extraction accepts it; restoring the pruned part loses content.
+                $restored = $this->shellExtraction->replaceTopLevelShell($page['canonical_block_markup'], (string) ($candidate['area'] ?? ''), (string) ($candidate['shared_leading']['markup'] ?? $candidate['markup'] ?? ''));
                 if (null !== $restored) $page['canonical_block_markup'] = $restored;
             }
             $page['content_hash'] = self::contentHash($page['canonical_block_markup']);

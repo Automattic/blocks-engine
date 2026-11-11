@@ -199,6 +199,9 @@ final class ArtifactCompiler
 
     private string $generatedAssetRoot = '';
 
+    /** Whether the artifact offers a purchase affordance; decided once per compile. */
+    private ?bool $sourceHasPurchaseAffordance = null;
+
     /** @var array<string, array<string, mixed>> */
     private array $filesByPath = array();
 
@@ -273,9 +276,15 @@ final class ArtifactCompiler
      *
      * @param array<string, mixed> $artifact
      */
+    private function sourceHasPurchaseAffordance(array $files): bool
+    {
+        return $this->sourceHasPurchaseAffordance ??= \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer::sourceHasPurchaseAffordance($files);
+    }
+
     private function compileArtifact(array $artifact): TransformerResult
     {
 		$this->themeStaticCssCache = array();
+        $this->sourceHasPurchaseAffordance = null;
         $this->stylesheetOccurrenceCache = array();
         $this->layeredNavigationImports = array();
 		$this->wordpressCompat = new WordPressCompatCss();
@@ -1188,7 +1197,9 @@ final class ArtifactCompiler
         $detailPages = array();
         $entryRoot = dirname($entryPath);
         $pageEvidence = array();
-        $schemaProducts = SchemaProductEvidence::rows($files, $slug, $price, $diagnostics, $productRoutes, $pageProducts, $detailPages, '.' === $entryRoot ? '' : $entryRoot, $pageEvidence);
+        $schemaProducts = $this->sourceHasPurchaseAffordance($files)
+            ? SchemaProductEvidence::rows($files, $slug, $price, $diagnostics, $productRoutes, $pageProducts, $detailPages, '.' === $entryRoot ? '' : $entryRoot, $pageEvidence)
+            : array();
         // Match the plan's page route, including explicit routes and entry roots.
         $pageRoutes = array();
         foreach ($files as $file) {
@@ -1908,6 +1919,7 @@ final class ArtifactCompiler
             'source'                    => $sourcePath,
             'source_scope'              => $sourceScope,
             'native_document_context'   => true,
+            'source_has_purchase_affordance' => $this->sourceHasPurchaseAffordance($files),
             'declarative_state_html'    => $html,
             'static_css'                => trim(implode("\n", array_column($stylesheetPayloads, 'content'))),
             'stylesheet_payloads'       => $stylesheetPayloads,

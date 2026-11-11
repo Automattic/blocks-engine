@@ -13,7 +13,7 @@ $assert = static function (bool $ok, string $message) use (&$failures): void {
     fwrite(STDERR, 'FAIL: ' . $message . PHP_EOL);
 };
 $compile = static function (string $content): array {
-    $html = '<!doctype html><html><head><meta charset="UTF-8"></head><body><main><h1>Catalog</h1><section>'
+    $html = '<!doctype html><html><head><meta charset="UTF-8"></head><body><a href="/cart/">Cart</a><main><h1>Catalog</h1><section>'
         . $content . '</section></main></body></html>';
     return (new ArtifactCompiler())->compile(['entrypoint' => 'index.html', 'files' => ['index.html' => $html]])->toArray();
 };

@@ -246,14 +246,18 @@ final class ListingControlsRecognizer
             $name = $group['name'] ?? SourceDom::attr($group['element'], 'name');
             $label = (string) preg_replace('/^.*[.\[\]]([^.[\]]+)\]?$/', '$1', $name);
         }
-        $key = trim((string) preg_replace('/[^a-z0-9]+/', '_', $this->normalize('' !== $label ? $label : 'facet')), '_');
+        $key = trim((string) preg_replace('/[^a-z0-9]+/', '_', $this->normalize($label)), '_');
+        // A facet needs a name both to show shoppers and to key its attribute.
+        if ( '' === $key ) {
+            return null;
+        }
         ksort($cardValues);
 
         return array(
             'kind'        => 'facet',
             'element'     => $group['element'],
             'shape'       => $group['shape'],
-            'key'         => '' !== $key ? $key : 'facet',
+            'key'         => $key,
             'label'       => $label,
             'role'        => preg_match('/\b(categor|collection|department|type|kind)/i', $label) ? 'category' : 'attribute',
             'options'     => $options,
@@ -444,9 +448,16 @@ final class ListingControlsRecognizer
                 break;
             }
         }
-        $label = SourceDom::associatedLabel($control);
+        $label = SourceDom::associatedLabel($control, true);
         if ( null !== $label ) {
-            return $this->text($label);
+            // A wrapping label's caption excludes the control (and its options).
+            $caption = $label->cloneNode(true);
+            if ( $caption instanceof DOMElement ) {
+                foreach ( iterator_to_array($caption->getElementsByTagName(strtolower($control->tagName))) as $nested ) {
+                    $nested->parentNode?->removeChild($nested);
+                }
+                return $this->text($caption);
+            }
         }
         $document = $control->ownerDocument;
         foreach ( preg_split('/\s+/', trim(SourceDom::attr($control, 'aria-labelledby'))) ?: array() as $id ) {
