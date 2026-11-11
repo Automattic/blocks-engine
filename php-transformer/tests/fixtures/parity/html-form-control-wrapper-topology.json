@@ -27,7 +27,7 @@
     { "path": "fallbacks.0.controls.3.name", "assert": "equals", "value": "bounded_out" },
     { "path": "fallbacks.0.control_topology.schema", "assert": "equals", "value": "generic/form-control-topology/v1" },
     { "path": "fallbacks.0.control_topology.max_depth", "assert": "equals", "value": 16 },
-    { "path": "fallbacks.0.control_topology.max_nodes", "assert": "equals", "value": 128 },
+    { "path": "fallbacks.0.control_topology.max_nodes", "assert": "equals", "value": 256 },
     { "path": "fallbacks.0.control_topology.truncated", "assert": "equals", "value": false },
     { "path": "fallbacks.0.control_topology.nodes", "assert": "count", "count": 18 },
     { "path": "fallbacks.0.control_topology.nodes.0.id", "assert": "equals", "value": "wrapper-0" },
