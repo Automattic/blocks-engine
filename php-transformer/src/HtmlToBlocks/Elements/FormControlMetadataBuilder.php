@@ -1231,6 +1231,13 @@ final class FormControlMetadataBuilder
         if ( $node instanceof DOMElement && FormControlClassifier::isControlElement($node) ) {
             return '';
         }
+        // Composite captions can contain a description paragraph alongside
+        // their title. It is caption copy, not part of the field's name.
+        // Keep inline required markers on the existing normalization path.
+        if ( $node instanceof DOMElement && 'p' === strtolower($node->tagName)
+            && in_array('description', SourceDom::classNames($node), true) ) {
+            return '';
+        }
 
         $before = '';
         $after = '';

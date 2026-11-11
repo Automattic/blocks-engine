@@ -214,15 +214,20 @@ final class ReadableFormBlockBuilder
                 || (FormControlClassifier::isControlElement($node) && FormControlClassifier::isHoneypotControl($node)) ) {
                 continue;
             }
+            // A legend is one group caption even when its nested wrappers
+            // also appear in the layout graph. Do not walk those parts again
+            // as independent flow content after lowering the whole caption.
+            if ('legend' === strtolower($node->tagName)) {
+                $legend = $this->controlBlockConverter->convert($node);
+                if (null !== $legend) {
+                    $legend['_form_legend'] = true;
+                    $blocks[] = $legend;
+                }
+                continue;
+            }
             $entry = $entriesByPath[ (string) $node->getNodePath() ] ?? null;
             if ( null === $entry ) {
-                if ('legend' === strtolower($node->tagName)) {
-                    $legend = $this->controlBlockConverter->convert($node);
-                    if (null !== $legend) {
-                        $legend['_form_legend'] = true;
-                        $blocks[] = $legend;
-                    }
-                } elseif ( $this->isFlowContent($node) ) {
+                if ( $this->isFlowContent($node) ) {
                     $this->pushFlowContent($blocks, $node, $fallbacks);
                 }
                 continue;
