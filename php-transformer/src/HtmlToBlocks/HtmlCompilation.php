@@ -1504,7 +1504,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
         $this->runtimeIslands->recordRuntimeIslandsForPreservedHtmlBlocks($blocks);
         $this->interactionFallbackReporter->appendInteractiveControlBehaviorLossFallbacks($body, $fallbacks);
-        $this->commerceReporter->appendProductGridFallbacks($body, $fallbacks, $blocks);
+        $this->commerceReporter->appendProductGridFallbacks($body, $fallbacks, $blocks, $options['source_has_purchase_affordance'] ?? null);
         $this->commerceReporter->appendCommerceControlsFallbacks($body, $fallbacks, (string) ($options['declarative_state_html'] ?? $html));
         $this->commerceReporter->appendCartViewFallbacks($body, $fallbacks);
         $this->commerceReporter->appendCheckoutViewFallbacks($body, $fallbacks);

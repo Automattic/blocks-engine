@@ -12,7 +12,7 @@ $assert = static function (bool $condition, string $message): void {
 foreach (array(
     'menu' => array('currency' => '', 'cart' => '', 'controls' => '', 'store' => false),
     'purchase' => array('currency' => '', 'cart' => '<button type="button">Add to cart</button>', 'controls' => '', 'store' => true),
-    'catalog' => array('currency' => '$', 'cart' => '', 'controls' => '<label>Sort by <select name="sort_by"><option value="manual">Featured</option><option value="price-ascending">Price: low to high</option></select></label>', 'store' => true),
+    'catalog' => array('currency' => '$', 'cart' => '', 'controls' => '<a href="/cart/">Cart</a><label>Sort by <select name="sort_by"><option value="manual">Featured</option><option value="price-ascending">Price: low to high</option></select></label>', 'store' => true),
 ) as $case => $options) {
     $rows = '';
     foreach (array('Noodles', 'Dumplings', 'Rice', 'Soup') as $index => $name) {

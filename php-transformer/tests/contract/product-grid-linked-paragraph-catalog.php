@@ -7,7 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 // Four captured cards from #4462, including opaque classes, paragraph names,
 // separate image/details links and screen-reader price labels. No schema/cart.
-$html = file_get_contents(dirname(__DIR__) . '/fixtures/commerce/linked-paragraph-catalog.html');
+$html = '<a href="/cart/">Cart</a>' . file_get_contents(dirname(__DIR__) . '/fixtures/commerce/linked-paragraph-catalog.html');
 $report = (new HtmlTransformer())->transform($html, array());
 $grids = array_values(array_filter($report->fallbacks, static fn (array $finding): bool => 'html_product_grid_fallback' === ($finding['diagnostic_code'] ?? null)));
 if (1 !== count($grids) || 4 !== ($grids[0]['product_count'] ?? 0)) {

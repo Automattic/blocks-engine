@@ -13,7 +13,7 @@ $assert = static function (bool $condition, string $message): void {
 
 // Main + hover images compile as a gallery; a lone main image and its
 // Quick View control compile as separate leaves in the same media region.
-$html = file_get_contents(dirname(__DIR__) . '/fixtures/commerce/media-cardinality-catalog.html');
+$html = '<a href="/cart/">Cart</a>' . file_get_contents(dirname(__DIR__) . '/fixtures/commerce/media-cardinality-catalog.html');
 // Importers compile under their own generated-block namespace; media
 // recognition must not depend on the default one.
 foreach (array('custom', 'ssi-example') as $namespace) {
