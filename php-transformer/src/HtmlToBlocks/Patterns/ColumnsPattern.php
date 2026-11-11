@@ -133,7 +133,7 @@ final class ColumnsPattern implements PatternRecognizerInterface
         $columns = array();
         $columnFallbacks = array();
         foreach ( $elementChildren as $child ) {
-            $children = $this->isColumnWrapperElement($child)
+            $children = ShellLandmarkPolicy::isColumnsWrapperTag($child->tagName)
                 ? $convertChildren($child, $columnFallbacks, true)
                 : array_filter(array( $convertElement($child, $columnFallbacks, true) ));
             // Core saves width as an inline flex-basis, preserving authored
@@ -164,11 +164,6 @@ final class ColumnsPattern implements PatternRecognizerInterface
         }
 
         return $createBlock('core/columns', $attrs, $columns, $element);
-    }
-
-    private function isColumnWrapperElement(DOMElement $element): bool
-    {
-        return ShellLandmarkPolicy::isColumnsWrapperTag($element->tagName);
     }
 
     /**

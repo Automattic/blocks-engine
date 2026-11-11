@@ -163,7 +163,7 @@ final class FallbackEmitter
             }
         }
         $projected = $this->sourceTagProjectedClone($element);
-        $content = $this->sanitizeHtmlString(
+        $content = SourceDom::safeFallbackHtmlString(
             $projected instanceof DOMElement
                 ? ($preserveRoot ? SourceDom::outerHtml($projected) : SourceDom::innerHtml($projected))
                 : ($preserveRoot ? SourceDom::outerHtml($element) : SourceDom::innerHtml($element))
@@ -413,16 +413,6 @@ final class FallbackEmitter
         }
 
         return 'block';
-    }
-
-    /**
-     * Sanitize a raw HTML string for safe server-render storage, mirroring the
-     * stripping {@see DomHelpersTrait::safeFallbackHtml()} applies to elements
-     * (drop script/style bodies, inline event handlers, and javascript: URLs).
-     */
-    private function sanitizeHtmlString(string $html): string
-    {
-        return SourceDom::safeFallbackHtmlString($html);
     }
 
     /**

@@ -52,6 +52,23 @@ final class HtmlSerialization
         return $html;
     }
 
+    /**
+     * One attribute's entity-decoded value read from a raw start tag or its
+     * attribute text, quoted or not; '' when the tag does not carry it.
+     */
+    public static function tagAttribute(string $tag, string $name): string
+    {
+        if ( preg_match('/(?:^|\s)' . preg_quote($name, '/') . '\s*=\s*(["\'])(.*?)\1/is', $tag, $match) ) {
+            return html_entity_decode((string) $match[2], ENT_QUOTES | ENT_HTML5);
+        }
+
+        if ( preg_match('/(?:^|\s)' . preg_quote($name, '/') . '\s*=\s*([^\s"\'>]+)/is', $tag, $match) ) {
+            return html_entity_decode((string) $match[1], ENT_QUOTES | ENT_HTML5);
+        }
+
+        return '';
+    }
+
     public static function documentHtml(DOMDocument $document): ?string
     {
         self::removeEncodingHints($document);

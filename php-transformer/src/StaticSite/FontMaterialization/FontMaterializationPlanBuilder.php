@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use InvalidArgumentException;
 
@@ -307,7 +308,7 @@ final class FontMaterializationPlanBuilder
 
         $usage = array();
         foreach ( $matches[0] as $tag ) {
-            $href = $this->htmlAttributeValue((string) $tag, 'href');
+            $href = HtmlSerialization::tagAttribute((string) $tag, 'href');
             if ( '' === $href ) {
                 continue;
             }
@@ -327,7 +328,7 @@ final class FontMaterializationPlanBuilder
         $imports = array();
         $seen = array();
         foreach ( $matches[0] as $index => $tag ) {
-            $href = $this->htmlAttributeValue((string) $tag, 'href');
+            $href = HtmlSerialization::tagAttribute((string) $tag, 'href');
             if ( '' === $href || isset($seen[$href]) ) continue;
             $usage = $this->fontUsageFromFontHref($href);
             if ( array() === $usage ) continue;
@@ -890,26 +891,13 @@ final class FontMaterializationPlanBuilder
         return array_filter($roles, static fn (string $family): bool => in_array($family, $families, true));
     }
 
-    private function htmlAttributeValue(string $tag, string $name): string
-    {
-        if ( preg_match('/(?:^|\s)' . preg_quote($name, '/') . '\s*=\s*(["\'])(.*?)\1/is', $tag, $match) ) {
-            return html_entity_decode((string) $match[2], ENT_QUOTES | ENT_HTML5);
-        }
-
-        if ( preg_match('/(?:^|\s)' . preg_quote($name, '/') . '\s*=\s*([^\s"\'>]+)/is', $tag, $match) ) {
-            return html_entity_decode((string) $match[1], ENT_QUOTES | ENT_HTML5);
-        }
-
-        return '';
-    }
-
     /** @return array<int,string> */
     private function svgFontFamilies(string $svg): array
     {
         preg_match_all('/<text\b[^>]*>/i', $svg, $texts);
         $families = array();
         foreach ($texts[0] as $text) {
-            $value = $this->htmlAttributeValue($text, 'font-family');
+            $value = HtmlSerialization::tagAttribute($text, 'font-family');
             if ('' === $value && preg_match('/\bfont-family\s*:\s*([^;}]+)/i', $text, $match)) $value = $match[1];
             foreach ($this->fontFamilyList($value) as $family) $families[strtolower($family)] = $family;
         }
