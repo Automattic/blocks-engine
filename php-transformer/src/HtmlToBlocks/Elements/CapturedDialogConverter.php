@@ -25,7 +25,10 @@ final class CapturedDialogConverter implements ElementConverter
     /** @param array<int, array<string, mixed>> $fallbacks */
     public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
-        if ( ! in_array($tagName, array('dialog', 'div'), true) || 'true' !== SourceDom::attr($element, 'data-blocks-engine-captured-dialog') ) {
+        // A native closed dialog already supplies its own hidden runtime shell;
+        // capture evidence is only needed for other dialog surfaces.
+        $isClosedNativeDialog = 'dialog' === $tagName && !$element->hasAttribute('open');
+        if ( ! $isClosedNativeDialog && (! in_array($tagName, array('dialog', 'div'), true) || 'true' !== SourceDom::attr($element, 'data-blocks-engine-captured-dialog')) ) {
             return ConversionOutcome::unhandled();
         }
 
