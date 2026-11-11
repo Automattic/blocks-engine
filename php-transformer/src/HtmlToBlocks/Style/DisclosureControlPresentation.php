@@ -5,8 +5,8 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use DOMElement;
-use Closure;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer;
 
 /**
  * Presentation for disclosure controls core saves without a box of its own.
@@ -20,8 +20,9 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
  *
  * This lived in HtmlCompilation, which is where presentation resolution ends up
  * by default rather than by design. It depends on nothing from the compilation
- * itself: a style resolver to read the source with, and the generated support
- * stylesheet to register the result on.
+ * itself: a style resolver to read the source with, the generated support
+ * stylesheet to register the result on, and the SVG materializer that
+ * serializes a disclosure icon.
  */
 final class DisclosureControlPresentation
 {
@@ -30,7 +31,7 @@ final class DisclosureControlPresentation
     public function __construct(
         private readonly StyleResolver $styles,
         private readonly GeneratedSupportStylesheetState $support,
-        private readonly ?Closure $svgMarkup = null
+        private readonly SvgMaterializer $svg
     ) {
     }
 
@@ -301,7 +302,7 @@ final class DisclosureControlPresentation
                 return array('closed' => $css, 'open' => $css);
             }
         }
-        if ( null === $this->svgMarkup || 1 !== $icons->length ) return array();
+        if ( 1 !== $icons->length ) return array();
         $svg = $icons->item(0);
         if ( ! $svg instanceof DOMElement || ! SourceDom::svgHasDrawableContent($svg) ) return array();
         foreach (array('class', 'style') as $attribute) {
@@ -331,7 +332,7 @@ final class DisclosureControlPresentation
         foreach ( iterator_to_array($clone->attributes) as $attribute ) {
             if ( str_starts_with($attribute->nodeName, CaptureEvidence::ATTRIBUTE_PREFIX) ) $clone->removeAttribute($attribute->nodeName);
         }
-        $markup = ($this->svgMarkup)($clone);
+        $markup = SvgMaterializer::ensureSvgImageNamespace($this->svg->inlineSvgMarkup($clone));
         if ( ! SourceDom::isSafeSvgContent($markup) ) return array();
         $base = $this->styles->cssDeclarationString($dimensions)
             . ';display:inline-block;flex-shrink:0;font-size:0;line-height:0;transform:none;rotate:none'

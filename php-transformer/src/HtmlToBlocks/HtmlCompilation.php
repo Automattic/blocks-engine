@@ -371,7 +371,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->blockFactory      = new BlockFactory();
         $backgroundImageExtractor = new BackgroundImageExtractor();
         $this->tableClassificationPolicy = new TableClassificationPolicy();
-        $this->navigationBlockNormalizer = new NavigationBlockNormalizer(fn (string $label): string => $this->normalizedNavigationLabel($label));
+        $this->navigationBlockNormalizer = new NavigationBlockNormalizer($this->normalizedNavigationLabel(...));
         $this->validation = new Diagnostics\CompilationValidation($this->runtime, $this->session, $this->analysisCache->cssFontAnalysis);
         $this->reusableComponentRecognizer = new ReusableComponentRecognizer();
         $this->styleResolver = new StyleResolver($this->session, $this->createStyleResolutionContext(), $this->analysisCache);
@@ -593,8 +593,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->inertElements->isInertHiddenSvgStorage(...),
             $this->runtimeIslands,
             $this->svgMaterializer->sanitizeInlineSvgMarkup(...),
-            fn (string $html): bool => SourceDom::isSafeSvgContent($html),
-            fn (DOMElement $element): bool => SourceDom::svgHasDrawableContent($element),
+            SourceDom::isSafeSvgContent(...),
+            SourceDom::svgHasDrawableContent(...),
             function (DOMElement $element, array &$fallbacks): void {
                 $this->session->fallbackEmitter()->captureInlineSvgFallback($element, $fallbacks);
             },
@@ -800,7 +800,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->imageLowering->figureLinkedMediaAnchor(...),
             $this->imageLowering->convertPicture(...),
             fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->imageLowering->convertImage($image, $figure, $picture, $link),
-            fn (DOMElement $figure, string $tagName): ?DOMElement => SourceDom::figureMediaElement($figure, $tagName),
+            SourceDom::figureMediaElement(...),
             (new Elements\GenericFigureLowering($this, $this, $this->styleResolver, $this->runtime, $this->emptyVisualRetention, $this->emptyVisualSpacers, $this->emptyElementFootprint, $this->session))->block(...),
             fn (string $html): bool => '' !== trim($this->runtime->stripAllTags($html))
         ));
@@ -1686,7 +1686,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             new DisclosureControlPresentation(
                 $this->styleResolver,
                 $this->session->generatedSupportStylesheetState(),
-                fn (DOMElement $element): string => SvgMaterializer::ensureSvgImageNamespace($this->svgMaterializer->inlineSvgMarkup($element))
+                $this->svgMaterializer
             ),
             $this->styleResolver,
             $this->session,
@@ -1774,7 +1774,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
              disclosure: new DisclosureControlPresentation(
                  $this->styleResolver,
                  $this->session->generatedSupportStylesheetState(),
-                 fn (DOMElement $element): string => SvgMaterializer::ensureSvgImageNamespace($this->svgMaterializer->inlineSvgMarkup($element))
+                 $this->svgMaterializer
              ),
              styles: $this->styleResolver
          );
