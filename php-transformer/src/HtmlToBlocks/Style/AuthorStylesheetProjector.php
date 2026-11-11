@@ -3202,7 +3202,7 @@ final class AuthorStylesheetProjector
         }
         $matches = array();
         foreach ( $context->authorStyles->sourceBody()->getElementsByTagName('img') as $image ) {
-            if ( $image instanceof DOMElement && in_array($match[1], preg_split('/\s+/', trim($image->getAttribute('class'))) ?: array(), true) ) {
+            if ( $image instanceof DOMElement && SourceDom::hasClass($image, $match[1]) ) {
                 $matches[] = $image;
             }
         }

@@ -825,7 +825,7 @@ final class SourceDom
         $areas = array();
         foreach ($root->childNodes as $child) {
             if (!$child instanceof DOMElement) continue;
-            if (in_array('wp-block-template-part', preg_split('/\s+/', trim($child->getAttribute('class'))) ?: array(), true)) $areas[strtolower($child->tagName)] = true;
+            if (self::hasClass($child, 'wp-block-template-part')) $areas[strtolower($child->tagName)] = true;
         }
         return isset($areas['header'], $areas['footer']);
     }

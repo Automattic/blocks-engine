@@ -372,7 +372,7 @@ final class StyleResolver implements ElementPresentationResolver
     {
         $parent = $element->parentNode instanceof DOMElement ? $element->parentNode : null;
         if ( null === $parent || ! $this->parentEmitsCoreGridLayout($parent) ) {
-            $inline = $this->cssDeclarations(SourceDom::attr($element, 'style'));
+            $inline = $this->inlineDeclarations($element);
             if ( $this->inlineGeometry()->declaresGridPlacement($inline) ) {
                 $this->recordGridPlacementCarrierFinding($element, 'grid_placement_parent_not_core_grid');
             }
@@ -529,7 +529,7 @@ final class StyleResolver implements ElementPresentationResolver
             return $declarations;
         }
 
-        $inline = $this->cssDeclarations(SourceDom::attr($element, 'style'));
+        $inline = $this->inlineDeclarations($element);
         foreach (array_keys($declarations) as $property) {
             $family = $this->responsivePropertyFamily($property);
             if (! isset($conditionalFamilies[$family]) || $this->inlineOwnsResponsiveProperty($property, $family, $inline)) {
@@ -582,7 +582,7 @@ final class StyleResolver implements ElementPresentationResolver
             return $declarations;
         }
 
-        $inline = $this->cssDeclarations(SourceDom::attr($element, 'style'));
+        $inline = $this->inlineDeclarations($element);
         foreach (array_keys($declarations) as $property) {
             $family = $this->responsivePropertyFamily($property);
             if (! isset($responsiveFamilies[$family]) || $this->inlineOwnsResponsiveProperty($property, $family, $inline)) {
@@ -1107,7 +1107,7 @@ final class StyleResolver implements ElementPresentationResolver
                 CssCascade::apply($groups[$key], $property, array('value' => $value, 'important' => CssValueInspector::isImportant($value), 'specificity' => $specificity, 'layer' => $rule['layer'] ?? null, 'order' => $order++, 'inline' => false));
             }
         }
-        foreach ($this->cssDeclarations(SourceDom::attr($element, 'style')) as $property => $value) {
+        foreach ($this->inlineDeclarations($element) as $property => $value) {
             if (isset($requested[$property])) CssCascade::apply($groups[''], $property, array('value' => $value, 'important' => CssValueInspector::isImportant($value), 'specificity' => array(0, 0, 0), 'layer' => null, 'order' => $order++, 'inline' => true));
         }
         $result = array();
@@ -1159,7 +1159,7 @@ final class StyleResolver implements ElementPresentationResolver
                 ));
             }
         }
-        $inline = $this->cssDeclarations(SourceDom::attr($element, 'style'));
+        $inline = $this->inlineDeclarations($element);
         foreach ( $inline as $property => $value ) {
             if ( ! isset($requested[$property]) || '' === trim($value) ) continue;
             CssCascade::apply($facts, $property, array(
@@ -1230,7 +1230,7 @@ final class StyleResolver implements ElementPresentationResolver
     public function liveRegionVisibilityClassName(DOMElement $element): string
     {
         $display = $this->declaredPresentation($element, 'display');
-        $inline = $this->cssDeclarations(SourceDom::attr($element, 'style'));
+        $inline = $this->inlineDeclarations($element);
         $rules = array('' => $inline['display'] ?? $display->base());
         if (!isset($inline['display'])) $rules += $display->conditional();
         if (array('' => '') === $rules) return '';
@@ -1345,7 +1345,7 @@ final class StyleResolver implements ElementPresentationResolver
      */
     public function bakedTypographyFontSize(DOMElement $element): string
     {
-        if ( isset($this->cssDeclarations(SourceDom::attr($element, 'style'))['font-size']) ) {
+        if ( isset($this->inlineDeclarations($element)['font-size']) ) {
             return '';
         }
 
@@ -1361,7 +1361,7 @@ final class StyleResolver implements ElementPresentationResolver
 
     public function responsiveTypographyClassName(DOMElement $element): string
     {
-        if (isset($this->cssDeclarations(SourceDom::attr($element, 'style'))['font-size'])) {
+        if (isset($this->inlineDeclarations($element)['font-size'])) {
             return '';
         }
 
@@ -1431,7 +1431,7 @@ final class StyleResolver implements ElementPresentationResolver
     public function responsiveBlockMarginTopClassName(DOMElement $element): string
     {
         if (! $this->hasConditionalDeclarationForProperties($element, array('margin-top', 'margin'))) return '';
-        $inline = $this->cssDeclarations(SourceDom::attr($element, 'style'));
+        $inline = $this->inlineDeclarations($element);
         if (array_intersect_key($inline, array_flip(array('margin', 'margin-top', 'margin-block', 'margin-block-start'))) !== array()) {
             return '';
         }
@@ -1771,7 +1771,7 @@ final class StyleResolver implements ElementPresentationResolver
             return $declarations;
         }
 
-        $inline = $this->cssDeclarations(SourceDom::attr($element, 'style'));
+        $inline = $this->inlineDeclarations($element);
         foreach ( array(
             'background',
             'background-color',
@@ -1971,7 +1971,7 @@ final class StyleResolver implements ElementPresentationResolver
             }
             foreach ( $entries as [$kind, $value] ) $apply($kind, $value, false, $specificity, $rule['layerRank'] ?? null);
         }
-        foreach ( $this->cssDeclarations(SourceDom::attr($element, 'style')) as $inlineProperty => $value ) {
+        foreach ( $this->inlineDeclarations($element) as $inlineProperty => $value ) {
             if ( $property === $inlineProperty || 'font' === $inlineProperty ) $apply('font' === $inlineProperty ? 'font' : 'longhand', (string) $value, true, array( PHP_INT_MAX, PHP_INT_MAX, PHP_INT_MAX ), null);
         }
         $winner = (string) ( $cascade[$property]['value'] ?? '' );
@@ -2111,7 +2111,7 @@ final class StyleResolver implements ElementPresentationResolver
     /** Carry runtime-authored inline image placement on the native image leaf. */
     public function imageLeafPlacementClassName(DOMElement $image): string
     {
-        $declarations = $this->cssDeclarations(SourceDom::attr($image, 'style'));
+        $declarations = $this->inlineDeclarations($image);
         $placement = array_keys(array_filter($declarations, NativeImageLeafPresentation::isPlacementProperty(...), ARRAY_FILTER_USE_KEY));
         if ( array() === $placement ) {
             return '';
@@ -3014,7 +3014,7 @@ final class StyleResolver implements ElementPresentationResolver
             }
             $local = array(
                 CssValueInspector::comparable((string) ( $this->presentationalHintDeclarations($node)['text-align'] ?? '' )),
-                CssValueInspector::comparable((string) ( $this->cssDeclarations(SourceDom::attr($node, 'style'))['text-align'] ?? '' )),
+                CssValueInspector::comparable((string) ( $this->inlineDeclarations($node)['text-align'] ?? '' )),
             );
             if ( ! in_array($value, $local, true)
                 && 'start' === $this->comparableTextAlignment($value, $this->isRightToLeftElement($element)) ) {
@@ -3279,7 +3279,7 @@ final class StyleResolver implements ElementPresentationResolver
 
     private function inlineGeometryStyle(DOMElement $element, array $excludedProperties = array(), array $forcedProperties = array()): string
     {
-        $declarations = $this->cssDeclarations(SourceDom::attr($element, 'style'));
+        $declarations = $this->inlineDeclarations($element);
         $style = array();
         $geometryValues = array();
         $geometry = $this->inlineGeometry();
@@ -3314,7 +3314,7 @@ final class StyleResolver implements ElementPresentationResolver
      */
     public function consumedInlineCustomProperties(DOMElement $element, array $carriedValues = array()): array
     {
-        return $this->inlineCustomPropertyDeclarations($element, $this->cssDeclarations(SourceDom::attr($element, 'style')), array_values($carriedValues));
+        return $this->inlineCustomPropertyDeclarations($element, $this->inlineDeclarations($element), array_values($carriedValues));
     }
 
     /**
@@ -3488,7 +3488,7 @@ final class StyleResolver implements ElementPresentationResolver
      */
     private function inlineStyleDeclaresAllReset(DOMElement $element): bool
     {
-        return $this->isCssAllResetValue((string) ($this->cssDeclarations(SourceDom::attr($element, 'style'))['all'] ?? ''));
+        return $this->isCssAllResetValue((string) ($this->inlineDeclarations($element)['all'] ?? ''));
     }
 
     public function mergePresentationClassNames(string ...$classNames): string
@@ -3513,7 +3513,7 @@ final class StyleResolver implements ElementPresentationResolver
     /** A fixed inline height only clips converted descendants when overflow clips. */
     public function hasTopologyUnsafeFixedHeight(DOMElement $element): bool
     {
-        $height = CssValueInspector::comparable((string) ($this->cssDeclarations(SourceDom::attr($element, 'style'))['height'] ?? ''));
+        $height = CssValueInspector::comparable((string) ($this->inlineDeclarations($element)['height'] ?? ''));
         $overflow = CssValueInspector::comparable((string) ($this->structuralPresentationDeclarations($element)['overflow'] ?? ''));
 
         return 1 === preg_match('/^[1-9][0-9]*(?:\.\d+)?px$/', $height)
@@ -3835,7 +3835,7 @@ final class StyleResolver implements ElementPresentationResolver
         // reference-viewport value and defeat source media rules. Only direct
         // inline custom properties are restated on the replacement root.
         $available = array_filter(
-            $this->cssDeclarations(SourceDom::attr($element, 'style')),
+            $this->inlineDeclarations($element),
             static fn (string $name): bool => str_starts_with($name, '--'),
             ARRAY_FILTER_USE_KEY
         );
@@ -3957,7 +3957,7 @@ final class StyleResolver implements ElementPresentationResolver
             $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations']);
         }
 
-        return $cache->structuralDeclarations[$cacheKey] = $this->mergeCssDeclarationMaps($declarations, $this->cssDeclarations(SourceDom::attr($element, 'style')));
+        return $cache->structuralDeclarations[$cacheKey] = $this->mergeCssDeclarationMaps($declarations, $this->inlineDeclarations($element));
     }
 
     /**
@@ -3988,7 +3988,7 @@ final class StyleResolver implements ElementPresentationResolver
         if ( ! $root instanceof DOMElement || 'html' !== strtolower($root->tagName) ) {
             $root = $this->analysisDocumentRoot($document);
         }
-        if (!$this->hasRootFontSizeRule($root) && !isset($this->cssDeclarations(SourceDom::attr($root, 'style'))['font-size'])) {
+        if (!$this->hasRootFontSizeRule($root) && !isset($this->inlineDeclarations($root)['font-size'])) {
             return 16.0;
         }
         $declarations = $this->structuralPresentationDeclarations($root);
@@ -4019,7 +4019,7 @@ final class StyleResolver implements ElementPresentationResolver
         if (!$root instanceof DOMElement || 'html' !== strtolower($root->tagName)) {
             $root = $this->analysisDocumentRoot($document);
         }
-        if (isset($this->cssDeclarations(SourceDom::attr($root, 'style'))['font-size'])) return true;
+        if (isset($this->inlineDeclarations($root)['font-size'])) return true;
         return $this->hasRootFontSizeRule($root);
     }
 
@@ -4102,7 +4102,7 @@ final class StyleResolver implements ElementPresentationResolver
             $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations'] ?? array());
         }
 
-        return $this->mergeCssDeclarationMaps($declarations, $this->cssDeclarations(SourceDom::attr($element, 'style')));
+        return $this->mergeCssDeclarationMaps($declarations, $this->inlineDeclarations($element));
     }
 
     /**
@@ -4144,7 +4144,7 @@ final class StyleResolver implements ElementPresentationResolver
                 $declarationSets[] = $rule['declarations'] ?? array();
             }
         }
-        $declarationSets[] = $this->cssDeclarations(SourceDom::attr($element, 'style'));
+        $declarationSets[] = $this->inlineDeclarations($element);
 
         $declared = array();
         foreach ( $declarationSets as $declarations ) {
@@ -4832,7 +4832,7 @@ final class StyleResolver implements ElementPresentationResolver
         foreach ( $this->matchingStyleRules($element, 'static') as $rule ) {
             $resolved = $this->mergeCssDeclarationMaps($resolved, $rule['declarations']);
         }
-        $resolved = $this->mergeCssDeclarationMaps($resolved, $this->cssDeclarations(SourceDom::attr($element, 'style')));
+        $resolved = $this->mergeCssDeclarationMaps($resolved, $this->inlineDeclarations($element));
         $resolved = $this->mergeCssDeclarationMaps($resolved, $declarations);
         $position = CssValueInspector::comparable((string) ($resolved['position'] ?? ''));
         return in_array($position, array( 'absolute', 'fixed' ), true);
@@ -4856,7 +4856,7 @@ final class StyleResolver implements ElementPresentationResolver
             foreach ( $this->matchingStyleRules($element, 'hidden-state') as $rule ) {
                 $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations']);
             }
-            $declarations = $this->mergeCssDeclarationMaps($declarations, $this->cssDeclarations(SourceDom::attr($element, 'style')));
+            $declarations = $this->mergeCssDeclarationMaps($declarations, $this->inlineDeclarations($element));
             $this->stripFrozenHiddenState($element, $declarations);
         }
     }
@@ -5348,7 +5348,7 @@ final class StyleResolver implements ElementPresentationResolver
             }
             $apply($declarations, $font, $rule['pendingFontFollowingProperties'] ?? array(), false, $this->mediaTextSelectorSpecificity($rule['selector']), $rule['layerRank'] ?? null);
         }
-        $inline = $this->cssDeclarations(SourceDom::attr($element, 'style'));
+        $inline = $this->inlineDeclarations($element);
         $order = array_flip(array_keys($inline));
         $apply($inline, $inline['font'] ?? null, isset($order['font']) ? array_slice(array_keys($inline), $order['font'] + 1) : array(), true, array(PHP_INT_MAX, PHP_INT_MAX, PHP_INT_MAX), null);
         $declarations = array();
@@ -5982,7 +5982,7 @@ final class StyleResolver implements ElementPresentationResolver
                         ));
                     }
                 }
-                $inline = trim((string) ($this->cssDeclarations(SourceDom::attr($node, 'style'))[$name] ?? ''));
+                $inline = trim((string) ($this->inlineDeclarations($node)[$name] ?? ''));
                 if ('' !== $inline) CssCascade::apply($facts, $name, array('value' => $inline, 'important' => CssValueInspector::isImportant($inline), 'specificity' => array(0, 0, 0), 'order' => PHP_INT_MAX, 'inline' => true, 'layer' => null));
                 if (isset($facts[$name])) { $declared = $facts[$name]['value']; break; }
             }
@@ -6248,6 +6248,17 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         return $filtered;
+    }
+
+    /**
+     * The element's own `style` attribute as declarations, read the same way
+     * as {@see self::cssDeclarations()}.
+     *
+     * @return array<string, string>
+     */
+    public function inlineDeclarations(DOMElement $element): array
+    {
+        return $this->cssDeclarations(SourceDom::attr($element, 'style'));
     }
 
     /**
@@ -6660,7 +6671,7 @@ final class StyleResolver implements ElementPresentationResolver
             if ( 1 === preg_match('/:focus(?:-visible|-within)?\\b/', $selector) ) $hasFocusRule = true;
             $focused = $this->mergeCssDeclarationMaps($focused, $rule['declarations'] ?? array());
         }
-        $focused = $this->mergeCssDeclarationMaps($focused, $this->cssDeclarations(SourceDom::attr($element, 'style')));
+        $focused = $this->mergeCssDeclarationMaps($focused, $this->inlineDeclarations($element));
         return $hasFocusRule && ! self::visuallyHidden($focused);
     }
 
@@ -7172,7 +7183,7 @@ final class StyleResolver implements ElementPresentationResolver
                 $entries[] = $this->cascadeEntry((string) $property, (string) $value, false, $specificity, ++$order, $rule['layerRank'] ?? null);
             }
         }
-        foreach ( $this->cascadeRelevantDeclarations($this->cssDeclarations(SourceDom::attr($element, 'style'))) as $property => $value ) {
+        foreach ( $this->cascadeRelevantDeclarations($this->inlineDeclarations($element)) as $property => $value ) {
             $entries[] = $this->cascadeEntry((string) $property, (string) $value, true, array( 0, 0, 0 ), ++$order, null);
         }
         usort($entries, static fn (array $left, array $right): int => CssCascade::wins($left, $right) ? 1 : -1);

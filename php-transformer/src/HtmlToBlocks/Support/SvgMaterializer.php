@@ -215,7 +215,7 @@ final class SvgMaterializer implements SvgElementMaterializer
                 continue;
             }
 
-            $style = $this->styleResolver->cssDeclarationString(array_merge($this->styleResolver->cssDeclarations(SourceDom::attr($target, 'style')), $declarations));
+            $style = $this->styleResolver->cssDeclarationString(array_merge($this->styleResolver->inlineDeclarations($target), $declarations));
             $target->setAttribute('style', $style);
             $baked = true;
         }
@@ -1772,7 +1772,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             return false;
         }
         $boxProperties = array_flip(array( 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio' ));
-        foreach ( $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style')) as $property => $value ) {
+        foreach ( $this->styleResolver->inlineDeclarations($element) as $property => $value ) {
             $resolved = $this->styleResolver->resolveCssVariablesInValue($value, $element);
             if ( preg_match('/var\s*\(/i', $resolved) && ! isset($boxProperties[strtolower($property)]) ) {
                 return false;

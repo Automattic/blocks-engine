@@ -374,7 +374,7 @@ final class AuthorLayoutOwnership
      */
     public function cssOwnedFlexAttributes(DOMElement $element, array $excludedGeometryProperties = array()): array
     {
-        $inlineDeclarations = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
+        $inlineDeclarations = $this->styleResolver->inlineDeclarations($element);
         // Only an author-layout CONFLICT can safely demote the carrier's priority.
         // A display differing from the tag default alone offers no such guarantee.
         if ( $this->styleResolver->inlineDisplayConflictsWithAuthorLayout($element, $inlineDeclarations) ) {
@@ -407,7 +407,7 @@ final class AuthorLayoutOwnership
         // Carry only the inline-present properties so the fallback to
         // mapper-synthesized declarations cannot invent a `gap` that
         // overrides explicit row-gap/column-gap values.
-        $inlineDeclarations = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
+        $inlineDeclarations = $this->styleResolver->inlineDeclarations($element);
         $carriedProperties = array_values(array_intersect(self::CSS_OWNED_GRID_CARRIER_PROPERTIES, array_keys($inlineDeclarations)));
         $attrs = $this->styleResolver->presentationAttributes($element, $excludedGeometryProperties, $carriedProperties);
         unset($attrs['layout']);
@@ -441,7 +441,7 @@ final class AuthorLayoutOwnership
             }
         }
 
-        $inline = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
+        $inline = $this->styleResolver->inlineDeclarations($element);
         return CssValueInspector::comparable((string) ($inline['display'] ?? $display));
     }
 

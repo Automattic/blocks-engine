@@ -362,7 +362,7 @@ final class ButtonPatternContext
             }
         }
 
-        $inline = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
+        $inline = $this->styleResolver->inlineDeclarations($element);
 
         return CssValueInspector::comparable((string) ($inline['display'] ?? $display));
     }

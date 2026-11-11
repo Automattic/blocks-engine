@@ -152,7 +152,7 @@ final class LinkWrapperPropagator
      */
     private function wrapperIdentityOwnsTextColor(DOMElement $anchor): bool
     {
-        $inline = $this->styleResolver->cssDeclarations(SourceDom::attr($anchor, 'style'));
+        $inline = $this->styleResolver->inlineDeclarations($anchor);
         if ( $this->isPaintedColor((string) ($inline['color'] ?? '')) ) {
             return true;
         }

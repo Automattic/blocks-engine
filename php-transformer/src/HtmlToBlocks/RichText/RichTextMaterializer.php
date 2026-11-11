@@ -210,7 +210,7 @@ final class RichTextMaterializer implements RichTextMaterialization
                 continue;
             }
 
-            $existing = $this->styleResolver->cssDeclarations(SourceDom::attr($targetInline, 'style'));
+            $existing = $this->styleResolver->inlineDeclarations($targetInline);
             $targetInline->setAttribute('style', $this->styleResolver->cssDeclarationString(array_merge($inline, $existing)));
         }
 

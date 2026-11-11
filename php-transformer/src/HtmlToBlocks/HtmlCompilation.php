@@ -1584,7 +1584,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             // source DOM intact for selector/style analysis, but emit its children
             // as document siblings rather than an authored layout group.
             if ('div' === strtolower($child->tagName)
-                && in_array('wp-site-blocks', preg_split('/\s+/', trim($child->getAttribute('class'))) ?: array(), true)
+                && SourceDom::hasClass($child, 'wp-site-blocks')
                 && $parent instanceof DOMElement
                 && ('body' === strtolower($parent->tagName) || SourceDom::isDocumentVariantRoot($parent))
                 && SourceDom::hasWordPressTemplateParts($child)
@@ -1598,7 +1598,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 : $this->convertElement($child, $fallbacks, $captureUnsupported);
             if ( null !== $block ) {
                 // Retain the public source boundary rather than private metadata.
-                if (in_array('wp-block-post-content', preg_split('/\s+/', trim($child->getAttribute('class'))) ?: array(), true)) {
+                if (SourceDom::hasClass($child, 'wp-block-post-content')) {
                     $block['attrs']['className'] = trim(($block['attrs']['className'] ?? '') . ' wp-block-post-content');
                 }
                 $blocks[] = $block;
