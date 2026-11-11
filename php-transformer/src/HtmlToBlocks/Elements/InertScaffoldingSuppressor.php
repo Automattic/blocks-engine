@@ -414,7 +414,7 @@ final class InertScaffoldingSuppressor implements ElementConverter
                     continue;
                 }
                 if ( in_array($name, array( 'id', 'role', 'title', 'tabindex', 'href', 'xlink:href', 'name' ), true)
-                    || str_starts_with($name, 'data-')
+                    || ( ! $hiddenOutOfFlow && str_starts_with($name, 'data-') )
                     || (str_starts_with($name, 'aria-') && 'aria-hidden' !== $name) ) {
                     return false;
                 }

@@ -680,6 +680,19 @@ $assert(
     json_encode($globalThenColorOnlyLeftBorder)
 );
 
+// A var() may carry several sides (`--pad: 64px 20px`), so a short var()
+// shorthand is never split by position; explicit sides still map.
+foreach ( array(
+    'padding:var(--pad)'                         => null,
+    'padding:var(--pad) 8px'                     => null,
+    'padding:var(--a) var(--b) var(--c) var(--d)' => array( 'top' => 'var(--a)', 'right' => 'var(--b)', 'bottom' => 'var(--c)', 'left' => 'var(--d)' ),
+    'padding:16px 24px'                          => array( 'top' => '16px', 'right' => '24px', 'bottom' => '16px', 'left' => '24px' ),
+) as $style => $expected ) {
+    $result  = ( new HtmlTransformer() )->transform('<div class="card" style="' . $style . '"><p>Hi</p></div>', array())->toArray();
+    $padding = $result['blocks'][0]['attrs']['style']['spacing']['padding'] ?? null;
+    $assert($expected === $padding, 'var-box: ' . $style . ' maps padding sides by position only when they are explicit', (string) json_encode($padding));
+}
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Block style support conversion tests: {$failures} failed, {$passes} passed\n");
     exit(1);

@@ -270,6 +270,9 @@ foreach ( array(
 ) as $unsafe ) {
     $assert($unsafe === $compact($unsafe), 'unsafe or unequal-weight arguments remain unchanged: ' . $unsafe);
 }
+foreach ( array('::before', ':after') as $pseudo ) {
+    $assert('.catalog :is(.one,.two) .item' . $pseudo === $compact('.catalog .one .item' . $pseudo . ',.catalog .two .item' . $pseudo), 'compounds before a pseudo-element factor; the pseudo-element stays outside :is(): ' . $pseudo);
+}
 $assert('.catalog :is(.one,.two),#unrelated' === $compact('.catalog .one,#unrelated,.catalog .two'), 'nonadjacent arms of one rule may fold without moving a rule');
 $fixture = file_get_contents(dirname(__DIR__) . '/fixtures/projected-selector-compaction.html');
 $output = (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer())->transform($fixture)->toArray();

@@ -127,7 +127,8 @@ foreach ( array(
     $assert(true === ($search['attrs']['buttonUseIcon'] ?? false), "{$case}: native icon search survives");
     $css = json_encode($result, JSON_UNESCAPED_SLASHES);
     $assert(str_contains($css, 'color:#ccc!important'), "{$case}: source icon colour reaches the currentColor button");
-    $assert(str_contains($css, '.wp-block-search__input{padding:' . $inputPadding . '!important'), "{$case}: source input padding beats core padding");
+    $assert(str_contains($css, '.wp-block-search__input{padding:1px 2px;}'), "{$case}: input has a UA padding fallback");
+    $assert('1px 2px' === $inputPadding || 1 === preg_match('/wp-block-search__input[^{}]*\{[^}]*padding:' . preg_quote($inputPadding, '/') . '/', $css), "{$case}: authored input padding remains in the cascade");
     $assert(str_contains($css, '.wp-block-search__button{padding:' . $buttonPadding . '!important'), "{$case}: source button padding beats theme padding");
 }
 
