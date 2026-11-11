@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\StaticSite;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
+use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 
@@ -192,7 +193,7 @@ final class MaterializationPlanBuilder
                 $sourcePath = (string) ($document['source_path'] ?? '');
                 $sourceRelation = 'template_part' === $kind ? 'template_part_navigation' : 'page_navigation';
                 foreach ( $this->anchorLinks((string) ($document['block_markup'] ?? '')) as $index => $anchor ) {
-                    $targetPath = $this->targetPathFromHref($anchor['href']);
+                    $targetPath = ArtifactPath::routePath($anchor['href']);
                     $links[] = array_filter(array(
                         'kind'        => 'navigation_link',
                         'source_path' => $sourcePath,
@@ -569,26 +570,9 @@ final class MaterializationPlanBuilder
         return '';
     }
 
-    private function targetPathFromHref(string $href): string
-    {
-        $path = (string) (parse_url($href, PHP_URL_PATH) ?: '');
-        if ( '' === $path ) {
-            return '';
-        }
-
-        $path = '/' . ltrim($path, '/');
-        $path = preg_replace('#/index\.[A-Za-z0-9]+$#', '/', $path) ?? $path;
-        $path = preg_replace('/\.[A-Za-z0-9]+$/', '', $path) ?? $path;
-        if ( '/' !== $path ) {
-            $path = rtrim($path, '/');
-        }
-
-        return '' === $path ? '/' : $path;
-    }
-
     private function slugFromHref(string $href): string
     {
-        $targetPath = $this->targetPathFromHref($href);
+        $targetPath = ArtifactPath::routePath($href);
         if ( '/' === $targetPath ) {
             return 'index';
         }

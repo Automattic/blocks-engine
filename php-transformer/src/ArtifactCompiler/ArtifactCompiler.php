@@ -5411,7 +5411,7 @@ final class ArtifactCompiler
                 continue;
             }
             foreach ( $this->navigationAnchors((string) ($file['content'] ?? '')) as $anchor ) {
-                if ( '/' !== $this->navigationTargetPath($anchor['href']) ) {
+                if ( '/' !== ArtifactPath::routePath($anchor['href']) ) {
                     continue;
                 }
                 $label = $anchor['label'];
@@ -5479,22 +5479,6 @@ final class ArtifactCompiler
         }
 
         return $anchors;
-    }
-
-    private function navigationTargetPath(string $href): string
-    {
-        $path = (string) (parse_url($href, PHP_URL_PATH) ?: '');
-        if ( '' === $path ) {
-            return '';
-        }
-        $path = '/' . ltrim($path, '/');
-        $path = preg_replace('#/index\.[A-Za-z0-9]+$#', '/', $path) ?? $path;
-        $path = preg_replace('/\.[A-Za-z0-9]+$/', '', $path) ?? $path;
-        if ( '/' !== $path ) {
-            $path = rtrim($path, '/');
-        }
-
-        return '' === $path ? '/' : $path;
     }
 
     /**

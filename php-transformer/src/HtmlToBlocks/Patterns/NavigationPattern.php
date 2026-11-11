@@ -3043,7 +3043,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function navigationImageLinkBlock(DOMElement $item, callable $presentationAttributes, callable $createBlock, ?NavigationPatternContext $navigationContext): ?array
     {
         $anchor = $this->primaryNavigationAnchor($item);
-        if ( ! $anchor instanceof DOMElement || ! $this->anchorNavigatesToDestination($anchor) ) {
+        if ( ! $anchor instanceof DOMElement || ! SourceDom::navigatesToDestination($anchor) ) {
             return null;
         }
 
@@ -5133,7 +5133,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         // its class happens to be called. The vocabulary below matches on the
         // bare word `toggle`, which an authored `lang-toggle` or `theme-toggle`
         // satisfies while being an ordinary link.
-        if ( 'a' === $tagName && $this->anchorNavigatesToDestination($element) ) {
+        if ( 'a' === $tagName && SourceDom::navigatesToDestination($element) ) {
             return false;
         }
 
@@ -5185,7 +5185,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     {
         $links = array();
         foreach ( $element->getElementsByTagName('a') as $anchor ) {
-            if ( ! $anchor instanceof DOMElement || ! $this->anchorNavigatesToDestination($anchor) ) {
+            if ( ! $anchor instanceof DOMElement || ! SourceDom::navigatesToDestination($anchor) ) {
                 continue;
             }
             $label = strtolower(trim($anchor->textContent ?? ''));
@@ -5232,26 +5232,6 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return false;
-    }
-
-    /**
-     * Whether an anchor points at a destination rather than driving an in-page
-     * control. A menu toggle authored as an anchor targets a fragment, a
-     * `javascript:` URL or nothing at all, and usually declares `aria-controls`
-     * or `aria-expanded`; a language or theme switcher targets a real URL.
-     */
-    private function anchorNavigatesToDestination(DOMElement $anchor): bool
-    {
-        if ( $anchor->hasAttribute('aria-controls') || $anchor->hasAttribute('aria-expanded') ) {
-            return false;
-        }
-
-        $href = trim(SourceDom::attr($anchor, 'href'));
-        if ( '' === $href || str_starts_with($href, '#') ) {
-            return false;
-        }
-
-        return ! str_starts_with(strtolower($href), 'javascript:');
     }
 
     private function isNavigationWrapperElement(DOMElement $element): bool

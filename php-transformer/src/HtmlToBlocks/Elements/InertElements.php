@@ -45,7 +45,7 @@ final class InertElements implements ElementConverter
             return false;
         }
 
-        foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'))) as $candidate ) {
+        foreach ( SourceDom::subtreeElements($element) as $candidate ) {
             if ( ! $candidate instanceof DOMElement
                 || ! $this->runtimeIslands->isSafeTransparentCustomElement($candidate)
                 || '' !== trim(SourceDom::attr($candidate, 'role'))

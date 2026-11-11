@@ -287,8 +287,8 @@ final class SourceDom
      */
     public static function projectInlineStyles(DOMElement $source, DOMElement $clone, callable $inlineStyleFor): void
     {
-        $sources = array_merge(array($source), iterator_to_array($source->getElementsByTagName('*')));
-        $targets = array_merge(array($clone), iterator_to_array($clone->getElementsByTagName('*')));
+        $sources = self::subtreeElements($source);
+        $targets = self::subtreeElements($clone);
         foreach ($sources as $index => $element) {
             if (!$element->hasAttribute('style')) continue;
             $style = $inlineStyleFor($element);
@@ -2376,6 +2376,26 @@ final class SourceDom
         }
 
         return trim($text);
+    }
+
+    /**
+     * Whether an anchor points at a destination rather than driving an in-page
+     * control. A menu toggle authored as an anchor targets a fragment, a
+     * `javascript:` URL or nothing at all, and usually declares `aria-controls`
+     * or `aria-expanded`; a language or theme switcher targets a real URL.
+     */
+    public static function navigatesToDestination(DOMElement $anchor): bool
+    {
+        if ( $anchor->hasAttribute('aria-controls') || $anchor->hasAttribute('aria-expanded') ) {
+            return false;
+        }
+
+        $href = trim(self::attr($anchor, 'href'));
+        if ( '' === $href || str_starts_with($href, '#') ) {
+            return false;
+        }
+
+        return ! str_starts_with(strtolower($href), 'javascript:');
     }
 
     /**

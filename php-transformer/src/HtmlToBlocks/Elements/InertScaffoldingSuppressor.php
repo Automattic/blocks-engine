@@ -380,7 +380,7 @@ final class InertScaffoldingSuppressor implements ElementConverter
             }
         }
 
-        foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'))) as $candidate ) {
+        foreach ( SourceDom::subtreeElements($element) as $candidate ) {
             if ( ! in_array(strtolower($candidate->tagName), array( 'div', 'span', 'svg', 'g', 'circle', 'path', 'ellipse', 'rect', 'line', 'polyline', 'polygon', 'animatetransform' ), true)
                 || $this->runtimeIslands->isRuntimeDomTarget($candidate)
                 || array() !== SourceDom::eventMetadata($candidate)

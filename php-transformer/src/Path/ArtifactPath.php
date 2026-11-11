@@ -62,6 +62,27 @@ final class ArtifactPath
      * linking to `/index.html#services` is not the served page's current item,
      * on the route holding that section or on any other.
      */
+    /**
+     * The site route an href points at: its path with a trailing index file and
+     * extension dropped and no trailing slash. The bare root stays `/`, and an
+     * href without a path yields ''.
+     */
+    public static function routePath(string $href): string
+    {
+        $path = (string) (parse_url($href, PHP_URL_PATH) ?: '');
+        if ( '' === $path ) {
+            return '';
+        }
+        $path = '/' . ltrim($path, '/');
+        $path = preg_replace('#/index\.[A-Za-z0-9]+$#', '/', $path) ?? $path;
+        $path = preg_replace('/\.[A-Za-z0-9]+$/', '', $path) ?? $path;
+        if ( '/' !== $path ) {
+            $path = rtrim($path, '/');
+        }
+
+        return '' === $path ? '/' : $path;
+    }
+
     public static function namesSection(string $href): bool
     {
         $href = trim($href);

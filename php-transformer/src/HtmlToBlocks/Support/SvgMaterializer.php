@@ -1439,7 +1439,7 @@ final class SvgMaterializer implements SvgElementMaterializer
     private function resolveMaterializedSvgColors(string $html, DOMElement $element): string
     {
         if ( str_contains($html, 'var(') || false !== stripos($html, 'currentColor') ) {
-            $sources = array_merge(array($element), iterator_to_array($element->getElementsByTagName('*')));
+            $sources = SourceDom::subtreeElements($element);
             $index = 0;
             $html = preg_replace_callback('/<([a-z][a-z0-9:-]*)\b[^>]*>/i', function (array $match) use ($sources, &$index): string {
                 // Sanitization can remove source tags. Walk surviving tags in

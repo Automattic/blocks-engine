@@ -167,7 +167,7 @@ final class RenderNeutralElements
             return false;
         }
 
-        foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'))) as $candidate ) {
+        foreach ( SourceDom::subtreeElements($element) as $candidate ) {
             if ( ! $candidate instanceof DOMElement ) {
                 continue;
             }
@@ -264,7 +264,7 @@ final class RenderNeutralElements
     private function subtreeCssTokens(DOMElement $element): array
     {
         $tokens = array();
-        foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'))) as $candidate ) {
+        foreach ( SourceDom::subtreeElements($element) as $candidate ) {
             if ( ! $candidate instanceof DOMElement ) {
                 continue;
             }

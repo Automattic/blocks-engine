@@ -335,7 +335,7 @@ JS;
         $rawValues = array();
         $unsafe = false;
         $srcdoc = false;
-        foreach ( array_merge(array( $host ), iterator_to_array($host->getElementsByTagName('*'))) as $element ) {
+        foreach ( SourceDom::subtreeElements($host) as $element ) {
             if ( ! $element instanceof DOMElement ) {
                 continue;
             }
