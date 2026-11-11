@@ -542,7 +542,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             new AuthorSelectorSemanticContext(
                 $this->authorLayoutOwnership,
                 $this->listStructure,
-                fn (DOMElement $element): bool => $this->requiresIndependentSemanticWrapper($element),
+                $this->styleResolver,
+                $this->wrapperCoalescer,
+                fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element),
                 $this->session,
                 $this->tableClassificationPolicy,
                 $this->paragraphImages
@@ -2334,53 +2336,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         return $innerBlocks;
-    }
-
-    private function requiresIndependentSemanticWrapper(DOMElement $element): bool
-    {
-        if ( 'span' !== strtolower($element->tagName) || $this->authorLayoutOwnership->isRichTextInlineContext($element) ) {
-            return false;
-        }
-
-        if ( $this->authorLayoutOwnership->ownsPositioningGeometry($element) ) {
-            return true;
-        }
-
-        // An empty painted span outside RichText lowers to its own spacer
-        // block (InlineContentElementConverter), never to a `<mark>` carrier.
-        // Author selectors that name it must address that block, so it needs
-        // a semantic marker rather than a rich-text marker no block carries.
-        if ( 0 === SourceDom::childElementCount($element)
-            && '' === trim($element->textContent ?? '')
-            && $this->shouldPreserveEmptyVisualElement($element)
-        ) {
-            return true;
-        }
-
-        $parent = $element->parentNode instanceof DOMElement ? $element->parentNode : null;
-        if ( ! $parent instanceof DOMElement || ! $this->wrapperCoalescer->isStructuralLayoutElement($parent) ) {
-            return false;
-        }
-
-        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        // A grid placement belongs to this inline node. Keep phrasing-only grid
-        // siblings in one RichText container rather than replacing their direct
-        // grid items with Group/Paragraph wrappers.
-        if ( 'grid' === CssValueInspector::comparable((string) ($this->styleResolver->presentationDeclarations($parent)['display'] ?? '')) && ( '' !== trim((string) ($declarations['grid-column'] ?? '')) || '' !== trim((string) ($declarations['grid-row'] ?? '')) ) ) {
-            return false;
-        }
-        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? 'inline'));
-        if ( 'block' === $display ) {
-            return true;
-        }
-
-        foreach ( array( 'font-size', 'line-height', 'letter-spacing', 'text-transform', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'border', 'border-width', 'border-color', 'border-radius', 'margin', 'width', 'height', 'min-width', 'min-height', 'max-width', 'max-height' ) as $property ) {
-            if ( '' !== trim((string) ($declarations[$property] ?? '')) ) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**
