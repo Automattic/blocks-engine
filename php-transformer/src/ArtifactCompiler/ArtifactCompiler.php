@@ -2575,6 +2575,7 @@ final class ArtifactCompiler
     private function authorStylesheetAssetsWithImports(array $stylesheets, array $files): array
     {
         $assets = array();
+        $importsByPath = array();
         foreach ($stylesheets as $stylesheet) {
             $imports = array();
             $cascade = $this->compatibilityStylesheetContent($stylesheet['content'], $stylesheet['source_path'] ?? $stylesheet['path'], $files, array(), false, $imports, (string) ($stylesheet['media'] ?? ''));
@@ -2583,10 +2584,18 @@ final class ArtifactCompiler
                 foreach (array('capture_only', 'stylesheet_activation') as $key) {
                     if (isset($stylesheet[$key])) $import[$key] = $stylesheet[$key];
                 }
-                $assets[] = $import;
+                // One file is one projection target. Repeated imports (such as
+                // one per viewport band) widen its media instead of repeating it.
+                $path = $import['path'];
+                if (!isset($importsByPath[$path])) {
+                    $importsByPath[$path] = $import;
+                    continue;
+                }
+                $media = array($importsByPath[$path]['media'], $import['media']);
+                $importsByPath[$path]['media'] = in_array('', $media, true) ? '' : implode(', ', array_unique($media));
             }
         }
-        return $assets;
+        return array_merge($assets, array_values($importsByPath));
     }
 
     private function compatibilityStylesheetContent(string $css, string $path, array $files, array $ancestors = array(), bool $importedLayer = false, ?array &$imports = null, string $inheritedMedia = ''): string
