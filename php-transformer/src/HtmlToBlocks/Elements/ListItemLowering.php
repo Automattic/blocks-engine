@@ -101,7 +101,7 @@ final class ListItemLowering
             }
 
             $content = $this->listItemContentWithoutNestedLists($child);
-            if ( '' === trim($this->runtime->stripAllTags($content)) && array() === $nested ) {
+            if ( ! $this->runtime->hasVisibleText($content) && array() === $nested ) {
                 continue;
             }
 

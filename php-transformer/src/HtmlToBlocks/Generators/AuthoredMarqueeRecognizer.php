@@ -166,7 +166,7 @@ final class AuthoredMarqueeRecognizer
         }
 
         $content = $this->richTextMaterializer->content($item);
-        if ( '' === trim($this->runtime->stripAllTags($content))
+        if ( ! $this->runtime->hasVisibleText($content)
             || $this->richTextMaterializer->hasStructuralHtml($content)
             || $this->richTextMaterializer->requiresHtmlFallback($content)
         ) {

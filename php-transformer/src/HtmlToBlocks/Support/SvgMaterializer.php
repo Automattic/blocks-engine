@@ -788,7 +788,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             if ( 'article' === $parentTag && 'img' === strtolower(trim(SourceDom::attr($element, 'role'))) ) {
                 return false;
             }
-            if ( ( $this->sourceElementClassifier->isInlineContentElement($parentTag) || 'a' === $parentTag ) && '' !== trim($this->runtime->stripAllTags(SourceDom::innerHtmlWithoutTags($parent, array( 'svg' )))) ) {
+            if ( ( $this->sourceElementClassifier->isInlineContentElement($parentTag) || 'a' === $parentTag ) && $this->runtime->hasVisibleText(SourceDom::innerHtmlWithoutTags($parent, array( 'svg' ))) ) {
                 return true;
             }
         }

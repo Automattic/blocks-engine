@@ -60,7 +60,7 @@ final class InlineFlowLowering
         }
 
         $content = $this->richTextMaterializer->contentWithoutDecorativeSvg($element);
-        if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+        if ( ! $this->runtime->hasVisibleText($content) ) {
             return null;
         }
 
@@ -105,7 +105,7 @@ final class InlineFlowLowering
             }
 
             $content = $this->styleResolver->innerHtml($child);
-            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+            if ( ! $this->runtime->hasVisibleText($content) ) {
                 return null;
             }
             $children[] = $this->blocks->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($child), array( 'content' => $content )), array(), $child);

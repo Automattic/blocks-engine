@@ -65,7 +65,7 @@ final class MetadataGridConverter
         $blocks = array();
         foreach ( $children as $child ) {
             $content = $this->metadataCellContent($child);
-            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+            if ( ! $this->runtime->hasVisibleText($content) ) {
                 return null;
             }
             $blocks[] = $this->blocks->createBlock('core/paragraph', $this->metadataCellAttributes($child, $content), array(), $child);

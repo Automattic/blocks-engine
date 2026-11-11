@@ -62,7 +62,7 @@ final class InlineTextWrapperLowering
         }
 
         $content = $this->richTextMaterializer->content($element);
-        if ( '' === trim($this->runtime->stripAllTags($content)) || $this->richTextMaterializer->requiresHtmlFallback($content) ) {
+        if ( ! $this->runtime->hasVisibleText($content) || $this->richTextMaterializer->requiresHtmlFallback($content) ) {
             return null;
         }
 
@@ -196,7 +196,7 @@ final class InlineTextWrapperLowering
             $content = $this->richTextMaterializer->contentWithInlineSafeButtonsLowered($element, $content) ?? $content;
             $content = $this->richTextMaterializer->contentWithMaterializedSvgImages($element, $content) ?? $content;
         }
-        if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+        if ( ! $this->runtime->hasVisibleText($content) ) {
             return null;
         }
 
@@ -234,7 +234,7 @@ final class InlineTextWrapperLowering
         if ($this->authorLayoutOwnership->isAuthorOwnedLayout($element) || $this->emptyVisualRetention->hasEmptyVisualInlineChild($element)) return null;
 
         $content = $this->richTextMaterializer->content($element);
-        if ('' === trim($this->runtime->stripAllTags($content)) || $this->richTextMaterializer->requiresHtmlFallback($content)) return null;
+        if (! $this->runtime->hasVisibleText($content) || $this->richTextMaterializer->requiresHtmlFallback($content)) return null;
 
         $paragraph = $this->blocks->createBlock('core/paragraph', array('className' => AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS, 'content' => $content));
         return $this->blocks->createBlock('core/group', $this->styleResolver->presentationAttributes($element), array($paragraph), $element);
@@ -265,7 +265,7 @@ final class InlineTextWrapperLowering
         }
 
         $content = $this->richTextMaterializer->content($element);
-        if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+        if ( ! $this->runtime->hasVisibleText($content) ) {
             return null;
         }
 

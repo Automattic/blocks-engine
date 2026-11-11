@@ -202,7 +202,7 @@ final class AuthorLayoutOwnership
         }
 
         if ( ! $this->sourceElementClassifier->isInlineContentElement(strtolower($element->tagName))
-            || '' === trim($this->runtime->stripAllTags(SourceDom::innerHtml($element))) ) {
+            || ! $this->runtime->hasVisibleText(SourceDom::innerHtml($element)) ) {
             return false;
         }
 
@@ -345,7 +345,7 @@ final class AuthorLayoutOwnership
             }
             if ( ! $child instanceof DOMElement
                 || ( ( ! $allowsAnchors || 'a' !== strtolower($child->tagName) ) && ! $this->sourceElementClassifier->isInlineContentElement(strtolower($child->tagName)) )
-                || '' === trim($this->runtime->stripAllTags(SourceDom::innerHtml($child)))
+                || ! $this->runtime->hasVisibleText(SourceDom::innerHtml($child))
             ) {
                 return false;
             }

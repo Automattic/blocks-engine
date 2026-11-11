@@ -63,7 +63,7 @@ final class StructuredCardListLowering
             if ( ! $child instanceof DOMElement || 'li' !== strtolower($child->tagName) ) {
                 continue;
             }
-            if ( '' === trim($this->runtime->stripAllTags(SourceDom::innerHtmlWithoutTags($child, array( 'ul', 'ol' )))) ) {
+            if ( ! $this->runtime->hasVisibleText(SourceDom::innerHtmlWithoutTags($child, array( 'ul', 'ol' ))) ) {
                 continue;
             }
             if ( ! $this->isStructuredCardItem($child) ) {
@@ -280,7 +280,7 @@ final class StructuredCardListLowering
 
         if ( 'a' === $tag ) {
             $content = $this->anchorWithoutStylingAttributes($element);
-            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+            if ( ! $this->runtime->hasVisibleText($content) ) {
                 return null;
             }
 
@@ -292,7 +292,7 @@ final class StructuredCardListLowering
 
         if ( 'span' === $tag && $this->richTextStylingHooks->isStylingHookSpan($element) ) {
             $content = $this->styleResolver->innerHtml($element);
-            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+            if ( ! $this->runtime->hasVisibleText($content) ) {
                 return null;
             }
 
@@ -303,7 +303,7 @@ final class StructuredCardListLowering
         }
 
         $content = SourceDom::outerHtml($element);
-        if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+        if ( ! $this->runtime->hasVisibleText($content) ) {
             return null;
         }
 

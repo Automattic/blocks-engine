@@ -77,7 +77,7 @@ final class TextLeafElementConverter implements ElementConverter
     private function convertAddress(DOMElement $element): ?array
     {
         $content = $this->richTextMaterializer->content($element);
-        if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+        if ( ! $this->runtime->hasVisibleText($content) ) {
             return null;
         }
 
@@ -98,7 +98,7 @@ final class TextLeafElementConverter implements ElementConverter
         $children = $this->context->convertChildren($element, $fallbacks, true);
         if ( array() === $children ) {
             $content = SourceDom::innerHtml($element);
-            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+            if ( ! $this->runtime->hasVisibleText($content) ) {
                 return null;
             }
 
@@ -137,7 +137,7 @@ final class TextLeafElementConverter implements ElementConverter
         }
 
         $content = SourceDom::innerHtml($element);
-        if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+        if ( ! $this->runtime->hasVisibleText($content) ) {
             return null;
         }
 

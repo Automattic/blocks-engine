@@ -46,7 +46,7 @@ final class GenericFigureLowering
         $caption = SourceDom::firstChildElement($figure, 'figcaption');
         if ( $caption instanceof DOMElement ) {
             $captionHtml = $this->styleResolver->innerHtml($caption);
-            if ( '' !== trim($this->runtime->stripAllTags($captionHtml)) ) {
+            if ( $this->runtime->hasVisibleText($captionHtml) ) {
                 $children[] = $this->blocks->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($caption), array( 'content' => $captionHtml )), array(), $caption);
             } elseif ( $this->emptyVisualRetention->shouldPreserveEmptyVisualElement($caption) ) {
                 // An empty caption can still hold space (padding, border,

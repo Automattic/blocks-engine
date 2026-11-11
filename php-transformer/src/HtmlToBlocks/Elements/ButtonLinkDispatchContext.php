@@ -154,7 +154,7 @@ final class ButtonLinkDispatchContext
     private function isLinkedSvgLogoAnchor(DOMElement $anchor): bool
     {
         if ( 0 === $anchor->getElementsByTagName('svg')->length
-            || '' !== trim($this->runtime->stripAllTags(SourceDom::innerHtmlWithoutTags($anchor, array( 'svg' )))) ) {
+            || $this->runtime->hasVisibleText(SourceDom::innerHtmlWithoutTags($anchor, array( 'svg' ))) ) {
             return false;
         }
 
