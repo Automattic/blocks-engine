@@ -381,8 +381,8 @@ final class SourceDom
      * `class` tokens from the result — the `anchor` support has no such
      * constraint. `save()` writes it as a literal HTML attribute value, which
      * the block materializer already escapes with `htmlspecialchars()`
-     * ({@see BlockFactory::htmlAttrs()}), so any non-empty, control-character-free
-     * string round-trips safely and validates.
+     * ({@see HtmlSerialization::attributes()}), so any non-empty,
+     * control-character-free string round-trips safely and validates.
      *
      * This distinction matters because a same-document navigation target's id
      * is exactly the text a captured `href="#…"` fragment decodes to, and that
