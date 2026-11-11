@@ -262,6 +262,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly Support\StyledSourceClassBoundary $styledClassBoundaries;
     private readonly Elements\EmptyVisualRetentionPolicy $emptyVisualRetention;
     private readonly Elements\AuthorLayoutBlockLowering $authorLayout;
+    private readonly Elements\StructuralRichTextContainerLowering $structuralRichTextContainers;
     private readonly SourceProvenance $sourceProvenance;
 
 
@@ -412,6 +413,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $flankedSeparators = new Elements\FlankedSeparatorLowering($this, $this->styleResolver, $this->sourceElementClassifier);
         $this->sourceVisibility = new Style\SourceElementVisibility($this->styleResolver);
         $this->richTextMaterializer = new RichTextMaterializer($this->styleResolver, $this->svgMaterializer, $this->session, $this);
+        $this->structuralRichTextContainers = new Elements\StructuralRichTextContainerLowering($this, $this, $this->richTextMaterializer, $this->styleResolver);
         $this->richTextStylingHooks = new RichTextStylingHookNormalizer($this->styleResolver, $this->richTextMaterializer, $this->session, $this->sourceElementClassifier);
         $inlineFlows = new Elements\InlineFlowLowering($this, $this, $this->styleResolver, $this->sourceElementClassifier, $this->richTextMaterializer, $this->runtime);
         $authoredStateButtons = new Elements\AuthoredStateButtonLowering($this->session, $this->svgMaterializer);
@@ -1967,14 +1969,13 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     {
         if ('core/social-link' === $name && $sourceElement instanceof DOMElement) {
             $anchor = 'a' === strtolower($sourceElement->tagName) ? $sourceElement : $sourceElement->getElementsByTagName('a')->item(0);
-            if ($anchor instanceof DOMElement) $this->session->authorSelectorProjectionState()->markSocialAnchor($anchor);
+            if ($anchor instanceof DOMElement) {
+                $this->session->authorSelectorProjectionState()->markSocialAnchor($anchor);
+                $attrs = (new SocialSourceStyleProjector($this->styleResolver))->project($attrs, $anchor, $this->session->authorStyleAnalysis(), $this->session->sourceTargetProjectionState(), !str_contains((string) ($attrs['className'] ?? ''), 'blocks-engine-social-source-item'));
+            }
         }
         if ( 'core/cover' === $name && $sourceElement instanceof DOMElement && in_array(CoverPattern::CONSUMED_BACKGROUND_CLASS, preg_split('/\s+/', (string) ($attrs['className'] ?? '')) ?: array(), true) ) {
             $this->session->authorSelectorProjectionState()->markConsumedCoverBackground($sourceElement->getNodePath() ?? '');
-        }
-        if ('core/social-link' === $name && $sourceElement instanceof DOMElement) {
-            $anchor = 'a' === strtolower($sourceElement->tagName) ? $sourceElement : $sourceElement->getElementsByTagName('a')->item(0);
-            if ($anchor instanceof DOMElement) $attrs = (new SocialSourceStyleProjector($this->styleResolver))->project($attrs, $anchor, $this->session->authorStyleAnalysis(), $this->session->sourceTargetProjectionState(), !str_contains((string) ($attrs['className'] ?? ''), 'blocks-engine-social-source-item'));
         }
         // Control boxes already transport the exact source attributes through
         // the core group's runtime metadata. A shell would discard that core
@@ -1982,52 +1983,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         if ( 'core/group' === $name && ! isset($attrs['metadata']['blocksEngineControlBox']) && $sourceElement instanceof DOMElement && $this->emptyVisualRetention->preservesScriptStateWrapper($sourceElement) ) {
             return $this->layoutShells->blockForElements(array( $sourceElement ), $innerBlocks, $sourceElement);
         }
-        if ( $sourceElement instanceof DOMElement
-            && in_array($name, array( 'core/paragraph', 'core/heading', 'core/list-item' ), true)
-            && $this->richTextMaterializer->hasStructuralHtml((string) ($attrs['content'] ?? ''))
-        ) {
-            $structuralFallbacks = array();
-            $children = $this->convertChildren($sourceElement, $structuralFallbacks, true);
-            if ( array() !== $children ) {
-                // Core headings cannot store a block-level decoration in RichText.
-                // Keep the decorated wrapper but retain its one text child as an
-                // editable heading rather than silently turning it into a paragraph.
-                // Authored paragraphs are flow content, not a decorated
-                // heading's synthetic text run; keep them as paragraphs.
-                if ( 'core/heading' === $name && 0 === $sourceElement->getElementsByTagName('p')->length ) {
-                    $textChildren = array_keys(array_filter($children, static fn (array $child): bool =>
-                        'core/paragraph' === ($child['blockName'] ?? null)
-                        && '' !== trim(strip_tags((string) ($child['attrs']['content'] ?? '')))
-                    ));
-                    if ( 1 === count($textChildren) ) {
-                        $index = $textChildren[0];
-                        $headingText = html_entity_decode(strip_tags((string) $children[$index]['attrs']['content']), ENT_QUOTES | ENT_HTML5, 'UTF-8');
-                        $normalizeText = static fn (string $text): string => trim(preg_replace('/\s+/u', ' ', $text) ?? $text);
-                        if ( $normalizeText($headingText) === $normalizeText((string) $sourceElement->textContent) ) {
-                            $children[$index] = $this->createBlock('core/heading', array(
-                                'content' => $children[$index]['attrs']['content'],
-                                'level' => $attrs['level'] ?? 2,
-                                // The decorated wrapper keeps the source heading's
-                                // classes, so its typography is the source's. The
-                                // inner heading inherits all of it instead of adding
-                                // the destination's heading defaults (bold, size).
-                                'style' => array(
-                                    'typography' => array_fill_keys(array( 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'textTransform', 'fontStyle' ), 'inherit'),
-                                    'spacing' => array('margin' => array('top' => '0', 'bottom' => '0')),
-               ),
-                            ));
-                        }
-                    }
-                }
-                $containerAttrs = $this->styleResolver->presentationAttributes($sourceElement);
-                if ('core/heading' === $name) {
-                    // Keep baked/responsive heading typography, not just the
-                    // generic presentation, when RichText becomes a container.
-                    $containerAttrs = $attrs;
-                    unset($containerAttrs['content'], $containerAttrs['level']);
-                    $containerAttrs = $this->styleResolver->headingContainerAttributes($sourceElement, $containerAttrs);
-                }
-                return $this->createBlock('core/group', $containerAttrs, $children, $sourceElement, $logicalSourceElement);
+        if ( $sourceElement instanceof DOMElement ) {
+            $container = $this->structuralRichTextContainers->containerBlock($name, $attrs, $sourceElement, $logicalSourceElement);
+            if ( null !== $container ) {
+                return $container;
             }
         }
 
