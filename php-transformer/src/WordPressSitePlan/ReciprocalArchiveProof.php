@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
+
 /** Source-local links and exact heading names shared by native archive proofs. */
 final class ReciprocalArchiveProof
 {
@@ -47,23 +49,17 @@ final class ReciprocalArchiveProof
     {
         if ('' === $html || !class_exists(\DOMDocument::class)) return array();
         $document = new \DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        try {
-            if (!$document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING)) return array();
-            $links = array();
-            foreach ($document->getElementsByTagName('a') as $anchor) {
-                $href = trim($anchor->getAttribute('href'));
-                // A query names a filtered or paged view, not the archive itself.
-                if (null !== parse_url($href, PHP_URL_QUERY)) continue;
-                $path = self::localLinkPath($href, $sourceOrigin);
-                $label = trim(preg_replace('/\s+/u', ' ', $anchor->textContent) ?? '');
-                if (null !== $path && '' !== $label) $links[] = array('href' => self::pathKey(rtrim($path, '/') ?: '/'), 'label' => $label);
-            }
-            return $links;
-        } finally {
-            libxml_clear_errors();
-            libxml_use_internal_errors($previous);
+        if (!HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8">' . $html, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING)) return array();
+        $links = array();
+        foreach ($document->getElementsByTagName('a') as $anchor) {
+            $href = trim($anchor->getAttribute('href'));
+            // A query names a filtered or paged view, not the archive itself.
+            if (null !== parse_url($href, PHP_URL_QUERY)) continue;
+            $path = self::localLinkPath($href, $sourceOrigin);
+            $label = trim(preg_replace('/\s+/u', ' ', $anchor->textContent) ?? '');
+            if (null !== $path && '' !== $label) $links[] = array('href' => self::pathKey(rtrim($path, '/') ?: '/'), 'label' => $label);
         }
+        return $links;
     }
 
     /** Only source-local root-relative or same-origin HTTP(S) links prove structure. */
@@ -96,30 +92,24 @@ final class ReciprocalArchiveProof
     {
         if ('' === $html || !class_exists(\DOMDocument::class)) return '';
         $document = new \DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        try {
-            if (!$document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING)) return '';
-            // The page banner (a header outside sectioning content) carries site
-            // identity, so the archive is named by the first heading outside it.
-            // A heading that is wholly a link titles the listed document it
-            // links to, as each entry of a listing does, not this page.
-            $heading = null;
-            foreach ($document->getElementsByTagName('h1') as $candidate) {
-                if (!self::inPageBanner($candidate) && !self::isLinkTitle($candidate)) {
-                    $heading = $candidate;
-                    break;
-                }
+        if (!HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8">' . $html, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING)) return '';
+        // The page banner (a header outside sectioning content) carries site
+        // identity, so the archive is named by the first heading outside it.
+        // A heading that is wholly a link titles the listed document it
+        // links to, as each entry of a listing does, not this page.
+        $heading = null;
+        foreach ($document->getElementsByTagName('h1') as $candidate) {
+            if (!self::inPageBanner($candidate) && !self::isLinkTitle($candidate)) {
+                $heading = $candidate;
+                break;
             }
-            if (!$heading instanceof \DOMElement) return '';
-            $text = static fn(\DOMNode $node): string => trim(preg_replace('/\s+/u', ' ', $node->textContent) ?? '');
-            // A single named element beside prefix text owns the archive name.
-            $named = array_values(array_filter(iterator_to_array($heading->childNodes), static fn(\DOMNode $node): bool => $node instanceof \DOMElement && '' !== $text($node)));
-            $hasOwnText = '' !== trim(implode('', array_map(static fn(\DOMNode $node): string => $node instanceof \DOMText ? $node->textContent : '', iterator_to_array($heading->childNodes))));
-            return 1 === count($named) && $hasOwnText ? $text($named[0]) : $text($heading);
-        } finally {
-            libxml_clear_errors();
-            libxml_use_internal_errors($previous);
         }
+        if (!$heading instanceof \DOMElement) return '';
+        $text = static fn(\DOMNode $node): string => trim(preg_replace('/\s+/u', ' ', $node->textContent) ?? '');
+        // A single named element beside prefix text owns the archive name.
+        $named = array_values(array_filter(iterator_to_array($heading->childNodes), static fn(\DOMNode $node): bool => $node instanceof \DOMElement && '' !== $text($node)));
+        $hasOwnText = '' !== trim(implode('', array_map(static fn(\DOMNode $node): string => $node instanceof \DOMText ? $node->textContent : '', iterator_to_array($heading->childNodes))));
+        return 1 === count($named) && $hasOwnText ? $text($named[0]) : $text($heading);
     }
 
     private static function isLinkTitle(\DOMElement $heading): bool

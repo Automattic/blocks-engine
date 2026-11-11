@@ -253,11 +253,8 @@ final class RuntimeDependencyParityReport
     private function documentVariantIds(string $html): array
     {
         $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
         $documentHtml = array() !== HtmlTagScanner::scan($html, 'html') ? $html : '<body>' . $html . '</body>';
-        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?>' . $documentHtml, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
+        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?>' . $documentHtml, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
         if (!$loaded) return array();
         $ids = array();
         foreach ($document->getElementsByTagName('*') as $root) {
@@ -794,11 +791,8 @@ final class RuntimeDependencyParityReport
     {
         $targets = array();
         $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
         $documentHtml = array() !== HtmlTagScanner::scan($html, 'html') ? $html : '<body>' . $html . '</body>';
-        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?>' . $documentHtml, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
+        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?>' . $documentHtml, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
         if ( ! $loaded ) {
             return array();
         }

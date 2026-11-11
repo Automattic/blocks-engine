@@ -442,13 +442,10 @@ final class CapturedDialogProjector
      */
     private function projectPage(string $html, array $states, string $sourcePath): array
     {
-        $previous = libxml_use_internal_errors(true);
         $document = new DOMDocument('1.0', 'UTF-8');
         // Implied document containers keep sibling fragment panels outside the
         // first trigger element; NOIMPLIED can nest them inside that button.
-        $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NONET);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
+        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8">' . $html, LIBXML_NONET);
         if (! $loaded) {
             return array('html' => $html, 'diagnostics' => array($this->diagnostic('captured_interaction_source_invalid', 'warning', 'Captured dialogs were not projected because the source HTML could not be parsed.', array('source_path' => $sourcePath))), 'projected_count' => 0, 'retired_scripts' => array(), 'script_bindings' => null);
         }
