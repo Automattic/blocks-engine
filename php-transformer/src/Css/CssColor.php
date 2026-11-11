@@ -136,10 +136,7 @@ final class CssColor
     {
         $color = self::parse($value);
         if (null === $color) return null;
-        $linear = array_map(static function (float $channel): float {
-            $channel /= 255;
-            return $channel <= 0.04045 ? $channel / 12.92 : (($channel + 0.055) / 1.055) ** 2.4;
-        }, array($color[0], $color[1], $color[2]));
+        $linear = self::linearRgb($color);
         $x = (0.4124564 * $linear[0] + 0.3575761 * $linear[1] + 0.1804375 * $linear[2]) / 0.95047;
         $y = 0.2126729 * $linear[0] + 0.7151522 * $linear[1] + 0.0721750 * $linear[2];
         $z = (0.0193339 * $linear[0] + 0.1191920 * $linear[1] + 0.9503041 * $linear[2]) / 1.08883;
@@ -180,11 +177,17 @@ final class CssColor
     {
         $color = self::parse($value);
         if (null === $color) return null;
-        $linear = array_map(static function (float $channel): float {
+        $linear = self::linearRgb($color);
+        return 0.2126 * $linear[0] + 0.7152 * $linear[1] + 0.0722 * $linear[2];
+    }
+
+    /** @return list<float> The colour's sRGB channels, linearized to 0..1. */
+    private static function linearRgb(array $color): array
+    {
+        return array_map(static function (float $channel): float {
             $channel /= 255;
             return $channel <= 0.04045 ? $channel / 12.92 : (($channel + 0.055) / 1.055) ** 2.4;
         }, array($color[0], $color[1], $color[2]));
-        return 0.2126 * $linear[0] + 0.7152 * $linear[1] + 0.0722 * $linear[2];
     }
 
     /** CIELAB lightness, 0 (black) to 100 (white). */

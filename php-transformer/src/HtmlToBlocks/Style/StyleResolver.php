@@ -1374,13 +1374,7 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         $sequence = $this->fontSizeSequence($element);
-        $fact = static fn (array $entry): array => array(
-            'important' => $entry['important'],
-            'inline' => false,
-            'layer' => $entry['layerRank'],
-            'specificity' => $entry['specificity'],
-            'order' => $entry['order'],
-        );
+        $fact = self::stylesheetCascadeFact(...);
         $baseEntry = null;
         foreach ($sequence as $entry) {
             if (array() !== $entry['queries']) {
@@ -1432,13 +1426,7 @@ final class StyleResolver implements ElementPresentationResolver
         if (array() === $sequence) {
             return '';
         }
-        $fact = static fn (array $entry): array => array(
-            'important' => $entry['important'],
-            'inline' => false,
-            'layer' => $entry['layerRank'],
-            'specificity' => $entry['specificity'],
-            'order' => $entry['order'],
-        );
+        $fact = self::stylesheetCascadeFact(...);
 
         $baseWinner = null;
         foreach ($sequence as $entry) {
@@ -1502,6 +1490,18 @@ final class StyleResolver implements ElementPresentationResolver
         $this->session->generatedSupportStylesheetState()->registerResponsiveBlockMarginTop($marker, $base, $conditional);
 
         return $marker;
+    }
+
+    /** A declaration-sequence entry as a stylesheet-origin CssCascade::wins() fact. */
+    private static function stylesheetCascadeFact(array $entry): array
+    {
+        return array(
+            'important' => $entry['important'],
+            'inline' => false,
+            'layer' => $entry['layerRank'],
+            'specificity' => $entry['specificity'],
+            'order' => $entry['order'],
+        );
     }
 
     /** @return list<array{value:string,queries:list<string>,layer:string|null,layerRank:int|null,important:bool,order:int,specificity:array<int,int>}> */

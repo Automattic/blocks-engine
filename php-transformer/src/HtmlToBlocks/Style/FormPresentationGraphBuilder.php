@@ -625,24 +625,7 @@ final class FormPresentationGraphBuilder
                     // provider label that renders the text directly keeps it.
                     $carried = $this->carrierTypography($buttonCaption ? array() : $roles, $element, $analysis['rules'], $customPropertyAnalysis['rules'], $conditional, $buttonCaption && ! $this->hasPadding($styles));
                     if ( array() !== $carried ) {
-                        $overridden = array_map(static fn (string $key): string => str_replace('_', '-', $key), array_keys(array_intersect_key($styles, $carried['styles'])));
-                        foreach ( $provenance as $factIndex => $fact ) {
-                            $fact['properties'] = array_values(array_diff($fact['properties'], $overridden));
-                            if ( array() === $fact['properties'] ) {
-                                unset($provenance[$factIndex]);
-                            } else {
-                                $provenance[$factIndex] = $fact;
-                            }
-                        }
-                        $provenance = array_values($provenance);
-                        $styles = array_merge($styles, $carried['styles']);
-                        ksort($styles);
-                        $provenance = array_merge($provenance, $carried['provenance']);
-                        if ( count($provenance) > self::MAX_PROVENANCE ) {
-                            $provenance = array_slice($provenance, 0, self::MAX_PROVENANCE);
-                            $this->truncated = true;
-                            $this->diagnostics[] = 'provenance_limit';
-                        }
+                        [$styles, $provenance] = $this->withCarriedTypography($styles, $provenance, $carried);
                     }
                     foreach ( $carried['conditional'] ?? array() as $encoded => $patch ) {
                         $conditional[$encoded] ??= array();
@@ -906,6 +889,30 @@ final class FormPresentationGraphBuilder
             }
         }
         return array( 'styles' => $styles, 'provenance' => $this->provenance($facts, null), 'variants' => $variants );
+    }
+
+    /** Carrier typography wins per property: overridden provenance is pruned, then its styles and provenance merge in. */
+    private function withCarriedTypography(array $styles, array $provenance, array $carried): array
+    {
+        $overridden = array_map(static fn (string $key): string => str_replace('_', '-', $key), array_keys(array_intersect_key($styles, $carried['styles'])));
+        foreach ( $provenance as $factIndex => $fact ) {
+            $fact['properties'] = array_values(array_diff($fact['properties'], $overridden));
+            if ( array() === $fact['properties'] ) {
+                unset($provenance[$factIndex]);
+            } else {
+                $provenance[$factIndex] = $fact;
+            }
+        }
+        $provenance = array_values($provenance);
+        $styles = array_merge($styles, $carried['styles']);
+        ksort($styles);
+        $provenance = array_merge($provenance, $carried['provenance']);
+        if ( count($provenance) > self::MAX_PROVENANCE ) {
+            $provenance = array_slice($provenance, 0, self::MAX_PROVENANCE);
+            $this->truncated = true;
+            $this->diagnostics[] = 'provenance_limit';
+        }
+        return array($styles, $provenance);
     }
 
     private function carrierTypography(array $roles, DOMElement $label, array $rules, array $customPropertyRules, array $labelConditional = array(), bool $captionBox = false): array
@@ -1276,24 +1283,7 @@ final class FormPresentationGraphBuilder
         $provenance = $this->provenance($base, null);
         $carried = $this->carrierTypography(array(), $caption, $rules, $customPropertyRules);
         if ( array() !== $carried ) {
-            $overridden = array_map(static fn (string $key): string => str_replace('_', '-', $key), array_keys(array_intersect_key($styles, $carried['styles'])));
-            foreach ( $provenance as $factIndex => $fact ) {
-                $fact['properties'] = array_values(array_diff($fact['properties'], $overridden));
-                if ( array() === $fact['properties'] ) {
-                    unset($provenance[$factIndex]);
-                } else {
-                    $provenance[$factIndex] = $fact;
-                }
-            }
-            $provenance = array_values($provenance);
-            $styles = array_merge($styles, $carried['styles']);
-            ksort($styles);
-            $provenance = array_merge($provenance, $carried['provenance']);
-            if ( count($provenance) > self::MAX_PROVENANCE ) {
-                $provenance = array_slice($provenance, 0, self::MAX_PROVENANCE);
-                $this->truncated = true;
-                $this->diagnostics[] = 'provenance_limit';
-            }
+            [$styles, $provenance] = $this->withCarriedTypography($styles, $provenance, $carried);
         }
         if ( array() === $styles ) return null;
 
