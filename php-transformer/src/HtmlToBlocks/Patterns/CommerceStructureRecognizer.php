@@ -129,7 +129,8 @@ final class CommerceStructureRecognizer
      * so no cart-control token is present in the card's own markup. The image
      * is required for this third path so a bare pricing-tier/plan card (see
      * `isRecurringPriceCard()`) is never treated as a product merely for
-     * pairing a name with a price.
+     * pairing a name with a price. This image path requires currency-formatted
+     * text; a price class with a bare numeric amount is not enough evidence.
      *
      * @return array<string, mixed>|null
      */
@@ -204,7 +205,12 @@ final class CommerceStructureRecognizer
             return null;
         }
 
-        $isCatalogImageCard = null !== $image && ! $this->isRecurringPriceCard($card);
+        // A price class also admits bare numeric amounts (e.g. menu prices).
+        // Only currency-formatted text corroborates the weaker image path;
+        // declared amounts remain valid with schema.org or purchase controls.
+        $isCatalogImageCard = null !== $image
+            && $this->looksLikePriceText($prices['price'])
+            && ! $this->isRecurringPriceCard($card);
         if ( ! $isSchemaProduct && ! $hasCart && ! $isCatalogImageCard ) {
             return null;
         }
