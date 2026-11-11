@@ -5069,6 +5069,66 @@ final class ArtifactCompiler
     }
 
     /**
+     * Section branding needs local evidence: two member routes repeating a
+     * segment, or the section index naming itself with that segment in its h1.
+     *
+     * @return list<string>
+     */
+    private function sectionTitleBrands(string $section, array $files, array $siteNameSegments, bool $requireMember = false): array
+    {
+        if ( '/' === $section || '.' === $section ) {
+            return array();
+        }
+        $counts = array();
+        $brands = array();
+        foreach ( $files as $file ) {
+            if ( 'html' !== ($file['kind'] ?? '') || $this->isTemplatePartFile($file) ) {
+                continue;
+            }
+            $route = ArtifactPath::routePath((string) ($file['path'] ?? ''));
+            if ( $route !== $section && dirname($route) !== $section ) {
+                continue;
+            }
+            $html = (string) ($file['content'] ?? '');
+            if ( $route === $section ) {
+                $visible = self::withoutHiddenSubtrees($html);
+                if ( preg_match('/<main\b[^>]*>(.*?)<\/main\s*>/is', $visible, $main) ) {
+                    $visible = $main[1];
+                }
+                preg_match_all('/<h1\b[^>]*>(.*?)<\/h1\s*>/is', $visible, $headings);
+                foreach ( $headings[1] as $heading ) {
+                    if ( ! $this->headingIsHyperlinkChrome($heading) ) {
+                        $brands[] = trim(html_entity_decode(strip_tags($heading), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+                        break;
+                    }
+                }
+                continue;
+            }
+            $title = HtmlTagScanner::scan($html, 'title')[0]['content'] ?? '';
+            $segments = preg_split(self::DOCUMENT_TITLE_SEPARATOR, trim(html_entity_decode(strip_tags($title), ENT_QUOTES | ENT_HTML5, 'UTF-8'))) ?: array();
+            $trailing = self::siteNameEdgeRun($segments, $siteNameSegments, true);
+            $leading = self::siteNameEdgeRun($segments, $siteNameSegments, false);
+            if ( 0 === $trailing && 0 === $leading ) {
+                continue;
+            }
+            $own = $trailing > 0 ? array_slice($segments, 0, -$trailing) : array_slice($segments, $leading);
+            // The leading segment belongs to the member, not its section.
+            foreach ( array_unique(array_map('mb_strtolower', array_slice($own, 1))) as $segment ) {
+                $counts[$segment][$route] = true;
+            }
+        }
+        if ( $requireMember ) {
+            $brands = array_values(array_filter($brands, static fn (string $brand): bool => isset($counts[mb_strtolower($brand)])));
+        }
+        foreach ( $counts as $segment => $routes ) {
+            if ( count($routes) >= 2 ) {
+                $brands[] = $segment;
+            }
+        }
+        return $brands;
+    }
+
+    /**
      * @param list<string> $siteNameSegments The shared site-name run cut from
      *                                       the title edge it sits on.
      * @param string       $siteNameEdge     `leading` or `trailing` when the
@@ -5172,7 +5232,29 @@ final class ArtifactCompiler
                 $own = $segments;
             }
             if ( array() !== $own && count($own) < count($segments) ) {
-                return implode(' ', $own);
+                $route = ArtifactPath::routePath($path);
+                $brands = $this->sectionTitleBrands(dirname($route), $files, $siteNameSegments);
+                $sectionLength = 0;
+                foreach ( $brands as $brand ) {
+                    $sectionLength = max($sectionLength, self::siteNameEdgeRun($own, array($brand), true));
+                }
+                if ( $sectionLength > 0 ) {
+                    $own = array_slice($own, 0, -$sectionLength);
+                }
+                // An index owns its leading name, not the description following
+                // it, when member titles corroborate that name as branding.
+                $indexBrands = $this->sectionTitleBrands($route, $files, $siteNameSegments, true);
+                if ( count($own) > 1 && in_array(mb_strtolower($own[0]), array_map('mb_strtolower', $indexBrands), true) ) {
+                    $own = array($own[0]);
+                }
+                // Keep the source separators between any surviving segments.
+                preg_match_all(self::DOCUMENT_TITLE_SEPARATOR, $normalize($titleDeclaration['content']), $separators);
+                $offset = $leadingMatch && ! $trailingMatch ? $leadingLength : 0;
+                $label = $own[0];
+                foreach ( array_slice($own, 1) as $index => $segment ) {
+                    $label .= $separators[0][$offset + $index] . $segment;
+                }
+                return $label;
             }
             // A title may name the site without the shared separator ("About
             // Example" beside "Contact | Example"). The remaining words name
