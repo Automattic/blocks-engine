@@ -613,7 +613,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 ));
                 return true;
             },
-            fn (DOMElement $element, array &$fallbacks): ?array => $this->foreignObjectFitTextBlock($element, $fallbacks)
+            (new Elements\ForeignObjectFitTextLowering($this, $this->richTextConverter, $this->styleResolver, $this->blockFactory))->block(...)
         ), $this->svgMaterializer, new SvgTextRunLowering(
             $this->styleResolver,
             fn (string $value, DOMElement $element): string => $this->styleResolver->resolveCssVariablesInValue($value, $element),
@@ -825,9 +825,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->imageLowering->convertPicture(...),
             fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->imageLowering->convertImage($image, $figure, $picture, $link),
             fn (DOMElement $figure, string $tagName): ?DOMElement => SourceDom::figureMediaElement($figure, $tagName),
-            function (DOMElement $figure, array &$fallbacks): ?array {
-                return $this->convertFigureGeneric($figure, $fallbacks);
-            },
+            (new Elements\GenericFigureLowering($this, $this, $this->styleResolver, $this->runtime, $this->emptyVisualRetention, $this->emptyVisualSpacers, $this->emptyElementFootprint, $this->session))->block(...),
             fn (string $html): bool => '' !== trim($this->runtime->stripAllTags($html))
         ));
         $quoteConverter = new QuoteElementConverter($this);
@@ -2193,97 +2191,12 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
     /** @return list<array{key: string, selector: string, parsed: array<string, mixed>, direct_child_parsed: array<string, mixed>, declarations: array<string, string>, rule_order: int}> */
 
-    /**
-     * Lower a foreignObject-only "fit text" SVG to the native text block its
-     * inner element renders as (`<svg viewBox="..."><foreignObject width="100%"
-     * height="100%"><p>Label</p></foreignObject></svg>`). The SVG is a sizing
-     * box that paints nothing and survives sanitization as an empty graphic, so
-     * it used to fall back as metadata that rendered nothing. The inner p,
-     * heading, or phrasing-only div/span converts through the ordinary
-     * rich-text path inside a core/group that carries the SVG's own class and
-     * presentation: author rules target the text as a descendant of that class
-     * (`.fit p`), so merging the class onto the text block itself would sever
-     * every one of them. The group keeps the source element relationship — the
-     * authored `.fit` sizing applies to the box fit text measures and `.fit p`
-     * still reaches the text. Core's fit-text support (`fitText: true`) re-fits
-     * the line to that container. The emitted markup must reproduce core's
-     * canonical serialization exactly: the `className` attribute stays clean and
-     * `has-fit-text` lands only in the saved element's class list — core derives
-     * it in `save()` whenever `fitText` is true (BlockFactory's supports-derived
-     * class path); a saved markup without it fails the editor's validation and a
-     * paragraph deprecation silently migrates the block, dropping `fitText`.
-     *
-     * @param array<int, array<string, mixed>> $fallbacks
-     * @return array<string, mixed>|null
-     */
-    private function foreignObjectFitTextBlock(DOMElement $svg, array &$fallbacks): ?array
-    {
-        $text = SourceDom::foreignObjectSoleTextElement($svg);
-        if ( null === $text ) {
-            return null;
-        }
-        $tag = strtolower($text->tagName);
-        $outcome = $this->richTextConverter->convert($text, in_array($tag, array( 'p', 'div', 'span' ), true) ? 'p' : $tag, $fallbacks);
-        $block = $outcome->block;
-        if ( null === $block || ! in_array($block['blockName'] ?? '', array( 'core/paragraph', 'core/heading' ), true) ) {
-            return null;
-        }
-
-        $attrs = $block['attrs'];
-        $attrs['fitText'] = true;
-
-        return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($svg), array($this->blockFactory->rebuild($block, $attrs)), $svg);
-    }
-
     private function createCommercePattern(): CommerceStructureRecognizer
     {
         return new CommerceStructureRecognizer(
             $this->sourceElementClassifier,
             fn (DOMElement $element): ?array => $this->svgMaterializer->inlineSvgImageReference($element)
         );
-    }
-
-    /**
-     * Convert a figure that wraps non-media content (table, code, multiple
-     * elements, or text) into the closest faithful native block(s).
-     *
-     * The figcaption is consumed as a trailing caption paragraph so it is never
-     * emitted as a separate orphan fallback. A figure with a single child and no
-     * caption unwraps to that child; otherwise the children plus caption are
-     * preserved inside a core/group that carries the figure's presentation.
-     *
-     * @param array<int, array<string, mixed>> $fallbacks
-     * @return array<string, mixed>|null
-     */
-    private function convertFigureGeneric(DOMElement $figure, array &$fallbacks): ?array
-    {
-        $children = $this->convertChildrenWithoutTags($figure, $fallbacks, array( 'figcaption' ));
-
-        $caption = SourceDom::firstChildElement($figure, 'figcaption');
-        if ( $caption instanceof DOMElement ) {
-            $captionHtml = $this->styleResolver->innerHtml($caption);
-            if ( '' !== trim($this->runtime->stripAllTags($captionHtml)) ) {
-                $children[] = $this->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($caption), array( 'content' => $captionHtml )), array(), $caption);
-            } elseif ( $this->emptyVisualRetention->shouldPreserveEmptyVisualElement($caption) ) {
-                // An empty caption can still hold space (padding, border,
-                // height) that the content after its figure depends on.
-                $children[] = $this->emptyVisualSpacers->emptyVisualSpacerBlock($caption);
-            }
-        }
-
-        if ( array() === $children ) {
-            if ( $this->emptyElementFootprint->shouldPreserveEmptyVisualFigure($figure, SourceDom::renderedTextContent($figure), $this->session->sourceStyleResolutionState()->pseudoElementRules()) ) {
-                return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($figure), array(), $figure);
-            }
-
-            return null;
-        }
-
-        if ( 1 === count($children) && array() === $this->styleResolver->presentationAttributes($figure) ) {
-            return $children[0];
-        }
-
-        return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($figure), $children, $figure);
     }
 
     /**
