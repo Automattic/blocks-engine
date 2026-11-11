@@ -295,38 +295,22 @@ final class ConversionReportProjection
         $gaps = array();
 
         $html = ArrayField::array($sourceReports, 'html');
-        $signals = ArrayField::array($html, 'presentation_signals');
-        foreach ( $signals as $signal ) {
-            if ( ! is_array($signal) ) {
-                continue;
+        foreach ( array('presentation_signals' => 'source_presentation_signal', 'structure_signals' => 'source_structure_signal') as $key => $type ) {
+            foreach ( ArrayField::array($html, $key) as $signal ) {
+                if ( ! is_array($signal) ) {
+                    continue;
+                }
+                $gaps[] = array_filter(
+                    array(
+                        'type'       => $type,
+                        'block_name' => $signal['block_name'] ?? '',
+                        'tag'        => $signal['tag'] ?? '',
+                        'selector'   => $signal['selector'] ?? '',
+                        'signals'    => $signal['signals'] ?? array(),
+                    ),
+                    static fn (mixed $value): bool => '' !== $value && array() !== $value
+                );
             }
-            $gaps[] = array_filter(
-                array(
-                    'type'       => 'source_presentation_signal',
-                    'block_name' => $signal['block_name'] ?? '',
-                    'tag'        => $signal['tag'] ?? '',
-                    'selector'   => $signal['selector'] ?? '',
-                    'signals'    => $signal['signals'] ?? array(),
-                ),
-                static fn (mixed $value): bool => '' !== $value && array() !== $value
-            );
-        }
-
-        $structureSignals = ArrayField::array($html, 'structure_signals');
-        foreach ( $structureSignals as $signal ) {
-            if ( ! is_array($signal) ) {
-                continue;
-            }
-            $gaps[] = array_filter(
-                array(
-                    'type'       => 'source_structure_signal',
-                    'block_name' => $signal['block_name'] ?? '',
-                    'tag'        => $signal['tag'] ?? '',
-                    'selector'   => $signal['selector'] ?? '',
-                    'signals'    => $signal['signals'] ?? array(),
-                ),
-                static fn (mixed $value): bool => '' !== $value && array() !== $value
-            );
         }
 
         $compiledSite = ArrayField::array($sourceReports, 'compiled_site');

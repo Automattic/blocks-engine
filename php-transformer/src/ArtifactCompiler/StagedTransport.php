@@ -58,20 +58,7 @@ trait StagedTransport
             'limits' => $normalized['limits'],
             'diagnostics' => $normalized['diagnostics'],
             'summary' => array('file_count' => count($normalized['files']), 'bytes' => $normalized['bytes'], 'rejected_count' => $normalized['rejected_count']),
-            'analysis' => array_merge($this->sharedAnalysis($normalized, array_keys($partition['pages'])), array(
-                'entry_path' => $entryPath,
-                'generated_asset_root' => '.' === dirname($entryPath) ? '' : trim(dirname($entryPath), '/'),
-                'block_namespace' => (new CompanionPluginPayload())->blockNamespace($artifact),
-                'source_paths' => $partition['source_paths'],
-                // Preserve whole-artifact semantics before synthetic stylesheet
-                // occurrence records are introduced by page workers.
-                'canonical_source_hash' => $partition['canonical_source_hash'],
-                'canonical_bytes' => $partition['canonical_bytes'],
-                'canonical_diagnostics' => $partition['canonical_diagnostics'],
-                'canonical_rejected_count' => $partition['canonical_rejected_count'],
-                'captured_dialogs' => $partition['captured_dialogs'],
-                'source_css_bytes' => $partition['source_css_bytes'],
-            )),
+            'analysis' => $this->sharedPlanAnalysis($normalized, $partition, $entryPath, $artifact),
             'compiler_options' => $this->receiptCompilerOptions(),
         );
         $plan['shared_reduction'] = array(
@@ -630,7 +617,7 @@ trait StagedTransport
             'bytes' => $sharedPlan['analysis']['canonical_bytes'] ?? $bytes,
             'diagnostics' => $this->dedupeDiagnostics($diagnostics),
             'rejected_count' => $rejected,
-            'source_hash' => $sharedPlan['analysis']['canonical_source_hash'] ?? $this->normalizedSourceHash($files, $sharedArtifact['runtime_declarations']),
+            'source_hash' => $sharedPlan['analysis']['canonical_source_hash'] ?? ArtifactNormalizer::sourceHash($files, $sharedArtifact['runtime_declarations']),
         ));
         $artifact = $sharedArtifact;
         $artifact['files'] = $files;
@@ -880,18 +867,7 @@ trait StagedTransport
         if ('shared' === $scope) {
             $this->retainSharedCssRuleTrees($normalized['files']);
             $entryPath = (string) ($partition['entrypoints'][0] ?? '');
-            $plan['analysis'] = array_merge($this->sharedAnalysis($normalized, array_keys($partition['pages'])), array(
-                'entry_path' => $entryPath,
-                'generated_asset_root' => '.' === dirname($entryPath) ? '' : trim(dirname($entryPath), '/'),
-                'block_namespace' => (new CompanionPluginPayload())->blockNamespace($hydratedArtifact),
-                'source_paths' => $partition['source_paths'],
-                'canonical_source_hash' => $partition['canonical_source_hash'],
-                'canonical_bytes' => $partition['canonical_bytes'],
-                'canonical_diagnostics' => $partition['canonical_diagnostics'],
-                'canonical_rejected_count' => $partition['canonical_rejected_count'],
-                'captured_dialogs' => $partition['captured_dialogs'],
-                'source_css_bytes' => $partition['source_css_bytes'],
-            ));
+            $plan['analysis'] = $this->sharedPlanAnalysis($normalized, $partition, $entryPath, $hydratedArtifact);
             $plan['shared_reduction'] = array(
                 'files' => $planArtifact['files'],
                 'component_facts' => $this->collectComponentFacts($planArtifact['files']),
@@ -1172,6 +1148,25 @@ trait StagedTransport
     private function isTerminalReceiptSchema(mixed $schema): bool
     {
         return self::COMPACT_RECEIPT_SCHEMA === $schema;
+    }
+
+    /** Shared-plan analysis: the normalized shared analysis plus the partition's entry and canonical facts. */
+    private function sharedPlanAnalysis(array $normalized, array $partition, string $entryPath, array $artifact): array
+    {
+        return array_merge($this->sharedAnalysis($normalized, array_keys($partition['pages'])), array(
+            'entry_path' => $entryPath,
+            'generated_asset_root' => '.' === dirname($entryPath) ? '' : trim(dirname($entryPath), '/'),
+            'block_namespace' => (new CompanionPluginPayload())->blockNamespace($artifact),
+            'source_paths' => $partition['source_paths'],
+            // Preserve whole-artifact semantics before synthetic stylesheet
+            // occurrence records are introduced by page workers.
+            'canonical_source_hash' => $partition['canonical_source_hash'],
+            'canonical_bytes' => $partition['canonical_bytes'],
+            'canonical_diagnostics' => $partition['canonical_diagnostics'],
+            'canonical_rejected_count' => $partition['canonical_rejected_count'],
+            'captured_dialogs' => $partition['captured_dialogs'],
+            'source_css_bytes' => $partition['source_css_bytes'],
+        ));
     }
 
     /** @param array<string,mixed> $normalized @return array<string,mixed> */

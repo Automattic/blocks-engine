@@ -851,21 +851,6 @@ final class ArtifactCompiler
         return $merged;
     }
 
-    /** @param array<int,array<string,mixed>> $files @param array<int,array<string,mixed>> $runtimeDeclarations */
-    private function normalizedSourceHash(array $files, array $runtimeDeclarations): string
-    {
-        usort($files, static fn(array $left, array $right): int => strcmp((string) $left['path'], (string) $right['path']));
-        $context = hash_init('sha256');
-        foreach ($files as $file) {
-            $content = isset($file['content_base64']) ? (string) $file['content_base64'] : (isset($file['payload_reference']) ? (string) $file['payload_reference']['sha256'] : (string) ($file['content'] ?? ''));
-            hash_update($context, $file['path'] . "\0" . $file['kind'] . "\0" . ($file['mime_type'] ?? '') . "\0");
-            hash_update($context, $content);
-            hash_update($context, "\0");
-        }
-        hash_update($context, "\n" . RuntimeDeclarations::canonicalJson($runtimeDeclarations));
-        return hash_final($context);
-    }
-
     /** @param array<string,mixed> $file @return array{scope:string,id:string} */
     private function fileOwnership(array $file): array
     {
