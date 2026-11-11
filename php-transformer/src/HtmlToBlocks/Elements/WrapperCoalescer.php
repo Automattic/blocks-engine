@@ -99,7 +99,8 @@ final class WrapperCoalescer
         private readonly HtmlTransformerSession $session,
         private readonly SourceElementDescription $sourceElementDescription,
         private readonly Closure $soleElementChild,
-        private readonly Closure $isImageOnlyAnchor
+        private readonly Closure $isImageOnlyAnchor,
+        private readonly Closure $preservesScriptStateWrapper
     ) {
     }
 
@@ -437,9 +438,17 @@ final class WrapperCoalescer
         return true;
     }
 
-    /** @param array<string, mixed> $childBlock @return array<string, mixed>|null */
+    /**
+     * A wrapper that preserves script-observed state stays its own group.
+     *
+     * @param array<string, mixed> $childBlock @return array<string, mixed>|null
+     * @see self::coalescingDisposition() for the named disqualification reasons.
+     */
     public function coalescedSingleGroupWrapper(DOMElement $element, array $childBlock): ?array
     {
+        if ( ($this->preservesScriptStateWrapper)($element) ) {
+            return null;
+        }
         $textWrapper = $this->coalescedInheritedTextWrapper($element, $childBlock);
         if (null !== $textWrapper) return $textWrapper;
         $resolution = $this->coalescingResolution($element, $childBlock);
