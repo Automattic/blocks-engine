@@ -4,7 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
-use DOMDocument;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use InvalidArgumentException;
 
 /** Keep linked metadata and plain card labels on their own post through native block bindings. */
@@ -26,8 +26,7 @@ final class ListingFieldProjection
     public static function isLinkedMetadata(string $markup): bool
     {
         if (str_contains($markup, WordPressSitePlan::TOKEN_PREFIX) || preg_match('/<(?:img|svg|video|audio|iframe|input|button|select|textarea)\b/i', $markup)) return false;
-        $document = new DOMDocument();
-        $document->loadHTML('<?xml encoding="UTF-8"><body>' . $markup . '</body>', LIBXML_NOERROR | LIBXML_NOWARNING);
+        $document = HtmlSerialization::parseDocument('<body>' . $markup . '</body>');
         $paragraph = $document->getElementsByTagName('p')->item(0);
         if (null === $paragraph) return false;
         $links = 0;
@@ -54,8 +53,7 @@ final class ListingFieldProjection
     /** @param array<string,mixed> $attrs */
     public static function paragraph(string $source, array $attrs, string $key, string $content): string
     {
-        $document = new DOMDocument();
-        $document->loadHTML('<?xml encoding="UTF-8"><body>' . $source . '</body>', LIBXML_NOERROR | LIBXML_NOWARNING);
+        $document = HtmlSerialization::parseDocument('<body>' . $source . '</body>');
         $paragraph = $document->getElementsByTagName('p')->item(0);
         if (null === $paragraph) return $source;
         $marker = 'blocks-engine-listing-bound-meta';

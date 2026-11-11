@@ -6,7 +6,6 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\Utf8Text;
-use DOMDocument;
 use DOMElement;
 
 final class HeadMetadataReport
@@ -26,9 +25,8 @@ final class HeadMetadataReport
             return array();
         }
 
-        $document = new DOMDocument();
-        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?>' . $html);
-        $head = $loaded ? $document->getElementsByTagName('head')->item(0) : null;
+        $document = HtmlSerialization::parseDocument($html);
+        $head = $document->getElementsByTagName('head')->item(0);
         if ( ! $head instanceof DOMElement ) {
             return array();
         }

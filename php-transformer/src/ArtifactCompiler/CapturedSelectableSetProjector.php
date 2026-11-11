@@ -146,8 +146,7 @@ final class CapturedSelectableSetProjector
             $path = $routes[CaptureReceiptRoutes::normalizedUrl((string) ($page['sourceUrl'] ?? ''))] ?? '';
             foreach ($files as &$file) {
                 if ('' === $path || $path !== ($file['path'] ?? null) || !is_string($file['content'] ?? null)) continue;
-                $document = HtmlSerialization::utf8Document($file['content'], LIBXML_NONET);
-                if (null === $document) continue;
+                $document = HtmlSerialization::parseDocument($file['content']);
                 $changed = false;
                 $bindings = new ScriptOccurrenceBindings($document);
                 foreach (array_slice($page['components'] ?? array(), 0, self::MAX_SETS_PER_PAGE) as $component) {
@@ -343,10 +342,7 @@ final class CapturedSelectableSetProjector
      */
     private function projectPage(string $html, array $sets, string $sourcePath, array $consumedBindings = array()): array
     {
-        $document = HtmlSerialization::utf8Document($html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-        if (null === $document) {
-            return array('html' => $html, 'diagnostics' => array($this->diagnostic('captured_selectable_set_source_invalid', 'warning', 'Captured selectable sets were not projected because the source HTML could not be parsed.', array('source_path' => $sourcePath))), 'projected_count' => 0);
-        }
+        $document = HtmlSerialization::parseFragment($html);
 
         $diagnostics = array();
         $projected = 0;
@@ -1016,10 +1012,7 @@ final class CapturedSelectableSetProjector
 
     private function safeRegionHtml(string $html): ?string
     {
-        $document = HtmlSerialization::utf8Document('<div data-region-root="true">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-        if (null === $document) {
-            return null;
-        }
+        $document = HtmlSerialization::parseFragment('<div data-region-root="true">' . $html . '</div>');
         $xpath = new \DOMXPath($document);
         $this->keepSafeVisualIframes($xpath);
         foreach (array('script', 'iframe', 'object', 'embed', 'template', 'canvas') as $tag) {
@@ -1107,10 +1100,7 @@ final class CapturedSelectableSetProjector
     /** @return array<int, \DOMNode> */
     private function fragmentNodes(string $html): array
     {
-        $document = HtmlSerialization::utf8Document('<div data-region-root="true">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-        if (null === $document) {
-            return array();
-        }
+        $document = HtmlSerialization::parseFragment('<div data-region-root="true">' . $html . '</div>');
         $wrapper = (new \DOMXPath($document))->query('//*[@data-region-root="true"]')?->item(0);
         if (! $wrapper instanceof DOMElement) {
             return array();

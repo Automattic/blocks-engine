@@ -28,7 +28,7 @@ final class CapturedComponentStates
             if (empty($page['components'])) continue;
             $path = $routes[CaptureReceiptRoutes::normalizedUrl((string) ($page['sourceUrl'] ?? ''))] ?? '';
             if (!is_string($contents[$path] ?? null)) continue;
-            $document = self::document($contents[$path]);
+            $document = HtmlSerialization::parseDocument($contents[$path]);
             foreach ($page['components'] as $component) {
                 $selector = $component['selector'] ?? '';
                 if (!is_string($selector) || '' === $selector) continue;
@@ -45,7 +45,7 @@ final class CapturedComponentStates
         foreach ($report['pages'] as &$page) {
             $path = $routes[CaptureReceiptRoutes::normalizedUrl((string) ($page['sourceUrl'] ?? ''))] ?? '';
             if (!is_string($contents[$path] ?? null) || !is_array($page['components'] ?? null)) continue;
-            $document = self::document($contents[$path]);
+            $document = HtmlSerialization::parseDocument($contents[$path]);
             $components = array();
             $owned = array();
             foreach ($page['components'] as $component) {
@@ -68,13 +68,6 @@ final class CapturedComponentStates
         }
         unset($page);
         return $report;
-    }
-
-    private static function document(string $html): DOMDocument
-    {
-        $document = new DOMDocument('1.0', 'UTF-8');
-        HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8">' . $html, LIBXML_NONET);
-        return $document;
     }
 
     private static function fingerprint(DOMElement $node): string

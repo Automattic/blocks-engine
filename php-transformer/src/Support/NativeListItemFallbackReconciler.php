@@ -107,11 +107,7 @@ final class NativeListItemFallbackReconciler
             return null;
         }
 
-        $document = new \DOMDocument();
-        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body><div>' . $html . '</div></body>', LIBXML_NOERROR | LIBXML_NOWARNING);
-        if (! $loaded) {
-            return null;
-        }
+        $document = HtmlSerialization::parseDocument('<body><div>' . $html . '</div></body>');
 
         $container = $document->getElementsByTagName('div')->item(0);
         $links = $document->getElementsByTagName('a');

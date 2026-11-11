@@ -10,6 +10,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\MonochromeGlyphC
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgPathCoverage;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use DOMElement;
 
 /** Lowers explicit social-profile clusters to the core social-links family. */
@@ -153,8 +154,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                         $content .= htmlspecialchars($child->textContent, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
                     }
                 }
-                $safeDocument = new \DOMDocument();
-                @$safeDocument->loadHTML('<?xml encoding="UTF-8">' . $context->markupContext()->safeFallbackHtml($anchor));
+                $safeDocument = HtmlSerialization::parseDocument($context->markupContext()->safeFallbackHtml($anchor));
                 $safeAnchor = $safeDocument->getElementsByTagName('a')->item(0);
                 if (!$safeAnchor instanceof DOMElement) continue;
                 $link = $context->buttonContext()->accessibleNameCompanion($safeAnchor, $content, null, true, $anchor)->block();

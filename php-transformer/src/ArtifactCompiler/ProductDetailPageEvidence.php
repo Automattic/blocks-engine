@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
-use DOMDocument;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use DOMElement;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 
@@ -106,10 +106,9 @@ final class ProductDetailPageEvidence
         };
         $html = '';
         foreach ($files as $file) if ($source === ($file['path'] ?? null)) $html = $file['content'] ?? '';
-        $document = new DOMDocument();
         $elements = array();
         if ('' !== $html) {
-            $document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NOERROR | LIBXML_NOWARNING);
+            $document = HtmlSerialization::parseDocument($html);
             foreach ($document->getElementsByTagName('*') as $element) $elements[SourceDom::elementSelector($element)] = $element;
         }
         if (!array_key_exists('hasVariant', $schema) && !isset($row['variants']) && !in_array('ProductGroup', (array) ($schema['@type'] ?? array()), true)) {
@@ -197,9 +196,8 @@ final class ProductDetailPageEvidence
         foreach ($files as $file) {
             $path = $file['path'] ?? '';
             if ($path === $source || !isset($pageRoutes[$path])) continue;
-            $listing = new DOMDocument();
             if ('' === ($file['content'] ?? '')) continue;
-            $listing->loadHTML($file['content'], LIBXML_NOERROR | LIBXML_NOWARNING);
+            $listing = HtmlSerialization::parseDocument($file['content']);
             foreach ($listing->getElementsByTagName('a') as $card) {
                 if ($route($card->getAttribute('href'), $path) === $productRoute) $listingRoutes[] = $pageRoutes[$path];
             }
