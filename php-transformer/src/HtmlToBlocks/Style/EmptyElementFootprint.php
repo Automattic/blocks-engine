@@ -27,7 +27,8 @@ final class EmptyElementFootprint
     }
     public function __construct(
         private readonly StyleResolver $styleResolver,
-        private readonly SourceElementClassifier $sourceElementClassifier
+        private readonly SourceElementClassifier $sourceElementClassifier,
+        private readonly HostBlockGapEncoder $sourceMargins
     ) {
     }
 
@@ -190,7 +191,8 @@ final class EmptyElementFootprint
         if ( $this->hasAuthoredGridTracks($element) ) {
             return true;
         }
-        if ( $this->hasPositiveLength($declarations, self::VERTICAL_SPACE, $element) || $this->hasVisibleEmptyVisualPaint($declarations, $element) ) {
+        if ( $this->hasPositiveLength($declarations, self::VERTICAL_SPACE, $element) || $this->hasVisibleEmptyVisualPaint($declarations, $element)
+            || $this->sourceMargins->hasContributingEmptyMargin($element) ) {
             return true;
         }
         // Structural block policy historically compares the literal position.
