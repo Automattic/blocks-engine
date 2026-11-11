@@ -3163,6 +3163,11 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         $anchor = $this->primaryNavigationAnchor($element);
+        $siblingLabel = null;
+        if ( ! $anchor instanceof DOMElement || '' === $this->anchorLabel($anchor, $innerHtml, $navigationContext) ) {
+            $siblingLabel = $this->submenuSiblingLabel($element, $innerHtml, $navigationContext);
+            $anchor = $siblingLabel;
+        }
         if ( ! $anchor instanceof DOMElement || '' === $this->anchorLabel($anchor, $innerHtml, $navigationContext) ) {
             return null;
         }
@@ -3183,15 +3188,20 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         if ( array() !== $submenuBlocks ) {
-            if ( 1 !== count($this->anchorsExcludingSubmenus($element, $anchor)) ) {
+            if ( null === $siblingLabel && 1 !== count($this->anchorsExcludingSubmenus($element, $anchor)) ) {
                 return null;
             }
 
             $submenuAttrs = array(
-                'label' => $this->anchorLabel($anchor, $innerHtml, $navigationContext),
+                'label' => null !== $siblingLabel && 'a' !== strtolower($anchor->tagName)
+                    ? trim(preg_replace('/\s+/', ' ', $this->visibleText($anchor)) ?? '')
+                    : $this->anchorLabel($anchor, $innerHtml, $navigationContext),
                 'url'   => SourceDom::safeNavigationUrl($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : ''),
                 'kind'  => 'custom',
             );
+            if ( null !== $siblingLabel && '' === $submenuAttrs['url'] ) {
+                unset($submenuAttrs['url']);
+            }
             $submenuContainer = $this->submenuContainers($element, $anchor)[0] ?? null;
             return $createBlock('core/navigation-submenu', $this->navigationItemAttributes($element, $anchor, $submenuContainer, $submenuAttrs, $presentationAttributes, $navigationContext), $submenuBlocks, $element);
         }
@@ -4448,6 +4458,58 @@ final class NavigationPattern implements PatternRecognizerInterface
         return MenuVocabulary::containsCurrentStateToken(SourceDom::attr($element, 'class') . ' ' . SourceDom::attr($element, 'id'));
     }
 
+
+    /**
+     * A signalled submenu can be paired with a text label or a link carrier.
+     * Empty capture-counterpart anchors do not supply or compete for its label.
+     */
+    private function submenuSiblingLabel(DOMElement $element, callable $innerHtml, ?NavigationPatternContext $navigationContext): ?DOMElement
+    {
+        // Landmarks and lists hold peer items, not their own toggle label.
+        if ( in_array(strtolower($element->tagName), array( 'nav', 'ul', 'ol' ), true) ) {
+            return null;
+        }
+        $label = null;
+        $hasSubmenu = false;
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_COMMENT_NODE === $child->nodeType || ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                return null;
+            }
+            if ( $this->hasSubmenuSignal($child) && 0 < $child->getElementsByTagName('a')->length ) {
+                $hasSubmenu = true;
+                continue;
+            }
+            if ( null !== $label ) {
+                return null;
+            }
+            $label = $child;
+        }
+        if ( ! $hasSubmenu || ! $label instanceof DOMElement
+            || 'a' === strtolower($label->tagName)
+            || 1 === preg_match('/^h[1-6]$/i', $label->tagName)
+            || 0 < $label->getElementsByTagName('ul')->length
+            || 0 < $label->getElementsByTagName('ol')->length ) {
+            return null;
+        }
+
+        $links = array();
+        foreach ( $label->getElementsByTagName('a') as $link ) {
+            if ( '' !== $this->anchorLabel($link, $innerHtml, $navigationContext) ) {
+                $links[] = $link;
+            }
+        }
+        if ( count($links) > 1 ) {
+            return null;
+        }
+        if ( 1 === count($links) ) {
+            return $links[0];
+        }
+
+        return '' !== trim($this->visibleText($label)) ? $label : null;
+    }
 
     private function primaryNavigationAnchor(DOMElement $element): ?DOMElement
     {
