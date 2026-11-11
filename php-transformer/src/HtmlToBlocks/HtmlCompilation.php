@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CaptureReplayScripts;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput;
@@ -526,6 +525,19 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $customVideoHosts = new Elements\CustomVideoHostLowering($this->session, $this->styleResolver, $this->imageUrls, $this->runtimeIslands, $this->mediaLowering, $this->imageLowering, $this->layoutShells, $this);
         $listItemLowering = new Elements\ListItemLowering($this, $this, $this->runtime, $this->session, $this->styleResolver, $this->listStructure, $this->richTextMaterializer, $this->wrapperCoalescer, $this->authorLayoutOwnership);
         $this->structuredInlineItemLowering = new Elements\StructuredInlineItemLowering($this, $this->runtime, $this->sourceElementClassifier, $this->styleResolver, $inlineSvgTextGroups);
+        $inlineTextWrappers = new Elements\InlineTextWrapperLowering(
+            $this,
+            $this,
+            $this->session,
+            $this->sourceElementClassifier,
+            $this->styleResolver,
+            $this->richTextMaterializer,
+            $this->richTextStylingHooks,
+            $this->structuredInlineItemLowering,
+            $this->authorLayoutOwnership,
+            $this->emptyVisualRetention,
+            $this->runtime
+        );
         $this->inertElements = new Elements\InertElements($this->styleResolver, $this->sourceElementClassifier, $this->sourceVisibility, $this->runtimeIslands);
         $this->emptyInlineGeometry = new Elements\EmptyInlineGeometryLowering($this, $this->session, $this->sourceElementClassifier, $this->emptyElementFootprint, $authoredStateButtons, $this->layoutShells, $this->runtimeIslands);
         $this->wrapperConventions = new Elements\CustomWrapperConventions($this->styleResolver, $this->renderNeutral);
@@ -613,7 +625,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->runtimeIslands,
             fn (DOMElement $element): ?array => $inlineSvgTextGroups->fromElement($element),
             $this->authorLayoutOwnership->ownsPositioningGeometry(...),
-            fn (DOMElement $element, array &$fallbacks): ?array => $this->positionedInlineCarrierBlock($element, $fallbacks),
+            $inlineTextWrappers->positionedInlineCarrierBlock(...),
             fn (DOMElement $element): bool => $this->session->authorSelectorProjectionState()->hasSemanticMarker($element),
             $this->authorLayoutOwnership->richTextMarker(...),
             $this->listStructure,
@@ -893,19 +905,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $quoteConverter,
             $figureConverter,
         ));
-        $inlineTextWrappers = new Elements\InlineTextWrapperLowering(
-            $this,
-            $this,
-            $this->session,
-            $this->sourceElementClassifier,
-            $this->styleResolver,
-            $this->richTextMaterializer,
-            $this->richTextStylingHooks,
-            $this->structuredInlineItemLowering,
-            $this->authorLayoutOwnership,
-            $this->emptyVisualRetention,
-            $this->runtime
-        );
         $this->flowContainerConverter = new FlowContainerElementConverter($this->sourceElementClassifier, $this, $this->styleResolver, new FlowContainerElementContext(
             runtimeAppShellBlock: function (DOMElement $element, array &$fallbacks): ?array {
                 if ( ! $this->runtimeIslands->shouldPreserveRuntimeAppShell($element) ) {
@@ -1216,7 +1215,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             function (DOMElement $element): ?array {
                 return $this->linkedIconTextRows->fromParagraph($element);
             },
-            fn (string $text): array => $this->convertText($text),
+            $this->text(...),
             $this,
             function (DOMElement $element, array &$fallbacks): ?array {
                 return $this->emptyInlineGeometry->emptyInlineGeometryBlock($element, $fallbacks);
@@ -1656,7 +1655,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             if ( XML_TEXT_NODE === $child->nodeType ) {
                 $text = trim($child->textContent ?? '');
                 if ( '' !== $text ) {
-                    $blocks = array_merge($blocks, $this->convertText($text));
+                    $blocks = array_merge($blocks, $this->text($text));
                     $lineIndex = Elements\StandaloneBreakLowering::inlineParagraphIndex($blocks);
                 }
                 continue;
@@ -1935,7 +1934,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     /**
      * @return array<int, array<string, mixed>>
      */
-    private function convertText(string $text): array
+    public function text(string $text): array
     {
         $blocks = array();
         if ( $this->runtime->isShortcodeOnly($text) ) {
@@ -2164,63 +2163,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $innerBlocks;
     }
 
-    /**
-     * @param array<int, array<string, mixed>> $fallbacks
-     * @return array<string, mixed>|null
-     */
-    private function positionedInlineCarrierBlock(DOMElement $element, array &$fallbacks): ?array
-    {
-        if ( $this->authorLayoutOwnership->positionedCarrierHasStructuredContent($element) ) {
-            $children = $this->positionedInlineCarrierChildren($element, $fallbacks);
-            return array() === $children
-                ? null
-                : $this->createBlock('core/group', $this->styleResolver->positionedInlineCarrierAttributes($element), $children, $element);
-        }
-
-        $content = $this->richTextMaterializer->content($element);
-        if ( '' === trim($this->runtime->stripAllTags($content)) ) {
-            return null;
-        }
-
-        return $this->createBlock('core/group', $this->styleResolver->positionedInlineCarrierAttributes($element), array(
-            $this->createBlock('core/paragraph', array(
-                'content' => $content,
-                'className' => self::SYNTHETIC_PARAGRAPH_CLASS,
-            )),
-        ), $element);
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $fallbacks
-     * @return array<int, array<string, mixed>>
-     */
-    private function positionedInlineCarrierChildren(DOMElement $element, array &$fallbacks): array
-    {
-        $blocks = array();
-        foreach ( $element->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType ) {
-                $text = trim($child->textContent ?? '');
-                if ( '' !== $text ) {
-                    $blocks = array_merge($blocks, $this->convertText($text));
-                }
-                continue;
-            }
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-            if ( FormControlClassifier::isControlElement($child) ) {
-                $blocks[] = $this->htmlPreservationBlock($child);
-                continue;
-            }
-            $block = $this->convertElement($child, $fallbacks, true);
-            if ( null !== $block ) {
-                $blocks[] = $block;
-            }
-        }
-
-        return $blocks;
-    }
-
     /** Read lazily: the projector is built after the closure that needs it. */
     private function controlCarrierLayerRevertRule(DOMElement $element, string $marker): string
     {
@@ -2360,7 +2302,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             if ( XML_TEXT_NODE === $child->nodeType ) {
                 $text = trim($child->textContent ?? '');
                 if ( '' !== $text ) {
-                    $blocks = array_merge($blocks, $this->convertText($text));
+                    $blocks = array_merge($blocks, $this->text($text));
                 }
                 continue;
             }

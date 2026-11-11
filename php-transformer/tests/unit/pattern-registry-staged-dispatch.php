@@ -169,6 +169,11 @@ $navigationConverter = new class implements PatternTreeConverter {
         return array();
     }
 
+    public function text(string $text): array
+    {
+        return array();
+    }
+
     public function patterns(DOMElement $element, array &$fallbacks, array $allowed): ?array
     {
         return null;

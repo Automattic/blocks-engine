@@ -28,6 +28,14 @@ interface PatternTreeConverter
     public function childrenWithoutTags(DOMElement $element, array &$fallbacks, array $excludedTags): array;
 
     /**
+     * Blocks for one trimmed source text run: a shortcode block for a
+     * shortcode-only run, otherwise a synthetic paragraph.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function text(string $text): array;
+
+    /**
      * First recognizer among `$allowed` that claims `$element`; its fallbacks
      * are appended to `$fallbacks` only when it wins.
      *
