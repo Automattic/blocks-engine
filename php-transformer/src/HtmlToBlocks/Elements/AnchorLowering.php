@@ -162,7 +162,6 @@ final class AnchorLowering implements ButtonLinkLeftovers
             $this->runtimeIslands,
             fn (DOMElement $element): bool => array() !== SourceDom::eventMetadata($element),
             fn (DOMElement $element): bool => array() !== $this->sourceElementDescription->interactiveAttributes($element),
-            SourceDom::hasRouteBearingDataAttributes(...),
         ))->project($anchor);
         if ( null === $attrs ) {
             return null;

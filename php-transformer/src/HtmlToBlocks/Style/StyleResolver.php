@@ -2781,7 +2781,7 @@ final class StyleResolver implements ElementPresentationResolver
                 }
                 continue;
             }
-            if ( ! in_array($this->context->cssComparableValue($value), $authorDeclared[ $property ], true) ) {
+            if ( ! in_array(CssValueInspector::comparable($value), $authorDeclared[ $property ], true) ) {
                 $overrides[ $property ] = $value;
             }
         }
@@ -2830,7 +2830,7 @@ final class StyleResolver implements ElementPresentationResolver
             foreach ( $rule['declarations'] as $property => $value ) {
                 $property = strtolower((string) $property);
                 if ( isset($wanted[ $property ]) ) {
-                    $declared[ $property ][] = $this->context->cssComparableValue((string) $value);
+                    $declared[ $property ][] = CssValueInspector::comparable((string) $value);
                 }
                 // The `background` shorthand resets every longhand it does not
                 // set, `background-image` included, so a rule that declares it
@@ -2841,7 +2841,7 @@ final class StyleResolver implements ElementPresentationResolver
                 // override can never find the conflicting value it exists to
                 // beat, and the override is wrongly dropped.
                 if ( 'background' === $property && isset($wanted['background-image']) ) {
-                    $declared['background-image'][] = $this->context->cssComparableValue(
+                    $declared['background-image'][] = CssValueInspector::comparable(
                         $this->backgroundShorthandImageValue((string) $value)
                     );
                 }
@@ -2978,7 +2978,7 @@ final class StyleResolver implements ElementPresentationResolver
         foreach ( $this->matchingStyleRules($element, 'conditional') as $rule ) {
             foreach ( $rule['declarations'] as $property => $value ) {
                 if ( isset($wanted[ strtolower((string) $property) ]) ) {
-                    $declared[ strtolower((string) $property) ][] = $this->context->cssComparableValue((string) $value);
+                    $declared[ strtolower((string) $property) ][] = CssValueInspector::comparable((string) $value);
                 }
             }
         }
@@ -3642,7 +3642,7 @@ final class StyleResolver implements ElementPresentationResolver
 
     private function comparableInheritedTypography(string $value): string
     {
-        $value = $this->context->cssComparableValue($value);
+        $value = CssValueInspector::comparable($value);
         $value = str_replace(array( '"', "'" ), '', $value);
 
         return trim(preg_replace('/\s+/', ' ', $value) ?? $value);

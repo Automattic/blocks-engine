@@ -81,12 +81,10 @@ $authored = new AuthoredFormControlBlockConverter(
     $createBlock,
     $session,
     $runtime,
-    static fn (string $id): string => $id,
     static fn (DOMElement $element): DOMElement => $element
 );
 $styleResolver = new StyleResolver($session,
     new StyleResolutionContext(
-        static fn (string $value): string => $value,
         static fn (string $selector): array => array(),
         static fn (string $className): string => $className,
         static fn (string $url): string => $url

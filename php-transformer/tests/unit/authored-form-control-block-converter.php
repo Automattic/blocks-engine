@@ -49,7 +49,6 @@ $converter = new AuthoredFormControlBlockConverter(
     )),
     $session,
     new Runtime(),
-    static fn (string $id): string => 'safe-' . $id,
     static fn (DOMElement $element): DOMElement => $element
 );
 

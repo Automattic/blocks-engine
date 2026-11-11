@@ -37,7 +37,6 @@ final class LinkedResponsiveContentProjector
      * @param Closure(string): int       $assetId
      * @param Closure(DOMElement): bool  $hasEvents
      * @param Closure(DOMElement): bool  $hasInteractive
-     * @param Closure(DOMElement): bool  $hasRouteData
      */
     public function __construct(
         private readonly StyleResolver $styles,
@@ -46,8 +45,7 @@ final class LinkedResponsiveContentProjector
         private readonly Closure $assetId,
         private readonly RuntimeDomTargets $runtimeDomTargets,
         private readonly Closure $hasEvents,
-        private readonly Closure $hasInteractive,
-        private readonly Closure $hasRouteData,
+        private readonly Closure $hasInteractive
     ) {
     }
 
@@ -155,7 +153,7 @@ final class LinkedResponsiveContentProjector
             || $this->runtimeDomTargets->isRuntimeDomTarget($anchor)
             || ($this->hasEvents)($anchor)
             || ($this->hasInteractive)($anchor)
-            || ($this->hasRouteData)($anchor)
+            || SourceDom::hasRouteBearingDataAttributes($anchor)
             || ! $this->identityIsPreservable($anchor, array( 'class', 'href', 'id', 'style', 'target', 'rel', 'title', 'aria-label', 'aria-labelledby', 'aria-describedby' ))
         ) {
             return false;
@@ -196,7 +194,7 @@ final class LinkedResponsiveContentProjector
             && ! $this->runtimeDomTargets->isRuntimeDomTarget($image)
             && ! ($this->hasEvents)($image)
             && ! ($this->hasInteractive)($image)
-            && ! ($this->hasRouteData)($image)
+            && ! SourceDom::hasRouteBearingDataAttributes($image)
             && $this->identityIsPreservable($image, array( 'alt', 'class', 'decoding', 'height', 'id', 'loading', 'sizes', 'src', 'srcset', 'style', 'title', 'width', 'aria-labelledby', 'aria-describedby' ))
             && '' !== ($this->imageUrl)($image)
             && SourceDom::safeFallbackUrl(($this->imageUrl)($image), 'src', 'img')

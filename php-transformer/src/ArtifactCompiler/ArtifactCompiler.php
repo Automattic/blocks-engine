@@ -2165,7 +2165,7 @@ final class ArtifactCompiler
                 $asset = $this->findAssetByHtmlReference($path, $entryPath, $files);
                 $content = is_array($asset) && 'image/svg+xml' === ($asset['mime_type'] ?? '') ? (string) ($asset['content'] ?? '') : '';
                 $sprite = new DOMDocument();
-                $sprites[$path] = '' !== $content && $this->isSafeSvgContent($content) && $sprite->loadXML($content, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING) ? new DOMXPath($sprite) : null;
+                $sprites[$path] = '' !== $content && SourceDom::isSafeSvgContent($content) && $sprite->loadXML($content, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING) ? new DOMXPath($sprite) : null;
             }
             $xpath = $sprites[$path];
             $id = html_entity_decode($match[4], ENT_QUOTES | ENT_HTML5);
@@ -6034,7 +6034,7 @@ final class ArtifactCompiler
     {
         $diagnostics = array();
         foreach ( $files as $file ) {
-            if ( 'image/svg+xml' !== ($file['mime_type'] ?? '') || empty($file['content']) || $this->isSafeSvgContent((string) $file['content']) ) {
+            if ( 'image/svg+xml' !== ($file['mime_type'] ?? '') || empty($file['content']) || SourceDom::isSafeSvgContent((string) $file['content']) ) {
                 continue;
             }
 
@@ -6054,7 +6054,7 @@ final class ArtifactCompiler
             return true;
         }
 
-        return ! empty($asset['content']) && $this->isSafeSvgContent((string) $asset['content']);
+        return ! empty($asset['content']) && SourceDom::isSafeSvgContent((string) $asset['content']);
     }
 
     /**
@@ -6062,20 +6062,7 @@ final class ArtifactCompiler
      */
     private function isUnsafeSvgAsset(array $file): bool
     {
-        return 'image/svg+xml' === ($file['mime_type'] ?? '') && ! $this->isSafeSvgContent((string) ($file['content'] ?? ''));
-    }
-
-    private function isSafeSvgContent(string $content): bool
-    {
-        if ( '' === trim($content) ) {
-            return false;
-        }
-
-        if ( ! preg_match('/<svg(?:\s|>)/i', $content) ) {
-            return false;
-        }
-
-        return ! preg_match('/<\s*script\b|\son[a-z]+\s*=|javascript\s*:/i', $content);
+        return 'image/svg+xml' === ($file['mime_type'] ?? '') && ! SourceDom::isSafeSvgContent((string) ($file['content'] ?? ''));
     }
 
     /**

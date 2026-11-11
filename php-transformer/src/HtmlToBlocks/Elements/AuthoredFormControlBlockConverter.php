@@ -31,7 +31,6 @@ final class AuthoredFormControlBlockConverter
 
     /**
      * @param Closure(DOMElement): array<string, mixed>                                                     $authoredPresentationDeclarations
-     * @param Closure(string): string                                                                       $safeAnchor
      * @param Closure(DOMElement): ?DOMElement                                                               $projectSourceTags
      * @param Closure(DOMElement): string|null                                                                $richTextLabelContent
      * @param Closure(DOMElement): string|null                                                                $editableLabelContent
@@ -43,7 +42,6 @@ final class AuthoredFormControlBlockConverter
         private readonly SourceBlockCreator $createBlock,
         private readonly HtmlTransformerSession $session,
         private readonly Runtime $runtime,
-        private readonly Closure $safeAnchor,
         private readonly Closure $projectSourceTags,
         ?Closure $richTextLabelContent = null,
         ?Closure $editableLabelContent = null
