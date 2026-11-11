@@ -9,6 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
@@ -33,63 +34,25 @@ use LogicException;
  * those depend on ({@see self::groupWrapperDescriptor()},
  * {@see self::selectorMatchingSurvivesWrapperCoalescing()}).
  *
- * `coalescedSingleGroupWrapper()`'s eligibility test used to be a single
- * multi-term boolean expression that returned a bare `null` on
- * disqualification, so nothing recorded *why* a wrapper survived. It is now
- * built from named, individually-inspectable disqualification reasons
- * ({@see self::coalescingDisposition()}) evaluated in the same order — and
- * with the same short-circuiting — as the original expression, so output is
- * unchanged: only the reason a decision was made became visible.
+ * Eligibility is built from named, individually inspectable
+ * disqualification reasons ({@see self::coalescingDisposition()}), so the
+ * reason a wrapper survived is visible.
  *
- * Every geometry/layout predicate the disqualification checks need —
- * `isDirectChildOfStructuralLayout()`, `hasOnlyRenderNeutralInlineGeometry()`,
- * `hasOnlyFullWidthTransparentInlineGeometry()`,
- * `hasOnlyFullWidthTransparentBoxAffectingDeclarations()`,
- * `hasOnlyRenderNeutralBoxAffectingDeclarations()`,
- * `isNormalFlowFullWidthShellChild()`,
- * `hasContainingBlockDependentAuthorDeclarations()`,
- * `isRedundantNestedLayoutWrapper()`, plus the chain-walking helpers
- * `imageLeafInGroupChain()`/`sameSourceGroupChainLeaf()` and the layout-proof
- * bookkeeping `layoutGeometryProofFor()`/`layoutGeometryProofCarrier()` —
- * lives here now, computed from `SourceDom`, the injected `StyleResolver`,
- * and `SourceElementClassifier` this class already holds. None of them read
- * `HtmlCompilation` state; `isDirectChildOfStructuralLayout()`,
- * `hasOnlyRenderNeutralInlineGeometry()`,
- * `hasOnlyRenderNeutralBoxAffectingDeclarations()`, `matchingAuthorDeclarations()`,
- * `layoutGeometryProofFor()`, and `layoutGeometryProofCarrier()` are `public`
- * because `HtmlCompilation` itself now calls back into this class for the
- * handful of unrelated features (empty-shell detection, inline-alignment
- * detection, standalone-inline-leaf detection, ...) that also need them,
- * instead of keeping a second copy.
+ * The proof-backed path ({@see self::proofBackedWrapperCoalescing()}) runs
+ * before author-layout lowering and only carries a recorded layout-geometry
+ * proof onto the wrapper's sole native child.
  *
- * Two closures remain, each because the primitive it wraps is genuinely
- * shared by call sites with no wrapper-coalescing relationship at all, so
- * moving *those* primitives here — rather than duplicating them — would
- * recreate the coupling this refactor removes:
- *
- *  - `$soleElementChild`: DOM traversal that skips inert/hidden empty
- *    children; its own dependency chain (`isInertHiddenEmptyElement()` /
- *    `sourceElementStartsHidden()`) is called from a dozen unrelated sites
- *    across `HtmlCompilation` and is also injected into
- *    `InertScaffoldingSuppressor`.
- *  - `$isImageOnlyAnchor`: image-anchor classification reused across image
- *    conversion (`imageBlockFromAnchor()`, image-in-anchor promotion, ...)
- *    well outside wrapper coalescing.
- *
- * The fallback-HTML serializer used to be a fourth closure here
- * (`$safeFallbackHtml`), but it was only ever a `HtmlCompilation` instance
- * method forwarding to the stateless {@see SourceDom::safeFallbackHtml()}.
- * This class already holds `$session`, which is where that state (projected
- * author tag markers) actually lives, so {@see self::sameSourceGroupChainLeaf()}
- * calls `SourceDom::safeFallbackHtml()` directly instead.
- *
- * This class never holds a reference to `HtmlCompilation` itself.
+ * Collaborators that are not wrapper-specific arrive injected: the sole
+ * element child walk, image-only anchor classification and the script-state
+ * guard as closures, and child conversion and block creation through the
+ * `PatternTreeConverter` and `SourceBlockCreator` interfaces.
  */
 final class WrapperCoalescer
 {
     /**
      * @param Closure(DOMElement): ?DOMElement $soleElementChild
      * @param Closure(DOMElement): bool $isImageOnlyAnchor
+     * @param Closure(DOMElement): bool $preservesScriptStateWrapper
      */
     public function __construct(
         private readonly SourceElementClassifier $sourceElementClassifier,
@@ -100,7 +63,8 @@ final class WrapperCoalescer
         private readonly SourceElementDescription $sourceElementDescription,
         private readonly Closure $soleElementChild,
         private readonly Closure $isImageOnlyAnchor,
-        private readonly Closure $preservesScriptStateWrapper
+        private readonly Closure $preservesScriptStateWrapper,
+        private readonly PatternTreeConverter $tree
     ) {
     }
 
@@ -1003,11 +967,8 @@ final class WrapperCoalescer
 
     /**
      * The layout-geometry proof this wrapper/child pair already satisfies, if
-     * the normalizer recorded one. `HtmlCompilation` injects this into
-     * `ElementConversionPrelude` as `fn (DOMElement $element): ?array =>
-     * $this->wrapperCoalescer->layoutGeometryProofFor($element)` because that
-     * prelude needs the same lookup before author-layout lowering runs, not
-     * because the lookup itself belongs anywhere but here.
+     * the normalizer recorded one. `ElementConversionPrelude` also reads it
+     * before author-layout lowering runs.
      *
      * @return array<string, mixed>|null
      */
@@ -1024,15 +985,36 @@ final class WrapperCoalescer
     }
 
     /**
+     * This runs before author-layout lowering, whose custom block deliberately
+     * owns CSS flex/grid topology. The contract has already compared source and
+     * wrapper-free layouts; this method only carries the wrapper identity and
+     * generated geometry carrier onto an existing native child block.
+     *
+     * @param array<int,array<string,mixed>> $fallbacks
+     * @return array<string,mixed>|null
+     */
+    public function proofBackedWrapperCoalescing(DOMElement $element, array &$fallbacks): ?array
+    {
+        $proof = $this->layoutGeometryProofFor($element);
+        if (null === $proof || $this->runtimeIslands->isRuntimeDomTarget($element) || '' !== trim(SourceDom::attr($element, 'id')) || '' !== trim(SourceDom::attr($element, 'role')) || array() !== $this->sourceElementDescription->interactiveAttributes($element) || $this->sourceElementClassifier->hasMotionStructureToken($element)) return null;
+        $children = $this->tree->children($element, $fallbacks, true);
+        if (1 !== count($children) || !in_array($children[0]['blockName'] ?? null, array('core/group', 'core/image'), true) || $this->session->transformationProvenanceState()->isBindingAnchor($children[0]['_source_provenance_id'] ?? null)) return null;
+        $sourceChild = ($this->soleElementChild)($element);
+        if (!$sourceChild instanceof DOMElement || SourceDom::elementSelector($sourceChild) !== ($proof['target_selector'] ?? null)) return null;
+        $childAttrs = is_array($children[0]['attrs'] ?? null) ? $children[0]['attrs'] : array();
+        $childAttrs['className'] = SourceDom::mergeClassNames((string) ($childAttrs['className'] ?? ''), $this->layoutGeometryProofCarrier($proof));
+        $childAttrs = array_filter($childAttrs, static fn (mixed $value): bool => !is_string($value) || '' !== trim($value));
+        $this->session->layoutGeometryState()->recordProof($proof);
+        return $this->createBlock->createBlock((string) $children[0]['blockName'], $childAttrs, $children[0]['innerBlocks'] ?? array(), $sourceChild);
+    }
+
+    /**
      * Registers (idempotently) the corrective-CSS rule a layout-geometry
-     * proof carries and returns the class name that applies it. Public so
-     * `HtmlCompilation::proofBackedWrapperCoalescing()` — a distinct, proof-
-     * only coalescing path used before author-layout lowering — can call the
-     * same carrier instead of keeping a second copy.
+     * proof carries and returns the class name that applies it.
      *
      * @param array<string,mixed> $proof
      */
-    public function layoutGeometryProofCarrier(array $proof): string
+    private function layoutGeometryProofCarrier(array $proof): string
     {
         $declarations = $proof['corrective_css']['declarations'] ?? array();
         if (!is_array($declarations)) return '';

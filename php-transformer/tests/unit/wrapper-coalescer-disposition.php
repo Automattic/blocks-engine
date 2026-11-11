@@ -112,7 +112,8 @@ $makeCoalescer = static function (array $runtimeDomSelectors = array(), array $o
         new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()),
         $c['soleElementChild'],
         $c['isImageOnlyAnchor'],
-        $c['preservesScriptStateWrapper']
+        $c['preservesScriptStateWrapper'],
+        new \Automattic\BlocksEngine\PhpTransformer\Tests\Support\PatternTreeFixture()
     );
 };
 

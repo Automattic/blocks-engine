@@ -495,7 +495,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->sourceElementDescription,
             $this->emptyVisualRetention->soleElementChild(...),
             fn (DOMElement $element): bool => $this->imageLowering->isImageOnlyAnchor($element),
-            $this->emptyVisualRetention->preservesScriptStateWrapper(...)
+            $this->emptyVisualRetention->preservesScriptStateWrapper(...),
+            $this
         );
         $this->authorLayoutOwnership = new AuthorLayoutOwnership(
             $this->styleResolver,
@@ -913,7 +914,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             sourceElementClassifier: $this->sourceElementClassifier,
             paragraphBlockFromInlineContentWrapper: $inlineTextWrappers->paragraphBlockFromInlineContentWrapper(...),
             inlineAddressableRunGroupBlock: $inlineTextWrappers->inlineAddressableRunGroupBlock(...),
-            proofBackedWrapperCoalescing: fn (DOMElement $element, array &$fallbacks): ?array => $this->proofBackedWrapperCoalescing($element, $fallbacks),
+            proofBackedWrapperCoalescing: $this->wrapperCoalescer->proofBackedWrapperCoalescing(...),
             isInertEmptyElement: $this->emptyVisualRetention->isInertOutOfFlowEmptyElement(...),
             patternContext: $this->patternContext,
             visualTextWrapperBlock: $inlineTextWrappers->visualTextWrapperBlockFromElement(...),
@@ -1043,8 +1044,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this,
             fn (DOMElement $element, array &$fallbacks): ?array => $this->linkCarriers->linkedRuntimeControlBlockFromAnchor($element, $fallbacks),
             $this->authorLayoutOwnership,
-            fn (DOMElement $element, array &$fallbacks): ?array => $this->proofBackedWrapperCoalescing($element, $fallbacks),
-            fn (DOMElement $element): ?array => $this->wrapperCoalescer->layoutGeometryProofFor($element),
+            $this->wrapperCoalescer->proofBackedWrapperCoalescing(...),
+            $this->wrapperCoalescer->layoutGeometryProofFor(...),
             $this->session,
             capturedCollection: new CapturedCollectionConverter(
                 $this->session,
@@ -2379,30 +2380,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     public function richTextMarker(DOMElement $element): string
     {
         return $this->authorLayoutOwnership->richTextMarker($element);
-    }
-
-    /**
-     * This runs before author-layout lowering, whose custom block deliberately
-     * owns CSS flex/grid topology. The contract has already compared source and
-     * wrapper-free layouts; this method only carries the wrapper identity and
-     * generated geometry carrier onto an existing native child block.
-     *
-     * @param array<int,array<string,mixed>> $fallbacks
-     * @return array<string,mixed>|null
-     */
-    private function proofBackedWrapperCoalescing(DOMElement $element, array &$fallbacks): ?array
-    {
-        $proof = $this->wrapperCoalescer->layoutGeometryProofFor($element);
-        if (null === $proof || $this->runtimeIslands->isRuntimeDomTarget($element) || '' !== trim(SourceDom::attr($element, 'id')) || '' !== trim(SourceDom::attr($element, 'role')) || array() !== $this->sourceElementDescription->interactiveAttributes($element) || $this->sourceElementClassifier->hasMotionStructureToken($element)) return null;
-        $children = $this->convertChildren($element, $fallbacks, true);
-        if (1 !== count($children) || !in_array($children[0]['blockName'] ?? null, array('core/group', 'core/image'), true) || $this->session->transformationProvenanceState()->isBindingAnchor($children[0]['_source_provenance_id'] ?? null)) return null;
-        $sourceChild = $this->emptyVisualRetention->soleElementChild($element);
-        if (!$sourceChild instanceof DOMElement || SourceDom::elementSelector($sourceChild) !== ($proof['target_selector'] ?? null)) return null;
-        $childAttrs = is_array($children[0]['attrs'] ?? null) ? $children[0]['attrs'] : array();
-        $childAttrs['className'] = SourceDom::mergeClassNames((string) ($childAttrs['className'] ?? ''), $this->wrapperCoalescer->layoutGeometryProofCarrier($proof));
-        $childAttrs = array_filter($childAttrs, static fn (mixed $value): bool => !is_string($value) || '' !== trim($value));
-        $this->session->layoutGeometryState()->recordProof($proof);
-        return $this->createBlock((string) $children[0]['blockName'], $childAttrs, $children[0]['innerBlocks'] ?? array(), $sourceChild);
     }
 
     /** @return list<array{key: string, selector: string, parsed: array<string, mixed>, direct_child_parsed: array<string, mixed>, declarations: array<string, string>, rule_order: int}> */
