@@ -127,6 +127,10 @@ $assert(
         && str_contains($isolatedMarkup, 'data-be-source-scope="' . $scopeBindings[1] . '"'),
     'same-page carousel instances receive distinct source-scope bindings'
 );
+// The same component on another page, showing other photos, keeps its binding,
+// so a template shared by both pages serializes identically.
+$scopeOf = static fn (string $first, string $second): string => preg_match('/data-be-source-scope="([^"]+)"/', (string) ((new HtmlTransformer())->transform($isolationInstance($first, $second))->toArray()['serialized_blocks'] ?? ''), $match) ? $match[1] : '';
+$assert('' !== $scopeOf('one.jpg', 'two.jpg') && $scopeOf('one.jpg', 'two.jpg') === $scopeOf('five.jpg', 'six.jpg'), 'a source scope does not hash the component content it wraps');
 
 foreach (array(array('Previous', 'Next'), array('<span class="source-arrow">←</span>', '<span class="source-arrow">→</span>')) as $controlLabels) {
     $textControls = (new HtmlTransformer())->transform(

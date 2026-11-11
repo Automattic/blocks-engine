@@ -322,7 +322,7 @@ final class CapturedDialogProjector
             $count = 0;
             $xpath = new DOMXPath($document);
             foreach (iterator_to_array($xpath->query('//*[@popover][@id]') ?: array()) as $popover) {
-                if ($popover instanceof DOMElement && $this->adoptSourcePopover($document, $popover, $path)) ++$count;
+                if ($popover instanceof DOMElement && $this->adoptSourcePopover($document, $popover)) ++$count;
             }
             if (0 === $count) continue;
             $html = HtmlSerialization::documentHtml($document);
@@ -334,7 +334,7 @@ final class CapturedDialogProjector
         return array('files' => $files, 'projected_count' => $projected);
     }
 
-    private function adoptSourcePopover(DOMDocument $document, DOMElement $popover, string $sourcePath): bool
+    private function adoptSourcePopover(DOMDocument $document, DOMElement $popover): bool
     {
         $id = SourceDom::safeAnchor($popover->getAttribute('id'));
         if ('' === $id || $this->insideProjectedDialog($popover)) return false;
@@ -371,7 +371,7 @@ final class CapturedDialogProjector
                 foreach (array(CaptureEvidence::DIALOG_TRIGGER, CaptureEvidence::DIALOG_PANEL_STATE, CaptureEvidence::DIALOG_ANCESTOR_STATE, CaptureEvidence::DISCLOSURE_LABEL) as $attribute) $trigger->removeAttribute($attribute);
             }
         }
-        $identity = substr(hash('sha256', $sourcePath . "\npopover\n" . $id), 0, 16);
+        $identity = self::dialogIdentity("popover\n" . $id);
         $closerIds = $this->boundControlIds($xpath, $closers, 'blocks-engine-dialog-close-' . $identity);
         $html = (string) $document->saveHTML($popover);
         if (strlen($html) > self::MAX_DIALOG_BYTES) return false;
@@ -527,7 +527,7 @@ final class CapturedDialogProjector
                 continue;
             }
 
-            $identity = substr(hash('sha256', $sourcePath . "\n" . ($state['trigger']['selector'] ?? '') . "\n" . self::identityHtml($dialogHtml)), 0, 16);
+            $identity = self::dialogIdentity(($state['trigger']['selector'] ?? '') . "\n" . self::identityHtml($dialogHtml));
             if ('listbox' === ($state['kind'] ?? '') || 'listbox' === strtolower(trim((string) ($dialog['role'] ?? '')))) {
                 $key = 'blocks-engine-listbox-' . $identity;
                 foreach ($triggers as $trigger) {
@@ -665,6 +665,18 @@ final class CapturedDialogProjector
     }
 
     /** Current-page selection is render state, not a dialog's identity. */
+    /**
+     * A projected dialog is named by its content and its handle within the
+     * route document, never by the route: the same dialog on many routes then
+     * serializes identically and shared templates and parts can carry it.
+     * Handles (trigger selector, panel key, popover id) are unique within one
+     * document, so one route never repeats an identity.
+     */
+    private static function dialogIdentity(string $content): string
+    {
+        return substr(hash('sha256', $content), 0, 16);
+    }
+
     private static function identityHtml(string $html): string
     {
         $html = preg_replace('/(<a\b[^>]*?)\s+aria-current\s*=\s*(["\'])page\2/i', '$1', $html) ?? $html;
@@ -846,7 +858,7 @@ final class CapturedDialogProjector
                 // itself, at its resting presentation, is the dialog content.
                 $fragment = array() !== $resting ? $this->safeDialogFragment('<div>' . $this->restPanel($document, $panel, $resting, $triggers[0]) . '</div>') : $this->safeDialogFragment($html, (string) $key);
                 if (null === $fragment) continue;
-                $identity = substr(hash('sha256', $sourcePath . "\n" . $key . "\n" . $scopeIndex . "\n" . self::identityHtml($html)), 0, 16);
+                $identity = self::dialogIdentity($key . "\n" . $scopeIndex . "\n" . self::identityHtml($html));
                 $triggerIds = array();
                 $menu = false;
                 foreach ($triggers as $triggerIndex => $trigger) {
