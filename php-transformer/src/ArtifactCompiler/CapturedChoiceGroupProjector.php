@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -63,7 +64,7 @@ final class CapturedChoiceGroupProjector
         $diagnostics = array();
         $projected = 0;
         foreach ($files as $index => $file) {
-            $path = is_string($file['path'] ?? null) ? $file['path'] : '';
+            $path = ArrayField::string($file, 'path');
             $content = $file['content'] ?? null;
             if (! preg_match('/\.html?$/i', $path) || ! is_string($content) || ! str_contains($content, CaptureEvidence::CHOICE_RUNTIME)) {
                 continue;

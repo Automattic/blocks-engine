@@ -142,7 +142,7 @@ final class BlockValidityValidator
     private function validateLinkLikeBlock(array $block, string $path, array &$findings, string $textAttr, string $urlAttr, string $kind): void
     {
         $attrs = ArrayField::array($block, 'attrs');
-        $html = is_string($block['innerHTML'] ?? null) ? $block['innerHTML'] : '';
+        $html = ArrayField::string($block, 'innerHTML');
         $blockName = is_string($block['blockName'] ?? null) ? $block['blockName'] : null;
 
         $expectedText = $this->normalizeText(strip_tags((string) ($attrs[$textAttr] ?? '')));

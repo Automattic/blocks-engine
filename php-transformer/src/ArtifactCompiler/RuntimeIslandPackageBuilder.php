@@ -130,7 +130,7 @@ final class RuntimeIslandPackageBuilder
     {
         $themeScriptOccurrences = array();
         foreach ( $pages as $page ) {
-            $sourcePath = is_string($page['source_path'] ?? null) ? $page['source_path'] : '';
+            $sourcePath = ArrayField::string($page, 'source_path');
             foreach ( $page['document_metadata']['scripts'] ?? array() as $script ) {
                 if ( '' !== $sourcePath && is_array($script) && is_int($script['order'] ?? null) ) {
                     $themeScriptOccurrences[$sourcePath . "\nscript:nth-of-type(" . ($script['order'] + 1) . ')'] = true;
@@ -143,12 +143,12 @@ final class RuntimeIslandPackageBuilder
             if ( ! is_array($island) ) {
                 continue;
             }
-            $sourcePath = is_string($island['source_path'] ?? null) ? $island['source_path'] : '';
+            $sourcePath = ArrayField::string($island, 'source_path');
             foreach ( $island['scripts'] ?? array() as $script ) {
                 if ( ! is_array($script) || 'telemetry' === ($script['role'] ?? null) ) {
                     continue;
                 }
-                $selector = is_string($script['selector'] ?? null) ? $script['selector'] : '';
+                $selector = ArrayField::string($script, 'selector');
                 $identity = $sourcePath . "\n" . $selector;
                 if ( '' !== $sourcePath && '' !== $selector && isset($themeScriptOccurrences[$identity]) ) {
                     $owned[$identity] = true;

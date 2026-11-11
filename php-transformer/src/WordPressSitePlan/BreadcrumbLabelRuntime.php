@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+
 /**
  * Restore the source trail's labels on core/breadcrumbs. Core labels crumbs
  * with page titles; the recognizer records the source labels by resolved
@@ -27,8 +29,8 @@ final class BreadcrumbLabelRuntime
         $labels = array();
         foreach ($documents as $document) {
             foreach (self::trail($document) as $crumb) {
-                $route = is_string($crumb['route'] ?? null) ? $crumb['route'] : '';
-                $label = is_string($crumb['label'] ?? null) ? $crumb['label'] : '';
+                $route = ArrayField::string($crumb, 'route');
+                $label = ArrayField::string($crumb, 'label');
                 if ('' !== $route && '' !== $label && isset($titles[$route]) && $label !== $titles[$route] && ! isset($labels[$route])) {
                     $labels[$route] = $label;
                 }

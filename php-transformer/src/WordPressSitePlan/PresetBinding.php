@@ -393,7 +393,7 @@ final class PresetBinding
             // The author's link classes ride on the item, or on the anchor
             // the item renders (`blocksEngineNavigationAnchor`).
             $attributes = json_decode($block[2] ?? '', true);
-            $classes = (is_string($attributes['className'] ?? null) ? $attributes['className'] : '') . ' ' . (is_string($attributes['metadata']['blocksEngineNavigationAnchor']['className'] ?? null) ? $attributes['metadata']['blocksEngineNavigationAnchor']['className'] : '');
+            $classes = (ArrayField::string($attributes, 'className')) . ' ' . (is_string($attributes['metadata']['blocksEngineNavigationAnchor']['className'] ?? null) ? $attributes['metadata']['blocksEngineNavigationAnchor']['className'] : '');
             $observation = $this->classStyles[self::authoredClassKey($classes)]['color'] ?? null;
             $slug = $this->presetSlug('color', null, $observation, $reason);
             $links[] = $slug;

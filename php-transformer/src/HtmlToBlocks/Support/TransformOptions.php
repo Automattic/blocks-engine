@@ -65,8 +65,8 @@ final class TransformOptions
             }
 
             $metadata[] = array_filter(array(
-                'path'               => is_string($script['path'] ?? null) ? $script['path'] : '',
-                'selector'           => is_string($script['selector'] ?? null) ? $script['selector'] : '',
+                'path'               => ArrayField::string($script, 'path'),
+                'selector'           => ArrayField::string($script, 'selector'),
                 'attributes'         => ArrayField::array($script, 'attributes'),
                 'script_role'        => 'runtime',
                 'script_source_kind' => is_string($script['script_source_kind'] ?? null) ? $script['script_source_kind'] : 'external',

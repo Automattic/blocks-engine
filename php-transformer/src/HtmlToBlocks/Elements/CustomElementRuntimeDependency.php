@@ -137,7 +137,7 @@ final class CustomElementRuntimeDependency
                 }
                 $attributes = ArrayField::array($row, 'attributes');
                 $rowSrc = trim((string) ($attributes['src'] ?? ''));
-                $path = is_string($row['path'] ?? null) ? $row['path'] : '';
+                $path = ArrayField::string($row, 'path');
                 $content = $contentByPath[$path] ?? '';
                 if ( '' === $rowSrc || ! $this->sameScriptSource($src, $rowSrc) || '' === $content ) {
                     continue;
@@ -161,7 +161,7 @@ final class CustomElementRuntimeDependency
             if ( '' === $rowSrc || ! $this->sameScriptSource($src, $rowSrc) ) {
                 continue;
             }
-            $path = is_string($row['path'] ?? null) ? $row['path'] : '';
+            $path = ArrayField::string($row, 'path');
             $content = $contentByPath[$path] ?? '';
             if ( '' === $content || ! $this->definesCustomElement($content, $tag) ) {
                 continue;

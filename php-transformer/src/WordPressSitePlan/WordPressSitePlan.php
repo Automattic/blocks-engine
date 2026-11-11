@@ -3471,7 +3471,7 @@ PHP;
         // Tokens and file names anything still links, imports or url()s, and
         // the stylesheets page slices hang off: those keep their identity.
         $named = array();
-        foreach (array_merge(array((string) json_encode($documents, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)), array_map(static fn (array $asset): string => is_string($asset['content'] ?? null) ? $asset['content'] : '', $assets)) as $text) {
+        foreach (array_merge(array((string) json_encode($documents, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)), array_map(static fn (array $asset): string => ArrayField::string($asset, 'content'), $assets)) as $text) {
             if (preg_match_all('/\{\{wordpress-site-plan:asset:([^}]+)\}\}/', $text, $matches)) $named += array_fill_keys($matches[1], true);
             if (preg_match_all('/(?:url\(\s*|@import\s+(?!url\()|(?:href|src)=)\\\\?["\']?([^"\'()\s\\\\]+)/i', $text, $matches)) {
                 foreach ($matches[1] as $reference) $named[strtolower(basename((string) parse_url($reference, PHP_URL_PATH)))] = true;
@@ -3964,7 +3964,7 @@ PHP;
     {
         if (1 === preg_match('~/(?:blog|news|posts?|articles?|journal|stories|insights)(?:/|$)~i', $route)) return true;
         foreach (array_filter(array($document, $parent)) as $candidate) {
-            $html = is_string($candidate['html'] ?? null) ? $candidate['html'] : (is_string($candidate['block_markup'] ?? null) ? $candidate['block_markup'] : '');
+            $html = is_string($candidate['html'] ?? null) ? $candidate['html'] : (ArrayField::string($candidate, 'block_markup'));
             foreach (($candidate['document_metadata']['meta'] ?? array()) as $meta) {
                 if (is_array($meta) && 'og:type' === strtolower((string) ($meta['property'] ?? $meta['name'] ?? '')) && 'article' === strtolower(trim((string) ($meta['content'] ?? '')))) return true;
             }
@@ -4420,7 +4420,7 @@ PHP;
     /** @param array<string,mixed> $document @param array<string,string> $localTimes Non-zero-offset representations keyed by UTC instant. @return array<int,array<string,string>> */
     private function publicationEvidence(array $document, array &$localTimes, array &$dateSlots): array
     {
-        $html = is_string($document['html'] ?? null) ? $document['html'] : '';
+        $html = ArrayField::string($document, 'html');
         if ('' === trim($html) && is_string($document['block_markup'] ?? null)) $html = $document['block_markup'];
         $evidence = array(); $add = static function (array &$rows, string $source, ?string $value = null): void { if (count($rows) >= 16) return; $row = array('source' => $source); if (null !== $value) $row['publication_timestamp'] = $value; $rows[] = $row; };
         // Keep offset candidates separate from evidence: a plain <time> must
@@ -6882,14 +6882,14 @@ PHP;
         $themeOwnedRequiredScripts = RuntimeIslandPackageBuilder::themeOwnedRequiredScriptOccurrences($package, $compiledPages);
         foreach ( $package['islands'] ?? array() as $island ) {
             if ( !is_array($island) ) continue;
-            $sourcePath = is_string($island['source_path'] ?? null) ? $island['source_path'] : '';
-            $selector = is_string($island['selector'] ?? null) ? $island['selector'] : '';
+            $sourcePath = ArrayField::string($island, 'source_path');
+            $selector = ArrayField::string($island, 'selector');
             if ( isset($superseded[$sourcePath . "\n" . $selector]) ) continue;
             $drop = 'drop' === ($island['disposition'] ?? null);
             $carried = false;
             foreach ( $island['scripts'] ?? array() as $script ) {
                 if ( !is_array($script) ) continue;
-                $scriptSelector = is_string($script['selector'] ?? null) ? $script['selector'] : '';
+                $scriptSelector = ArrayField::string($script, 'selector');
                 if ( isset($themeOwnedRequiredScripts[$sourcePath . "\n" . $scriptSelector]) ) continue;
                 $scriptDropped = 'telemetry' === ($script['role'] ?? null);
                 $scriptCarried = !$scriptDropped && is_string($script['content'] ?? null) && '' !== trim($script['content']);
@@ -6906,7 +6906,7 @@ PHP;
     private function withoutOwnedRuntimeScripts(array $documents, array $owned): array
     {
         foreach ( $documents as &$document ) {
-            $sourcePath = is_string($document['source_path'] ?? null) ? $document['source_path'] : '';
+            $sourcePath = ArrayField::string($document, 'source_path');
             if ( !is_array($document['document_metadata']['scripts'] ?? null) ) continue;
             $document['document_metadata']['scripts'] = array_values(array_filter(
                 $document['document_metadata']['scripts'],
@@ -6922,7 +6922,7 @@ PHP;
     {
         $assets = array();
         foreach ( $documents as $document ) {
-            $sourcePath = is_string($document['source_path'] ?? null) ? $document['source_path'] : '';
+            $sourcePath = ArrayField::string($document, 'source_path');
             foreach ( $document['document_metadata']['scripts'] ?? array() as $script ) {
                 if ( !is_array($script) || !is_string($script['url'] ?? null) ) continue;
                 $url = $script['url'];
@@ -8112,9 +8112,9 @@ PHP;
                 'message' => self::unanchoredBindingMessage($drop['reason_code']),
                 'source_path' => (string) $binding['source_path'],
                 'reason_code' => $drop['reason_code'],
-                'declaration_source_path' => is_string($declaration['source_path'] ?? null) ? $declaration['source_path'] : '',
-                'entity_id' => is_string($entity['id'] ?? null) ? $entity['id'] : '',
-                'role' => is_string($binding['role'] ?? null) ? $binding['role'] : '',
+                'declaration_source_path' => ArrayField::string($declaration, 'source_path'),
+                'entity_id' => ArrayField::string($entity, 'id'),
+                'role' => ArrayField::string($binding, 'role'),
             ), static fn(string $value): bool => '' !== $value));
             unset($declarations[$drop['declaration']]['payload']['entities'][$drop['entity']]['bindings'][$drop['binding']]);
         }

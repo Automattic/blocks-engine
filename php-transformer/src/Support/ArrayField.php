@@ -19,4 +19,12 @@ final class ArrayField
 
         return is_array($value) ? $value : array();
     }
+
+    /** The field when it is a string, otherwise ''; read like {@see self::array()}. */
+    public static function string(mixed $values, string $key): string
+    {
+        $value = $values[$key] ?? null;
+
+        return is_string($value) ? $value : '';
+    }
 }

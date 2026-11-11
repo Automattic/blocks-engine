@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
@@ -749,7 +750,7 @@ JS;
         }
 
         parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
-        $videoUrl = $this->safeEmbedUrl(is_string($query['href'] ?? null) ? $query['href'] : '');
+        $videoUrl = $this->safeEmbedUrl(ArrayField::string($query, 'href'));
         $videoHost = strtolower((string) parse_url($videoUrl, PHP_URL_HOST));
 
         return str_ends_with($videoHost, 'facebook.com') ? $videoUrl : '';

@@ -49,11 +49,11 @@ final class CoreHtmlIslandReducer
                 continue;
             }
 
-            $name = is_string($block['blockName'] ?? null) ? $block['blockName'] : '';
+            $name = ArrayField::string($block, 'blockName');
             if (in_array($name, array('core/html', 'core/freeform'), true)) {
                 $html = is_string($block['attrs']['content'] ?? null)
                     ? $block['attrs']['content']
-                    : (is_string($block['innerHTML'] ?? null) ? $block['innerHTML'] : '');
+                    : (ArrayField::string($block, 'innerHTML'));
                 $replacement = $this->fragmentBlocks($html, $sourceRoot);
                 array_push($reduced, ...($replacement ?? array($block)));
                 continue;

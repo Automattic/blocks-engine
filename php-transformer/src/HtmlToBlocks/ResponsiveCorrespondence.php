@@ -157,7 +157,7 @@ final class ResponsiveCorrespondence
             if (!is_array($block)) {
                 continue;
             }
-            $name = is_string($block['blockName'] ?? null) ? $block['blockName'] : '';
+            $name = ArrayField::string($block, 'blockName');
             $attrs = ArrayField::array($block, 'attrs');
             $blockPath = $path . '.' . $index;
             $blockVariant = $this->variantContext($attrs) ?? $variant;
@@ -166,7 +166,7 @@ final class ResponsiveCorrespondence
                     'path' => $blockPath,
                     'name' => $name,
                     'variant' => $blockVariant ?? 'unresolved',
-                    'anchor' => is_string($attrs['anchor'] ?? null) ? $attrs['anchor'] : '',
+                    'anchor' => ArrayField::string($attrs, 'anchor'),
                     'provenance' => $provenanceByPath[$blockPath] ?? array(),
                 );
             }

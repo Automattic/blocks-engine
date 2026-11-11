@@ -258,7 +258,7 @@ final class SchemaProductEvidence
             }
         }
         if ('' === $name || '' === $regularPrice) return null;
-        $url = is_string($product['url'] ?? null) ? $product['url'] : (is_string($offers['url'] ?? null) ? $offers['url'] : '');
+        $url = is_string($product['url'] ?? null) ? $product['url'] : (ArrayField::string($offers, 'url'));
         if ('' === trim($url) && $isGroup) $url = '/' . $pagePath;
         $urlPath = (string) (parse_url($url, PHP_URL_PATH) ?: '');
         $segments = array_values(array_filter(explode('/', trim($urlPath, '/')), 'strlen'));

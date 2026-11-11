@@ -478,7 +478,7 @@ final class CapturedDialogProjector
                 continue;
             }
             $dialog = $state['dialog'];
-            $dialogHtml = is_string($dialog['html'] ?? null) ? $dialog['html'] : '';
+            $dialogHtml = ArrayField::string($dialog, 'html');
             $declaredBytes = is_int($dialog['htmlBytes'] ?? null) ? $dialog['htmlBytes'] : -1;
             if ('' === $dialogHtml || ! empty($dialog['htmlTruncated']) || strlen($dialogHtml) > self::MAX_DIALOG_BYTES || $declaredBytes !== strlen($dialogHtml)) {
                 $diagnostics[] = $this->diagnostic('captured_dialog_unsafe_or_truncated', 'warning', 'A captured dialog was ignored because its HTML is empty, truncated, or exceeds the byte limit.', array('source_path' => $sourcePath));
@@ -1549,7 +1549,7 @@ final class CapturedDialogProjector
      */
     private function evidenceMatches(DOMElement $scope, array $trigger): array
     {
-        $label = $this->normalizedLabel(is_string($trigger['label'] ?? null) ? $trigger['label'] : '');
+        $label = $this->normalizedLabel(ArrayField::string($trigger, 'label'));
         if ('' === $label) {
             return array();
         }
@@ -1574,8 +1574,8 @@ final class CapturedDialogProjector
     private function filterCandidates(array $elements, array $trigger): array
     {
         $tag = is_string($trigger['tag'] ?? null) ? strtolower(trim($trigger['tag'])) : '';
-        $label = $this->normalizedLabel(is_string($trigger['label'] ?? null) ? $trigger['label'] : '');
-        $capturedPopup = strtolower(trim(is_string($trigger['ariaHaspopup'] ?? null) ? $trigger['ariaHaspopup'] : ''));
+        $label = $this->normalizedLabel(ArrayField::string($trigger, 'label'));
+        $capturedPopup = strtolower(trim(ArrayField::string($trigger, 'ariaHaspopup')));
         $filtered = array();
         foreach ($elements as $element) {
             if (! $this->tagCompatible($tag, strtolower($element->tagName)) || ! $this->isInteractiveControl($element)) {

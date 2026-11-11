@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
@@ -202,7 +203,7 @@ final class StylesheetAnalysisComposer
             if ( ! is_array($asset) || ! is_string($asset['path'] ?? null) || '' === $asset['path'] || ! is_string($asset['content'] ?? null) ) {
                 continue;
             }
-            $assets[] = array( 'path' => $asset['path'], 'source_path' => is_string($asset['source_path'] ?? null) ? $asset['source_path'] : $asset['path'], 'content' => $asset['content'], 'source_hash' => is_string($asset['source_hash'] ?? null) ? $asset['source_hash'] : hash('sha256', $asset['content']), 'media' => is_string($asset['media'] ?? null) ? $asset['media'] : '' );
+            $assets[] = array( 'path' => $asset['path'], 'source_path' => is_string($asset['source_path'] ?? null) ? $asset['source_path'] : $asset['path'], 'content' => $asset['content'], 'source_hash' => is_string($asset['source_hash'] ?? null) ? $asset['source_hash'] : hash('sha256', $asset['content']), 'media' => ArrayField::string($asset, 'media') );
             if (isset($asset['stylesheet_activation'])) $assets[array_key_last($assets)]['stylesheet_activation'] = $asset['stylesheet_activation'];
             if ( ! empty($asset['capture_only']) ) $assets[array_key_last($assets)]['capture_only'] = true;
             if ( is_string($asset['cascade_content'] ?? null) ) $assets[array_key_last($assets)]['cascade_content'] = $asset['cascade_content'];
