@@ -530,6 +530,7 @@ final class ShellExtraction
             $identity = self::normalizeNestedChromeMarkup($markup);
             $row = array('area' => $candidate['area'], 'markup' => $markup, 'template_part_markup' => $templatePartMarkup, 'identity_markup' => $identity, 'source_path' => $sourcePath, 'source_hash' => is_string($candidate['source_hash'] ?? null) ? $candidate['source_hash'] : '');
             if (is_array($range)) { $row['offset'] = $range['offset']; $row['length'] = $range['length']; }
+            if ('header' === $row['area'] && is_array($range)) $row = $this->withLeadingHeaderChrome($index, $row);
             $candidates[] = $row;
         }
         $sourcePath = WordPressSitePlan::value($document, 'source_path');
@@ -981,6 +982,7 @@ final class ShellExtraction
             $identities = array_column($rows, 'identity_markup');
             if (1 !== count(array_unique($identities))) continue;
             $row = $rows[0];
+            if ('header' === $area && 1 === count($rows)) $row = $this->withLeadingHeaderChrome($index, $row);
             $identity = $row['identity_markup'];
             if ('' === $identity) continue;
             $partMarkup = self::landmarkPartMarkup(self::withoutCurrentNavigationState($row['markup']), $area);
@@ -988,9 +990,41 @@ final class ShellExtraction
             foreach (array_slice($rows, 1) as $extra) $additional[] = array('offset' => $extra['offset'], 'length' => $extra['length'], 'markup' => $extra['markup']);
             // The candidate's own block-tree offset is carried forward so removal
             // never needs to re-derive its position by searching for its bytes.
-            $candidates[] = array('document_edge' => $row['document_edge'] ?? false, 'area' => $area, 'markup' => $row['markup'], 'template_part_markup' => $partMarkup, 'identity_markup' => $identity, 'source_path' => $sourcePath, 'source_hash' => $row['source_hash'], 'nested_shell' => true, 'shared_only' => !empty($row['document_level']), 'wrapper_contract_shell' => !empty($row['wrapper_contract_shell']), 'offset' => $row['offset'], 'length' => $row['length'], 'additional_ranges' => $additional, 'ancestor_context' => $row['ancestor_context'] ?? null);
+            $candidates[] = array('document_edge' => $row['document_edge'] ?? false, 'area' => $area, 'markup' => $row['markup'], 'template_part_markup' => $partMarkup, 'identity_markup' => $identity, 'source_path' => $sourcePath, 'source_hash' => $row['source_hash'], 'nested_shell' => true, 'shared_only' => !empty($row['document_level']), 'wrapper_contract_shell' => !empty($row['wrapper_contract_shell']), 'offset' => $row['offset'], 'length' => $row['length'], 'additional_ranges' => $additional, 'ancestor_context' => $row['ancestor_context'] ?? null) + (isset($row['shared_leading']) ? array('shared_leading' => $row['shared_leading']) : array());
         }
         return $candidates;
+    }
+
+    /**
+     * Compare the leading chrome, not a route heading appended inside its header.
+     * Retain the landmark extent so extraction can unwrap the route-owned remainder.
+     */
+    private function withLeadingHeaderChrome(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, array $row): array
+    {
+        $children = $index->children($row);
+        $count = 0;
+        $navigation = false;
+        foreach ($children as $child) {
+            $block = substr($index->markup, $child['offset'], $child['length']);
+            if (!self::isCapturedModalDialogBlock($block) && (self::containsMainLandmark($block) || str_contains($block, '<!-- wp:heading'))) break;
+            $navigation = $navigation || self::containsNavigation($block);
+            ++$count;
+        }
+        if (!$navigation || 0 === $count || count($children) === $count) return $row;
+        $end = $children[$count - 1]['offset'] + $children[$count - 1]['length'];
+        $last = $children[count($children) - 1];
+        $closing = $last['offset'] + $last['length'];
+        $pruned = substr($index->markup, $row['offset'], $end - $row['offset'])
+            . substr($index->markup, $closing, $row['offset'] + $row['length'] - $closing);
+        return array_replace($row, array(
+            'markup' => $pruned,
+            'identity_markup' => self::normalizeNestedChromeMarkup($pruned),
+            'source_hash' => hash('sha256', $pruned),
+            'template_part_markup' => self::landmarkPartMarkup(self::withoutCurrentNavigationState($pruned), 'header'),
+            'nested_shell' => true,
+            // Keep the original landmark for restoration and structural removal.
+            'shared_leading' => array('markup' => substr($index->markup, $row['offset'], $row['length']), 'end' => $end, 'closing' => $closing),
+        ));
     }
 
     /** @param array<int,array<string,mixed>> $pages @param array<string,true> $reservedSlugs @param array<int,array<string,mixed>> $runtimeDeclarations @param array<int,array<string,mixed>> $assets @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,runtime_declarations:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>} */
@@ -2834,6 +2868,7 @@ final class ShellExtraction
         if (empty($candidate['nested_shell'])) return false;
         $roots = array();
         foreach ($index->topLevel() as $range) $roots[$range['offset'] . ':' . $range['length']] = true;
+        if (isset($candidate['shared_leading'])) return !isset($roots[$candidate['offset'] . ':' . $candidate['length']]);
         foreach ($this->nestedShellRanges($markup, $candidate, $area) as $range) {
             if (!isset($roots[$range['offset'] . ':' . $range['length']])) return true;
         }
@@ -3407,6 +3442,17 @@ final class ShellExtraction
     private function nestedShellRanges(string $markup, array $candidate, string $area): array
     {
         if (!empty($candidate['nested_shell'])) {
+            $leading = $candidate['shared_leading'] ?? null;
+            if (is_array($leading)) {
+                $box = $this->nestedShellRange($markup, $leading['markup'], $candidate['offset']);
+                if (null === $box) return array();
+                $shift = $box['offset'] - $candidate['offset'];
+                // Unwrap the landmark as its chrome leaves, retaining native route blocks.
+                return array(
+                    array('offset' => $box['offset'], 'length' => $leading['end'] - $candidate['offset']),
+                    array('offset' => $leading['closing'] + $shift, 'length' => $candidate['offset'] + $candidate['length'] - $leading['closing']),
+                );
+            }
             $ranges = array();
             $primary = $this->nestedShellRange($markup, (string) ($candidate['markup'] ?? ''), isset($candidate['offset']) && is_int($candidate['offset']) ? $candidate['offset'] : null);
             if (is_array($primary)) $ranges[] = $primary;

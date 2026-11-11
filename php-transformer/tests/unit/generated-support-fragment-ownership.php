@@ -76,13 +76,14 @@ $assert('' === $rejectedCss && array() === $rejected->buttonAfterAuthorCss(), 'd
 // disclosure support record from the accepted fragment.
 $compilation = new HtmlCompilation(new Runtime());
 $compilation->transform('<p>Initialize fragment session.</p>');
-$safeFragment = new ReflectionMethod($compilation, 'safeFallbackFragmentBlocks');
-$fragmentBlocks = $safeFragment->invoke(
-    $compilation,
+$reduceIsland = static fn (string $html): array => $compilation->reduceCoreHtmlFallbackBlocks(array(
+    array( 'blockName' => 'core/html', 'attrs' => array( 'content' => $html ), 'innerBlocks' => array(), 'innerHTML' => $html, 'innerContent' => array( $html ) ),
+));
+$fragmentBlocks = $reduceIsland(
     '<a href="/care/" role="button" style="display:flex;gap:4px">Brand</a>'
         . '<details><summary style="background-color:rgb(1, 2, 3);padding:4px">Services</summary><p>Care</p></details>'
 );
-$assert(is_array($fragmentBlocks) && array() !== $fragmentBlocks, 'native fragment is accepted');
+$assert(array() !== $fragmentBlocks && 'core/html' !== ($fragmentBlocks[0]['blockName'] ?? ''), 'native fragment is accepted');
 $sessionProperty = new ReflectionProperty($compilation, 'session');
 $support = $sessionProperty->getValue($compilation)->generatedSupportStylesheetState();
 $fragmentMarkup = (new Runtime())->serializeBlocks($fragmentBlocks);
@@ -98,11 +99,10 @@ $assert(str_contains($fragmentCss, '.wp-block-details.blocks-engine-disclosure-s
 $assert(str_contains($fragmentCss, 'background-color:rgb(1, 2, 3)'), 'accepted disclosure record retains its declarations');
 $assert(str_contains($fragmentButtonCss, 'background-color:transparent!important'), 'accepted fragment retains native-button support record');
 $acceptedCssBeforeDecline = $fragmentCss . $fragmentButtonCss;
-$declinedBlocks = $safeFragment->invoke(
-    $compilation,
+$declinedBlocks = $reduceIsland(
     '<a href="/declined/" role="button" style="display:flex">Declined</a><form><input name="q"></form>'
 );
-$assert(null === $declinedBlocks, 'unsafe fragment is declined');
+$assert(1 === count($declinedBlocks) && 'core/html' === $declinedBlocks[0]['blockName'], 'unsafe fragment is declined');
 $afterDecline = implode("\n", array_map(
     static fn ($rule): string => $rule->css,
     $support->conditionalAfterAuthorCss($fragmentMarkup)

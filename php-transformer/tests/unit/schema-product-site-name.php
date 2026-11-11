@@ -12,7 +12,7 @@ $assert = static function (bool $ok, string $message) use (&$failures): void {
     ++$failures;
     fwrite(STDERR, 'FAIL: ' . $message . PHP_EOL);
 };
-$html = file_get_contents(dirname(__DIR__) . '/fixtures/schema-product-site-name.html');
+$html = str_replace('<body>', '<body><a href="/cart/">Cart</a>', file_get_contents(dirname(__DIR__) . '/fixtures/schema-product-site-name.html'));
 $rows = static fn (string $content): array => SchemaProductEvidence::rows(
     array(array('path' => 'index.html', 'content' => $content)),
     static fn (string $value): string => $value,

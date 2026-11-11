@@ -7,7 +7,6 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentElementConverter;
-use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\HtmlDimensionAttribute;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
@@ -917,7 +916,8 @@ final class SourceElementClassifier
     {
         $srcset = SourceDom::attr($image, 'srcset');
         if ( '' === $srcset ) {
-            return '' !== SourceDom::attr($image, 'sizes');
+            // `sizes` only selects among srcset candidates; alone it has no effect.
+            return false;
         }
         $candidates = SrcsetParser::parse($srcset);
         if ( array() === $candidates ) {

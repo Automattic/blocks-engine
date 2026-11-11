@@ -5,9 +5,9 @@ resolutions. When its rendered width is known, it lowers to native `core/image`
 so the photo stays editable Media Library content. A descriptorless candidate
 is the 1x candidate. A density (`x`) family whose `src` is its 1x candidate (or
 that has no 1x candidate, so `src` becomes it) renders every density at the
-src's own size, so it lowers without a known width. Mixed or unparseable
-families, `sizes` without `srcset`, and other families whose rendered width is
-unknown keep the existing `responsive-media` block and
+src's own size, so it lowers without a known width. `sizes` without `srcset`
+selects nothing, so that image lowers like any plain `img`. Mixed or unparseable
+families and other families whose rendered width is unknown keep the existing `responsive-media` block and
 `blocks-engine/responsive-media/v1` renderer. In that last case the intrinsic
 size depends on the chosen candidate's descriptor (a `w` family renders at its
 `sizes` slot, which the src-derived dimensions core adds would override). Art

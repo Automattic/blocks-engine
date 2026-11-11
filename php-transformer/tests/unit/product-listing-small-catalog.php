@@ -12,7 +12,7 @@ $controls = '<form method="get"><label for="sort">Sort by</label><select id="sor
     . '<fieldset><legend>Finish</legend><label><input type="checkbox" name="filter.finish" value="matte">Matte</label><label><input type="checkbox" name="filter.finish" value="gloss">Gloss</label></fieldset></form>';
 $card = static fn (string $name, string $finish): string => '<article data-finish="' . $finish . '"><img src="' . strtolower($name) . '.jpg" alt="' . $name . '"><h2>' . $name . '</h2><p>$20.00</p></article>';
 $compile = static function (string $content): array {
-    return (new ArtifactCompiler())->compile(array('entrypoint' => 'catalog.html', 'files' => array('catalog.html' => '<!doctype html><html><head><title>Catalog</title></head><body><main><h1>Catalog</h1>' . $content . '</main></body></html>')))->toArray();
+    return (new ArtifactCompiler())->compile(array('entrypoint' => 'catalog.html', 'files' => array('catalog.html' => '<!doctype html><html><head><title>Catalog</title></head><body><a href="/cart/">Cart</a><main><h1>Catalog</h1>' . $content . '</main></body></html>')))->toArray();
 };
 $entities = static function (array $result, string $type): array {
     foreach ($result['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array() as $declaration) {
@@ -73,7 +73,7 @@ $assert(1 === count($gridFindings) && 2 === $gridFindings[0]['product_count'], '
 $assert(1 === count($listings) && array('sort', 'facet', 'facet') === array_column($listings[0]['controls'], 'kind'), 'Sibling panel controls attach to populated listing.');
 
 foreach (array('header', 'aside') as $landmark) {
-    $html = '<!doctype html><html><head><title>Catalog</title></head><body><' . $landmark . '><h2>Promoted products</h2><div style="display:grid">' . $card('Delta', 'matte') . $card('Epsilon', 'gloss') . '</div></' . $landmark . '><main><h1>Catalog</h1><filter-form><form>' . $facets . $sort . '</form></filter-form><div class="collection-empty collection" id="product-grid"><svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg><p>No products found</p></div></main></body></html>';
+    $html = '<!doctype html><html><head><title>Catalog</title></head><body><a href="/cart/">Cart</a><' . $landmark . '><h2>Promoted products</h2><div style="display:grid">' . $card('Delta', 'matte') . $card('Epsilon', 'gloss') . '</div></' . $landmark . '><main><h1>Catalog</h1><filter-form><form>' . $facets . $sort . '</form></filter-form><div class="collection-empty collection" id="product-grid"><svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg><p>No products found</p></div></main></body></html>';
     $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'catalog.html', 'files' => array('catalog.html' => $html)))->toArray();
     $grids = $entities($result, 'product_grids');
     $listings = $entities($result, 'product_listings');
@@ -115,7 +115,7 @@ foreach (array(2, 1, 0) as $count) {
     foreach (array('Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta', 'Theta') as $name) $drawer .= $capturedCard($name);
     $drawer .= '</ul></div>';
     $copy = '<div>' . str_repeat('<div>', 8) . $column . str_repeat('</div>', 8) . $drawer . '</div>';
-    $html = '<!doctype html><html><head><title>Catalog</title></head><body><style>.neutral { color: black; }</style><script>window.neutral = "not a facet label";</script>' . $copy . $copy . '</body></html>';
+    $html = '<!doctype html><html><head><title>Catalog</title></head><body><a href="/cart/">Cart</a><style>.neutral { color: black; }</style><script>window.neutral = "not a facet label";</script>' . $copy . $copy . '</body></html>';
     $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'catalog.html', 'files' => array('catalog.html' => $html)))->toArray();
     $grids = $entities($result, 'product_grids');
     $listings = $entities($result, 'product_listings');

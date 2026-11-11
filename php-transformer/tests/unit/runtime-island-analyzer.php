@@ -20,6 +20,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAn
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeDomState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeSelectorState;
+use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 $assertions = 0;
@@ -90,14 +91,13 @@ $assert($byClass->isRuntimeDomTarget($elementFrom('<div class="a widget b"></div
 $presentational = $makeAnalyzer(array('.fade'), array('.fade'));
 $assert(! $presentational->isRuntimeDomTarget($elementFrom('<div class="fade"></div>')), 'presentational-only-selector-is-not-runtime-target');
 
-// Bounded selector grammar: shapes the analyzer will accept as runtime evidence.
-$grammar = $makeAnalyzer();
+// Bounded selector grammar: shapes accepted as runtime evidence.
 foreach (array('#app', '.panel', 'div.panel', '[data-widget]', 'div[data-widget]', 'canvas', 'svg', 'button') as $ok) {
-    $assert($grammar->isBoundedRuntimeSelector($ok), 'bounded-selector-' . $ok);
+    $assert(RuntimeSelectorVocabulary::isBoundedScriptSelector($ok), 'bounded-selector-' . $ok);
 }
-$assert($grammar->isBoundedRuntimeSelector('[data-x-stage][data-x-trigger]'), 'bounded-compound-data-selector');
+$assert(RuntimeSelectorVocabulary::isBoundedScriptSelector('[data-x-stage][data-x-trigger]'), 'bounded-compound-data-selector');
 foreach (array('div > span', '*', 'div:hover', '', 'div p') as $bad) {
-    $assert(! $grammar->isBoundedRuntimeSelector($bad), 'unbounded-selector-rejected-' . ($bad === '' ? 'empty' : $bad));
+    $assert(! RuntimeSelectorVocabulary::isBoundedScriptSelector($bad), 'unbounded-selector-rejected-' . ($bad === '' ? 'empty' : $bad));
 }
 
 // Attribute-selector matching drives data-attribute preservation, but never for

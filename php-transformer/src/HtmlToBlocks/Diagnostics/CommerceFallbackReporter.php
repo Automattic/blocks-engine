@@ -18,7 +18,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use DOMElement;
-use DOMNode;
 
 /**
  * Additive commerce diagnostics for recognized product grids and cart controls.
@@ -83,8 +82,11 @@ final class CommerceFallbackReporter
      * @param array<int, array<string, mixed>> $fallbacks
      * @param array<int, array<string, mixed>> $blocks
      */
-    public function appendProductGridFallbacks(DOMElement $body, array &$fallbacks, array $blocks): void
+    public function appendProductGridFallbacks(DOMElement $body, array &$fallbacks, array $blocks, ?bool $hasPurchaseAffordance = null): void
     {
+        if ( ! ($hasPurchaseAffordance ?? $this->recognizer->hasPurchaseAffordance($body)) ) {
+            return;
+        }
         $emitted = 0;
         $candidates = array();
         foreach ( $body->getElementsByTagName('*') as $element ) {

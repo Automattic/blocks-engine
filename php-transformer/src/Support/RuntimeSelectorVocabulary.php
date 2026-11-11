@@ -213,4 +213,10 @@ final class RuntimeSelectorVocabulary
 
         return is_string($unescaped) ? $unescaped : $value;
     }
+
+    /** Whether a runtime selector stays within the bounded script-selector grammar. */
+    public static function isBoundedScriptSelector(string $selector): bool
+    {
+        return 1 === preg_match('/^' . self::scriptSelectorPattern() . '$/', $selector);
+    }
 }

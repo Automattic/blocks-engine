@@ -15,6 +15,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\StyledSourceClassBoundary;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBlockGenerator;
 use DOMElement;
 
 /**
@@ -143,6 +144,47 @@ final class EmptyVisualRetentionPolicy implements EmptyVisualRetention
         return false;
     }
 
+    /**
+     * The one element child that carries content, skipping whitespace,
+     * comments, and empty elements that render nothing.
+     */
+    public function soleElementChild(DOMElement $element): ?DOMElement
+    {
+        $child = null;
+        foreach ( $element->childNodes as $node ) {
+            if ( XML_TEXT_NODE === $node->nodeType && '' === trim($node->textContent ?? '') ) {
+                continue;
+            }
+            // Source comments carry no rendered, selector, or runtime boundary.
+            // Treating them as transparent lets generated exports shed an otherwise
+            // inert authoring wrapper without interpreting product-specific markup.
+            if ( XML_COMMENT_NODE === $node->nodeType ) {
+                continue;
+            }
+            if ( $node instanceof DOMElement && ($this->isInertHiddenEmptyElement($node) || $this->isExplicitlyDisplayNoneEmptyElement($node)) ) {
+                continue;
+            }
+            if ( ! $node instanceof DOMElement || $child instanceof DOMElement ) {
+                return null;
+            }
+            $child = $node;
+        }
+
+        return $child;
+    }
+
+    private function isExplicitlyDisplayNoneEmptyElement(DOMElement $element): bool
+    {
+        return 0 === SourceDom::childElementCount($element)
+            && '' === trim($element->textContent ?? '')
+            && 'none' === CssValueInspector::comparable((string) ($this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'))['display'] ?? ''))
+            && '' === trim(SourceDom::attr($element, 'class'))
+            && '' === trim(SourceDom::attr($element, 'id'))
+            && '' === trim(SourceDom::attr($element, 'role'))
+            && array() === $this->sourceElementDescription->interactiveAttributes($element)
+            && array() === SourceDom::safeDataAttributes($element);
+    }
+
     public function shouldPreserveWrapper(DOMElement $element, ?string $asTag = null): bool
     {
         $tag = $asTag ?? $element->tagName;
@@ -152,14 +194,14 @@ final class EmptyVisualRetentionPolicy implements EmptyVisualRetention
         $child = 1 === SourceDom::childElementCount($element) ? $element->firstElementChild : null;
         if ('div' === strtolower($tag) && '' === trim(SourceDom::attr($element, 'id'))
             && $child instanceof DOMElement && 'div' === strtolower($child->tagName)
-            && !$this->hasAuthorSemanticMarker($element) && !$this->styledClassBoundaries->hasStyledSourceClassBoundary($element)
+            && !$this->session->authorSelectorProjectionState()->hasSemanticMarker($element) && !$this->styledClassBoundaries->hasStyledSourceClassBoundary($element)
             && $this->renderNeutral->isRenderNeutralWrapper($element) && $this->renderNeutral->isRenderNeutralWrapper($child)
             && $this->containsGeneratedComponentCandidate($element)
         ) {
             return false;
         }
 
-        return ( ShellLandmarkPolicy::isWrapperPreservingTag($tag) || RichTextInlineTags::isUnknownHtmlElement($element) ) && ( $this->runtimeIslands->isRuntimeDomTarget($element) || $this->hasAuthorSemanticMarker($element) || array() !== $this->styleResolver->presentationAttributes($element) || array() !== $this->sourceElementDescription->structureSignals($element, array()) || $this->styledClassBoundaries->hasStyledSourceClassBoundary($element) );
+        return ( ShellLandmarkPolicy::isWrapperPreservingTag($tag) || RichTextInlineTags::isUnknownHtmlElement($element) ) && ( $this->runtimeIslands->isRuntimeDomTarget($element) || $this->session->authorSelectorProjectionState()->hasSemanticMarker($element) || array() !== $this->styleResolver->presentationAttributes($element) || array() !== $this->sourceElementDescription->structureSignals($element, array()) || $this->styledClassBoundaries->hasStyledSourceClassBoundary($element) );
     }
 
     private function containsGeneratedComponentCandidate(DOMElement $element): bool
@@ -227,8 +269,32 @@ final class EmptyVisualRetentionPolicy implements EmptyVisualRetention
             || $this->hasStaticPseudoElementRule($sourceInline);
     }
 
-    private function hasAuthorSemanticMarker(DOMElement $element): bool
+    public function hasEmptyVisualInlineChild(DOMElement $element): bool
     {
-        return array() !== $this->session->authorSelectorProjectionState()->semanticMarkersForElement($element);
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && $this->sourceElementClassifier->isInlineContentElement(strtolower($child->tagName)) && $this->shouldPreserveEmptyVisualElement($child) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public function preservesScriptStateWrapper(DOMElement $element): bool
+    {
+        if (SourceDom::isCaptureDeviceVisibilityCarrier($element)) return true;
+        if ( $this->isInertHiddenEmptyElement($element) ) {
+            return false;
+        }
+        foreach ( $element->attributes ?? array() as $attribute ) {
+            $name = strtolower($attribute->nodeName);
+            if ( LayoutShellBlockGenerator::isBooleanAttribute($name) ) {
+                return true;
+            }
+            if ( $this->runtimeIslands->isRuntimeDomTarget($element) && ( str_starts_with($name, 'data-') || str_starts_with($name, 'aria-') || 'role' === $name ) ) {
+                return true;
+            }
+        }
+        return false;
     }
 }

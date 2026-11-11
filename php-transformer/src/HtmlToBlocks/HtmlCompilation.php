@@ -6,9 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CaptureReplayScripts;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\AssetMaterializationState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeSelectorState;
 use Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput;
 use Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
@@ -26,8 +24,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButto
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredMarqueeRecognizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CustomBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\DescriptionListBlockGenerator;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBlockGenerator;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\SvgArtworkBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\VisualIframeBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\IntrinsicVisualMediaHeight;
@@ -137,7 +133,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorSema
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleRuleProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStylesheetMaterialization;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStylesheetProjector;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutGeometryState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjectionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
@@ -157,7 +152,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DeclarativeCount
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DefaultCommentAttributes;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorLayoutOwnership;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NonRenderedMetadata;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\HeadMetadataReport;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceProvenance;
@@ -171,7 +165,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceInterItemSpaces;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\TransformOptions;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ImageUrlResolver;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializationContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use DOMDocument;
@@ -244,6 +237,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly SvgMaterializer $svgMaterializer;
 
     private readonly RichTextMaterializer $richTextMaterializer;
+    private readonly RichTextStylingHookNormalizer $richTextStylingHooks;
     private readonly Style\SourceElementVisibility $sourceVisibility;
     private readonly Elements\StandaloneBreakLowering $standaloneBreaks;
     private readonly AuthoredMarqueeRecognizer $authoredMarqueeRecognizer;
@@ -413,7 +407,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->styleResolver
         );
         $this->svgMaterializer = new SvgMaterializer($this, $this->session, $this->sourceElementClassifier,
-            $this->createSvgMaterializationContext(),
             $this->styleResolver,
             $this->runtime
         );
@@ -422,6 +415,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $flankedSeparators = new Elements\FlankedSeparatorLowering($this, $this->styleResolver, $this->sourceElementClassifier);
         $this->sourceVisibility = new Style\SourceElementVisibility($this->styleResolver);
         $this->richTextMaterializer = new RichTextMaterializer($this->styleResolver, $this->svgMaterializer, $this->session, $this);
+        $this->richTextStylingHooks = new RichTextStylingHookNormalizer($this->styleResolver, $this->richTextMaterializer, $this->session, $this->sourceElementClassifier);
         $inlineFlows = new Elements\InlineFlowLowering($this, $this, $this->styleResolver, $this->sourceElementClassifier, $this->richTextMaterializer, $this->runtime);
         $authoredStateButtons = new Elements\AuthoredStateButtonLowering($this->session, $this->svgMaterializer);
         $this->linkedIconTextRows = new Elements\LinkedIconTextRowLowering(
@@ -453,7 +447,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $formControlMetadataBuilder = new FormControlMetadataBuilder(
             $this->styleResolver,
             $this->session,
-            fn (DOMElement $element): string => $this->formContextRichText($element),
+            $this->richTextStylingHooks->formContextContent(...),
             function (DOMElement $element): array {
                 if ( '' === $this->session->authorStyleAnalysis()->combinedCss() ) {
                     return array();
@@ -536,13 +530,15 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->sourceElementClassifier,
             $this->runtime,
             $this,
-            fn (): RichTextStylingHookNormalizer => $this->richTextStylingHooks()
+            $this->richTextStylingHooks
         );
         $this->authorSelectorSemanticPreparer = new AuthorSelectorSemanticPreparer($this->sourceElementClassifier,
             new AuthorSelectorSemanticContext(
                 $this->authorLayoutOwnership,
                 $this->listStructure,
-                fn (DOMElement $element): bool => $this->requiresIndependentSemanticWrapper($element),
+                $this->styleResolver,
+                $this->wrapperCoalescer,
+                fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element),
                 $this->session,
                 $this->tableClassificationPolicy,
                 $this->paragraphImages
@@ -562,11 +558,11 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $svgConverter = new SvgElementConverter($this, $this->sourceElementClassifier, $this->styleResolver, new SvgElementContext(
             fn (DOMElement $element): bool => $this->inertElements->isInertHiddenSvgStorage($element),
             $this->runtimeIslands,
-            fn (DOMElement $element): string => $this->sanitizeInlineSvgMarkup($element),
+            fn (DOMElement $element): string => $this->svgMaterializer->sanitizeInlineSvgMarkup($element),
             fn (string $html): bool => SourceDom::isSafeSvgContent($html),
             fn (DOMElement $element): bool => SourceDom::svgHasDrawableContent($element),
             function (DOMElement $element, array &$fallbacks): void {
-                $this->captureInlineSvgFallback($element, $fallbacks);
+                $this->session->fallbackEmitter()->captureInlineSvgFallback($element, $fallbacks);
             },
             function (DOMElement $element): bool {
                 if (!$this->svgMaterializer->paintsNothing($element)) return false;
@@ -592,7 +588,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             fn (DOMElement $element): ?array => $inlineSvgTextGroups->fromElement($element),
             $this->authorLayoutOwnership->ownsPositioningGeometry(...),
             fn (DOMElement $element, array &$fallbacks): ?array => $this->positionedInlineCarrierBlock($element, $fallbacks),
-            fn (DOMElement $element): bool => $this->hasAuthorSemanticMarker($element),
+            fn (DOMElement $element): bool => $this->session->authorSelectorProjectionState()->hasSemanticMarker($element),
             $this->authorLayoutOwnership->richTextMarker(...),
             $this->listStructure,
             fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element),
@@ -609,7 +605,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->runtime,
             fn (DOMElement $element): ?DOMElement => $this->sourceTagProjectedClone($element),
             fn (DOMElement $label): string => $this->richTextMaterializer->content($label, array( 'input', 'select', 'textarea' )),
-            fn (DOMElement $label): string => $this->inlineRichTextContent($label)
+            $this->richTextStylingHooks->inlineContent(...)
         );
         $this->projectedNavigation = new ProjectedNavigationConverter(
             $this->navigationToggleSuppressor,
@@ -618,7 +614,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this,
             $this,
             $this->runtimeIslands,
-            fn (DOMElement $element): string => $this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element))
+            fn (DOMElement $element): string => $this->svgMaterializer->restoreSvgCasing($this->svgMaterializer->sanitizeInlineSvgMarkup($element))
         );
         $this->patternContext = $this->createPatternContext();
         $this->interactionFallbackReporter = new InteractionFallbackReporter(
@@ -636,7 +632,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->sourceElementDescription,
             $blockBindings->binding(...),
             fn (DOMElement $element, string $value): string => $this->styleResolver->resolveCssVariablesInValue($value, $element),
-            fn (DOMElement $element): string => $this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element))
+            fn (DOMElement $element): string => $this->svgMaterializer->restoreSvgCasing($this->svgMaterializer->sanitizeInlineSvgMarkup($element))
         );
         $this->commerceReporter = new CommerceFallbackReporter(
             $this->commercePattern,
@@ -859,7 +855,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this,
             fn (DOMElement $element): bool => $this->runtimeIslands->isSafeTransparentCustomElement($element),
             $this,
-            fn (DOMElement $element): bool => $this->hasAuthorSemanticMarker($element),
+            fn (DOMElement $element): bool => $this->session->authorSelectorProjectionState()->hasSemanticMarker($element),
             function (array $elements, array $innerBlocks, DOMElement $sourceElement): array {
                 return $this->layoutShells->blockForElements($elements, $innerBlocks, $sourceElement);
             }
@@ -959,7 +955,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 $this->styleResolver,
                 $this->runtimeIslands,
                 $this->sourceElementClassifier,
-                fn (DOMElement $element): ?DOMElement => $this->soleElementChild($element),
+                $this->emptyVisualRetention->soleElementChild(...),
                 $this->emptyVisualRetention->shouldPreserveEmptyVisualElement(...)
             ),
             $this->projectedNavigation,
@@ -1000,7 +996,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             new ThemeToggleConverter(
                 $this->svgMaterializer,
                 $this->session,
-                fn (DOMElement $element): string => $this->sanitizeInlineSvgMarkup($element),
+                fn (DOMElement $element): string => $this->svgMaterializer->sanitizeInlineSvgMarkup($element),
                 function (DOMElement $element): array {
                     $presentation = $this->styleResolver->presentationAttributes($element);
                     $inline = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
@@ -1104,16 +1100,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         );
     }
 
-    /** Collaborator surface for {@see SvgMaterializer}. */
-    private function createSvgMaterializationContext(): SvgMaterializationContext
-    {
-        return new SvgMaterializationContext(
-            $this->session,
-            fn (DOMElement $element): string => $this->sanitizeInlineSvgMarkup($element),
-            fn (DOMElement $element, string $svg): array => $this->svgArtworkBlock($element, $svg)
-        );
-    }
-
     /** Collaborator surface for {@see SearchBlockConverter}. */
     private function createSearchBlockConversionContext(): SearchBlockConversionContext
     {
@@ -1196,7 +1182,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     {
         return new RichTextElementContext(
             fn (DOMElement $element): ?array => $this->authoredMarqueeRecognizer->authoredMarqueeBlock($element),
-            fn (DOMElement $element): bool => $this->hasEmptyVisualInlineChild($element),
+            fn (DOMElement $element): bool => $this->emptyVisualRetention->hasEmptyVisualInlineChild($element),
             $this->authorLayoutOwnership->hasBoxChromeWrapperStyling(...),
             $this->runtimeIslands,
             fn (DOMElement $element): ?array => $this->paragraphImages->unwrappedParagraphImageBlock($element),
@@ -1218,30 +1204,12 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 }
                 return $block;
             },
-            fn (DOMElement $element): ?array => $this->decorativeTextSvgBlock($element),
+            fn (DOMElement $element): ?array => $this->svgMaterializer->decorativeTextSvgBlock($element),
             function (DOMElement $element, array &$fallbacks): ?array {
                 return $this->textlessMedia->mediaBlockFromTextlessElement($element, $fallbacks);
             },
             fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element)
         );
-    }
-
-    /** @return array<string, mixed>|null */
-    private function decorativeTextSvgBlock(DOMElement $element): ?array
-    {
-        if (!SourceDom::isSafeSvgContent(SourceDom::outerHtml($element)) || !SvgMaterializer::isPassiveSvgMarkup($element)) {
-            return null;
-        }
-        foreach ($element->attributes as $attribute) {
-            if (str_starts_with(strtolower($attribute->name), 'aria-') || in_array(strtolower($attribute->name), array('role', 'tabindex'), true)) {
-                return null;
-            }
-        }
-        $declarations = $this->styleResolver->presentationDeclarations($element);
-        if ('absolute' !== strtolower(trim((string) ($declarations['position'] ?? '')))) {
-            return null;
-        }
-        return $this->svgArtworkBlock($element, $this->svgMaterializer->restoreSvgCasing($this->svgMaterializer->sanitizeInlineSvgMarkup($element)));
     }
 
     private ?\Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CodePresentation $codePresentation = null;
@@ -1259,18 +1227,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         );
     }
 
-    private ?RichTextStylingHookNormalizer $richTextStylingHooks = null;
-
-    private function richTextStylingHooks(): RichTextStylingHookNormalizer
-    {
-        return $this->richTextStylingHooks ??= new RichTextStylingHookNormalizer(
-            $this->styleResolver,
-            $this->richTextMaterializer,
-            $this->session,
-            $this->sourceElementClassifier
-        );
-    }
-
     /** @var array<string, string> Source box modifiers retained across island reduction. */
     private array $reducedButtonSourceBoxes = array();
 
@@ -1284,12 +1240,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         );
     }
 
-    /**
-     * Backs {@see DomHelpersTrait::safeFallbackHtml()}, still used here only
-     * through {@see DomHelpersTrait::sanitizeInlineSvgMarkup()} (every other
-     * fallback-HTML path now calls {@see SourceDom::safeFallbackHtml()}
-     * directly with this same source).
-     */
+    /** Backs {@see DomHelpersTrait::sourceTagProjectedClone()} with the session's author-selector tag markers. */
     protected function fallbackSourceTagMarker(string $tagName): string
     {
         return $this->session->authorSelectorProjectionState()->tagMarker($tagName);
@@ -1311,42 +1262,14 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $validationEvidence = \Automattic\BlocksEngine\PhpTransformer\Contract\ValidationEvidencePolicy::fromOptions($options);
         $context = TransformationOptions::context($options);
         $startedAt = hrtime(true);
-        $this->session->transformationProvenanceState()->installFallback(TransformationOptions::provenance($options));
-        $this->session->installGeneratedBlockRegistry(new GeneratedBlockRegistry(TransformOptions::generatedBlockNamespaceFromOptions($options)));
-        $this->session->installAssetMaterializationState(new AssetMaterializationState(
-            trim((string) ($options['generated_asset_root'] ?? ''), '/'),
-            TransformOptions::assetMetadataFromOptions($options)
-        ));
-        $this->session->configurePolicy(! empty($options['extract_global_shell']), ! empty($options['fallback_reduction_mode']));
-        $this->session->runtimeBehaviorState()->installRuntimeScriptMetadata($this->runtimeIslands->runtimeScriptMetadataFromOptions($options));
-        $this->session->runtimeBehaviorState()->installRuntimeProjectionScriptAssets(
-            is_array($options['runtime_projection_script_assets'] ?? null) ? $options['runtime_projection_script_assets'] : array()
-        );
-        $this->session->runtimeBehaviorState()->installThemePreferenceOwnership(
-            is_array($options['theme_preference_ownership'] ?? null) ? $options['theme_preference_ownership'] : array()
-        );
+        $this->session->installTransformOptions($options);
         $this->documentAuthorCss = '';
-        $this->session->installSourcePath((string) ($options['source'] ?? 'html'));
-        $sharedStylesheetPaths = array();
-        foreach ( is_array($options['shared_stylesheet_paths'] ?? null) ? $options['shared_stylesheet_paths'] : array() as $path ) {
-            if ( is_string($path) && '' !== $path ) {
-                $sharedStylesheetPaths[$path] = true;
-            }
-        }
+        $sharedStylesheetPaths = TransformOptions::sharedStylesheetPaths($options);
         $staticCss = (string) ($options['static_css'] ?? '');
         $styleAnalysis = $this->stylesheetAnalysisComposer->composedStyleAnalysis(
             $this->stylesheetAnalysisComposer->stylesheetPayloads($html, $staticCss, $options)
         );
         $this->session->sourceStyleResolutionState()->installStylesheetAnalysis(StaticClassPromotions::detect($html), $styleAnalysis);
-        $runtimeDomSelectors = $this->runtimeIslands->runtimeSelectorsFromOptions($options, 'runtime_dom_selectors');
-        $this->session->installRuntimeSelectorState(new RuntimeSelectorState(
-            $runtimeDomSelectors,
-            $this->runtimeIslands->runtimeSelectorsFromOptions($options, 'runtime_behavioral_selectors'),
-            $this->runtimeIslands->runtimeCanvasSelectorsFromOptions($options)
-        ));
-        $this->session->installLayoutGeometryState(new LayoutGeometryState(
-            is_array($options['layout_geometry_proof']['reductions'] ?? null) ? $options['layout_geometry_proof']['reductions'] : array()
-        ));
         $provenance               = array(
             array_merge(array(
                 'source_format' => 'html',
@@ -1390,23 +1313,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         SourceDom::unwrapLineBreakOnlyLinks($body);
         // Resolve before dispatch: controls, rich text, and preserved markup
         // serialize source images without passing through native image lowering.
-        // Use a static node set: indexed iteration of a live DOMNodeList can
-        // repeatedly scan the document as the number of gallery images grows.
-        $sourceImages = (new \DOMXPath($document))->query('.//img', $body);
-        foreach ( $sourceImages as $image ) {
-            $source = $this->imageUrls->sourceUrl($image);
-            if ( '' !== $source && $source !== SourceDom::attr($image, 'src') ) {
-                $image->setAttribute('src', $source);
-            }
-        }
-        $definitionClips = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::replacements($body);
-        if (array() !== $definitionClips) {
-            foreach ($body->getElementsByTagName('*') as $sourceElement) {
-                if ($sourceElement->hasAttribute('style')) {
-                    $sourceElement->setAttribute('style', \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::rewrite($sourceElement->getAttribute('style'), $definitionClips));
-                }
-            }
-        }
+        $this->imageUrls->resolveSourceImages($body);
+        \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::rewriteInlineStyles($body);
         CapturedNavigationPanels::restoreNative($body);
         CapturedNavigationPanels::restoreRestingStates($body);
         // Capture evidence, not content: read before anything serializes the source.
@@ -1424,13 +1332,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
         // Body-only parsing must retain the html ancestor that owns inherited
         // custom properties and participates in authored root selectors.
-        $rootAttributes = \Automattic\BlocksEngine\PhpTransformer\Support\DocumentRootAttributes::fromHtml($html);
-        if (array() !== $rootAttributes) {
-            $root = $document->createElement('html');
-            foreach ($rootAttributes as $name => $value) $root->setAttribute($name, $value);
-            $document->replaceChild($root, $body);
-            $root->appendChild($body);
-        }
+        \Automattic\BlocksEngine\PhpTransformer\Support\DocumentRootAttributes::restoreRoot($body, $html);
 
         // Document metadata (`<link>`, `<meta>`, `<base>`, `<title>`) generates no
         // rendered box and belongs in `<head>`, but browsers tolerate it anywhere
@@ -1469,10 +1371,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // Author-selector preparation marks source nodes for later projection.
         // General style matching begins only after those source mutations settle.
         $this->session->sourceStyleResolutionState()->invalidateSelectorMatches();
-        $styledElements = iterator_to_array((new \DOMXPath($document))->query('.//*[@style]', $body));
-        foreach ( $styledElements as $styledElement ) {
-            $this->styleResolver->dropAuthorOverriddenInlineDeclarations($styledElement);
-        }
+        $this->styleResolver->dropAuthorOverriddenInlineDeclarations($body);
         $this->session->sourceStyleResolutionState()->invalidateSelectorMatches();
         $this->styleResolver->collectEditorHiddenStateFindings($body);
         $this->session->reusableComponentState()->installRecognition($this->reusableComponentRecognizer->recognize($body));
@@ -1506,7 +1405,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
         $this->runtimeIslands->recordRuntimeIslandsForPreservedHtmlBlocks($blocks);
         $this->interactionFallbackReporter->appendInteractiveControlBehaviorLossFallbacks($body, $fallbacks);
-        $this->commerceReporter->appendProductGridFallbacks($body, $fallbacks, $blocks);
+        $this->commerceReporter->appendProductGridFallbacks($body, $fallbacks, $blocks, $options['source_has_purchase_affordance'] ?? null);
         $this->commerceReporter->appendCommerceControlsFallbacks($body, $fallbacks, (string) ($options['declarative_state_html'] ?? $html));
         $this->commerceReporter->appendCartViewFallbacks($body, $fallbacks);
         $this->commerceReporter->appendCheckoutViewFallbacks($body, $fallbacks);
@@ -1629,7 +1528,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $capabilityMatrix = (new CoreBlockCapabilityMatrix($this->runtime))->coverage($nativeTargetBlocks, $runtimeRegisteredBlocks);
         $supportedBlocks = $capabilityMatrix['supported_blocks'];
         $ownershipPaths = BlockCompilationOutput::editabilityOwnershipPaths($sourceProvenance);
-        $generatedCarrierCss = $this->engineSupportCss();
+        $generatedCarrierCss = $this->session->assetMaterializationState()->engineSupportCss();
         // Selector projection may install engine marker classes on the analysis
         // document root (root-owned attribute states). Only the real root
         // registry can materialize them, so they travel with the compilation
@@ -1709,158 +1608,32 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         ), $blockCompilationOutput));
     }
 
-    private function engineSupportCss(): string
-    {
-        $css = array();
-        foreach ($this->session->assetMaterializationState()->assets() as $asset) if ('engine-support' === ($asset['source'] ?? '') && 'css' === ($asset['kind'] ?? '') && is_string($asset['content'] ?? null)) $css[] = $asset['content'];
-        return implode("\n", $css);
-    }
-
     /**
-     * Reduce safe legacy core/html islands through the producer's native block
-     * recognizers. An island is replaced only when its complete fragment maps
-     * to native blocks with no fallback diagnostics; otherwise its serialized
-     * payload remains untouched.
-     *
      * @param array<int, array<string, mixed>> $blocks
      * @return array<int, array<string, mixed>>
      */
     public function reduceCoreHtmlFallbackBlocks(array $blocks, ?DOMElement $sourceRoot = null): array
     {
-        $reduced = array();
-        foreach ($blocks as $block) {
-            if (!is_array($block)) {
-                continue;
+        return (new Elements\CoreHtmlIslandReducer(
+            $this->runtimeIslands,
+            $this->sourceBlockAttributeProjector,
+            $this->session,
+            function (string $html, array $sourceBoxes): array {
+                $fragment = new self($this->runtime, $this->analysisCache);
+                $fragment->reducedButtonSourceBoxes = $sourceBoxes;
+
+                return array(
+                    $fragment->transform($html, array( 'extract_global_shell' => false, 'fallback_reduction_mode' => true ))->toArray(),
+                    $fragment->session,
+                );
             }
-
-            $name = is_string($block['blockName'] ?? null) ? $block['blockName'] : '';
-            if (in_array($name, array('core/html', 'core/freeform'), true)) {
-                $html = is_string($block['attrs']['content'] ?? null)
-                    ? $block['attrs']['content']
-                    : (is_string($block['innerHTML'] ?? null) ? $block['innerHTML'] : '');
-                $replacement = $this->safeFallbackFragmentBlocks($html, $sourceRoot);
-                array_push($reduced, ...($replacement ?? array($block)));
-                continue;
-            }
-
-            $children = is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array();
-            if (array() !== $children) {
-                $reducedChildren = array();
-                $childReplacements = array();
-                foreach ($children as $child) {
-                    $replacement = $this->reduceCoreHtmlFallbackBlocks(array($child), $sourceRoot);
-                    $childReplacements[] = $replacement;
-                    array_push($reducedChildren, ...$replacement);
-                }
-                $block['innerBlocks'] = $reducedChildren;
-                $innerContent = array();
-                $childIndex = 0;
-                foreach (is_array($block['innerContent'] ?? null) ? $block['innerContent'] : array() as $content) {
-                    if (null !== $content) {
-                        $innerContent[] = $content;
-                        continue;
-                    }
-                    foreach ($childReplacements[$childIndex] ?? array() as $_) {
-                        $innerContent[] = null;
-                    }
-                    ++$childIndex;
-                }
-                $block['innerContent'] = $innerContent;
-                $block['innerHTML'] = implode('', array_filter($innerContent, 'is_string'));
-            }
-            $reduced[] = $block;
-        }
-
-        return $reduced;
-    }
-
-    /**
-     * @return array<int, array<string, mixed>>|null Null keeps the original island.
-     */
-    private function safeFallbackFragmentBlocks(string $html, ?DOMElement $sourceRoot = null): ?array
-    {
-        if ('' === trim($html)) {
-            return array();
-        }
-        if (preg_match('/<\s*(?:script|style|iframe|canvas|svg|form|input|select|textarea)\b/i', $html)) {
-            return null;
-        }
-        $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $loaded = $document->loadHTML('<!doctype html><html><body>' . $html . '</body></html>');
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
-        if ($loaded) {
-            foreach ($document->getElementsByTagName('*') as $element) {
-                if ($element instanceof DOMElement && $this->runtimeIslands->isRuntimeDomTarget($element)) {
-                    return null;
-                }
-            }
-        }
-
-        // Island reduction reparses a detached fragment, so ancestor selectors
-        // no longer match. Resolve box modifiers against the original source
-        // and pass that evidence to the same button attribute projector.
-        $sourceBoxes = array();
-        if ( $loaded && $sourceRoot instanceof DOMElement ) {
-            foreach ( $document->getElementsByTagName('a') as $anchor ) {
-                if ( ! $anchor instanceof DOMElement || '' === SourceDom::attr($anchor, 'id') ) {
-                    continue;
-                }
-                foreach ( $sourceRoot->getElementsByTagName('a') as $sourceAnchor ) {
-                    if ( $sourceAnchor instanceof DOMElement && SourceDom::attr($sourceAnchor, 'id') === SourceDom::attr($anchor, 'id') ) {
-                        $sourceBoxes[SourceDom::attr($anchor, 'id')] = $this->sourceBlockAttributeProjector->layoutNeutralButtonSourceBoxClasses($sourceAnchor);
-                        break;
-                    }
-                }
-            }
-        }
-        $fragmentCompilation = new self($this->runtime, $this->analysisCache);
-        $fragmentCompilation->reducedButtonSourceBoxes = $sourceBoxes;
-        $result = $fragmentCompilation->transform($html, array('extract_global_shell' => false, 'fallback_reduction_mode' => true));
-        $data = $result->toArray();
-        $blocks = is_array($data['blocks'] ?? null) ? $data['blocks'] : array();
-        if (array() === $blocks || array() !== ($data['fallbacks'] ?? array())) {
-            return null;
-        }
-        foreach ($blocks as $block) {
-            if (!is_array($block) || !str_starts_with((string) ($block['blockName'] ?? ''), 'core/') || in_array($block['blockName'] ?? '', array('core/html', 'core/freeform'), true)) {
-                return null;
-            }
-        }
-
-        if ( $this->session->hasAssetMaterializationState() ) {
-            // Fragment-owned support remains in the compiler's structured
-            // records until acceptance. Commit only records whose source
-            // identities survive in the returned blocks; a rejected exploratory
-            // compilation never reaches this boundary.
-            $this->session->generatedSupportStylesheetState()->commitAcceptedFrom(
-                $fragmentCompilation->session->generatedSupportStylesheetState(),
-                $blocks
-            );
-        }
-
-        return $blocks;
+        ))->reduce($blocks, $sourceRoot);
     }
 
     /**
      * Author CSS visible to the document: declared stylesheets plus the styles
      * the source embeds inline.
      */
-    /**
-     * @param array<int, array<string, mixed>> $fallbacks
-     * @return array<int, array<string, mixed>>
-     */
-    private function hasWordPressTemplateParts(DOMElement $root): bool
-    {
-        $areas = array();
-        foreach ($root->childNodes as $child) {
-            if (!$child instanceof DOMElement) continue;
-            if (in_array('wp-block-template-part', preg_split('/\s+/', trim($child->getAttribute('class'))) ?: array(), true)) $areas[strtolower($child->tagName)] = true;
-        }
-        return isset($areas['header'], $areas['footer']);
-    }
-
     private function convertChildren(DOMNode $parent, array &$fallbacks, bool $captureUnsupported = false, bool $preserveLinkContainers = false): array
     {
         $blocks = array();
@@ -1874,7 +1647,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 $text = trim($child->textContent ?? '');
                 if ( '' !== $text ) {
                     $blocks = array_merge($blocks, $this->convertText($text));
-                    $lineIndex = $this->inlineParagraphIndex($blocks);
+                    $lineIndex = Elements\StandaloneBreakLowering::inlineParagraphIndex($blocks);
                 }
                 continue;
             }
@@ -1882,8 +1655,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             if ( ! $child instanceof DOMElement ) {
                 continue;
             }
-            if ( 'br' === strtolower($child->tagName) && null !== $lineIndex && $this->breakEndsInlineLine($child) ) {
-                $blocks[$lineIndex] = self::endLine($blocks[$lineIndex]);
+            if ( 'br' === strtolower($child->tagName) && null !== $lineIndex && $this->styleResolver->breakEndsInlineLine($child) ) {
+                $blocks[$lineIndex] = Elements\StandaloneBreakLowering::endLine($blocks[$lineIndex]);
                 continue;
             }
             $lineIndex = null;
@@ -1917,7 +1690,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 && in_array('wp-site-blocks', preg_split('/\s+/', trim($child->getAttribute('class'))) ?: array(), true)
                 && $parent instanceof DOMElement
                 && ('body' === strtolower($parent->tagName) || SourceDom::isDocumentVariantRoot($parent))
-                && $this->hasWordPressTemplateParts($child)
+                && SourceDom::hasWordPressTemplateParts($child)
             ) {
                 $blocks = array_merge($blocks, $this->convertChildren($child, $fallbacks, $captureUnsupported, $preserveLinkContainers));
                 continue;
@@ -1932,7 +1705,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                     $block['attrs']['className'] = trim(($block['attrs']['className'] ?? '') . ' wp-block-post-content');
                 }
                 $blocks[] = $block;
-                $lineIndex = $blockCount + 1 === count($blocks) ? $this->inlineParagraphIndex($blocks) : null;
+                $lineIndex = $blockCount + 1 === count($blocks) ? Elements\StandaloneBreakLowering::inlineParagraphIndex($blocks) : null;
             } elseif ( $this->sourceElementClassifier->isRuntimeMediaSurfaceElement($child) ) {
                 $ownerSelector = SourceDom::elementSelector($child);
                 for ( $index = $fallbackOffset; $index < count($fallbacks); ++$index ) {
@@ -1957,49 +1730,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
      *
      * @return list<array<string, mixed>>|null
      */
-    /**
-     * The index of the last block when it is a synthetic paragraph standing
-     * for inline source content: it renders inline, so a `<br>` after the
-     * source run it stands for has to end the line inside it.
-     *
-     * @param array<int, array<string, mixed>> $blocks
-     */
-    private function inlineParagraphIndex(array $blocks): ?int
-    {
-        $index = array_key_last($blocks);
-        $block = null === $index ? null : $blocks[$index];
-        if ( ! is_array($block) || 'core/paragraph' !== ($block['blockName'] ?? null) || ! str_ends_with((string) ($block['innerHTML'] ?? ''), '</p>') || array() !== ($block['innerBlocks'] ?? array()) ) {
-            return null;
-        }
-        $classes = preg_split('/\s+/', (string) ($block['attrs']['className'] ?? '')) ?: array();
-        return in_array(self::SYNTHETIC_PARAGRAPH_CLASS, $classes, true) && ! in_array(SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS, $classes, true)
-            ? $index
-            : null;
-    }
-
-    /**
-     * @param array<string, mixed> $paragraph
-     * @return array<string, mixed>
-     */
-    private static function endLine(array $paragraph): array
-    {
-        $html = substr((string) $paragraph['innerHTML'], 0, -4) . '<br></p>';
-        $paragraph['innerHTML'] = $html;
-        $paragraph['innerContent'] = array( $html );
-        if ( isset($paragraph['attrs']['content']) ) {
-            $paragraph['attrs']['content'] .= '<br>';
-        }
-        return $paragraph;
-    }
-
-    /** A `<br>` breaks a line only in flow: a flex or grid parent blockifies each run into its own item. */
-    private function breakEndsInlineLine(DOMElement $break): bool
-    {
-        $parent = $break->parentNode;
-        $display = $parent instanceof DOMElement ? strtolower($this->styleResolver->resolvedPresentationDeclarations($parent)['display'] ?? 'block') : 'block';
-        return ! in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
-    }
-
     /** @param array<int, array<string, mixed>> $fallbacks */
     private function recordDependentRuntimeMediaMaskLoss(DOMElement $owner, DOMElement $mask, array &$fallbacks, int $fallbackIndex): void
     {
@@ -2048,18 +1778,18 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             new CodeWindowPatternContext($this->codePresentation ??= new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CodePresentation($this->styleResolver)),
             new LogoPatternContext(
                 $this->styleResolver,
-                function (DOMElement $element, array &$fallbacks): void { $this->captureInlineSvgFallback($element, $fallbacks); }
+                function (DOMElement $element, array &$fallbacks): void { $this->session->fallbackEmitter()->captureInlineSvgFallback($element, $fallbacks); }
             ),
             $this->imageLowering,
             $this->sourceVisibility,
             new DisclosureControlPresentation(
                 $this->styleResolver,
                 $this->session->generatedSupportStylesheetState(),
-                fn (DOMElement $element): string => SvgMaterializer::ensureSvgImageNamespace($this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element)))
+                fn (DOMElement $element): string => SvgMaterializer::ensureSvgImageNamespace($this->svgMaterializer->restoreSvgCasing($this->svgMaterializer->sanitizeInlineSvgMarkup($element)))
             ),
             $this->styleResolver,
             $this->session,
-            fn (DOMElement $sourceElement): string => $this->inlineRichTextContent($sourceElement)
+            fn (DOMElement $sourceElement): string => $this->richTextStylingHooks->inlineContent($sourceElement)
         );
     }
 
@@ -2143,7 +1873,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
              disclosure: new DisclosureControlPresentation(
                  $this->styleResolver,
                  $this->session->generatedSupportStylesheetState(),
-                 fn (DOMElement $element): string => SvgMaterializer::ensureSvgImageNamespace($this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element)))
+                 fn (DOMElement $element): string => SvgMaterializer::ensureSvgImageNamespace($this->svgMaterializer->restoreSvgCasing($this->svgMaterializer->sanitizeInlineSvgMarkup($element)))
              ),
              styles: $this->styleResolver
          );
@@ -2261,7 +1991,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // Control boxes already transport the exact source attributes through
         // the core group's runtime metadata. A shell would discard that core
         // identity without preserving any additional DOM contract.
-        if ( 'core/group' === $name && ! isset($attrs['metadata']['blocksEngineControlBox']) && $sourceElement instanceof DOMElement && $this->preservesScriptStateWrapper($sourceElement) ) {
+        if ( 'core/group' === $name && ! isset($attrs['metadata']['blocksEngineControlBox']) && $sourceElement instanceof DOMElement && $this->emptyVisualRetention->preservesScriptStateWrapper($sourceElement) ) {
             return $this->layoutShells->blockForElements(array( $sourceElement ), $innerBlocks, $sourceElement);
         }
         if ( $sourceElement instanceof DOMElement
@@ -2331,7 +2061,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $unsafeFixedHeightTopologyChange = ! empty($attrs['unsafeFixedHeightTopologyChange']);
         unset($attrs['unsafeFixedHeightTopologyChange']);
         if ( ! $preserveInlineLayoutLeaf ) {
-            $attrs = $this->richTextStylingHooks()->hoistContentWrappingSpans($name, $attrs);
+            $attrs = $this->richTextStylingHooks->hoistContentWrappingSpans($name, $attrs);
         }
         // A RichText carrier whose only classes are its role and subject
         // classes carries no authored class.
@@ -2393,7 +2123,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                     $this->sourceElementClassifier->isInlineSourceElement($sourceTagName),
                     'core/group' === $name
                         && $this->authorLayoutOwnership->isDirectChildOfAuthorOwnedLayout($sourceElement)
-                        && $this->hasAuthorSemanticMarker($sourceElement),
+                        && $this->session->authorSelectorProjectionState()->hasSemanticMarker($sourceElement),
                     $hasAuthorControlProjection,
                     'core/button' === $name && '' !== $logicalControlPath && $hasAuthorControlProjection
                         && $this->authorLayoutOwnership->isDirectChildOfAuthorFlexLayout($logicalControl),
@@ -2420,7 +2150,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 array() === $innerBlocks && 'core/group' === $name
                     ? $this->emptyVisualRetention->emptyVisualTopologyEvidence($sourceElement)
                     : array(),
-                'core/navigation' === $name && $this->sourceWrapperHiddenAtCollapsedViewport($sourceElement)
+                'core/navigation' === $name && $this->sourceVisibility->wrapperHiddenAtCollapsedViewport($sourceElement)
             );
         }
 
@@ -2431,7 +2161,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // Every RichText carrier a block stores passes through here, so this is
         // where each one gets its role and subject classes; the saved markup
         // is built from these attributes and so carries them too.
-        $attrs = $this->withRichTextCarrierClasses($attrs);
+        $attrs = $this->session->authorSelectorProjectionState()->withRichTextCarrierAttrs($attrs);
 
         return $this->sourceInterItemSpaces->apply($this->blockMaterializer->materialize(
             $name,
@@ -2440,22 +2170,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $sourceMaterializationFacts,
             $this->session->transformationProvenanceState()
         ), $sourceElement);
-    }
-
-    /**
-     * @param array<mixed> $attrs
-     * @return array<mixed>
-     */
-    private function withRichTextCarrierClasses(array $attrs): array
-    {
-        foreach ( $attrs as $key => $value ) {
-            if ( is_string($value) ) {
-                $attrs[$key] = $this->session->authorSelectorProjectionState()->withRichTextCarrierClasses($value);
-            } elseif ( is_array($value) ) {
-                $attrs[$key] = $this->withRichTextCarrierClasses($value);
-            }
-        }
-        return $attrs;
     }
 
     /**
@@ -2504,84 +2218,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     }
 
     /**
-     * Whether a wrapper around the element hides it at the collapsed (mobile)
-     * reference viewport. The element itself is excluded: a navigation becomes
-     * core/navigation, whose own overlay replaces the source's collapsed
-     * state, while a wrapper stays a group that keeps hiding it.
-     */
-    private function sourceWrapperHiddenAtCollapsedViewport(DOMElement $element): bool
-    {
-        for (
-            $candidate = $element->parentNode;
-            $candidate instanceof DOMElement && 'body' !== strtolower($candidate->tagName);
-            $candidate = $candidate->parentNode
-        ) {
-            if ( SourceDom::documentVariantRoot($candidate) === $candidate ) {
-                return false;
-            }
-            $declarations = $this->styleResolver->collapsedViewportDeclarations($candidate, array( 'display', 'visibility' ));
-            if ( 'none' === CssValueInspector::comparable((string) ($declarations['display'] ?? ''))
-                || in_array(CssValueInspector::comparable((string) ($declarations['visibility'] ?? '')), array( 'hidden', 'collapse' ), true) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private function hasAuthorSemanticMarker(DOMElement $element): bool
-    {
-        return array() !== $this->session->authorSelectorProjectionState()->semanticMarkersForElement($element);
-    }
-
-    private function requiresIndependentSemanticWrapper(DOMElement $element): bool
-    {
-        if ( 'span' !== strtolower($element->tagName) || $this->authorLayoutOwnership->isRichTextInlineContext($element) ) {
-            return false;
-        }
-
-        if ( $this->authorLayoutOwnership->ownsPositioningGeometry($element) ) {
-            return true;
-        }
-
-        // An empty painted span outside RichText lowers to its own spacer
-        // block (InlineContentElementConverter), never to a `<mark>` carrier.
-        // Author selectors that name it must address that block, so it needs
-        // a semantic marker rather than a rich-text marker no block carries.
-        if ( 0 === SourceDom::childElementCount($element)
-            && '' === trim($element->textContent ?? '')
-            && $this->shouldPreserveEmptyVisualElement($element)
-        ) {
-            return true;
-        }
-
-        $parent = $element->parentNode instanceof DOMElement ? $element->parentNode : null;
-        if ( ! $parent instanceof DOMElement || ! $this->wrapperCoalescer->isStructuralLayoutElement($parent) ) {
-            return false;
-        }
-
-        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        // A grid placement belongs to this inline node. Keep phrasing-only grid
-        // siblings in one RichText container rather than replacing their direct
-        // grid items with Group/Paragraph wrappers.
-        if ( 'grid' === CssValueInspector::comparable((string) ($this->styleResolver->presentationDeclarations($parent)['display'] ?? '')) && ( '' !== trim((string) ($declarations['grid-column'] ?? '')) || '' !== trim((string) ($declarations['grid-row'] ?? '')) ) ) {
-            return false;
-        }
-        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? 'inline'));
-        if ( 'block' === $display ) {
-            return true;
-        }
-
-        foreach ( array( 'font-size', 'line-height', 'letter-spacing', 'text-transform', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'border', 'border-width', 'border-color', 'border-radius', 'margin', 'width', 'height', 'min-width', 'min-height', 'max-width', 'max-height' ) as $property ) {
-            if ( '' !== trim((string) ($declarations[$property] ?? '')) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
      */
@@ -2591,7 +2227,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $children = $this->positionedInlineCarrierChildren($element, $fallbacks);
             return array() === $children
                 ? null
-                : $this->createBlock('core/group', $this->positionedInlineCarrierAttributes($element), $children, $element);
+                : $this->createBlock('core/group', $this->styleResolver->positionedInlineCarrierAttributes($element), $children, $element);
         }
 
         $content = $this->richTextMaterializer->content($element);
@@ -2599,7 +2235,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return null;
         }
 
-        return $this->createBlock('core/group', $this->positionedInlineCarrierAttributes($element), array(
+        return $this->createBlock('core/group', $this->styleResolver->positionedInlineCarrierAttributes($element), array(
             $this->createBlock('core/paragraph', array(
                 'content' => $content,
                 'className' => self::SYNTHETIC_PARAGRAPH_CLASS,
@@ -2638,32 +2274,22 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $blocks;
     }
 
-    /** @return array<string, mixed> */
-    private function positionedInlineCarrierAttributes(DOMElement $element): array
-    {
-        return $this->styleResolver->presentationAttributes($element, array(), array(
-            'position', 'z-index', 'inset', 'inset-block', 'inset-inline',
-            'inset-block-start', 'inset-block-end', 'inset-inline-start',
-            'inset-inline-end', 'top', 'right', 'bottom', 'left',
-        ));
-    }
-
     /** @param array<int, array<string, mixed>> $fallbacks */
     public function authorLayoutBlockFromElement(DOMElement $element, array &$fallbacks): array
     {
-        if ( ! $this->preservesScriptStateWrapper($element) ) {
+        if ( ! $this->emptyVisualRetention->preservesScriptStateWrapper($element) ) {
             $paragraph = $this->textOnlyLayoutDivParagraph($element);
             if ( null !== $paragraph ) {
                 return $paragraph;
             }
         }
         $children = $this->convertChildren($element, $fallbacks, true);
-        if ( $this->preservesScriptStateWrapper($element) ) {
+        if ( $this->emptyVisualRetention->preservesScriptStateWrapper($element) ) {
             return $this->layoutShells->blockForElements(array( $element ), $children, $element);
         }
         $isAuthorOwnedLayout = $this->authorLayoutOwnership->isAuthorOwnedLayout($element);
         $sourceChildCount = $isAuthorOwnedLayout ? SourceDom::childElementCount($element) : 0;
-        $sourceTags = $isAuthorOwnedLayout ? $this->directChildTags($element) : array();
+        $sourceTags = $isAuthorOwnedLayout ? SourceDom::directChildTags($element) : array();
         $blockTags = $isAuthorOwnedLayout ? $this->directBlockTags($children) : array();
         $topologyChanged = $isAuthorOwnedLayout
             && 0 < $sourceChildCount
@@ -2713,35 +2339,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $block;
     }
 
-    /** @param array<int, array<string, mixed>> $blocks */
-    private function stripOuterAnchorFromBlocks(array &$blocks): void
-    {
-        foreach ($blocks as &$block) {
-            if (! is_array($block)) continue;
-            if (isset($block['attrs']['content']) && is_string($block['attrs']['content'])) {
-                $content = preg_replace('/^<a\b[^>]*>(.*)<\/a>$/is', '$1', $block['attrs']['content']) ?? $block['attrs']['content'];
-                if ($content !== $block['attrs']['content']) $block = $this->blockFactory->rebuild($block, array_merge($block['attrs'], array('content' => $content)));
-            }
-            if (is_string($block['innerHTML'] ?? null)) $block['innerHTML'] = preg_replace('/<a\b[^>]*>(<img\b[^>]*>)<\/a>/is', '$1', $block['innerHTML']) ?? $block['innerHTML'];
-            if (is_array($block['innerContent'] ?? null)) foreach ($block['innerContent'] as &$part) if (is_string($part)) $part = preg_replace('/<a\b[^>]*>(<img\b[^>]*>)<\/a>/is', '$1', $part) ?? $part;
-            unset($part);
-            if (is_array($block['innerBlocks'] ?? null)) $this->stripOuterAnchorFromBlocks($block['innerBlocks']);
-        }
-        unset($block);
-    }
-
-    /** @return list<string> */
-    private function directChildTags(DOMElement $element): array
-    {
-        $tags = array();
-        foreach ($element->childNodes as $child) {
-            if (! $child instanceof DOMElement) continue;
-            $tag = strtolower($child->tagName);
-            $tags[] = 'svg' === $tag ? 'img' : $tag;
-        }
-        return $tags;
-    }
-
     /** @param array<int, array<string, mixed>> $blocks @return list<string> */
     private function directBlockTags(array $blocks): array
     {
@@ -2778,6 +2375,12 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     }
 
     /** Read lazily: closures built before the retention policy call it. */
+    /** Lazy: WrapperCoalescer is built before the empty-visual policy. */
+    private function soleElementChild(DOMElement $element): ?DOMElement
+    {
+        return $this->emptyVisualRetention->soleElementChild($element);
+    }
+
     private function shouldPreserveEmptyVisualElement(DOMElement $element): bool
     {
         return $this->emptyVisualRetention->shouldPreserveEmptyVisualElement($element);
@@ -2794,48 +2397,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     }
 
     /**
-     * Inline content as the standalone RichText a block's own content
-     * attribute carries — a control label, an in-form introduction, a lowered
-     * wrapper paragraph: the materialized source markup, with styling hooks
-     * lowered to semantic carriers inline rather than hoisted onto the host.
-     */
-    private function inlineRichTextContent(DOMElement $element): string
-    {
-        $content = $this->richTextMaterializer->content($element);
-        if ('' === $content) return '';
-        $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $content . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
-        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
-        if (!$body instanceof DOMElement) return $content;
-        $this->richTextStylingHooks()->normalize($body);
-        return SourceDom::innerHtml($body);
-    }
-
-    /**
-     * In-form copy — an introduction above the fields, a note between them —
-     * as the paragraph/heading RichText the page conversion keeps, so the form
-     * contract carries the copy's formatting instead of its flattened text.
-     * Copy without inline markup, and markup a paragraph cannot hold (structure
-     * a RichText attribute rejects, or an object the fallback gate reserves for
-     * the page's own conversion), returns '': the item's plain text, styles and
-     * classes stay the contract there.
-     */
-    private function formContextRichText(DOMElement $element): string
-    {
-        $content = trim($this->inlineRichTextContent($element));
-        if ( '' === $content || ! preg_match('/<[a-zA-Z]/', $content)
-            || $this->richTextMaterializer->hasStructuralHtml($content)
-            || $this->richTextMaterializer->requiresHtmlFallback($content) ) {
-            return '';
-        }
-
-        return $content;
-    }
-
-    /**
      * @param array<string, mixed> $childBlock
      * @return array<string, mixed>|null
      * @see WrapperCoalescer::coalescedSingleGroupWrapper()
@@ -2843,7 +2404,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
      */
     private function coalescedSingleGroupWrapper(DOMElement $element, array $childBlock): ?array
     {
-        if ( $this->preservesScriptStateWrapper($element) ) {
+        if ( $this->emptyVisualRetention->preservesScriptStateWrapper($element) ) {
             return null;
         }
         return $this->wrapperCoalescer->coalescedSingleGroupWrapper($element, $childBlock);
@@ -2864,7 +2425,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         if (null === $proof || $this->runtimeIslands->isRuntimeDomTarget($element) || '' !== trim(SourceDom::attr($element, 'id')) || '' !== trim(SourceDom::attr($element, 'role')) || array() !== $this->sourceElementDescription->interactiveAttributes($element) || $this->sourceElementClassifier->hasMotionStructureToken($element)) return null;
         $children = $this->convertChildren($element, $fallbacks, true);
         if (1 !== count($children) || !in_array($children[0]['blockName'] ?? null, array('core/group', 'core/image'), true) || $this->session->transformationProvenanceState()->isBindingAnchor($children[0]['_source_provenance_id'] ?? null)) return null;
-        $sourceChild = $this->soleElementChild($element);
+        $sourceChild = $this->emptyVisualRetention->soleElementChild($element);
         if (!$sourceChild instanceof DOMElement || SourceDom::elementSelector($sourceChild) !== ($proof['target_selector'] ?? null)) return null;
         $childAttrs = is_array($children[0]['attrs'] ?? null) ? $children[0]['attrs'] : array();
         $childAttrs['className'] = SourceDom::mergeClassNames((string) ($childAttrs['className'] ?? ''), $this->wrapperCoalescer->layoutGeometryProofCarrier($proof));
@@ -2873,73 +2434,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $this->createBlock((string) $children[0]['blockName'], $childAttrs, $children[0]['innerBlocks'] ?? array(), $sourceChild);
     }
 
-    private function soleElementChild(DOMElement $element): ?DOMElement
-    {
-        $child = null;
-        foreach ( $element->childNodes as $node ) {
-            if ( XML_TEXT_NODE === $node->nodeType && '' === trim($node->textContent ?? '') ) {
-                continue;
-            }
-            // Source comments carry no rendered, selector, or runtime boundary.
-            // Treating them as transparent lets generated exports shed an otherwise
-            // inert authoring wrapper without interpreting product-specific markup.
-            if ( XML_COMMENT_NODE === $node->nodeType ) {
-                continue;
-            }
-            if ( $node instanceof DOMElement && ($this->emptyVisualRetention->isInertHiddenEmptyElement($node) || $this->isExplicitlyDisplayNoneEmptyElement($node)) ) {
-                continue;
-            }
-            if ( ! $node instanceof DOMElement || $child instanceof DOMElement ) {
-                return null;
-            }
-            $child = $node;
-        }
-
-        return $child;
-    }
-
     /** @return list<array{key: string, selector: string, parsed: array<string, mixed>, direct_child_parsed: array<string, mixed>, declarations: array<string, string>, rule_order: int}> */
-
-    private function preservesScriptStateWrapper(DOMElement $element): bool
-    {
-        if (SourceDom::isCaptureDeviceVisibilityCarrier($element)) return true;
-        if ( $this->emptyVisualRetention->isInertHiddenEmptyElement($element) ) {
-            return false;
-        }
-        foreach ( $element->attributes ?? array() as $attribute ) {
-            $name = strtolower($attribute->nodeName);
-            if ( LayoutShellBlockGenerator::isBooleanAttribute($name) ) {
-                return true;
-            }
-            if ( $this->runtimeIslands->isRuntimeDomTarget($element) && ( str_starts_with($name, 'data-') || str_starts_with($name, 'aria-') || 'role' === $name ) ) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private function isExplicitlyDisplayNoneEmptyElement(DOMElement $element): bool
-    {
-        return 0 === SourceDom::childElementCount($element)
-            && '' === trim($element->textContent ?? '')
-            && 'none' === CssValueInspector::comparable((string) ($this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'))['display'] ?? ''))
-            && '' === trim(SourceDom::attr($element, 'class'))
-            && '' === trim(SourceDom::attr($element, 'id'))
-            && '' === trim(SourceDom::attr($element, 'role'))
-            && array() === $this->sourceElementDescription->interactiveAttributes($element)
-            && array() === SourceDom::safeDataAttributes($element);
-    }
-
-    private function hasEmptyVisualInlineChild(DOMElement $element): bool
-    {
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && $this->sourceElementClassifier->isInlineContentElement(strtolower($child->tagName)) && $this->shouldPreserveEmptyVisualElement($child) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
 
     /**
      * Lower a foreignObject-only "fit text" SVG to the native text block its
@@ -2989,11 +2484,11 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return null;
         }
 
-        if ( $this->hasAuthorSemanticMarkedChild($element) || $this->hasRichTextMarkedDescendant($element) ) {
+        if ( $this->session->authorSelectorProjectionState()->hasSemanticMarkedChild($element) || $this->hasRichTextMarkedDescendant($element) ) {
             return null;
         }
 
-        if ( $this->hasEmptyVisualInlineChild($element) ) {
+        if ( $this->emptyVisualRetention->hasEmptyVisualInlineChild($element) ) {
             $fallbacks = array();
             $children = $this->convertChildren($element, $fallbacks, true);
             if ( array() !== $children ) {
@@ -3128,7 +2623,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return null;
         }
 
-        if ( $this->hasEmptyVisualInlineChild($element) ) {
+        if ( $this->emptyVisualRetention->hasEmptyVisualInlineChild($element) ) {
             $fallbacks = array();
             $children = $this->convertChildren($element, $fallbacks, true);
             if ( array() !== $children ) {
@@ -3145,7 +2640,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // before the existing carrier and image materialization can run. Beside
         // its own text it is part of one line box: splitting there would turn
         // each text run into a paragraph and drop the spaces between them.
-        if ( $this->hasSemanticCarrierChild($element) || ( null === $withLowered && $this->hasRichTextMarkedDescendant($element) && 2 > SourceDom::childElementCount($element) && ! $this->hasDirectText($element) ) ) {
+        if ( $this->session->authorSelectorProjectionState()->hasSemanticCarrierChild($element) || ( null === $withLowered && $this->hasRichTextMarkedDescendant($element) && 2 > SourceDom::childElementCount($element) && ! SourceDom::hasDirectText($element) ) ) {
             return null;
         }
 
@@ -3158,7 +2653,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             // Reuse label RichText preparation so wrapper hooks become carriers
             // before button marks are introduced (the normalizer avoids nesting
             // marks when replacing spans). Then use the paragraph primitives.
-            $content = $this->inlineRichTextContent($element);
+            $content = $this->richTextStylingHooks->inlineContent($element);
             $content = $this->richTextMaterializer->contentWithInlineSafeButtonsLowered($element, $content) ?? $content;
             $content = $this->richTextMaterializer->contentWithMaterializedSvgImages($element, $content) ?? $content;
         }
@@ -3197,51 +2692,13 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             if ('' !== trim(SourceDom::attr($child, 'id'))) ++$addressable;
         }
         if ($addressable < 2) return null;
-        if ($this->authorLayoutOwnership->isAuthorOwnedLayout($element) || $this->hasEmptyVisualInlineChild($element)) return null;
+        if ($this->authorLayoutOwnership->isAuthorOwnedLayout($element) || $this->emptyVisualRetention->hasEmptyVisualInlineChild($element)) return null;
 
         $content = $this->richTextMaterializer->content($element);
         if ('' === trim($this->runtime->stripAllTags($content)) || $this->richTextMaterializer->requiresHtmlFallback($content)) return null;
 
         $paragraph = $this->createBlock('core/paragraph', array('className' => self::INLINE_LAYOUT_CARRIER_CLASS, 'content' => $content));
         return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), array($paragraph), $element);
-    }
-
-    private function hasAuthorSemanticMarkedChild(DOMElement $element): bool
-    {
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && $this->hasAuthorSemanticMarker($child) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Whether a direct child needs a semantic carrier of its own. Attribute
-     * markers are classes an inline element keeps inside RichText, so they
-     * leave the phrasing run one paragraph.
-     */
-    private function hasSemanticCarrierChild(DOMElement $element): bool
-    {
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && '' !== $this->session->authorSelectorProjectionState()->semanticMarker(SourceDom::sourceElementIdentity($child)) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private function hasDirectText(DOMElement $element): bool
-    {
-        foreach ( $element->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') ) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private function hasRichTextMarkedDescendant(DOMElement $element): bool
@@ -3261,28 +2718,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->sourceElementClassifier,
             fn (DOMElement $element): ?array => $this->svgMaterializer->inlineSvgImageReference($element)
         );
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $blocks
-     * @return array<string, mixed>|null
-     */
-    private function blockForSourceSelector(array $blocks, string $selector): ?array
-    {
-        foreach ( $blocks as $block ) {
-            if ( ! is_array($block) ) {
-                continue;
-            }
-            $provenanceId = $block['_source_provenance_id'] ?? null;
-            if ( is_int($provenanceId) && $selector === ($this->session->transformationProvenanceState()->source($provenanceId)['selector'] ?? null) ) {
-                return $block;
-            }
-            $nested = $this->blockForSourceSelector(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array(), $selector);
-            if ( null !== $nested ) {
-                return $nested;
-            }
-        }
-        return null;
     }
 
     /**
@@ -3404,28 +2839,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             array_merge($this->authorLayoutOwnership->cssOwnedGroupAttributes($list, true), array( 'tagName' => strtolower($list->tagName) )),
             $items,
             $list
-        );
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $fallbacks
-     */
-    private function captureInlineSvgFallback(DOMElement $element, array &$fallbacks): void
-    {
-        $this->session->fallbackEmitter()->captureInlineSvgFallback($element, $fallbacks);
-    }
-
-    /** @return array<string, mixed> */
-    private function svgArtworkBlock(DOMElement $element, string $svg): array
-    {
-        $generator = new SvgArtworkBlockGenerator();
-        $this->session->requireGeneratedBlockRegistry()->register(SvgArtworkBlockGenerator::class, $generator->definition($this->session->requireGeneratedBlockRegistry()->namespace()));
-
-        return $this->createBlock(
-            $this->session->requireGeneratedBlockRegistry()->blockName(SvgArtworkBlockGenerator::LOCAL_NAME),
-            array( 'svg' => $svg ),
-            array(),
-            $element
         );
     }
 

@@ -24,6 +24,20 @@ final class SvgDefinitionClips
         return $result;
     }
 
+    /** Rewrite inline `style` references to definition-only SVG clips under $body. */
+    public static function rewriteInlineStyles(DOMElement $body): void
+    {
+        $replacements = self::replacements($body);
+        if ( array() === $replacements ) {
+            return;
+        }
+        foreach ( $body->getElementsByTagName('*') as $element ) {
+            if ( $element->hasAttribute('style') ) {
+                $element->setAttribute('style', self::rewrite($element->getAttribute('style'), $replacements));
+            }
+        }
+    }
+
     /** All-or-nothing: unsupported definitions must keep their in-document carrier. */
     private static function carrierReplacements(DOMElement $svg): array
     {

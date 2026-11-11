@@ -7,7 +7,6 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
-use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
@@ -16,7 +15,6 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSpecificityProjection;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\WordPressCommentForm;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonStyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMarkerSelector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\AddressableInlineLayoutLeaf;
@@ -1091,7 +1089,7 @@ final class AuthorStylesheetProjector
                 $markers[] = $marker;
             }
             if ( array() === $markers && ! $hasLabelProjection ) {
-                array_push($rewritten, ...($this->projectSourceAttributePseudoSelector($selector, $context) ?? array($selector)));
+                $rewritten[] = $this->rewriteSelectorPrelude($selector, $context);
                 continue;
             }
             foreach ( array_unique($markers) as $marker ) {
@@ -1988,10 +1986,28 @@ final class AuthorStylesheetProjector
                 array_push($rewritten, ...$runtimeProjection);
                 continue;
             }
-            $pseudoProjection = $this->projectSourceAttributePseudoSelector($selector, $context);
-            if (null !== $pseudoProjection && array() !== $pseudoProjection) {
-                array_push($rewritten, ...$pseudoProjection);
-                continue;
+            $host = CssSelectorMatcher::pseudoElementHost($selector);
+            if (null !== $host) {
+                // Project the originating element through the same subject
+                // pipeline as a non-pseudo rule, then restore the suffix on
+                // every arm (including RichText marker arms).
+                $projectedHost = $this->rewriteSelectorPreludeOnce($host['selector'], $context, $controlWrapper, $subjectArms, $semanticSubjectArms);
+                $targets = CssStylesheetTransformer::splitSelectorList($projectedHost) ?? array();
+                foreach ($targets as $target) {
+                    $rewritten[] = $target . $host['suffix'];
+                }
+                if (array() !== $targets) continue;
+            }
+            // A host that projects to nothing would ship a dead rule. State
+            // hosts (:hover, :checked) have no host here; the state path owns them.
+            if (null !== $host) {
+                $context->evidence->recordConversionDiagnostic(array(
+                    'code' => 'html_unprojectable_pseudo_element_selector',
+                    'severity' => 'error',
+                    'conversion_classification' => 'unacceptable',
+                    'selector' => $selector,
+                    'message' => 'Could not project the originating element of an author pseudo-element rule.',
+                ));
             }
             // Attribute carriers are keyed by the authored selector. Resolve the
             // complete captured predicate before rewriting a negation to its
@@ -2047,6 +2063,15 @@ final class AuthorStylesheetProjector
                     // Typed item subjects retain the existing structural
                     // projection, including sibling predicates and whitespace
                     // participation. The new anchor subject is independent.
+                    $otherSubjects[] = $element;
+                    continue;
+                }
+                if (in_array(strtolower($element->tagName), array('li', 'ul', 'ol'), true) && null === ($subject['type'] ?? null)
+                    && $this->typedItemRuleOutranks($element, $parsed, $context)) {
+                    // A typed rule on this item stays on the structural tier
+                    // above. When it beat this subject in the source, join it
+                    // there: the carrier baseline would lift this subject above
+                    // it and invert the authored cascade.
                     $otherSubjects[] = $element;
                     continue;
                 }
@@ -2826,17 +2851,6 @@ final class AuthorStylesheetProjector
         return null;
     }
 
-    /** @return list<string>|null */
-    private function projectSourceAttributePseudoSelector(string $selector, AuthorStylesheetProjectionContext $context): ?array
-    {
-        $host = CssSelectorMatcher::pseudoElementHost($selector);
-        if (null === $host) return null;
-        $matches = $this->matchingSourceElements($host['selector'], $host['parsed'], $context);
-        $projected = $this->projectSourceAttributeAncestrySelector($host['selector'], $host['parsed'], $matches, $context)
-            ?? $this->projectSourceAttributeSelector($host['selector'], $host['parsed'], $matches, $context);
-        return null === $projected ? null : array_map(static fn (string $target): string => $target . $host['suffix'], $projected);
-    }
-
     /** @param array<string, mixed> $parsed @param list<DOMElement> $matches @return list<string>|null */
     private function projectSourceAttributeAncestrySelector(string $selector, array $parsed, array $matches, AuthorStylesheetProjectionContext $context, bool $controlWrapper = false): ?array
     {
@@ -3004,7 +3018,13 @@ final class AuthorStylesheetProjector
             if ( '' === $marker ) {
                 return null;
             }
-            $projected[] = ':where(.' . $marker . $attributeTarget . ')' . $this->selectorSpecificityShims($parsed, $context)
+            // Native navigation subjects carry a shared four-class baseline on
+            // every other projection path; keep it here, or a class rule this
+            // selector beat in the source would outrank it.
+            $baseline = '' === $context->selectorProjections->navigationSubject($path)
+                ? ''
+                : str_repeat(':not(.' . $context->authorStyles->classSpecificityShim() . ')', 4);
+            $projected[] = ':where(.' . $marker . $attributeTarget . ')' . $baseline . $this->selectorSpecificityShims($parsed, $context)
                 . (($rightmost['empty'] ?? false) ? ':empty' : '');
         }
         return array_values(array_unique($projected));
@@ -4943,6 +4963,36 @@ final class AuthorStylesheetProjector
             $offset = $replacement['end'];
         }
         return $output . substr($selector, $offset);
+    }
+
+    /**
+     * Whether a typed selector whose subject is this source item has at least
+     * the given selector's source specificity. Typed item subjects keep the
+     * structural projection, so an untyped rival must share that tier for the
+     * source specificity and order to keep arbitrating between them.
+     *
+     * @param array<string, mixed> $parsed
+     */
+    private function typedItemRuleOutranks(DOMElement $element, array $parsed, AuthorStylesheetProjectionContext $context): bool
+    {
+        $own = array_values(CssSelectorMatcher::specificityCounts($parsed));
+        foreach ($context->authorStyles->styleRules() as $rule) {
+            foreach ((array) ($rule['selectors'] ?? array()) as $candidate) {
+                $typed = $candidate['parsed'] ?? array();
+                if (!($typed['supported'] ?? false) || str_contains((string) ($candidate['selector'] ?? ''), '::')
+                    || null === (CssSelectorCompoundInspector::rightmost($typed['compounds'])['type'] ?? null)
+                ) {
+                    continue;
+                }
+                $weight = CssSelectorMatcher::specificityCounts($typed);
+                if (array($weight['ids'], $weight['classes'], $weight['types']) >= $own
+                    && CssSelectorMatcher::matches($element, $typed)['matches']
+                ) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /** @param array<string, mixed> $parsed @return list<DOMElement> */

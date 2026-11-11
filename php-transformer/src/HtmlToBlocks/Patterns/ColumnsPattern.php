@@ -229,7 +229,7 @@ final class ColumnsPattern implements PatternRecognizerInterface
         // Split-layout names describe two-pane structures. Multi-child content
         // stacks such as hero copy must stay groups so source CSS controls flow.
         return (bool) preg_match('/(?:^|\s)columns?(?:$|\s)/', $className)
-            || ( $this->looksLikeSplitLayout($element) && 2 === SourceDom::directElementChildCount($element) )
+            || ( $this->looksLikeSplitLayout($element) && 2 === SourceDom::childElementCount($element) )
             || ( $this->looksLikeDocumentationLayout($element) && $this->hasSidebarAndContentChildren($element, $referenceViewportStyle) )
             || $this->hasSidebarAndContentChildren($element, $referenceViewportStyle)
             || preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex/', $inlineStyle);

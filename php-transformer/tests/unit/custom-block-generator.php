@@ -224,8 +224,8 @@ $nativeColumnsResult = ( new HtmlTransformer() )->transform($nativeColumns)->toA
 $assert(array() === ($nativeColumnsResult['source_reports']['generated_blocks'] ?? array()) && str_contains((string) ($nativeColumnsResult['serialized_blocks'] ?? ''), '<!-- wp:columns'), '6: native recognizers take precedence over generated component capture');
 
 $projectedChain = '<p>Editable terminal content</p>';
-// Non-div wrappers still exercise the generated shell save/edit contract.
-for ($depth = 0; $depth < 21; ++$depth) $projectedChain = '<section id="shell-' . $depth . '" class="shell-' . $depth . ' blocks-engine-source-div-fixture-3">' . $projectedChain . '</section>';
+// Deeper than the editability nesting budget, so native Groups cannot hold it.
+for ($depth = 0; $depth < 21; ++$depth) $projectedChain = '<div id="shell-' . $depth . '" class="shell-' . $depth . ' blocks-engine-source-div-fixture-3">' . $projectedChain . '</div>';
 $shellResult = ( new HtmlTransformer() )->transform($projectedChain)->toArray();
 $shellBlock = $shellResult['blocks'][0] ?? array();
 $shellDefinitions = array_values(array_filter($shellResult['source_reports']['generated_blocks'] ?? array(), static fn (array $definition): bool => 'Layout Shell' === ($definition['block_json']['title'] ?? null)));

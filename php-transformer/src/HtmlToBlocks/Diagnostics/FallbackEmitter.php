@@ -782,7 +782,7 @@ final class FallbackEmitter
     private function subtreeInlineCss(DOMElement $element): string
     {
         $parts = array();
-        foreach ( $this->subtreeElements($element) as $node ) {
+        foreach ( SourceDom::subtreeElements($element) as $node ) {
             $style = trim(SourceDom::attr($node, 'style'));
             if ( '' !== $style ) {
                 $parts[] = $style;
@@ -799,7 +799,7 @@ final class FallbackEmitter
     private function subtreeJsText(DOMElement $element): string
     {
         $parts = array();
-        foreach ( $this->subtreeElements($element) as $node ) {
+        foreach ( SourceDom::subtreeElements($element) as $node ) {
             if ( 'script' === strtolower($node->tagName) && '' === trim(SourceDom::attr($node, 'src')) ) {
                 $body = trim($node->textContent ?? '');
                 if ( '' !== $body ) {
@@ -818,21 +818,6 @@ final class FallbackEmitter
         }
 
         return implode("\n", $parts);
-    }
-
-    /**
-     * @return array<int, DOMElement>
-     */
-    private function subtreeElements(DOMElement $element): array
-    {
-        $out = array( $element );
-        foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement ) {
-                $out[] = $descendant;
-            }
-        }
-
-        return $out;
     }
 
     /**

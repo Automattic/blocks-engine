@@ -920,11 +920,6 @@ final class BlockFactory
         return preg_match('/^(?:\d+|\d*\.\d+)$/', $value) ? $value . 'px' : $value;
     }
 
-    private function isPercentageWidth(string $width): bool
-    {
-        return 1 === preg_match('/%\s*$/', trim($width));
-    }
-
     private function isColumnFlexBasis(string $width): bool
     {
         return 1 === preg_match('/^\d+(?:\.\d+)?(?:%|px|em|rem|ch|vw|vmin|vmax)$/', trim($width));

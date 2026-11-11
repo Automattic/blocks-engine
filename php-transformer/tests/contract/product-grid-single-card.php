@@ -32,7 +32,7 @@ $cardWithControl = static fn (): string => '<div class="card">'
     . '<a class="card__link" href="/products/widget"><img src="/media/widget.png" alt="Widget"><div class="card-body"><h3>Widget</h3><div class="price">$65.00</div></div></a>'
     . '<button class="card-atc" aria-label="Add Widget to cart"><span>Add to Cart</span></button>'
     . '</div>';
-$page = static fn (string $card): string => '<!doctype html><html><head><title>Compound notes</title></head><body><main>'
+$page = static fn (string $card): string => '<!doctype html><html><head><title>Compound notes</title></head><body><a href="/cart/">Cart</a><main>'
     . '<h1>Research notes</h1><p>Our lab keeps a short list of the compounds referenced in this article.</p>'
     . '<section class="related"><h2>Compounds referenced in this article</h2><div class="grid">' . $card . '</div></section>'
     . '<p>Contact the front desk to arrange equipment loans.</p></main></body></html>';

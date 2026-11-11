@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use DOMElement;
 
@@ -67,5 +68,40 @@ final class StandaloneBreakLowering
         $blocks = array();
         for ( $i = 0; $i < $count; ++$i ) $blocks[] = $this->blocks->createBlock('core/paragraph', array('content' => ''));
         return $blocks;
+    }
+
+    /**
+     * The index of the last block when it is a synthetic paragraph standing
+     * for inline source content: it renders inline, so a `<br>` after the
+     * source run it stands for has to end the line inside it.
+     *
+     * @param array<int, array<string, mixed>> $blocks
+     */
+    public static function inlineParagraphIndex(array $blocks): ?int
+    {
+        $index = array_key_last($blocks);
+        $block = null === $index ? null : $blocks[$index];
+        if ( ! is_array($block) || 'core/paragraph' !== ($block['blockName'] ?? null) || ! str_ends_with((string) ($block['innerHTML'] ?? ''), '</p>') || array() !== ($block['innerBlocks'] ?? array()) ) {
+            return null;
+        }
+        $classes = preg_split('/\s+/', (string) ($block['attrs']['className'] ?? '')) ?: array();
+        return in_array(SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS, $classes, true) && ! in_array(SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS, $classes, true)
+            ? $index
+            : null;
+    }
+
+    /**
+     * @param array<string, mixed> $paragraph
+     * @return array<string, mixed>
+     */
+    public static function endLine(array $paragraph): array
+    {
+        $html = substr((string) $paragraph['innerHTML'], 0, -4) . '<br></p>';
+        $paragraph['innerHTML'] = $html;
+        $paragraph['innerContent'] = array( $html );
+        if ( isset($paragraph['attrs']['content']) ) {
+            $paragraph['attrs']['content'] .= '<br>';
+        }
+        return $paragraph;
     }
 }

@@ -16,7 +16,7 @@ $cards = '';
 foreach ($links as $name => $href) {
     $cards .= $card($name, $href);
 }
-$html = '<!doctype html><html><head><title>Catalog</title></head><body><main><h1>Catalog</h1><section>' . $controls . '<div class="grid" style="display:grid">' . $cards . '</div></section></main></body></html>';
+$html = '<!doctype html><html><head><title>Catalog</title></head><body><a href="/cart/">Cart</a><main><h1>Catalog</h1><section>' . $controls . '<div class="grid" style="display:grid">' . $cards . '</div></section></main></body></html>';
 $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'catalog.html', 'files' => array('catalog.html' => $html)))->toArray();
 $assert('failed' !== $result['status'] && !isset($result['source_reports']['wordpress_site_plan_diagnostics']), 'Catalog composes cleanly: ' . json_encode($result['source_reports']['wordpress_site_plan_diagnostics'] ?? $result['status']));
 $entities = array();

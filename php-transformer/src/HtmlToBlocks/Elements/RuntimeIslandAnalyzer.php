@@ -69,15 +69,6 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
         return $this->session->fallbackEmitter()->isRuntimeCanvasTarget($element);
     }
 
-    /**
-     * @param array<string, mixed> $options
-     * @return array<string, bool>
-     */
-    public function runtimeCanvasSelectorsFromOptions(array $options): array
-    {
-        return $this->runtimeSelectorsFromOptions($options, 'runtime_canvas_selectors');
-    }
-
     public function isRuntimeDomTarget(DOMElement $element): bool
     {
         if ('' !== trim(SourceDom::attr($element, CaptureEvidence::DIALOG_CLOSE))) return true;
@@ -697,52 +688,6 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
         }
 
         return true;
-    }
-
-
-    /**
-     * @param array<string, mixed> $options
-     * @return array<int, array<string, mixed>>
-     */
-    public function runtimeScriptMetadataFromOptions(array $options): array
-    {
-        $metadata = array();
-        foreach ( $options['runtime_script_metadata'] ?? array() as $script ) {
-            if ( ! is_array($script) ) {
-                continue;
-            }
-
-            $metadata[] = array_filter(array(
-                'path'               => is_string($script['path'] ?? null) ? $script['path'] : '',
-                'selector'           => is_string($script['selector'] ?? null) ? $script['selector'] : '',
-                'attributes'         => is_array($script['attributes'] ?? null) ? $script['attributes'] : array(),
-                'script_role'        => 'runtime',
-                'script_source_kind' => is_string($script['script_source_kind'] ?? null) ? $script['script_source_kind'] : 'external',
-            ), static fn (mixed $value): bool => '' !== $value && array() !== $value);
-        }
-
-        return SourceDom::dedupeArrayRows($metadata);
-    }
-
-    /**
-     * @param array<string, mixed> $options
-     * @return array<string, bool>
-     */
-    public function runtimeSelectorsFromOptions(array $options, string $key): array
-    {
-        $selectors = array();
-        foreach ( $options[$key] ?? array() as $selector ) {
-            if ( is_string($selector) && $this->isBoundedRuntimeSelector($selector) ) {
-                $selectors[$selector] = true;
-            }
-        }
-
-        return $selectors;
-    }
-
-    public function isBoundedRuntimeSelector(string $selector): bool
-    {
-        return 1 === preg_match('/^' . RuntimeSelectorVocabulary::scriptSelectorPattern() . '$/', $selector);
     }
 
     public function isSafeTransparentCustomElement(DOMElement $element, bool $allowMotionStructure = false, bool $requireOrdinaryFlow = false): bool

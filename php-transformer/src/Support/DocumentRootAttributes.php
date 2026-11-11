@@ -14,6 +14,21 @@ final class DocumentRootAttributes
         return self::forDocument($html)[$tagName] ?? array();
     }
 
+    /** Re-parent a body parsed on its own under an `<html>` carrying the source root attributes. */
+    public static function restoreRoot(\DOMElement $body, string $html): void
+    {
+        $attributes = self::fromHtml($html);
+        if ( array() === $attributes ) {
+            return;
+        }
+        $root = $body->ownerDocument->createElement('html');
+        foreach ( $attributes as $name => $value ) {
+            $root->setAttribute($name, $value);
+        }
+        $body->ownerDocument->replaceChild($root, $body);
+        $root->appendChild($body);
+    }
+
     /** @return array{html:array<string,string>,body:array<string,string>} */
     public static function forDocument(string $html): array
     {

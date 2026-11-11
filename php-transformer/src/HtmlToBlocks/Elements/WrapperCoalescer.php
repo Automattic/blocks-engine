@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
+use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
@@ -116,10 +117,12 @@ final class WrapperCoalescer
         $candidate = $this->collectWrapperChain($block, $depth);
         $chain = $candidate['chain'];
         $terminal = $candidate['terminal'];
-        // Div wrappers already have an exact native representation, including
-        // around empty/extracted or generated terminals. Folding them trades
-        // independently editable Groups for a companion without changing DOM.
-        $nativeGroupTree = array() === array_filter($chain, static fn (array $entry): bool => 'div' !== ($entry['descriptor']['tagName'] ?? null));
+        // The wrapper's native representation does not depend on its terminal.
+        // Site-wide extraction can leave an empty/freeform terminal, and a
+        // generated child does not require its editable ancestors to be generated
+        // too. Keep the source boundaries, subject to the nesting budget.
+        $nativeGroupTree = array() === array_filter($chain, static fn (array $entry): bool => 'div' !== ($entry['descriptor']['tagName'] ?? null))
+            && $depth + count($chain) - 1 + $this->nativeBlockHeight($terminal) <= EditabilityPolicy::THRESHOLDS['max_nesting_depth'];
         $terminalIsShell = $this->sourceElementClassifier->isLayoutShellBlock($terminal);
         if (!$nativeGroupTree && (2 <= count($chain) || (array() !== $chain && $terminalIsShell))) {
             return $this->foldWrapperChain($chain, $terminal);
@@ -132,6 +135,22 @@ final class WrapperCoalescer
         }
         if (is_array($block['innerBlocks'] ?? null)) $block['innerBlocks'] = $this->compressProjectedGroupChains($block['innerBlocks'], $depth + 1);
         return $block;
+    }
+
+    /**
+     * Levels a block occupies in the saved tree. A freeform chain terminal is
+     * not saved itself: its children take its place.
+     *
+     * @param array<string,mixed> $block
+     */
+    private function nativeBlockHeight(array $block): int
+    {
+        $height = 0;
+        foreach (is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array() as $child) {
+            if (is_array($child)) $height = max($height, $this->nativeBlockHeight($child));
+        }
+
+        return 'core/freeform' === ($block['blockName'] ?? null) ? $height : $height + 1;
     }
 
     /** @param array<string,mixed> $block @return array{chain:array<int,array{block:array<string,mixed>,descriptor:array<string,mixed>}>,terminal:array<string,mixed>,boundary:?string} */
@@ -611,8 +630,11 @@ final class WrapperCoalescer
             return false;
         }
 
+        // Descendants retain their identity, but lose ancestors too. Checking
+        // only the merged wrapper misses rules whose subject is below it.
+        $descendants = SourceDom::descendantElements($child);
         $beforeCandidatesByKey = array();
-        foreach ( $chain as $node ) {
+        foreach ( array_merge($chain, $descendants) as $node ) {
             foreach ( $this->session->authorStyleRuleCandidates($node) as $selector ) {
                 $beforeCandidatesByKey[$selector['key']] = $selector;
             }
@@ -624,6 +646,14 @@ final class WrapperCoalescer
                 $chain,
                 fn (DOMElement $node): bool => $this->session->sourceStyleResolutionState()->selectorMatchCache->matches($node, $selector['selector'], $selector['parsed'], true)['matches']
             );
+        }
+
+        $descendantMatchesBefore = array();
+        foreach ( $descendants as $index => $node ) {
+            foreach ( $beforeCandidates as $selector ) {
+                $descendantMatchesBefore[$index][$selector['key']] = $selector['parsed']['supported']
+                    && $this->session->sourceStyleResolutionState()->selectorMatchCache->matches($node, $selector['selector'], $selector['parsed'], true)['matches'];
+            }
         }
 
         $childClass = SourceDom::attr($child, 'class');
@@ -655,6 +685,9 @@ final class WrapperCoalescer
         $survives = true;
         $temporarySelectorCache = new CssSelectorMatchCache();
         $afterCandidates = $this->session->authorStyleRuleCandidates($matchNode, $temporarySelectorCache);
+        foreach ( $descendants as $node ) {
+            $afterCandidates = array_merge($afterCandidates, $this->session->authorStyleRuleCandidates($node, $temporarySelectorCache));
+        }
         $candidates = array();
         foreach ( array_merge($beforeCandidates, $afterCandidates) as $selector ) {
             $candidates[$selector['key']] = $selector;
@@ -665,6 +698,17 @@ final class WrapperCoalescer
             if ( ($matchesBefore[$key] ?? false) !== $matchesAfter && ($exact || ! $this->hasOnlyRenderNeutralDeclarations($selector['declarations'])) ) {
                 $survives = false;
                 break;
+            }
+        }
+
+        foreach ( $descendants as $index => $node ) {
+            foreach ( $candidates as $key => $selector ) {
+                $matchesAfter = $selector['parsed']['supported']
+                    && $temporarySelectorCache->matches($node, $selector['selector'], $selector['parsed'], true)['matches'];
+                if ( ($descendantMatchesBefore[$index][$key] ?? false) !== $matchesAfter ) {
+                    $survives = false;
+                    break 2;
+                }
             }
         }
 

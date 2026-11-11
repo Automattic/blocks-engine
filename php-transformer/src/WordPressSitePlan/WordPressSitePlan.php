@@ -467,7 +467,9 @@ PHP;
         // representation owns the landmark wrapper until extraction is accepted.
         foreach ($pages as &$page) {
             foreach ($page['shell_candidates'] ?? array() as $candidate) {
-                $restored = $this->shellExtraction->replaceTopLevelShell($page['canonical_block_markup'], (string) ($candidate['area'] ?? ''), (string) ($candidate['markup'] ?? ''));
+                // A leading-chrome candidate still owns its original landmark
+                // until extraction accepts it; restoring the pruned part loses content.
+                $restored = $this->shellExtraction->replaceTopLevelShell($page['canonical_block_markup'], (string) ($candidate['area'] ?? ''), (string) ($candidate['shared_leading']['markup'] ?? $candidate['markup'] ?? ''));
                 if (null !== $restored) $page['canonical_block_markup'] = $restored;
             }
             $page['content_hash'] = self::contentHash($page['canonical_block_markup']);
@@ -735,6 +737,15 @@ PHP;
         unset($asset);
         // Asset payloads are the last canonicalization pass, so the placeholder
         // backing recovered media is declared once every reference is known.
+        // Every emitted stylesheet is serialized once, at its smallest
+        // cascade-equivalent size.
+        $compactor = new CssStylesheetTransformer();
+        foreach ($assets as &$asset) {
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
+            $compacted = $compactor->compactStylesheet($asset['content']);
+            if ($compacted !== $asset['content']) $asset = self::withRewrittenTextContent($asset, $compacted);
+        }
+        unset($asset);
         $assetWrites = $this->assetWrites($assets, $references);
         foreach ($assets as &$asset) unset($asset['reference_origin']); unset($asset);
         $placeholderAssets = $this->assets($this->missingMedia->assets());
@@ -1949,9 +1960,9 @@ PHP;
 
     /**
      * authoredChromeHooks() grouped by the element (HTML start tag or block
-     * comment) that carries them.
+     * comment) that carries them, with the generated marker classes it carries.
      *
-     * @return list<array{class:array<string,true>,id:array<string,true>}>
+     * @return list<array{class:array<string,true>,id:array<string,true>,marker:array<string,true>}>
      */
     private static function authoredChromeElementHooks(string $markup): array
     {
@@ -1960,16 +1971,27 @@ PHP;
         foreach ($tags[1] as $attributes) {
             $classes = preg_match('/\sclass="([^"]*)"/', $attributes, $class) ? preg_split('/\s+/', html_entity_decode($class[1], ENT_QUOTES | ENT_HTML5)) : array();
             $ids = preg_match('/\sid="([^"]+)"/', $attributes, $id) ? array(html_entity_decode($id[1], ENT_QUOTES | ENT_HTML5)) : array();
-            if (array() !== $classes || array() !== $ids) $elements[] = self::selectorHooks($classes ?: array(), $ids);
+            if (array() !== $classes || array() !== $ids) $elements[] = self::selectorHooks($classes ?: array(), $ids) + array('marker' => self::generatedMarkers($classes ?: array()));
         }
         preg_match_all('/<!--\s*wp:[a-z0-9\/-]+\s+(\{.*?\})\s*\/?-->/s', $markup, $comments);
         foreach ($comments[1] as $json) {
             $attrs = json_decode($json, true);
             $classes = is_string($attrs['className'] ?? null) ? (preg_split('/\s+/', $attrs['className']) ?: array()) : array();
             $ids = is_string($attrs['anchor'] ?? null) ? array($attrs['anchor']) : array();
-            if (array() !== $classes || array() !== $ids) $elements[] = self::selectorHooks($classes, $ids);
+            if (array() !== $classes || array() !== $ids) $elements[] = self::selectorHooks($classes, $ids) + array('marker' => self::generatedMarkers($classes));
         }
         return $elements;
+    }
+
+    /**
+     * @param array<int,mixed> $classes
+     * @return array<string,true>
+     */
+    private static function generatedMarkers(array $classes): array
+    {
+        $markers = array();
+        foreach ($classes as $class) if (is_string($class) && 1 === preg_match(self::GENERATED_CLASS_PATTERN, $class, $match)) $markers[$match[0]] = true;
+        return $markers;
     }
 
     /**
@@ -3030,10 +3052,12 @@ PHP;
         }
         // Hooks that route content also uses belong to that content too; rules
         // for them stay with the route instead of becoming global chrome rules.
-        $routeHooks = array('class' => array(), 'id' => array());
+        // So are generated markers route content carries, such as an author
+        // attribute selector lowered onto a marker class.
+        $routeHooks = array('class' => array(), 'id' => array(), 'marker' => array());
         foreach ($pages as $page) {
-            foreach (self::authoredChromeHooks(self::withoutLandmarks((string) ($page['canonical_block_markup'] ?? ''))) as $kind => $names) {
-                $routeHooks[$kind] += $names;
+            foreach (self::authoredChromeElementHooks(self::withoutLandmarks((string) ($page['canonical_block_markup'] ?? ''))) as $element) {
+                foreach ($routeHooks as $kind => $names) $routeHooks[$kind] += $element[$kind];
             }
         }
         // A hook whose rules differ between the routes rendering its chrome
@@ -3055,14 +3079,16 @@ PHP;
         do {
             $grown = false;
             foreach ($chromeElements as $element) {
-                if (array() === array_intersect_key($element['class'], $routeHooks['class']) && array() === array_intersect_key($element['id'], $routeHooks['id'])) continue;
-                foreach (array('class', 'id') as $kind) {
+                if (array() === array_intersect_key($element['class'], $routeHooks['class']) && array() === array_intersect_key($element['id'], $routeHooks['id']) && array() === array_intersect_key($element['marker'], $routeHooks['marker'])) continue;
+                foreach (array('class', 'id', 'marker') as $kind) {
                     if (array() === array_diff_key($element[$kind], $routeHooks[$kind])) continue;
                     $routeHooks[$kind] += $element[$kind];
                     $grown = true;
                 }
             }
         } while ($grown);
+        $classes = array_diff_key($classes, $routeHooks['marker']);
+        unset($routeHooks['marker']);
         foreach ($routeHooks as $kind => $names) $authored[$kind] = array_diff_key($authored[$kind], $names);
         // A route-kept hook that a detached part also carries still styles that
         // part wherever a rule reaches it through the ancestors it was hoisted
@@ -7214,8 +7240,12 @@ PHP;
         // Pages count too: a consumer may publish a theme template from a page's
         // canonical markup (a store's product archive keeps its asset tokens),
         // and only this resolver turns those tokens into theme URLs on render.
+        // Map only the tokens those documents reference: every entry ships in
+        // functions.php and keeps its theme file reachable.
+        $referenced = array();
+        foreach (array_merge($templates, $parts, $pages) as $document) if (preg_match_all('/' . preg_quote(self::TOKEN_PREFIX, '/') . '([^}]+)\}\}/', (string) ($document['canonical_block_markup'] ?? ''), $matches)) $referenced += array_fill_keys($matches[1], true);
         $templateAssetTokens = array();
-        foreach (array_merge($templates, $parts, $pages) as $document) if (str_contains((string) ($document['canonical_block_markup'] ?? ''), self::TOKEN_PREFIX)) foreach ($tokens as $token) if (is_string($token['token'] ?? null) && is_string($token['target_path'] ?? null)) $templateAssetTokens[self::TOKEN_PREFIX . $token['token'] . '}}'] = $token['target_path'];
+        foreach ($tokens as $token) if (isset($referenced[$token['token'] ?? null]) && is_string($token['target_path'] ?? null)) $templateAssetTokens[self::TOKEN_PREFIX . $token['token'] . '}}'] = $token['target_path'];
         if (array() !== $templateAssetTokens) {
             $lines[] = '$blocks_engine_template_asset_tokens = ' . var_export($templateAssetTokens, true) . ';';
             $lines[] = '$blocks_engine_template_attachment_ids = array();';
@@ -7980,7 +8010,7 @@ PHP;
                     // (e.g. route aliases). Preserve their positional disambiguation.
                     foreach ($sourceRanges as $index => $sourceRange) {
                         $canonicalRange = $canonicalRanges[$index] ?? null;
-                        if ($isAnchorSource($sourceMarkup, $sourceRange) && $anchor['source_occurrence'] === self::occurrenceAtOffset($sourceMarkup, substr($sourceMarkup, $sourceRange['offset'], $sourceRange['length']), $sourceRange['offset']) && is_array($canonicalRange) && $search === substr($markup, $canonicalRange['offset'], $canonicalRange['length']) && !isset($claimedOffsets[$canonicalRange['offset']])) $candidates[] = array('source' => $sourceRange, 'canonical' => $canonicalRange);
+                        if ($isAnchorSource($sourceMarkup, $sourceRange) && $anchor['source_occurrence'] === HtmlTagScanner::occurrenceAtOffset($sourceMarkup, substr($sourceMarkup, $sourceRange['offset'], $sourceRange['length']), $sourceRange['offset']) && is_array($canonicalRange) && $search === substr($markup, $canonicalRange['offset'], $canonicalRange['length']) && !isset($claimedOffsets[$canonicalRange['offset']])) $candidates[] = array('source' => $sourceRange, 'canonical' => $canonicalRange);
                     }
                     $unclaimedCanonical = array_values(array_filter($canonicalMatches, static fn(array $range): bool => !isset($claimedOffsets[$range['offset']])));
                     if (array() === $candidates && 1 === count($sourceMatches) && 1 === count($unclaimedCanonical)) $candidates[] = array('source' => $sourceMatches[0], 'canonical' => $unclaimedCanonical[0]);
@@ -8015,7 +8045,7 @@ PHP;
                 if (!is_string($canonical) || '' === $canonical || !is_int($blockIndex)) throw new InvalidArgumentException('A runtime entity binding resolved to empty canonical block markup.');
                 $anchored[$identity['id']] = true;
                 $binding['search_block_markup'] = $canonical;
-                $binding['occurrence'] = self::occurrenceAtOffset($documentMarkup, $canonical, $range['offset']);
+                $binding['occurrence'] = HtmlTagScanner::occurrenceAtOffset($documentMarkup, $canonical, $range['offset']);
                 $binding['position'] = array('schema' => 'blocks-engine/runtime-binding-position/v1', 'block_index' => $blockIndex, 'offset' => $range['offset'], 'length' => $range['length']);
                 if (is_string($landing['source_path'] ?? null)) {
                     $binding['source_path'] = $landing['source_path'];
@@ -8933,12 +8963,6 @@ PHP;
         if (!is_array($position) || 'blocks-engine/runtime-binding-position/v1' !== ($position['schema'] ?? null) || !is_int($position['block_index'] ?? null) || $position['block_index'] < 0 || !is_int($position['offset'] ?? null) || $position['offset'] < 0 || !is_int($position['length'] ?? null) || $position['length'] < 1) return false;
         $range = $documentIndex->ranges()[$position['block_index']] ?? null;
         return null !== $range && $range['offset'] === $position['offset'] && $range['length'] === $position['length'] && $search === substr($markup, $range['offset'], $range['length']);
-    }
-    private static function occurrenceAtOffset(string $markup, string $search, int $offset): int
-    {
-        $occurrence = 0; $cursor = 0;
-        while (false !== ($found = strpos($markup, $search, $cursor))) { ++$occurrence; if ($found === $offset) return $occurrence; $cursor = $found + strlen($search); }
-        return 0;
     }
     private static function occurrenceOffset(string $markup, string $search, int $occurrence): ?int
     {

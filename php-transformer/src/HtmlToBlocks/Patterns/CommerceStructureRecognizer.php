@@ -300,7 +300,38 @@ final class CommerceStructureRecognizer
         return implode(' ', $parts);
     }
 
-    public function cartControlElement(DOMElement $card): ?DOMElement
+    /** Purchase evidence for a store, including navigation to its cart or checkout. */
+    public function hasPurchaseAffordance(DOMElement $root): bool
+    {
+        if ( null !== $this->cartControlElement($root, true) || array() !== $this->checkoutRegions($root) ) {
+            return true;
+        }
+        foreach ( $root->getElementsByTagName('form') as $form ) {
+            if ( 'commerce_add_to_cart' === \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeRequirementAnalyzer::formIntent($form) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Whether any source document supplies purchase evidence (schema alone does not). */
+    public static function sourceHasPurchaseAffordance(array $files): bool
+    {
+        $recognizer = new self();
+        foreach ( $files as $file ) {
+            if ( ! is_array($file) || ! is_string($file['content'] ?? null) || ! preg_match('/\.html?$/i', (string) ($file['path'] ?? '')) ) {
+                continue;
+            }
+            $document = new \DOMDocument();
+            @$document->loadHTML('<?xml encoding="UTF-8">' . $file['content'], LIBXML_NOERROR | LIBXML_NOWARNING);
+            if ( $document->documentElement instanceof DOMElement && $recognizer->hasPurchaseAffordance($document->documentElement) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public function cartControlElement(DOMElement $card, bool $includeNavigation = false): ?DOMElement
     {
         $tokens = array( 'cart', 'buy', 'purchase', 'checkout', 'order', 'addtocart', 'add-to-cart' );
         foreach ( $card->getElementsByTagName('*') as $descendant ) {
@@ -315,7 +346,7 @@ final class CommerceStructureRecognizer
             if ( ! $isControl || ('input' === $tagName && 'hidden' === strtolower(SourceDom::attr($descendant, 'type'))) ) {
                 continue;
             }
-            if ( $this->isInCardNavigation($descendant, $card) ) {
+            if ( ! $includeNavigation && $this->isInCardNavigation($descendant, $card) ) {
                 continue;
             }
 
@@ -325,6 +356,7 @@ final class CommerceStructureRecognizer
                 SourceDom::attr($descendant, 'name'),
                 SourceDom::attr($descendant, 'aria-label'),
                 SourceDom::attr($descendant, 'value'),
+                $includeNavigation ? SourceDom::attr($descendant, 'href') : '',
                 implode(' ', SourceDom::safeDataAttributes($descendant)),
                 $this->collapsedText($descendant),
             )));
@@ -332,8 +364,13 @@ final class CommerceStructureRecognizer
             // A link that navigates to a cart or checkout page ("view cart") is
             // navigation unless it also names a purchase action.
             $navigates = 'a' === $tagName && 'button' !== $role && $this->navigatesAway(SourceDom::attr($descendant, 'href'));
+            if ( $includeNavigation && $this->isInCardNavigation($descendant, $card)
+                && ! $this->classifier->hasTokenBoundary($haystack, 'cart')
+                && ! $this->classifier->hasTokenBoundary($haystack, 'checkout') ) {
+                continue;
+            }
             foreach ( $tokens as $token ) {
-                if ( $navigates && in_array($token, array( 'cart', 'checkout', 'order' ), true) && ! preg_match('/\b(?:add|buy|purchase)\b/', $haystack) ) {
+                if ( ! $includeNavigation && $navigates && in_array($token, array( 'cart', 'checkout', 'order' ), true) && ! preg_match('/\b(?:add|buy|purchase)\b/', $haystack) ) {
                     continue;
                 }
                 if ( $this->classifier->hasTokenBoundary($haystack, $token) ) {

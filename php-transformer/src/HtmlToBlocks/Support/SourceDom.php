@@ -701,11 +701,21 @@ final class SourceDom
         return '';
     }
 
-    public static function associatedLabel(DOMElement $control): ?DOMElement
+    /** Explicit labels take precedence; callers may opt into wrapping labels. */
+    public static function associatedLabel(DOMElement $control, bool $includeImplicit = false): ?DOMElement
     {
+        $implicit = null;
+        if ( $includeImplicit ) {
+            for ( $parent = $control->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+                if ( 'label' === strtolower($parent->tagName) ) {
+                    $implicit = $parent;
+                    break;
+                }
+            }
+        }
         $id = self::attr($control, 'id');
         if ( '' === $id || ! $control->ownerDocument instanceof DOMDocument ) {
-            return null;
+            return $implicit;
         }
 
         $scope = self::documentVariantRoot($control);
@@ -721,7 +731,7 @@ final class SourceDom
             $fallback ??= $label;
         }
 
-        return $fallback;
+        return $fallback ?? $implicit;
     }
 
     public static function elementSelector(DOMElement $element): string
@@ -781,6 +791,43 @@ final class SourceDom
         }
 
         $parent->removeChild($element);
+    }
+
+    public static function hasDirectText(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @return list<string> */
+    public static function directChildTags(DOMElement $element): array
+    {
+        $tags = array();
+        foreach ($element->childNodes as $child) {
+            if (! $child instanceof DOMElement) continue;
+            $tag = strtolower($child->tagName);
+            $tags[] = 'svg' === $tag ? 'img' : $tag;
+        }
+        return $tags;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<int, array<string, mixed>>
+     */
+    public static function hasWordPressTemplateParts(DOMElement $root): bool
+    {
+        $areas = array();
+        foreach ($root->childNodes as $child) {
+            if (!$child instanceof DOMElement) continue;
+            if (in_array('wp-block-template-part', preg_split('/\s+/', trim($child->getAttribute('class'))) ?: array(), true)) $areas[strtolower($child->tagName)] = true;
+        }
+        return isset($areas['header'], $areas['footer']);
     }
 
     /**
@@ -892,6 +939,23 @@ final class SourceDom
         return '' !== $token
             && strlen($token) <= $maxLength
             && 1 === preg_match('/^[A-Za-z0-9_-][A-Za-z0-9_.:-]*$/D', $token);
+    }
+
+    /**
+     * The element followed by all of its descendant elements, in document order.
+     *
+     * @return array<int, DOMElement>
+     */
+    public static function subtreeElements(DOMElement $element): array
+    {
+        $out = array( $element );
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement ) {
+                $out[] = $descendant;
+            }
+        }
+
+        return $out;
     }
 
     public static function childElementCount(DOMElement $element): int
@@ -1369,18 +1433,6 @@ final class SourceDom
             'bytes'     => $bytes,
             'truncated' => false,
         );
-    }
-
-    public static function directElementChildCount(DOMElement $element): int
-    {
-        $count = 0;
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement ) {
-                ++$count;
-            }
-        }
-
-        return $count;
     }
 
     public static function mergeClassNames(string ...$classNames): string

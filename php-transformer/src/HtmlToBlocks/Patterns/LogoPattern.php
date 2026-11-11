@@ -320,30 +320,6 @@ final class LogoPattern implements PatternRecognizerInterface
         return $this->fragmentHtml($body);
     }
 
-    private function unwrapPresentationalSpan(string $html): string
-    {
-        while ( preg_match('/^<span\b[^>]*>(.*)<\/span>$/is', $html, $matches) === 1 && $this->spanWrapsEntireContent($matches[1]) ) {
-            $html = trim($matches[1]);
-        }
-
-        return $html;
-    }
-
-    private function spanWrapsEntireContent(string $inner): bool
-    {
-        $depth = 0;
-        if ( preg_match_all('/<(\/?)span\b[^>]*>/i', $inner, $matches) ) {
-            foreach ( $matches[1] as $slash ) {
-                $depth += '' === $slash ? 1 : -1;
-                if ( $depth < 0 ) {
-                    return false;
-                }
-            }
-        }
-
-        return 0 === $depth;
-    }
-
     private function plainText(string $html): string
     {
         return trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');

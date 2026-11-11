@@ -13,7 +13,6 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
-use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\GeneratedGutenbergClassPolicy;
 use DOMElement;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
@@ -1984,19 +1983,19 @@ final class StyleResolver implements ElementPresentationResolver
     private const FONT_SHORTHAND_LONGHANDS = array( 'font-style', 'font-variant', 'font-weight', 'font-size', 'line-height', 'font-family' );
 
     /**
-     * The `font` shorthand that decides the element's resting font family when
+     * The `font` shorthand that decides the element's resting font longhand when
      * that shorthand could not be expanded at parse time (`font: var(--type)`,
-     * a system font), or null when a `font-family` longhand or nothing
+     * a system font), or null when the requested longhand or nothing
      * decides it. Such a shorthand is invisible to the classified cascade, yet
-     * it resets the family the element would otherwise inherit. The value is
+     * it resets longhands the element would otherwise inherit. The value is
      * returned as authored, before custom-property substitution.
      */
-    public function restingFontShorthand(DOMElement $element): ?string
+    public function restingFontShorthand(DOMElement $element, string $property = 'font-family'): ?string
     {
         $cascade = array();
         $sequence = 0;
-        $apply = function (string $kind, string $value, bool $inline, array $specificity, ?int $layer) use (&$cascade, &$sequence): void {
-            $this->applyMediaTextCascadeDeclaration($cascade, 'font-family', $kind . ':' . $value, $inline, $specificity, ++$sequence, $layer);
+        $apply = function (string $kind, string $value, bool $inline, array $specificity, ?int $layer) use (&$cascade, &$sequence, $property): void {
+            $this->applyMediaTextCascadeDeclaration($cascade, $property, $kind . ':' . $value, $inline, $specificity, ++$sequence, $layer);
         };
         foreach ( $this->matchingStyleRules($element, 'static') as $rule ) {
             if ( ! empty($rule['conditions']) && ! $this->conditionsApplyAtViewport($rule['conditions'], self::DESKTOP_REFERENCE_WIDTH) ) {
@@ -2005,17 +2004,17 @@ final class StyleResolver implements ElementPresentationResolver
             $specificity = $this->mediaTextSelectorSpecificity((string) $rule['selector']);
             // Apply the rule's shorthand and longhand in authored order.
             $entries = array();
-            if ( isset($rule['declarations']['font-family']) ) $entries[] = array( 'family', (string) $rule['declarations']['font-family'] );
+            if ( isset($rule['declarations'][$property]) ) $entries[] = array( 'longhand', (string) $rule['declarations'][$property] );
             if ( isset($rule['pendingFont']) ) {
                 $font = array( 'font', (string) $rule['pendingFont'] );
-                if ( empty($rule['pendingFontFamilyFollows']) ) $entries[] = $font; else array_unshift($entries, $font);
+                if ( ! in_array($property, $rule['pendingFontFollowingProperties'] ?? array(), true) ) $entries[] = $font; else array_unshift($entries, $font);
             }
             foreach ( $entries as [$kind, $value] ) $apply($kind, $value, false, $specificity, $rule['layerRank'] ?? null);
         }
-        foreach ( $this->cssDeclarations(SourceDom::attr($element, 'style')) as $property => $value ) {
-            if ( 'font-family' === $property || 'font' === $property ) $apply('font' === $property ? 'font' : 'family', (string) $value, true, array( PHP_INT_MAX, PHP_INT_MAX, PHP_INT_MAX ), null);
+        foreach ( $this->cssDeclarations(SourceDom::attr($element, 'style')) as $inlineProperty => $value ) {
+            if ( $property === $inlineProperty || 'font' === $inlineProperty ) $apply('font' === $inlineProperty ? 'font' : 'longhand', (string) $value, true, array( PHP_INT_MAX, PHP_INT_MAX, PHP_INT_MAX ), null);
         }
-        $winner = (string) ( $cascade['font-family']['value'] ?? '' );
+        $winner = (string) ( $cascade[$property]['value'] ?? '' );
         return str_starts_with($winner, 'font:') ? substr($winner, 5) : null;
     }
 
@@ -2888,8 +2887,18 @@ final class StyleResolver implements ElementPresentationResolver
      * overrides on this element. They never render, so reading them as the
      * element's authored presentation (block attributes, geometry carriers)
      * would project a value the source never showed.
+     *
+     * Applies to every styled descendant of $root, collected up front so the
+     * style rewrites never disturb the iteration.
      */
-    public function dropAuthorOverriddenInlineDeclarations(DOMElement $element): void
+    public function dropAuthorOverriddenInlineDeclarations(DOMElement $root): void
+    {
+        foreach ( iterator_to_array((new \DOMXPath($root->ownerDocument))->query('.//*[@style]', $root)) as $element ) {
+            $this->dropAuthorOverriddenInlineDeclarationsOn($element);
+        }
+    }
+
+    private function dropAuthorOverriddenInlineDeclarationsOn(DOMElement $element): void
     {
         $inline = $this->verbatimCssDeclarations(SourceDom::attr($element, 'style'));
         if ( array() === $inline ) {
@@ -3004,7 +3013,7 @@ final class StyleResolver implements ElementPresentationResolver
      */
     private function inlineInheritedTextAlignDeclaration(DOMElement $element, array $declarations, array $excludedProperties): array
     {
-        if ( in_array('text-align', $excludedProperties, true) || 0 === SourceDom::directElementChildCount($element) ) {
+        if ( in_array('text-align', $excludedProperties, true) || 0 === SourceDom::childElementCount($element) ) {
             return array();
         }
 
@@ -5659,8 +5668,6 @@ final class StyleResolver implements ElementPresentationResolver
             $order = array_flip(array_keys($rawDeclarations));
             $pendingFont['pendingFont'] = (string) $rawDeclarations['font'];
             $pendingFont['pendingFontFollowingProperties'] = array_slice(array_keys($rawDeclarations), $order['font'] + 1);
-            // The rule's own later `font-family` decides the family instead.
-            if ( isset($order['font-family']) && $order['font-family'] > $order['font'] ) $pendingFont['pendingFontFamilyFollows'] = true;
         }
         // Image leaf classification needs source alignment, but adding it to
         // safeVisualDeclarations would change unrelated box/style ownership.
@@ -7484,5 +7491,23 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         return $this->expandCssVariableReferences($value, $this->cascadedCustomProperties($element));
+    }
+
+    /** A `<br>` breaks a line only in flow: a flex or grid parent blockifies each run into its own item. */
+    public function breakEndsInlineLine(DOMElement $break): bool
+    {
+        $parent = $break->parentNode;
+        $display = $parent instanceof DOMElement ? strtolower($this->resolvedPresentationDeclarations($parent)['display'] ?? 'block') : 'block';
+        return ! in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
+    }
+
+    /** @return array<string, mixed> */
+    public function positionedInlineCarrierAttributes(DOMElement $element): array
+    {
+        return $this->presentationAttributes($element, array(), array(
+            'position', 'z-index', 'inset', 'inset-block', 'inset-inline',
+            'inset-block-start', 'inset-block-end', 'inset-inline-start',
+            'inset-inline-end', 'top', 'right', 'bottom', 'left',
+        ));
     }
 }

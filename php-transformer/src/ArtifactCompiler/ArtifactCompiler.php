@@ -199,6 +199,9 @@ final class ArtifactCompiler
 
     private string $generatedAssetRoot = '';
 
+    /** Whether the artifact offers a purchase affordance; decided once per compile. */
+    private ?bool $sourceHasPurchaseAffordance = null;
+
     /** @var array<string, array<string, mixed>> */
     private array $filesByPath = array();
 
@@ -273,9 +276,15 @@ final class ArtifactCompiler
      *
      * @param array<string, mixed> $artifact
      */
+    private function sourceHasPurchaseAffordance(array $files): bool
+    {
+        return $this->sourceHasPurchaseAffordance ??= \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer::sourceHasPurchaseAffordance($files);
+    }
+
     private function compileArtifact(array $artifact): TransformerResult
     {
 		$this->themeStaticCssCache = array();
+        $this->sourceHasPurchaseAffordance = null;
         $this->stylesheetOccurrenceCache = array();
         $this->layeredNavigationImports = array();
 		$this->wordpressCompat = new WordPressCompatCss();
@@ -1188,7 +1197,9 @@ final class ArtifactCompiler
         $detailPages = array();
         $entryRoot = dirname($entryPath);
         $pageEvidence = array();
-        $schemaProducts = SchemaProductEvidence::rows($files, $slug, $price, $diagnostics, $productRoutes, $pageProducts, $detailPages, '.' === $entryRoot ? '' : $entryRoot, $pageEvidence);
+        $schemaProducts = $this->sourceHasPurchaseAffordance($files)
+            ? SchemaProductEvidence::rows($files, $slug, $price, $diagnostics, $productRoutes, $pageProducts, $detailPages, '.' === $entryRoot ? '' : $entryRoot, $pageEvidence)
+            : array();
         // Match the plan's page route, including explicit routes and entry roots.
         $pageRoutes = array();
         foreach ($files as $file) {
@@ -1908,12 +1919,13 @@ final class ArtifactCompiler
             'source'                    => $sourcePath,
             'source_scope'              => $sourceScope,
             'native_document_context'   => true,
+            'source_has_purchase_affordance' => $this->sourceHasPurchaseAffordance($files),
             'declarative_state_html'    => $html,
             'static_css'                => trim(implode("\n", array_column($stylesheetPayloads, 'content'))),
             'stylesheet_payloads'       => $stylesheetPayloads,
             // Rule analysis reads each occurrence with its imports expanded in
             // place, conditions attached; projections keep the authored bytes.
-            'author_stylesheet_assets'  => array_map(fn (array $stylesheet): array => $stylesheet + array('cascade_content' => $this->stylesheetOccurrenceContent($stylesheet, $files)), $stylesheetAssets),
+            'author_stylesheet_assets'  => $this->authorStylesheetAssetsWithImports($stylesheetAssets, $files),
             'author_layer_order'        => (new AuthorCascadeLayerOrder())->statement($layerOrderCss),
             'shared_stylesheet_paths'   => $this->sharedStylesheetPathsFromFiles($files),
             'skip_author_stylesheet_materialization' => true,
@@ -2564,7 +2576,41 @@ final class ArtifactCompiler
         return $this->compatibilityStylesheetContent((string) $stylesheet['content'], (string) ($stylesheet['source_path'] ?? $stylesheet['path']), $files);
     }
 
-    private function compatibilityStylesheetContent(string $css, string $path, array $files, array $ancestors = array(), bool $importedLayer = false): string
+    /**
+     * Imported files are projection targets too, but their rules are analyzed
+     * only in the importing occurrence's expanded cascade stream.
+     *
+     * @param array<int, array<string, mixed>> $stylesheets
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, array<string, mixed>>
+     */
+    private function authorStylesheetAssetsWithImports(array $stylesheets, array $files): array
+    {
+        $assets = array();
+        $importsByPath = array();
+        foreach ($stylesheets as $stylesheet) {
+            $imports = array();
+            $cascade = $this->compatibilityStylesheetContent($stylesheet['content'], $stylesheet['source_path'] ?? $stylesheet['path'], $files, array(), false, $imports, (string) ($stylesheet['media'] ?? ''));
+            $assets[] = $stylesheet + array('cascade_content' => $cascade);
+            foreach ($imports as $import) {
+                foreach (array('capture_only', 'stylesheet_activation') as $key) {
+                    if (isset($stylesheet[$key])) $import[$key] = $stylesheet[$key];
+                }
+                // One file is one projection target. Repeated imports (such as
+                // one per viewport band) widen its media instead of repeating it.
+                $path = $import['path'];
+                if (!isset($importsByPath[$path])) {
+                    $importsByPath[$path] = $import;
+                    continue;
+                }
+                $media = array($importsByPath[$path]['media'], $import['media']);
+                $importsByPath[$path]['media'] = in_array('', $media, true) ? '' : implode(', ', array_unique($media));
+            }
+        }
+        return array_merge($assets, array_values($importsByPath));
+    }
+
+    private function compatibilityStylesheetContent(string $css, string $path, array $files, array $ancestors = array(), bool $importedLayer = false, ?array &$imports = null, string $inheritedMedia = ''): string
     {
         if (isset($ancestors[$path])) return '';
         $ancestors[$path] = true;
@@ -2590,12 +2636,17 @@ final class ArtifactCompiler
                 $layer = '@layer' . (isset($condition[1]) ? ' ' . $condition[1] : '');
                 array_shift($conditions);
             }
-            $content = $this->compatibilityStylesheetContent($file['content'], $importPath, $files, $ancestors, $importedLayer || '' !== $layer);
             if (isset($conditions[0]) && preg_match('/^supports\((.*)\)$/is', $conditions[0], $condition)) {
                 $supports = '@supports ' . (preg_match('/^[\w-]+\s*:/', $condition[1]) ? '(' . $condition[1] . ')' : $condition[1]);
                 array_shift($conditions);
             }
-            if (array() !== $conditions) $content = '@media ' . implode(' ', $conditions) . '{' . $content . '}';
+            $media = implode(' ', $conditions);
+            $projectionMedia = '' === $inheritedMedia ? $media : ('' === $media ? $inheritedMedia : $inheritedMedia . ' and ' . $media);
+            if (null !== $imports && !isset($ancestors[$importPath])) {
+                $imports[] = array('path' => $importPath, 'source_path' => $importPath, 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content'])), 'media' => $projectionMedia, 'cascade_content' => '');
+            }
+            $content = $this->compatibilityStylesheetContent($file['content'], $importPath, $files, $ancestors, $importedLayer || '' !== $layer, $imports, $projectionMedia);
+            if (array() !== $conditions) $content = '@media ' . $media . '{' . $content . '}';
             if ('' !== $supports) $content = $supports . '{' . $content . '}';
             if ('' !== $layer) $content = $layer . '{' . $content . '}';
             $preamble[] = $content;
