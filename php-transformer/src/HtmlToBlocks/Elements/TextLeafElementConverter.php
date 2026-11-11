@@ -10,16 +10,12 @@ use DOMElement;
  * Converts source tags whose block mapping depends only on the element's own
  * text/markup content and presentation attributes.
  *
- * These branches previously lived inline in `HtmlTransformer::convertElement()`.
- * They are extracted as a collaborator rather than a trait: a trait keeps every
- * method in the transformer's `$this` scope, so it moves code across a file
- * boundary without reducing the object surface. This class receives a
- * {@see TextLeafElementContext} and can be exercised without constructing a
- * transformer.
+ * It receives a {@see TextLeafElementContext} and can be exercised without
+ * constructing a transformer.
  *
- * Ordering note: the transformer's dispatch chain is order-sensitive. This
- * converter is consulted at exactly the position the extracted branches
- * occupied, and {@see handles()} matches the same tags those branches matched.
+ * Ordering note: the element dispatch chain is order-sensitive, and
+ * {@see handles()} decides which tags reach this converter at its position
+ * in that chain.
  */
 final class TextLeafElementConverter implements ElementConverter
 {

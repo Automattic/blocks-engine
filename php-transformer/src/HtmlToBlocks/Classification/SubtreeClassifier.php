@@ -25,10 +25,6 @@ use DOMText;
  *    returns {@see self::BUCKET_UNKNOWN} (low confidence) so the caller can fall
  *    back to `core/html` + a diagnostic rather than misclassify.
  *  - Pure: no I/O, no global state; the same inputs always yield the same verdict.
- *
- * This module is intentionally standalone and is NOT wired into the conversion
- * flow yet; wiring lands as a follow-up after the HtmlTransformer decomposition
- * (#242). See PR for issue #497.
  */
 final class SubtreeClassifier
 {

@@ -15,10 +15,9 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 /**
  * Projects author navigation styling onto the emitted navigation blocks.
  *
- * Extracted from HtmlTransformer as a collaborator rather than a mixin: every
- * dependency it needs from the transformer is declared on
- * {@see NavigationStyleProjectionContext}, so this class has no $this access to
- * the transformer and can be exercised without constructing one.
+ * Every dependency it needs from the compilation is declared on
+ * {@see NavigationStyleProjectionContext}, so it can be exercised without
+ * constructing a transformer.
  */
 final class NavigationStyleProjector
 {

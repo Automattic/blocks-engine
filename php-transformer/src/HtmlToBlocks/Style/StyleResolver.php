@@ -19,15 +19,6 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
 /**
  * Resolves source CSS into native block presentation attributes.
- *
- * Previously `StyleResolutionTrait` — at 2,822 lines the largest
- * single-consumer trait mixed into `HtmlTransformer`, and therefore the largest
- * single contributor to that class's object scope. As a trait every one of its
- * 99 methods resolved against the transformer's `$this`.
- *
- * Despite its size this was the most self-contained of the remaining traits:
- * it needs 15 transformer operations and 3 collaborators, which is fewer
- * external dependencies than traits a third its size.
  */
 final class StyleResolver implements ElementPresentationResolver
 {
@@ -5593,8 +5584,7 @@ final class StyleResolver implements ElementPresentationResolver
 
     /**
      * Record one (possibly condition-scoped) style rule into the analysis
-     * streams. Extracted verbatim from the former `stylesheetAnalysis()`
-     * visitor closure.
+     * streams.
      *
      * @param array<int, array<string, mixed>> $analysis
      * @param list<string> $conditions

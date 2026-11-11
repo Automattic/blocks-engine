@@ -23,8 +23,8 @@ use Automattic\BlocksEngine\PhpTransformer\Support\RenderEquivalentMarkup;
 use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 
 /**
- * Constructs the per-element fallback / behavior-loss emission entries that
- * previously lived inline in HtmlTransformer: the `capture*Fallback` family
+ * Constructs the per-element fallback / behavior-loss emission entries: the
+ * `capture*Fallback` family
  * (`html_inline_svg_fallback` / `html_unsafe_inline_svg`,
  * `html_canvas_runtime_fallback`, `html_script_fallback`,
  * `html_template_runtime_fallback` / `html_template_metadata`,
@@ -32,21 +32,13 @@ use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
  * (`preserved_runtime_island`) and the runtime-script requirement metadata
  * that backs those findings.
  *
- * This is a behavior-preserving extraction (slice 4 of #242): the bodies are
- * moved verbatim, so the emitted `FallbackDiagnostic`/runtime-island arrays are
- * byte-identical to the inline implementation.
- *
- * Decoupling notes:
- *  - Fallback and script accumulators stay owned by HtmlTransformer. Runtime
+ * Collaborators:
+ *  - Fallback and script accumulators are owned by the caller. Runtime
  *    island evidence is recorded through the per-transform RuntimeDomState.
  *  - Per-document configuration (`fallbackProvenance`, `runtimeScriptMetadata`,
  *    `RuntimeSelectorState`) is injected via {@see configure()} once per
  *    transform.
  *  - Source-context enrichment is supplied by SourceElementDescription.
- *  - Small shared leaves (`eventMetadata`, `isSafeSvgContent`, `dedupeArrayRows`,
- *    `runtimeIslandSelector`) are duplicated here (HtmlTransformer keeps its own
- *    copies for non-fallback callers) so this module needs no transformer
- *    reference, mirroring the slice-3 `safeNavigationUrl` duplication.
  *
  * Fallback HTML helpers come from {@see DomHelpersTrait}; stateless DOM
  * helpers are called on {@see SourceDom}.
