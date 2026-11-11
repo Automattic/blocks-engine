@@ -872,6 +872,32 @@ final class StyleResolver implements ElementPresentationResolver
         $clone = SourceDom::canonicalizedSerializationClone($serialized);
         \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CommentTextRunBoundaries::mergeBlockifiedRuns($element, $clone, $blockifiesChildren);
         SourceDom::projectInlineStyles($element, $clone, $this->serializedInlineStyle(...));
+        // RichText parses literal line endings as spaces. Canonicalize collapsed
+        // text before saving too, so the initial frontend and editable value
+        // agree. Resolve against source ancestry, not the detached clone; pre
+        // and pre-line content must retain its meaningful line endings.
+        $sources = array_merge(array($element), iterator_to_array($element->getElementsByTagName('*')));
+        $targets = array_merge(array($clone), iterator_to_array($clone->getElementsByTagName('*')));
+        foreach ($sources as $index => $source) {
+            $collapse = '';
+            for ($ancestor = $source; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
+                $declarations = $this->referenceViewportAuthorDeclarations($ancestor, array('white-space', 'white-space-collapse'));
+                $collapse = CssValueInspector::comparable($declarations['white-space-collapse'] ?? $declarations['white-space'] ?? '');
+                if (!in_array($collapse, array('', 'inherit', 'unset'), true)) break;
+            }
+            if (!in_array($collapse, array('', 'normal', 'nowrap', 'collapse', 'initial'), true)) continue;
+            $endsWithSpace = false;
+            foreach ($targets[$index]->childNodes as $child) {
+                if ($child instanceof \DOMText) {
+                    $text = preg_replace('/[ \t\r\n\f]+/', ' ', $child->nodeValue ?? '') ?? '';
+                    if ($endsWithSpace) $text = ltrim($text, ' ');
+                    $child->nodeValue = $text;
+                    if ('' !== $text) $endsWithSpace = str_ends_with($text, ' ');
+                } elseif (!$child instanceof \DOMComment) {
+                    $endsWithSpace = false;
+                }
+            }
+        }
         return $clone;
     }
 
