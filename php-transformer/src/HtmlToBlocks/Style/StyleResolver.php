@@ -2383,7 +2383,7 @@ final class StyleResolver implements ElementPresentationResolver
         ksort($box);
         $declarationList = array();
         foreach ($box as $property => $value) {
-            $important = ($declarations[$property]['important'] ?? false) ? '!important' : '';
+            $important = ($declarations[$property]['important'] ?? false) && ! CssValueInspector::isImportant($value) ? '!important' : '';
             $declarationList[] = $property . ':' . $value . $important;
         }
         $signature = $this->geometryStructuralPath($image) . "\nimage-box-constraint\n" . implode(';', $declarationList);
@@ -2410,15 +2410,15 @@ final class StyleResolver implements ElementPresentationResolver
     public function flattenedImageFrameBox(DOMElement $image, ?DOMElement $figure): array
     {
         $frame = $image->parentNode;
-        if (! $figure instanceof DOMElement || ! $frame instanceof DOMElement || $frame === $figure
-            || $frame->parentNode !== $figure || 'div' !== strtolower($frame->tagName)) {
+        if (! $figure instanceof DOMElement || ! $frame instanceof DOMElement
+            || ($frame !== $figure && $frame->parentNode !== $figure) || 'div' !== strtolower($frame->tagName)) {
             return array();
         }
         $fill = $this->referenceViewportAuthorDeclarations($image, array('width', 'height'));
         if ('100%' !== ($fill['width'] ?? '') || '100%' !== ($fill['height'] ?? '')) {
             return array();
         }
-        $properties = array('aspect-ratio', 'overflow', 'overflow-x', 'overflow-y', 'box-sizing', 'background', 'background-color',
+        $properties = array('position', 'aspect-ratio', 'overflow', 'overflow-x', 'overflow-y', 'box-sizing', 'background', 'background-color',
             'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left');
         $box = $this->referenceViewportAuthorDeclarations($frame, $properties);
         if (isset($box['padding'])) {
@@ -2427,7 +2427,21 @@ final class StyleResolver implements ElementPresentationResolver
             }
             unset($box['padding']);
         }
-        if (! isset($box['aspect-ratio']) || ! preg_match('#^[0-9.]+\s*(?:/\s*[0-9.]+)?$#', $box['aspect-ratio'])) {
+        // A percentage padding frame is the same ratio box, with its image
+        // taken out of flow. Move the ratio onto the image and restore flow.
+        if (! isset($box['aspect-ratio']) && 'relative' === ($box['position'] ?? '')
+            && 'hidden' === ($box['overflow'] ?? '')
+            && preg_match('/^([0-9.]+)%$/', $box['padding-bottom'] ?? '', $ratio)
+            && (float) $ratio[1] > 0
+            && 'absolute' === ($this->referenceViewportAuthorDeclarations($image, array('position'))['position'] ?? '')) {
+            $box['aspect-ratio'] = '100 / ' . $ratio[1];
+            unset($box['padding-bottom']);
+            $box['position'] = 'static !important';
+        } else {
+            unset($box['position']);
+        }
+        if (($frame === $figure && ! isset($box['position']))
+            || ! isset($box['aspect-ratio']) || ! preg_match('#^[0-9.]+\s*(?:/\s*[0-9.]+)?$#', $box['aspect-ratio'])) {
             return array();
         }
         // A content-box frame's auto width excludes its padding. Reproduce

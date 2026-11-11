@@ -138,4 +138,18 @@ final class PublicationDate
         if (!$date || (is_array($errors) && (0 !== $errors['warning_count'] || 0 !== $errors['error_count']))) return null;
         return $date->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d\\TH:i:s\\Z');
     }
+
+    /** @param array<string,mixed> $attributes */
+    public static function isVisibleElement(string $name, array $attributes): bool
+    {
+        if ('time' === $name) {
+            return 'datePublished' === ($attributes['itemprop'] ?? null);
+        }
+        // Blogger heads each post's date as <h2 class="date-header">.
+        if (!in_array($name, array('p', 'span', 'div', 'li', 'td', 'mark', 'h2', 'h3', 'h4', 'h5', 'h6'), true)) {
+            return false;
+        }
+        $tokens = strtolower(trim(html_entity_decode((string) ($attributes['class'] ?? '') . ' ' . (string) ($attributes['id'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8')));
+        return 1 === preg_match('/\b(?:date|published|pubdate)\b/', $tokens);
+    }
 }

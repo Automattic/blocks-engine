@@ -4,6 +4,9 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ListingQueryLoops;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\PostChrome;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
 $assert = static function (bool $condition, string $message): void {
@@ -38,7 +41,7 @@ $posts = array();
 foreach (array('One', 'Two', 'Three') as $i => $title) {
     $posts[] = array('post_type' => 'post', 'title' => $title, 'route' => array('path' => '/' . strtolower($title)), 'publication_timestamp' => '2020-08-01T00:00:00Z', 'canonical_block_markup' => '<!-- wp:heading --><h1>' . $title . '</h1><!-- /wp:heading --><!-- wp:paragraph --><p>August 1, 2020</p><!-- /wp:paragraph --><!-- wp:paragraph --><p>First ' . $title . '</p><!-- /wp:paragraph --><!-- wp:paragraph --><p>Second ' . $title . '</p><!-- /wp:paragraph -->');
 }
-$factor = new ReflectionMethod(WordPressSitePlan::class, 'factorPostArticleChrome');
-$fallback = $factor->invoke(new WordPressSitePlan(), $posts, array(), array(), array());
+$chrome = new PostChrome(new ListingQueryLoops('', static fn(string $markup): string => ShellExtraction::identityMarkup($markup)), static fn(string $markup): string => ShellExtraction::identityMarkup($markup), static function (array $finding): void {});
+$fallback = $chrome->extractArticleChrome($posts, array());
 $assert(null === $fallback['single'] && $posts === $fallback['pages'], 'Ambiguous articles remain complete and page-owned');
 fwrite(STDOUT, "post content main boundary tests: passed\n");

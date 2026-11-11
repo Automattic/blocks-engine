@@ -42,6 +42,8 @@ $cases = array(
     'terms checkbox' => array( $username . $password . '<label><input type="checkbox" name="terms">Accept terms</label>' . $submit, false ),
     'no submit' => array( $username . $password, false ),
     'two submits' => array( $username . $password . $submit . $submit, false ),
+    'secondary buttons' => array( $username . $password . $remember . $submit . '<span>Or</span><button type="button" id="guest-signin">Sign in as a Guest</button><button type="button"><span>Other access options</span></button>', true, null, array( 'Sign in as a Guest', 'Other access options' ) ),
+    'secondary inline handler' => array( $username . $password . $submit . '<button type="button" onclick="guest()">Guest access</button>', false ),
 );
 
 $identity = '<input name="firstName"><input name="userName"><input type="email" name="email">';
@@ -63,6 +65,7 @@ $cases += array(
 foreach ( $cases as $label => $case ) {
     [$controls, $converted] = $case;
     $registrationText = $case[2] ?? null;
+    $secondaryLabels = $case[3] ?? array();
     $result = ( new HtmlTransformer() )->transform('<h2>Member access</h2><form name="loginform" id="loginform" action="/Auth/Register" method="post">' . $controls . '</form><p>After the form</p>')->toArray();
     $blocks = $flatten($result['blocks'] ?? array());
     $named = static fn (string $name): array => array_values(array_filter($blocks, static fn (array $block): bool => $name === ($block['blockName'] ?? '')));
@@ -77,14 +80,15 @@ foreach ( $cases as $label => $case ) {
         $assert(array() === ($result['fallbacks'] ?? array()), "{$label}: no fallback or loss diagnostic");
         $assert(str_contains($serialized, 'wp:loginout {"displayLoginAsForm":true}'), "{$label}: native block serialized");
         $buttons = $named('core/button');
-        $assert((null === $registrationText ? 0 : 1) === count($buttons), "{$label}: registration button count");
+        $expected = array_merge(null === $registrationText ? array() : array( $registrationText ), $secondaryLabels);
+        $assert($expected === array_map(static fn (array $button): ?string => $button['attrs']['text'] ?? null, $buttons), "{$label}: editable button text in source order");
         if ( null !== $registrationText ) {
-            $assert($registrationText === ($buttons[0]['attrs']['text'] ?? null), "{$label}: editable source submit text");
             $assert('/wp-login.php?action=register' === ($buttons[0]['attrs']['url'] ?? null), "{$label}: WordPress registration URL");
-            $groups = $named('core/group');
-            $children = $groups[0]['innerBlocks'] ?? array();
-            $assert(array( 'core/loginout', 'core/buttons' ) === array_column($children, 'blockName'), "{$label}: login then buttons");
-            $assert('core/button' === ($children[1]['innerBlocks'][0]['blockName'] ?? null), "{$label}: button inside buttons");
+        }
+        if ( array() !== $expected ) {
+            $children = $named('core/group')[0]['innerBlocks'] ?? array();
+            $assert(array_merge(array( 'core/loginout' ), array_fill(0, count($expected), 'core/buttons')) === array_column($children, 'blockName'), "{$label}: login then buttons");
+            $assert(! str_contains($serialized, '>Or<'), "{$label}: interleaved separator not carried");
         }
         foreach ( array( '/Auth/Register', 'source-secret', 'firstName', 'redirect_to', 'rememberme', 'user_pass', 'capture-native-control-state' ) as $dropped ) {
             $assert(! str_contains($serialized, $dropped), "{$label}: drops {$dropped}");

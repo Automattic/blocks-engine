@@ -300,7 +300,7 @@ final class AuthorStyleAnalysis
      * in any stylesheet on any page, so pages under different author CSS
      * project a shared stylesheet's type rules to the same text. Shared-chrome
      * extraction does not treat these markers as chrome hooks
-     * (WordPressSitePlan::projectSharedChromeStylesheets()), so a type rule
+     * (SharedChromeStylesheets::project()), so a type rule
      * from one page's own stylesheet is never lifted into a global asset.
      */
     public function allocateTagMarker(string $tagName): string

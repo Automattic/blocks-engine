@@ -4,6 +4,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\SharedChromeStylesheets;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
 $assert = static function (bool $ok, string $message): void { if (!$ok) throw new RuntimeException($message); };
@@ -117,7 +118,7 @@ foreach ($plan['pages'] as $page) {
 }
 }
 // Isolate cascade and media eligibility independently of extraction.
-$shellRules = new ReflectionMethod(\Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::class, 'detachedViewportShellRules');
+$shellRules = new ReflectionMethod(SharedChromeStylesheets::class, 'detachedViewportShellRules');
 $resolve = static function (array $styles) use ($shellRules): string {
     return $shellRules->invoke(null,
         array(array('placement' => array('kind' => 'shared_shell'), 'ancestor_context' => array('classes' => array('page-body')))),

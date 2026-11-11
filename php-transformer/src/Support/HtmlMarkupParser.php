@@ -40,4 +40,15 @@ final class HtmlMarkupParser
         if (!preg_match('~</' . preg_quote($name, '~') . '(?=[\s/>])[^>]*>~i', $content, $match, PREG_OFFSET_CAPTURE, $offset)) return null;
         return array($match[0][1], $match[0][1] + strlen($match[0][0]));
     }
+
+    /** The whitespace-collapsed text of an element whose content starts at $innerOffset. */
+    public static function innerText(string $html, string $name, int $innerOffset): string
+    {
+        $closing = self::rawTextEnd($html, $name, $innerOffset);
+        if (null === $closing) {
+            return '';
+        }
+        $inner = substr($html, $innerOffset, $closing[0] - $innerOffset);
+        return trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($inner), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
+    }
 }

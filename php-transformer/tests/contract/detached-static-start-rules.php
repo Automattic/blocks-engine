@@ -4,9 +4,10 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\SharedChromeStylesheets;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
-$rules = new ReflectionMethod(WordPressSitePlan::class, 'detachedStaticStartRules');
+$rules = new ReflectionMethod(SharedChromeStylesheets::class, 'detachedStaticStartRules');
 $parts = array(array('area' => 'header', 'placement' => array('kind' => 'shared_shell'), 'ancestor_context' => array('static_start_ids' => array('backdrop'))));
 $pages = array(array('canonical_block_markup' => '<div id="backdrop" style="left:auto;color:red"></div>'));
 $asset = static fn(string $css): array => array('kind' => 'css', 'content' => $css);

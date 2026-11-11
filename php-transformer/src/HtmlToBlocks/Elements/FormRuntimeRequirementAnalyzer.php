@@ -101,12 +101,12 @@ final class FormRuntimeRequirementAnalyzer
     public static function formIntent(DOMElement $form): string
     {
         $path = strtolower((string) parse_url(SourceDom::attr($form, 'action'), PHP_URL_PATH));
-        $controls = FormControlClassifier::controlElements($form);
+        $controls = self::intentControls($form);
         // Hidden submission data is deliberately absent from the authored-control
         // inventory; inspect it separately without exposing it as an editable field.
         $hiddenItem = false;
         foreach ( $form->getElementsByTagName('input') as $input ) {
-            if ( 'hidden' === strtolower(SourceDom::attr($input, 'type'))
+            if ( ! $input->hasAttribute('disabled') && 'hidden' === strtolower(SourceDom::attr($input, 'type'))
                 && in_array(strtolower(SourceDom::attr($input, 'name')), array( 'id', 'item_id', 'product_id', 'variant_id' ), true)
                 && '' !== trim(SourceDom::attr($input, 'value')) ) {
                 $hiddenItem = true;
@@ -127,7 +127,7 @@ final class FormRuntimeRequirementAnalyzer
         $choiceGroupSizes = array();
         // Submission controls count even when they are not rendered/authored
         // fields in the provider inventory (for example a hidden submit button).
-        foreach ( $form->getElementsByTagName('*') as $control ) {
+        foreach ( $controls as $control ) {
             $tag = strtolower($control->tagName);
             $controlType = FormControlClassifier::controlType($control);
             if ( in_array($tag, array( 'button', 'input' ), true)
@@ -206,6 +206,30 @@ final class FormRuntimeRequirementAnalyzer
     }
 
     /**
+     * Intent spans the whole workflow, not just the currently rendered step.
+     * Keep this separate from the authored inventory used by block topology and
+     * presentation: captured non-rendering state is not evidence of intent.
+     *
+     * @return list<DOMElement>
+     */
+    private static function intentControls(DOMElement $form): array
+    {
+        $controls = array();
+        foreach ( $form->getElementsByTagName('*') as $control ) {
+            if ( ! FormControlClassifier::isControlElement($control)
+                || $control->hasAttribute('disabled')
+                || 'hidden' === FormControlClassifier::controlType($control)
+                || FormControlClassifier::isHoneypotControl($control)
+                || SourceDom::hasNonAuthoredAncestor($control) ) {
+                continue;
+            }
+            $controls[] = $control;
+        }
+
+        return $controls;
+    }
+
+    /**
      * Scripts, embedded documents, event handlers and non-web link schemes
      * anywhere in the form keep it on the source fallback, which already owns
      * that markup.
@@ -254,7 +278,7 @@ final class FormRuntimeRequirementAnalyzer
     private static function hasCommerceSubmissionSignal(DOMElement $form, bool $addToCartOnly = false): bool
     {
         foreach ( $form->getElementsByTagName('*') as $control ) {
-            if ( ! FormControlClassifier::isSubmitLikeControl($control) ) {
+            if ( $control->hasAttribute('disabled') || ! FormControlClassifier::isSubmitLikeControl($control) ) {
                 continue;
             }
 
