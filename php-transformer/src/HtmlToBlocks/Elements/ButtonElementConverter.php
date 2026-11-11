@@ -88,7 +88,9 @@ final class ButtonElementConverter implements ElementConverter
             }
         }
 
-        return ConversionOutcome::handled($this->context->convertButton($element));
+        // Decide before pattern recognition projects author selectors onto
+        // core/button's synthetic wrapper and link.
+        return ConversionOutcome::handled($this->createBlock->percentageSizedFormButton($element) ?? $this->context->convertButton($element));
     }
 
     /**

@@ -588,27 +588,7 @@ final class CapturedChoiceGroupProjector
         if ('' === $selector) {
             return array('status' => 'unmatched', 'elements' => array());
         }
-        $elements = array();
-        foreach ($this->documentScopes($document) as $scope) {
-            $matched = CapturedSelectorPath::matches($scope, $selector, skipsScopeTag: true);
-            if (count($matched) > 1) {
-                return array('status' => 'ambiguous', 'elements' => array());
-            }
-            if (1 === count($matched)) {
-                $elements[] = $matched[0];
-            }
-        }
-        return array('status' => array() === $elements ? 'unmatched' : 'matched', 'elements' => $elements);
-    }
-
-    private function isResponsiveDocumentWrapper(DOMElement $element): bool
-    {
-        foreach (SourceDom::tokens($element->getAttribute('class')) as $class) {
-            if (str_starts_with($class, 'site-document-variant-') || in_array($class, array(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, CaptureEvidence::MOBILE_DOCUMENT_CLASS), true)) {
-                return true;
-            }
-        }
-        return false;
+        return $this->uniqueScopeMatches($document, static fn(DOMElement $scope): array => CapturedSelectorPath::matches($scope, $selector, skipsScopeTag: true));
     }
 
     private function safeHtml(string $html): ?string
