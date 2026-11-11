@@ -33,6 +33,25 @@ final class HtmlSerialization
         return $loaded;
     }
 
+    /**
+     * Attributes as escaped ` name="value"` pairs. Empty values are omitted
+     * unless their name is in `$includeEmpty`.
+     *
+     * @param array<string, string> $attributes
+     * @param array<int, string> $includeEmpty
+     */
+    public static function attributes(array $attributes, array $includeEmpty = array()): string
+    {
+        $html = '';
+        foreach ( $attributes as $name => $value ) {
+            if ( '' === $value && ! in_array($name, $includeEmpty, true) ) {
+                continue;
+            }
+            $html .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+        }
+        return $html;
+    }
+
     public static function documentHtml(DOMDocument $document): ?string
     {
         self::removeEncodingHints($document);

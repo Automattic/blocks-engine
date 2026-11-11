@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -587,12 +588,12 @@ final class SvgMaterializer implements SvgElementMaterializer
         );
         // RichText serializes an inline image object as a bare void tag, the
         // same spelling the editor saves and the DOM re-serializes on ingest.
-        $markup = '<img' . $this->svgRichTextHtmlAttributes($imageAttributes, array( 'alt' )) . '>';
+        $markup = '<img' . HtmlSerialization::attributes($imageAttributes, array( 'alt' )) . '>';
 
         if ( $includeLink ) {
             $link = $this->svgImageLinkAttributes($element);
             if ( array() !== $link ) {
-                $markup = '<a' . $this->svgRichTextHtmlAttributes($link) . '>' . $markup . '</a>';
+                $markup = '<a' . HtmlSerialization::attributes($link) . '>' . $markup . '</a>';
             }
         }
 
@@ -714,19 +715,6 @@ final class SvgMaterializer implements SvgElementMaterializer
         }
 
         return $dimensions;
-    }
-
-    /** @param array<string, string> $attributes */
-    private function svgRichTextHtmlAttributes(array $attributes, array $alwaysInclude = array()): string
-    {
-        $html = '';
-        foreach ( $attributes as $name => $value ) {
-            if ( '' === $value && ! in_array($name, $alwaysInclude, true) ) {
-                continue;
-            }
-            $html .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
-        }
-        return $html;
     }
 
     /** @return array<string, string> */

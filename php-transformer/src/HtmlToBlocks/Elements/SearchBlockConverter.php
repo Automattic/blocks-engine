@@ -82,7 +82,7 @@ final class SearchBlockConverter implements ElementConverter
         $paintedSibling = null;
         $paintedIcon = null;
         if ( null === $submitControl ) {
-            $candidate = $this->nextElementSibling($textInput);
+            $candidate = $textInput->nextElementSibling;
             if ( $candidate instanceof DOMElement && 'span' === strtolower($candidate->tagName)
                 && '' === trim($candidate->textContent) && array() === SourceDom::eventMetadata($candidate) ) {
                 foreach ( SourceDom::subtreeElements($candidate) as $part ) {
@@ -270,7 +270,7 @@ final class SearchBlockConverter implements ElementConverter
         }
 
         foreach ( $containers as $container ) {
-            $sibling = $this->nextElementSibling($container);
+            $sibling = $container->nextElementSibling;
             if ( $sibling instanceof DOMElement && $this->isAdjacentSearchTriggerControl($sibling) ) {
                 return $sibling;
             }
@@ -405,7 +405,7 @@ final class SearchBlockConverter implements ElementConverter
         }
 
         if ( $this->isAdjacentSearchTriggerControl($control) ) {
-            $formContainer = $this->previousElementSibling($control);
+            $formContainer = $control->previousElementSibling;
             return $formContainer instanceof DOMElement && $this->containsNativeSearchForm($formContainer);
         }
 
@@ -413,8 +413,8 @@ final class SearchBlockConverter implements ElementConverter
             return false;
         }
 
-        $trigger = $this->previousElementSibling($control);
-        $formContainer = $trigger instanceof DOMElement ? $this->previousElementSibling($trigger) : null;
+        $trigger = $control->previousElementSibling;
+        $formContainer = $trigger instanceof DOMElement ? $trigger->previousElementSibling : null;
         return $trigger instanceof DOMElement
             && $this->isAdjacentSearchTriggerControl($trigger)
             && $formContainer instanceof DOMElement
@@ -427,28 +427,6 @@ final class SearchBlockConverter implements ElementConverter
             ? array( $element )
             : iterator_to_array($element->getElementsByTagName('form'));
         return 1 === count($forms) && $forms[0] instanceof DOMElement && $this->isNativeSearchForm($forms[0]);
-    }
-
-    private function nextElementSibling(DOMElement $element): ?DOMElement
-    {
-        for ( $sibling = $element->nextSibling; null !== $sibling; $sibling = $sibling->nextSibling ) {
-            if ( $sibling instanceof DOMElement ) {
-                return $sibling;
-            }
-        }
-
-        return null;
-    }
-
-    private function previousElementSibling(DOMElement $element): ?DOMElement
-    {
-        for ( $sibling = $element->previousSibling; null !== $sibling; $sibling = $sibling->previousSibling ) {
-            if ( $sibling instanceof DOMElement ) {
-                return $sibling;
-            }
-        }
-
-        return null;
     }
 
     private function isSearchCloseControl(DOMElement $control): bool

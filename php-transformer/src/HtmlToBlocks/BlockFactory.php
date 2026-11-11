@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -410,7 +411,7 @@ final class BlockFactory
             // Layout renders blockGap as scoped CSS, not a saved inline gap.
             // Retain the attribute for the editor and server layout engine.
             unset($attrs['style']['spacing']['blockGap']);
-            $ariaLabel = $this->htmlAttrs(array('aria-label' => (string) ($attrs['ariaLabel'] ?? '')));
+            $ariaLabel = HtmlSerialization::attributes(array('aria-label' => (string) ($attrs['ariaLabel'] ?? '')));
             return '<div' . $this->blockSupportAttrs($attrs, 'wp-block-tab-list') . ' role="tablist"' . $ariaLabel . '>' . $buttons . '</div>';
         }
 
@@ -518,7 +519,7 @@ final class BlockFactory
         if ( 'core/group' === $name ) {
             $tag = $this->groupTagName($attrs['tagName'] ?? null);
             // Core's ariaLabel block support saves the attribute as aria-label.
-            $ariaLabel = $this->htmlAttrs(array( 'aria-label' => (string) ($attrs['ariaLabel'] ?? '') ));
+            $ariaLabel = HtmlSerialization::attributes(array( 'aria-label' => (string) ($attrs['ariaLabel'] ?? '') ));
             return array( 'opening' => '<' . $tag . $this->blockSupportAttrs($attrs, 'wp-block-group') . $ariaLabel . '>', 'closing' => '</' . $tag . '>' );
         }
 
@@ -572,7 +573,7 @@ final class BlockFactory
                 $imageAttrs['style'] = 'object-position:' . $objectPosition;
                 $imageAttrs['data-object-position'] = $objectPosition;
             }
-            $imageHtml = '<img' . $this->htmlAttrs($imageAttrs, array( 'alt' )) . '/>';
+            $imageHtml = '<img' . HtmlSerialization::attributes($imageAttrs, array( 'alt' )) . '/>';
         }
 
         $overlayClasses = array( 'wp-block-cover__background' );
@@ -597,7 +598,7 @@ final class BlockFactory
         if ( '' !== $customGradient ) {
             $overlayStyles[] = 'background:' . $customGradient;
         }
-        $overlayHtml = '<span' . $this->htmlAttrs(array(
+        $overlayHtml = '<span' . HtmlSerialization::attributes(array(
             'aria-hidden' => 'true',
             'class'       => implode(' ', $overlayClasses),
             'style'       => implode(';', $overlayStyles),
@@ -685,7 +686,7 @@ final class BlockFactory
     {
         $mediaUrl = (string) ($attrs['mediaUrl'] ?? '');
         if ( 'video' === ($attrs['mediaType'] ?? '') ) {
-            return '<video controls' . $this->htmlAttrs(array('src' => $mediaUrl)) . '></video>';
+            return '<video controls' . HtmlSerialization::attributes(array('src' => $mediaUrl)) . '></video>';
         }
 
         if ( 'image' !== ($attrs['mediaType'] ?? '') ) {
@@ -694,7 +695,7 @@ final class BlockFactory
 
         $image = '';
         if ( '' !== $mediaUrl ) {
-            $image = '<img' . $this->htmlAttrs(array(
+            $image = '<img' . HtmlSerialization::attributes(array(
                 'src' => $mediaUrl,
                 'alt' => (string) ($attrs['mediaAlt'] ?? ''),
             ), array( 'alt' )) . '/>';
@@ -705,7 +706,7 @@ final class BlockFactory
             return $image;
         }
 
-        return '<a' . $this->htmlAttrs(array(
+        return '<a' . HtmlSerialization::attributes(array(
             'class'  => (string) ($attrs['linkClass'] ?? ''),
             'href'   => $href,
             'target' => (string) ($attrs['linkTarget'] ?? ''),
@@ -760,15 +761,15 @@ final class BlockFactory
         if ( 'button' === ($attrs['tagName'] ?? '') ) {
             $controlAttrs = array( 'type' => (string) ($attrs['type'] ?? 'button') ) + $controlAttrs;
 
-            return '<div' . $this->htmlAttrs($wrapperAttrs) . '><button' . $this->htmlAttrs($controlAttrs) . '>' . $this->preserveRichTextPunctuation((string) ($attrs['text'] ?? '')) . '</button></div>';
+            return '<div' . HtmlSerialization::attributes($wrapperAttrs) . '><button' . HtmlSerialization::attributes($controlAttrs) . '>' . $this->preserveRichTextPunctuation((string) ($attrs['text'] ?? '')) . '</button></div>';
         }
 
         $href = '' !== ($attrs['url'] ?? '') ? ' href="' . htmlspecialchars((string) $attrs['url'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '';
-        $linkAttrs = $this->htmlAttrs(array(
+        $linkAttrs = HtmlSerialization::attributes(array(
             'target' => (string) ($attrs['linkTarget'] ?? ''),
             'rel'    => (string) ($attrs['rel'] ?? ''),
         ));
-        return '<div' . $this->htmlAttrs($wrapperAttrs) . '><a' . $this->htmlAttrs($controlAttrs) . $href . $linkAttrs . '>' . $this->preserveRichTextPunctuation((string) ($attrs['text'] ?? '')) . '</a></div>';
+        return '<div' . HtmlSerialization::attributes($wrapperAttrs) . '><a' . HtmlSerialization::attributes($controlAttrs) . $href . $linkAttrs . '>' . $this->preserveRichTextPunctuation((string) ($attrs['text'] ?? '')) . '</a></div>';
     }
 
     /**
@@ -779,7 +780,7 @@ final class BlockFactory
         $tableAttrs = array(
             'class' => empty($attrs['hasFixedLayout']) && array_key_exists('hasFixedLayout', $attrs) ? '' : 'has-fixed-layout',
         );
-        $html = '<figure' . $this->blockSupportAttrs($attrs, 'wp-block-table') . '><table' . $this->htmlAttrs($tableAttrs) . '>';
+        $html = '<figure' . $this->blockSupportAttrs($attrs, 'wp-block-table') . '><table' . HtmlSerialization::attributes($tableAttrs) . '>';
         foreach ( array( 'head' => 'thead', 'body' => 'tbody', 'foot' => 'tfoot' ) as $attrName => $tagName ) {
             if ( empty($attrs[$attrName]) || ! is_array($attrs[$attrName]) ) {
                 continue;
@@ -790,7 +791,7 @@ final class BlockFactory
                 foreach ( $row['cells'] ?? array() as $cell ) {
                     $cellTag = 'th' === ($cell['tag'] ?? '') ? 'th' : 'td';
                     // core/table saves spans after its other cell attributes.
-                    $spans = $this->htmlAttrs(array( 'colspan' => (string) ($cell['colspan'] ?? ''), 'rowspan' => (string) ($cell['rowspan'] ?? '') ));
+                    $spans = HtmlSerialization::attributes(array( 'colspan' => (string) ($cell['colspan'] ?? ''), 'rowspan' => (string) ($cell['rowspan'] ?? '') ));
                     $html .= '<' . $cellTag . $spans . '>' . $this->preserveRichTextPunctuation((string) ($cell['content'] ?? '')) . '</' . $cellTag . '>';
                 }
                 $html .= '</tr>';
@@ -838,7 +839,7 @@ final class BlockFactory
             'style' => trim($this->imageDimensionStyle($attrs) . ';' . $borderSupport['style'], ';'),
         );
 
-        $img = '<img' . $this->htmlAttrs($imageAttrs, array( 'alt' )) . '/>';
+        $img = '<img' . HtmlSerialization::attributes($imageAttrs, array( 'alt' )) . '/>';
         if ( ! empty($attrs['href']) ) {
             // The linked-image relay in EngineSupportCss replicates core's
             // `:where(.wp-block-image)>a` geometry inheritance for this
@@ -852,7 +853,7 @@ final class BlockFactory
                 'rel'         => (string) ($attrs['rel'] ?? ''),
                 'class'       => (string) ($attrs['linkClass'] ?? ''),
             );
-            $img = '<a' . $this->htmlAttrs($linkAttrs) . '>' . $img . '</a>';
+            $img = '<a' . HtmlSerialization::attributes($linkAttrs) . '>' . $img . '</a>';
         }
         // Core's save() emits only wp-element-caption; presentation rules for
         // source caption classes are projected onto the figure carrier instead.
@@ -970,7 +971,7 @@ final class BlockFactory
             $downloadButton = '<a class="wp-block-file__button wp-element-button" href="' . htmlspecialchars($href, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '" download>Download</a>';
         }
 
-        return '<div' . $this->blockSupportAttrs($attrs, 'wp-block-file') . '><a' . $this->htmlAttrs($linkAttrs) . '>' . $this->preserveRichTextPunctuation($fileName) . '</a>' . $downloadButton . '</div>';
+        return '<div' . $this->blockSupportAttrs($attrs, 'wp-block-file') . '><a' . HtmlSerialization::attributes($linkAttrs) . '>' . $this->preserveRichTextPunctuation($fileName) . '</a>' . $downloadButton . '</div>';
     }
 
     /**
@@ -1001,7 +1002,7 @@ final class BlockFactory
                 if ( ! is_array($track) ) {
                     continue;
                 }
-                $tracks .= '<track' . $this->htmlAttrs(array(
+                $tracks .= '<track' . HtmlSerialization::attributes(array(
                     'kind'    => (string) ($track['kind'] ?? ''),
                     'src'     => (string) ($track['src'] ?? ''),
                     'srclang' => (string) ($track['srcLang'] ?? ''),
@@ -1011,7 +1012,7 @@ final class BlockFactory
             }
         }
 
-        return '<figure' . $this->blockSupportAttrs($attrs, 'wp-block-' . $tagName) . '><' . $tagName . $this->htmlAttrs($mediaAttrs) . '>' . $tracks . '</' . $tagName . '>' . $caption . '</figure>';
+        return '<figure' . $this->blockSupportAttrs($attrs, 'wp-block-' . $tagName) . '><' . $tagName . HtmlSerialization::attributes($mediaAttrs) . '>' . $tracks . '</' . $tagName . '>' . $caption . '</figure>';
     }
 
     /**
@@ -1144,7 +1145,7 @@ final class BlockFactory
                 : $styleOverride),
             ';'
         );
-        return $this->htmlAttrs(array(
+        return HtmlSerialization::attributes(array(
             'id'    => (string) ($attrs['anchor'] ?? ''),
             'class' => $classes,
             'style' => $style,
@@ -1279,21 +1280,5 @@ final class BlockFactory
         }
 
         return $output;
-    }
-
-    /**
-     * @param array<string, string> $attrs
-     * @param array<int, string> $includeEmpty
-     */
-    private function htmlAttrs(array $attrs, array $includeEmpty = array()): string
-    {
-        $html = '';
-        foreach ( $attrs as $name => $value ) {
-            if ( '' === $value && ! in_array($name, $includeEmpty, true) ) {
-                continue;
-            }
-            $html .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
-        }
-        return $html;
     }
 }
