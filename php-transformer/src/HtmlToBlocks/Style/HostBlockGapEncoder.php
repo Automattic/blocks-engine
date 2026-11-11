@@ -300,6 +300,44 @@ final class HostBlockGapEncoder
         return self::collapse($this->margins($previous, false)[1], $currentTop);
     }
 
+    /** Whether removing an empty box would discard source block-axis spacing. */
+    public function hasContributingEmptyMargin(DOMElement $element): bool
+    {
+        $display = $this->display($element);
+        $position = CssValueInspector::comparable((string) ($this->declarationsOf($element)['position'] ?? ''));
+        if ( in_array($display, array( 'none', 'contents' ), true) || str_starts_with($display, 'inline')
+            || in_array($position, array( 'absolute', 'fixed' ), true) ) {
+            return false;
+        }
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement ) {
+            return false;
+        }
+        $authored = $this->sidesPx($element, $this->boxSides($element, 'margin', array( '0', '0' )));
+        if ( (null === $authored[0] || 0.0 === $authored[0]) && (null === $authored[1] || 0.0 === $authored[1]) ) {
+            return false;
+        }
+        $own = $this->ownMargins($element);
+        if ( $this->laysOutItems($parent) ) {
+            return (null !== $own[0] && 0.0 !== $own[0]) || (null !== $own[1] && 0.0 !== $own[1]);
+        }
+        $previous = $element->previousElementSibling;
+        $next = $element->nextElementSibling;
+        $before = $previous instanceof DOMElement ? $this->margins($previous, false)[1]
+            : ($this->collapsesThrough($parent, 'top') ? $this->ownMargins($parent)[0] : 0.0);
+        $after = $next instanceof DOMElement ? $this->margins($next, false)[0]
+            : ($this->collapsesThrough($parent, 'bottom') ? $this->ownMargins($parent)[1] : 0.0);
+        if ( null === $before || null === $after || null === $own[0] || null === $own[1] ) {
+            return false;
+        }
+        // A set of adjoining margins collapses to its largest positive plus
+        // most negative member; pairwise collapse loses that information.
+        $without = max(0.0, $before, $after) + min(0.0, $before, $after);
+        $with = max(0.0, $before, $after, $own[0], $own[1]) + min(0.0, $before, $after, $own[0], $own[1]);
+
+        return abs($with - $without) >= 0.001;
+    }
+
     /** Whether a container lays its children out as flex or grid items rather than in block flow. */
     private function laysOutItems(DOMElement $container): bool
     {

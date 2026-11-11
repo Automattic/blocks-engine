@@ -392,7 +392,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->imageDimensions,
             $this->sourceElementClassifier
         );
-        $this->emptyElementFootprint = new EmptyElementFootprint($this->styleResolver, $this->sourceElementClassifier);
+        $this->emptyElementFootprint = new EmptyElementFootprint($this->styleResolver, $this->sourceElementClassifier,
+            new HostBlockGapEncoder($this->styleResolver, $this->blockFactory, $this->session)
+        );
         $linkWrapperPropagator = new LinkWrapperPropagator($this->styleResolver, $this->blockFactory);
         $generatedBlockStyleProjector = new GeneratedBlockStyleProjector($this->runtime, $this->styleResolver, $this->session);
         $this->sourceBlockAttributeProjector = new SourceBlockAttributeProjector($this->styleResolver, $generatedBlockStyleProjector);
