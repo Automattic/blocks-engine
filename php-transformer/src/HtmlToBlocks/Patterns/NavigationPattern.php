@@ -2886,7 +2886,7 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function inertNavigationSupportDescendants(DOMElement $element, bool $hidden): bool
     {
-        $hidden = $hidden || 'true' === strtolower(trim(SourceDom::attr($element, 'aria-hidden')));
+        $hidden = $hidden || SourceDom::isAriaHidden($element);
         if ( $element->hasAttribute('href') || $element->hasAttribute('src')
             || ( ! $hidden && (
                 '' !== trim(SourceDom::attr($element, 'aria-label') . SourceDom::attr($element, 'title'))
@@ -3527,7 +3527,7 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function isHoverRevealedLabel(DOMElement $item, DOMElement $anchor, ?DOMElement $submenuContainer, ?NavigationPatternContext $navigationContext): bool
     {
-        return 'a' === strtolower($anchor->tagName) && 'button' !== strtolower(trim($anchor->getAttribute('role')))
+        return 'a' === strtolower($anchor->tagName) && 'button' !== SourceDom::role($anchor)
             && null !== $submenuContainer && true === $navigationContext?->revealsSubmenuOnItemState($item, $submenuContainer);
     }
 
@@ -3535,7 +3535,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function leadsToPage(DOMElement $anchor): bool
     {
         $href = trim($anchor->getAttribute('href'));
-        return 'a' === strtolower($anchor->tagName) && 'button' !== strtolower(trim($anchor->getAttribute('role')))
+        return 'a' === strtolower($anchor->tagName) && 'button' !== SourceDom::role($anchor)
             && '' !== $href && ! str_starts_with($href, '#') && ! str_starts_with(strtolower($href), 'javascript:');
     }
 
@@ -3548,7 +3548,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     {
         if ( 'button' === strtolower($anchor->tagName) ) return true;
         $popup = strtolower(trim($anchor->getAttribute('aria-haspopup')));
-        return 'button' === strtolower(trim($anchor->getAttribute('role'))) || ( '' !== $popup && 'false' !== $popup );
+        return 'button' === SourceDom::role($anchor) || ( '' !== $popup && 'false' !== $popup );
     }
 
     /**
@@ -4361,7 +4361,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function isInsideDialog(DOMElement $element): bool
     {
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
-            if ( 'dialog' === strtolower($node->tagName) || 'dialog' === strtolower(trim($node->getAttribute('role'))) ) {
+            if ( 'dialog' === strtolower($node->tagName) || 'dialog' === SourceDom::role($node) ) {
                 return true;
             }
         }
@@ -4732,7 +4732,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function isModalDialogPanel(DOMElement $panel): bool
     {
         return 'true' === strtolower(trim($panel->getAttribute('aria-modal')))
-            || in_array(strtolower(trim($panel->getAttribute('role'))), array('dialog', 'alertdialog'), true)
+            || in_array(SourceDom::role($panel), array('dialog', 'alertdialog'), true)
             || 'dialog' === strtolower($panel->tagName);
     }
 

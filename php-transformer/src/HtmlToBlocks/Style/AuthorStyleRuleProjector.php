@@ -148,7 +148,7 @@ final class AuthorStyleRuleProjector
                 $subjects[] = array( 'element' => $element, 'selector' => $selector, 'specificity' => array_values(CssSelectorMatcher::specificityCounts($parsed)) );
                 if ( 'a' === strtolower($element->tagName)
                     || FormControlClassifier::isControlElement($element)
-                    || 'button' === strtolower(trim($element->getAttribute('role')))
+                    || 'button' === SourceDom::role($element)
                 ) {
                     return $body;
                 }

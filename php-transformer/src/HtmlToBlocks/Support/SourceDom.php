@@ -611,6 +611,18 @@ final class SourceDom
         return true;
     }
 
+    /** The element's ARIA role, trimmed and lowercased; empty when it has none. */
+    public static function role(DOMElement $element): string
+    {
+        return strtolower(trim(self::attr($element, 'role')));
+    }
+
+    /** Whether the element declares `aria-hidden="true"`, in any case or padding. */
+    public static function isAriaHidden(DOMElement $element): bool
+    {
+        return 'true' === strtolower(trim(self::attr($element, 'aria-hidden')));
+    }
+
     public static function hasClass(DOMElement $element, string $className): bool
     {
         return in_array($className, preg_split('/\s+/', trim(self::attr($element, 'class'))) ?: array(), true);
@@ -1030,7 +1042,7 @@ final class SourceDom
      */
     public static function isImageOnlyNamedGraphic(DOMElement $element): bool
     {
-        if ( 'img' !== strtolower(trim(self::attr($element, 'role'))) || 'img' === strtolower($element->tagName) || '' !== trim($element->textContent ?? '') ) {
+        if ( 'img' !== self::role($element) || 'img' === strtolower($element->tagName) || '' !== trim($element->textContent ?? '') ) {
             return false;
         }
 
@@ -2217,7 +2229,7 @@ final class SourceDom
     public static function hasAriaHiddenAncestor(DOMElement $element): bool
     {
         for ( $candidate = $element; $candidate instanceof DOMElement; $candidate = $candidate->parentNode instanceof DOMElement ? $candidate->parentNode : null ) {
-            if ( 'true' === strtolower(trim(self::attr($candidate, 'aria-hidden'))) ) {
+            if ( self::isAriaHidden($candidate) ) {
                 return true;
             }
         }

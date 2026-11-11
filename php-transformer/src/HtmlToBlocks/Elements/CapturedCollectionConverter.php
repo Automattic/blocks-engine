@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CollectionFilterBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
@@ -85,7 +86,7 @@ final class CapturedCollectionConverter implements ElementConverter
             $attrs += array('tagName' => $tagName, 'label' => htmlspecialchars(trim($element->textContent ?? ''), ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8'), 'ariaLabel' => $element->getAttribute('aria-label')) + $config;
             $activeRole = is_string($config['active']['role'] ?? null) ? $config['active']['role'] : '';
             $inactiveRole = is_string($config['inactive']['role'] ?? null) ? $config['inactive']['role'] : '';
-            $role = $activeRole === $inactiveRole && in_array($activeRole, array('tab', 'button'), true) ? $activeRole : strtolower(trim($element->getAttribute('role')));
+            $role = $activeRole === $inactiveRole && in_array($activeRole, array('tab', 'button'), true) ? $activeRole : SourceDom::role($element);
             if (in_array($role, array('tab', 'button'), true)) $attrs['role'] = $role;
             if (preg_match('/^-?[0-9]{1,4}$/', trim($element->getAttribute('tabindex')))) $attrs['tabIndex'] = (int) $element->getAttribute('tabindex');
         } elseif (CollectionFilterBlockGenerator::STATUS === $local) {

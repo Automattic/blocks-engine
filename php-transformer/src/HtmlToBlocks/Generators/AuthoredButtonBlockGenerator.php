@@ -22,7 +22,7 @@ final class AuthoredButtonBlockGenerator
     public static function isRoleButton(DOMElement $element): bool
     {
         return in_array(strtolower($element->tagName), array('div', 'span'), true)
-            ? ('button' === strtolower(trim(SourceDom::attr($element, 'role'))) || self::isCapturedGalleryDirectionControl($element))
+            ? ('button' === SourceDom::role($element) || self::isCapturedGalleryDirectionControl($element))
             : self::isCapturedDialogTriggerAnchor($element) || self::isCapturedDialogCloseIcon($element);
     }
 
@@ -34,7 +34,7 @@ final class AuthoredButtonBlockGenerator
     {
         return 'svg' === strtolower($element->tagName)
             && '' !== trim(SourceDom::attr($element, CaptureEvidence::DIALOG_CLOSE))
-            && in_array(strtolower(trim(SourceDom::attr($element, 'role'))), array('', 'button'), true);
+            && in_array(SourceDom::role($element), array('', 'button'), true);
     }
 
     /**
@@ -72,7 +72,7 @@ final class AuthoredButtonBlockGenerator
     {
         $key = trim(SourceDom::attr($element, CaptureEvidence::DIALOG_TRIGGER));
         return 'a' === strtolower($element->tagName)
-            && 'button' === strtolower(trim(SourceDom::attr($element, 'role')))
+            && 'button' === SourceDom::role($element)
             && '' !== $key
             && $key === trim(SourceDom::attr($element, 'aria-controls'));
     }
@@ -86,7 +86,7 @@ final class AuthoredButtonBlockGenerator
     {
         if (!in_array(strtolower($element->tagName), array('div', 'span'), true)
             || !in_array(trim(SourceDom::attr($element, CaptureEvidence::GALLERY_DIRECTION)), array('-1', '1'), true)
-            || !in_array(strtolower(trim(SourceDom::attr($element, 'role'))), array('', 'button'), true)
+            || !in_array(SourceDom::role($element), array('', 'button'), true)
         ) {
             return false;
         }

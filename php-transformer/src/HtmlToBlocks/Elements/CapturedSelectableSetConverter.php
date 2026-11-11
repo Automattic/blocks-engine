@@ -88,7 +88,7 @@ final class CapturedSelectableSetConverter implements ElementConverter
                 }
                 continue;
             }
-            $role = strtolower(trim(SourceDom::attr($child, 'role')));
+            $role = SourceDom::role($child);
             if ('tablist' === $role) {
                 $tabList = $child;
                 continue;
@@ -103,7 +103,7 @@ final class CapturedSelectableSetConverter implements ElementConverter
 
         $labels = array();
         foreach ($tabList->getElementsByTagName('*') as $candidate) {
-            if (! $candidate instanceof DOMElement || 'tab' !== strtolower(trim(SourceDom::attr($candidate, 'role')))) {
+            if (! $candidate instanceof DOMElement || 'tab' !== SourceDom::role($candidate)) {
                 continue;
             }
             $label = trim(SourceDom::attr($candidate, CapturedSelectableSetProjector::LABEL_ATTRIBUTE));

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\TransformOptions;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformationOptions;
@@ -200,11 +201,11 @@ final class HtmlTransformerSession
     public function rememberNativeTabControls(DOMElement $tabsRoot): void
     {
         foreach ( $tabsRoot->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement || 'tablist' !== strtolower(trim($child->getAttribute('role'))) ) {
+            if ( ! $child instanceof DOMElement || 'tablist' !== SourceDom::role($child) ) {
                 continue;
             }
             foreach ( $child->getElementsByTagName('*') as $candidate ) {
-                if ( $candidate instanceof DOMElement && 'tab' === strtolower(trim($candidate->getAttribute('role'))) ) {
+                if ( $candidate instanceof DOMElement && 'tab' === SourceDom::role($candidate) ) {
                     $this->runtimeBehaviorState->rememberNativeTabControl($candidate->getNodePath() ?? '');
                 }
             }

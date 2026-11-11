@@ -648,7 +648,7 @@ final class FormControlMetadataBuilder
     private function adjacentChoiceSelect(DOMElement $control): ?DOMElement
     {
         if ( 'button' !== strtolower($control->tagName)
-            || ( 'combobox' !== strtolower(trim($control->getAttribute('role')))
+            || ( 'combobox' !== SourceDom::role($control)
                 && 'listbox' !== strtolower(trim($control->getAttribute('aria-haspopup'))) ) ) {
             return null;
         }
@@ -668,7 +668,7 @@ final class FormControlMetadataBuilder
                 continue;
             }
             if ( ! $sibling->hasAttribute('hidden')
-                && ! ( 'true' === strtolower(trim($sibling->getAttribute('aria-hidden')))
+                && ! ( SourceDom::isAriaHidden($sibling)
                     && '-1' === trim($sibling->getAttribute('tabindex')) ) ) {
                 continue;
             }
@@ -1009,7 +1009,7 @@ final class FormControlMetadataBuilder
 
         $options = array();
         foreach ( $panel->getElementsByTagName('*') as $option ) {
-            if ( ! $option instanceof DOMElement || 'option' !== strtolower(trim($option->getAttribute('role'))) ) {
+            if ( ! $option instanceof DOMElement || 'option' !== SourceDom::role($option) ) {
                 continue;
             }
             $label = $this->collapsedElementText($option);
@@ -1073,7 +1073,7 @@ final class FormControlMetadataBuilder
             return $element;
         }
         foreach ( $element->getElementsByTagName('*') as $candidate ) {
-            if ( $candidate instanceof DOMElement && 'listbox' === strtolower(trim($candidate->getAttribute('role'))) ) {
+            if ( $candidate instanceof DOMElement && 'listbox' === SourceDom::role($candidate) ) {
                 return $element;
             }
         }
@@ -1089,7 +1089,7 @@ final class FormControlMetadataBuilder
                 break;
             }
             foreach ( $wrapper->getElementsByTagName('*') as $candidate ) {
-                if ( ! $candidate instanceof DOMElement || 'listbox' !== strtolower(trim($candidate->getAttribute('role'))) ) {
+                if ( ! $candidate instanceof DOMElement || 'listbox' !== SourceDom::role($candidate) ) {
                     continue;
                 }
                 if ( SourceDom::elementContains($control, $candidate) || $this->panelOwnedByOtherTrigger($candidate, $control) ) {
@@ -1120,7 +1120,7 @@ final class FormControlMetadataBuilder
 
     private function isListboxPanel(DOMElement $element): bool
     {
-        return 'listbox' === strtolower(trim($element->getAttribute('role')))
+        return 'listbox' === SourceDom::role($element)
             || '' !== trim($element->getAttribute(CaptureEvidence::LISTBOX_PANEL));
     }
 

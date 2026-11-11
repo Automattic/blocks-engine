@@ -4796,7 +4796,7 @@ final class StyleResolver implements ElementPresentationResolver
     {
         if (
             'false' === strtolower(trim(SourceDom::attr($element, 'data-visible')))
-            || 'dialog' === strtolower(trim(SourceDom::attr($element, 'role')))
+            || 'dialog' === SourceDom::role($element)
             || 'true' === strtolower(trim(SourceDom::attr($element, 'aria-modal')))
         ) {
             return true;
@@ -4806,7 +4806,7 @@ final class StyleResolver implements ElementPresentationResolver
             if (
                 $descendant instanceof DOMElement
                 && (
-                    'dialog' === strtolower(trim(SourceDom::attr($descendant, 'role')))
+                    'dialog' === SourceDom::role($descendant)
                     || 'true' === strtolower(trim(SourceDom::attr($descendant, 'aria-modal')))
                 )
             ) {

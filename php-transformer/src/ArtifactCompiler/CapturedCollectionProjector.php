@@ -940,7 +940,7 @@ final class CapturedCollectionProjector
     private function controlState(DOMElement $element): array
     {
         $state = array('className' => $element->getAttribute('class'), 'style' => $element->getAttribute('style'), 'selected' => $element->hasAttribute('aria-selected') ? $element->getAttribute('aria-selected') : null, 'dataState' => $element->hasAttribute('data-state') ? $element->getAttribute('data-state') : null);
-        $role = strtolower(trim($element->getAttribute('role')));
+        $role = SourceDom::role($element);
         if (in_array($role, array('tab', 'button'), true)) $state['role'] = $role;
         if (preg_match('/^-?[0-9]{1,4}$/', trim($element->getAttribute('tabindex')))) $state['tabIndex'] = (int) $element->getAttribute('tabindex');
         return $state;

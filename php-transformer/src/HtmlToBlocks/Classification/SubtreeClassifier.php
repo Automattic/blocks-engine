@@ -409,7 +409,7 @@ final class SubtreeClassifier
     private function hasInteractiveRole(array $elements): bool
     {
         foreach ( $elements as $element ) {
-            $role = strtolower(trim(SourceDom::attr($element, 'role')));
+            $role = SourceDom::role($element);
             if ( '' !== $role && in_array($role, self::INTERACTIVE_ROLES, true) ) {
                 return true;
             }

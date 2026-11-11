@@ -254,7 +254,7 @@ final class AnchorLowering implements ButtonLinkLeftovers
     {
         return 'a' === strtolower($anchor->tagName)
             && '-1' === trim(SourceDom::attr($anchor, 'tabindex'))
-            && 'true' !== strtolower(trim(SourceDom::attr($anchor, 'aria-hidden')))
+            && ! SourceDom::isAriaHidden($anchor)
             && 1 === $anchor->getElementsByTagName('img')->length;
     }
 

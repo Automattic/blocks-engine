@@ -18,7 +18,7 @@ final class SearchBlockConversionContext
 
     public function hasSearchFormSignal(DOMElement $form, DOMElement $input): bool
     {
-        if ( 'search' === FormControlClassifier::controlType($input) || 'search' === strtolower(trim(SourceDom::attr($form, 'role'))) ) {
+        if ( 'search' === FormControlClassifier::controlType($input) || 'search' === SourceDom::role($form) ) {
             return true;
         }
 

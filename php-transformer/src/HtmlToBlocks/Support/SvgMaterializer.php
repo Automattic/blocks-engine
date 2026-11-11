@@ -785,7 +785,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             if ( 'p' === $parentTag ) {
                 return true;
             }
-            if ( 'article' === $parentTag && 'img' === strtolower(trim(SourceDom::attr($element, 'role'))) ) {
+            if ( 'article' === $parentTag && 'img' === SourceDom::role($element) ) {
                 return false;
             }
             if ( ( $this->sourceElementClassifier->isInlineContentElement($parentTag) || 'a' === $parentTag ) && $this->runtime->hasVisibleText(SourceDom::innerHtmlWithoutTags($parent, array( 'svg' ))) ) {
@@ -1894,7 +1894,7 @@ final class SvgMaterializer implements SvgElementMaterializer
 
     private function svgImageAlt(DOMElement $element): string
     {
-        if ( 'true' === strtolower(trim(SourceDom::attr($element, 'aria-hidden'))) ) {
+        if ( SourceDom::isAriaHidden($element) ) {
             return '';
         }
 
@@ -2148,8 +2148,8 @@ final class SvgMaterializer implements SvgElementMaterializer
             return false;
         }
 
-        $role = strtolower(trim(SourceDom::attr($element, 'role')));
-        if ( 'true' === strtolower(trim(SourceDom::attr($element, 'aria-hidden'))) || in_array($role, array( 'presentation', 'none' ), true) ) {
+        $role = SourceDom::role($element);
+        if ( SourceDom::isAriaHidden($element) || in_array($role, array( 'presentation', 'none' ), true) ) {
             return true;
         }
 

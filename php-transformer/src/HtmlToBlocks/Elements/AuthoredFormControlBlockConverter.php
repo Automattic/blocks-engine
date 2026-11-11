@@ -183,7 +183,7 @@ final class AuthoredFormControlBlockConverter
             foreach ($document->getElementsByTagName('*') as $candidate) {
                 if ($candidate instanceof DOMElement
                     && $candidate->getAttribute(CaptureEvidence::LISTBOX_PANEL) === $key
-                    && 'listbox' === strtolower(trim($candidate->getAttribute('role')))) {
+                    && 'listbox' === SourceDom::role($candidate)) {
                     $panel = $candidate;
                     break;
                 }

@@ -72,7 +72,7 @@ final class FormControlClassifier
             $type = strtolower(trim($control->hasAttribute('type') ? $control->getAttribute('type') : ''));
             return '' !== $type ? $type : 'submit';
         }
-        if (in_array($tagName, array('div', 'span'), true) && 'button' === strtolower(trim($control->getAttribute('role')))) return 'button';
+        if (in_array($tagName, array('div', 'span'), true) && 'button' === SourceDom::role($control)) return 'button';
         if ( 'select' === $tagName && $control->hasAttribute('multiple') ) {
             return 'select-multiple';
         }
@@ -208,7 +208,7 @@ final class FormControlClassifier
             if ( 'form' === strtolower($parent->tagName) ) {
                 $insideNativeForm = true;
             }
-            if ( ! $insideNativeForm && 'true' === strtolower(trim($parent->getAttribute('aria-hidden'))) ) {
+            if ( ! $insideNativeForm && SourceDom::isAriaHidden($parent) ) {
                 return true;
             }
         }
@@ -260,7 +260,7 @@ final class FormControlClassifier
             || ! in_array(self::controlType($control), array( 'text', 'email', 'url', 'tel', 'search', 'number' ), true) ) ) {
             return false;
         }
-        if ( 'true' === strtolower(trim($control->getAttribute('aria-hidden')))
+        if ( SourceDom::isAriaHidden($control)
             || null !== self::ariaHiddenFormAncestor($control) ) {
             return true;
         }
@@ -295,7 +295,7 @@ final class FormControlClassifier
             if ( 'form' === strtolower($parent->tagName) ) {
                 return $hidden;
             }
-            if ( 'true' === strtolower(trim($parent->getAttribute('aria-hidden'))) ) {
+            if ( SourceDom::isAriaHidden($parent) ) {
                 $hidden = $parent;
             }
         }
@@ -392,7 +392,7 @@ final class FormControlClassifier
      */
     private static function hasHoneypotSignals(DOMElement $element): bool
     {
-        if ( 'true' !== strtolower(trim($element->getAttribute('aria-hidden')))
+        if ( ! SourceDom::isAriaHidden($element)
             || '-1' !== trim($element->getAttribute('tabindex')) ) {
             return false;
         }
@@ -423,7 +423,7 @@ final class FormControlClassifier
 
         return $trigger instanceof DOMElement && 'button' === strtolower($trigger->tagName)
             && $key === trim($trigger->getAttribute(CaptureEvidence::LISTBOX_TRIGGER))
-            && ( 'combobox' === strtolower(trim($trigger->getAttribute('role')))
+            && ( 'combobox' === SourceDom::role($trigger)
                 || 'listbox' === strtolower(trim($trigger->getAttribute('aria-haspopup'))) );
     }
 
@@ -439,7 +439,7 @@ final class FormControlClassifier
         $select = $panel->nextElementSibling;
         if ( ! $select instanceof DOMElement || 'select' !== strtolower($select->tagName)
             || ( ! $select->hasAttribute('hidden')
-                && ! ( 'true' === strtolower(trim($select->getAttribute('aria-hidden')))
+                && ! ( SourceDom::isAriaHidden($select)
                     && '-1' === trim($select->getAttribute('tabindex')) ) )
             || 0 === $select->getElementsByTagName('option')->length ) {
             return null;
@@ -615,7 +615,7 @@ final class FormControlClassifier
 
     private static function hasAriaChoiceRole(DOMElement $control): bool
     {
-        return in_array(strtolower(trim($control->getAttribute('role'))), array( 'radio', 'checkbox', 'switch', 'option', 'tab', 'menuitemradio', 'menuitemcheckbox' ), true);
+        return in_array(SourceDom::role($control), array( 'radio', 'checkbox', 'switch', 'option', 'tab', 'menuitemradio', 'menuitemcheckbox' ), true);
     }
 
     public static function isPseudoFormDataEntryControl(DOMElement $control): bool

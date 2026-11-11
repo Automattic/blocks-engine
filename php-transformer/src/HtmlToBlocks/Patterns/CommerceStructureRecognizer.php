@@ -1066,7 +1066,7 @@ final class CommerceStructureRecognizer
     {
         for ($node = $svg; $node instanceof DOMElement; $node = $node->parentNode) {
             if ($node->hasAttribute('hidden')
-                || 'true' === strtolower(trim(SourceDom::attr($node, 'aria-hidden')))
+                || SourceDom::isAriaHidden($node)
                 || in_array(strtolower($node->tagName), array('button', 'input', 'select', 'textarea'), true)
                 || in_array(strtolower(SourceDom::attr($node, 'role')), array('button', 'checkbox', 'switch'), true)
                 || $this->classifier->hasCommerceToken($node, array('cart', 'wishlist', 'quickview'))

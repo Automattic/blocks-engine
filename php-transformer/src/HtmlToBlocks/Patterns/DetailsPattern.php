@@ -122,7 +122,7 @@ final class DetailsPattern implements PatternRecognizerInterface
             if ($child instanceof DOMElement && !$child->isSameNode($summary)) $panels[] = $child;
         }
         foreach ($panels as $panel) {
-            if (!in_array(strtolower(trim($panel->getAttribute('role'))), array('dialog', 'region'), true)) continue;
+            if (!in_array(SourceDom::role($panel), array('dialog', 'region'), true)) continue;
             $label = $this->accessibleName($panel);
             if ('' !== $label) return $label;
         }
