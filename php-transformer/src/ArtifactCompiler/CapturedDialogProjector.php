@@ -75,7 +75,7 @@ final class CapturedDialogProjector
         }
         $retired = array();
         if (!CapturedInteractionReport::valid($report)
-            || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null)) {
+            || null === $receipt) {
             return array('files' => $files, 'projected_count' => 0, 'native_runtime_replacements' => array());
         }
         $routes = CaptureReceiptRoutes::resolve($files, $receipt);
@@ -231,7 +231,7 @@ final class CapturedDialogProjector
         }
 
         $receipt = CaptureReceiptReport::read($files);
-        if (null === $receipt || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null) || ! is_array($receipt['routes'] ?? null)) {
+        if (null === $receipt || ! is_array($receipt['routes'] ?? null)) {
             return $this->adoptNativeDialogsWithoutReport($files, array_merge($diagnostics, array($this->diagnostic('captured_interactions_route_map_missing', 'warning', 'Captured dialogs were not projected because the capture receipt route map is unavailable.'))));
         }
 
