@@ -38,7 +38,7 @@ $cases = array(
     'empty implicit caption' => array('<label>' . $stars . '</label>', '<label> ' . $nights . '</label>', false),
 );
 foreach ($cases as $case => [$starControl, $nightControl, $named]) {
-    $html = '<!doctype html><html><head><title>Plans</title></head><body><main>'
+    $html = '<!doctype html><html><head><title>Plans</title></head><body><a href="/cart/">Cart</a><main>'
         . '<div class="filters" role="group" aria-label="Filter">' . $starControl . $nightControl . '</div>' . $cards . '</main></body></html>';
     $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'plans.html', 'files' => array('plans.html' => $html)))->toArray();
     $assert('failed' !== $result['status'] && !isset($result['source_reports']['wordpress_site_plan_diagnostics']), $case . ': compilation succeeds');
