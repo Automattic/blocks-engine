@@ -739,8 +739,9 @@ final class AuthorStyleRuleProjector
      * definite size for fractional grid tracks, which still need a definite
      * container.
      */
-    private function percentageHeightFillsStretchedItem(DOMElement $element): bool
+    private function percentageHeightFillsStretchedItem(DOMElement $element, ?callable $read = null): bool
     {
+        $read ??= $this->structuralReader();
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
             $parent = $node->parentNode;
             if ( ! $parent instanceof DOMElement ) {
@@ -749,7 +750,10 @@ final class AuthorStyleRuleProjector
             if ( $node !== $element && in_array(strtolower($node->tagName), array( 'footer', 'header', 'section' ), true) ) {
                 return false;
             }
-            $parentDeclarations = $this->styleResolver->structuralPresentationDeclarations($parent);
+            $parentDeclarations = array();
+            foreach ( array( 'display', 'flex-direction', 'flex-flow', 'align-items' ) as $property ) {
+                $parentDeclarations[$property] = $read($parent, $property);
+            }
             $parentDisplay = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(
                 CssValueInspector::withoutImportant((string) ($parentDeclarations['display'] ?? '')),
                 $parent
@@ -768,13 +772,13 @@ final class AuthorStyleRuleProjector
                     $flexDirection = $flexFlowAxis;
                 }
             }
-            if ( $this->stretchesOnBlockAxis($node, $parent, $parentDeclarations, $parentDisplay, $flexDirection) ) {
+            if ( $this->stretchesOnBlockAxis($node, $parent, $parentDeclarations, $parentDisplay, $flexDirection, $read) ) {
                 return true;
             }
             // An intermediate box that does not fill its parent breaks the
             // chain. A non-growing column-flex item keeps content height, so a
             // descendant percentage does not resolve against the stretched card.
-            if ( $node !== $element && ! $this->fillsParentBlockSize($node, $parent, $parentDisplay, $flexDirection) ) {
+            if ( $node !== $element && ! $this->fillsParentBlockSize($node, $parent, $parentDisplay, $flexDirection, $read) ) {
                 return false;
             }
         }
@@ -782,18 +786,17 @@ final class AuthorStyleRuleProjector
         return false;
     }
 
-    private function fillsParentBlockSize(DOMElement $element, DOMElement $parent, string $parentDisplay, string $flexDirection): bool
+    private function fillsParentBlockSize(DOMElement $element, DOMElement $parent, string $parentDisplay, string $flexDirection, callable $read): bool
     {
-        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        $height = strtolower(CssValueInspector::withoutImportant((string) ($declarations['height'] ?? '')));
-        $minHeight = strtolower(CssValueInspector::withoutImportant((string) ($declarations['min-height'] ?? '')));
+        $height = strtolower(CssValueInspector::withoutImportant($read($element, 'height')));
+        $minHeight = strtolower(CssValueInspector::withoutImportant($read($element, 'min-height')));
         if ( $this->isPercentageBlockSize($height) || $this->isPercentageBlockSize($minHeight) ) {
             return true;
         }
 
         return in_array($parentDisplay, array( 'flex', 'inline-flex' ), true)
             && in_array($flexDirection, array( 'column', 'column-reverse' ), true)
-            && $this->growsAlongFlexMainAxis($element);
+            && $this->growsAlongFlexMainAxis($element, $read);
     }
 
     /**
@@ -804,7 +807,7 @@ final class AuthorStyleRuleProjector
      *
      * @param array<string, string> $parentDeclarations
      */
-    private function stretchesOnBlockAxis(DOMElement $element, DOMElement $parent, array $parentDeclarations, string $parentDisplay, string $flexDirection): bool
+    private function stretchesOnBlockAxis(DOMElement $element, DOMElement $parent, array $parentDeclarations, string $parentDisplay, string $flexDirection, callable $read): bool
     {
         $stretchesCrossAxis = in_array($parentDisplay, array( 'grid', 'inline-grid' ), true)
             || ( in_array($parentDisplay, array( 'flex', 'inline-flex' ), true)
@@ -813,7 +816,7 @@ final class AuthorStyleRuleProjector
             return false;
         }
         $alignSelf = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(
-            CssValueInspector::withoutImportant((string) ($this->styleResolver->structuralPresentationDeclarations($element)['align-self'] ?? '')),
+            CssValueInspector::withoutImportant($read($element, 'align-self')),
             $element
         ));
         if ( 'stretch' === $alignSelf ) {
@@ -1175,7 +1178,14 @@ final class AuthorStyleRuleProjector
             $autoSizedMatches = array();
             $conditionalSize = false;
             foreach ( $matches as $element ) {
-                if ( $this->isAutoSizedStructuralPercentageHeight($element, $authorStyles, $conditions, $conditionalSize) ) {
+                $autoSized = true;
+                foreach ( self::conditionDomains($conditions) as $domain ) {
+                    if ( ! $this->isAutoSizedStructuralPercentageHeight($element, $authorStyles, $domain, $conditionalSize) ) {
+                        $autoSized = false;
+                        break;
+                    }
+                }
+                if ( $autoSized ) {
                     $autoSizedMatches[] = $element;
                 }
             }
@@ -1209,16 +1219,16 @@ final class AuthorStyleRuleProjector
         if ( $this->isPositionedUnderConditions($element, $conditions) ) {
             return false;
         }
-        if ( $this->receivesDefiniteBlockSize($element) || $this->percentageHeightFillsStretchedItem($element) ) {
+        $read = fn (DOMElement $node, string $property): string => $this->presentationValueUnderConditions($node, $property, $conditions);
+        if ( $this->receivesDefiniteBlockSize($element) || $this->percentageHeightFillsStretchedItem($element, $read) ) {
             return false;
         }
         $ancestor = $element->parentNode;
         while ( $ancestor instanceof DOMElement && $ancestor !== $authorStyles->sourceBody() ) {
-            $style = $this->styleResolver->structuralPresentationDeclarations($ancestor);
             if ( $this->isPositionedUnderConditions($ancestor, $conditions) ) {
                 return false;
             }
-            $ancestorHeight = strtolower(CssValueInspector::withoutImportant((string) ($style['height'] ?? '')));
+            $ancestorHeight = strtolower(CssValueInspector::withoutImportant($read($ancestor, 'height')));
             if ( ! in_array($ancestorHeight, array( '', 'auto', '100%' ), true) ) {
                 return false;
             }
@@ -1283,7 +1293,14 @@ final class AuthorStyleRuleProjector
     {
         $held = self::restatableConditions($conditions);
         $value = $this->styleResolver->declaredPresentation($element, $property)->resolvedValueWhere(
-            static fn (array $stack): bool => array() === array_diff(self::restatableConditions($stack), $held)
+            static function (array $stack) use ($held): bool {
+                foreach ( self::conditionDomains($stack) as $domain ) {
+                    if ( array() === array_diff($domain, $held) ) {
+                        return true;
+                    }
+                }
+                return false;
+            }
         );
         $inline = $this->styleResolver->inlineDeclarations($element);
         if ( isset($inline[$property]) && CssCascade::wins(
@@ -1306,6 +1323,7 @@ final class AuthorStyleRuleProjector
     {
         $normalized = array();
         foreach ( $conditions as $condition ) {
+            $condition = (string) preg_replace('/(@media\s+|,\s*)all\s+and\s+/i', '$1', $condition);
             $condition = strtolower((string) preg_replace('/\s+/', '', (string) $condition));
             if ( '' !== $condition && ! str_starts_with($condition, '@layer') ) {
                 $normalized[] = $condition;
@@ -1313,6 +1331,35 @@ final class AuthorStyleRuleProjector
         }
 
         return $normalized;
+    }
+
+    /**
+     * Expand media-query lists into independent condition stacks. Nested lists
+     * form a product; declarations in one alternative must not leak into another.
+     *
+     * @param list<string> $conditions
+     * @return list<list<string>>
+     */
+    private static function conditionDomains(array $conditions): array
+    {
+        $domains = array( array() );
+        foreach ( $conditions as $condition ) {
+            $alternatives = array( $condition );
+            if ( 1 === preg_match('/^@media\s*(.*)$/is', trim($condition), $match) ) {
+                $alternatives = array_map(
+                    static fn (string $query): string => '@media ' . trim($query),
+                    CssValueSplitter::splitTopLevel($match[1], array( ',' ))
+                );
+            }
+            $expanded = array();
+            foreach ( $domains as $domain ) {
+                foreach ( $alternatives as $alternative ) {
+                    $expanded[] = array_merge($domain, self::restatableConditions(array( $alternative )));
+                }
+            }
+            $domains = $expanded;
+        }
+        return $domains;
     }
 
     private function isPageShellOrSectionSurface(DOMElement $element, AuthorStyleAnalysis $authorStyles): bool

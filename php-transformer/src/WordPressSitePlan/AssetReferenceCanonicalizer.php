@@ -114,7 +114,7 @@ final class AssetReferenceCanonicalizer
         if (str_ends_with(strtolower($origin), '.css')) return self::css($stylesheet($content), $replace);
         $content = self::escapedTags(self::tags($content, $replace), $replace);
         if (str_contains($content, '\\u003c')) {
-            $content = self::replaceDelimited('~(\bstyle\s*=\s*([\'\"]))~i', null, $content, static fn(array $match): string => $match[1] . self::css($match[3], $replace) . $match[2]);
+            $content = self::replaceDelimited('~((?<![\w:.-])style\s*=\s*([\'\"]))~i', null, $content, static fn(array $match): string => $match[1] . self::css($match[3], $replace) . $match[2]);
         }
         if (false !== stripos($content, '<style')) {
             $content = self::replaceRegex('~<style\b[^>]*>(.*?)</style\s*>~is', static function (array $match) use ($replace, $stylesheet): string {
@@ -128,21 +128,22 @@ final class AssetReferenceCanonicalizer
 
     /**
      * Tags serialized inside JSON strings keep their attributes behind escaped
-     * quotes, so the ordinary tag scan cannot see them.
+     * quotes, so the ordinary tag scan cannot see them. Match whole
+     * attribute names, as the tag scan does, so data-* names stay untouched.
      *
      * @param callable(string,string,string):string $replace
      */
     private static function escapedTags(string $content, callable $replace): string
     {
         if (str_contains($content, '\\"')) {
-            $content = self::replaceRegex('~(\b(?:src|href|poster)\s*=\s*\\\\")((?:\\\\/|[^"\\\\])*)(\\\\")~is', static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => $replace($value, '', self::attributeName($match[1]))) . $match[3], $content);
-            $content = self::replaceRegex('~(\bsrcset\s*=\s*\\\\")((?:\\\\/|[^"\\\\])*)(\\\\")~is', static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => SrcsetParser::rewrite($value, static fn(string $reference): string => $replace($reference, '', 'srcset'))) . $match[3], $content);
-            $content = self::replaceRegex('~(\bstyle\s*=\s*\\\\")((?:\\\\/|[^"\\\\])*)(\\\\")~is', static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => self::css($value, $replace)) . $match[3], $content);
+            $content = self::replaceRegex('~((?<![\w:.-])(?:src|href|poster)\s*=\s*\\\\")((?:\\\\/|[^"\\\\])*)(\\\\")~is', static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => $replace($value, '', self::attributeName($match[1]))) . $match[3], $content);
+            $content = self::replaceRegex('~((?<![\w:.-])srcset\s*=\s*\\\\")((?:\\\\/|[^"\\\\])*)(\\\\")~is', static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => SrcsetParser::rewrite($value, static fn(string $reference): string => $replace($reference, '', 'srcset'))) . $match[3], $content);
+            $content = self::replaceRegex('~((?<![\w:.-])style\s*=\s*\\\\")((?:\\\\/|[^"\\\\])*)(\\\\")~is', static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => self::css($value, $replace)) . $match[3], $content);
         }
         if (str_contains($content, '\\u0022')) {
-            $content = self::replaceDelimited('~(\b(?:src|href|poster)\s*=\s*\\\\u0022)~i', '\\u0022', $content, static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => $replace($value, '', self::attributeName($match[1]))) . $match[3]);
-            $content = self::replaceDelimited('~(\bsrcset\s*=\s*\\\\u0022)~i', '\\u0022', $content, static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => SrcsetParser::rewrite($value, static fn(string $reference): string => $replace($reference, '', 'srcset'))) . $match[3]);
-            $content = self::replaceDelimited('~(\bstyle\s*=\s*\\\\u0022)~i', '\\u0022', $content, static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => self::css($value, $replace)) . $match[3]);
+            $content = self::replaceDelimited('~((?<![\w:.-])(?:src|href|poster)\s*=\s*\\\\u0022)~i', '\\u0022', $content, static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => $replace($value, '', self::attributeName($match[1]))) . $match[3]);
+            $content = self::replaceDelimited('~((?<![\w:.-])srcset\s*=\s*\\\\u0022)~i', '\\u0022', $content, static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => SrcsetParser::rewrite($value, static fn(string $reference): string => $replace($reference, '', 'srcset'))) . $match[3]);
+            $content = self::replaceDelimited('~((?<![\w:.-])style\s*=\s*\\\\u0022)~i', '\\u0022', $content, static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => self::css($value, $replace)) . $match[3]);
         }
         return $content;
     }
