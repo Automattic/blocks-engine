@@ -108,7 +108,6 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         // Keep SVG live (rather than freezing currentColor) and images intact
         // unless monochrome glyph evidence and a known service permit replacement.
         $sourceArtwork = false;
-        $sourceArtworkAnchors = array();
         $capturedPaint = array();
         foreach ($anchors as $anchor) {
             $service = self::serviceForUrl($anchor->getAttribute('href')) ?? $this->serviceFromLabel($anchor->getAttribute('aria-label') ?: $anchor->getAttribute('title'));
@@ -119,7 +118,6 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                 }
                 if (null === $service || '' === ($this->glyphColor($image, $context) ?: $this->sameDestinationGlyphColor($anchor, $image, $context))) {
                     $sourceArtwork = true;
-                    $sourceArtworkAnchors[spl_object_id($anchor)] = true;
                 }
             }
             foreach ($anchor->getElementsByTagName('svg') as $svg) {
@@ -131,7 +129,6 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                 $color = $context->capturedGlyphColor($svg);
                 if (!$this->matchesCoreArtwork($svg, $service)) {
                     $sourceArtwork = true;
-                    $sourceArtworkAnchors[spl_object_id($anchor)] = true;
                 }
                 // Never freeze authored currentColor: it must keep responding
                 // to hover/focus. Capture paint is only a missing-paint fallback.
@@ -148,15 +145,6 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             }
             $artworkLinks = array();
             foreach ($anchors as $anchor) {
-                $item = $this->structuralItem($anchor, $element);
-                // A custom glyph must not demote matching siblings in a mixed list.
-                if (!isset($sourceArtworkAnchors[spl_object_id($anchor)]) && !$item->isSameNode($anchor) && !$item->isSameNode($element)) {
-                    $native = $this->recognizeCluster($item, $context, true);
-                    if (null !== $native) {
-                        $artworkLinks[] = $native->block();
-                        continue;
-                    }
-                }
                 $content = '';
                 foreach ($anchor->childNodes as $child) {
                     if ($child instanceof DOMElement) {
