@@ -29,6 +29,22 @@ foreach ($sourceDom->getElementsByTagName('a') as $index => $anchor) {
 $assert(str_contains($result['serialized_blocks'], 'stroke="currentColor"'), 'Hover paint remains live.');
 // A genuine core glyph with no divergent paint keeps the native social block.
 $icons = json_decode(file_get_contents(dirname(__DIR__, 2) . '/resources/wordpress-social-link-icons.json'), true);
+foreach ($icons as $service => $icon) {
+    $iconDom = new DOMDocument();
+    $assert(@$iconDom->loadXML($icon), $service . ': core icon must be well-formed XML.');
+    $assert($iconDom->documentElement instanceof DOMElement && 'svg' === $iconDom->documentElement->tagName, $service . ': core icon must have an svg document element.');
+}
+// Issue #5600: Tumblr artwork must not crash compilation of a social list.
+$reducedPage = <<<'HTML'
+<!doctype html><html><head><title>Social</title><style>ul{display:flex;gap:8px;list-style:none;padding:0}svg{width:24px;height:24px}</style></head>
+<body><main><h1>Follow</h1><ul class="social">
+<li><a href="https://example.tumblr.com/"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M17.04 21.28h-3.28c-2.84 0-4.94-1.37-4.94-5.02v-5.67H6.08V7.5c2.93-.73 4.11-3.3 4.3-5.48h3.01v4.93h3.47v3.65H13.4v4.93c0 1.47.73 2.01 1.92 2.01h1.73v3.75z"/></svg></a></li>
+<li><a href="https://www.instagram.com/example/"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="5"/></svg></a></li>
+</ul></main></body></html>
+HTML;
+$reduced = (new HtmlTransformer())->transform($reducedPage)->toArray();
+$assert(str_contains($reduced['serialized_blocks'], 'https://example.tumblr.com/'), 'Reduced page converts and retains the Tumblr target.');
+$assert(str_contains($reduced['serialized_blocks'], 'https://www.instagram.com/example/'), 'Reduced page retains the Instagram target.');
 $matching = (new HtmlTransformer())->transform('<div class="social"><a href="https://facebook.com/example" aria-label="Facebook">' . $icons['facebook'] . '</a></div>')->toArray();
 $assert(str_contains($matching['serialized_blocks'], 'wp:social-link '), 'Matching core artwork keeps existing native output.');
 // A builder re-export of the same glyph (other precision, start point and fill

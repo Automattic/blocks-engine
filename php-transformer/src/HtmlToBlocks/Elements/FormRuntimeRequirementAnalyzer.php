@@ -24,10 +24,7 @@ final class FormRuntimeRequirementAnalyzer
         if ( 0 === $forms->length || '' === $sourceHtml ) {
             return;
         }
-        $source = HtmlSerialization::utf8Document($sourceHtml);
-        if ( null === $source ) {
-            return;
-        }
+        $source = HtmlSerialization::parseDocument($sourceHtml);
         $sourceForms = $source->getElementsByTagName('form');
         $behavior = array();
         foreach ( $sourceForms as $index => $form ) {

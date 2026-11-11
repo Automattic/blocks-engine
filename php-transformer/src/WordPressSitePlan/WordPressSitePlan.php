@@ -1062,7 +1062,7 @@ PHP;
         }
         self::assertSource($plan['source']);
         $sourceCatalog = self::sourceDocumentCatalogFromSource($plan['source']);
-        RuntimeDeclarations::assertNormalized($plan['runtime_declarations']);
+        RuntimeDeclarations::assertNormalized($plan['runtime_declarations'], !isset($plan['resolution']));
         $records = RuntimeEntityManifest::normalizeRecords($plan['runtime_entity_records']);
         if ($records !== $plan['runtime_entity_records']) throw new InvalidArgumentException('WordPress site plan runtime entity records are not canonically normalized.');
         foreach ($plan['runtime_declarations'] as $declaration) if (RuntimeEntityManifest::SCHEMA === ($declaration['payload']['schema'] ?? null)) RuntimeEntityManifest::resolve($declaration['payload'], $records);
@@ -1718,9 +1718,7 @@ PHP;
                     // A document without emitted markup (a WordPress-rendered
                     // archive) is never evidence that a rule is inert there.
                     if (!is_string($documentsBySource[$source]['canonical_block_markup'] ?? null) || '' === trim($documentsBySource[$source]['canonical_block_markup'])) continue;
-                    $dom = new \DOMDocument();
-                    $loaded = HtmlSerialization::loadHtml($dom, '<?xml encoding="UTF-8"><html><body>' . $documentsBySource[$source]['canonical_block_markup'] . "\n" . $sharedMarkup . '</body></html>');
-                    if (!$loaded) continue;
+                    $dom = HtmlSerialization::parseDocument('<html><body>' . $documentsBySource[$source]['canonical_block_markup'] . "\n" . $sharedMarkup . '</body></html>');
                     foreach (array('html' => 'root_attributes', 'body' => 'body_attributes') as $tag => $key) {
                         $element = $dom->getElementsByTagName($tag)->item(0);
                         foreach ($documentsBySource[$source]['document_metadata'][$key] ?? array() as $name => $value) $element?->setAttribute((string) $name, (string) $value);
@@ -2474,8 +2472,7 @@ PHP;
         foreach ($pages as $page) {
             $sourcePaths = $part['placement']['source_paths'] ?? array();
             if (array() !== $sourcePaths && !in_array($page['source_path'] ?? '', $sourcePaths, true)) continue;
-            $document = new \DOMDocument();
-            $document->loadHTML('<?xml encoding="UTF-8"><html><body>' . (string) ($page['canonical_block_markup'] ?? '') . '</body></html>', LIBXML_NOERROR | LIBXML_NOWARNING);
+            $document = HtmlSerialization::parseDocument('<html><body>' . (string) ($page['canonical_block_markup'] ?? '') . '</body></html>');
             foreach ((new \DOMXPath($document))->query('//*[@class or @id]') ?: array() as $element) {
                 if (!$element instanceof \DOMElement) continue;
                 $elementClasses = preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array();
@@ -2506,8 +2503,7 @@ PHP;
         if (array() === $classes && array() === $ids) return array();
         $elements = array();
         foreach ($pages as $page) {
-            $document = new \DOMDocument();
-            $document->loadHTML('<?xml encoding="UTF-8"><html><body>' . ($page['canonical_block_markup'] ?? '') . '</body></html>', LIBXML_NOERROR | LIBXML_NOWARNING);
+            $document = HtmlSerialization::parseDocument('<html><body>' . ($page['canonical_block_markup'] ?? '') . '</body></html>');
             foreach ((new \DOMXPath($document))->query('//*[@class or @id]') ?: array() as $element) {
                 if (!$element instanceof \DOMElement) continue;
                 $hooks = array_intersect(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), $classes);
@@ -2684,8 +2680,7 @@ PHP;
         $index = CssSubjectIndex::build(array_values($rules));
         $result = array();
         foreach ($pages as $page) {
-            $document = new \DOMDocument();
-            $document->loadHTML('<?xml encoding="UTF-8"><html><body>' . ($page['canonical_block_markup'] ?? '') . '</body></html>', LIBXML_NOERROR | LIBXML_NOWARNING);
+            $document = HtmlSerialization::parseDocument('<html><body>' . ($page['canonical_block_markup'] ?? '') . '</body></html>');
             foreach ((new \DOMXPath($document))->query('//*[@id or @class]') ?: array() as $element) {
                 if (!$element instanceof \DOMElement) continue;
                 $hook = isset($ids[$element->getAttribute('id')]) ? '#' . CssIdent::escape($element->getAttribute('id')) : '';
@@ -2733,8 +2728,7 @@ PHP;
         foreach ($pages as $page) {
             $markup = (string) ($page['canonical_block_markup'] ?? '');
             if (!str_contains($markup, 'id="' . htmlspecialchars($id, ENT_QUOTES) . '"')) continue;
-            $document = new \DOMDocument();
-            $document->loadHTML('<?xml encoding="UTF-8"><html><body><div class="wp-site-blocks"><div class="entry-content wp-block-post-content">' . $markup . '</div></div></body></html>', LIBXML_NOERROR | LIBXML_NOWARNING);
+            $document = HtmlSerialization::parseDocument('<html><body><div class="wp-site-blocks"><div class="entry-content wp-block-post-content">' . $markup . '</div></div></body></html>');
             foreach ((new \DOMXPath($document))->query('//*[@id]') ?: array() as $node) {
                 if ($node instanceof \DOMElement && $id === $node->getAttribute('id')) {
                     $element = $node;
@@ -4035,8 +4029,7 @@ PHP;
     {
         $html = is_string($document['html'] ?? null) ? $document['html'] : (string) ($document['block_markup'] ?? '');
         if ('' === trim($html) || array() === $childRoutes) return array();
-        $dom = new \DOMDocument();
-        @$dom->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NOERROR | LIBXML_NOWARNING);
+        $dom = HtmlSerialization::parseDocument($html);
         $xpath = new \DOMXPath($dom);
         $cards = array();
         foreach ($xpath->query('//a[@href]') ?: array() as $anchor) {
@@ -4283,8 +4276,7 @@ PHP;
     private static function visibleH1s(string $html, bool $contentOnly): array
     {
         if ('' === trim($html)) return array();
-        $dom = new \DOMDocument();
-        @$dom->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NOERROR | LIBXML_NOWARNING);
+        $dom = HtmlSerialization::parseDocument($html);
         $xpath = new \DOMXPath($dom);
         foreach ($xpath->query('//*[@hidden or translate(@aria-hidden, "TRUE", "true") = "true"] | //template | //dialog[not(@open)] | //nav | //footer | //aside') ?: array() as $hidden) {
             $hidden->parentNode?->removeChild($hidden);
@@ -4904,8 +4896,7 @@ PHP;
     {
         if (!in_array($area, array('header', 'footer'), true)) return false;
         if (1 === preg_match('~"area"\\s*:\\s*"' . $area . '"~i', $markup)) return true;
-        $dom = new \DOMDocument();
-        @$dom->loadHTML('<?xml encoding="UTF-8"><html><body>' . $markup . '</body></html>');
+        $dom = HtmlSerialization::parseDocument('<html><body>' . $markup . '</body></html>');
         $xpath = new \DOMXPath($dom);
         return $xpath->query('//' . $area . '[not(ancestor::article) and not(ancestor::main) and not(ancestor::section)]')->length > 0;
     }
@@ -7110,6 +7101,8 @@ PHP;
     private static function bootstrap(array $assets, array $scripts = array(), array $parts = array(), array $tokens = array(), array $templates = array(), array $pages = array(), array $menus = array(), bool $runtimeEmoji = false, array $rootDocuments = array()): string
     {
         $lines = array("<?php", self::SOURCE_TEXT_TYPOGRAPHY);
+        $documents = array_merge($templates, $parts, $pages);
+        $documentsWithMenus = array_merge($documents, $menus);
         if (!$runtimeEmoji) $lines[] = self::SOURCE_NATIVE_EMOJI;
         // Core only retains theme.json variations registered for the block.
         $lines[] = <<<'PHP'
@@ -7124,17 +7117,17 @@ PHP;
         if ('' !== $rootContext) $lines[] = $rootContext;
         $fields = ListingFieldProjection::bootstrap($pages);
         if ('' !== $fields) $lines[] = $fields;
-        if (array_filter(array_merge($pages, $parts, $templates), static fn(array $document): bool => str_contains($document['canonical_block_markup'], 'blocksEngineSocialAnchor'))) $lines[] = SocialLinkSourceAttribution::bootstrap();
-        if (array_filter(array_merge($pages, $parts, $templates), static fn(array $document): bool => str_contains($document['canonical_block_markup'], 'blocksEngineLinkClass'))) {
+        if (self::markupContains($documents, 'blocksEngineSocialAnchor')) $lines[] = SocialLinkSourceAttribution::bootstrap();
+        if (self::markupContains($documents, 'blocksEngineLinkClass')) {
             $lines[] = "add_filter( 'render_block_core/post-title', static function ( string \$content, array \$block ): string { \$classes = \$block['attrs']['metadata']['blocksEngineLinkClass'] ?? ''; if ( ! is_string( \$classes ) || '' === \$classes ) return \$content; \$tag = new WP_HTML_Tag_Processor( \$content ); if ( \$tag->next_tag( 'A' ) ) foreach ( preg_split( '/\\s+/', \$classes ) ?: array() as \$class ) \$tag->add_class( \$class ); return \$tag->get_updated_html(); }, 10, 2 );";
         }
-        if (array_filter(array_merge($pages, $parts, $templates), static fn(array $document): bool => str_contains($document['canonical_block_markup'], 'blocksEngineIcon'))) {
+        if (self::markupContains($documents, 'blocksEngineIcon')) {
             $lines[] = self::ACCORDION_ICON_RENDERER;
         }
-        if (array_filter(array_merge($pages, $parts, $templates), static fn(array $document): bool => str_contains($document['canonical_block_markup'], 'blocksEngineInlineSvg'))) {
+        if (self::markupContains($documents, 'blocksEngineInlineSvg')) {
             $lines[] = InlineSvgImageRuntime::source();
         }
-        if (array_filter(array_merge($pages, $parts, $templates), static fn(array $document): bool => str_contains($document['canonical_block_markup'], 'blocksEngineImageSelection'))) {
+        if (self::markupContains($documents, 'blocksEngineImageSelection')) {
             $lines[] = self::IMAGE_SELECTION_RENDERER;
         }
         if (array_filter($pages, static fn(array $page): bool => str_contains($page['canonical_block_markup'], 'blocks-engine-listing-overlay'))) {
@@ -7208,7 +7201,7 @@ PHP;
         // Map only the tokens those documents reference: every entry ships in
         // functions.php and keeps its theme file reachable.
         $referenced = array();
-        foreach (array_merge($templates, $parts, $pages) as $document) if (preg_match_all('/' . preg_quote(self::TOKEN_PREFIX, '/') . '([^}]+)\}\}/', (string) ($document['canonical_block_markup'] ?? ''), $matches)) $referenced += array_fill_keys($matches[1], true);
+        foreach ($documents as $document) if (preg_match_all('/' . preg_quote(self::TOKEN_PREFIX, '/') . '([^}]+)\}\}/', (string) ($document['canonical_block_markup'] ?? ''), $matches)) $referenced += array_fill_keys($matches[1], true);
         $templateAssetTokens = array();
         foreach ($tokens as $token) if (isset($referenced[$token['token'] ?? null]) && is_string($token['target_path'] ?? null)) $templateAssetTokens[self::TOKEN_PREFIX . $token['token'] . '}}'] = $token['target_path'];
         if (array() !== $templateAssetTokens) {
@@ -7322,36 +7315,25 @@ PHP;
             $lines[] = "}, 10, 2 );";
             break;
         }
-        foreach (array_merge($templates, $parts, $pages, $menus) as $document) {
-            if (str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), 'data-blocks-engine-route-state')) {
-                $lines[] = NavigationAnchorRuntime::retainedLabelSource();
-                break;
-            }
+        if (self::markupContains($documentsWithMenus, 'data-blocks-engine-route-state')) {
+            $lines[] = NavigationAnchorRuntime::retainedLabelSource();
         }
-        foreach (array_merge($templates, $parts, $pages) as $document) {
-            if (!str_contains((string) ($document['canonical_block_markup'] ?? ''), 'blocksEngineWordmark')) continue;
+        if (self::markupContains($documents, 'blocksEngineWordmark')) {
             // Resolve before Core renders site-title, retaining one editable part
             // and Core's live site name/home URL rather than rewriting saved HTML.
             $lines[] = "add_filter( 'render_block_data', static function ( array \$block ): array {";
             $lines[] = "    if ( 'core/site-title' === ( \$block['blockName'] ?? null ) && ! empty( \$block['attrs']['metadata']['blocksEngineWordmark'] ) ) \$block['attrs']['level'] = ! empty( \$block['attrs']['metadata']['blocksEngineWordmarkHeading'] ) && is_front_page() ? 1 : 0;";
             $lines[] = "    return \$block;";
             $lines[] = "}, 10, 1 );";
-            break;
         }
-        foreach (array_merge($templates, $parts, $pages) as $document) {
-            if (str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), 'blocksEngineNavigationContainer')) {
-                $lines[] = NavigationContainerRuntime::source();
-                break;
-            }
+        if (self::markupContains($documents, 'blocksEngineNavigationContainer')) {
+            $lines[] = NavigationContainerRuntime::source();
         }
         $hasNavigationLink = false;
-        foreach (array_merge($templates, $parts, $pages) as $document) {
-            if (str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), 'blocksEngineNavigationOpener')) {
-                $lines[] = NavigationOpenerRuntime::source();
-                break;
-            }
+        if (self::markupContains($documents, 'blocksEngineNavigationOpener')) {
+            $lines[] = NavigationOpenerRuntime::source();
         }
-        foreach (array_merge($templates, $parts, $pages, $menus) as $document) {
+        foreach ($documentsWithMenus as $document) {
             $markup = (string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? '');
             // Require the navigation container alongside a link, not merely the
             // link comment text, so the filter is only emitted where core/navigation
@@ -7378,7 +7360,7 @@ PHP;
             // Where the source marked an item current on routes its URL does not
             // name (a URL-less dropdown parent), the item records those source
             // documents and that evidence decides; URL matching is the fallback.
-            $currentSourceRoutes = self::navigationCurrentSourceRoutes(array_merge($templates, $parts, $pages, $menus), $pages);
+            $currentSourceRoutes = self::navigationCurrentSourceRoutes($documentsWithMenus, $pages);
             foreach (array('navigation-link', 'navigation-submenu') as $navigationBlock) {
             $lines[] = "add_filter( 'render_block_core/{$navigationBlock}', static function ( string \$content, array \$block ): string {";
             $lines[] = "    if ( ! preg_match( '/<(a|button)\\b[^>]*\\bclass=\"[^\"]*\\bwp-block-navigation-item__content\\b[^>]*>/', \$content, \$anchor ) || str_contains( \$anchor[0], 'aria-current' ) ) return \$content;";
@@ -7433,52 +7415,34 @@ PHP;
             $lines[] = '    return substr_replace( $content, $item, $best[1], strlen( $best[0] ) );';
             $lines[] = "}, 10, 1 );";
         }
-        foreach (array_merge($templates, $parts, $pages) as $document) {
-            if (!str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), CaptureEvidence::VIEWPORT_ENTRANCE)) continue;
+        if (self::markupContains($documents, CaptureEvidence::VIEWPORT_ENTRANCE)) {
             // Device-scoped entrances resolve through the site's live core
             // viewport queries, so they follow block visibility breakpoints.
             $entranceScript = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ViewportEntranceRuntime::script('__BLOCKS_ENGINE_VIEWPORT_QUERIES__');
             $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { \$queries = array(); if ( method_exists( 'WP_Theme_JSON', 'get_viewport_media_queries' ) ) { foreach ( WP_Theme_JSON::get_viewport_media_queries( wp_get_global_settings( array( 'viewport' ) ), array( 'include_desktop' => true ) ) as \$state => \$query ) { \$queries[ ltrim( \$state, '@' ) ] = preg_replace( '/^@media\\s+/', '', \$query ); } } wp_register_script( 'blocks-engine-viewport-entrances', false, array(), null, true ); wp_enqueue_script( 'blocks-engine-viewport-entrances' ); wp_add_inline_script( 'blocks-engine-viewport-entrances', str_replace( '__BLOCKS_ENGINE_VIEWPORT_QUERIES__', (string) wp_json_encode( (object) \$queries ), " . var_export($entranceScript, true) . " ) ); } );";
-            break;
         }
-        foreach (array_merge($templates, $parts, $pages) as $document) {
-            if (str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), 'blocksEngineDialog')) {
-                $lines[] = CapturedDialogRuntime::bootstrap();
-                break;
-            }
+        if (self::markupContains($documents, 'blocksEngineDialog')) {
+            $lines[] = CapturedDialogRuntime::bootstrap();
         }
-        foreach (array_merge($templates, $parts, $pages) as $document) {
-            if (!str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), CaptureEvidence::RESPONSIVE_FRAGMENT)) continue;
+        if (self::markupContains($documents, CaptureEvidence::RESPONSIVE_FRAGMENT)) {
             $fragmentScript = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveFragmentRuntime::script();
             $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_script( 'blocks-engine-responsive-fragments', false, array(), null, true ); wp_enqueue_script( 'blocks-engine-responsive-fragments' ); wp_add_inline_script( 'blocks-engine-responsive-fragments', " . var_export($fragmentScript, true) . " ); } );";
-            break;
         }
-        foreach (array_merge($templates, $parts, $pages) as $document) {
-            if (!str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), 'blocks-engine-navigation-header-offset')) continue;
+        if (self::markupContains($documents, 'blocks-engine-navigation-header-offset')) {
             $headerOffsetScript = NavigationHeaderOffsetRuntime::script();
             $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_script( 'blocks-engine-navigation-header-offset', false, array(), null, true ); wp_enqueue_script( 'blocks-engine-navigation-header-offset' ); wp_add_inline_script( 'blocks-engine-navigation-header-offset', " . var_export($headerOffsetScript, true) . " ); } );";
-            break;
         }
-        $breadcrumbLabels = BreadcrumbLabelRuntime::labels(array_merge($templates, $parts, $pages), $pages);
+        $breadcrumbLabels = BreadcrumbLabelRuntime::labels($documents, $pages);
         $breadcrumbPostTrails = BreadcrumbLabelRuntime::postTrails($pages);
         if (array() !== $breadcrumbLabels || array() !== $breadcrumbPostTrails) $lines[] = BreadcrumbLabelRuntime::source($breadcrumbLabels, $breadcrumbPostTrails);
-        foreach (array_merge($templates, $parts, $pages, $menus) as $document) {
-            if (str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), 'blocksEngineRuntimeAttributes')) {
-                $lines[] = RuntimeAttributesRuntime::source();
-                break;
-            }
+        if (self::markupContains($documentsWithMenus, 'blocksEngineRuntimeAttributes')) {
+            $lines[] = RuntimeAttributesRuntime::source();
         }
-        foreach (array_merge($templates, $parts, $pages) as $document) {
-            if (str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), NavigationEntityProjection::ITEMS_KEY)) {
-                $lines[] = NavigationReferenceItemsRuntime::source();
-                break;
-            }
+        if (self::markupContains($documents, NavigationEntityProjection::ITEMS_KEY)) {
+            $lines[] = NavigationReferenceItemsRuntime::source();
         }
-        foreach (array_merge($templates, $parts, $pages, $menus) as $document) {
-            if (str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), 'blocksEngineNavigationAnchor')) {
-                $lines[] = NavigationAnchorRuntime::source();
-                break;
-            }
+        if (self::markupContains($documentsWithMenus, 'blocksEngineNavigationAnchor')) {
+            $lines[] = NavigationAnchorRuntime::source();
         }
         // Gutenberg pads every saved block with newlines. Imported presentation can
         // preserve white-space (Wix rich text uses break-spaces), so that padding
@@ -7533,6 +7497,12 @@ PHP;
             $lines[] = "}, 10, 2 );";
         }
         return implode("\n", $lines) . "\n";
+    }
+    /** @param list<array<string,mixed>> $documents */
+    private static function markupContains(array $documents, string $marker): bool
+    {
+        foreach ($documents as $document) if (str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), $marker)) return true;
+        return false;
     }
     /** Document navigation relationships are routes; subresource links are assets. */
     private static function isRouteLink(array $attributes): bool

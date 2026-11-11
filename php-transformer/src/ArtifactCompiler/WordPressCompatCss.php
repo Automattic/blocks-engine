@@ -122,8 +122,7 @@ final class WordPressCompatCss
         $this->sourceDocuments = array();
         $this->sourceCandidates = array('*' => array());
         foreach ($this->siteMarkerDocuments ?? array() as $html) {
-            $document = new \DOMDocument();
-            HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?>' . $html, LIBXML_NOERROR | LIBXML_NOWARNING);
+            $document = HtmlSerialization::parseDocument($html);
             $this->sourceDocuments[] = $document;
             foreach ($document->getElementsByTagName('*') as $element) {
                 $this->sourceCandidates['*'][] = $element;

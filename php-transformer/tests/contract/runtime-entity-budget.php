@@ -19,7 +19,7 @@ use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanRe
  * the per-declaration limit is dropped (`runtime_declaration_dropped`).
  * At intake, limits over the whole declaration set stay fail-closed. Site-plan
  * composition drops what still exceeds a limit (`runtime_declaration_dropped`)
- * unless integrity depends on it.
+ * unless integrity depends on it. Resolution does not re-apply the canonical limits.
  */
 
 $assert = static function (bool $condition, string $message): void {
@@ -254,5 +254,25 @@ $resolution = array_column($resolvedListing['runtime_entity_resolution'], null, 
 $resolvedBinding = $resolution['entities'][0]['bindings'][0] ?? array();
 $resolvedPage = $resolvedListing['pages'][0]['resolved_block_markup'];
 $assert(is_string($resolvedBinding['search_block_markup'] ?? null) && !str_contains($resolvedBinding['search_block_markup'], WordPressSitePlan::TOKEN_PREFIX) && WordPressSitePlan::bindingPosition($resolvedBinding['position'] ?? null, new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($resolvedPage), $resolvedBinding['search_block_markup']), 'Resolution anchors the factored binding on the resolved page: ' . json_encode($resolvedBinding['position'] ?? null));
+
+// A canonical inline collection fits, even when destination URLs push its resolved projection over the limit.
+$grid = ''; $files = array();
+for ($item = 0; $item < 46; ++$item) {
+    $images = '';
+    for ($image = 0; $image < 6; ++$image) {
+        $path = 'img/p' . $item . '-' . $image . '.png';
+        $files[$path] = array('path' => $path, 'content_base64' => $png, 'mime_type' => 'image/png');
+        if ($image > 0) $images .= '<img src="' . $path . '">';
+    }
+    $grid .= str_replace('<h3>', $images . '<h3>', $card('Product ' . $item, '10.00', 'img/p' . $item . '-0.png'));
+}
+$files['index.html'] = '<a href="/cart/">Cart</a><div class="grid">' . $grid . '</div>';
+$plan = $compile($files)['source_reports']['wordpress_site_plan'];
+$assert('generic/products/v1' === ($declaration($plan, 'products')['payload']['schema'] ?? null), 'The near-limit products are declared inline.');
+$canonicalBytes = strlen(RuntimeDeclarations::canonicalJson($plan['runtime_declarations']));
+$assert($canonicalBytes < RuntimeDeclarations::MAX_TOTAL_DECLARATION_BYTES, 'Canonical declarations fit the byte limit.');
+$resolved = (new WordPressSitePlanResolver())->resolve($plan, array('theme_uri' => 'https://example.wordpress.com/wp-content/themes/' . str_repeat('a', 60)));
+$resolvedBytes = strlen(RuntimeDeclarations::canonicalJson($resolved['runtime_declarations']));
+$assert($resolvedBytes > $canonicalBytes && $resolvedBytes > RuntimeDeclarations::MAX_TOTAL_DECLARATION_BYTES, 'Resolution can grow declarations beyond the canonical byte limit.');
 
 echo "runtime entity budget contract passed\n";

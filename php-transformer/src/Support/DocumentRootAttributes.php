@@ -3,8 +3,6 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\Support;
 
-use DOMDocument;
-
 /** Source document selector identity shared by compilation and site planning. */
 final class DocumentRootAttributes
 {
@@ -34,8 +32,7 @@ final class DocumentRootAttributes
     {
         $attributes = array('html' => array(), 'body' => array());
         if ('' === trim($html)) return $attributes;
-        $document = new DOMDocument();
-        $document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NOERROR | LIBXML_NOWARNING);
+        $document = HtmlSerialization::parseDocument($html);
         foreach (array('html', 'body') as $tagName) {
             $root = $document->getElementsByTagName($tagName)->item(0);
             foreach ($root?->attributes ?? array() as $attribute) {

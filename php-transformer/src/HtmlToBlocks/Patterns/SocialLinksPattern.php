@@ -10,6 +10,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\MonochromeGlyphC
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgPathCoverage;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use DOMElement;
 
 /** Lowers explicit social-profile clusters to the core social-links family. */
@@ -153,8 +154,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                         $content .= htmlspecialchars($child->textContent, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
                     }
                 }
-                $safeDocument = new \DOMDocument();
-                @$safeDocument->loadHTML('<?xml encoding="UTF-8">' . $context->markupContext()->safeFallbackHtml($anchor));
+                $safeDocument = HtmlSerialization::parseDocument($context->markupContext()->safeFallbackHtml($anchor));
                 $safeAnchor = $safeDocument->getElementsByTagName('a')->item(0);
                 if (!$safeAnchor instanceof DOMElement) continue;
                 $link = $context->buttonContext()->accessibleNameCompanion($safeAnchor, $content, null, true, $anchor)->block();
@@ -316,7 +316,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         $icons ??= json_decode((string) file_get_contents(dirname(__DIR__, 3) . '/resources/wordpress-social-link-icons.json'), true);
         if (null === $service || !isset($icons[$service])) return false;
         $core = new \DOMDocument();
-        $core->loadXML($icons[$service]);
+        if (!@$core->loadXML($icons[$service]) || !$core->documentElement instanceof DOMElement) return false;
         $signature = static function (DOMElement $element): string {
             $parts = array();
             foreach ($element->getElementsByTagName('*') as $child) {

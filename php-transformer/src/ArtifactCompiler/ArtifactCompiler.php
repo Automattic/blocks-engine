@@ -2920,9 +2920,7 @@ final class ArtifactCompiler
             // Parse the lowered markup once per route, never once per arm or
             // stylesheet. Retain source root/body context just as projection
             // does; block comments are inert to the HTML parser.
-            $dom = new DOMDocument();
-            $loaded = HtmlSerialization::loadHtml($dom, '<?xml encoding="UTF-8"><html><body>' . $pageMarkup[$owner] . '</body></html>');
-            if (!$loaded) continue;
+            $dom = HtmlSerialization::parseDocument('<html><body>' . $pageMarkup[$owner] . '</body></html>');
             $attributes = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::metadataFromHtml((string) ($document['content'] ?? ''));
             foreach (array('html' => 'root_attributes', 'body' => 'body_attributes') as $tag => $key) {
                 $element = $dom->getElementsByTagName($tag)->item(0);
@@ -3090,11 +3088,7 @@ final class ArtifactCompiler
     {
         $file['provenance']['projected_from_bytes'] ??= (int) ($file['bytes'] ?? strlen((string) ($file['content'] ?? '')));
         $file['path'] = $path;
-        $file['content'] = $content;
-        unset($file['content_base64']);
-        $file['bytes'] = strlen($content);
-        $file['encoding'] = 'text';
-        $file['binary'] = false;
+        $file = ArtifactNormalizer::withTextPayload($file, $content);
         $file['provenance']['projected_from_hash'] = $file['provenance']['hash'] ?? '';
         $file['provenance']['hash'] = hash('sha256', $content);
         return $file;
@@ -3167,12 +3161,7 @@ final class ArtifactCompiler
                 $paths[] = $this->stylesheetChunkPath((string) $file['path'], $index + 1, $reserved);
             }
             $chunkPaths[(string) $file['path']] = $paths;
-            $loader = $file;
-            $loader['content'] = implode('', array_map(static fn (string $path): string => '@import url("' . basename($path) . '");', $paths));
-            unset($loader['content_base64']);
-            $loader['bytes'] = strlen($loader['content']);
-            $loader['encoding'] = 'text';
-            $loader['binary'] = false;
+            $loader = ArtifactNormalizer::withTextPayload($file, implode('', array_map(static fn (string $path): string => '@import url("' . basename($path) . '");', $paths)));
             $loader['provenance']['hash'] = hash('sha256', $loader['content']);
             $output[] = $loader;
             $continuationPreamble = $chunker->continuationPreamble($file['content']);
@@ -3228,11 +3217,7 @@ final class ArtifactCompiler
             if ( $content === $file['content'] ) {
                 continue;
             }
-            $file['content'] = $content;
-            unset($file['content_base64']);
-            $file['bytes'] = strlen($content);
-            $file['encoding'] = 'text';
-            $file['binary'] = false;
+            $file = ArtifactNormalizer::withTextPayload($file, $content);
             $file['provenance']['projected_from_hash'] = $file['provenance']['hash'] ?? '';
             $file['provenance']['hash'] = hash('sha256', $content);
         }
@@ -3766,11 +3751,7 @@ final class ArtifactCompiler
     private function formStatusFeedbackSelectors(string $html): array
     {
         $selectors = array();
-        $document = new DOMDocument();
-        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        if ( ! $loaded ) {
-            return array();
-        }
+        $document = HtmlSerialization::parseFragment('<body>' . $html . '</body>');
 
         foreach ( $document->getElementsByTagName('*') as $element ) {
             if ( ! $element instanceof DOMElement || ! $this->isFormStatusFeedbackElement($element) ) {
@@ -3872,11 +3853,7 @@ final class ArtifactCompiler
     private function canvasSelectors(string $html): array
     {
         $selectors = array();
-        $document = new DOMDocument();
-        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        if ( ! $loaded ) {
-            return array();
-        }
+        $document = HtmlSerialization::parseFragment('<body>' . $html . '</body>');
 
         foreach ( $document->getElementsByTagName('canvas') as $canvas ) {
             if ( ! $canvas instanceof DOMElement ) {
@@ -3904,11 +3881,7 @@ final class ArtifactCompiler
     private function formControlSelectors(string $html): array
     {
         $selectors = array();
-        $document = new DOMDocument();
-        $loaded = HtmlSerialization::loadHtml($document, '<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        if ( ! $loaded ) {
-            return array();
-        }
+        $document = HtmlSerialization::parseFragment('<body>' . $html . '</body>');
 
         foreach ( $document->getElementsByTagName('*') as $element ) {
             if ( ! $element instanceof DOMElement || ! in_array(strtolower($element->tagName), array('button', 'input', 'select', 'textarea'), true) ) {
@@ -4060,9 +4033,7 @@ final class ArtifactCompiler
         $documents = array();
         foreach ($files as $file) {
             if ('html' !== ($file['kind'] ?? null) || $this->isTemplatePartFile($file) || !is_string($file['content'] ?? null) || '' === trim($file['content'])) continue;
-            $dom = new \DOMDocument();
-            $loaded = self::loadUtf8Html($dom, (string) $file['content']);
-            if (!$loaded) continue;
+            $dom = HtmlSerialization::parseDocument((string) $file['content']);
             $rows = array('header' => array(), 'footer' => array());
             $body = $dom->getElementsByTagName('body')->item(0);
             if (!$body instanceof \DOMElement) continue;
@@ -4250,12 +4221,12 @@ final class ArtifactCompiler
         return $shared;
     }
 
-    /** @param array<string,string> $attributes */
+    /** @param array<int|string,string> $attributes */
     private static function sourceShellAttributes(array $attributes): string
     {
         $html = '';
         foreach ($attributes as $name => $value) {
-            if (1 !== preg_match('/^[a-z_:][a-z0-9_:.-]*$/', $name)) continue;
+            if (!is_string($name) || 1 !== preg_match('/^[a-z_:][a-z0-9_:.-]*$/', $name)) continue;
             $html .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
         }
         return $html;
@@ -4296,9 +4267,7 @@ final class ArtifactCompiler
 
     private static function normalizeSourceShellIdentity(string $markup, bool $ignoreViewportEntrance = true): string
     {
-        $dom = new \DOMDocument();
-        $loaded = self::loadUtf8Html($dom, '<body>' . $markup . '</body>');
-        if (!$loaded) return $markup;
+        $dom = HtmlSerialization::parseDocument('<body>' . $markup . '</body>');
         $xpath = new \DOMXPath($dom);
         if ($ignoreViewportEntrance) {
             foreach ($xpath->query('//*[@' . CaptureEvidence::VIEWPORT_ENTRANCE . ']') ?: array() as $node) {
@@ -4349,11 +4318,6 @@ final class ArtifactCompiler
         $root = $body instanceof \DOMElement ? $body->firstElementChild : null;
         $identity = $root instanceof \DOMElement ? ($dom->saveHTML($root) ?: $markup) : $markup;
         return ShellLandmarkPolicy::withoutResponsiveCorrespondenceMarkup($identity);
-    }
-
-    private static function loadUtf8Html(\DOMDocument $dom, string $html): bool
-    {
-        return HtmlSerialization::loadHtml($dom, '<?xml encoding="utf-8" ?>' . $html);
     }
 
     /**
@@ -5289,10 +5253,7 @@ final class ArtifactCompiler
         if ( ! preg_match('/<(?:[a-z][a-z0-9-]*\b[^>]*\s(?:hidden(?=[\s=\/>])|aria-hidden\s*=\s*["\']?true)|template\b|dialog\b)/i', $html) ) {
             return $html;
         }
-        $dom = new \DOMDocument();
-        if ( ! self::loadUtf8Html($dom, $html) ) {
-            return $html;
-        }
+        $dom = HtmlSerialization::parseDocument($html);
         $xpath = new \DOMXPath($dom);
         $hidden = $xpath->query('//*[@hidden] | //*[translate(@aria-hidden, "TRUE", "true") = "true"] | //template | //dialog[not(@open)]');
         $nodes = array();

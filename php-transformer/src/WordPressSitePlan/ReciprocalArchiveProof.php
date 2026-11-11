@@ -48,8 +48,7 @@ final class ReciprocalArchiveProof
     public static function links(string $html, string $sourceOrigin): array
     {
         if ('' === $html || !class_exists(\DOMDocument::class)) return array();
-        $document = new \DOMDocument();
-        if (!HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8">' . $html, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING)) return array();
+        $document = HtmlSerialization::parseDocument($html);
         $links = array();
         foreach ($document->getElementsByTagName('a') as $anchor) {
             $href = trim($anchor->getAttribute('href'));
@@ -91,8 +90,7 @@ final class ReciprocalArchiveProof
     public static function heading(string $html): string
     {
         if ('' === $html || !class_exists(\DOMDocument::class)) return '';
-        $document = new \DOMDocument();
-        if (!HtmlSerialization::loadHtml($document, '<?xml encoding="UTF-8">' . $html, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING)) return '';
+        $document = HtmlSerialization::parseDocument($html);
         // The page banner (a header outside sectioning content) carries site
         // identity, so the archive is named by the first heading outside it.
         // A heading that is wholly a link titles the listed document it

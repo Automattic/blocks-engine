@@ -39,15 +39,15 @@ foreach (array('capture-root' => 'website/index.html', 'website-root' => 'index.
 
 $files = array(array('path' => 'index.html', 'content' => '<html></html>'), array('path' => 'website/index.html', 'content' => '<html></html>'));
 foreach (array('' , '.', '..', '/website', 'C:\\website', '../website', 'a/../website') as $root) {
-    $assert(array() === CaptureReceiptRoutes::resolve($files, array_replace($receipt, array('websiteRoot' => $root))), 'unsafe root is rejected: ' . $root);
+    $assert('' === CaptureReceiptRoutes::forFiles($files, array_replace($receipt, array('websiteRoot' => $root)))->path('https://example.test/'), 'unsafe root is rejected: ' . $root);
 }
-$assert(array('https://example.test' => 'website/index.html') === CaptureReceiptRoutes::resolve($files, $receipt), 'exact path wins when both exist');
+$assert('website/index.html' === CaptureReceiptRoutes::forFiles($files, $receipt)->path('https://example.test/'), 'exact path wins when both exist');
 foreach (array(null, 'public') as $root) {
     $row = $receipt;
     if (null === $root) unset($row['websiteRoot']);
     else { $row['websiteRoot'] = $root; $row['routes'][0]['path'] = 'public/index.html'; }
     $row['routes'][0]['url'] = ' https://example.test/ ';
-    $assert(array('https://example.test' => 'index.html') === CaptureReceiptRoutes::resolve(array($files[0]), $row), 'default/custom prefix and URL normalization');
+    $assert('index.html' === CaptureReceiptRoutes::forFiles(array($files[0]), $row)->path('https://example.test'), 'default/custom prefix and URL normalization');
 }
-$assert(array() === CaptureReceiptRoutes::resolve(array(), $receipt), 'missing HTML is not mapped');
+$assert('' === CaptureReceiptRoutes::forFiles(array(), $receipt)->path('https://example.test/'), 'missing HTML is not mapped');
 echo "capture receipt routes passed\n";

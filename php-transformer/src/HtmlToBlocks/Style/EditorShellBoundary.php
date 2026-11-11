@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Support\EditorInnerBlocksLayer;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 
 /**
  * Editor-canvas restatement across a proven third-party inner-blocks layer.
@@ -141,8 +142,7 @@ final class EditorShellBoundary
         static $cache = array();
         $key = md5($markup);
         if ( ! isset($cache[ $key ]) ) {
-            $document = new \DOMDocument();
-            @$document->loadHTML($markup);
+            $document = HtmlSerialization::parseDocument($markup);
             $hosts = array();
             foreach ( ( new \DOMXPath($document) )->query('//*[contains(concat(" ", normalize-space(@class), " "), " wp-block-jetpack-contact-form ")]') ?: array() as $element ) {
                 if ( $element instanceof \DOMElement ) $hosts[] = $element;

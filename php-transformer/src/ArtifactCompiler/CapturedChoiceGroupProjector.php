@@ -69,15 +69,12 @@ final class CapturedChoiceGroupProjector
             if (! preg_match('/\.html?$/i', $path) || ! is_string($content) || ! str_contains($content, CaptureEvidence::CHOICE_RUNTIME)) {
                 continue;
             }
-            $document = $this->loadDocument($content);
-            $count = null === $document ? 0 : $this->projectInlinePage($document, $path, $diagnostics);
-            if (null !== $document) {
-                $this->removeInlineEvidence($document);
-            }
-            $output = null !== $document ? HtmlSerialization::documentHtml($document) : null;
+            $document = HtmlSerialization::parseFragment($content);
+            $count = $this->projectInlinePage($document, $path, $diagnostics);
+            $this->removeInlineEvidence($document);
+            $output = HtmlSerialization::documentHtml($document);
             if (is_string($output)) {
-                $files[$index]['content'] = $output;
-                $files[$index]['bytes'] = strlen($output);
+                $files[$index] = ArtifactNormalizer::withTextPayload($files[$index], $output);
                 $projected += $count;
             }
         }
@@ -230,13 +227,7 @@ final class CapturedChoiceGroupProjector
         if (null === $receipt || ! is_array($receipt['routes'] ?? null)) {
             return array('files' => $files, 'diagnostics' => $diagnostics, 'projected_count' => 0);
         }
-        $routes = CaptureReceiptRoutes::resolve($files, $receipt);
-        $fileIndexes = array();
-        foreach ($files as $index => $file) {
-            if (is_string($file['path'] ?? null)) {
-                $fileIndexes[$file['path']] = $index;
-            }
-        }
+        $routes = CaptureReceiptRoutes::forFiles($files, $receipt);
 
         $projected = 0;
         foreach ($report['pages'] as $page) {
@@ -251,17 +242,16 @@ final class CapturedChoiceGroupProjector
                 $diagnostics[] = $this->diagnostic('captured_choice_group_limit_exceeded', 'warning', 'A captured interaction page exceeded the choice-group limit.', array('source_url' => $page['sourceUrl']));
                 continue;
             }
-            $path = $routes[CaptureReceiptRoutes::normalizedUrl($page['sourceUrl'])] ?? '';
-            $index = $fileIndexes[$path] ?? null;
-            if (! is_int($index) || ! is_string($files[$index]['content'] ?? null)) {
+            $path = $routes->path($page['sourceUrl']);
+            $index = $routes->pathIndex($path);
+            if (null === $index) {
                 $diagnostics[] = $this->diagnostic('captured_choice_group_source_unmatched', 'warning', 'A captured choice group did not match an artifact HTML document.', array('source_url' => $page['sourceUrl']));
                 continue;
             }
             $result = $this->projectPage((string) $files[$index]['content'], $groups, $path);
             $diagnostics = array_merge($diagnostics, $result['diagnostics']);
             if (0 < $result['projected_count']) {
-                $files[$index]['content'] = $result['html'];
-                $files[$index]['bytes'] = strlen($result['html']);
+                $files[$index] = ArtifactNormalizer::withTextPayload($files[$index], $result['html']);
                 $projected += $result['projected_count'];
             }
         }
@@ -407,10 +397,7 @@ final class CapturedChoiceGroupProjector
     /** @param array<string, array<string, mixed>> $groups @return array{html:string, diagnostics:array<int, array<string, mixed>>, projected_count:int} */
     private function projectPage(string $html, array $groups, string $sourcePath): array
     {
-        $document = $this->loadDocument($html);
-        if (null === $document) {
-            return array('html' => $html, 'diagnostics' => array($this->diagnostic('captured_choice_group_source_invalid', 'warning', 'Captured choice groups were not projected because the source HTML could not be parsed.', array('source_path' => $sourcePath))), 'projected_count' => 0);
-        }
+        $document = HtmlSerialization::parseFragment($html);
 
         $diagnostics = array();
         $projected = 0;
@@ -429,11 +416,6 @@ final class CapturedChoiceGroupProjector
 
         $output = HtmlSerialization::documentHtml($document);
         return array('html' => is_string($output) ? $output : $html, 'diagnostics' => $diagnostics, 'projected_count' => $projected);
-    }
-
-    private function loadDocument(string $html): ?DOMDocument
-    {
-        return HtmlSerialization::utf8Document($html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
     }
 
     /**
@@ -579,10 +561,7 @@ final class CapturedChoiceGroupProjector
 
     private function fragmentRoot(string $html): ?DOMElement
     {
-        $document = HtmlSerialization::utf8Document('<div data-choice-fragment="true">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-        if (null === $document) {
-            return null;
-        }
+        $document = HtmlSerialization::parseFragment('<div data-choice-fragment="true">' . $html . '</div>');
         $wrapper = $document->getElementsByTagName('div')->item(0);
         foreach ($wrapper?->childNodes ?? array() as $child) {
             if ($child instanceof DOMElement) {
@@ -634,10 +613,7 @@ final class CapturedChoiceGroupProjector
 
     private function safeHtml(string $html): ?string
     {
-        $document = HtmlSerialization::utf8Document('<div data-choice-root="true">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-        if (null === $document) {
-            return null;
-        }
+        $document = HtmlSerialization::parseFragment('<div data-choice-root="true">' . $html . '</div>');
         $xpath = new \DOMXPath($document);
         foreach (array('script', 'style', 'noscript', 'iframe', 'object', 'embed', 'template') as $tag) {
             foreach ($xpath->query('//' . $tag) ?: array() as $node) {
