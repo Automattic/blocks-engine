@@ -351,13 +351,19 @@ final class InertScaffoldingSuppressor implements ElementConverter
 
     /**
      * A display:none presentation tree has neither a box nor readable content.
+     * An inaccessible visibility:hidden tree is also inert when out of flow,
+     * provided no descendant overrides the inherited hidden visibility.
      * Do not generalize this to arbitrary hidden content: controls, addressed
      * panels, captured state and conditional CSS can reveal meaningful content.
      */
     private function isHiddenPresentationScaffolding(DOMElement $element): bool
     {
+        $declarations = $this->styleResolver->authorStructuralDeclarations($element);
+        $hiddenOutOfFlow = 'true' === strtolower(trim(SourceDom::attr($element, 'aria-hidden')))
+            && 'hidden' === CssValueInspector::comparable($declarations['visibility'] ?? '')
+            && in_array(CssValueInspector::comparable($declarations['position'] ?? ''), array( 'absolute', 'fixed' ), true);
         if ( ! in_array(strtolower($element->tagName), array( 'div', 'span' ), true)
-            || 'none' !== CssValueInspector::comparable((string) ($this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'))['display'] ?? '')) ) {
+            || ( ! $hiddenOutOfFlow && 'none' !== CssValueInspector::comparable((string) ($this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'))['display'] ?? '')) ) ) {
             return false;
         }
 
@@ -384,11 +390,29 @@ final class InertScaffoldingSuppressor implements ElementConverter
                 || $this->styleResolver->hasConditionalStyleFamily($candidate, 'opacity') ) {
                 return false;
             }
+            if ( $hiddenOutOfFlow ) {
+                $values = $this->styleResolver->authorDeclaredValuesAtAnyViewport($candidate, array( 'visibility', 'position' ));
+                foreach ( $values['visibility'] ?? array() as $value ) {
+                    if ( ! in_array(CssValueInspector::comparable($value), array( 'hidden', 'inherit', 'unset' ), true) ) {
+                        return false;
+                    }
+                }
+                if ( $candidate === $element ) {
+                    foreach ( $values['position'] ?? array() as $value ) {
+                        if ( ! in_array(CssValueInspector::comparable($value), array( 'absolute', 'fixed' ), true) ) {
+                            return false;
+                        }
+                    }
+                }
+            }
             if ( 'svg' === strtolower($candidate->tagName) && 'true' !== strtolower(trim(SourceDom::attr($candidate, 'aria-hidden'))) ) {
                 return false;
             }
             foreach ( $candidate->attributes as $attribute ) {
                 $name = strtolower($attribute->name);
+                if ( 'role' === $name && $hiddenOutOfFlow && in_array(strtolower(trim($attribute->value)), array( 'presentation', 'none' ), true) ) {
+                    continue;
+                }
                 if ( in_array($name, array( 'id', 'role', 'title', 'tabindex', 'href', 'xlink:href', 'name' ), true)
                     || str_starts_with($name, 'data-')
                     || (str_starts_with($name, 'aria-') && 'aria-hidden' !== $name) ) {
