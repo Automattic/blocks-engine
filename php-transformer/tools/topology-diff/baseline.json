@@ -1177,8 +1177,8 @@
         },
         "80-photographer-portfolio": {
             "added p [blocks-engine-synthetic-paragraph]": 3,
-            "removed dialog": 1,
             "removed nav": 1,
+            "retagged dialog>div [wp-block-group]": 1,
             "retagged figcaption>p": 4,
             "retagged figure>div [wp-block-group]": 4
         },
