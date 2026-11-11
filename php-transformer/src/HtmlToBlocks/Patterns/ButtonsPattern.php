@@ -997,6 +997,10 @@ final class ButtonsPattern
             }
         }
 
+        if ( $this->hasAnyToken($element, array( 'outline', 'ghost', 'hollow', 'bordered' )) ) {
+            return true;
+        }
+
         // Corner geometry and zero-width resets are not outline paint.
         $border = $this->styleResolver->paintedBorder($style);
         unset($border['radius']);

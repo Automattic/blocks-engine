@@ -550,12 +550,6 @@ final class StyleAttributeMapper
             return '' === $radius ? array() : array( 'radius' => $radius );
         }
 
-        // A reset plus a painted side must not leak root style/color into
-        // block supports, where theme border widths could paint the other sides.
-        if (0.0 === CssLength::toPx($global['width']['value'], 16.0, 16.0)) {
-            return $this->paintedBorder($declarations);
-        }
-
         $width      = trim($global['width']['value']);
         $style      = strtolower(trim($global['style']['value']));
         $colorValue = $this->cssColor($global['color']['value'], $resolveValue);

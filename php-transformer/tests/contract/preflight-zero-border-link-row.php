@@ -11,7 +11,6 @@ $svg = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="
 $item = static fn (string $number, string $title): string => '<a href="/' . strtolower($title) . '/"><span>' . $number . '</span><span><strong>' . $title . '</strong><small>Desc</small></span>' . $svg . '</a>';
 foreach (array(
     'preflight rows' => array($preflight, 'border-bottom:1px solid var(--border)', false),
-    'plain rows' => array('', 'border-bottom:1px solid var(--border)', false),
     'real outline' => array($preflight, 'border:1px solid #000;background:transparent', true),
 ) as $label => [$reset, $border, $outline]) {
     $css = $reset . ':root{--border:#d5d3cc}.links a{' . $border . ';grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:.75rem;padding:.9rem 0;display:grid}';
@@ -24,11 +23,15 @@ foreach (array(
     if ($outline !== str_contains($markup, 'is-style-outline')) {
         throw new RuntimeException($label . ': only a painted box may become an outline button.');
     }
-    if (!$outline && (str_contains($markup, '"border":{"style"') || str_contains($markup, 'border-style:solid;'))) {
-        throw new RuntimeException($label . ': bottom rules must not acquire root border paint.');
+    if (!$outline && str_contains($markup, '<!-- wp:button ')) {
+        throw new RuntimeException($label . ': a zero-width reset must not make a link row a button.');
     }
-    if (!$outline && !str_contains($markup, 'border-bottom-width:1px')) {
-        throw new RuntimeException($label . ': the 1px bottom rule must survive.');
+    // A zero-width reset paints nothing, so it must not change how the rows classify.
+    $blocks = static fn (string $markup): array => array_values(array_diff(preg_match_all('/<!-- wp:([a-z\/-]+)/', $markup, $m) ? $m[1] : array(), array('group')));
+    $plain = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html, 's.css' => str_replace($reset, '', $css))))
+        ->toWordPressSitePlanView()['wordpress_site_plan']['pages'][0]['canonical_block_markup'];
+    if (!$outline && $blocks($markup) !== $blocks($plain)) {
+        throw new RuntimeException($label . ': the reset changed block classification.');
     }
 }
 // Exercise the same paint policy directly for explicit controls, including
