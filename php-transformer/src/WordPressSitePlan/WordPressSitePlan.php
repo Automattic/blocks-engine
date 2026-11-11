@@ -8488,6 +8488,31 @@ PHP;
             }
         }
     }
+    private static function jsonUrlIsRoute(string $comment): bool { if (!preg_match('~^\s*wp:([^\s{]+)~i', $comment, $block)) return false; return in_array(strtolower($block[1]), self::ROUTE_URL_BLOCKS, true); }
+    /** @param array<string,bool> $tokens @param array<string,array<string,mixed>> $writes */
+    private static function assertResolution(array $plan, array $tokens, array $writes): void
+    {
+        if (!isset($plan['resolution'])) return;
+        $resolution = $plan['resolution'];
+        if (!is_array($resolution) || array_keys(array_diff_key($resolution, array('attachment_resolutions' => true))) !== array('schema', 'theme_uri', 'runtime_capabilities', 'asset_publication_references', 'unsupported_optional_capabilities') || WordPressSitePlanResolver::RESOLUTION_SCHEMA !== ($resolution['schema'] ?? null) || !is_string($resolution['theme_uri'] ?? null) || !is_array($resolution['runtime_capabilities'] ?? null) || !is_array($resolution['asset_publication_references'] ?? null) || !is_array($resolution['unsupported_optional_capabilities'] ?? null) || WordPressSitePlanResolver::normalizeThemeUri($resolution['theme_uri']) !== $resolution['theme_uri']) throw new InvalidArgumentException('WordPress site plan resolution is malformed or fabricated.');
+        $attachments = WordPressSitePlanResolver::normalizeAttachments($resolution['attachment_resolutions'] ?? array(), $plan['assets']);
+        $references = WordPressSitePlanResolver::references($plan['reference_tokens'], $resolution['theme_uri'], $attachments);
+        $expectedPublicationReferences = WordPressSitePlanResolver::publicationReferences($plan['runtime_declarations'], $plan['reference_tokens'], $plan['writes'], $resolution['theme_uri'], $attachments);
+        try { $capabilities = WordPressSitePlanResolver::normalizeRuntimeCapabilities($resolution['runtime_capabilities']); $unsupported = WordPressSitePlanResolver::unsupportedOptionalCapabilities($plan['runtime_declarations'], $capabilities); } catch (InvalidArgumentException) { throw new InvalidArgumentException('WordPress site plan publication resolution is malformed or stale.'); }
+        if ($resolution['runtime_capabilities'] !== $capabilities || $resolution['asset_publication_references'] !== $expectedPublicationReferences || $resolution['unsupported_optional_capabilities'] !== $unsupported) throw new InvalidArgumentException('WordPress site plan publication resolution is malformed or stale.');
+        foreach (array('pages', 'template_parts', 'templates') as $kind) foreach ($plan[$kind] as $document) {
+            if (!is_array($document) || !is_string($document['canonical_block_markup'] ?? null) || !is_string($document['resolved_block_markup'] ?? null) || WordPressSitePlanResolver::resolveMarkup($document['canonical_block_markup'], $references, $attachments) !== $document['resolved_block_markup']) throw new InvalidArgumentException("WordPress site plan resolved {$kind} payload is not canonical.");
+        }
+        foreach ($plan['menus'] as $menu) if (is_string($menu['block_markup'] ?? null)) {
+            if (!is_string($menu['resolved_block_markup'] ?? null) || WordPressSitePlanResolver::resolvePayload($menu['block_markup'], $references) !== $menu['resolved_block_markup']) throw new InvalidArgumentException('WordPress site plan resolved navigation content is not canonical.');
+        }
+        foreach ($writes as $write) {
+            if ('utf8' !== ($write['payload']['encoding'] ?? null)) { if (isset($write['canonical_payload'], $write['canonical_payload_hash'])) throw new InvalidArgumentException('WordPress site plan binary write cannot carry a resolution projection.'); continue; }
+            if (!is_string($write['canonical_payload'] ?? null) || !self::hash($write['canonical_payload_hash'] ?? null) || $write['canonical_payload_hash'] !== self::contentHash($write['canonical_payload']) || WordPressSitePlanResolver::resolveWritePayload($write['canonical_payload'], $plan['reference_tokens'], $resolution['theme_uri'], $write['target_path'], $attachments) !== $write['payload']['data']) throw new InvalidArgumentException('WordPress site plan resolved write payload is not canonical.');
+            if (!self::isVerbatimRuntimeWrite($write['kind'], $write['target_path'])) self::assertNoLocalBrowserReferencesInWrite($write['target_path'], $write['canonical_payload'], $write['source_path']);
+        }
+        self::assertResolvedMetadata($plan, $references);
+    }
     /** @param array<string,string> $references */
     private static function assertResolvedMetadata(array $plan, array $references): void
     {
