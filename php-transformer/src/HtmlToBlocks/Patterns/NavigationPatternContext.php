@@ -1449,7 +1449,7 @@ final class NavigationPatternContext
             $subjects[] = array($node->getNodePath() ?? '', $marker);
             $node->setAttribute('class', SourceDom::mergeClassNames($node->getAttribute('class'), $marker));
         }
-        $markup = $this->svgMaterializer->restoreSvgCasing($this->svgMaterializer->sanitizeInlineSvgMarkup($svg));
+        $markup = $this->svgMaterializer->inlineSvgMarkup($svg);
         if ('' === $markup || !SourceDom::isSafeSvgContent($markup)) return '';
         foreach ($subjects as [$path, $marker]) $this->pendingNavigationSubjects[$path] = array('marker' => $marker, 'target' => '.wp-block-navigation .wp-block-navigation-item .' . $marker);
         return $markup;

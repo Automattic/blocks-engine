@@ -130,8 +130,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStylesheetMa
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStylesheetProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjectionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjector;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
-use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeneratedBlockStyleProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\DisclosureControlPresentation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ImageDimensionResolver;
@@ -652,7 +650,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this,
             $this,
             $this->runtimeIslands,
-            fn (DOMElement $element): string => $this->svgMaterializer->restoreSvgCasing($this->svgMaterializer->sanitizeInlineSvgMarkup($element))
+            $this->svgMaterializer->inlineSvgMarkup(...)
         );
         $this->patternContext = $this->createPatternContext();
         $this->interactionFallbackReporter = new InteractionFallbackReporter(
@@ -670,7 +668,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->sourceElementDescription,
             $blockBindings->binding(...),
             fn (DOMElement $element, string $value): string => $this->styleResolver->resolveCssVariablesInValue($value, $element),
-            fn (DOMElement $element): string => $this->svgMaterializer->restoreSvgCasing($this->svgMaterializer->sanitizeInlineSvgMarkup($element))
+            $this->svgMaterializer->inlineSvgMarkup(...)
         );
         $this->commerceReporter = new CommerceFallbackReporter(
             $this->commercePattern,
@@ -1017,29 +1015,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             new ThemeToggleConverter(
                 $this->svgMaterializer,
                 $this->session,
-                fn (DOMElement $element): string => $this->svgMaterializer->sanitizeInlineSvgMarkup($element),
-                function (DOMElement $element): array {
-                    $presentation = $this->styleResolver->presentationAttributes($element);
-                    $inline = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
-                    $mapped = $this->styleResolver->styleAttributeMapper()->map($inline);
-                    $css = (string) ($this->styleResolver->styleAttributeMapper()->serialize($mapped['style'] ?? array())['style'] ?? '');
-                    $declarations = $this->styleResolver->cssDeclarations($css);
-                    foreach ( array('display', 'flex-direction', 'flex-wrap', 'justify-content', 'align-items', 'gap', 'row-gap', 'column-gap', 'grid-template-columns', 'grid-template-rows') as $layoutProperty ) {
-                        if ( isset($inline[$layoutProperty]) ) $declarations[$layoutProperty] = $inline[$layoutProperty];
-                    }
-                    foreach ( array('width', 'min-width', 'max-width', 'height', 'min-height', 'max-height') as $dimension ) {
-                        $value = trim((string) ($inline[$dimension] ?? ''));
-                        $safeLength = CssValueInspector::isAbsoluteLength($value)
-                            || 1 === preg_match('/^[+-]?(?:\d+(?:\.\d+)?|\.\d+)%$/', $value)
-                            || (preg_match('/^(?:calc|min|max|clamp|var)\s*\(/i', $value) && CssValueSplitter::hasBalancedParens($value));
-                        if ( '' !== $value && $safeLength && ! preg_match('/(?:url\s*\(|expression\s*\(|javascript\s*:)/i', $value) ) $declarations[$dimension] = $value;
-                    }
-                    return array(
-                        'className' => (string) ($presentation['className'] ?? ''),
-                        'style' => $declarations,
-                        'layout' => is_array($presentation['layout'] ?? null) ? $presentation['layout'] : array(),
-                    );
-                }
+                $this->styleResolver
             ),
             new CopyToClipboardConverter($this->session),
             $formDispatcher,
@@ -1792,7 +1768,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             new DisclosureControlPresentation(
                 $this->styleResolver,
                 $this->session->generatedSupportStylesheetState(),
-                fn (DOMElement $element): string => SvgMaterializer::ensureSvgImageNamespace($this->svgMaterializer->restoreSvgCasing($this->svgMaterializer->sanitizeInlineSvgMarkup($element)))
+                fn (DOMElement $element): string => SvgMaterializer::ensureSvgImageNamespace($this->svgMaterializer->inlineSvgMarkup($element))
             ),
             $this->styleResolver,
             $this->session,
@@ -1880,7 +1856,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
              disclosure: new DisclosureControlPresentation(
                  $this->styleResolver,
                  $this->session->generatedSupportStylesheetState(),
-                 fn (DOMElement $element): string => SvgMaterializer::ensureSvgImageNamespace($this->svgMaterializer->restoreSvgCasing($this->svgMaterializer->sanitizeInlineSvgMarkup($element)))
+                 fn (DOMElement $element): string => SvgMaterializer::ensureSvgImageNamespace($this->svgMaterializer->inlineSvgMarkup($element))
              ),
              styles: $this->styleResolver
          );

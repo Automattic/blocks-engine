@@ -2091,6 +2091,12 @@ final class SvgMaterializer implements SvgElementMaterializer
         return '' === $formatted ? '' : $formatted;
     }
 
+    /** Sanitized inline SVG markup with its parser-lowercased names restored. */
+    public function inlineSvgMarkup(DOMElement $element): string
+    {
+        return $this->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element));
+    }
+
     /**
      * Restore the canonical camelCase casing of SVG element and attribute names
      * that the HTML parser lowercases (e.g. `viewbox` -> `viewBox`,
@@ -2381,7 +2387,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         if ('absolute' !== strtolower(trim((string) ($declarations['position'] ?? '')))) {
             return null;
         }
-        return $this->svgArtworkBlock($element, $this->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element)));
+        return $this->svgArtworkBlock($element, $this->inlineSvgMarkup($element));
     }
 
     /** Fallback markup carries the session's author-selector tag markers. */
