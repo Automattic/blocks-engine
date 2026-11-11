@@ -917,7 +917,8 @@ final class SourceElementClassifier
     {
         $srcset = SourceDom::attr($image, 'srcset');
         if ( '' === $srcset ) {
-            return '' !== SourceDom::attr($image, 'sizes');
+            // `sizes` only selects among srcset candidates; alone it has no effect.
+            return false;
         }
         $candidates = SrcsetParser::parse($srcset);
         if ( array() === $candidates ) {
