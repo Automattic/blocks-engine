@@ -6,6 +6,7 @@ require __DIR__ . '/../../vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\RuntimeDomTargetsFixture;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentElementContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListStructure;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
@@ -42,8 +43,7 @@ $context = new InlineContentElementContext(
     static fn (DOMElement $element, array &$fallbacks): ?array => array( 'blockName' => 'core/group', 'attrs' => array( 'positioned' => true ) ),
     static fn (DOMElement $element): bool => false,
     static fn (DOMElement $element): string => '',
-    static fn (DOMElement $element, string $tagName): ?DOMElement => null,
-    static fn (DOMElement $element): bool => false,
+    new ListStructure(new SourceElementClassifier()),
     static fn (DOMElement $element): bool => false,
     static fn (DOMElement $element): array => array( 'blockName' => 'core/spacer' )
 );
