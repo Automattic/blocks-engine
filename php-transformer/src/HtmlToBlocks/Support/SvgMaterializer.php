@@ -20,8 +20,8 @@ use DOMNode;
  * Materializes source SVG into emitted blocks: inline SVG hosts, decorative
  * classification, casing restoration, box styling and asset extraction.
  *
- * Extracted from HtmlTransformer as a collaborator rather than a mixin: blocks
- * are created through {@see \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator},
+ * Blocks are created through
+ * {@see \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator},
  * and per-transform state is read from the session.
  */
 final class SvgMaterializer implements SvgElementMaterializer

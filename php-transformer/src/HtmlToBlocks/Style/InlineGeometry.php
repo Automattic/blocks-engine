@@ -12,9 +12,8 @@ use DOMElement;
 /**
  * Inline geometry carrier classes and block layout attributes.
  *
- * Extracted from {@see StyleResolver} so this class has no StyleResolver `$this`.
- * CssCascade and CssValueInspector are used directly. Remaining StyleResolver
- * operations are explicit constructor closures — not a Context bag.
+ * CssCascade and CssValueInspector are used directly; the StyleResolver
+ * operations it needs are explicit constructor closures.
  */
 final class InlineGeometry
 {

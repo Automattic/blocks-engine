@@ -13,9 +13,8 @@ use DOMElement;
  * Recognizes column / split-layout / documentation-sidebar containers and
  * converts them to a core/columns block of core/column children.
  *
- * Extracted verbatim from HtmlTransformer::columnsBlockFromElement() and its
- * private helpers. The matcher keeps its frozen callback contract while the
- * registry supplies recursive conversion through PatternTreeConverter:
+ * The matcher keeps a frozen callback contract while the registry supplies
+ * recursive conversion through PatternTreeConverter:
  *   - $convertChildren: convertChildren($child, $fallbacks, true) for wrapper
  *     columns (recursion that may emit fallbacks).
  *   - $convertElement:  convertElement($child, $fallbacks, true) for non-wrapper

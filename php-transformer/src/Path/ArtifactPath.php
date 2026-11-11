@@ -58,11 +58,6 @@ final class ArtifactPath
     }
 
     /**
-     * A link with a fragment names a section, not the page: shared chrome
-     * linking to `/index.html#services` is not the served page's current item,
-     * on the route holding that section or on any other.
-     */
-    /**
      * The site route an href points at: its path with a trailing index file and
      * extension dropped and no trailing slash. The bare root stays `/`, and an
      * href without a path yields ''.
@@ -83,6 +78,11 @@ final class ArtifactPath
         return '' === $path ? '/' : $path;
     }
 
+    /**
+     * A link with a fragment names a section, not the page: shared chrome
+     * linking to `/index.html#services` is not the served page's current item,
+     * on the route holding that section or on any other.
+     */
     public static function namesSection(string $href): bool
     {
         $href = trim($href);

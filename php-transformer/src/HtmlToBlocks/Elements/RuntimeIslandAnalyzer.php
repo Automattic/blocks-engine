@@ -21,13 +21,8 @@ use DOMElement;
  * Decides which elements carry a runtime contract the block output cannot
  * express natively — canvas and DOM targets, app-shell roots, workspace
  * surfaces, bounded data-attribute targets — and records the islands and
- * preservation fallbacks that follow.
- *
- * Previously `RuntimeIslandTrait`, whose own docblock recorded that it had been
- * "moved verbatim out of HtmlTransformer under #242". That move relocated the
- * code without changing anything: as a single-consumer trait every method still
- * resolved against the transformer's `$this`. Here the same logic owns its
- * DOM queries and is exercised without a transformer.
+ * preservation fallbacks that follow. It owns its DOM queries and is
+ * exercised without a transformer.
  */
 final class RuntimeIslandAnalyzer implements RuntimeDomTargets
 {

@@ -15,12 +15,9 @@ use DOMElement;
  * landmark count comparison, navigation-menu presence/item-count/label parity,
  * and the source-vs-block nav/landmark counting that backs those findings.
  *
- * This is a behavior-preserving extraction of the inline builders that
- * previously lived in HtmlTransformer. It performs the same DOM walks and
- * counting against the parsed source body, the generated blocks, and their
- * source provenance — all passed in as explicit parameters rather than read
- * from transformer state — so the report output is byte-identical to the
- * inline implementation.
+ * It walks the parsed source body, the generated blocks, and their source
+ * provenance, all passed in as explicit parameters rather than read from
+ * transformer state.
  *
  * Fallback HTML and label helpers come from DomHelpersTrait; stateless DOM
  * helpers are called on SourceDom, so this module needs no transformer

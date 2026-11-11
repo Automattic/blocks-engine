@@ -27,12 +27,8 @@ use DOMText;
  *
  * These are pure functions of their arguments. They are static deliberately:
  * a pure function needs no instance, so a caller needs no constructor argument
- * and no injected closure to reach one. That is the whole point. This
- * vocabulary previously lived only in {@see DomHelpersTrait}, which meant a
- * class that was not already the transformer could not reach it, and the
- * package accumulated three separate workarounds — forwarding closures through
- * context objects, copy-pasted private duplicates, and independent
- * reimplementations that were free to disagree.
+ * and no injected closure to reach one, and the package keeps one copy of
+ * each operation instead of private duplicates free to disagree.
  *
  * Operations needing transform state accept it as an explicit argument
  * instead of reading it off an instance ({@see self::safeFallbackHtml()}

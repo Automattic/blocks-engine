@@ -20,10 +20,9 @@ use SplObjectStorage;
  * Decides which source menu toggles and overlay menus are superseded by the
  * emitted core/navigation, and which source nodes the projection suppresses.
  *
- * Extracted from HtmlTransformer as a collaborator rather than a mixin: every
- * dependency it needs from the transformer is declared on
- * {@see NavigationToggleSuppressionContext}, so this class has no $this access
- * to the transformer and can be exercised without constructing one.
+ * Every dependency it needs from the compilation is declared on
+ * {@see NavigationToggleSuppressionContext}, so it can be exercised without
+ * constructing a transformer.
  *
  * Projection state lives on the per-transform session rather than on this
  * collaborator, so it resets with every transform.

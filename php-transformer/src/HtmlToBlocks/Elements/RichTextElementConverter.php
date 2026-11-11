@@ -15,10 +15,8 @@ use DOMElement;
  * whether that content still needs a core/html fallback, then either drop the
  * element, lower it to a group, or emit the native block.
  *
- * Extracted as a collaborator rather than a trait. A single-consumer trait keeps
- * every method in the transformer's `$this` scope, so it relocates code without
- * shrinking the object surface. This class receives a
- * {@see RichTextElementContext} and is exercised without a transformer.
+ * It receives a {@see RichTextElementContext} and is exercised without a
+ * transformer.
  */
 final class RichTextElementConverter implements ElementConverter
 {

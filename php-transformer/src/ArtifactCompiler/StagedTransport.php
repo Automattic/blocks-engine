@@ -9,7 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 
 /**
- * Staged prepare/compilePage/compose transport extracted from ArtifactCompiler.
+ * Staged prepare/compilePage/compose transport for ArtifactCompiler.
  *
  * ArtifactCompiler remains the public facade and owns canonical compile()
  * plus envelope finalize. Site-plan production is derived by
