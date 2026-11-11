@@ -16,7 +16,6 @@ use Automattic\BlocksEngine\PhpTransformer\WordPress\CoreBlockCapabilityMatrix;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CoreHtmlFallbackEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformationOptions;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthorLayoutBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredCarouselBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredMarqueeRecognizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CustomBlockGenerator;
@@ -262,6 +261,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly Elements\TextlessMediaLowering $textlessMedia;
     private readonly Support\StyledSourceClassBoundary $styledClassBoundaries;
     private readonly Elements\EmptyVisualRetentionPolicy $emptyVisualRetention;
+    private readonly Elements\AuthorLayoutBlockLowering $authorLayout;
     private readonly SourceProvenance $sourceProvenance;
 
 
@@ -505,6 +505,18 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->session,
             $this->runtime,
             $this->listStructure
+        );
+        $this->authorLayout = new Elements\AuthorLayoutBlockLowering(
+            $this,
+            $this,
+            $this->session,
+            $this->styleResolver,
+            $this->richTextMaterializer,
+            $this->runtime,
+            $this->emptyVisualRetention,
+            $this->layoutShells,
+            $this->wrapperCoalescer,
+            $this->authorLayoutOwnership
         );
         $emptyFeatureShells = new Elements\EmptyInteractiveFeatureShell($this->runtimeIslands, $this->wrapperCoalescer);
         $this->generatedComponentCandidates = new Support\GeneratedComponentCandidates($this->session, $this->sourceElementClassifier);
@@ -924,7 +936,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $formDispatcher,
             $flankedSeparators,
             $this->imageLowering,
-            $this,
+            $this->authorLayout,
             $this->generatedComponents,
             $this->emptyVisualRetention,
             $this->session,
@@ -2250,89 +2262,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $blocks;
     }
 
-    /** @param array<int, array<string, mixed>> $fallbacks */
-    public function authorLayoutBlockFromElement(DOMElement $element, array &$fallbacks): array
-    {
-        if ( ! $this->emptyVisualRetention->preservesScriptStateWrapper($element) ) {
-            $paragraph = $this->textOnlyLayoutDivParagraph($element);
-            if ( null !== $paragraph ) {
-                return $paragraph;
-            }
-        }
-        $children = $this->convertChildren($element, $fallbacks, true);
-        if ( $this->emptyVisualRetention->preservesScriptStateWrapper($element) ) {
-            return $this->layoutShells->blockForElements(array( $element ), $children, $element);
-        }
-        $isAuthorOwnedLayout = $this->authorLayoutOwnership->isAuthorOwnedLayout($element);
-        $sourceChildCount = $isAuthorOwnedLayout ? SourceDom::childElementCount($element) : 0;
-        $sourceTags = $isAuthorOwnedLayout ? SourceDom::directChildTags($element) : array();
-        $blockTags = $isAuthorOwnedLayout ? $this->directBlockTags($children) : array();
-        $topologyChanged = $isAuthorOwnedLayout
-            && 0 < $sourceChildCount
-            && ( $sourceChildCount !== count($children) || $sourceTags !== $blockTags );
-        if ( 1 === count($children) && ! $topologyChanged ) {
-            $coalesced = $this->wrapperCoalescer->coalescedSingleGroupWrapper($element, $children[0]);
-            if ( null !== $coalesced ) {
-                return $coalesced;
-            }
-        }
-        $attrs = $this->authorLayoutOwnership->cssOwnedGroupAttributes($element, false, $topologyChanged);
-        if ( 0 === count($children) && '' === SourceDom::renderedTextContent($element) ) {
-            // Empty source layout containers are visual boundaries, not new
-            // authoring targets. Mark them so the editor suppresses Core's
-            // layout picker without changing their saved frontend box.
-            $attrs['className'] = SourceDom::mergeClassNames(
-                (string) ($attrs['className'] ?? ''),
-                self::EMPTY_VISUAL_GROUP_CLASS
-            );
-            $this->session->runtimeBehaviorState()->markEmptyVisualGroupGenerated();
-            // An inline background paint is the reason an empty boundary box
-            // exists. The standard carrier declines backgrounds for childless
-            // elements because the flow-container path lowers those to a
-            // background image block; this path keeps the box itself, so
-            // restate the paint on a dedicated carrier.
-            $attrs['className'] = SourceDom::mergeClassNames(
-                (string) $attrs['className'],
-                $this->styleResolver->emptyElementBackgroundCarrierClassName($element)
-            );
-        }
-        $block = $this->createBlock('core/group', $attrs, $children, $element);
-        if ( $isAuthorOwnedLayout ) {
-            $this->session->transformationEvidenceState()->recordAuthorLayoutTopology(
-                SourceDom::elementSelector($element),
-                $sourceChildCount,
-                count($children),
-                $sourceTags,
-                $blockTags,
-                $block['_source_provenance_id'] ?? null
-            );
-        }
-        if ($topologyChanged && $this->styleResolver->hasTopologyUnsafeFixedHeight($element)) {
-            $this->session->layoutGeometryState()->removeTopologyUnsafeFixedHeightRules(
-                $this->styleResolver->geometryStructuralPath($element)
-            );
-        }
-        return $block;
-    }
-
-    /** @param array<int, array<string, mixed>> $blocks @return list<string> */
-    private function directBlockTags(array $blocks): array
-    {
-        $tags = array();
-        foreach ($blocks as $block) {
-            $name = $block['blockName'] ?? '';
-            $attrs = $block['attrs'] ?? array();
-            // A lowered paragraph is its source div's own box; author tag
-            // selectors reach it through the source-tag projection.
-            if ( 'core/paragraph' === $name && in_array(self::LOWERED_PARAGRAPH_CLASS, preg_split('/\s+/', (string) ($attrs['className'] ?? '')) ?: array(), true) ) {
-                $tags[] = 'div';
-                continue;
-            }
-            $tags[] = $this->session->requireGeneratedBlockRegistry()->blockName(AuthorLayoutBlockGenerator::LOCAL_NAME) === $name ? (string) ($attrs['tagName'] ?? 'div') : ('core/group' === $name ? (string) ($attrs['tagName'] ?? 'div') : ('core/image' === $name ? 'img' : ('core/paragraph' === $name ? 'p' : ('core/heading' === $name ? 'h' . (string) ($attrs['level'] ?? 2) : ''))));
-        }
-        return $tags;
-    }
-
     /** Read lazily: the projector is built after the closure that needs it. */
     private function controlCarrierLayerRevertRule(DOMElement $element, string $marker): string
     {
@@ -2403,32 +2332,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $attrs['fitText'] = true;
 
         return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($svg), array($this->blockFactory->rebuild($block, $attrs)), $svg);
-    }
-
-    /**
-     * A layout `div` that holds only text is one box in the source: its text is
-     * an anonymous box laid out by the div's own display. A paragraph that
-     * carries the div's classes and presentation is that same box, so the text
-     * keeps its source parent instead of gaining a group plus an added
-     * paragraph. The lowered-paragraph reset removes only the UA paragraph
-     * margins, below every author rule.
-     *
-     * @return array<string, mixed>|null
-     */
-    private function textOnlyLayoutDivParagraph(DOMElement $element): ?array
-    {
-        if ( 'div' !== strtolower($element->tagName) || 0 !== SourceDom::childElementCount($element) || SourceDom::documentVariantRoot($element) === $element ) {
-            return null;
-        }
-        $content = $this->richTextMaterializer->content($element);
-        if ( '' === trim($this->runtime->stripAllTags($content)) || $this->richTextMaterializer->requiresHtmlFallback($content) ) {
-            return null;
-        }
-        $attrs = $this->styleResolver->presentationAttributes($element);
-        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::LOWERED_PARAGRAPH_CLASS);
-        $attrs['content'] = $content;
-
-        return $this->createBlock('core/paragraph', $attrs, array(), $element);
     }
 
     private function createCommercePattern(): CommerceStructureRecognizer
@@ -2544,5 +2447,15 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $this->layoutShells->blockForElements(array($button), $children, $button);
     }
 
+    /**
+     * GeneratedComponentLowering is built before the author layout lowering
+     * it falls back to, so it reaches it through the compiler.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     */
+    public function authorLayoutBlockFromElement(DOMElement $element, array &$fallbacks): array
+    {
+        return $this->authorLayout->authorLayoutBlockFromElement($element, $fallbacks);
+    }
 }
 
