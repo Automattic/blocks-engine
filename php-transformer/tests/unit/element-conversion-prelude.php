@@ -73,7 +73,7 @@ $assert($sawInside, 'native-get-form-depth-is-active-while-converting-children')
 $assert(! $builder->isInside(), 'native-get-form-depth-restores-after-build');
 $assert(null !== $built, 'safe-native-get-form-builds');
 
-$metadataBuilder = new FormControlMetadataBuilder(static fn (DOMElement $element): string => strtolower($element->tagName));
+$metadataBuilder = new FormControlMetadataBuilder();
 $authored = new AuthoredFormControlBlockConverter(
     $metadataBuilder,
     static fn (DOMElement $element): array => array(),
@@ -81,12 +81,10 @@ $authored = new AuthoredFormControlBlockConverter(
     $createBlock,
     $session,
     $runtime,
-    static fn (string $id): string => $id,
     static fn (DOMElement $element): DOMElement => $element
 );
 $styleResolver = new StyleResolver($session,
     new StyleResolutionContext(
-        static fn (string $value): string => $value,
         static fn (string $selector): array => array(),
         static fn (string $className): string => $className,
         static fn (string $url): string => $url

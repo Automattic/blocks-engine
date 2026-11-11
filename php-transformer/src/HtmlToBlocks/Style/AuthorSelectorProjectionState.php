@@ -1073,6 +1073,11 @@ final class AuthorSelectorProjectionState
         return $this->semanticMarkersForPath($path);
     }
 
+    public function hasSemanticMarker(DOMElement $element): bool
+    {
+        return array() !== $this->semanticMarkersForElement($element);
+    }
+
     /** @return list<string> */
     public function semanticMarkersForPath(string $path): array
     {
@@ -1158,5 +1163,37 @@ final class AuthorSelectorProjectionState
         return ($this->authorStyles
             ?? throw new \LogicException('Author styles have not been installed for selector projection.'))
             ->allocateContextMarker($kind, $path);
+    }
+
+    /**
+     * @param array<mixed> $attrs
+     * @return array<mixed>
+     */
+    public function withRichTextCarrierAttrs(array $attrs): array
+    {
+        foreach ( $attrs as $key => $value ) {
+            if ( is_string($value) ) {
+                $attrs[$key] = $this->withRichTextCarrierClasses($value);
+            } elseif ( is_array($value) ) {
+                $attrs[$key] = $this->withRichTextCarrierAttrs($value);
+            }
+        }
+        return $attrs;
+    }
+
+    /**
+     * Whether a direct child needs a semantic carrier of its own. Attribute
+     * markers are classes an inline element keeps inside RichText, so they
+     * leave the phrasing run one paragraph.
+     */
+    public function hasSemanticCarrierChild(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && '' !== $this->semanticMarker(SourceDom::sourceElementIdentity($child)) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

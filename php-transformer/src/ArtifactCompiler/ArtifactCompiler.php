@@ -1925,7 +1925,7 @@ final class ArtifactCompiler
             'stylesheet_payloads'       => $stylesheetPayloads,
             // Rule analysis reads each occurrence with its imports expanded in
             // place, conditions attached; projections keep the authored bytes.
-            'author_stylesheet_assets'  => array_map(fn (array $stylesheet): array => $stylesheet + array('cascade_content' => $this->stylesheetOccurrenceContent($stylesheet, $files)), $stylesheetAssets),
+            'author_stylesheet_assets'  => $this->authorStylesheetAssetsWithImports($stylesheetAssets, $files),
             'author_layer_order'        => (new AuthorCascadeLayerOrder())->statement($layerOrderCss),
             'shared_stylesheet_paths'   => $this->sharedStylesheetPathsFromFiles($files),
             'skip_author_stylesheet_materialization' => true,
@@ -2177,7 +2177,7 @@ final class ArtifactCompiler
                 $asset = $this->findAssetByHtmlReference($path, $entryPath, $files);
                 $content = is_array($asset) && 'image/svg+xml' === ($asset['mime_type'] ?? '') ? (string) ($asset['content'] ?? '') : '';
                 $sprite = new DOMDocument();
-                $sprites[$path] = '' !== $content && $this->isSafeSvgContent($content) && $sprite->loadXML($content, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING) ? new DOMXPath($sprite) : null;
+                $sprites[$path] = '' !== $content && SourceDom::isSafeSvgContent($content) && $sprite->loadXML($content, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING) ? new DOMXPath($sprite) : null;
             }
             $xpath = $sprites[$path];
             $id = html_entity_decode($match[4], ENT_QUOTES | ENT_HTML5);
@@ -2576,7 +2576,41 @@ final class ArtifactCompiler
         return $this->compatibilityStylesheetContent((string) $stylesheet['content'], (string) ($stylesheet['source_path'] ?? $stylesheet['path']), $files);
     }
 
-    private function compatibilityStylesheetContent(string $css, string $path, array $files, array $ancestors = array(), bool $importedLayer = false): string
+    /**
+     * Imported files are projection targets too, but their rules are analyzed
+     * only in the importing occurrence's expanded cascade stream.
+     *
+     * @param array<int, array<string, mixed>> $stylesheets
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, array<string, mixed>>
+     */
+    private function authorStylesheetAssetsWithImports(array $stylesheets, array $files): array
+    {
+        $assets = array();
+        $importsByPath = array();
+        foreach ($stylesheets as $stylesheet) {
+            $imports = array();
+            $cascade = $this->compatibilityStylesheetContent($stylesheet['content'], $stylesheet['source_path'] ?? $stylesheet['path'], $files, array(), false, $imports, (string) ($stylesheet['media'] ?? ''));
+            $assets[] = $stylesheet + array('cascade_content' => $cascade);
+            foreach ($imports as $import) {
+                foreach (array('capture_only', 'stylesheet_activation') as $key) {
+                    if (isset($stylesheet[$key])) $import[$key] = $stylesheet[$key];
+                }
+                // One file is one projection target. Repeated imports (such as
+                // one per viewport band) widen its media instead of repeating it.
+                $path = $import['path'];
+                if (!isset($importsByPath[$path])) {
+                    $importsByPath[$path] = $import;
+                    continue;
+                }
+                $media = array($importsByPath[$path]['media'], $import['media']);
+                $importsByPath[$path]['media'] = in_array('', $media, true) ? '' : implode(', ', array_unique($media));
+            }
+        }
+        return array_merge($assets, array_values($importsByPath));
+    }
+
+    private function compatibilityStylesheetContent(string $css, string $path, array $files, array $ancestors = array(), bool $importedLayer = false, ?array &$imports = null, string $inheritedMedia = ''): string
     {
         if (isset($ancestors[$path])) return '';
         $ancestors[$path] = true;
@@ -2602,12 +2636,17 @@ final class ArtifactCompiler
                 $layer = '@layer' . (isset($condition[1]) ? ' ' . $condition[1] : '');
                 array_shift($conditions);
             }
-            $content = $this->compatibilityStylesheetContent($file['content'], $importPath, $files, $ancestors, $importedLayer || '' !== $layer);
             if (isset($conditions[0]) && preg_match('/^supports\((.*)\)$/is', $conditions[0], $condition)) {
                 $supports = '@supports ' . (preg_match('/^[\w-]+\s*:/', $condition[1]) ? '(' . $condition[1] . ')' : $condition[1]);
                 array_shift($conditions);
             }
-            if (array() !== $conditions) $content = '@media ' . implode(' ', $conditions) . '{' . $content . '}';
+            $media = implode(' ', $conditions);
+            $projectionMedia = '' === $inheritedMedia ? $media : ('' === $media ? $inheritedMedia : $inheritedMedia . ' and ' . $media);
+            if (null !== $imports && !isset($ancestors[$importPath])) {
+                $imports[] = array('path' => $importPath, 'source_path' => $importPath, 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content'])), 'media' => $projectionMedia, 'cascade_content' => '');
+            }
+            $content = $this->compatibilityStylesheetContent($file['content'], $importPath, $files, $ancestors, $importedLayer || '' !== $layer, $imports, $projectionMedia);
+            if (array() !== $conditions) $content = '@media ' . $media . '{' . $content . '}';
             if ('' !== $supports) $content = $supports . '{' . $content . '}';
             if ('' !== $layer) $content = $layer . '{' . $content . '}';
             $preamble[] = $content;
@@ -6046,7 +6085,7 @@ final class ArtifactCompiler
     {
         $diagnostics = array();
         foreach ( $files as $file ) {
-            if ( 'image/svg+xml' !== ($file['mime_type'] ?? '') || empty($file['content']) || $this->isSafeSvgContent((string) $file['content']) ) {
+            if ( 'image/svg+xml' !== ($file['mime_type'] ?? '') || empty($file['content']) || SourceDom::isSafeSvgContent((string) $file['content']) ) {
                 continue;
             }
 
@@ -6066,7 +6105,7 @@ final class ArtifactCompiler
             return true;
         }
 
-        return ! empty($asset['content']) && $this->isSafeSvgContent((string) $asset['content']);
+        return ! empty($asset['content']) && SourceDom::isSafeSvgContent((string) $asset['content']);
     }
 
     /**
@@ -6074,20 +6113,7 @@ final class ArtifactCompiler
      */
     private function isUnsafeSvgAsset(array $file): bool
     {
-        return 'image/svg+xml' === ($file['mime_type'] ?? '') && ! $this->isSafeSvgContent((string) ($file['content'] ?? ''));
-    }
-
-    private function isSafeSvgContent(string $content): bool
-    {
-        if ( '' === trim($content) ) {
-            return false;
-        }
-
-        if ( ! preg_match('/<svg(?:\s|>)/i', $content) ) {
-            return false;
-        }
-
-        return ! preg_match('/<\s*script\b|\son[a-z]+\s*=|javascript\s*:/i', $content);
+        return 'image/svg+xml' === ($file['mime_type'] ?? '') && ! SourceDom::isSafeSvgContent((string) ($file['content'] ?? ''));
     }
 
     /**

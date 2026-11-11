@@ -2781,7 +2781,7 @@ final class StyleResolver implements ElementPresentationResolver
                 }
                 continue;
             }
-            if ( ! in_array($this->context->cssComparableValue($value), $authorDeclared[ $property ], true) ) {
+            if ( ! in_array(CssValueInspector::comparable($value), $authorDeclared[ $property ], true) ) {
                 $overrides[ $property ] = $value;
             }
         }
@@ -2830,7 +2830,7 @@ final class StyleResolver implements ElementPresentationResolver
             foreach ( $rule['declarations'] as $property => $value ) {
                 $property = strtolower((string) $property);
                 if ( isset($wanted[ $property ]) ) {
-                    $declared[ $property ][] = $this->context->cssComparableValue((string) $value);
+                    $declared[ $property ][] = CssValueInspector::comparable((string) $value);
                 }
                 // The `background` shorthand resets every longhand it does not
                 // set, `background-image` included, so a rule that declares it
@@ -2841,7 +2841,7 @@ final class StyleResolver implements ElementPresentationResolver
                 // override can never find the conflicting value it exists to
                 // beat, and the override is wrongly dropped.
                 if ( 'background' === $property && isset($wanted['background-image']) ) {
-                    $declared['background-image'][] = $this->context->cssComparableValue(
+                    $declared['background-image'][] = CssValueInspector::comparable(
                         $this->backgroundShorthandImageValue((string) $value)
                     );
                 }
@@ -2978,7 +2978,7 @@ final class StyleResolver implements ElementPresentationResolver
         foreach ( $this->matchingStyleRules($element, 'conditional') as $rule ) {
             foreach ( $rule['declarations'] as $property => $value ) {
                 if ( isset($wanted[ strtolower((string) $property) ]) ) {
-                    $declared[ strtolower((string) $property) ][] = $this->context->cssComparableValue((string) $value);
+                    $declared[ strtolower((string) $property) ][] = CssValueInspector::comparable((string) $value);
                 }
             }
         }
@@ -3642,7 +3642,7 @@ final class StyleResolver implements ElementPresentationResolver
 
     private function comparableInheritedTypography(string $value): string
     {
-        $value = $this->context->cssComparableValue($value);
+        $value = CssValueInspector::comparable($value);
         $value = str_replace(array( '"', "'" ), '', $value);
 
         return trim(preg_replace('/\s+/', ' ', $value) ?? $value);
@@ -3900,7 +3900,12 @@ final class StyleResolver implements ElementPresentationResolver
         // data hooks may be shared by otherwise independent components.
         // Keep source IDs as identity too, since author selectors may depend on
         // them, but never use a source-specific attribute as the restatement key.
-        $scopeToken = substr(hash('sha256', (string) ($element->getNodePath() ?? '') . "\n" . (string) $element->ownerDocument?->saveHTML($element)), 0, 16);
+        // The node path keeps instances in one document apart; the declarations
+        // are all the scope binds. Hashing the element's markup instead would
+        // fold descendant content (product photos, copy) into an otherwise
+        // shared template's identity.
+        ksort($scopedDeclarations, SORT_STRING);
+        $scopeToken = substr(hash('sha256', (string) ($element->getNodePath() ?? '') . "\n" . serialize(array_values($scopedDeclarations))), 0, 16);
         $scopeAttribute = 'data-be-source-scope';
         $scopeValue = 'scope-' . $scopeToken;
         $attributes[$scopeAttribute] = $scopeValue;
@@ -3939,6 +3944,27 @@ final class StyleResolver implements ElementPresentationResolver
             'controlAttributes' => $controlAttributes,
             'customProperties' => $customProperties,
         );
+    }
+
+    /**
+     * Whether any of `$properties` resolves to a non-zero structural
+     * declaration. Reads the raw matched declarations rather than the
+     * post-projection presentation set: box-model properties such as padding
+     * are consumed into block-supports attributes and would otherwise be
+     * invisible here.
+     *
+     * @param array<int, string> $properties
+     */
+    public function hasNonZeroStructuralDeclaration(DOMElement $element, array $properties): bool
+    {
+        $declarations = $this->structuralPresentationDeclarations($element);
+        foreach ( $properties as $property ) {
+            if ( isset($declarations[$property]) && CssValueInspector::isNonZero((string) $declarations[$property]) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ImageLowering;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceElementVisibility;
 use DOMElement;
 
 use Closure;
@@ -27,9 +28,6 @@ final class PatternContext
      * @param CodeWindowPatternContext|null $codeWindowContext
      * @param LogoPatternContext|null $logoContext
      * @param ImageLowering|null $images
-     * @param Closure(DOMElement): bool|null $sourceElementStartsHidden
-     * @param Closure(string, string): void|null $glyphColorUndecodable
-     * @param Closure(DOMElement): string|null $capturedGlyphColor
      * @param Closure(DOMElement): string|null $richTextContent
      */
     public function __construct(
@@ -44,12 +42,10 @@ final class PatternContext
         private readonly ?CodeWindowPatternContext $codeWindowContext = null,
         private readonly ?LogoPatternContext $logoContext = null,
         private readonly ?ImageLowering $images = null,
-        private readonly ?Closure $sourceElementStartsHidden = null,
+        private readonly ?SourceElementVisibility $visibility = null,
         private readonly ?DisclosureControlPresentation $disclosure = null,
         private readonly ?StyleResolver $styles = null,
         private readonly ?HtmlTransformerSession $session = null,
-        private readonly ?Closure $glyphColorUndecodable = null,
-        private readonly ?Closure $capturedGlyphColor = null,
         private readonly ?Closure $richTextContent = null
     ) {
     }
@@ -143,8 +139,10 @@ final class PatternContext
     public function images(): ?ImageLowering { return $this->images; }
     public function sourceElementStartsHidden(DOMElement $element): bool
     {
-        if ( null !== $this->sourceElementStartsHidden ) {
-            return ($this->sourceElementStartsHidden)($element);
+        if ( null !== $this->visibility ) {
+            return $element->hasAttribute('hidden')
+                || 'true' === strtolower(trim(SourceDom::attr($element, 'aria-hidden')))
+                || $this->visibility->startsHidden($element);
         }
 
         return $element->hasAttribute('hidden')
@@ -199,8 +197,8 @@ final class PatternContext
      */
     public function glyphColorUndecodable(string $mimeType, string $src): void
     {
-        if ( null !== $this->glyphColorUndecodable ) {
-            ($this->glyphColorUndecodable)($mimeType, $src);
+        if ( null !== $this->session ) {
+            $this->session->transformationEvidenceState()->recordGlyphColorUndecodable($mimeType, $src, $this->session->sourcePath());
         }
     }
 
@@ -210,6 +208,6 @@ final class PatternContext
      */
     public function capturedGlyphColor(DOMElement $glyph): string
     {
-        return null === $this->capturedGlyphColor ? '' : (string) ($this->capturedGlyphColor)($glyph);
+        return $this->session?->capturedGlyphColor($glyph) ?? '';
     }
 }

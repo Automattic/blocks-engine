@@ -867,6 +867,12 @@ final class FallbackEmitter
 
     private function templateRequiresRuntimePreservation(DOMElement $element): bool
     {
+        // Template content renders only when a script clones it. With no
+        // runtime script on the page, the template is inert metadata.
+        if ( array() === $this->requiredScriptsForElement($element) ) {
+            return false;
+        }
+
         foreach ( array_keys(SourceDom::htmlAttributes($element)) as $name ) {
             $normalizedName = strtolower($name);
             if ( 'id' === $normalizedName || preg_match('/^(?:x-|v-|ng-|:|@)/', $normalizedName) ) {

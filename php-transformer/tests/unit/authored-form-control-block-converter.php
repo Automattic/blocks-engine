@@ -37,7 +37,7 @@ $elementFrom = static function (string $html, string $tagName): DOMElement {
 
 $registry = $session->requireGeneratedBlockRegistry();
 $echoStart = count($session->transformationEvidenceState()->formControlEchoTexts());
-$metadataBuilder = new FormControlMetadataBuilder(static fn (DOMElement $element): string => strtolower($element->tagName));
+$metadataBuilder = new FormControlMetadataBuilder();
 $converter = new AuthoredFormControlBlockConverter(
     $metadataBuilder,
     static fn (DOMElement $element): array => $element->hasAttribute('data-styled') ? array( 'display' => 'block' ) : array(),
@@ -49,7 +49,6 @@ $converter = new AuthoredFormControlBlockConverter(
     )),
     $session,
     new Runtime(),
-    static fn (string $id): string => 'safe-' . $id,
     static fn (DOMElement $element): DOMElement => $element
 );
 

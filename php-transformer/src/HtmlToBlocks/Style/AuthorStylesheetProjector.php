@@ -369,12 +369,12 @@ final class AuthorStylesheetProjector
         $hasNestedRules = array_filter($parts, static fn (array $part): bool => isset($part['prelude']));
         $hasButtonSubjects = (bool) preg_match('/(?:^|[;{])\s*(?:align-self|justify-self|place-self)\s*:/i', $body)
             && array() !== $this->buttonDeclarationRouting->buttonSizeSubjects($prelude, $context);
-        $hasMargins = $hasNestedRules && array_filter(
-            $this->styleResolver->verbatimCssDeclarations($body),
-            static fn (string $name): bool => 'margin' === $name || str_starts_with($name, 'margin-') || ($hasButtonSubjects && in_array($name, array('align-self', 'justify-self', 'place-self'), true)),
-            ARRAY_FILTER_USE_KEY
-        );
-        if ( $hasMargins ) {
+        // Body projection and button declaration routing read a flat
+        // declaration list split at `;`. A nested rule's own `;` would cut its
+        // block mid-way (e.g. lifting `transform` out of it onto a wrapper
+        // rule) and leave stray `}` that truncate the stylesheet for every
+        // later reader. Project each declaration run and nested rule apart.
+        if ( $hasNestedRules ) {
             $css = '';
             foreach ( $parts as $part ) {
                 if ( isset($part['declarations']) ) {
@@ -2880,6 +2880,16 @@ final class AuthorStylesheetProjector
         if ('' === $scope && preg_match('/^\s*((?::where\([^(),]+\)\s+)+)/i', $selector, $scopeMatch)) {
             $scope = trim((string) $scopeMatch[1]) . ' ';
         }
+        // The attribute marker is per selector: when a match lowered to
+        // core/button carries it onto the generated wrappers, the arm for the
+        // selector's other subjects must not paint those wrappers too.
+        $wrapperGuard = '';
+        foreach ( $matches as $element ) {
+            if ( '' !== $context->selectorProjections->controlMarker($element->getNodePath() ?? '') ) {
+                $wrapperGuard = ':not(.wp-block-buttons):not(.wp-block-button)';
+                break;
+            }
+        }
         foreach ( $matches as $element ) {
             $navigationTarget = $context->selectorProjections->navigationSubject($element->getNodePath() ?? '');
             if ( '' !== $navigationTarget ) {
@@ -2937,7 +2947,7 @@ final class AuthorStylesheetProjector
                 $projected[] = $base . '> :where(.wp-block-button)' . $this->buttonLinkTarget($context);
                 continue;
             }
-            $projected[] = $scope . ':where(' . $target . ')' . $shims;
+            $projected[] = $scope . ':where(' . $target . ('#' === $target[0] ? '' : $wrapperGuard) . ')' . $shims;
         }
         return array_values(array_unique($projected));
     }

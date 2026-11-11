@@ -28,10 +28,7 @@ $elementFrom = static function (string $html, string $tagName): DOMElement {
 $recorded = array();
 $session = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession(new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()));
 $session->fallbackEmitter()->configure(array(), array( array( 'src' => '/form.js' ) ), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeSelectorState(array(), array(), array()));
-$metadataBuilder = new FormControlMetadataBuilder(static function (DOMElement $element): string {
-    $id = $element->getAttribute('id');
-    return '' !== $id ? '#' . $id : strtolower($element->tagName);
-});
+$metadataBuilder = new FormControlMetadataBuilder();
 $recorder = new FormRuntimeIslandRecorder(
     $metadataBuilder,
     static function (DOMElement $element, string $kind, string $reason, string $capability, array $metadata) use (&$recorded): void {
@@ -69,7 +66,7 @@ $controlRecord = $recorded[2] ?? array();
 $controlMetadata = $controlRecord['metadata'] ?? array();
 $assert('control' === ($controlRecord['kind'] ?? '') && 'runtime_dom_target' === ($controlRecord['reason'] ?? ''), 'runtime-control-classification');
 $assert('client_script_execution' === ($controlRecord['capability'] ?? ''), 'runtime-control-capability');
-$assert('#runtime-email' === ($controlMetadata['control']['selector'] ?? '') && 'email' === ($controlMetadata['control']['name'] ?? ''), 'runtime-control-metadata');
+$assert('input:nth-of-type(1)' === ($controlMetadata['control']['selector'] ?? '') && 'email' === ($controlMetadata['control']['name'] ?? ''), 'runtime-control-metadata');
 $assert(array( array( 'type' => 'submit', 'attribute' => 'onsubmit' ) ) === ($controlMetadata['events'] ?? array()), 'runtime-control-events');
 $assert(array( array( 'src' => '/form.js' ) ) === ($controlMetadata['required_scripts'] ?? array()), 'runtime-control-scripts');
 

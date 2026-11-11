@@ -64,7 +64,6 @@ $makeAnalyzer = static function (array $domSelectors = array(), array $presentat
 
     $defaults = array(
         'attr'             => static fn (DOMElement $e, string $n): string => $e->getAttribute($n),
-        'islandSelector'   => static fn (DOMElement $e): string => strtolower($e->tagName),
         'eventMetadata'    => static fn (DOMElement $e): array => array(),
         'dedupe'           => static fn (array $rows): array => array_values($rows),
     );
@@ -72,8 +71,8 @@ $makeAnalyzer = static function (array $domSelectors = array(), array $presentat
     $session = $c['session'] ?? new HtmlTransformerSession(new Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()));
     $session->installRuntimeSelectorState($selectors);
 
-    $metadataBuilder = new FormControlMetadataBuilder($c['islandSelector']);
-    $pseudoFormAnalyzer = new PseudoFormAnalyzer($metadataBuilder, $c['islandSelector']);
+    $metadataBuilder = new FormControlMetadataBuilder();
+    $pseudoFormAnalyzer = new PseudoFormAnalyzer($metadataBuilder);
     return new RuntimeIslandAnalyzer($session, new SourceElementClassifier(), $pseudoFormAnalyzer);
 };
 

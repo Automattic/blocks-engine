@@ -12,12 +12,8 @@ use DOMNode;
 /** Discovers form success panels and builds provider-neutral metadata. */
 final class FormSuccessPanelMetadataBuilder
 {
-    /**
-     * @param Closure(DOMElement): string                                          $elementSelector
-     * @param Closure(DOMElement): string                                          $innerHtml
-     */
+    /** @param Closure(DOMElement): string $innerHtml */
     public function __construct(
-        private readonly Closure $elementSelector,
         private readonly HtmlTransformerSession $session,
         private readonly Closure $innerHtml
     ) {
@@ -56,7 +52,7 @@ final class FormSuccessPanelMetadataBuilder
     {
         $boundedHtml = SourceDom::boundedFallbackHtml(SourceDom::safeFallbackHtml($element, $this->session->authorSelectorProjectionState()->tagMarkers()));
         return array_filter(array(
-            'selector'       => ($this->elementSelector)($element),
+            'selector'       => SourceDom::elementSelector($element),
             'id'             => SourceDom::attr($element, 'id'),
             'class'          => SourceDom::attr($element, 'class'),
             'role'           => SourceDom::attr($element, 'role'),

@@ -43,7 +43,6 @@ $elementFrom = static function (string $html): DOMElement {
 $session = new HtmlTransformerSession(new Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()));
 $session->installLayoutGeometryState(new LayoutGeometryState());
 $context = new StyleResolutionContext(
-    static fn (string $value): string => $value,
     static fn (string $selector): array => array(),
     static fn (string $className): string => $className,
     static fn (string $url): string => $url

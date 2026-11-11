@@ -31,6 +31,10 @@ $assert(! str_contains($markup, '<!-- wp:html'), 'native GET form does not fall 
 $assert(array() === ($result['fallbacks'] ?? array()), 'native GET form has no provider or form fallback');
 $assert(3 === count($generated), 'form and reusable input/select companions are packaged');
 
+$iconSubmit = (new HtmlTransformer())->transform('<form action="/search"><input type="search" name="q" aria-label="Search"><button type="submit" aria-label="Search"><div class="icon"><svg viewBox="0 0 1 1"><path d="M0 0h1v1z"></path></svg></div></button><input type="submit" value="Go"></form>')->toArray();
+$iconMarkup = (string) ($iconSubmit['serialized_blocks'] ?? '');
+$assert(! str_contains($iconMarkup, 'wp:button') && str_contains($iconMarkup, '<button type="submit" aria-label="Search"><div class="icon"><svg'), 'icon-only submit keeps its SVG in a native button, not core/button RichText');
+
 parse_str(http_build_query(array( 'location' => 'north', 'type' => 'house' )), $query);
 $unspecified = (new HtmlTransformer())->transform('<form><label for="email">Email</label><input id="email" name="email"><button>Send</button></form>')->toArray();
 $assert(!str_contains($unspecified['serialized_blocks'] ?? '', 'wp:custom/authored-native-form') && !empty($unspecified['fallbacks']), 'unspecified submission remains provider-materializable instead of inventing a GET workflow');

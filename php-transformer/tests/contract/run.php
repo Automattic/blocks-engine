@@ -4077,6 +4077,13 @@ $assert('data_template' === ($templateRuntimeIslands[0]['template_role'] ?? ''),
 $assert(! str_contains((string) ($runtimeTemplate['serialized_blocks'] ?? ''), '<!-- wp:html'), 'runtime HTML template does not emit raw HTML fallback blocks');
 $assert(! str_contains((string) ($runtimeTemplate['serialized_blocks'] ?? ''), '<template'), 'runtime HTML template does not serialize inert template markup into visual output');
 
+// An addressable template needs a page script to clone it; without one it is inert.
+foreach ( array( '' => 'html_template_metadata', '<script src="/search.js"></script>' => 'html_template_runtime_fallback' ) as $script => $expectedCode ) {
+    $addressable = ( new HtmlTransformer() )->transform('<main><template id="searchConfigInputsTemplate"><div class="search-param"><h4>Status</h4><label><input type="radio" name="activeOrSold"> Active</label></div></template>' . $script . '</main>')->toArray();
+    $codes = array_column($addressable['source_reports']['conversion_report']['fallback_diagnostics'] ?? array(), 'diagnostic_code');
+    $assert(in_array($expectedCode, $codes, true) && 1 === count(array_intersect($codes, array( 'html_template_metadata', 'html_template_runtime_fallback' ))), "addressable template with" . ('' === $script ? 'out' : '') . " a page script emits {$expectedCode}");
+}
+
 $controlOnlyDataTemplate = ( new HtmlTransformer() )->transform(
     '<main><form><p>Give today</p><template class="cadence-template" data-monthly-label="Monthly Donation" data-weekly-label="Weekly Donation"><fieldset class="form-item field select"><div class="dropdownWrapper"><select aria-label="Donation Frequency" class="dropdownSelect"><option value="ONE_TIME">One-Time Donation</option></select><span class="form-input-effects" aria-hidden="true"><span class="form-input-effects-border"></span></span><div class="accessoryIcon"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="12"><path d="M0.4 1.5L9 11.1Z"></path></svg></div></div></fieldset></template></form></main>'
 )->toArray();

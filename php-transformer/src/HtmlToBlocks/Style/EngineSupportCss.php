@@ -18,7 +18,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CoverPattern;
 /**
  * Marker-class engine-support CSS gated on serialized block markup.
  *
- * Extracted from {@see HtmlCompilation::materializeAuthorStylesheet()}. No
+ * Extracted from {@see AuthorStylesheetMaterialization::materialize()}. No
  * HtmlCompilation `$this` — only marker classes in emitted markup. The
  * after-author methods tag their own
  * {@see CascadeRule} layer, per {@see CascadeLayer}; the compiler only
@@ -495,6 +495,13 @@ final class EngineSupportCss
     public function generatedMarkupRepairCss(string $serializedBlocks): array
     {
         $parts = array();
+        if (str_contains($serializedBlocks, \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPatternContext::CLIPPED_SUBMENU_CLASS)) {
+            // Closed in core's own terms: not hovered, not holding focus, not
+            // toggled open, not inside the open overlay. Open, the author's box returns.
+            $item = '.wp-block-navigation .wp-block-navigation-item.' . \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPatternContext::CLIPPED_SUBMENU_CLASS . ':not(:hover,:focus-within,.is-menu-open *)';
+            $parts[] = $item . '>.wp-block-navigation__submenu-container:not(.wp-block-navigation-submenu__toggle[aria-expanded="true"]~*)'
+                . '{padding-top:0!important;padding-bottom:0!important;border-top-width:0!important;border-bottom-width:0!important}';
+        }
         if (str_contains($serializedBlocks, 'blocks-engine-social-source-non-list')) {
             // Lowering a div/span to ul must not introduce UA list margins.
             // Zero specificity leaves every authored margin (including type

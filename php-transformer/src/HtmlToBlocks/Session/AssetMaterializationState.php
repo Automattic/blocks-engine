@@ -103,6 +103,18 @@ final class AssetMaterializationState
         return array_values($this->generated);
     }
 
+    /** Generated engine-support CSS, joined in emission order. */
+    public function engineSupportCss(): string
+    {
+        $css = array();
+        foreach ( $this->assets() as $asset ) {
+            if ( 'engine-support' === ($asset['source'] ?? '') && 'css' === ($asset['kind'] ?? '') && is_string($asset['content'] ?? null) ) {
+                $css[] = $asset['content'];
+            }
+        }
+        return implode("\n", $css);
+    }
+
     /** @return array<string, array<string, mixed>> */
     public function checkpoint(): array
     {

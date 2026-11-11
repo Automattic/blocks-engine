@@ -5,16 +5,13 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
-use Closure;
 use DOMElement;
 
 /** Identifies bounded non-form containers that behave as forms. */
 final class PseudoFormAnalyzer
 {
-    /** @param Closure(DOMElement): string $elementSelector */
     public function __construct(
-        private readonly FormControlMetadataBuilder $formControlMetadataBuilder,
-        private readonly Closure $elementSelector
+        private readonly FormControlMetadataBuilder $formControlMetadataBuilder
     ) {
     }
 
@@ -87,14 +84,14 @@ final class PseudoFormAnalyzer
                 continue;
             }
             $rejectedAncestors[] = array(
-                'selector' => ($this->elementSelector)($ancestor),
+                'selector' => SourceDom::elementSelector($ancestor),
                 'reason'   => $this->containsUnrelatedLandmark($ancestor) ? 'contains_unrelated_landmark' : 'contains_nested_coherent_form',
             );
         }
 
         return array(
             'schema'             => 'generic/form-boundary/v1',
-            'selector'           => ($this->elementSelector)($element),
+            'selector'           => SourceDom::elementSelector($element),
             'selection_basis'    => array( 'local_controls', 'associated_label', 'submit_semantics' ),
             'rejected_ancestors' => $rejectedAncestors,
         );

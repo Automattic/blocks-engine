@@ -37,7 +37,6 @@ final class FormControlMetadataBuilder
     private ?FormPresentationGraphBuilder $formPresentationGraph = null;
 
     /**
-     * @param Closure(DOMElement): string $elementSelector
      * @param HtmlTransformerSession|null $session Source stylesheets for the form presentation graph's
      *     typography, paint and hidden-state cascade; without one those facts are not resolved.
      * @param Closure(DOMElement): list<string>|null $controlCarrierClasses Registered author-selector wrapper classes.
@@ -46,7 +45,6 @@ final class FormControlMetadataBuilder
      *     no inline markup that is safe to carry.
      */
     public function __construct(
-        private readonly Closure $elementSelector,
         private readonly ?ElementPresentationResolver $presentation = null,
         private readonly ?HtmlTransformerSession $session = null,
         private readonly ?Closure $richTextContent = null,
@@ -188,6 +186,11 @@ final class FormControlMetadataBuilder
             if ( $labelElement instanceof DOMElement ) {
                 $claimedLabels[] = $labelElement;
             }
+            // When the label element is missing or empty, the control's name
+            // comes from its aria-labelledby targets, so their copy is claimed too.
+            if ( ! $labelElement instanceof DOMElement || '' === $this->labelText($labelElement) ) {
+                array_push($claimedLabels, ...$this->labelledByElements($node));
+            }
             $description = $this->describeControl($node, $labelElement);
             // Only a resolved description is carried by the control manifest.
             // Ambiguous candidates stay unattributed, so they may still
@@ -262,7 +265,7 @@ final class FormControlMetadataBuilder
             return null;
         }
 
-        $item['source_selector'] = ($this->elementSelector)($node);
+        $item['source_selector'] = SourceDom::elementSelector($node);
 
         // Author rules address the element itself, so a consumer reproducing
         // this copy as a block needs the classes to re-apply those rules.
@@ -426,7 +429,7 @@ final class FormControlMetadataBuilder
         }
         $metadata = array_filter(array(
             'tag'              => $tagName,
-            'selector'         => ($this->elementSelector)($control),
+            'selector'         => SourceDom::elementSelector($control),
             'id'               => SourceDom::attr($control, 'id'),
             'class'            => $this->classNames($control),
             'label_id'         => $labelElement instanceof DOMElement ? SourceDom::attr($labelElement, 'id') : '',
@@ -583,7 +586,7 @@ final class FormControlMetadataBuilder
             // Keep the visible trigger and the native value carrier as separate
             // controls in the topology, but connect their source evidence here.
             $metadata['options'] = $this->options($sourceSelect);
-            $metadata['choice_source_selector'] = ($this->elementSelector)($sourceSelect);
+            $metadata['choice_source_selector'] = SourceDom::elementSelector($sourceSelect);
             if ( $sourceSelect->hasAttribute('required') || 'true' === strtolower(trim($sourceSelect->getAttribute('aria-required'))) ) {
                 $metadata['required'] = true;
             }
@@ -710,26 +713,27 @@ final class FormControlMetadataBuilder
 
     private function labelledByText(DOMElement $control): string
     {
-        $ids = preg_split('/\s+/', trim(SourceDom::attr($control, 'aria-labelledby'))) ?: array();
+        $parts = array_filter(array_map(fn (DOMElement $target): string => $this->labelText($target), $this->labelledByElements($control)), static fn (string $part): bool => '' !== $part);
+
+        return trim(implode(' ', $parts));
+    }
+
+    /** @return array<int, DOMElement> The elements a control's aria-labelledby names. */
+    private function labelledByElements(DOMElement $control): array
+    {
         $document = $control->ownerDocument;
         if ( ! $document instanceof \DOMDocument ) {
-            return '';
+            return array();
         }
-        $parts = array();
-        foreach ( $ids as $id ) {
-            if ( '' === $id ) {
-                continue;
-            }
-            $target = $document->getElementById($id);
+        $targets = array();
+        foreach ( preg_split('/\s+/', trim(SourceDom::attr($control, 'aria-labelledby'))) ?: array() as $id ) {
+            $target = '' === $id ? null : $document->getElementById($id);
             if ( $target instanceof DOMElement ) {
-                $part = $this->labelText($target);
-                if ( '' !== $part ) {
-                    $parts[] = $part;
-                }
+                $targets[] = $target;
             }
         }
 
-        return trim(implode(' ', $parts));
+        return $targets;
     }
 
     /**

@@ -35,17 +35,15 @@ $elementFrom = static function (string $html): DOMElement {
 $session = new HtmlTransformerSession(new Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()));
 $selector = static fn (DOMElement $element): string => '#' . ($element->getAttribute('id') ?: strtolower($element->tagName));
 $metadataBuilder = new FormControlMetadataBuilder(
-    $selector,
     new ElementPresentationResolverFixture(static fn (DOMElement $element): array => 'button' === strtolower($element->tagName)
         ? array( 'style' => array( 'spacing' => array( 'padding' => array( 'top' => '11px', 'bottom' => '11px' ) ) ) )
         : array())
 );
 $successBuilder = new FormSuccessPanelMetadataBuilder(
-    $selector,
     $session,
     static fn (DOMElement $element): string => $element->textContent ?? ''
 );
-$pseudoAnalyzer = new PseudoFormAnalyzer($metadataBuilder, $selector);
+$pseudoAnalyzer = new PseudoFormAnalyzer($metadataBuilder);
 $bindingCalls = array();
 $sourceDocument = new DOMDocument();
 $sourceDocument->loadHTML('<?xml encoding="utf-8" ?><body></body>', LIBXML_NOERROR | LIBXML_NOWARNING);

@@ -71,13 +71,12 @@ $makeCoalescer = static function (array $runtimeDomSelectors = array(), array $o
     $session->installLayoutGeometryState(new LayoutGeometryState());
 
     $sourceElementClassifier = new SourceElementClassifier();
-    $metadataBuilder = new FormControlMetadataBuilder(static fn (DOMElement $e): string => strtolower($e->tagName));
-    $pseudoFormAnalyzer = new PseudoFormAnalyzer($metadataBuilder, static fn (DOMElement $e): string => strtolower($e->tagName));
+    $metadataBuilder = new FormControlMetadataBuilder();
+    $pseudoFormAnalyzer = new PseudoFormAnalyzer($metadataBuilder);
     $runtimeIslands = new RuntimeIslandAnalyzer($session, $sourceElementClassifier, $pseudoFormAnalyzer);
 
     $styleResolver = new StyleResolver($session,
         new StyleResolutionContext(
-            static fn (string $value): string => $value,
             static fn (string $selector): array => array(),
             static fn (string $className): string => $className,
             static fn (string $url): string => $url
