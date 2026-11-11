@@ -53,6 +53,22 @@ final class ImageUrlResolver
         return $src;
     }
 
+    /**
+     * Rewrite every source image's `src` to its resolved source URL.
+     *
+     * Uses a static node set: indexed iteration of a live DOMNodeList can
+     * repeatedly scan the document as the number of gallery images grows.
+     */
+    public function resolveSourceImages(DOMElement $root): void
+    {
+        foreach ( (new \DOMXPath($root->ownerDocument))->query('.//img', $root) as $image ) {
+            $source = $this->sourceUrl($image);
+            if ( '' !== $source && $source !== SourceDom::attr($image, 'src') ) {
+                $image->setAttribute('src', $source);
+            }
+        }
+    }
+
     public function safeUrl(string $url): string
     {
         if ( ! preg_match('#^data:image/svg\+xml(?:[;,][^,]*)?,#i', $url) ) {
