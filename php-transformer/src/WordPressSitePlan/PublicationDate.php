@@ -38,22 +38,46 @@ final class PublicationDate
     /** A date as a reader sees it on the page (numeric, dotted day-first, or a month name in en, fr, es, de, it, pt or nl) as a UTC instant. */
     public static function fromVisibleText(string $value): ?string
     {
+        return self::visible($value)[0] ?? null;
+    }
+
+    /**
+     * The PHP date format that reprints a visible date as written, so a
+     * post-date block shows every post's date in its source form.
+     */
+    public static function visibleFormat(string $value): ?string
+    {
+        return self::visible($value)[1] ?? null;
+    }
+
+    /**
+     * Recognizing a visible date and naming the form it is written in are one
+     * decision: every form read here also reprints as read.
+     *
+     * @return array{0:string,1:?string}|null The UTC instant, and the format that reprints it.
+     */
+    private static function visible(string $value): ?array
+    {
         $value = trim(preg_replace('/\s+/', ' ', $value) ?? $value);
         if ('' === $value) return null;
         // Builder bylines commonly prefix a full date with its weekday.
-        $value = preg_replace('/^(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+/i', '', $value) ?? $value;
+        $date = preg_replace('/^(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+/i', '', $value) ?? $value;
+        $weekday = $date === $value ? '' : 'l, ';
+        $value = $date;
         $iso = self::normalize($value);
-        if (null !== $iso) return $iso;
-        if (preg_match('/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/', $value, $match)) {
+        if (null !== $iso) return array($iso, preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) ? $weekday . 'Y-m-d' : null);
+        if (preg_match('/^(\d{1,2})([\/\-])(\d{1,2})([\/\-])(\d{4})$/', $value, $match)) {
             $first = (int) $match[1];
-            $second = (int) $match[2];
+            $second = (int) $match[3];
             if ($first > 31 || $second > 31 || $first < 1 || $second < 1) return null;
-            $format = $first > 12 && $second <= 12 ? '!j/n/Y' : '!n/j/Y';
-            return self::utcFromFormat($format, $first . '/' . $second . '/' . $match[3]);
+            $dayFirst = $first > 12 && $second <= 12;
+            $parsed = self::utcFromFormat($dayFirst ? '!j/n/Y' : '!n/j/Y', $first . '/' . $second . '/' . $match[5]);
+            return null === $parsed ? null : array($parsed, $weekday . self::numericFormat($match[1], $match[3], $dayFirst, $match[2], $match[4]));
         }
         // A dotted numeric date is day-first wherever it is written (de, ru, pl, cs, fi, tr).
         if (preg_match('/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/', $value, $match)) {
-            return self::utcFromFormat('!j.n.Y', (int) $match[1] . '.' . (int) $match[2] . '.' . $match[3]);
+            $parsed = self::utcFromFormat('!j.n.Y', (int) $match[1] . '.' . (int) $match[2] . '.' . $match[3]);
+            return null === $parsed ? null : array($parsed, $weekday . self::numericFormat($match[1], $match[2], true, '.', '.'));
         }
         // A closed vocabulary, not locale/strtotime guessing. All aliases in a
         // row denote the same month across fr, es, de, it, pt and nl.
@@ -75,38 +99,36 @@ final class PublicationDate
         // Also accept decomposed accents, without relying on intl or a locale.
         $folded = preg_replace('/(?<=[a-z])\p{M}+/u', '', $folded) ?? $folded;
         $match = array();
-        $dayFirst = 1 === preg_match('/^(\d{1,2})(?:\. ?| )(?:de )?([a-z]{3,12})\.? (?:de )?(\d{4})$/', $folded, $match);
-        if ($dayFirst || preg_match('/^([a-z]{3,12})\.? (\d{1,2}), (\d{4})$/', $folded, $match)) {
-            $token = $match[$dayFirst ? 2 : 1];
+        $format = null;
+        $dayFirst = 1 === preg_match('/^(\d{1,2})(\. ?| )(de )?([a-z]{3,12})(\.?) (de )?(\d{4})$/', $folded, $match);
+        if ($dayFirst || preg_match('/^([a-z]{3,12})(\.?) (\d{1,2}), (\d{4})$/', $folded, $match)) {
+            $token = $match[$dayFirst ? 4 : 1];
             foreach ($months as $month => $aliases) {
                 if (in_array($token, explode(' ', $aliases), true)) {
-                    $value = $dayFirst ? $match[1] . ' ' . $month . ' ' . $match[3] : $month . ' ' . $match[2] . ', ' . $match[3];
+                    $value = $dayFirst ? $match[1] . ' ' . $month . ' ' . $match[7] : $month . ' ' . $match[3] . ', ' . $match[4];
+                    // An abbreviated source month reprints abbreviated; WordPress
+                    // names the month in the site language either way.
+                    $name = '' !== $match[$dayFirst ? 5 : 2] || strlen($token) <= 3 ? 'M' : 'F';
+                    $day = '0' === $match[$dayFirst ? 1 : 3][0] ? 'd' : 'j';
+                    $format = $dayFirst
+                        ? $day . $match[2] . ('' !== $match[3] ? '\\d\\e ' : '') . $name . ' ' . ('' !== $match[6] ? '\\d\\e ' : '') . 'Y'
+                        : $name . ' ' . $day . ', Y';
                     break;
                 }
             }
         }
-        foreach (array('!F j, Y', '!M j, Y', '!j F Y', '!j M Y') as $format) {
-            $parsed = self::utcFromFormat($format, $value);
-            if (null !== $parsed) return $parsed;
+        foreach (array('!F j, Y', '!M j, Y', '!j F Y', '!j M Y') as $candidate) {
+            $parsed = self::utcFromFormat($candidate, $value);
+            if (null !== $parsed) return array($parsed, null === $format ? null : $weekday . $format);
         }
         return null;
     }
 
-    /** The PHP date format that reprints a visible date as written, when it is a form the post-date block can reproduce. */
-    public static function visibleFormat(string $value): ?string
+    /** Numeric day and month tokens keep the source's zero padding and separators. */
+    private static function numericFormat(string $first, string $second, bool $dayFirst, string $separator, string $yearSeparator): string
     {
-        if (preg_match('/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/', $value, $match)) {
-            return ((int) $match[1] > 12 && (int) $match[2] <= 12) ? 'j/n/Y' : 'n/j/Y';
-        }
-        if (preg_match('/^(\d{1,2})-(\d{1,2})-(\d{4})$/', $value, $match)) {
-            return ((int) $match[1] > 12 && (int) $match[2] <= 12) ? 'j-n-Y' : 'n-j-Y';
-        }
-        foreach (array('l, F j, Y' => '/^[A-Z][a-z]+day, [A-Z][a-z]+ \d{1,2}, \d{4}$/', 'M j, Y' => '/^[A-Z][a-z]{2} \d{1,2}, \d{4}$/', 'F j, Y' => '/^[A-Z][a-z]+ \d{1,2}, \d{4}$/', 'j M Y' => '/^\d{1,2} [A-Z][a-z]{2} \d{4}$/', 'j F Y' => '/^\d{1,2} [A-Z][a-z]+ \d{4}$/') as $format => $pattern) {
-            if (1 === preg_match($pattern, $value)) {
-                return $format;
-            }
-        }
-        return null;
+        [$day, $month] = '0' === $first[0] || '0' === $second[0] ? array('d', 'm') : array('j', 'n');
+        return ($dayFirst ? $day . $separator . $month : $month . $separator . $day) . $yearSeparator . 'Y';
     }
 
     private static function utcFromFormat(string $format, string $input): ?string
