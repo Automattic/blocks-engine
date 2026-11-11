@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\TransformOptions;
+use Automattic\BlocksEngine\PhpTransformer\Contract\TransformationOptions;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackEmitter;
@@ -290,5 +292,39 @@ final class HtmlTransformerSession
     public function fallbackEmitter(): FallbackEmitter
     {
         return $this->fallbackEmitter;
+    }
+
+    /**
+     * Install the per-transform state read from transform options: provenance,
+     * generated block registry, asset materialization, policy, runtime
+     * behavior and selector evidence, source path, and layout geometry proof.
+     *
+     * @param array<string, mixed> $options
+     */
+    public function installTransformOptions(array $options): void
+    {
+        $this->transformationProvenanceState()->installFallback(TransformationOptions::provenance($options));
+        $this->installGeneratedBlockRegistry(new GeneratedBlockRegistry(TransformOptions::generatedBlockNamespaceFromOptions($options)));
+        $this->installAssetMaterializationState(new AssetMaterializationState(
+            trim((string) ($options['generated_asset_root'] ?? ''), '/'),
+            TransformOptions::assetMetadataFromOptions($options)
+        ));
+        $this->configurePolicy(! empty($options['extract_global_shell']), ! empty($options['fallback_reduction_mode']));
+        $this->runtimeBehaviorState()->installRuntimeScriptMetadata(TransformOptions::runtimeScriptMetadataFromOptions($options));
+        $this->runtimeBehaviorState()->installRuntimeProjectionScriptAssets(
+            is_array($options['runtime_projection_script_assets'] ?? null) ? $options['runtime_projection_script_assets'] : array()
+        );
+        $this->runtimeBehaviorState()->installThemePreferenceOwnership(
+            is_array($options['theme_preference_ownership'] ?? null) ? $options['theme_preference_ownership'] : array()
+        );
+        $this->installSourcePath((string) ($options['source'] ?? 'html'));
+        $this->installRuntimeSelectorState(new RuntimeSelectorState(
+            TransformOptions::runtimeSelectorsFromOptions($options, 'runtime_dom_selectors'),
+            TransformOptions::runtimeSelectorsFromOptions($options, 'runtime_behavioral_selectors'),
+            TransformOptions::runtimeSelectorsFromOptions($options, 'runtime_canvas_selectors')
+        ));
+        $this->installLayoutGeometryState(new LayoutGeometryState(
+            is_array($options['layout_geometry_proof']['reductions'] ?? null) ? $options['layout_geometry_proof']['reductions'] : array()
+        ));
     }
 }
