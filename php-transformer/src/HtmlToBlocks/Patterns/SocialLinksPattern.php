@@ -116,7 +116,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                     && !($explicit && null !== $service && $this->isLocalPlaceholderUrl($anchor->getAttribute('href')))) {
                     return null;
                 }
-                if (null === $service || '' === ($this->glyphColor($image, $context) ?: $this->sameDestinationGlyphColor($anchor, $context))) {
+                if (null === $service || '' === ($this->glyphColor($image, $context) ?: $this->sameDestinationGlyphColor($anchor, $image, $context))) {
                     $sourceArtwork = true;
                 }
             }
@@ -701,7 +701,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                 return $paint;
             }
 
-            return $this->sameDestinationGlyphColor($anchor, $context);
+            return $this->sameDestinationGlyphColor($anchor, $image, $context);
         }
 
         $svg = $anchor->getElementsByTagName('svg')->item(0);
@@ -783,14 +783,28 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         return $this->concreteColor((string) ($asset['glyph_color'] ?? ''));
     }
 
-    private function sameDestinationGlyphColor(DOMElement $anchor, PatternContext $context): string
+    private function artworkIdentity(DOMElement $image, PatternContext $context): string
+    {
+        $src = trim(SourceDom::attr($image, 'src'));
+        if ( '' === $src || str_starts_with(strtolower($src), 'data:') ) {
+            return '';
+        }
+
+        return (string) ($context->assetMetadata($src)['path'] ?? $src);
+    }
+
+    private function sameDestinationGlyphColor(DOMElement $anchor, DOMElement $image, PatternContext $context): string
     {
         $href = LinkUrlSanitizer::sanitize(SourceDom::attr($anchor, 'href'));
         if ( '' === $href ) {
             return '';
         }
-        if ( array_key_exists($href, $this->destinationGlyphColor) ) {
-            return $this->destinationGlyphColor[$href];
+        // Inline data images are lazy-load stubs with no artwork identity of their own;
+        // real artwork may only borrow evidence from the same asset.
+        $asset = $this->artworkIdentity($image, $context);
+        $key = $href . "\n" . $asset;
+        if ( array_key_exists($key, $this->destinationGlyphColor) ) {
+            return $this->destinationGlyphColor[$key];
         }
 
         $color = '';
@@ -803,17 +817,21 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                 if ( LinkUrlSanitizer::sanitize(SourceDom::attr($other, 'href')) !== $href ) {
                     continue;
                 }
-                $image = $other->getElementsByTagName('img')->item(0);
-                if ( ! $image instanceof DOMElement ) {
+                $otherImage = $other->getElementsByTagName('img')->item(0);
+                if ( ! $otherImage instanceof DOMElement ) {
                     continue;
                 }
-                $color = $this->glyphColor($image, $context);
+                // A shared destination says nothing about different artwork.
+                if ( '' !== $asset && $this->artworkIdentity($otherImage, $context) !== $asset ) {
+                    continue;
+                }
+                $color = $this->glyphColor($otherImage, $context);
                 if ( '' !== $color ) {
                     break;
                 }
             }
         }
-        $this->destinationGlyphColor[$href] = $color;
+        $this->destinationGlyphColor[$key] = $color;
 
         return $color;
     }
