@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssAnalysisLimits;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
@@ -630,6 +631,12 @@ final class FormPresentationGraphBuilder
                     foreach ( $carried['conditional'] ?? array() as $encoded => $patch ) {
                         $conditional[$encoded] ??= array();
                     }
+                }
+                if ( 'label' === $role ) {
+                    $this->carryLabelColumnGap($styles, $provenance, $element, $analysis['rules']);
+                }
+                if ( 'required_marker' === $role ) {
+                    $this->carryMarkerGap($styles, $provenance, $element, $analysis['rules'], $customPropertyAnalysis['rules']);
                 }
                 if ( array() !== $styles || 'required_marker' === $role ) {
                     $row[$role] = array( 'styles' => $styles, 'provenance' => $provenance );
@@ -1652,6 +1659,82 @@ final class FormPresentationGraphBuilder
         }
         ksort($result);
         return $result;
+    }
+
+    /**
+     * A flex label's own `column-gap` spaces its box from its caption. The
+     * shared vocabulary keeps `column-gap` row-only, so the label states it
+     * through the equivalent `gap: <row-gap> <column-gap>` shorthand.
+     */
+    private function carryLabelColumnGap(array &$styles, array &$provenance, DOMElement $label, array $rules): void
+    {
+        $base = $this->matched($label, $rules, true)['base'];
+        $column = $base['column-gap'] ?? null;
+        if ( ! is_array($column) || ! in_array($styles['display'] ?? '', array( 'flex', 'inline-flex' ), true)
+            || ( isset($base['gap']) && CssCascade::wins($base['gap'], $column) ) ) {
+            return;
+        }
+        $row = isset($base['gap']) ? (CssValueSplitter::splitTopLevelWhitespace($base['gap']['value'])[0] ?? 'normal') : 'normal';
+        $styles['gap'] = $row . ' ' . $column['value'];
+        $provenance = array_merge($provenance, $this->provenance(array( 'gap' => $column ), null));
+    }
+
+    /** Carry a horizontal flex gap across the flattened caption/marker boundary. */
+    private function carryMarkerGap(array &$styles, array &$provenance, DOMElement $marker, array $rules, array $customRules): void
+    {
+        $container = $marker->parentNode;
+        if ( ! $container instanceof DOMElement || ! $marker->previousElementSibling ) {
+            return;
+        }
+        $matched = $this->matched($container, $rules, true);
+        $containerStyles = $this->styles($matched['base'], $container, null, $customRules, true);
+        if ( ! in_array($containerStyles['display'] ?? '', array( 'flex', 'inline-flex' ), true)
+            || 'row' !== ($containerStyles['flex_direction'] ?? 'row')
+        ) {
+            return;
+        }
+        $property = isset($matched['base']['column-gap']) ? 'column-gap' : 'gap';
+        $gap = $containerStyles[self::key($property)] ?? '';
+        $parts = CssValueSplitter::splitTopLevelWhitespace($gap);
+        $gap = $parts[1] ?? $parts[0] ?? '';
+        if ( '' === $gap || 'normal' === $gap ) {
+            return;
+        }
+        // Font-relative lengths must use the gap container's font, not the
+        // smaller indicator's. Scale ex/ch without guessing font metrics.
+        if ( 1 === preg_match('/^([0-9.]+)(em|ex|ch)$/D', $gap, $length) ) {
+            $containerFont = $this->fontPixels($container, $rules, $customRules);
+            $markerFont = $this->fontPixels($marker, $rules, $customRules);
+            if ( 'em' === $length[2] ) {
+                $gap = CssLength::format((float) $length[1] * $containerFont);
+            } elseif ( $markerFont > 0 && $containerFont !== $markerFont ) {
+                $ratio = rtrim(rtrim(number_format($containerFont / $markerFont, 6, '.', ''), '0'), '.');
+                $gap = 'calc(' . $gap . ' * ' . $ratio . ')';
+            }
+        }
+        $styles['margin_left'] = isset($styles['margin_left']) ? 'calc(' . $styles['margin_left'] . ' + ' . $gap . ')' : $gap;
+        $provenance = array_merge($provenance, $this->provenance(array( 'margin-left' => $matched['base'][$property] ), null));
+    }
+
+    /** Resolve inherited font sizes against their own parent, not the marker. */
+    private function fontPixels(DOMElement $element, array $rules, array $customRules): float
+    {
+        $chain = array();
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $chain[] = $node;
+        }
+        $font = 16.0;
+        $root = 16.0;
+        foreach ( array_reverse($chain) as $index => $node ) {
+            $matched = $this->matched($node, $rules);
+            $styles = $this->styles(array_intersect_key($matched['base'], array( 'font-size' => true )), $node, null, $customRules, true);
+            $value = $styles['font_size'] ?? '';
+            $font = str_ends_with($value, '%') ? $font * (float) $value / 100 : (CssLength::FONT_SIZE_KEYWORDS[$value] ?? CssLength::toPx($value, $root, $font) ?? $font);
+            if ( 0 === $index ) {
+                $root = $font;
+            }
+        }
+        return $font;
     }
 
     private static function declarationKey(array $fact, string $property): string { return $fact['path'] . "\n" . $fact['selector'] . "\n" . $property; }
