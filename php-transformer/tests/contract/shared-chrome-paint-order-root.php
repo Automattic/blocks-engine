@@ -17,6 +17,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\SharedChromeStylesheets;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
 $failures = 0;
@@ -75,7 +76,7 @@ $assert(!str_contains($first['css'], 'z-index'), '3: an unpreceded header gets n
 
 // 4. A root that is not a group block (Wix's scroll-state header) still names
 // the root, inside each viewport partition, and never the background layer.
-$method = new ReflectionMethod(WordPressSitePlan::class, 'partRootAnchors');
+$method = new ReflectionMethod(SharedChromeStylesheets::class, 'partRootAnchors');
 $variant = static fn(string $class, string $id): string => '<!-- wp:group {"className":"' . $class . '"} -->' . "\n" . '<div class="wp-block-group ' . $class . '">'
     . '<!-- wp:custom/scroll-state {"tagName":"header","anchor":"' . $id . '"} --><header id="' . $id . '">'
     . '<!-- wp:group {"anchor":"bgLayers_' . $id . '"} --><div id="bgLayers_' . $id . '" class="wp-block-group"></div><!-- /wp:group -->'

@@ -4,6 +4,7 @@ declare(strict_types=1);
 require getenv('BLOCKS_ENGINE_AUTOLOAD') ?: dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\SharedChromeStylesheets;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 
@@ -202,8 +203,8 @@ foreach ($linkedPlan['assets'] ?? array() as $asset) {
 
 // A generated class named only inside :not() excludes that element; the rule
 // still styles the page's own content and must keep its source cascade order.
-$matcher = (new ReflectionMethod(WordPressSitePlan::class, 'generatedClassMatcher'))->invoke(null, array('blocks-engine-control-abc-6' => true));
-$exclusion = new ReflectionMethod(WordPressSitePlan::class, 'selectorTargetsGeneratedClass');
+$matcher = (new ReflectionMethod(SharedChromeStylesheets::class, 'generatedClassMatcher'))->invoke(null, array('blocks-engine-control-abc-6' => true));
+$exclusion = new ReflectionMethod(SharedChromeStylesheets::class, 'selectorTargetsGeneratedClass');
 $assert(false === $exclusion->invoke(null, '.text-sm:not(:where(.blocks-engine-control-abc-6))', $matcher), 'A selector that only excludes a shared-chrome class stays page-owned.');
 $assert(true === $exclusion->invoke(null, '.blocks-engine-control-abc-6 .text-sm:not(.x)', $matcher), 'A selector that targets a shared-chrome class is projected.');
 $assert(true === $exclusion->invoke(null, ':not(.a) .blocks-engine-control-abc-6', $matcher), 'A class outside :not() still counts after an earlier :not().');
@@ -213,7 +214,7 @@ $many = array('nav-item' => true, 'nav-item-current' => true, '2col' => true, 'b
 for ($index = 0; $index < 450; ++$index) {
     $many['be-chrome-' . $index] = true;
 }
-$manyMatcher = (new ReflectionMethod(WordPressSitePlan::class, 'generatedClassMatcher'))->invoke(null, $many);
+$manyMatcher = (new ReflectionMethod(SharedChromeStylesheets::class, 'generatedClassMatcher'))->invoke(null, $many);
 $assert(true === $exclusion->invoke(null, '.menu .nav-item-current > a', $manyMatcher), 'A longer class sharing a prefix with another still matches.');
 $assert(false === $exclusion->invoke(null, '.menu .nav-item-currently', $manyMatcher), 'A class only prefixed by a chrome class is not a match.');
 $assert(true === $exclusion->invoke(null, '.\\32 col p', $manyMatcher), 'A CSS-escaped chrome class matches.');
@@ -272,7 +273,7 @@ $positions = array();
 foreach ($splitPlan['assets'] as $asset) foreach ($asset['stylesheet_instances'] ?? array() as $instance) $positions[] = $instance['source_path'] . "\0" . $instance['order'];
 $assert(count($positions) === count(array_unique($positions)), 'Placed projections renumber each document, so no two instances share a position.');
 
-$divergent = new ReflectionMethod(WordPressSitePlan::class, 'projectSharedChromeStylesheets');
+$divergent = new ReflectionMethod(SharedChromeStylesheets::class, 'project');
 $divergentClass = 'blocks-engine-control-abc123def456-1';
 $divergentShared = '.' . $divergentClass . '{background-image:url(mark.png)}';
 $divergentAsset = static function (string $path, string $extra) use ($divergentShared): array {
