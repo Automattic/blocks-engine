@@ -74,8 +74,7 @@ final class CapturedChoiceGroupProjector
             $this->removeInlineEvidence($document);
             $output = HtmlSerialization::documentHtml($document);
             if (is_string($output)) {
-                $files[$index]['content'] = $output;
-                $files[$index]['bytes'] = strlen($output);
+                $files[$index] = ArtifactNormalizer::withTextPayload($files[$index], $output);
                 $projected += $count;
             }
         }
@@ -228,13 +227,7 @@ final class CapturedChoiceGroupProjector
         if (null === $receipt || ! is_array($receipt['routes'] ?? null)) {
             return array('files' => $files, 'diagnostics' => $diagnostics, 'projected_count' => 0);
         }
-        $routes = CaptureReceiptRoutes::resolve($files, $receipt);
-        $fileIndexes = array();
-        foreach ($files as $index => $file) {
-            if (is_string($file['path'] ?? null)) {
-                $fileIndexes[$file['path']] = $index;
-            }
-        }
+        $routes = CaptureReceiptRoutes::forFiles($files, $receipt);
 
         $projected = 0;
         foreach ($report['pages'] as $page) {
@@ -249,17 +242,16 @@ final class CapturedChoiceGroupProjector
                 $diagnostics[] = $this->diagnostic('captured_choice_group_limit_exceeded', 'warning', 'A captured interaction page exceeded the choice-group limit.', array('source_url' => $page['sourceUrl']));
                 continue;
             }
-            $path = $routes[CaptureReceiptRoutes::normalizedUrl($page['sourceUrl'])] ?? '';
-            $index = $fileIndexes[$path] ?? null;
-            if (! is_int($index) || ! is_string($files[$index]['content'] ?? null)) {
+            $path = $routes->path($page['sourceUrl']);
+            $index = $routes->pathIndex($path);
+            if (null === $index) {
                 $diagnostics[] = $this->diagnostic('captured_choice_group_source_unmatched', 'warning', 'A captured choice group did not match an artifact HTML document.', array('source_url' => $page['sourceUrl']));
                 continue;
             }
             $result = $this->projectPage((string) $files[$index]['content'], $groups, $path);
             $diagnostics = array_merge($diagnostics, $result['diagnostics']);
             if (0 < $result['projected_count']) {
-                $files[$index]['content'] = $result['html'];
-                $files[$index]['bytes'] = strlen($result['html']);
+                $files[$index] = ArtifactNormalizer::withTextPayload($files[$index], $result['html']);
                 $projected += $result['projected_count'];
             }
         }

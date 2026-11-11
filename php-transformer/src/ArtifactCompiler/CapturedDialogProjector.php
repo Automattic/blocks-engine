@@ -78,133 +78,132 @@ final class CapturedDialogProjector
             || null === $receipt) {
             return array('files' => $files, 'projected_count' => 0, 'native_runtime_replacements' => array());
         }
-        $routes = CaptureReceiptRoutes::resolve($files, $receipt);
+        $routes = CaptureReceiptRoutes::forFiles($files, $receipt);
         foreach (($report['pages'] ?? array()) as $page) {
-            $path = $routes[CaptureReceiptRoutes::normalizedUrl((string) ($page['sourceUrl'] ?? ''))] ?? '';
-            foreach ($files as &$file) {
-                if ('' === $path || $path !== ($file['path'] ?? null) || !is_string($file['content'] ?? null)) continue;
-                $document = HtmlSerialization::parseDocument($file['content']);
-                $changed = false;
-                $selectors = array();
-                $bindings = new ScriptOccurrenceBindings($document);
-                foreach (array_slice($page['components'] ?? array(), 0, self::MAX_GALLERY_STATES_PER_PAGE) as $component) {
-                    if ('carousel' === ($component['kind'] ?? null) && 'slideshow' === ($component['function'] ?? null)) {
-                        if (!in_array($component['status'] ?? null, array('captured', 'partial'), true) || !is_array($component['slideshow'] ?? null)) continue;
-                        foreach ($this->documentScopes($document) as $scope) {
-                            $selector = (string) ($component['selector'] ?? '');
-                            $roots = str_starts_with($selector, '#') ? $this->identityMatches($scope, array('selector' => $selector)) : $this->selectorMatches($scope, array('selector' => $selector));
-                            if (1 !== count($roots)) continue;
-                            $root = $roots[0];
-                            $show = $component['slideshow'] ?? array();
-                            $native = $document->createElement('div');
-                            $slides = array();
-                            $missing = array();
-                            $initial = 0;
-                            foreach ($show['frames'] ?? array() as $index => $frame) {
-                                if (!empty($frame['clone']) || !empty($frame['loopClone']) || preg_match('/(?:data-clone(?:d)?=|slick-cloned|swiper-slide-duplicate|aria-roledescription=["\']clone)/', (string) ($frame['html'] ?? ''))) continue;
-                                $item = $document->createElement('div');
-                                $paths = array();
-                                foreach ($frame['media'] ?? array() as $media) {
-                                    $assetPath = $assets[$media['asset'] ?? ''] ?? null;
-                                    if (null === $assetPath) continue;
-                                    $paths[] = str_repeat('../', max(0, substr_count($file['path'], '/'))) . $assetPath;
-                                }
-                                if (count($paths) < count($frame['media'] ?? array()) || !$paths) $missing[] = $show['slots'][$index] ?? $frame['id'] ?? (string) $index;
-                                if (!$paths) continue;
-                                // Preserve editable captions and other frame content, but not the
-                                // capture's translated/hidden geometry or source media URLs.
-                                $snapshot = HtmlSerialization::parseDocument('<html><body>' . SourceDom::safeFallbackHtmlString(substr((string) ($frame['html'] ?? ''), 0, 524288)) . '</body></html>');
-                                $used = 0;
-                                foreach (iterator_to_array($snapshot->getElementsByTagName('*')) as $node) {
-                                    foreach (iterator_to_array($node->attributes) as $attribute) {
-                                        if (!in_array($attribute->name, array('alt', 'title', 'href'), true)) $node->removeAttribute($attribute->name);
-                                    }
-                                    if (in_array(strtolower($node->tagName), array('script', 'style', 'iframe', 'source', 'video', 'audio'), true)) {
-                                        $node->parentNode?->removeChild($node);
-                                    } elseif ('img' === strtolower($node->tagName)) {
-                                        if (!isset($paths[$used])) $node->parentNode?->removeChild($node);
-                                        else $node->setAttribute('src', $paths[$used++]);
-                                    }
-                                }
-                                $body = $snapshot->getElementsByTagName('body')->item(0);
-                                foreach ($body?->childNodes ?? array() as $child) $item->appendChild($document->importNode($child, true));
-                                foreach (array_slice($paths, $used) as $extraPath) {
-                                    $image = $document->createElement('img');
-                                    $image->setAttribute('src', $extraPath);
-                                    $image->setAttribute('alt', '');
-                                    $item->appendChild($image);
-                                }
-                                if ($index === ($show['initial'] ?? 0)) $initial = count($slides);
-                                $slides[] = $item;
-                            }
-                            if ($missing) $diagnostics[] = $this->diagnostic('captured_slideshow_partial', 'warning', 'Slideshow unresolved slots: ' . implode(', ', $missing), array('slots' => $missing));
-                            if (!$slides) continue;
-                            $modes = array_column($show['navigation'] ?? array(), 'mode');
-                            $attributes = array('presentation' => 'slideshow', 'itemsPerView' => 1, 'slideCount' => count($slides), 'initialSlide' => $initial,
-                                'showArrows' => !$modes || in_array('arrows', $modes, true), 'showDots' => in_array('dots', $modes, true),
-                                'keyboard' => in_array('keyboard', $modes, true), 'swipe' => in_array('swipe', $modes, true), 'capturedViews' => $show['views'] ?? array());
-                            foreach ($show['navigation'] ?? array() as $mode) if ('autoplay' === ($mode['mode'] ?? '') && ($mode['intervalMs'] ?? 0) > 0) $attributes['autoplayInterval'] = (int) $mode['intervalMs'];
-                            $native->setAttribute('data-blocks-engine-slideshow', json_encode($attributes, JSON_THROW_ON_ERROR));
-                            foreach ($slides as $slide) $native->appendChild($slide);
-                            $root->parentNode?->replaceChild($native, $root);
-                            $changed = true;
-                            $selectors[] = (string) ($component['selector'] ?? '');
-                            ++$count;
-                        }
-                        continue;
-                    }
-                    if ('carousel' !== ($component['kind'] ?? null) || !in_array($component['status'] ?? null, array('captured', 'partial'), true)
-                        || !is_array($component['states'] ?? null) || array() !== CapturedComponentStates::evidence(array($component), array('carousel'))) continue;
+            $path = $routes->path((string) ($page['sourceUrl'] ?? ''));
+            $index = $routes->pathIndex($path);
+            if (null === $index) continue;
+            $file = &$files[$index];
+            $document = HtmlSerialization::parseDocument($file['content']);
+            $changed = false;
+            $selectors = array();
+            $bindings = new ScriptOccurrenceBindings($document);
+            foreach (array_slice($page['components'] ?? array(), 0, self::MAX_GALLERY_STATES_PER_PAGE) as $component) {
+                if ('carousel' === ($component['kind'] ?? null) && 'slideshow' === ($component['function'] ?? null)) {
+                    if (!in_array($component['status'] ?? null, array('captured', 'partial'), true) || !is_array($component['slideshow'] ?? null)) continue;
                     foreach ($this->documentScopes($document) as $scope) {
                         $selector = (string) ($component['selector'] ?? '');
-                        $roots = str_starts_with($selector, '#')
-                            ? $this->identityMatches($scope, array('selector' => $selector))
-                            : $this->selectorMatches($scope, array('selector' => $selector));
+                        $roots = str_starts_with($selector, '#') ? $this->identityMatches($scope, array('selector' => $selector)) : $this->selectorMatches($scope, array('selector' => $selector));
                         if (1 !== count($roots)) continue;
                         $root = $roots[0];
+                        $show = $component['slideshow'] ?? array();
+                        $native = $document->createElement('div');
                         $slides = array();
+                        $missing = array();
                         $initial = 0;
-                        foreach (array_slice($component['states'], 0, 24) as $state) {
-                            if (!is_string($state['html'] ?? null) || strlen($state['html']) > 524288) continue;
-                            $snapshot = HtmlSerialization::parseDocument(SourceDom::safeFallbackHtmlString($state['html']));
-                            $active = array();
-                            foreach ($snapshot->getElementsByTagName('*') as $slide) {
-                                if ('slide' === $slide->getAttribute('aria-roledescription') && !$slide->hasAttribute('hidden')
-                                    && !preg_match('/display\s*:\s*none/i', $slide->getAttribute('style'))) $active[] = $slide;
+                        foreach ($show['frames'] ?? array() as $index => $frame) {
+                            if (!empty($frame['clone']) || !empty($frame['loopClone']) || preg_match('/(?:data-clone(?:d)?=|slick-cloned|swiper-slide-duplicate|aria-roledescription=["\']clone)/', (string) ($frame['html'] ?? ''))) continue;
+                            $item = $document->createElement('div');
+                            $paths = array();
+                            foreach ($frame['media'] ?? array() as $media) {
+                                $assetPath = $assets[$media['asset'] ?? ''] ?? null;
+                                if (null === $assetPath) continue;
+                                $paths[] = str_repeat('../', max(0, substr_count($file['path'], '/'))) . $assetPath;
                             }
-                            if (1 !== count($active) || !is_string($state['id'] ?? null) || isset($slides[$state['id']])) continue;
-                            if ($state['id'] === ($component['initial'] ?? null)) $initial = count($slides);
-                            $slides[$state['id']] = $active[0];
+                            if (count($paths) < count($frame['media'] ?? array()) || !$paths) $missing[] = $show['slots'][$index] ?? $frame['id'] ?? (string) $index;
+                            if (!$paths) continue;
+                            // Preserve editable captions and other frame content, but not the
+                            // capture's translated/hidden geometry or source media URLs.
+                            $snapshot = HtmlSerialization::parseDocument('<html><body>' . SourceDom::safeFallbackHtmlString(substr((string) ($frame['html'] ?? ''), 0, 524288)) . '</body></html>');
+                            $used = 0;
+                            foreach (iterator_to_array($snapshot->getElementsByTagName('*')) as $node) {
+                                foreach (iterator_to_array($node->attributes) as $attribute) {
+                                    if (!in_array($attribute->name, array('alt', 'title', 'href'), true)) $node->removeAttribute($attribute->name);
+                                }
+                                if (in_array(strtolower($node->tagName), array('script', 'style', 'iframe', 'source', 'video', 'audio'), true)) {
+                                    $node->parentNode?->removeChild($node);
+                                } elseif ('img' === strtolower($node->tagName)) {
+                                    if (!isset($paths[$used])) $node->parentNode?->removeChild($node);
+                                    else $node->setAttribute('src', $paths[$used++]);
+                                }
+                            }
+                            $body = $snapshot->getElementsByTagName('body')->item(0);
+                            foreach ($body?->childNodes ?? array() as $child) $item->appendChild($document->importNode($child, true));
+                            foreach (array_slice($paths, $used) as $extraPath) {
+                                $image = $document->createElement('img');
+                                $image->setAttribute('src', $extraPath);
+                                $image->setAttribute('alt', '');
+                                $item->appendChild($image);
+                            }
+                            if ($index === ($show['initial'] ?? 0)) $initial = count($slides);
+                            $slides[] = $item;
                         }
-                        if (count($slides) < 2) continue;
-                        $oldSlides = array();
-                        foreach ($root->getElementsByTagName('*') as $slide) if ('slide' === $slide->getAttribute('aria-roledescription')) $oldSlides[] = $slide;
-                        if (array() === $oldSlides) continue;
-                        $parent = $oldSlides[0]->parentNode;
-                        if (!$parent instanceof DOMElement) continue;
-                        foreach ($oldSlides as $slide) if (!$slide->parentNode?->isSameNode($parent)) continue 2;
-                        $list = $document->createElement('div');
-                        $list->setAttribute('role', 'list');
-                        $list->setAttribute(CaptureEvidence::GALLERY_INITIAL, (string) $initial);
-                        $parent->insertBefore($list, $oldSlides[0]);
-                        foreach ($slides as $slide) {
-                            $item = $document->importNode($slide, true);
-                            $item->removeAttribute('hidden');
-                            $item->setAttribute('role', 'listitem');
-                            $list->appendChild($item);
-                        }
-                        foreach ($oldSlides as $slide) $parent->removeChild($slide);
+                        if ($missing) $diagnostics[] = $this->diagnostic('captured_slideshow_partial', 'warning', 'Slideshow unresolved slots: ' . implode(', ', $missing), array('slots' => $missing));
+                        if (!$slides) continue;
+                        $modes = array_column($show['navigation'] ?? array(), 'mode');
+                        $attributes = array('presentation' => 'slideshow', 'itemsPerView' => 1, 'slideCount' => count($slides), 'initialSlide' => $initial,
+                            'showArrows' => !$modes || in_array('arrows', $modes, true), 'showDots' => in_array('dots', $modes, true),
+                            'keyboard' => in_array('keyboard', $modes, true), 'swipe' => in_array('swipe', $modes, true), 'capturedViews' => $show['views'] ?? array());
+                        foreach ($show['navigation'] ?? array() as $mode) if ('autoplay' === ($mode['mode'] ?? '') && ($mode['intervalMs'] ?? 0) > 0) $attributes['autoplayInterval'] = (int) $mode['intervalMs'];
+                        $native->setAttribute('data-blocks-engine-slideshow', json_encode($attributes, JSON_THROW_ON_ERROR));
+                        foreach ($slides as $slide) $native->appendChild($slide);
+                        $root->parentNode?->replaceChild($native, $root);
                         $changed = true;
-                        $selectors[] = $selector;
+                        $selectors[] = (string) ($component['selector'] ?? '');
                         ++$count;
                     }
+                    continue;
                 }
-                if ($changed) {
-                    $retired[$path] = CapturedComponentStates::retireRuntime($document, CaptureEvidence::COMPONENT_CAROUSEL_RUNTIME, $selectors);
-                    $file['content'] = HtmlSerialization::documentHtml($document);
-                    $file['bytes'] = strlen($file['content']);
-                    $bindings->rebind($files, $path);
+                if ('carousel' !== ($component['kind'] ?? null) || !in_array($component['status'] ?? null, array('captured', 'partial'), true)
+                    || !is_array($component['states'] ?? null) || array() !== CapturedComponentStates::evidence(array($component), array('carousel'))) continue;
+                foreach ($this->documentScopes($document) as $scope) {
+                    $selector = (string) ($component['selector'] ?? '');
+                    $roots = str_starts_with($selector, '#')
+                        ? $this->identityMatches($scope, array('selector' => $selector))
+                        : $this->selectorMatches($scope, array('selector' => $selector));
+                    if (1 !== count($roots)) continue;
+                    $root = $roots[0];
+                    $slides = array();
+                    $initial = 0;
+                    foreach (array_slice($component['states'], 0, 24) as $state) {
+                        if (!is_string($state['html'] ?? null) || strlen($state['html']) > 524288) continue;
+                        $snapshot = HtmlSerialization::parseDocument(SourceDom::safeFallbackHtmlString($state['html']));
+                        $active = array();
+                        foreach ($snapshot->getElementsByTagName('*') as $slide) {
+                            if ('slide' === $slide->getAttribute('aria-roledescription') && !$slide->hasAttribute('hidden')
+                                && !preg_match('/display\s*:\s*none/i', $slide->getAttribute('style'))) $active[] = $slide;
+                        }
+                        if (1 !== count($active) || !is_string($state['id'] ?? null) || isset($slides[$state['id']])) continue;
+                        if ($state['id'] === ($component['initial'] ?? null)) $initial = count($slides);
+                        $slides[$state['id']] = $active[0];
+                    }
+                    if (count($slides) < 2) continue;
+                    $oldSlides = array();
+                    foreach ($root->getElementsByTagName('*') as $slide) if ('slide' === $slide->getAttribute('aria-roledescription')) $oldSlides[] = $slide;
+                    if (array() === $oldSlides) continue;
+                    $parent = $oldSlides[0]->parentNode;
+                    if (!$parent instanceof DOMElement) continue;
+                    foreach ($oldSlides as $slide) if (!$slide->parentNode?->isSameNode($parent)) continue 2;
+                    $list = $document->createElement('div');
+                    $list->setAttribute('role', 'list');
+                    $list->setAttribute(CaptureEvidence::GALLERY_INITIAL, (string) $initial);
+                    $parent->insertBefore($list, $oldSlides[0]);
+                    foreach ($slides as $slide) {
+                        $item = $document->importNode($slide, true);
+                        $item->removeAttribute('hidden');
+                        $item->setAttribute('role', 'listitem');
+                        $list->appendChild($item);
+                    }
+                    foreach ($oldSlides as $slide) $parent->removeChild($slide);
+                    $changed = true;
+                    $selectors[] = $selector;
+                    ++$count;
                 }
+            }
+            if ($changed) {
+                $retired[$path] = CapturedComponentStates::retireRuntime($document, CaptureEvidence::COMPONENT_CAROUSEL_RUNTIME, $selectors);
+                $file = ArtifactNormalizer::withTextPayload($file, (string) HtmlSerialization::documentHtml($document));
+                $bindings->rebind($files, $path);
             }
             unset($file);
         }
@@ -231,13 +230,7 @@ final class CapturedDialogProjector
             return $this->adoptNativeDialogsWithoutReport($files, array_merge($diagnostics, array($this->diagnostic('captured_interactions_route_map_missing', 'warning', 'Captured dialogs were not projected because the capture receipt route map is unavailable.'))));
         }
 
-        $routes = CaptureReceiptRoutes::resolve($files, $receipt);
-        $fileIndexes = array();
-        foreach ($files as $index => $file) {
-            if (is_string($file['path'] ?? null)) {
-                $fileIndexes[$file['path']] = $index;
-            }
-        }
+        $routes = CaptureReceiptRoutes::forFiles($files, $receipt);
 
         $projected = 0;
         $retired = array();
@@ -257,9 +250,9 @@ final class CapturedDialogProjector
             if (array() === $dialogStates) {
                 continue;
             }
-            $path = $routes[CaptureReceiptRoutes::normalizedUrl($page['sourceUrl'])] ?? '';
-            $index = $fileIndexes[$path] ?? null;
-            if (! is_int($index) || ! is_string($files[$index]['content'] ?? null)) {
+            $path = $routes->path($page['sourceUrl']);
+            $index = $routes->pathIndex($path);
+            if (null === $index) {
                 $diagnostics[] = $this->diagnostic('captured_interaction_source_unmatched', 'warning', 'A captured interaction page did not match an artifact HTML document.', array('source_url' => $page['sourceUrl']));
                 continue;
             }

@@ -25,26 +25,20 @@ final class CapturedCollectionProjector
     {
         $report = CapturedInteractionReport::read($files);
         $receipt = CaptureReceiptReport::read($files);
-        $indices = array();
-        foreach ($files as $index => $file) {
-            $path = $file['path'] ?? '';
-            if (!is_string($path)) continue;
-            $indices[$path] = $index;
-        }
         if (!CapturedInteractionReport::valid($report)
             || null === $receipt
             || !is_array($report['pages'] ?? null) || !is_array($receipt['routes'] ?? null)) {
             return array('files' => $files, 'diagnostics' => array(), 'projected_count' => 0);
         }
-        $routes = CaptureReceiptRoutes::resolve($files, $receipt);
+        $routes = CaptureReceiptRoutes::forFiles($files, $receipt);
         $count = 0;
         $diagnostics = array();
         $retired = array();
         $consumed = array();
         foreach (($report['pages'] ?? array()) as $page) {
             if (!is_array($page) || !is_string($page['sourceUrl'] ?? null) || !is_array($page['components'] ?? null)) continue;
-            $index = $indices[$routes[CaptureReceiptRoutes::normalizedUrl($page['sourceUrl'])] ?? ''] ?? null;
-            if (!is_int($index) || !is_string($files[$index]['content'] ?? null)) continue;
+            $index = $routes->pathIndex($routes->path($page['sourceUrl']));
+            if (null === $index) continue;
             $document = null;
             $pageCount = 0;
             foreach ($page['components'] as $component) {
@@ -115,9 +109,7 @@ final class CapturedCollectionProjector
                         $node->parentNode?->removeChild($node);
                     }
                 }
-                $html = HtmlSerialization::documentHtml($document) ?? '';
-                $files[$index]['content'] = $html;
-                $files[$index]['bytes'] = strlen($html);
+                $files[$index] = ArtifactNormalizer::withTextPayload($files[$index], HtmlSerialization::documentHtml($document) ?? '');
             }
         }
         $superseded = $this->omitRetiredRuntimeFiles($files, $retired);

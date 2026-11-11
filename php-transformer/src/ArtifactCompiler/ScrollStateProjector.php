@@ -59,14 +59,8 @@ final class ScrollStateProjector
             return array('files' => $files, 'diagnostics' => array($this->diagnostic('captured_scroll_states_route_map_missing', 'warning', 'Captured scroll states were not projected because the capture receipt route map is unavailable.')), 'projected_count' => 0);
         }
 
-        $routes = CaptureReceiptRoutes::resolve($files, $receipt);
+        $routes = CaptureReceiptRoutes::forFiles($files, $receipt);
         $documentScopeClasses = $this->documentScopeClasses($receipt['document_scope_classes'] ?? null);
-        $fileIndexes = array();
-        foreach ($files as $index => $file) {
-            if (is_string($file['path'] ?? null)) {
-                $fileIndexes[$file['path']] = $index;
-            }
-        }
 
         $diagnostics = array();
         $togglesByPath = array();
@@ -79,9 +73,8 @@ final class ScrollStateProjector
                 $diagnostics[] = $this->diagnostic('captured_scroll_state_limit_exceeded', 'warning', 'A captured scroll-state page exceeded the toggle limit.', array('source_url' => $page['sourceUrl'], 'max_toggles' => self::MAX_TOGGLES_PER_PAGE));
                 continue;
             }
-            $path = $routes[CaptureReceiptRoutes::normalizedUrl($page['sourceUrl'])] ?? '';
-            $index = $fileIndexes[$path] ?? null;
-            if (! is_int($index) || ! is_string($files[$index]['content'] ?? null)) {
+            $path = $routes->path($page['sourceUrl']);
+            if ('' === $path) {
                 $diagnostics[] = $this->diagnostic('captured_scroll_state_source_unmatched', 'warning', 'A captured scroll-state page did not match an artifact HTML document.', array('source_url' => $page['sourceUrl']));
                 continue;
             }
@@ -92,16 +85,15 @@ final class ScrollStateProjector
         // it on only some routes, so every route whose document renders the
         // identical target element (shared chrome) receives it too; otherwise
         // the same chrome compiles to different structures per route.
-        $togglesByPath = $this->withSharedTargetToggles($files, $fileIndexes, array_values(array_unique($routes)), $togglesByPath, $documentScopeClasses);
+        $togglesByPath = $this->withSharedTargetToggles($files, $routes, $togglesByPath, $documentScopeClasses);
 
         $projected = 0;
         foreach ($togglesByPath as $path => $toggles) {
-            $index = $fileIndexes[$path];
+            $index = (int) $routes->pathIndex($path);
             $projection = $this->projectPage((string) $files[$index]['content'], $toggles, $path, $documentScopeClasses);
             $diagnostics = array_merge($diagnostics, $projection['diagnostics']);
             if (0 < $projection['projected_count']) {
-                $files[$index]['content'] = $projection['html'];
-                $files[$index]['bytes'] = strlen($projection['html']);
+                $files[$index] = ArtifactNormalizer::withTextPayload($files[$index], $projection['html']);
                 $projected += $projection['projected_count'];
             }
         }
@@ -111,18 +103,16 @@ final class ScrollStateProjector
 
     /**
      * @param array<int, array<string, mixed>> $files
-     * @param array<string, int> $fileIndexes
-     * @param array<int, string> $routePaths
      * @param array<string, array<int, mixed>> $togglesByPath
      * @param array<int, string> $documentScopeClasses
      * @return array<string, array<int, mixed>>
      */
-    private function withSharedTargetToggles(array $files, array $fileIndexes, array $routePaths, array $togglesByPath, array $documentScopeClasses): array
+    private function withSharedTargetToggles(array $files, CaptureReceiptRoutes $routes, array $togglesByPath, array $documentScopeClasses): array
     {
         $documents = array();
-        $document = function (string $path) use (&$documents, $files, $fileIndexes): ?DOMDocument {
+        $document = function (string $path) use (&$documents, $files, $routes): ?DOMDocument {
             if (! array_key_exists($path, $documents)) {
-                $index = $fileIndexes[$path] ?? null;
+                $index = $routes->pathIndex($path);
                 $documents[$path] = is_int($index) && is_string($files[$index]['content'] ?? null) ? HtmlSerialization::parseFragment((string) $files[$index]['content']) : null;
             }
             return $documents[$path];
@@ -150,7 +140,7 @@ final class ScrollStateProjector
             }
         }
 
-        foreach ($routePaths as $path) {
+        foreach ($routes->paths() as $path) {
             $own = array_map(static fn(mixed $toggle): string => (string) json_encode($toggle, JSON_UNESCAPED_SLASHES), $togglesByPath[$path] ?? array());
             foreach ($shared as $key => $toggle) {
                 $encoded = substr($key, 0, (int) strpos($key, "\n"));

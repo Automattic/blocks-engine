@@ -21,12 +21,12 @@ final class CapturedComponentStates
         if (!CapturedInteractionReport::valid($report)) return $report;
         $receipt = CaptureReceiptReport::read($files);
         if (null === $receipt) return $report;
-        $routes = CaptureReceiptRoutes::resolve($files, $receipt);
+        $routes = CaptureReceiptRoutes::forFiles($files, $receipt);
         $contents = array_column($files, 'content', 'path');
         $inventory = array();
         foreach ($report['pages'] as $page) {
             if (empty($page['components'])) continue;
-            $path = $routes[CaptureReceiptRoutes::normalizedUrl((string) ($page['sourceUrl'] ?? ''))] ?? '';
+            $path = $routes->path((string) ($page['sourceUrl'] ?? ''));
             if (!is_string($contents[$path] ?? null)) continue;
             $document = HtmlSerialization::parseDocument($contents[$path]);
             foreach ($page['components'] as $component) {
@@ -43,7 +43,7 @@ final class CapturedComponentStates
         }
         if (!$inventory) return $report;
         foreach ($report['pages'] as &$page) {
-            $path = $routes[CaptureReceiptRoutes::normalizedUrl((string) ($page['sourceUrl'] ?? ''))] ?? '';
+            $path = $routes->path((string) ($page['sourceUrl'] ?? ''));
             if (!is_string($contents[$path] ?? null) || !is_array($page['components'] ?? null)) continue;
             $document = HtmlSerialization::parseDocument($contents[$path]);
             $components = array();
