@@ -54,7 +54,7 @@ final class AuthoredStateButtonLowering
         if ( ! $svg instanceof DOMElement ) {
             return null;
         }
-        $icon = $this->svgMaterializer->restoreSvgCasing($this->svgMaterializer->sanitizeInlineSvgMarkup($svg));
+        $icon = $this->svgMaterializer->inlineSvgMarkup($svg);
         if ( '' === $icon || ! SourceDom::isSafeSvgContent($icon) || ! SourceDom::isSafeInlineSvgMarkup($icon) ) {
             return null;
         }
