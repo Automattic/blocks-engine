@@ -1812,6 +1812,40 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $this->authoredFormControlBlockConverter->runtimeButton($element);
     }
 
+    /** @return array<string, mixed>|null */
+    public function percentageSizedFormButton(DOMElement $button): ?array
+    {
+        if ( ! $this->buttonHasPercentageSize($button) ) {
+            return null;
+        }
+        $this->session->authorSelectorProjectionState()->markRetainedSourcePath($button->getNodePath() ?? '');
+        return $this->authoredFormControlBlockConverter->button($button, true);
+    }
+
+    /** Keep containing-block-relative sizes on the original, editable control. */
+    private function buttonHasPercentageSize(DOMElement $button): bool
+    {
+        // Standalone CTA buttons have their own wrapper sizing projection.
+        // Form controls instead need to remain items of their source form row.
+        $form = $button->parentNode;
+        while ( $form instanceof DOMElement && 'form' !== strtolower($form->tagName) ) {
+            $form = $form->parentNode;
+        }
+        if ( ! $form instanceof DOMElement ) {
+            return false;
+        }
+        $sizes = array( 'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height' );
+        // Retain conditional rules rather than testing only the resting viewport.
+        foreach ( $this->styleResolver->authoredControlPresentation($button, $sizes) as $declarations ) {
+            foreach ( $declarations as $value ) {
+                if ( str_contains($this->styleResolver->resolveCssVariablesInValue($value, $button), '%') ) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     /**
      * @param array<string, mixed> $attrs
      * @param array<int, array<string, mixed>> $innerBlocks

@@ -22,6 +22,12 @@ abstract class SourceBlockCreator
         return $this->createBlock('core/html', array( 'content' => SourceDom::safeFallbackHtml($element, $this->sourceBlockSession?->authorSelectorProjectionState()->tagMarkers() ?? array()) ), array(), $element);
     }
 
+    /** @return array<string, mixed>|null */
+    public function percentageSizedFormButton(DOMElement $button): ?array
+    {
+        return null;
+    }
+
     /**
      * @param array<string, mixed> $attrs
      * @param array<int, array<string, mixed>> $innerBlocks
