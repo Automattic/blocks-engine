@@ -121,10 +121,10 @@ final class FormPresentationGraphBuilder
         'text-align', 'text-decoration', 'text-indent', 'text-transform', 'vertical-align', 'width',
         'align-self', 'bottom', 'flex', 'flex-basis', 'flex-grow', 'flex-shrink', 'inset', 'justify-self',
         'left', 'margin-block', 'margin-inline', 'order', 'position', 'right', 'top', 'transform', 'z-index',
-        'flex-direction', 'flex-wrap', 'flex-flow', 'align-items', 'justify-content', 'gap', 'column-gap'
+        'flex-direction', 'flex-wrap', 'flex-flow', 'align-items', 'justify-content', 'gap'
     );
     /** Row distribution facts only; element presentation keeps the shared vocabulary. */
-    private const ROW_ONLY_PROPERTIES = array('grid-template-columns');
+    private const ROW_ONLY_PROPERTIES = array('column-gap', 'grid-template-columns');
 
     private array $diagnostics = array();
     /** @var array<string,true> Stylesheet facts, separate from the current element's limits. */
@@ -631,6 +631,9 @@ final class FormPresentationGraphBuilder
                     foreach ( $carried['conditional'] ?? array() as $encoded => $patch ) {
                         $conditional[$encoded] ??= array();
                     }
+                }
+                if ( 'label' === $role ) {
+                    $this->carryLabelColumnGap($styles, $provenance, $element, $analysis['rules']);
                 }
                 if ( 'required_marker' === $role ) {
                     $this->carryMarkerGap($styles, $provenance, $element, $analysis['rules'], $customPropertyAnalysis['rules']);
@@ -1658,6 +1661,24 @@ final class FormPresentationGraphBuilder
         return $result;
     }
 
+    /**
+     * A flex label's own `column-gap` spaces its box from its caption. The
+     * shared vocabulary keeps `column-gap` row-only, so the label states it
+     * through the equivalent `gap: <row-gap> <column-gap>` shorthand.
+     */
+    private function carryLabelColumnGap(array &$styles, array &$provenance, DOMElement $label, array $rules): void
+    {
+        $base = $this->matched($label, $rules, true)['base'];
+        $column = $base['column-gap'] ?? null;
+        if ( ! is_array($column) || ! in_array($styles['display'] ?? '', array( 'flex', 'inline-flex' ), true)
+            || ( isset($base['gap']) && CssCascade::wins($base['gap'], $column) ) ) {
+            return;
+        }
+        $row = isset($base['gap']) ? (CssValueSplitter::splitTopLevelWhitespace($base['gap']['value'])[0] ?? 'normal') : 'normal';
+        $styles['gap'] = $row . ' ' . $column['value'];
+        $provenance = array_merge($provenance, $this->provenance(array( 'gap' => $column ), null));
+    }
+
     /** Carry a horizontal flex gap across the flattened caption/marker boundary. */
     private function carryMarkerGap(array &$styles, array &$provenance, DOMElement $marker, array $rules, array $customRules): void
     {
@@ -1665,7 +1686,7 @@ final class FormPresentationGraphBuilder
         if ( ! $container instanceof DOMElement || ! $marker->previousElementSibling ) {
             return;
         }
-        $matched = $this->matched($container, $rules);
+        $matched = $this->matched($container, $rules, true);
         $containerStyles = $this->styles($matched['base'], $container, null, $customRules, true);
         if ( ! in_array($containerStyles['display'] ?? '', array( 'flex', 'inline-flex' ), true)
             || 'row' !== ($containerStyles['flex_direction'] ?? 'row')

@@ -25,7 +25,7 @@ $checks = array(
     'text marker retains authored typography' => '12px' === ($marker['font_size'] ?? null),
     // Keep ex tied to the 18px caption container, not the 12px marker.
     'marker gap retains its source font context' => 'calc(1ex * 1.5)' === ($marker['margin_left'] ?? null),
-    'wrapping choice label retains column gap' => '6px' === ($choice['column_gap'] ?? null),
+    'wrapping choice label retains column gap' => 'normal 6px' === ($choice['gap'] ?? null),
     'decorative star still has a marker role' => isset($rows[2]['required_marker']),
 );
 foreach ( $checks as $message => $ok ) {

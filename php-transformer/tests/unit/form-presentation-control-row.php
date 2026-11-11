@@ -30,7 +30,7 @@ $assert('3' === ($row['members'][0]['styles']['flex_grow'] ?? null) && '10' === 
 $assert('0' === ($row['members'][0]['styles']['min_width'] ?? null) && isset($row['source_selector'], $row['members'][0]['source_selector']), 'row and item selectors identify source elements');
 $assert(3 === count($variants) && 'wrap' === ($variants[0]['style_patch']['flex_wrap'] ?? null) && '90px' === ($variants[1]['style_patch']['flex_basis'] ?? null) && '2' === ($variants[2]['style_patch']['flex_grow'] ?? null), 'one media condition carries container and member patches');
 $assert(!empty($row['provenance']) && !empty($row['members'][0]['provenance']) && !empty($variants[0]['condition']) && !empty($variants[0]['provenance']), 'base and conditional facts retain provenance');
-$assert('11px' === ($element['styles']['column_gap'] ?? null) && !isset($element['styles']['grid_template_columns']) && '11px' === ($row['styles']['column_gap'] ?? null), 'column gap is shared with element presentation while grid columns remain row-only');
+$assert(!isset($element['styles']['column_gap']) && !isset($element['styles']['grid_template_columns']) && '11px' === ($row['styles']['column_gap'] ?? null), 'row-only properties stay out of element presentation');
 FormPresentationGraphBuilder::assertValid($graph);
 foreach (array('unknown_key', 'wrong_property', 'unknown_member', 'unknown_row', 'unknown_precedence', 'missing_layout') as $mutation) {
     $invalid = $graph;
