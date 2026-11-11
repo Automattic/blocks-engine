@@ -5,11 +5,14 @@ const root = new URL('../..', import.meta.url).pathname;
 const php = 'require $argv[1]."/vendor/autoload.php"; echo json_encode((new Automattic\\BlocksEngine\\PhpTransformer\\HtmlToBlocks\\HtmlTransformer())->transform($argv[2])->toArray());';
 const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH, headless: true });
 try {
-    for (const sizing of ['style="max-width:30%;padding:0 32px"', 'class="submit"']) {
+    for (const sizing of ['style="max-width:30%;padding:0 32px"', 'class="submit"', 'class="c2-3y"']) {
+        const sourceShaped = sizing === 'class="c2-3y"';
         const reset = 'body{margin:8px}input{min-width:0}';
-        const html = `<style>${reset}.submit{padding:0 32px}@media(min-width:768px){.submit{max-width:30%}}</style>`
-            + `<form action="/subscribe"><div style="display:flex;width:100%"><input name="email" style="flex:1"><button type="submit" ${sizing}>Registrarse</button></div></form>`;
+        const html = `<body class="x"><style>${reset}.submit,.c2-3y{padding:0 32px}@media(min-width:768px){.submit{max-width:30%}}@media (min-width:768px){ .x .c2-3y{max-width:30%} }</style>`
+            + `<form ${sourceShaped ? 'aria-live="polite" data-ux="InputGroup"' : 'action="/subscribe"'}><div style="display:flex;width:100%"><input ${sourceShaped ? '' : 'name="email"'} style="flex:1"><button type="submit" ${sizing} data-aid="SUBSCRIBE_SUBMIT_BUTTON_REND">Registrarse</button></div></form></body>`;
         const result = JSON.parse(execFileSync('php', ['-r', php, root, html], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }));
+        assert.match(result.serialized_blocks, /wp:custom\/authored-button/);
+        assert.doesNotMatch(result.serialized_blocks, /wp-block-button__link/);
         const css = result.assets.filter(asset => asset.kind === 'css').map(asset => asset.content).join('\n');
         for (const width of [390, 768, 1440]) {
             const page = await browser.newPage({ viewport: { width, height: 900 } });

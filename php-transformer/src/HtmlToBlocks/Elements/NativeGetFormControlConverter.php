@@ -95,11 +95,13 @@ final class NativeGetFormControlConverter implements ElementConverter
         }
         if ( 'button' === $tagName ) {
             // core/button's label is phrasing RichText; SVG or flow content
-            // there is an invalid block. Percentage sizes also need the source
-            // containing block, not core/button's extra wrapper. The authored
-            // button preserves both without sacrificing native editing.
-            if ( $this->hasNonPhrasingContent($element) || $this->hasPercentageSize($element) ) {
+            // there is an invalid block. Keep its editable native tree.
+            if ( $this->hasNonPhrasingContent($element) ) {
                 return $this->authoredFormControlBlockConverter->button($element, true);
+            }
+            $relativeButton = $this->createBlock->percentageSizedFormButton($element);
+            if ( null !== $relativeButton ) {
+                return $relativeButton;
             }
             $type = strtolower(trim(SourceDom::attr($element, 'type')));
             if ( ! in_array($type, array( 'button', 'reset', 'submit' ), true) ) {
@@ -112,22 +114,6 @@ final class NativeGetFormControlConverter implements ElementConverter
             )), array(), $element);
         }
         return null;
-    }
-
-    /** Keep containing-block-relative sizes on the original, editable control. */
-    private function hasPercentageSize(DOMElement $button): bool
-    {
-        $sizes = array( 'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height' );
-        // Include conditional rules: choosing a save shape from the resting
-        // viewport alone would reintroduce a containing block at breakpoints.
-        foreach ( $this->styleResolver->authoredControlPresentation($button, $sizes) as $declarations ) {
-            foreach ( $declarations as $value ) {
-                if ( str_contains($this->styleResolver->resolveCssVariablesInValue($value, $button), '%') ) {
-                    return true;
-                }
-            }
-        }
-        return false;
     }
 
     private function hasNonPhrasingContent(DOMElement $button): bool
