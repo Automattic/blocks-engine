@@ -460,7 +460,7 @@ final class SharedChromeStylesheets
         $context['target_path'] = $context['path'];
         $context['reference_origin'] = (string) ($template['source_path'] ?? $template['path'] ?? '');
         $context['source_path'] = (string) ($template['source_path'] ?? $template['path'] ?? '') . '.shared-chrome-context';
-        $context = WordPressSitePlan::withRewrittenTextContent($context, $rules);
+        $context = CompiledAssets::withRewrittenTextContent($context, $rules);
         $context['scopes'] = array(array('kind' => 'global'));
         // The paint-order context is route-independent and paints after every
         // authored stylesheet; it is not an occurrence of its template's link.
@@ -1307,7 +1307,7 @@ final class SharedChromeStylesheets
                 });
                 $sharedAsset['path'] = $sharedAsset['target_path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', $contract . "\0" . $shared), 0, 16) . '.css';
             }
-            $sharedAsset = WordPressSitePlan::withRewrittenTextContent($sharedAsset, $shared);
+            $sharedAsset = CompiledAssets::withRewrittenTextContent($sharedAsset, $shared);
             $sharedAsset['scopes'] = array(array('kind' => 'global'));
             $sharedAsset['token'] = 'asset-' . substr(hash('sha256', $sharedAsset['target_path']), 0, 16);
             $sharedAsset['reconciliation_identity'] = WordPressSitePlan::identity('asset', $sharedAsset['source_path'], $sharedAsset['target_path']);
@@ -1316,7 +1316,7 @@ final class SharedChromeStylesheets
             // route, next to whichever contributing stylesheet that route applies.
             unset($sharedAsset['inline_references'], $sharedAsset['stylesheet_instances'], $sharedAsset['stylesheet_parent'], $sharedAsset['stylesheet_inline_order']);
             $sharedAsset['_stylesheet_projection_origins'] = array(self::stylesheetProjectionOrigin($asset));
-            $asset = WordPressSitePlan::withRewrittenTextContent($asset, $route);
+            $asset = CompiledAssets::withRewrittenTextContent($asset, $route);
             $keep($asset);
             unset($sharedAsset['_inline_media_projection']);
             // Media/target contracts and relative URL resolution must agree:
@@ -1331,7 +1331,7 @@ final class SharedChromeStylesheets
                     if ($emitted['contract'] !== $contract
                         || !self::sharedChromeOriginsAgree($shared, $emitted['origin'], (string) $sharedAsset['reference_origin'], $references)) continue;
                     $combined = (new CssStylesheetTransformer())->concatenateWithoutRedundantRules(array($existing['content'], $shared));
-                    $existing = WordPressSitePlan::withRewrittenTextContent($existing, $combined);
+                    $existing = CompiledAssets::withRewrittenTextContent($existing, $combined);
                     $existing['path'] = $existing['target_path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', $contract . "\0" . $combined), 0, 16) . '.css';
                     $existing['token'] = 'asset-' . substr(hash('sha256', $existing['target_path']), 0, 16);
                     $existing['reconciliation_identity'] = WordPressSitePlan::identity('asset', $existing['source_path'], $existing['target_path']);

@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ListingControlsRecognizer;
 use DOMElement;
 
 /** Selects the editable, compositional, or preserved representation of a form. */
@@ -64,6 +65,15 @@ final class FormDispatcher
             return $searchBlock;
         }
 
+        // Listing bounds keep a form intent finding and listing-control anchors.
+        if ( (new ListingControlsRecognizer())->hasNumericBoundsForForm($element) ) {
+            $readable = $this->context->buildReadableFormBlock($element, true, $fallbacks);
+            if ( null !== $readable ) {
+                $fallbacks[] = $this->context->buildFallbackFinding($element, $readable);
+                $this->context->recordForm($element, $readable);
+                return $readable;
+            }
+        }
         $nativeGetForm = $this->context->nativeGetFormBlock($element, $fallbacks);
         if ( null !== $nativeGetForm ) {
             return $nativeGetForm;

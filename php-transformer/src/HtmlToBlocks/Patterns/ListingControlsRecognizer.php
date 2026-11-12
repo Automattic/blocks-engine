@@ -3,8 +3,12 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\SchemaProductEvidence;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeRequirementAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use DOMDocument;
 use DOMElement;
+use WeakMap;
 
 /**
  * Recognizes the controls that narrow, order, or count a repeated listing.
@@ -18,7 +22,7 @@ use DOMElement;
  *   of its leaves, a segment of one of its class tokens, or a `data-*` value.
  *   Explicit checkbox facets also qualify without card partition evidence,
  *   including on one-item and empty collections.
- * - `range`: an `input[type=range]` whose bounds contain every card's price.
+ * - `range`: a slider or numeric bound inputs that constrain the cards' prices.
  * - `sort`: a `select` whose options all read as orderings of the cards.
  * - `result_count`: a short text whose number is the card count.
  *
@@ -33,6 +37,9 @@ final class ListingControlsRecognizer
 {
     private const BOUNDARY_TAGS = array( 'body', 'main', 'header', 'footer', 'nav', 'aside', 'html' );
     private const SORT_KEYS = array( 'default', 'popularity', 'rating', 'newest', 'oldest', 'price_asc', 'price_desc', 'name_asc', 'name_desc' );
+
+    /** @var WeakMap<DOMDocument, array<string, bool>>|null Results live only as long as their source document. */
+    private static ?WeakMap $numericBoundsByForm = null;
 
     /**
      * @param list<DOMElement> $cards
@@ -79,10 +86,7 @@ final class ListingControlsRecognizer
             $claimed[spl_object_id($group['element'])] = true;
         }
 
-        $range = $this->priceRange($scope, $listing, $prices);
-        if ( null !== $range ) {
-            $controls[] = $range;
-        }
+        array_push($controls, ...$this->priceRange($scope, $listing, $prices));
 
         $count = $this->resultCount($scope, $listing, count($cards));
         if ( null !== $count ) {
@@ -355,16 +359,56 @@ final class ListingControlsRecognizer
 
     /**
      * @param list<float|null> $prices
-     * @return array<string,mixed>|null
+     * @return list<array<string,mixed>>
      */
-    private function priceRange(DOMElement $scope, DOMElement $listing, array $prices): ?array
+    private function priceRange(DOMElement $scope, DOMElement $listing, array $prices): array
     {
         $known = array_values(array_filter($prices, 'is_float'));
         if ( array() === $known ) {
-            return null;
+            return array();
         }
+        $ranges = array();
+        $slider = false;
         foreach ( $scope->getElementsByTagName('input') as $input ) {
-            if ( ! $input instanceof DOMElement || 'range' !== strtolower(SourceDom::attr($input, 'type')) || $this->contains($listing, $input) || $this->inSiblingListingBranch($listing, $input) ) {
+            if ( 'number' === strtolower(SourceDom::attr($input, 'type')) ) {
+                if ( $this->contains($listing, $input) || $this->inSiblingListingBranch($listing, $input) || self::inSearchContext($input) || $this->inSubmissionForm($input) || $input->hasAttribute('disabled') ) {
+                    continue;
+                }
+                $form = $input->parentNode;
+                while ( $form instanceof DOMElement && 'form' !== strtolower($form->tagName) ) {
+                    $form = $form->parentNode;
+                }
+                if ( ! $form instanceof DOMElement || ! self::isGetFilterForm($form) ) {
+                    continue;
+                }
+                $label = $this->controlLabel($input);
+                $tokens = strtolower((string) preg_replace('/[^a-z]+/i', ' ', SourceDom::attr($input, 'name') . ' ' . $label));
+                // Explicit field/bound semantics take priority. Otherwise a
+                // numeric endpoint must bracket the observed card prices.
+                $bound = preg_match('/\b(min|max|from|to|minimum|maximum)\b/', $tokens, $match) ? (in_array($match[1], array('min', 'from', 'minimum'), true) ? 'min' : 'max') : null;
+                $price = (bool) preg_match('/\bprice\b/', $tokens);
+                $endpoint = SourceDom::attr($input, 'placeholder');
+                if ( ! is_numeric($endpoint) ) {
+                    $endpoint = SourceDom::attr($input, 'max');
+                }
+                if ( ! is_numeric($endpoint) ) {
+                    $endpoint = SourceDom::attr($input, 'min');
+                }
+                $numericBound = is_numeric($endpoint) ? ((float) $endpoint <= min($known) && (float) $endpoint < max($known) ? 'min' : ((float) $endpoint >= max($known) && (float) $endpoint > min($known) ? 'max' : null)) : null;
+                if ( null === $bound ) {
+                    $bound = $numericBound;
+                }
+                if ( null === $bound || (! $price && $bound !== $numericBound) ) {
+                    continue;
+                }
+                // Do not reinterpret explicitly named non-price fields.
+                if ( ! $price && preg_match('/\b(quantity|qty|age|weight|length|width|height|amount)\b/', $tokens) ) {
+                    continue;
+                }
+                $ranges[] = array('kind' => 'range', 'element' => $input, 'key' => 'price:' . $bound, 'field' => 'price', 'label' => $label, 'bound' => $bound);
+                continue;
+            }
+            if ( $slider || ! $input instanceof DOMElement || 'range' !== strtolower(SourceDom::attr($input, 'type')) || $this->contains($listing, $input) || $this->inSiblingListingBranch($listing, $input) ) {
                 continue;
             }
             $min = SourceDom::attr($input, 'min');
@@ -374,7 +418,8 @@ final class ListingControlsRecognizer
             }
             $label = $this->controlLabel($input);
 
-            return array(
+            $slider = true;
+            $ranges[] = array(
                 'kind'    => 'range',
                 'element' => $input,
                 'field'   => 'price',
@@ -385,7 +430,98 @@ final class ListingControlsRecognizer
             );
         }
 
-        return null;
+        return $ranges;
+    }
+
+    /** GET bounds submit to this page, not to an unrelated workflow. */
+    private static function isGetFilterForm(DOMElement $form): bool
+    {
+        $method = strtolower(trim(SourceDom::attr($form, 'method')));
+        $action = trim(SourceDom::attr($form, 'action'));
+        return in_array($method, array('', 'get'), true)
+            && (in_array($action, array('', '#'), true) || $action === $form->ownerDocument?->documentURI);
+    }
+
+    /**
+     * Reuse listing evidence for intent: every free-entry control must be an
+     * adopted numeric bound, with both ends of one field represented.
+     */
+    public function hasNumericBoundsForForm(DOMElement $form): bool
+    {
+        $document = $form->ownerDocument;
+        if ( null === $document ) {
+            return false;
+        }
+        self::$numericBoundsByForm ??= new WeakMap();
+        $path = (string) $form->getNodePath();
+        $results = self::$numericBoundsByForm[$document] ?? array();
+        if ( array_key_exists($path, $results) ) {
+            return $results[$path];
+        }
+        $results[$path] = $this->recognizeNumericBoundsForForm($form);
+        self::$numericBoundsByForm[$document] = $results;
+        return $results[$path];
+    }
+
+    private function recognizeNumericBoundsForForm(DOMElement $form): bool
+    {
+        // Reject ordinary forms before inspecting any surrounding grid.
+        if ( ! self::isGetFilterForm($form) ) {
+            return false;
+        }
+        $entries = array();
+        foreach ( FormRuntimeRequirementAnalyzer::intentControls($form) as $control ) {
+            $tag = strtolower($control->tagName);
+            $type = strtolower(SourceDom::attr($control, 'type'));
+            if ( 'button' === $tag || 'select' === $tag || in_array($type, array('submit', 'reset', 'button', 'image', 'checkbox', 'radio'), true) ) {
+                continue;
+            }
+            if ( 'input' !== $tag || 'number' !== $type ) {
+                return false;
+            }
+            $entries[] = $control;
+        }
+        if ( count($entries) < 2 ) {
+            return false;
+        }
+        $scope = $form;
+        for ( $node = $form->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $scope = $node;
+            if ( in_array(strtolower($node->tagName), self::BOUNDARY_TAGS, true) && 'aside' !== strtolower($node->tagName) ) {
+                break;
+            }
+        }
+        $commerce = new CommerceStructureRecognizer();
+        foreach ( $scope->getElementsByTagName('*') as $grid ) {
+            if ( ! $commerce->isProductGridContainer($grid) ) {
+                continue;
+            }
+            $cards = array();
+            $prices = array();
+            foreach ( $grid->childNodes as $card ) {
+                if ( ! $card instanceof DOMElement || null === ($product = $commerce->productCardData($card)) ) {
+                    continue;
+                }
+                $cards[] = $card;
+                $digits = SchemaProductEvidence::productPrice($product['price'] ?? '');
+                $prices[] = is_numeric($digits) ? (float) $digits : null;
+            }
+            if ( array() === $cards ) {
+                continue;
+            }
+            // Intent needs only the same price-bound evidence used by the
+            // listing path, not facets, sort options, or result counts.
+            $bounds = array();
+            foreach ( $this->priceRange($scope, $grid, $prices) as $control ) {
+                if ( 'range' === $control['kind'] && in_array($control['element'], $entries, true) ) {
+                    $bounds[spl_object_id($control['element'])] = $control['bound'];
+                }
+            }
+            if ( count($bounds) === count($entries) && in_array('min', $bounds, true) && in_array('max', $bounds, true) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** @return array<string,mixed>|null */
