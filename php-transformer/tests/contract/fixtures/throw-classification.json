@@ -1679,6 +1679,24 @@
         "count": 1
       }
     },
+    "src/WordPressSitePlan/CompiledAssets.php": {
+      "InvalidArgumentException('Compiled site assets must be an array.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Compiled site asset lacks a safe source identity.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Compiled site asset lacks a safe target identity.')": {
+        "class": "integrity",
+        "count": 2
+      },
+      "InvalidArgumentException('WordPress site plan payload references are limited to non-SVG binary assets.')": {
+        "class": "integrity",
+        "count": 1
+      }
+    },
     "src/WordPressSitePlan/ContentDecisions.php": {
       "InvalidArgumentException('Compiled site documents must be an array.')": {
         "class": "integrity",
@@ -2127,18 +2145,6 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('Compiled site asset lacks a safe source identity.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Compiled site asset lacks a safe target identity.')": {
-        "class": "integrity",
-        "count": 2
-      },
-      "InvalidArgumentException('Compiled site assets must be an array.')": {
-        "class": "integrity",
-        "count": 1
-      },
       "InvalidArgumentException('Compiled site documents must be an array.')": {
         "class": "integrity",
         "count": 1
@@ -2252,10 +2258,6 @@
         "count": 1
       },
       "InvalidArgumentException('WordPress site plan page route is invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan payload references are limited to non-SVG binary assets.')": {
         "class": "integrity",
         "count": 1
       },
