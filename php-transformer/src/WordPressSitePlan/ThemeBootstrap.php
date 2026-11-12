@@ -211,7 +211,7 @@ PHP;
                 if ('' !== $state['title']) $stylesheetAttributes[$enqueue['handle']]['title'] = $state['title'];
                 if ($state['disabled']) $stylesheetAttributes[$enqueue['handle']]['disabled'] = true;
             }
-            $deviceAttributes = WordPressSitePlan::stylesheetDeviceAttributes($enqueue);
+            $deviceAttributes = PageStylesheets::deviceAttributes($enqueue);
             if (isset($deviceAttributes[CaptureEvidence::DEVICE_STYLE])) $stylesheetAttributes[$enqueue['handle']] = ($stylesheetAttributes[$enqueue['handle']] ?? array()) + $deviceAttributes;
             $media = '' !== $enqueue['media'] ? ', ' . var_export($enqueue['media'], true) : '';
             $call = "wp_enqueue_style( " . var_export($enqueue['handle'], true) . ", get_theme_file_uri( " . var_export(self::encodedAssetUrlPath($asset['target_path']), true) . " ), array(), null{$media} );";
@@ -571,7 +571,7 @@ PHP;
      */
     private static function editorStylesheetMedia(array $enqueue): string
     {
-        $device = WordPressSitePlan::stylesheetDeviceAttributes($enqueue);
+        $device = PageStylesheets::deviceAttributes($enqueue);
         if (!isset($device[CaptureEvidence::DEVICE_STYLE], $device[CaptureEvidence::SOURCE_MEDIA]) || !in_array('desktop', preg_split('/\s+/', trim((string) $device[CaptureEvidence::DEVICE_STYLE])) ?: array(), true)) return (string) $enqueue['media'];
         return (string) $device[CaptureEvidence::SOURCE_MEDIA];
     }
@@ -614,8 +614,8 @@ PHP;
                 $source = $occurrence['source_path'];
                 if (!isset($documentsBySource[$source])) continue;
                 if (!array_filter($asset['scopes'], static fn(array $scope): bool => 'global' === $scope['kind'] || ($scope['source_path'] ?? null) === $source)) continue;
-                $scope = WordPressSitePlan::stylesheetDocumentScope($documentsBySource[$source]);
-                $instances[$source][] = array('asset' => $asset, 'scope' => $scope, 'route' => $source, 'condition' => self::bootstrapScopeCondition($scope, true), 'media' => $occurrence['media'], 'handle' => 'blocks-engine-instance-' . substr(hash('sha256', $asset['target_path'] . "\0" . $source . "\0" . $occurrence['order']), 0, 16), 'order' => $occurrence['order'], 'resource_order' => $index) + WordPressSitePlan::stylesheetDeviceAttributes($occurrence);
+                $scope = PageStylesheets::documentScope($documentsBySource[$source]);
+                $instances[$source][] = array('asset' => $asset, 'scope' => $scope, 'route' => $source, 'condition' => self::bootstrapScopeCondition($scope, true), 'media' => $occurrence['media'], 'handle' => 'blocks-engine-instance-' . substr(hash('sha256', $asset['target_path'] . "\0" . $source . "\0" . $occurrence['order']), 0, 16), 'order' => $occurrence['order'], 'resource_order' => $index) + PageStylesheets::deviceAttributes($occurrence);
             }
             if (!empty($asset['frame_fallback'])) {
                 $row = array('asset' => $asset, 'scope' => array('kind' => 'global'), 'condition' => 'true', 'media' => (string) ($asset['media'] ?? ''), 'handle' => 'blocks-engine-frame-fallback-' . substr(hash('sha256', $asset['target_path']), 0, 12), 'fallback' => true);
