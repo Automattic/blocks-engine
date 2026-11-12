@@ -203,6 +203,15 @@ $orphanInput['source_reports']['compiled_site']['runtime_entity_records'] = $man
 $orphanPlan = (new WordPressSitePlan())->fromCompilerResult($orphanInput);
 WordPressSitePlan::assertValid($orphanPlan);
 $assert(array() === $orphanPlan['runtime_declarations'] && array() === $orphanPlan['runtime_entity_records'], 'A dropped manifest takes its entity records with it.');
+// The validator holds every plan to that: a record no manifest references is rejected.
+$orphaned = $manifestPlan;
+$orphaned['runtime_declarations'] = array();
+try {
+    WordPressSitePlan::assertValid($orphaned);
+    $assert(false, 'A plan carrying unreferenced entity records is rejected.');
+} catch (InvalidArgumentException $error) {
+    $assert('WordPress site plan carries runtime entity records no manifest references.' === $error->getMessage(), 'Unreferenced entity records are rejected for that reason: ' . $error->getMessage());
+}
 
 // (b) Declarations that each fit but together exceed the aggregate limit:
 // the largest is dropped until the set fits, one finding each.
