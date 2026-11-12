@@ -54,12 +54,15 @@ final class FormControlMetadataBuilder
     ) {
     }
 
-    /** @return array<int, array<string, mixed>> */
-    public function controls(DOMElement $form, array $additionalControls = array()): array
+    /**
+     * @param list<DOMElement>|null $manifestControls Provider-only inventory; topology keeps the authored inventory.
+     * @return array<int, array<string, mixed>>
+     */
+    public function controls(DOMElement $form, array $additionalControls = array(), ?array $manifestControls = null): array
     {
         $controls = array();
         $order = 0;
-        foreach ( FormControlClassifier::controlElements($form, $additionalControls) as $control ) {
+        foreach ( $manifestControls ?? FormControlClassifier::controlElements($form, $additionalControls) as $control ) {
             $metadata = $this->control($control, in_array($control, $additionalControls, true));
             if ( array() !== $metadata ) {
                 $marker = $this->session?->authorSelectorProjectionState()->tagMarker($control->tagName) ?? '';

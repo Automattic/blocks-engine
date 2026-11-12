@@ -230,7 +230,7 @@ final class FormRuntimeRequirementAnalyzer
      *
      * @return list<DOMElement>
      */
-    private static function intentControls(DOMElement $form): array
+    public static function intentControls(DOMElement $form): array
     {
         $controls = array();
         foreach ( $form->getElementsByTagName('*') as $control ) {
