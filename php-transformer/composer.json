@@ -72,6 +72,7 @@
     "test:search-input-group-browser": "node tests/unit/search-input-group-browser.mjs",
     "test:sibling-link-lists-browser": "node tests/contract/sibling-link-lists-browser.mjs",
     "test:navigation-icon-reset-browser": "node tests/unit/navigation-icon-reset-browser.mjs",
+    "test:root-absolute-sprite-links-browser": "node tests/contract/root-absolute-sprite-links-browser.mjs",
     "test:social-links-icon-font-browser": "node tests/unit/social-links-icon-font-browser.mjs",
     "test:social-links-glyph-paint-browser": "node tests/unit/social-links-glyph-paint-browser.mjs",
     "test:image-caption-margins-browser": "node tests/unit/image-caption-margins-browser.mjs",
