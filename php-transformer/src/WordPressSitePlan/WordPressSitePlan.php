@@ -828,14 +828,7 @@ final class WordPressSitePlan
         $pageParents = array_fill_keys(array_column($plan['pages'], 'parent_source_path'), true);
         $pageTemplateKeys = array_fill_keys(array_map(TemplateSlugs::forPage(...), $plan['pages']), true);
         foreach ($plan['pages'] as $page) if (!empty($page['synthetic']) && !isset($pageParents[$page['source_path']])) throw new InvalidArgumentException('WordPress site plan synthetic parent must have a materialized child.');
-        $archiveDocuments = array();
-        foreach (array_merge($plan['taxonomy_entities'], $plan['author_entities']) as $entity) {
-            if (!array_key_exists('archive', $entity)) continue;
-            $source = $entity['archive']['source_path'] ?? '';
-            $route = $entity['archive']['source_route'] ?? '';
-            if (!isset($sourceCatalog[$source]) || isset($pagesBySource[$source])) throw new InvalidArgumentException('WordPress site plan native archive must name a captured source without a materialized page.');
-            $archiveDocuments[$source] = array('source_path' => $source, 'post_type' => 'page', 'route' => array('path' => $route), 'reconciliation_identity' => self::identity('page', $source, $route));
-        }
+        ArchiveEntities::assertArchiveSources(array_merge($plan['taxonomy_entities'], $plan['author_entities']), $sourceCatalog, $pagesBySource);
         ArchiveEntities::assertTerms($plan['taxonomy_entities'], $pagesBySource);
         ArchiveEntities::assertAuthors($plan['author_entities'], $pagesBySource);
         $expectedCandidatePages = WholePageCandidates::attach(array_map(static function (array $page): array { unset($page['whole_page_candidates']); return $page; }, $plan['pages']), RuntimeDeclarations::materialize($plan['runtime_declarations'], $runtimeRecords), $records);
@@ -860,16 +853,7 @@ final class WordPressSitePlan
             self::assertTokens($template['canonical_block_markup'], $tokens);
             LocalBrowserReferences::assertNone($template['canonical_block_markup']);
         }
-        foreach (array_merge($plan['taxonomy_entities'], $plan['author_entities']) as $entity) {
-            if (!isset($entity['archive'])) continue;
-            $templateSlug = TemplateSlugs::forArchive($entity);
-            $archiveTemplates = array_values(array_filter($plan['templates'], static fn(array $template): bool => $templateSlug === ($template['slug'] ?? null)));
-            if (!array_key_exists('presentation_markup', $entity['archive'])) {
-                if (array() !== $archiveTemplates) throw new InvalidArgumentException('WordPress site plan fallback archive must not have a per-entity template.');
-                continue;
-            }
-            if (1 !== count($archiveTemplates) || ($archiveTemplates[0]['source_path'] ?? null) !== $entity['archive']['source_path'] || ($archiveTemplates[0]['canonical_block_markup'] ?? null) !== $entity['archive']['presentation_markup']) throw new InvalidArgumentException('WordPress site plan native archive entity lacks its source-owned archive template.');
-        }
+        ArchiveEntities::assertArchiveTemplates(array_merge($plan['taxonomy_entities'], $plan['author_entities']), $plan['templates']);
         $writeTargets = array();
         $writesByTarget = array();
         foreach ( $plan['writes'] as $write ) {
