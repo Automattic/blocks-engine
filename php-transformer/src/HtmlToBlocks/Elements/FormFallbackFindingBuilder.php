@@ -116,6 +116,24 @@ final class FormFallbackFindingBuilder
         if ( null !== $steps ) {
             $finding['steps'] = $steps;
         }
+        // Provider fields span the workflow, unlike the visible block topology.
+        // Explicit step panels also cover wizards that use hidden sections rather
+        // than a CSS paging track. Ordinary non-rendered decoys stay excluded.
+        $stepPanels = array();
+        foreach ( $element->getElementsByTagName('*') as $panel ) {
+            if ( $panel->hasAttribute('data-step') && '' !== trim($panel->getAttribute('data-step')) ) {
+                $stepPanels[$panel->getAttribute('data-step')] = true;
+            }
+        }
+        if ( 'form' === strtolower($element->tagName) && (null !== $steps || count($stepPanels) > 1) ) {
+            $intentControls = FormRuntimeRequirementAnalyzer::intentControls($element);
+            $selectors = array_column($controls, 'selector');
+            $missing = array_filter($intentControls, static fn (DOMElement $control): bool => ! in_array(SourceDom::elementSelector($control), $selectors, true));
+            if ( array() !== $missing ) {
+                $finding['controls'] = $this->metadataBuilder->controls($element, array(), $intentControls);
+                $finding['control_count'] = count($finding['controls']);
+            }
+        }
         if ( 'form' !== strtolower($element->tagName) ) {
             $finding['form_boundary'] = $this->pseudoFormAnalyzer->boundaryMetadata($element);
         }
