@@ -185,7 +185,7 @@ $beforeFamilies = array(
     'positioned-fragment-link-carrier' => ':where(.blocks-engine-positioned-fragment-link-carrier){display:contents!important}',
     'empty-flex-item' => ':where(.blocks-engine-empty-flex-item){flex:0 0 0!important;width:0!important;min-width:0!important;margin-left:0!important;margin-right:0!important}',
     'list-navigation alignment' => '.wp-block-navigation.blocks-engine-list-navigation{align-items:normal}',
-    'list-navigation item display' => '.wp-block-navigation:where(.blocks-engine-list-navigation) .wp-block-navigation-item{display:list-item}',
+    'list-navigation item display' => '.wp-block-navigation:where(.blocks-engine-list-navigation) .wp-block-navigation-item{display:list-item;align-items:normal}',
     'list-navigation item font reset' => ':where(.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link){font:inherit}',
     'responsive list-navigation container layout' => '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation .wp-block-navigation__container{display:flex;flex-direction:inherit;align-items:inherit;flex-wrap:var(--navigation-layout-wrap,wrap);list-style:none}',
     'non-overlay list-navigation transport' => '.wp-block-navigation.blocks-engine-list-navigation:not(.blocks-engine-native-responsive-navigation)>.wp-block-navigation__container{display:contents!important}',
@@ -198,8 +198,8 @@ $afterFamilies = array(
     'list-navigation host' => '@media(max-width:599px){.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}}',
     'native-responsive desktop wrappers' => '.wp-block-navigation__responsive-container:not(.is-menu-open)',
     'list-navigation mobile overlay' => '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__responsive-container.is-menu-open{background:rgba(0,0,0,.9)!important}',
-    'nativeButtonStyleRules' => '>.wp-block-button__link{box-sizing:content-box;width:max-content;max-width:100%;',
-    'intrinsic native button width' => '.wp-block-buttons{width:max-content;max-width:100%}',
+    'nativeButtonStyleRules' => '>.wp-block-button__link{box-sizing:content-box;width:fit-content;max-width:100%;',
+    'intrinsic native button width' => '.wp-block-buttons{width:fit-content;max-width:100%}',
     'directFlexButtonStyleRules' => '.wp-block-buttons){width:auto!important}',
     'fullWidthButtonStyleRules' => '.wp-block-buttons){display:block!important;gap:0!important;width:100%!important}',
 );
@@ -220,7 +220,7 @@ foreach ( $afterFamilies as $family => $needle ) {
     $assert(! str_contains($authorCss, $needle), 'G3: ' . $family . ' does not leak into author-css');
 }
 $assert(
-    ! str_contains($cssFor($fullWidthButton, 'engine-support', 'after-author'), 'width:max-content'),
+    ! str_contains($cssFor($fullWidthButton, 'engine-support', 'after-author'), 'width:fit-content'),
     'G3: an authored button width remains authoritative over intrinsic wrapper support'
 );
 

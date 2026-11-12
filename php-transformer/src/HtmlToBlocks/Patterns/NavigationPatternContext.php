@@ -822,6 +822,23 @@ final class NavigationPatternContext
         return implode(';', $resets);
     }
 
+    /**
+     * Font declarations a glyph moved into a control's label needs to keep
+     * the font it inherited beside the control, not the control's own.
+     */
+    public function indicatorTypography(DOMElement $indicator, DOMElement $control): string
+    {
+        if ( ! $this->styleResolver instanceof StyleResolver ) return '';
+        $declarations = array();
+        foreach ( array( 'font-family' => '', 'font-size' => '', 'font-weight' => 'normal', 'font-style' => 'normal' ) as $property => $initial ) {
+            $own = $this->styleResolver->resolvedInheritedTypographyValue($indicator, $property);
+            $label = $this->styleResolver->resolvedInheritedTypographyValue($control, $property);
+            $own = '' === $own ? $initial : $own;
+            if ( '' !== $own && '' !== $label && $own !== $label && ! preg_match('/[{}<>;"]/', $own) ) $declarations[] = $property . ':' . $own;
+        }
+        return implode(';', $declarations);
+    }
+
     /** Whether a submenu parent under this source element paints no indicator and carries no disclosure control. */
     public function hasUnindicatedSubmenuParentWithin(DOMElement $source): bool
     {

@@ -1646,12 +1646,13 @@ final class SourceDom
     }
 
     /**
-     * A zero-box resource carrier with no remaining page-local consumers.
+     * A resource carrier with no layout footprint or remaining page-local consumers.
      * Local symbol uses are copied into their consumer SVGs by SvgMaterializer.
      *
-     * Only a zero width or height proves the carrier occupies no box: a shown
-     * SVG without one still lays out at its default 300x150 even when it holds
-     * nothing but definitions.
+     * A zero width or height, or inline absolute/fixed positioning, proves no
+     * layout footprint. Otherwise even definitions-only SVGs occupy space.
+     * An inline display:none carrier is not enough: conditional author styles
+     * can still give it visibility in document context.
      */
     public static function isUnreferencedDefinitionsSvg(DOMElement $element): bool
     {
@@ -1665,7 +1666,9 @@ final class SourceDom
             $styled = preg_match('/(?:^|;)\s*' . $axis . '\s*:\s*([^;!]+)/i', $inline, $match) ? $match[1] : null;
             $hasZeroBox = $hasZeroBox || (null !== $styled ? $zero($styled) : $zero(self::attr($element, $axis)));
         }
-        if (! $hasZeroBox) {
+        $hasNoLayoutFootprint = $hasZeroBox
+            || 1 === preg_match('/(?:^|;)\s*position\s*:\s*(?:absolute|fixed)\s*(?:!\s*important\s*)?(?:;|$)/i', $inline);
+        if (! $hasNoLayoutFootprint) {
             return false;
         }
         foreach ($element->childNodes as $child) {

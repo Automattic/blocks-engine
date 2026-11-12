@@ -303,7 +303,7 @@ final class GeneratedBlockStyleProjector
                 // The outer carrier participates in the source float context.
                 // Size that float to the decorated link rather than the space
                 // left alongside earlier floats (possibly a zero-width slot).
-                $outerWrapperDeclarations[] = 'width:max-content';
+                $outerWrapperDeclarations[] = 'width:fit-content';
                 $outerWrapperDeclarations[] = 'max-width:100%';
             } elseif ( ! $hasAuthoredWidth && $this->sourceControlFillsFlowLine($sourceControl, $sourceDeclarations) ) {
                 // A block-level control in normal flow spans its container's
@@ -319,6 +319,13 @@ final class GeneratedBlockStyleProjector
                 // default. The wrapper is already a block there, so it needs no
                 // width; an intrinsic one would shrink it to its label.
             } elseif ( ! $hasAuthoredWidth && in_array(CssValueInspector::declared($sourceDeclarations, 'display'), array( 'flex', 'inline-flex', 'inline-block', 'inline-grid', 'inline-table' ), true) ) {
+                // fit-content already wraps a label within its container; the
+                // cap only binds a label that cannot wrap, which the uncapped
+                // source control lets overflow.
+                $unwrappable = in_array(CssValueInspector::declared($sourceDeclarations, 'white-space'), array( 'nowrap', 'pre' ), true)
+                    && '' === CssValueInspector::declared($sourceDeclarations, 'max-width')
+                    && array() === $this->styleResolver->authorDeclaredPropertyValues($sourceControl, array( 'max-width' ));
+                $fitCap = $unwrappable ? array() : array( 'max-width:100%' );
                 if ( 'center' === $inheritedTextAlignment ) {
                     // A flex or grid item shrinks to its content unless told to
                     // fill. In block flow the wrapper already spans its line,
@@ -329,14 +336,16 @@ final class GeneratedBlockStyleProjector
                         $outerWrapperDeclarations[] = 'max-width:100%';
                     }
                 } else {
-                    $outerWrapperDeclarations[] = 'width:max-content';
-                    $outerWrapperDeclarations[] = 'max-width:100%';
+                    // Shrink to fit without making the whole label the minimum
+                    // width of a content-sized parent (for example a grid track).
+                    $outerWrapperDeclarations[] = 'width:fit-content';
+                    $outerWrapperDeclarations = array_merge($outerWrapperDeclarations, $fitCap);
                 }
-                $intrinsicWrapperDeclarations[] = 'width:max-content';
-                $intrinsicWrapperDeclarations[] = 'max-width:100%';
+                $intrinsicWrapperDeclarations[] = 'width:fit-content';
+                $intrinsicWrapperDeclarations = array_merge($intrinsicWrapperDeclarations, $fitCap);
                 $declarations[] = 'box-sizing:' . $sourceBoxSizing;
-                $declarations[] = 'width:max-content';
-                $declarations[] = 'max-width:100%';
+                $declarations[] = 'width:fit-content';
+                $declarations = array_merge($declarations, $fitCap);
             }
             if ( ! $this->sourceControlHasVisibleBorder($sourceControl, $sourceDeclarations) ) {
                 if ( '' === trim((string) ($style['border']['style'] ?? '')) ) {

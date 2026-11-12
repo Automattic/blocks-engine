@@ -219,7 +219,7 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
     }
 
     /** Dialog controls own a bounded panel, not the surrounding page. */
-    private function isCapturedDialogRuntimeBinding(DOMElement $element): bool
+    public function isCapturedDialogRuntimeBinding(DOMElement $element): bool
     {
         if ( SourceDom::isBoundCapturedDialogTrigger($element) || SourceDom::isBoundCapturedDialogCloser($element) ) {
             return true;

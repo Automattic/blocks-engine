@@ -26,6 +26,8 @@ $cases['anonymous field wrapper'] = array('<form><div><label>Name<input name="fi
 foreach (array('radio', 'checkbox') as $type) {
     $cases[$type . ' group feedback'] = array('<form><fieldset><input type="' . $type . '" name="option"><input type="' . $type . '" name="option"><div role="status"></div></fieldset><input name="first"><button>Send</button></form>', 1, 'unknown');
 }
+// A live form region announces its own submission, not a tool result.
+$cases['live form region'] = array('<form aria-live="polite"><input name="first"><input name="second"><button type="submit">Send</button></form>', 1, 'unknown');
 $cases['multiple fields result'] = array('<form><div><input name="first"><input name="second"><output></output></div><button>Calculate</button></form>', 1, 'client_side_tool');
 $cases['distinct checkbox groups result'] = array('<form><div><input type="checkbox" name="first"><input type="checkbox" name="second"><output></output></div><button>Calculate</button></form>', 1, 'client_side_tool');
 $cases['single wrapped date input'] = array('<form><label>Date<input type="date" name="date"></label><button>Calculate</button><output></output></form>', 1, 'client_side_tool');
@@ -47,6 +49,7 @@ foreach ($cases as $name => [$html, $count, $intent]) {
         $assert('preserved_runtime_island' === $form['materialization_path'], $name . ': materialization path');
         $assert('preserved_runtime_island' === $form['loss_class'], $name . ': loss class');
         $assert('acceptable_preservation' === $form['acceptability'], $name . ': acceptability');
+        $assert('unsupported_html_fallback' === ($form['type'] ?? ''), $name . ': admissible fallback type');
         $assert('fallback_metadata_with_readable_blocks' === $form['preservation_strategy'], $name . ': strategy');
         $assert(!empty($form['controls']), $name . ': editable controls');
         $assert(str_contains(json_encode($form['required_scripts'] ?? array()), 'site.js'), $name . ': source script required');

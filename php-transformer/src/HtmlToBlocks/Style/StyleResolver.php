@@ -3733,7 +3733,7 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /** Read the source cascade, not the presentation declarations we prune. */
-    private function resolvedInheritedTypographyValue(DOMElement $element, string $property): string
+    public function resolvedInheritedTypographyValue(DOMElement $element, string $property): string
     {
         for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
             $declarations = $this->cssDeclarations($this->specificityResolvedPresentationStyle($current));
@@ -4067,12 +4067,33 @@ final class StyleResolver implements ElementPresentationResolver
         }
         ++$this->analysisCache->sourceStructuralDeclarationBuilds;
 
-        $declarations = array();
+        // Fold declarations weakest first in the shared cascade order
+        // (importance, inline, layer, specificity of the matching selector
+        // arm, source order), so `div.row{flex-direction:row}` keeps beating
+        // a later `.row{flex-direction:column}` the way a browser resolves it.
+        $entries = array();
+        $order = 0;
         foreach ( $this->matchingStyleRules($element, 'static') as $rule ) {
-            $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations']);
+            $specificity = $rule['mediaTextSpecificity'] ?? $this->mediaTextSelectorSpecificity((string) $rule['selector']);
+            $ruleOrder = (int) ($rule['cascadeOrder'] ?? $order);
+            foreach ( $rule['declarations'] as $property => $value ) {
+                $entries[] = $this->cascadeEntry((string) $property, (string) $value, false, $specificity, $ruleOrder, $rule['layerRank'] ?? null);
+            }
+            ++$order;
+        }
+        foreach ( $this->inlineDeclarations($element) as $property => $value ) {
+            $entries[] = $this->cascadeEntry((string) $property, (string) $value, true, array( 0, 0, 0 ), PHP_INT_MAX, null);
+        }
+        // Stable: equal facts (one rule's declarations) keep declaration order.
+        usort($entries, static fn (array $left, array $right): int => CssCascade::wins($left, $right)
+            ? (CssCascade::wins($right, $left) ? 0 : 1) : -1);
+
+        $declarations = array();
+        foreach ( $entries as $entry ) {
+            $declarations = $this->mergeCssDeclarationMaps($declarations, array( $entry['property'] => $entry['value'] ));
         }
 
-        return $cache->structuralDeclarations[$cacheKey] = $this->mergeCssDeclarationMaps($declarations, $this->inlineDeclarations($element));
+        return $cache->structuralDeclarations[$cacheKey] = $declarations;
     }
 
     /**

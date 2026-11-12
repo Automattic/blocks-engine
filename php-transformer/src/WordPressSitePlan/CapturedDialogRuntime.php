@@ -16,6 +16,19 @@ final class CapturedDialogRuntime
         return <<<'PHP'
 add_filter( 'render_block_core/group', static function ( string $content, array $block ): string {
     $shell = $block['attrs']['metadata']['blocksEngineDialog'] ?? null;
+    if ( is_array( $shell ) && ! empty( $shell['adopt'] ) ) {
+        // An adopted source panel is the dialog: the Group renders no element,
+        // and its bindings join the panel's own opening tag.
+        if ( ! preg_match( '/^<div\b[^>]*>(.*)<\/div>$/s', trim( $content ), $match ) ) return $content;
+        return preg_replace_callback( '/^(\s*)<([a-z][a-z0-9-]*)\b([^>]*?)(\/?)>/i', static function ( array $tag ) use ( $shell ): string {
+            $added = '';
+            foreach ( $shell['attributes'] ?? array() as $name => $value ) {
+                if ( ! preg_match( '/^(?:id|data-blocks-engine-[a-z-]+)$/D', $name ) || ! is_string( $value ) || preg_match( '/\s' . $name . '\s*=/i', $tag[3] ) ) continue;
+                $added .= ' ' . $name . '="' . esc_attr( $value ) . '"';
+            }
+            return $tag[1] . '<' . $tag[2] . $tag[3] . $added . $tag[4] . '>';
+        }, $match[1], 1 ) ?? $content;
+    }
     if ( ! is_array( $shell ) || ! in_array( $shell['tagName'] ?? '', array( 'dialog', 'div' ), true ) ) return $content;
     $tag = $shell['tagName'];
     $opening = '<' . $tag;

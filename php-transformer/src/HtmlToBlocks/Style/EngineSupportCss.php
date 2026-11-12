@@ -482,10 +482,13 @@ final class EngineSupportCss
         }
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
             // Keep the display baseline at Core's weight, not above authored rules.
+            // A source <li> has `align-items:normal`; Core centers its items,
+            // which shrinks and centers anchors once authored CSS makes the
+            // item a column flex box.
             // The overlay list follows core's own wrap setting, so a native
             // `layout.flexWrap:nowrap` keeps the source's single row (#2987).
             $parts[] = '.wp-block-navigation.blocks-engine-list-navigation{align-items:normal}'
-                . "\n" . '.wp-block-navigation:where(.blocks-engine-list-navigation) .wp-block-navigation-item{display:list-item}'
+                . "\n" . '.wp-block-navigation:where(.blocks-engine-list-navigation) .wp-block-navigation-item{display:list-item;align-items:normal}'
                 . "\n" . '.wp-block-navigation:where(.blocks-engine-list-navigation:not(.blocks-engine-anchor-items-navigation)) .wp-block-navigation-item__content{display:inline}'
                 . "\n" . '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation .wp-block-navigation__container{display:flex;flex-direction:inherit;align-items:inherit;flex-wrap:var(--navigation-layout-wrap,wrap);list-style:none}';
             // The navigation host owns the source list's layout box. Core's
