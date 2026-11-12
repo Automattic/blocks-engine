@@ -99,10 +99,10 @@ final class DocumentHeads
         $this->omittedLinkDeclarations[$key] = array_filter(array(
             'code' => self::OMITTED_LINK_DECLARATION_DIAGNOSTIC_CODE,
             'severity' => 'warning',
-            'message' => WordPressSitePlan::clipDiagnosticField("Omitted {$url} ({$label} declaration), which names neither a captured asset nor an artifact route."),
-            'source_path' => WordPressSitePlan::clipDiagnosticField($sourcePath),
-            'rel' => WordPressSitePlan::clipDiagnosticField($relation),
-            'value' => WordPressSitePlan::clipDiagnosticField($url),
+            'message' => UnitFindings::clip("Omitted {$url} ({$label} declaration), which names neither a captured asset nor an artifact route."),
+            'source_path' => UnitFindings::clip($sourcePath),
+            'rel' => UnitFindings::clip($relation),
+            'value' => UnitFindings::clip($url),
             'reason_code' => 'unresolved_local_url',
         ), static fn(mixed $field): bool => '' !== $field);
     }
