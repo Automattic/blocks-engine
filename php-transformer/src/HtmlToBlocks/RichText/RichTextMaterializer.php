@@ -38,6 +38,26 @@ final class RichTextMaterializer implements RichTextMaterialization
     }
 
     /**
+     * Neutral wrappers around phrasing content do not make a heading a layout
+     * container. Use inline carriers so their attributes and rich text survive;
+     * media and semantic flow content must still take structural lowering.
+     */
+    public function headingPhrasingContent(string $content): string
+    {
+        if ( ! preg_match('/<div\b/i', $content) || ! preg_match_all('/<([a-z][a-z0-9:-]*)\b/i', $content, $matches) ) {
+            return $content;
+        }
+        foreach ( $matches[1] as $tag ) {
+            $tag = strtolower($tag);
+            if ( 'div' !== $tag && ! RichTextInlineTags::isAllowed($tag) ) {
+                return $content;
+            }
+        }
+
+        return preg_replace('/<(\/?)div\b/i', '<$1span', $content) ?? $content;
+    }
+
+    /**
      * Inline elements whose resolved source styling is carried onto the
      * RichText markup. Unknown and custom elements (`<bdt>`, `<x-note>`) are
      * included: they are later normalized onto a RichText-safe carrier, so

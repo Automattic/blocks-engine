@@ -1876,6 +1876,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         if ( 'core/group' === $name && 'form' !== ($attrs['tagName'] ?? '') && ! isset($attrs['metadata']['blocksEngineControlBox']) && $sourceElement instanceof DOMElement && $this->emptyVisualRetention->preservesScriptStateWrapper($sourceElement) ) {
             return $this->layoutShells->blockForElements(array( $sourceElement ), $innerBlocks, $sourceElement);
         }
+        if ( 'core/heading' === $name ) {
+            $attrs['content'] = $this->richTextMaterializer->headingPhrasingContent((string) ($attrs['content'] ?? ''));
+        }
         if ( $sourceElement instanceof DOMElement ) {
             $container = $this->structuralRichTextContainers->containerBlock($name, $attrs, $sourceElement, $logicalSourceElement);
             if ( null !== $container ) {
