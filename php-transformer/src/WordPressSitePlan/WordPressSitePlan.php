@@ -14,7 +14,6 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\Path\RouteSlug;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
-use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\Support\NativeListItemFallbackReconciler;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use InvalidArgumentException;
@@ -351,7 +350,7 @@ final class WordPressSitePlan
             $rootDocuments[] = array('source_path' => $document['source_path'], 'reconciliation_identity' => self::identity('page', $document['source_path'], $document['source_path']), 'route' => array('path' => $path), 'document_metadata' => array_intersect_key($metadata, array('root_attributes' => true, 'body_attributes' => true)));
         }
         $this->timer?->start('compose.site_plan.theme_json');
-        $assets = StylesheetScopes::assign($assets, self::assetOwnerDocuments($assetPages, $rootDocuments));
+        $assets = StylesheetScopes::assign($assets, StylesheetScopes::documentsBySource($assetPages, $rootDocuments));
         $projector = new ThemeJsonProjection();
         $themeProjection = $projector->project($assets, array_column($pages, 'source_path'), $this->designSystem);
         $assets = $themeProjection['assets'];
@@ -453,7 +452,7 @@ final class WordPressSitePlan
         $assets = SharedChromeStylesheets::projectDetachedPaintOrder($assets, $parts, $pages);
         $assets = PageStylesheets::place($assets, $pages, array_merge($pages, $parts, $frameParts));
         $assets = EditorStaticStateAssets::share($assets, $references);
-        $assets = StylesheetScopes::foldSupport($assets, self::assetOwnerDocuments($pages, $rootDocuments), StylesheetScopes::canonicalDocuments(self::assetOwnerDocuments($assetPages, $rootDocuments)), implode("\n", array_column(array_merge($parts, $frameParts), 'canonical_block_markup')));
+        $assets = StylesheetScopes::foldSupport($assets, StylesheetScopes::documentsBySource($pages, $rootDocuments), StylesheetScopes::canonicalDocuments(StylesheetScopes::documentsBySource($assetPages, $rootDocuments)), implode("\n", array_column(array_merge($parts, $frameParts), 'canonical_block_markup')));
         $tokens = $this->tokens($assets);
         if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
         $runtimeDeclarations = $shells['runtime_declarations'];
@@ -692,7 +691,7 @@ final class WordPressSitePlan
         foreach ($plan['assets'] as &$asset) {
             $asset['consumers'] = $consumers[$asset['token']] ?? array();
             $asset['destination'] = AssetConsumers::destination($asset['consumers'], $asset, $unreferenced, $fontEmbeddingSvgs);
-            $asset['theme_write_reasons'] = self::themeWriteReasons($asset['consumers'], $asset['destination']);
+            $asset['theme_write_reasons'] = AssetConsumers::themeWriteReasons($asset['consumers'], $asset['destination']);
             if ('none' === $asset['destination']) $unwritten[$asset['target_path']] = true;
         }
         unset($asset);
@@ -792,7 +791,7 @@ final class WordPressSitePlan
                 throw new InvalidArgumentException('WordPress site plan asset is structurally invalid.');
             }
             if ('css' === $asset['kind']) {
-                self::assertAssetScopes($asset['scopes'] ?? null);
+                StylesheetScopes::assertValid($asset['scopes'] ?? null);
                 if (!in_array($asset['stylesheet_target'] ?? 'both', array('both', 'frontend', 'editor'), true)) throw new InvalidArgumentException('Stylesheet assets must declare a supported target.');
             }
             elseif (isset($asset['scopes'])) throw new InvalidArgumentException('Only stylesheet assets may declare runtime scopes.');
@@ -856,28 +855,9 @@ final class WordPressSitePlan
         ArchiveEntities::assertAuthors($plan['author_entities'], $pagesBySource);
         $expectedCandidatePages = WholePageCandidates::attach(array_map(static function (array $page): array { unset($page['whole_page_candidates']); return $page; }, $plan['pages']), RuntimeDeclarations::materialize($plan['runtime_declarations'], $runtimeRecords), $records);
         foreach ($plan['pages'] as $index => $page) if (($expectedCandidatePages[$index]['whole_page_candidates'] ?? null) !== ($page['whole_page_candidates'] ?? null)) throw new InvalidArgumentException('Whole-page candidates are stale, duplicated, or detached from their canonical source pages.');
-        $documentsBySource = self::assetOwnerDocuments($plan['pages'], $plan['theme']['document_roots'] ?? array());
-        foreach ($plan['assets'] as $asset) foreach ($asset['scopes'] ?? array() as $scope) if ('global' !== $scope['kind']) {
-            $document = $documentsBySource[$scope['source_path']] ?? null;
-            if (!is_array($document) || $scope != PageStylesheets::documentScope($document)) throw new InvalidArgumentException('An asset scope does not match its canonical document.');
-        }
-        // A document position holds exactly one stylesheet instance, across
-        // every resource, so each route replays one unambiguous sequence.
-        $identities = array();
-        foreach ($plan['assets'] as $asset) {
-            if (isset($asset['stylesheet_instances']) && ('css' !== $asset['kind'] || !is_array($asset['stylesheet_instances']))) throw new InvalidArgumentException('Only stylesheet resources may declare ordered instances.');
-            foreach ($asset['stylesheet_instances'] ?? array() as $instance) {
-                if (!is_array($instance) || array('source_path', 'order', 'media', 'type') !== array_keys(array_diff_key($instance, array_flip(array(CaptureEvidence::DEVICE_STYLE, CaptureEvidence::SOURCE_MEDIA)))) || !isset($documentsBySource[$instance['source_path'] ?? '']) || !is_int($instance['order'] ?? null) || $instance['order'] < 0 || !is_string($instance['media'] ?? null) || !is_string($instance['type'] ?? null) || array_filter(PageStylesheets::deviceAttributes($instance), static fn(mixed $value): bool => !is_string($value))) throw new InvalidArgumentException('Stylesheet instance must identify a canonical document, order and conditions.');
-                // A frontend-only and an editor-only copy share their position:
-                // each context still replays exactly one resource there.
-                foreach (array('frontend', 'editor') as $context) {
-                    if (!in_array($asset['stylesheet_target'] ?? 'both', array('both', $context), true)) continue;
-                    $identity = $instance['source_path'] . "\0" . $instance['order'] . "\0" . $context;
-                    if (isset($identities[$identity])) throw new InvalidArgumentException('Two stylesheet instances claim one document position.');
-                    $identities[$identity] = true;
-                }
-            }
-        }
+        $documentsBySource = StylesheetScopes::documentsBySource($plan['pages'], $plan['theme']['document_roots'] ?? array());
+        StylesheetScopes::assertOwned($plan['assets'], $documentsBySource);
+        PageStylesheets::assertInstances($plan['assets'], $documentsBySource);
         $routeSources = array(); foreach ($plan['routes'] as $route) { self::unique($routeSources, $route['source_path'], 'route source'); $page = $pagesBySource[$route['source_path']] ?? null; if (!is_array($page) || $route['target_path'] !== $page['route']['path'] || $route['target_slug'] !== $page['slug']) throw new InvalidArgumentException('WordPress site plan routes do not match canonical page routes.'); }
         if (count($routeSources) !== count($pagePaths)) throw new InvalidArgumentException('WordPress site plan must export every canonical page route.');
         // Source identities compare case-insensitively, as unique() keys them.
@@ -929,26 +909,7 @@ final class WordPressSitePlan
             if ( ! is_array($write) || 'theme_template_part' !== ($write['kind'] ?? null) || $write['payload']['data'] !== $expected ) {
                 throw new InvalidArgumentException('WordPress site plan template part lacks its canonical write.');
             }
-            $boundTemplates = in_array($part['placement']['kind'] ?? null, array('entry_shell', 'shared_shell'), true) ? $part['placement']['template_slugs'] : array();
-            if (in_array($part['placement']['kind'] ?? null, array('entry_shell', 'shared_shell'), true)) foreach (array_keys($overrideTemplateSlugs) as $slug) if (TemplateSlugs::partAppliesToOverride($part, $slug)) $boundTemplates[] = $slug;
-            if (in_array('archive', $part['placement']['template_slugs'] ?? array(), true)) foreach (array_merge($plan['taxonomy_entities'], $plan['author_entities']) as $entity) {
-                if (!isset($entity['archive'])) continue;
-                $boundTemplates[] = TemplateSlugs::forArchive($entity);
-                if ('author' === $entity['kind']) $boundTemplates[] = 'author';
-            }
-            if ('inline_shared_shell' === ($part['placement']['kind'] ?? null)) foreach ($plan['templates'] as $template) if (in_array($part['slug'], $template['shell_frame'] ?? array(), true)) $boundTemplates[] = $template['slug'];
-            if ('inline_shared_shell' === ($part['placement']['kind'] ?? null)) foreach (array_merge($plan['taxonomy_entities'], $plan['author_entities']) as $entity) if (isset($entity['archive']) && in_array($entity['archive']['source_path'], $part['placement']['source_paths'] ?? array(), true)) foreach ($plan['templates'] as $template) if ((TemplateSlugs::forArchive($entity) === ($template['slug'] ?? null) || ('author' === $entity['kind'] && 'author' === ($template['slug'] ?? null) && $template['source_path'] === $entity['archive']['source_path'])) && str_contains($template['canonical_block_markup'], '"slug":"' . $part['slug'] . '"')) $boundTemplates[] = $template['slug'];
-            foreach ( $plan['templates'] as $template ) {
-                $references = substr_count($template['canonical_block_markup'], '"slug":"' . $part['slug'] . '"');
-                // An inline shell is bound where it sits, so a template that
-                // keeps every captured document copy binds it once per copy.
-                $allowed = 'inline_shared_shell' === ($part['placement']['kind'] ?? null) ? self::documentCopyCount($template['canonical_block_markup']) : 1;
-                $contentOwnsChrome = ThemeTemplates::contentCarriesChrome($template['canonical_block_markup'], $part['area']);
-                foreach ($plan['pages'] as $page) if (TemplateSlugs::forPage($page) === $template['slug'] && ThemeTemplates::contentCarriesChrome($page['canonical_block_markup'], $part['area'])) $contentOwnsChrome = true;
-                if (0 === $references && $contentOwnsChrome) continue;
-                if (in_array($template['slug'], $boundTemplates, true) && ($references < 1 || $references > $allowed)) throw new InvalidArgumentException('WordPress site plan template part binding is invalid.');
-                if (!in_array($template['slug'], $boundTemplates, true) && 0 !== $references) throw new InvalidArgumentException('WordPress site plan has an unproven template part binding.');
-            }
+            ThemeTemplates::assertPartBound($part, $plan, $overrideTemplateSlugs);
         }
         // Resolution rewrites tokens to URLs, so a resolved plan keeps the
         // unresolved plan's proof for unwritten assets.
@@ -956,28 +917,14 @@ final class WordPressSitePlan
         $fontEmbeddingSvgs = AssetConsumers::fontEmbeddingSvgs($plan);
         foreach ( $plan['assets'] as $asset ) {
             $expectedConsumers = $asset['consumers'] ?? array();
-            if (($asset['consumers'] ?? null) !== $expectedConsumers || ($asset['destination'] ?? null) !== AssetConsumers::destination($expectedConsumers, $asset, $unreferenced, $fontEmbeddingSvgs) || ($asset['theme_write_reasons'] ?? null) !== self::themeWriteReasons($expectedConsumers, $asset['destination'])) throw new InvalidArgumentException('Asset consumers or destination are stale.');
-            $target = $asset['target_path'];
-            if ('none' === $asset['destination']) {
-                if (isset($writesByTarget[$target])) throw new InvalidArgumentException('WordPress site plan writes an unreferenced asset.');
-                continue;
-            }
-            if ('media_library' === $asset['destination'] && !isset($writesByTarget[$target])) continue;
-            if ( ! isset($writesByTarget[$target]) || 'theme_asset' !== ($writesByTarget[$target]['kind'] ?? null) || $writesByTarget[$target]['source_path'] !== $asset['source_path'] ) {
-                throw new InvalidArgumentException('WordPress site plan asset lacks a write.');
-            }
-            $write = $writesByTarget[$target];
-            $assetReference = CompiledAssets::payloadReference($asset['payload_reference'] ?? null);
-            $writeReference = CompiledAssets::payloadReference($write['payload']['reference'] ?? null);
-            if ((null !== $assetReference) !== ('reference' === ($write['payload']['encoding'] ?? null)) || (null !== $assetReference && (null === $writeReference || RuntimeDeclarations::canonicalJson($assetReference) !== RuntimeDeclarations::canonicalJson($writeReference) || ($write['raw_sha256'] ?? null) !== $asset['raw_sha256']))) {
-                throw new InvalidArgumentException('WordPress site plan reference asset and write do not match.');
-            }
+            if (($asset['consumers'] ?? null) !== $expectedConsumers || ($asset['destination'] ?? null) !== AssetConsumers::destination($expectedConsumers, $asset, $unreferenced, $fontEmbeddingSvgs) || ($asset['theme_write_reasons'] ?? null) !== AssetConsumers::themeWriteReasons($expectedConsumers, $asset['destination'])) throw new InvalidArgumentException('Asset consumers or destination are stale.');
+            ThemeAssetWrites::assertWritten($asset, $writesByTarget);
         }
         AssetPublications::assertDeclarations($plan['runtime_declarations'], $plan['assets'], $writesByTarget);
         if ( ! is_string($plan['theme']['stylesheet'] ?? null) || ! is_string($plan['theme']['theme_json'] ?? null) || (null !== ($plan['theme']['bootstrap'] ?? null) && ! is_string($plan['theme']['bootstrap'])) ) {
             throw new InvalidArgumentException('WordPress site plan theme is structurally invalid.');
         }
-        self::assertFontMaterialization($plan['theme'], $plan['assets'], $writesByTarget);
+        CompiledAssets::assertFontMaterialization($plan['theme'], $plan['assets'], $writesByTarget);
         $policyStatus = 'failed' === ($plan['quality']['status'] ?? null) ? 'failed' : 'passed';
         if ( !in_array($plan['quality']['status'] ?? null, array('success', 'success_with_warnings', 'failed'), true) || !is_bool($plan['quality']['pass'] ?? null) || ('failed' !== $plan['quality']['status']) !== $plan['quality']['pass'] || ! is_array($plan['quality']['metrics'] ?? null) || ! is_array($plan['quality']['fallbacks'] ?? null) || !is_array($plan['quality']['core_html_fallback_evidence'] ?? null) || EditabilityPolicy::SCHEMA !== ($plan['quality']['editability_policy']['schema'] ?? null) || 'required' !== ($plan['quality']['editability_policy']['enforcement'] ?? null) || $policyStatus !== ($plan['quality']['editability_policy']['status'] ?? null) ) {
             throw new InvalidArgumentException('WordPress site plan quality is structurally invalid.');
@@ -985,36 +932,6 @@ final class WordPressSitePlan
         // Bound retention for long-lived processes without an eviction index.
         if (count($validated) >= 4096) $validated = array();
         $validated[$contentHash] = true;
-    }
-
-    /** Explicit counted fallback: uploads have no portable relative CSS URL. */
-    private static function themeWriteReasons(array $consumers, string $destination): array
-    {
-        if ('media_library' !== $destination) return array();
-        $reasons = array();
-        foreach ($consumers as $consumer) if ('stylesheet' === $consumer['kind']) $reasons[] = array('reason' => 'attachment_url_required', 'target_path' => $consumer['target_path'], 'count' => $consumer['count']);
-        return $reasons;
-    }
-
-    /** @param array<string,mixed> $theme @param array<int,array<string,mixed>> $assets @param array<string,array<string,mixed>> $writesByTarget */
-    private static function assertFontMaterialization(array $theme, array $assets, array $writesByTarget): void
-    {
-        if (!array_key_exists('font_materialization', $theme)) return;
-        $fontMaterialization = $theme['font_materialization'];
-        if (!is_array($fontMaterialization)) throw new InvalidArgumentException('WordPress site plan font materialization is structurally invalid.');
-        $assetsBySource = array_column($assets, null, 'source_path');
-        $fontAssets = array();
-        foreach ($assets as $asset) {
-            $targetPath = (string) ($asset['target_path'] ?? '');
-            $fontAssets[] = array('source' => $asset['source'] ?? null, 'path' => $asset['source_path'] ?? null, 'target_path' => str_starts_with($targetPath, 'assets/') ? substr($targetPath, 7) : $targetPath, 'mime_type' => $asset['mime_type'] ?? null, 'content' => $asset['content'] ?? null);
-        }
-        foreach (($fontMaterialization['webfont_contract']['svg_consumers'] ?? array()) as $consumer) {
-            $asset = is_array($consumer) ? ($assetsBySource[$consumer['source_path'] ?? ''] ?? null) : null;
-            $targetPath = is_array($asset) ? (string) ($asset['target_path'] ?? '') : '';
-            $writePath = str_starts_with($targetPath, 'assets/') ? substr($targetPath, 7) : $targetPath;
-            if (!is_array($asset) || $writePath !== ($consumer['write_path'] ?? null) || !isset($writesByTarget[$targetPath])) throw new InvalidArgumentException('WordPress site plan webfont SVG consumer is detached from canonical assets or writes.');
-        }
-        FontMaterializationPlanBuilder::assertPlan($fontMaterialization, $fontAssets);
     }
 
     /** @param mixed $documents @param array<int,array<string,string>> $tokens @return array<int,array<string,mixed>> */
@@ -1097,41 +1014,6 @@ final class WordPressSitePlan
         return $prior;
     }
 
-    /** The selector with every `:not(...)` removed: what it targets, not what it excludes. */
-    public static function positiveSelector(string $selector): string
-    {
-        $positive = '';
-        $depth = 0;
-        $length = strlen($selector);
-        for ($i = 0; $i < $length; ++$i) {
-            if (0 === $depth && 0 === strncasecmp(substr($selector, $i, 5), ':not(', 5)) {
-                $depth = 1;
-                $i += 4;
-                continue;
-            }
-            if ($depth > 0) {
-                if ('(' === $selector[$i]) ++$depth;
-                elseif (')' === $selector[$i]) --$depth;
-                continue;
-            }
-            $positive .= $selector[$i];
-        }
-        return $positive;
-    }
-
-    /** Rendered elements rooting a captured document copy; at least one. */
-    private static function documentCopyCount(string $markup): int
-    {
-        $html = (string) preg_replace('/<!--.*?-->/s', '', $markup);
-        $copies = 0;
-        if (preg_match_all('/<[a-z][a-z0-9-]*\\s[^>]*?\\bclass="([^"]*)"/i', $html, $matches)) {
-            foreach ($matches[1] as $classes) {
-                if (array_filter(preg_split('/\\s+/', $classes) ?: array(), ShellExtraction::isResponsiveVariantClass(...))) ++$copies;
-            }
-        }
-
-        return max(1, $copies);
-    }
 
     /** @param array<int,array<string,mixed>> $assets @return array<int,array<string,string>> */
     private function tokens(array $assets): array { return array_map(static fn(array $asset): array => array('token' => $asset['token'], 'source_path' => $asset['source_path'], 'target_path' => $asset['target_path']), $assets); }
@@ -1227,35 +1109,7 @@ final class WordPressSitePlan
     /** @internal Shared artifact-root semantics for document-head asset resolution. */
     public static function entryRootFromDocuments(array $documents): string { foreach ($documents as $document) { if (is_array($document) && (!empty($document['entrypoint']) || 'entrypoint' === ($document['source_relation'] ?? null)) && is_string($document['source_path'] ?? null)) { $dir = str_replace('\\', '/', dirname($document['source_path'])); return in_array($dir, array('.', '/', ''), true) ? '' : $dir; } } return ''; }
 
-    // A file-system path and a URL path are different encodings of the same
-    // name: browsers request exactly what the bootstrap emits and the server
-    // URL-decodes the request path before touching the filesystem, so a
-    // literal `%24` in an on-disk name must be emitted as `%2524` to round-trip
-    // back onto the materialized file. Encode every segment, preserving the
-    // `/` separators.
 
-    /** @param array<int,array<string,mixed>> $pages @param array<int,array<string,mixed>> $rootDocuments @return array<string,array<string,mixed>> */
-    public static function assetOwnerDocuments(array $pages, array $rootDocuments): array
-    {
-        return array_column($pages, null, 'source_path') + array_column($rootDocuments, null, 'source_path');
-    }
-
-    private static function assertAssetScopes(mixed $scopes): void
-    {
-        if (!is_array($scopes) || array() === $scopes) throw new InvalidArgumentException('WordPress site plan asset scopes must be a nonempty array.');
-        foreach ($scopes as $scope) {
-            if (!is_array($scope) || !in_array($scope['kind'] ?? null, array('global', 'page', 'post', 'archive'), true)) throw new InvalidArgumentException('WordPress site plan asset scope is invalid.');
-            if ('global' === $scope['kind']) {
-                if (array('kind') !== array_keys($scope)) throw new InvalidArgumentException('A global asset scope cannot declare page fields.');
-                continue;
-            }
-            if ('archive' === $scope['kind']) {
-                if (array('kind', 'source_path', 'route_path') !== array_keys($scope) || !self::safePath($scope['source_path']) || !is_string($scope['route_path'])) throw new InvalidArgumentException('An archive asset scope is structurally invalid.');
-                continue;
-            }
-            if (array('kind', 'source_path', 'route_path', 'reconciliation_identity', 'front_page') !== array_keys($scope) || !self::safePath($scope['source_path']) || !is_string($scope['route_path']) || !self::hash($scope['reconciliation_identity']) || !is_bool($scope['front_page'])) throw new InvalidArgumentException('A page asset scope is structurally invalid.');
-        }
-    }
     /** @return array<string,mixed> */
     public static function write(string $kind, string $target, string $content, ?string $sourcePath = null, string $encoding = 'utf8'): array { $sourcePath ??= 'wordpress-site-plan/' . $target; return array('kind' => $kind, 'source_path' => $sourcePath, 'target_path' => $target, 'reconciliation_identity' => self::identity('write', $sourcePath, $target), 'payload_hash' => self::contentHash($content), 'payload' => array('encoding' => $encoding, 'data' => $content)); }
     /** @param array{schema:string,id:string,bytes:int,sha256:string} $reference */

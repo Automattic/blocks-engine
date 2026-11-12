@@ -73,15 +73,33 @@ final class WrapperCoalescer
 
     private const LANDMARK_GROUP_TAGS = array('header', 'footer');
 
+    private bool $wrapperBudgetExceeded = false;
+
     /** @param array<int, array<string, mixed>> $blocks @return array<int, array<string, mixed>> */
     public function compressProjectedGroupChains(array $blocks, int $depth = 1): array
     {
+        if (1 === $depth) {
+            $metrics = (new EditabilityReport())->fromBlocks($blocks)['metrics'];
+            $this->wrapperBudgetExceeded = $metrics['wrapper_to_content_ratio'] > EditabilityPolicy::THRESHOLDS['wrapper_to_content_ratio'];
+        }
         return array_values(array_map(fn (array $block): array => $this->normalizeWrapperChain($block, $depth), $blocks));
     }
 
     /** @param array<string, mixed> $block @return array<string, mixed> */
     private function normalizeWrapperChain(array $block, int $depth = 1): array
     {
+        // Spend shared ancestry once before charging its depth to each branch.
+        $ancestorChain = array();
+        $cursor = $block;
+        while (1 === count(ArrayField::array($cursor, 'innerBlocks')) && null !== ($descriptor = $this->foldableWrapperDescriptor($cursor))) {
+            $ancestorChain[] = array('block' => $cursor, 'descriptor' => $descriptor);
+            $cursor = $cursor['innerBlocks'][0];
+        }
+        if (2 <= count($ancestorChain)
+            && $depth - 1 + $this->nativeBlockHeight($block) > EditabilityPolicy::THRESHOLDS['max_nesting_depth']) {
+            return $this->foldWrapperChain($ancestorChain, $this->normalizeWrapperChain($cursor, $depth + 1));
+        }
+
         $candidate = $this->collectWrapperChain($block, $depth);
         $chain = $candidate['chain'];
         $terminal = $candidate['terminal'];
@@ -99,9 +117,22 @@ final class WrapperCoalescer
                 || ('core/group' === $terminalName && array() === ($terminal['innerBlocks'] ?? array()))
                 || array() === array_filter($chain, static fn (array $entry): bool => 'div' !== ($entry['descriptor']['tagName'] ?? null)))
             && $depth + count($chain) - 1 + $this->nativeBlockHeight($terminal) <= EditabilityPolicy::THRESHOLDS['max_nesting_depth'];
-        // Native nesting must respect the wrapper budget as well as depth.
-        // Branching terminals can otherwise retain many wrappers per leaf.
-        if ($nativeGroupTree && 'core/freeform' === $terminalName && array() !== ($terminal['innerBlocks'] ?? array()) && 2 <= count($chain)) {
+        // Div ancestors remain editable even when their terminal is a generated
+        // block or an extraction slot. The terminal's transport does not require
+        // transporting its native parent boxes in a generated shell too.
+        // Inline-only fragments retain their existing shell transport. Source
+        // boxes and authored blocks, unlike synthetic inline paragraphs, supply
+        // independently editable structure for native ancestor Groups.
+        $hasSourceBox = array() !== array_filter($terminal['innerBlocks'] ?? array(), static fn (array $child): bool =>
+            ! str_contains((string) ($child['attrs']['className'] ?? ''), 'blocks-engine-synthetic-paragraph')
+            || str_contains((string) ($child['attrs']['className'] ?? ''), 'blocks-engine-source-box-paragraph'));
+        $nativeGroupTree = $nativeGroupTree || (('core/freeform' !== $terminalName || $hasSourceBox)
+            && array() === array_filter($chain, static fn (array $entry): bool => 'div' !== ($entry['descriptor']['tagName'] ?? null))
+            && $depth + count($chain) - 1 + $this->nativeBlockHeight($terminal) <= EditabilityPolicy::THRESHOLDS['max_nesting_depth']);
+        // The ratio budget belongs to the document, not each component. An
+        // empty visual branch can have no content leaves while the complete
+        // document is comfortably within budget; folding it buys no policy gain.
+        if ($nativeGroupTree && $this->wrapperBudgetExceeded && 'core/freeform' === $terminalName && array() !== ($terminal['innerBlocks'] ?? array()) && 2 <= count($chain)) {
             $nativeMetrics = (new EditabilityReport())->fromBlocks(array($block))['metrics'];
             $nativeGroupTree = $nativeMetrics['wrapper_to_content_ratio'] <= EditabilityPolicy::THRESHOLDS['wrapper_to_content_ratio'];
         }
