@@ -383,7 +383,7 @@ final class ContentDecisions
     private static function templateSurface(mixed $surface, string $sourcePath): ?array
     {
         if (null === $surface) return null;
-        if (!is_array($surface) || !WordPressSitePlan::validTemplateSurfaceDeclaration($surface, $sourcePath)) throw new ValidationException('A declared template surface must have coherent versioned identity and declaration provenance.', array('source_path' => $sourcePath, 'document_kind' => 'template_surface', 'declaration_kind' => 'template_surface', 'reason' => 'invalid_template_surface'));
+        if (!is_array($surface) || !TemplateSurfaces::validDeclaration($surface, $sourcePath)) throw new ValidationException('A declared template surface must have coherent versioned identity and declaration provenance.', array('source_path' => $sourcePath, 'document_kind' => 'template_surface', 'declaration_kind' => 'template_surface', 'reason' => 'invalid_template_surface'));
         return $surface;
     }
 

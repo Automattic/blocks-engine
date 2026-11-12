@@ -1983,6 +1983,36 @@
         "count": 1
       }
     },
+    "src/WordPressSitePlan/TemplateSurfaces.php": {
+      "ValidationException('Declared template surface variants have different block markup.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "ValidationException('A declared template surface source provenance is detached from its selected source.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "ValidationException('A declared template surface variant provenance is detached from its source.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Compiled site documents must be an array.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Compiled site source document catalog entry is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan source document catalog is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan source document catalog must be sorted.')": {
+        "class": "integrity",
+        "count": 1
+      }
+    },
     "src/WordPressSitePlan/ThemeAssetWrites.php": {
       "InvalidArgumentException(sprintf('Compiled site asset %s lacks a materializable payload.',$asset['source_path']))": {
         "class": "representability",
@@ -2070,10 +2100,6 @@
         "count": 1
       },
       "InvalidArgumentException('Compiled site documents must be an array.')": {
-        "class": "integrity",
-        "count": 2
-      },
-      "InvalidArgumentException('Compiled site source document catalog entry is invalid.')": {
         "class": "integrity",
         "count": 1
       },
@@ -2289,14 +2315,6 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('WordPress site plan source document catalog is invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan source document catalog must be sorted.')": {
-        "class": "integrity",
-        "count": 1
-      },
       "InvalidArgumentException('WordPress site plan source document summaries do not match materialized documents.')": {
         "class": "integrity",
         "count": 1
@@ -2378,18 +2396,6 @@
         "count": 1
       },
       "InvalidArgumentException(sprintf('WordPress site plan has colliding page routes: %s and %s both resolve to %s.',$routePaths[$page['route']['path']],(string)$page['source_path'],(string)$page['route']['path']))": {
-        "class": "integrity",
-        "count": 1
-      },
-      "ValidationException('A declared template surface source provenance is detached from its selected source.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "ValidationException('A declared template surface variant provenance is detached from its source.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "ValidationException('Declared template surface variants have different block markup.')": {
         "class": "integrity",
         "count": 1
       },
