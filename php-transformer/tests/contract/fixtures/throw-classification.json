@@ -1599,6 +1599,39 @@
         "count": 1
       }
     },
+    "src/WordPressSitePlan/RouteTable.php": {
+      "InvalidArgumentException('Compiled site documents must be an array.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Compiled site route source is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Compiled site document is outside the entrypoint content root.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException(sprintf('WordPress site plan has colliding page routes: %s and %s both declare %s.',$taken[$path],(string)$documents[$order]['source_path'],$path))": {
+        "class": "representability",
+        "count": 1,
+        "unit": "route",
+        "finding": "wordpress_site_plan_colliding_page_route",
+        "pending": true
+      },
+      "InvalidArgumentException('WordPress site plan page lacks a canonical route.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException(sprintf('WordPress site plan has colliding page routes: %s and %s both resolve to %s.',(string)($pages[$byRoute[$path]]['source_path']??''),(string)$page['source_path'],$path))": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan synthetic route source collides with a document.')": {
+        "class": "integrity",
+        "count": 1
+      }
+    },
     "src/WordPressSitePlan/SyncedPatternProjection.php": {
       "InvalidArgumentException('WordPress site plan contains an undeclared synced pattern reference.')": {
         "class": "integrity",
@@ -1812,17 +1845,9 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('Compiled site document is outside the entrypoint content root.')": {
-        "class": "integrity",
-        "count": 1
-      },
       "InvalidArgumentException('Compiled site documents must be an array.')": {
         "class": "integrity",
-        "count": 3
-      },
-      "InvalidArgumentException('Compiled site route source is invalid.')": {
-        "class": "integrity",
-        "count": 1
+        "count": 2
       },
       "InvalidArgumentException('Compiled site source document catalog entry is invalid.')": {
         "class": "integrity",
@@ -2024,10 +2049,6 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('WordPress site plan page lacks a canonical route.')": {
-        "class": "integrity",
-        "count": 1
-      },
       "InvalidArgumentException('WordPress site plan page override must resolve to a materialized page.')": {
         "class": "integrity",
         "count": 1
@@ -2137,10 +2158,6 @@
         "count": 1
       },
       "InvalidArgumentException('WordPress site plan synthetic parent must have a materialized child.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan synthetic route source collides with a document.')": {
         "class": "integrity",
         "count": 1
       },
@@ -2259,18 +2276,7 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException(sprintf('WordPress site plan has colliding page routes: %s and %s both declare %s.',$taken[$path],(string)$documents[$order]['source_path'],$path))": {
-        "class": "representability",
-        "count": 1,
-        "unit": "route",
-        "finding": "wordpress_site_plan_colliding_page_route",
-        "pending": true
-      },
       "InvalidArgumentException(sprintf('WordPress site plan has colliding page routes: %s and %s both resolve to %s.',$routePaths[$page['route']['path']],(string)$page['source_path'],(string)$page['route']['path']))": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException(sprintf('WordPress site plan has colliding page routes: %s and %s both resolve to %s.',(string)($pages[$byRoute[$path]]['source_path']??''),(string)$page['source_path'],$path))": {
         "class": "integrity",
         "count": 1
       },

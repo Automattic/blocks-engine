@@ -52,7 +52,7 @@ final class PageRoute
 
     /**
      * A page keeps its derived route, or the deterministic `-2`, `-3` variant a
-     * route collision gave it (see {@see WordPressSitePlan::canonicalRoutes()}).
+     * route collision gave it (see {@see RouteTable::canonical()}).
      * Validation cannot recompute which page won the collision without the
      * whole document order, so it pins the weaker but checkable property — the
      * route is the derived one or a numbered variant of it — while route
