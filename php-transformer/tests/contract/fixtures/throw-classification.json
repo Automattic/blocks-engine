@@ -1541,6 +1541,18 @@
       "InvalidArgumentException('WordPress site plan taxonomy evidence is incomplete.')": {
         "class": "integrity",
         "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan native archive must name a captured source without a materialized page.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan fallback archive must not have a per-entity template.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan native archive entity lacks its source-owned archive template.')": {
+        "class": "integrity",
+        "count": 1
       }
     },
     "src/WordPressSitePlan/AssetPublications.php": {
@@ -2235,10 +2247,6 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('WordPress site plan fallback archive must not have a per-entity template.')": {
-        "class": "integrity",
-        "count": 1
-      },
       "InvalidArgumentException('WordPress site plan has an invalid reference token declaration.')": {
         "class": "integrity",
         "count": 1
@@ -2256,14 +2264,6 @@
         "count": 1
       },
       "InvalidArgumentException('WordPress site plan must export every canonical page route.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan native archive entity lacks its source-owned archive template.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan native archive must name a captured source without a materialized page.')": {
         "class": "integrity",
         "count": 1
       },
