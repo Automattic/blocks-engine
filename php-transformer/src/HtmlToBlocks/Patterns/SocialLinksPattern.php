@@ -9,6 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\MonochromeGlyphColor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgPathCoverage;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SocialSourceStyleProjector;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use DOMElement;
@@ -138,7 +139,10 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                 }
             }
         }
-        if ($sourceArtwork && !$this->hasNavigationAncestor($element) && null !== $context->markupContext() && null !== $context->buttonContext()) {
+        // A filled, single-colour glyph on a bare link needs no markup of its
+        // own: the native block paints it, so the owner gets Social Icons.
+        $nativeArtwork = $sourceArtwork && $this->canPaintArtworkOnNativeLinks($anchors, $context);
+        if ($sourceArtwork && !$nativeArtwork && !$this->hasNavigationAncestor($element) && null !== $context->markupContext() && null !== $context->buttonContext()) {
             // The existing editable link companion retains inline artwork and
             // its source selectors without a Custom HTML escape hatch.
             foreach ($capturedPaint as [$svg, $color]) {
@@ -211,6 +215,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             $linkAnchors[] = $anchor;
             $linkAttrs = $context->presentationAttributes($sourceElement);
             if ($sourceRow) $linkAttrs['className'] = trim((string) ($linkAttrs['className'] ?? '') . ' blocks-engine-social-source-item');
+            if ($nativeArtwork) $linkAttrs['className'] = trim((string) ($linkAttrs['className'] ?? '') . ' ' . SocialSourceStyleProjector::ARTWORK_CLASS);
             $links[] = $this->createBlock->createBlock('core/social-link', array_merge(
                 $linkAttrs,
                 array_filter(array(
@@ -251,7 +256,10 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         }
         if ( $iconOnly ) {
             $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' is-style-logos-only');
-            $attrs['size'] = $this->iconSize($anchors, $element, $context) ?? 'small';
+            // Painted artwork carries its exact source size until a preset is chosen.
+            if ( ! $nativeArtwork ) {
+                $attrs['size'] = $this->iconSize($anchors, $element, $context) ?? 'small';
+            }
             $glyphSizes = array();
             foreach ($anchors as $anchor) {
                 foreach ($anchor->getElementsByTagName('*') as $glyph) {
@@ -305,6 +313,43 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                 || in_array(CaptureEvidence::DIALOG_CLASS, preg_split('/\s+/', $ancestor->getAttribute('class')) ?: array(), true)) {
                 return true;
             }
+        }
+        return false;
+    }
+
+    /**
+     * Whether every link is a known service with one captured, filled,
+     * single-colour glyph and no box of its own. Anything else (several paints,
+     * strokes, gradients, images, painted tiles, visible text) cannot be
+     * expressed through the block's icon colour, so it keeps its source markup.
+     *
+     * @param array<int,DOMElement> $anchors
+     */
+    private function canPaintArtworkOnNativeLinks(array $anchors, PatternContext $context): bool
+    {
+        foreach ($anchors as $anchor) {
+            $service = self::serviceForUrl($anchor->getAttribute('href')) ?? $this->serviceFromLabel($anchor->getAttribute('aria-label'));
+            $svgs = $anchor->getElementsByTagName('svg');
+            $svg = $svgs->item(0);
+            if (null === $service || 1 !== $svgs->length || !$svg instanceof DOMElement
+                || '' === ($svg->getAttribute('viewBox') ?: $svg->getAttribute('viewbox'))
+                || '' !== $this->visibleText($anchor, $context)
+                || 0 < $anchor->getElementsByTagName('img')->length
+                || '' === $context->capturedGlyphColor($svg)
+                || !SocialSourceStyleProjector::isSingleColourArtwork($svg)
+                || $this->hasOwnBox($anchor, $context)) {
+                return false;
+            }
+        }
+        return array() !== $anchors;
+    }
+
+    private function hasOwnBox(DOMElement $anchor, PatternContext $context): bool
+    {
+        foreach ($context->socialPresentationDeclarations($anchor) as $property => $value) {
+            $value = strtolower(trim((string) preg_replace('/\s*!important\s*$/i', '', $value)));
+            if (preg_match('/^background(-color|-image)?$/', $property) && !in_array($value, array('', 'none', 'transparent', 'initial', 'unset'), true)) return true;
+            if (preg_match('/^(padding|border)(-(top|right|bottom|left))?(-width)?$/', $property) && 1 !== preg_match('/^(0|0px|none)(\s+(0|0px|none))*$/', $value)) return true;
         }
         return false;
     }
@@ -404,6 +449,26 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             || MenuVocabulary::containsUnconditionalMenuToken($element->getAttribute('class') . ' ' . $element->getAttribute('id'));
     }
 
+    /**
+     * Two or more icon-only links to known services, and nothing else, are their
+     * own evidence of a social row even with no class naming it. Their icons are
+     * the row's only media, so the broad-container media guard has nothing to
+     * protect. Text links to a social host stay ordinary links or calls to action.
+     */
+    private static function isOnlyServiceLinks(DOMElement $element): bool
+    {
+        if (self::hasOtherSemanticOwner($element)) return false;
+        $links = 0;
+        foreach ($element->childNodes as $child) {
+            if ($child instanceof \DOMText && '' !== trim(str_replace("\u{00a0}", ' ', $child->textContent))) return false;
+            if (!$child instanceof DOMElement) continue;
+            if ('a' !== strtolower($child->tagName) || null === self::serviceForUrl(LinkUrlSanitizer::sanitize($child->getAttribute('href')))) return false;
+            if (1 !== $child->getElementsByTagName('svg')->length || '' !== trim(str_replace("\u{00a0}", ' ', $child->textContent))) return false;
+            $links++;
+        }
+        return 2 <= $links;
+    }
+
     /** Social intent declared by the element or an enclosing region it is not owned away from. */
     private static function hasSocialIntent(DOMElement $element): bool
     {
@@ -474,6 +539,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
     public static function hasSocialRowCandidate(DOMElement $element): bool
     {
         if (self::isExplicitSocialCluster($element)) return true;
+        if (self::isOnlyServiceLinks($element)) return true;
         if (!self::hasSocialIntent($element)) return false;
         foreach ($element->childNodes as $child) {
             if ($child instanceof DOMElement && in_array(strtolower($child->tagName), array('a', 'li'), true)) return true;
