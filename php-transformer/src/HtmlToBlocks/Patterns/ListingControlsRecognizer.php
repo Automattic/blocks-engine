@@ -3,8 +3,12 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\SchemaProductEvidence;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeRequirementAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use DOMDocument;
 use DOMElement;
+use WeakMap;
 
 /**
  * Recognizes the controls that narrow, order, or count a repeated listing.
@@ -33,6 +37,9 @@ final class ListingControlsRecognizer
 {
     private const BOUNDARY_TAGS = array( 'body', 'main', 'header', 'footer', 'nav', 'aside', 'html' );
     private const SORT_KEYS = array( 'default', 'popularity', 'rating', 'newest', 'oldest', 'price_asc', 'price_desc', 'name_asc', 'name_desc' );
+
+    /** @var WeakMap<DOMDocument, array<string, bool>>|null Results live only as long as their source document. */
+    private static ?WeakMap $numericBoundsByForm = null;
 
     /**
      * @param list<DOMElement> $cards
@@ -441,11 +448,29 @@ final class ListingControlsRecognizer
      */
     public function hasNumericBoundsForForm(DOMElement $form): bool
     {
+        $document = $form->ownerDocument;
+        if ( null === $document ) {
+            return false;
+        }
+        self::$numericBoundsByForm ??= new WeakMap();
+        $path = (string) $form->getNodePath();
+        $results = self::$numericBoundsByForm[$document] ?? array();
+        if ( array_key_exists($path, $results) ) {
+            return $results[$path];
+        }
+        $results[$path] = $this->recognizeNumericBoundsForForm($form);
+        self::$numericBoundsByForm[$document] = $results;
+        return $results[$path];
+    }
+
+    private function recognizeNumericBoundsForForm(DOMElement $form): bool
+    {
+        // Reject ordinary forms before inspecting any surrounding grid.
         if ( ! self::isGetFilterForm($form) ) {
             return false;
         }
         $entries = array();
-        foreach ( \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeRequirementAnalyzer::intentControls($form) as $control ) {
+        foreach ( FormRuntimeRequirementAnalyzer::intentControls($form) as $control ) {
             $tag = strtolower($control->tagName);
             $type = strtolower(SourceDom::attr($control, 'type'));
             if ( 'button' === $tag || 'select' === $tag || in_array($type, array('submit', 'reset', 'button', 'image', 'checkbox', 'radio'), true) ) {
@@ -478,15 +503,16 @@ final class ListingControlsRecognizer
                     continue;
                 }
                 $cards[] = $card;
-                $digits = preg_replace('/[^0-9.]/', '', str_replace(',', '', (string) ($product['price'] ?? '')));
+                $digits = SchemaProductEvidence::productPrice($product['price'] ?? '');
                 $prices[] = is_numeric($digits) ? (float) $digits : null;
             }
             if ( array() === $cards ) {
                 continue;
             }
-            $recognized = $this->recognize($grid, $cards, $prices);
+            // Intent needs only the same price-bound evidence used by the
+            // listing path, not facets, sort options, or result counts.
             $bounds = array();
-            foreach ( $recognized['controls'] ?? array() as $control ) {
+            foreach ( $this->priceRange($scope, $grid, $prices) as $control ) {
                 if ( 'range' === $control['kind'] && in_array($control['element'], $entries, true) ) {
                     $bounds[spl_object_id($control['element'])] = $control['bound'];
                 }

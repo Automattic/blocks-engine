@@ -18,6 +18,8 @@ $rows = array(
     'explicit GET' => array($reduction, ' method="get"', '', array('min', 'max'), 'filter_sort'),
     'labels' => array('<label>Minimum price<input type="number" name="a"></label><label>Maximum price<input type="number" name="b"></label><button>Apply</button>', '', '', array('min', 'max'), 'filter_sort'),
     'numeric endpoints' => array('<input type="number" name="a" placeholder="3.9"><input type="number" name="b" placeholder="419.99"><button>Apply</button>', '', 'decimal', array('min', 'max'), 'filter_sort'),
+    'comma decimal endpoints' => array('<input type="number" name="a" placeholder="3.9"><input type="number" name="b" placeholder="419.99"><button>Apply</button>', '', '', array('min', 'max'), 'filter_sort'),
+    'unrelated numeric pair' => array('<label>Minimum quantity<input type="number" name="min_quantity" placeholder="1"></label><label>Maximum quantity<input type="number" name="max_quantity" placeholder="5000"></label><button>Calculate</button>', '', '', array(), 'unknown'),
     'quantity' => array('<label>Quantity<input type="number" name="quantity" min="1" max="5000"></label><button>Update</button>', '', '', array(), 'unknown'),
     'unrelated destination' => array($reduction, ' action="/calculate"', '', array(), null),
     'POST' => array($reduction, ' method="post"', '', array(), 'unknown'),
@@ -25,7 +27,7 @@ $rows = array(
 );
 foreach ($rows as $case => [$inputs, $attributes, $prices, $expectedBounds, $expectedIntent]) {
     $grid = 'decimal' === $prices ? str_replace('R$30,00', '$30.00', $cards) : $cards;
-    $html = '<!doctype html><html><head><title>Catalog</title></head><body><main><div style="display:flex"><aside><div class="price-filter-container"><form id="filter"' . $attributes . '>' . $inputs . '</form></div></aside><div style="display:flex;gap:20px">' . $grid . '</div></div></main></body></html>';
+    $html = '<!doctype html><html><head><title>Catalog</title></head><body><main><div style="display:flex"><aside><div class="price-filter-container"><form id="filter"' . $attributes . '>' . $inputs . '</form></div></aside><div style="display:grid;gap:20px">' . $grid . '</div></div></main></body></html>';
     $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'catalog.html', 'files' => array('catalog.html' => $html)))->toArray();
     $controls = array();
     foreach ($result['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array() as $declaration) {

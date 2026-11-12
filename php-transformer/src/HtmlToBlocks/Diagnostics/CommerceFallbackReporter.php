@@ -312,7 +312,7 @@ final class CommerceFallbackReporter
             return array();
         }
         $prices = array_map(static function (array $product): ?float {
-            $digits = preg_replace('/[^0-9.]/', '', str_replace(',', '', (string) ($product['price'] ?? '')));
+            $digits = SchemaProductEvidence::productPrice($product['price'] ?? '');
             return is_string($digits) && is_numeric($digits) ? (float) $digits : null;
         }, $products);
         $recognized = (new ListingControlsRecognizer())->recognize($grid, $cards, $prices);
