@@ -3,9 +3,9 @@ declare(strict_types=1);
 
 /**
  * The strict site plan validator rejects a plan whose stylesheet scopes,
- * stylesheet instances, asset writes, write payloads, page routes or template
- * part bindings disagree with the code that produces them. Each case breaks one
- * fact of a compiled plan and expects that fact's rejection.
+ * stylesheet instances, asset writes, write payloads, page routes, template part
+ * bindings or reporting summary disagree with the code that produces them. Each
+ * case breaks one fact of a compiled plan and expects that fact's rejection.
  */
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
@@ -77,6 +77,9 @@ $cases = array(
     'reference write without a reference' => array(static function (array $plan) use ($write): array { $plan['writes'][$write($plan, 'assets/photo.png')]['payload'] = array('encoding' => 'reference'); return $plan; }, 'WordPress site plan write has an invalid payload reference.'),
     'page route whose slug disagrees with its path' => array(static function (array $plan): array { $about = (int) array_search('about.html', array_column($plan['pages'], 'source_path'), true); $plan['pages'][$about]['route']['slug'] = 'elsewhere'; return $plan; }, 'WordPress site plan page route is invalid.'),
     'page route not derived from its source' => array(static function (array $plan): array { $about = (int) array_search('about.html', array_column($plan['pages'], 'source_path'), true); $plan['pages'][$about]['route'] = array('path' => '/elsewhere', 'parent_path' => '/', 'slug' => 'elsewhere'); return $plan; }, 'WordPress site plan page route is invalid.'),
+    'reporting summary missing a page' => array(static function (array $plan): array { array_pop($plan['reporting']['source_documents']); return $plan; }, 'WordPress site plan source document summaries do not match materialized documents.'),
+    'reporting metric that is not a count' => array(static function (array $plan): array { $plan['reporting']['metrics']['fallback_count'] = '0'; return $plan; }, 'WordPress site plan reporting metric is invalid.'),
+    'empty diagnostic code' => array(static function (array $plan): array { $plan['reporting']['diagnostic_codes'][] = ''; return $plan; }, 'WordPress site plan diagnostic linkage is invalid.'),
 );
 foreach ($cases as $name => [$mutate, $expected]) {
     $error = null;
