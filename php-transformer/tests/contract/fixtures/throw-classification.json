@@ -1687,6 +1687,16 @@
         "count": 1
       }
     },
+    "src/WordPressSitePlan/WholePageCandidates.php": {
+      "InvalidArgumentException('Whole-page candidate must name one canonical source page and producer entity row.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Whole-page candidates must be unique by source page.')": {
+        "class": "integrity",
+        "count": 1
+      }
+    },
     "src/WordPressSitePlan/WordPressSitePlan.php": {
       "DocumentIdentityException($failures)": {
         "class": "integrity",
@@ -1894,15 +1904,7 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('Whole-page candidate must name one canonical source page and producer entity row.')": {
-        "class": "integrity",
-        "count": 1
-      },
       "InvalidArgumentException('Whole-page candidates are stale, duplicated, or detached from their canonical source pages.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Whole-page candidates must be unique by source page.')": {
         "class": "integrity",
         "count": 1
       },
