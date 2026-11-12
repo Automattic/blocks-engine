@@ -34,8 +34,7 @@ final class RouteSelfReference
     /** @param list<string> $selfUrls */
     public static function markup(string $markup, array $selfUrls): string
     {
-        $dom = new \DOMDocument();
-        if (!HtmlSerialization::loadHtml($dom, '<?xml encoding="utf-8" ?><body>' . $markup . '</body>')) return $markup;
+        $dom = HtmlSerialization::parseDocument('<body>' . $markup . '</body>');
         $walk = static function (\DOMNode $node) use (&$walk, $selfUrls): void {
             if ($node instanceof \DOMElement) {
                 foreach ($node->attributes as $attribute) $attribute->value = self::value($attribute->value, $selfUrls);

@@ -4267,8 +4267,7 @@ final class ArtifactCompiler
 
     private static function sourceShellEvidenceCount(string $markup): int
     {
-        $dom = new \DOMDocument();
-        if (!self::loadUtf8Html($dom, $markup)) return 0;
+        $dom = HtmlSerialization::parseDocument('<body>' . $markup . '</body>');
         $count = 0;
         foreach ($dom->getElementsByTagName('*') as $node) {
             foreach (array(CaptureEvidence::VIEWPORT_ENTRANCE, CaptureEvidence::GLYPH_COLOR) as $attribute) if ($node->hasAttribute($attribute)) ++$count;
