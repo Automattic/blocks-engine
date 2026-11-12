@@ -43,10 +43,13 @@ final class GeneratedComponentLowering implements ElementConverter
         $nativeFallbacks = array();
         $hasRuntimeTarget = false;
         foreach (array_merge(array($element), SourceDom::descendantElements($element)) as $target) {
-            $hasRuntimeTarget = $hasRuntimeTarget || $this->runtimeIslands->isRuntimeDomTarget($target);
+            $hasRuntimeTarget = $hasRuntimeTarget
+                || ($this->runtimeIslands->isRuntimeDomTarget($target) && ! $this->runtimeIslands->isCapturedDialogRuntimeBinding($target));
         }
         // A defining script or an exact runtime DOM contract cannot be proven
-        // editable just by inspecting the static children of its host.
+        // editable just by inspecting the static children of its host. A
+        // captured dialog control is the exception: it owns only its bounded
+        // panel, which native lowering keeps, so it does not veto its host.
         $native = $hasRuntimeTarget || str_contains($element->tagName, '-')
             ? null
             : $this->authorLayout->authorLayoutBlockFromElement($element, $nativeFallbacks);
