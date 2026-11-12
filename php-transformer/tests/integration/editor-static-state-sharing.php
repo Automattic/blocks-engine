@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap;
 
 $shared = array('.paint{color:red}', '@media(min-width:1px){.paint{color:blue}}');
 $long = array();
@@ -75,7 +76,7 @@ foreach ($cases as $name => $sequences) {
     foreach ($expected as $page => $rules) {
         $actual = '';
         $count = 0;
-        foreach (WordPressSitePlan::documentStylesheets($plan, $page) as $sheet) {
+        foreach (ThemeBootstrap::documentStylesheets($plan, $page) as $sheet) {
             if (!isset($staticPaths[$sheet['target_path']])) continue;
             if ('screen' !== $sheet['media'] || 'editor' !== $sheet['stylesheet_target']) {
                 throw new RuntimeException($name . ': delivery contract changed');

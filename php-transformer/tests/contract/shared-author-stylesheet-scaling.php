@@ -15,6 +15,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticCssCascade;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityRunner;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap;
 
 $passes = 0;
 $failures = 0;
@@ -100,7 +101,7 @@ $assetsByTarget = array_column($large['plan']['assets'] ?? array(), null, 'targe
 $resolved = array();
 foreach ( $large['plan']['pages'] ?? array() as $planPage ) {
     $css = '';
-    foreach ( WordPressSitePlan::documentStylesheets($large['plan'], (string) $planPage['source_path']) as $stylesheet ) {
+    foreach ( ThemeBootstrap::documentStylesheets($large['plan'], (string) $planPage['source_path']) as $stylesheet ) {
         $css .= "\n" . (string) ($assetsByTarget[$stylesheet['target_path']]['content'] ?? '');
     }
     $document = new DOMDocument();
@@ -189,7 +190,7 @@ $variedAssetsByTarget = array_column($variedTen['assets'] ?? array(), null, 'tar
 $variedResolved = array();
 foreach ( $variedTen['pages'] ?? array() as $planPage ) {
     $sheet = '';
-    foreach ( WordPressSitePlan::documentStylesheets($variedTen, (string) $planPage['source_path']) as $stylesheet ) {
+    foreach ( ThemeBootstrap::documentStylesheets($variedTen, (string) $planPage['source_path']) as $stylesheet ) {
         $sheet .= "\n" . (string) ($variedAssetsByTarget[$stylesheet['target_path']]['content'] ?? '');
     }
     $document = new DOMDocument();
@@ -263,7 +264,7 @@ foreach ($contextTen['pages'] as $planPage) {
     @$document->loadHTML(StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($planPage['canonical_block_markup']));
     $assets = array_column($contextTen['assets'], null, 'target_path');
     $css = '';
-    foreach (WordPressSitePlan::documentStylesheets($contextTen, $planPage['source_path']) as $sheet) $css .= "\n" . ($assets[$sheet['target_path']]['content'] ?? '');
+    foreach (ThemeBootstrap::documentStylesheets($contextTen, $planPage['source_path']) as $sheet) $css .= "\n" . ($assets[$sheet['target_path']]['content'] ?? '');
     foreach ($planPage['document_metadata']['root_attributes'] ?? array() as $name => $value) $document->documentElement->setAttribute($name, $value);
     $cascade = new StaticCssCascade($document, $css);
     foreach ($document->getElementsByTagName('*') as $element) {
@@ -356,7 +357,7 @@ $assert(str_contains($routeText, ':where(:root:is(.' . $classes['e.html'] . '))'
 $probeStyles = static function (array $plan, array $row, bool $editor, array $properties = array('color', 'background-color', 'padding-top', 'border-top-width')): array {
     $assets = array_column($plan['assets'], null, 'target_path');
     $css = '';
-    foreach (WordPressSitePlan::documentStylesheets($plan, $row['source_path']) as $sheet) $css .= "\n" . ($assets[$sheet['target_path']]['content'] ?? '');
+    foreach (ThemeBootstrap::documentStylesheets($plan, $row['source_path']) as $sheet) $css .= "\n" . ($assets[$sheet['target_path']]['content'] ?? '');
     $markup = StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($row['canonical_block_markup']);
     $dom = new DOMDocument();
     @$dom->loadHTML('<html><body>' . ($editor ? '<div class="editor-styles-wrapper">' : '') . $markup . ($editor ? '</div>' : '') . '</body></html>');
@@ -550,7 +551,7 @@ $assert($markerSizes[10] < 1.2 * $markerSizes[2] && $markerSizes[10] - $markerSi
 $markerProbe = static function (array $plan, array $row): array {
     $assets = array_column($plan['assets'], null, 'target_path');
     $css = '';
-    foreach (WordPressSitePlan::documentStylesheets($plan, $row['source_path']) as $sheet) $css .= "\n" . ($assets[$sheet['target_path']]['content'] ?? '');
+    foreach (ThemeBootstrap::documentStylesheets($plan, $row['source_path']) as $sheet) $css .= "\n" . ($assets[$sheet['target_path']]['content'] ?? '');
     $dom = new DOMDocument();
     @$dom->loadHTML('<html><body>' . StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($row['canonical_block_markup']) . '</body></html>');
     foreach ($row['document_metadata']['root_attributes'] ?? array() as $name => $value) $dom->documentElement->setAttribute($name, $value);

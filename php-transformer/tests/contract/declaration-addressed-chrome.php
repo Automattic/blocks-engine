@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\HeadlessChrome;
 
 $assert = static function (bool $condition, string $message): void {
@@ -113,7 +114,7 @@ $siteCss = $presets . '}' . $paletteCss . $siteCss;
 $assetsByPath = array_column($plan['assets'], null, 'target_path');
 $routeCss = array();
 foreach (array('index', 'about', 'contact') as $slug) {
-    $sequence = WordPressSitePlan::documentStylesheets($plan, $slug . '.html');
+    $sequence = ThemeBootstrap::documentStylesheets($plan, $slug . '.html');
     $assert(1 === count(array_filter($sequence, static fn (array $sheet): bool => $sheet['target_path'] === $owners[0]['target_path'])), 'Every route activates the shared control stylesheet exactly once.');
     $routeCss[$slug] = $presets . '}' . $paletteCss;
     foreach ($sequence as $sheet) $routeCss[$slug] .= $assetsByPath[$sheet['target_path']]['content'];

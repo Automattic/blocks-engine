@@ -5,6 +5,7 @@ require getenv('BLOCKS_ENGINE_AUTOLOAD') ?: dirname(__DIR__, 2) . '/vendor/autol
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap;
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
@@ -42,7 +43,7 @@ foreach (array(true, false) as $mobile) {
         // Each slot follows its condition's last contributing link (links.css is last for all).
         $expected = $mobile ? array('(max-width:1000px)', 'all') : array('all');
         $assert($expected === $media, 'Each distinct source media has exactly one shared projection instance on ' . $document . '.');
-        $enqueues = array_values(array_filter(WordPressSitePlan::documentStylesheets($plan, $document), static fn(array $row): bool => $asset['target_path'] === $row['target_path']));
+        $enqueues = array_values(array_filter(ThemeBootstrap::documentStylesheets($plan, $document), static fn(array $row): bool => $asset['target_path'] === $row['target_path']));
         $assert(count($expected) === count($enqueues) && count($expected) === count(array_unique(array_column($enqueues, 'handle'))), 'Projection instances publish separate enqueue handles on ' . $document . '.');
         $assert(array_column($instances, 'media') === array_column($enqueues, 'media'), 'Enqueues preserve each projection instance media.');
         foreach ($instances as $instance) {

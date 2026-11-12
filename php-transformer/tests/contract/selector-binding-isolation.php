@@ -13,7 +13,7 @@ require_once __DIR__ . '/../../vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticCssCascade;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityRunner;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap;
 
 $passes = 0;
 $failures = 0;
@@ -89,7 +89,7 @@ $assert(array() !== ($otherCss['index.html'] ?? array()) && ($otherCss['index.ht
 $pageColor = static function (array $plan, string $source): array {
     $assets = array_column($plan['assets'] ?? array(), null, 'target_path');
     $sheet = '';
-    foreach ( WordPressSitePlan::documentStylesheets($plan, $source) as $stylesheet ) {
+    foreach ( ThemeBootstrap::documentStylesheets($plan, $source) as $stylesheet ) {
         $sheet .= "\n" . (string) ($assets[$stylesheet['target_path']]['content'] ?? '');
     }
     $markup = '';
@@ -134,7 +134,7 @@ foreach ( $sliced['assets'] ?? array() as $asset ) {
 }
 $assert('' !== $siteCopy && array() === $slices, 'different layouts publish one stylesheet without page slices');
 foreach (array('index.html', 'd.html', 'a.html', 'b.html', 'c.html') as $source) {
-    $sequence = array_column(WordPressSitePlan::documentStylesheets($sliced, $source), 'target_path');
+    $sequence = array_column(ThemeBootstrap::documentStylesheets($sliced, $source), 'target_path');
     $assert(in_array($siteCopy, $sequence, true), $source . ' loads the shared route-scoped stylesheet');
 }
 
