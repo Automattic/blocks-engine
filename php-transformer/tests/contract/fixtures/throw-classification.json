@@ -2307,6 +2307,10 @@
         "class": "integrity",
         "count": 1
       },
+      "InvalidArgumentException('WordPress site plan carries runtime entity records no manifest references.')": {
+        "class": "integrity",
+        "count": 1
+      },
       "InvalidArgumentException('WordPress site plan runtime entity records are not canonically normalized.')": {
         "class": "integrity",
         "count": 1
