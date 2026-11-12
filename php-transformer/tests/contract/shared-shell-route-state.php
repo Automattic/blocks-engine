@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\RestingNavigation;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
 $assert = static function (bool $condition, string $message): void { if (! $condition) throw new RuntimeException($message); };
@@ -91,7 +92,7 @@ $submenus = static function (bool $current) use ($color): string {
 };
 $assert(ShellExtraction::identityMarkup($submenus(false)) === ShellExtraction::identityMarkup($submenus(true)), 'An authored current submenu has its resting siblings\' identity.');
 
-$part = ShellExtraction::withoutCurrentNavigationState($chrome('two'));
+$part = RestingNavigation::markup($chrome('two'));
 preg_match('/<!-- wp:navigation-link (\{[^>]*"label":"Two"[^>]*\}) \/-->/', $part, $two);
 $twoAttrs = json_decode($two[1] ?? 'null', true) ?? array();
 $twoClasses = preg_split('/\s+/', (string) ($twoAttrs['className'] ?? '')) ?: array();

@@ -1050,7 +1050,7 @@ $assert($alreadyActiveMarkup === $blocksEngineCurrentNavigationLinkFilter($alrea
 // can only bake into navigation when it stays inlined per page. Once
 // navigation is hoisted into a shared template part (extending #2084), one
 // rendered part serves every route, so the marker can never identify a
-// "current" item for more than one page -- withoutCurrentNavigationState()
+// "current" item for more than one page -- RestingNavigation::markup()
 // strips it for exactly this reason. The same unified filter must also
 // recover aria-current by comparing each link's own canonical route URL
 // against the page currently being served, so shared-part navigation, the

@@ -30,6 +30,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\RestingNavigation;
 
 $options = array();
 $captures = array();
@@ -223,7 +224,7 @@ function menuLinkSet(string $markup): string
 /** @param array<string,string> $menuLinks */
 function blockIdentity(string $markup, array $menuLinks = array()): string
 {
-    $markup = ShellExtraction::identityMarkup(ShellExtraction::withoutCurrentNavigationState($markup, true));
+    $markup = ShellExtraction::identityMarkup(RestingNavigation::markup($markup, true));
     $markup = preg_replace('/\b(?:id|anchor)="[^"]*"/i', '', $markup) ?? $markup;
     $markup = preg_replace_callback('/\{\{wordpress-site-plan:navigation:([^}]+)\}\}/', static fn(array $match): string => 'menu:' . ($menuLinks[$match[1]] ?? $match[1]), $markup) ?? $markup;
     $markup = preg_replace('/\{\{(?:wordpress-site-plan|blocks-engine):[^}]+\}\}/', '{{token}}', $markup) ?? $markup;

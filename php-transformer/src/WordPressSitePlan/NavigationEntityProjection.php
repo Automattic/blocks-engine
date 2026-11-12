@@ -40,7 +40,7 @@ final class NavigationEntityProjection
                     // Provider-owned ancestors and descendants keep their exact
                     // anchors. Unrelated navigation in the same document can share.
                     if (self::overlapsBinding($block, $protected[$source] ?? array()) || self::overlapsBinding($block, $sourcePanels)) continue;
-                    $inner = self::normalizeLabels(ShellExtraction::withoutCurrentNavigationState($block['inner']));
+                    $inner = self::normalizeLabels(RestingNavigation::markup($block['inner']));
                     $identity = self::contentIdentity($inner);
                     $clusters[$identity][] = array(
                         'kind' => $kind, 'index' => $index, 'block' => $block,
@@ -121,7 +121,7 @@ final class NavigationEntityProjection
             if (isset($opening[2]) || false === $end) continue;
             $inner = substr($block, strlen($opening[0]), $end - strlen($opening[0]));
             if (0 === self::itemCount($inner)) continue;
-            $menus['content:' . self::contentIdentity(ShellExtraction::withoutCurrentNavigationState($inner))] = true;
+            $menus['content:' . self::contentIdentity(RestingNavigation::markup($inner))] = true;
         }
         return $menus;
     }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\RestingNavigation;
 
 $failures = 0;
 $assert = static function (bool $condition, string $message) use (&$failures): void {
@@ -40,7 +41,7 @@ $other = str_replace('"label":"Press"', '"label":"News"', $header('Start', '1111
 $assert(ShellExtraction::identityMarkup($other) !== $identities['Start'], 'a different menu label is a different header');
 
 // A current top-level item keeps its own classes. It does not take the classes of the submenu items.
-$resting = ShellExtraction::withoutCurrentNavigationState($header('Contact', '1111111111111111'));
+$resting = RestingNavigation::markup($header('Contact', '1111111111111111'));
 $assert(1 === preg_match('/"className":"lone[^"]*","kind":"custom","label":"Contact"/', $resting) && ! str_contains(preg_replace('/\{[^{}]*"label":"(?:Start|Team|Press)"[^{}]*\}/', '', $resting) ?? '', 'child'), 'the current top-level item does not take the submenu items classes');
 
 if ( 0 < $failures ) {

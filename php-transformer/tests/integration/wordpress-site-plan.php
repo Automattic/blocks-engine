@@ -424,7 +424,7 @@ $assert(str_contains($currentNavRendered, '<a class="wp-block-navigation-item__c
 // part (the common case for a real multi-page import), one rendered part
 // serves every route, so the static blocks-engine-current-navigation-item
 // marker cannot identify a "current" item for more than one page --
-// withoutCurrentNavigationState() strips it for exactly this reason. Prove
+// RestingNavigation::markup() strips it for exactly this reason. Prove
 // against real WordPress rendering that the unified filter still recovers
 // aria-current by comparing each link's own canonical route URL against the
 // page currently being served: the matching route is current, its near-miss
