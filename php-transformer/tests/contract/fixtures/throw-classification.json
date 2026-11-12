@@ -1469,6 +1469,108 @@
         "count": 1
       }
     },
+    "src/WordPressSitePlan/AssetPublications.php": {
+      "InvalidArgumentException('Asset publication references an undeclared asset.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Asset publication requires a sanitized SVG source.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Asset publication transformation requires a sanitized SVG source.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Asset publication transformation references an undeclared local CSS input.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Asset publication transformation CSS input has no local font-face payload.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Asset publication transformation references an undeclared local font input.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Asset publication transformation inputs do not match their declared hash.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Asset publication transformation content hash does not match its declaration.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Asset publication transformation rejects unsafe or non-font CSS inputs.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Asset publication transformation CSS property is not allowed.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Asset publication transformation CSS has duplicate properties.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Asset publication transformation CSS source must be a local font path.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Asset publication transformation CSS source is not a declared font asset.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Asset publication transformation CSS value is not safe.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Asset publication transformation font-face is incomplete.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Asset publication declaration does not match its declared source asset hashes or provenance.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Asset publication SVG payload is unsafe.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Asset publication plain source hash must match its canonical payload.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Asset publication declaration does not resolve to its declared asset write.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Asset publication declaration references an unbound destination token occurrence.')": {
+        "class": "integrity",
+        "count": 2
+      },
+      "InvalidArgumentException('Asset publication declaration reference context does not match its CSS token occurrence.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Asset publication transformation final hash is contradictory.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Asset publication transformation has an unbound CSS input.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Asset publication transformation has an unbound font input.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Asset publication transformation inputs have stale hashes.')": {
+        "class": "integrity",
+        "count": 1
+      }
+    },
     "src/WordPressSitePlan/AssetReferenceCanonicalizer.php": {
       "InvalidArgumentException('WordPress site plan has colliding declared asset source identities.')": {
         "class": "integrity",
@@ -1761,106 +1863,6 @@
         "test": "tests/contract/unanchored-runtime-entity-binding.php"
       },
       "InvalidArgumentException('Asset consumers or destination are stale.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Asset publication SVG payload is unsafe.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Asset publication declaration does not match its declared source asset hashes or provenance.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Asset publication declaration does not resolve to its declared asset write.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Asset publication declaration reference context does not match its CSS token occurrence.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Asset publication declaration references an unbound destination token occurrence.')": {
-        "class": "integrity",
-        "count": 2
-      },
-      "InvalidArgumentException('Asset publication plain source hash must match its canonical payload.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Asset publication references an undeclared asset.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Asset publication requires a sanitized SVG source.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Asset publication transformation CSS has duplicate properties.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Asset publication transformation CSS input has no local font-face payload.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Asset publication transformation CSS property is not allowed.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Asset publication transformation CSS source is not a declared font asset.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Asset publication transformation CSS source must be a local font path.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Asset publication transformation CSS value is not safe.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Asset publication transformation content hash does not match its declaration.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Asset publication transformation final hash is contradictory.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Asset publication transformation font-face is incomplete.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Asset publication transformation has an unbound CSS input.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Asset publication transformation has an unbound font input.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Asset publication transformation inputs do not match their declared hash.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Asset publication transformation inputs have stale hashes.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Asset publication transformation references an undeclared local CSS input.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Asset publication transformation references an undeclared local font input.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Asset publication transformation rejects unsafe or non-font CSS inputs.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Asset publication transformation requires a sanitized SVG source.')": {
         "class": "integrity",
         "count": 1
       },
