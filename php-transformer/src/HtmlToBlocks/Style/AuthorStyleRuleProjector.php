@@ -394,15 +394,37 @@ final class AuthorStyleRuleProjector
         ( new CssStylesheetTransformer() )->visitStyleRules(
             $authorStyles->combinedCss(),
             function (string $prelude, string $body, array $ancestors) use (&$usesBorderBox, &$rootUsesBorderBox, &$universalInheritsBoxSizing): void {
-                if ( $usesBorderBox || array() !== $ancestors ) {
+                if ( $usesBorderBox ) {
                     return;
+                }
+                // Layers affect cascade priority, not whether the reset applies.
+                // Conditional ancestors cannot establish a document-wide reset.
+                foreach ( $ancestors as $ancestor ) {
+                    if ( 1 !== preg_match('/^@layer(?:\s|$)/i', trim($ancestor)) ) {
+                        return;
+                    }
                 }
                 $boxSizing = CssValueInspector::comparable((string) ($this->styleResolver->cssDeclarations($body)['box-sizing'] ?? ''));
                 if ( ! in_array($boxSizing, array( 'border-box', 'inherit' ), true) ) {
                     return;
                 }
-                foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
-                    $selector = trim((string) preg_replace('/\/\*.*?\*\//s', '', $selector));
+                $selectors = CssStylesheetTransformer::splitSelectorList($prelude) ?? array();
+                while ( array() !== $selectors ) {
+                    $selector = trim((string) preg_replace('/\/\*.*?\*\//s', '', array_shift($selectors)));
+                    // Unwrap whole selector-list functions, not restricted compounds
+                    // such as :where(*).card. The splitter validates balanced arms.
+                    if ( 1 === preg_match('/^:(?:where|is)\((.*)\)$/is', $selector, $wrapper) ) {
+                        $arms = CssStylesheetTransformer::splitSelectorList($wrapper[1]);
+                        if ( null !== $arms ) {
+                            array_push($selectors, ...$arms);
+                        }
+                        continue;
+                    }
+                    // Pseudo-element arms do not reset the elements themselves;
+                    // the list must also contain an unrestricted universal arm.
+                    if ( null !== CssSelectorMatcher::pseudoElementHost($selector) ) {
+                        continue;
+                    }
                     if ( '*' === $selector && 'border-box' === $boxSizing ) {
                         $usesBorderBox = true;
                         return;
