@@ -172,6 +172,10 @@ jobs:
         working-directory: php-transformer
         run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/standalone-break-runs-browser.mjs
 
+      - name: Verify unreferenced SVG definition carrier footprints
+        working-directory: php-transformer
+        run: php tests/unit/unreferenced-definitions-svg-footprint.php
+
       - name: Verify native collection search semantics
         working-directory: php-transformer
         run: |
