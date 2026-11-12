@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use InvalidArgumentException;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 
 /**
  * The theme asset writes one site plan run emits, with the warnings they raise.
@@ -74,5 +75,33 @@ final class ThemeAssetWrites
         $diagnostics = array_values($this->unresolvedScriptReferenceDiagnostics);
         if ($this->omittedUnresolvedScriptReferenceDiagnostics > 0) $diagnostics[] = array('code' => 'wordpress_site_plan_unresolved_script_reference', 'severity' => 'warning', 'message' => sprintf('%d more unresolved script references were published verbatim; omitted from this diagnostic list.', $this->omittedUnresolvedScriptReferenceDiagnostics));
         return $diagnostics;
+    }
+
+    /**
+     * An asset is written exactly as its destination says. An unreferenced
+     * asset has no write. A media library asset may have none. Every other
+     * asset has a theme asset write from its own source, and a payload
+     * reference on the asset matches a reference-encoded write with the same
+     * reference and raw bytes.
+     *
+     * @param array<string,mixed> $asset @param array<string,array<string,mixed>> $writesByTarget
+     */
+    public static function assertWritten(array $asset, array $writesByTarget): void
+    {
+        $target = $asset['target_path'];
+        if ('none' === $asset['destination']) {
+            if (isset($writesByTarget[$target])) throw new InvalidArgumentException('WordPress site plan writes an unreferenced asset.');
+            return;
+        }
+        if ('media_library' === $asset['destination'] && !isset($writesByTarget[$target])) return;
+        if ( ! isset($writesByTarget[$target]) || 'theme_asset' !== ($writesByTarget[$target]['kind'] ?? null) || $writesByTarget[$target]['source_path'] !== $asset['source_path'] ) {
+            throw new InvalidArgumentException('WordPress site plan asset lacks a write.');
+        }
+        $write = $writesByTarget[$target];
+        $assetReference = CompiledAssets::payloadReference($asset['payload_reference'] ?? null);
+        $writeReference = CompiledAssets::payloadReference($write['payload']['reference'] ?? null);
+        if ((null !== $assetReference) !== ('reference' === ($write['payload']['encoding'] ?? null)) || (null !== $assetReference && (null === $writeReference || RuntimeDeclarations::canonicalJson($assetReference) !== RuntimeDeclarations::canonicalJson($writeReference) || ($write['raw_sha256'] ?? null) !== $asset['raw_sha256']))) {
+            throw new InvalidArgumentException('WordPress site plan reference asset and write do not match.');
+        }
     }
 }

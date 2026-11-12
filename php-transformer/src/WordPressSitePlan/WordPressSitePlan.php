@@ -858,23 +858,7 @@ final class WordPressSitePlan
         foreach ($plan['pages'] as $index => $page) if (($expectedCandidatePages[$index]['whole_page_candidates'] ?? null) !== ($page['whole_page_candidates'] ?? null)) throw new InvalidArgumentException('Whole-page candidates are stale, duplicated, or detached from their canonical source pages.');
         $documentsBySource = StylesheetScopes::documentsBySource($plan['pages'], $plan['theme']['document_roots'] ?? array());
         StylesheetScopes::assertOwned($plan['assets'], $documentsBySource);
-        // A document position holds exactly one stylesheet instance, across
-        // every resource, so each route replays one unambiguous sequence.
-        $identities = array();
-        foreach ($plan['assets'] as $asset) {
-            if (isset($asset['stylesheet_instances']) && ('css' !== $asset['kind'] || !is_array($asset['stylesheet_instances']))) throw new InvalidArgumentException('Only stylesheet resources may declare ordered instances.');
-            foreach ($asset['stylesheet_instances'] ?? array() as $instance) {
-                if (!is_array($instance) || array('source_path', 'order', 'media', 'type') !== array_keys(array_diff_key($instance, array_flip(array(CaptureEvidence::DEVICE_STYLE, CaptureEvidence::SOURCE_MEDIA)))) || !isset($documentsBySource[$instance['source_path'] ?? '']) || !is_int($instance['order'] ?? null) || $instance['order'] < 0 || !is_string($instance['media'] ?? null) || !is_string($instance['type'] ?? null) || array_filter(PageStylesheets::deviceAttributes($instance), static fn(mixed $value): bool => !is_string($value))) throw new InvalidArgumentException('Stylesheet instance must identify a canonical document, order and conditions.');
-                // A frontend-only and an editor-only copy share their position:
-                // each context still replays exactly one resource there.
-                foreach (array('frontend', 'editor') as $context) {
-                    if (!in_array($asset['stylesheet_target'] ?? 'both', array('both', $context), true)) continue;
-                    $identity = $instance['source_path'] . "\0" . $instance['order'] . "\0" . $context;
-                    if (isset($identities[$identity])) throw new InvalidArgumentException('Two stylesheet instances claim one document position.');
-                    $identities[$identity] = true;
-                }
-            }
-        }
+        PageStylesheets::assertInstances($plan['assets'], $documentsBySource);
         $routeSources = array(); foreach ($plan['routes'] as $route) { self::unique($routeSources, $route['source_path'], 'route source'); $page = $pagesBySource[$route['source_path']] ?? null; if (!is_array($page) || $route['target_path'] !== $page['route']['path'] || $route['target_slug'] !== $page['slug']) throw new InvalidArgumentException('WordPress site plan routes do not match canonical page routes.'); }
         if (count($routeSources) !== count($pagePaths)) throw new InvalidArgumentException('WordPress site plan must export every canonical page route.');
         // Source identities compare case-insensitively, as unique() keys them.
@@ -935,21 +919,7 @@ final class WordPressSitePlan
         foreach ( $plan['assets'] as $asset ) {
             $expectedConsumers = $asset['consumers'] ?? array();
             if (($asset['consumers'] ?? null) !== $expectedConsumers || ($asset['destination'] ?? null) !== AssetConsumers::destination($expectedConsumers, $asset, $unreferenced, $fontEmbeddingSvgs) || ($asset['theme_write_reasons'] ?? null) !== AssetConsumers::themeWriteReasons($expectedConsumers, $asset['destination'])) throw new InvalidArgumentException('Asset consumers or destination are stale.');
-            $target = $asset['target_path'];
-            if ('none' === $asset['destination']) {
-                if (isset($writesByTarget[$target])) throw new InvalidArgumentException('WordPress site plan writes an unreferenced asset.');
-                continue;
-            }
-            if ('media_library' === $asset['destination'] && !isset($writesByTarget[$target])) continue;
-            if ( ! isset($writesByTarget[$target]) || 'theme_asset' !== ($writesByTarget[$target]['kind'] ?? null) || $writesByTarget[$target]['source_path'] !== $asset['source_path'] ) {
-                throw new InvalidArgumentException('WordPress site plan asset lacks a write.');
-            }
-            $write = $writesByTarget[$target];
-            $assetReference = CompiledAssets::payloadReference($asset['payload_reference'] ?? null);
-            $writeReference = CompiledAssets::payloadReference($write['payload']['reference'] ?? null);
-            if ((null !== $assetReference) !== ('reference' === ($write['payload']['encoding'] ?? null)) || (null !== $assetReference && (null === $writeReference || RuntimeDeclarations::canonicalJson($assetReference) !== RuntimeDeclarations::canonicalJson($writeReference) || ($write['raw_sha256'] ?? null) !== $asset['raw_sha256']))) {
-                throw new InvalidArgumentException('WordPress site plan reference asset and write do not match.');
-            }
+            ThemeAssetWrites::assertWritten($asset, $writesByTarget);
         }
         AssetPublications::assertDeclarations($plan['runtime_declarations'], $plan['assets'], $writesByTarget);
         if ( ! is_string($plan['theme']['stylesheet'] ?? null) || ! is_string($plan['theme']['theme_json'] ?? null) || (null !== ($plan['theme']['bootstrap'] ?? null) && ! is_string($plan['theme']['bootstrap'])) ) {
