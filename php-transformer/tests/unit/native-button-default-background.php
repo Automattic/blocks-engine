@@ -8,7 +8,14 @@ $assert = static function (bool $condition, string $message) use ($fixture): voi
 		exit(1);
 	}
 };
-$buttons = $fixture['blocks'][0]['innerBlocks'][0]['innerBlocks'] ?? array();
+$buttons = array();
+$collectButtons = static function (array $blocks) use (&$collectButtons, &$buttons): void {
+	foreach ($blocks as $block) {
+		if ('core/button' === ($block['blockName'] ?? '')) $buttons[] = $block;
+		$collectButtons($block['innerBlocks'] ?? array());
+	}
+};
+$collectButtons($fixture['blocks']);
 $assert('core/button' === ($buttons[0]['blockName'] ?? ''), 'brand anchor is promoted to canonical core/button');
 $assert(str_contains($buttons[0]['attrs']['className'] ?? '', 'blocks-engine-native-button-alignment-start'), 'brand anchor uses the native alignment fallback');
 $assert(1 === preg_match('/blocks-engine-native-button-(?!alignment-)[^"\s]+/', $fixture['candidate'], $guardMarker), 'transparent fallback emits a unique per-control marker');
