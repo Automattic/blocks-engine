@@ -160,6 +160,10 @@ jobs:
         working-directory: php-transformer
         run: PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/php-transformer/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/search-decorative-icon-browser.mjs
 
+      - name: Verify background paint button signals
+        working-directory: php-transformer
+        run: php tests/unit/background-paint-button-signal.php
+
       - name: Verify native collection search semantics
         working-directory: php-transformer
         run: |

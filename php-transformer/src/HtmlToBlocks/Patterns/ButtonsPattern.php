@@ -1090,8 +1090,13 @@ final class ButtonsPattern
     private function labelWrapperPaints(DOMElement $wrapper, ButtonPatternContext $buttons): bool
     {
         $style = strtolower($buttons->resolvedStyle($wrapper));
+        preg_match_all('/(?:^|;)\s*background(?:-color|-image)?\s*:\s*([^;]+)/', $style, $backgrounds);
+        foreach ( $backgrounds[1] as $background ) {
+            if ( CssValueInspector::backgroundPaints($background) ) {
+                return true;
+            }
+        }
         foreach ( array(
-            'background(?:-color|-image)?' => '/^(?:transparent|none|inherit|initial|rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\))\s*$/',
             'border(?:-(?:top|right|bottom|left)(?:-(?:width|style|color)))?' => '/^(?:0|none)\s*[a-z%]*\s*$/',
             'box-shadow' => '/^none\s*$/',
             'outline(?:-(?:width|style|color))?' => '/^(?:0|none)\s*[a-z%]*\s*$/',

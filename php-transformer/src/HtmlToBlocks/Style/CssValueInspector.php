@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\RenderEquivalentMarkup;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 
 /** Shared predicates for comparing CSS values without changing their authored form. */
 final class CssValueInspector
@@ -124,6 +125,32 @@ final class CssValueInspector
 
         return 1 === preg_match('/^(?:rgba?|hsla?)\((?:[^,]+,){3}0(?:\.0+)?\)$/', $compact)
             || 1 === preg_match('#^(?:rgba?|hsla?)\([^/]+/0(?:\.0+)?%?\)$#', $compact);
+    }
+
+    /**
+     * Whether a `background`/`background-color` value paints: an image in any
+     * layer, or a final-layer color that is not transparent. Position, size,
+     * repeat, attachment, box and `none` tokens alone (`background:0 0`, the
+     * minified `background:none`) leave the box unpainted. An unrecognized
+     * token such as `var(--fill)` or `currentcolor` is assumed to paint.
+     */
+    public static function backgroundPaints(string $value): bool
+    {
+        $layers = CssValueSplitter::splitTopLevel(self::withoutImportant(self::comparable($value)), array( ',' ));
+        $lastLayer = count($layers) - 1;
+        foreach ( $layers as $index => $layer ) {
+            foreach ( CssValueSplitter::splitTopLevelWhitespace(str_replace('/', ' ', $layer)) as $token ) {
+                if ( '' === $token || 1 === preg_match('/^(?:none|transparent|inherit|initial|unset|revert(?:-layer)?|auto|cover|contain|left|right|top|bottom|center|(?:no-)?repeat(?:-[xy])?|space|round|scroll|fixed|local|(?:border|padding|content)-box|text|[+-]?(?:\d+|\d*\.\d+)(?:[a-z]+|%)?)$/', $token) ) {
+                    continue;
+                }
+                $color = $index === $lastLayer ? CssColor::parse($token) : null;
+                if ( null !== $color && ( 0.0 === (float) $color[3] || self::isTransparentColor($token) ) ) {
+                    continue;
+                }
+                return true;
+            }
+        }
+        return false;
     }
 
     public static function isImportant(string $value): bool

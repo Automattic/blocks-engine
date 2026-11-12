@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use DOMElement;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 
 final class ButtonSignalClassifier
 {
@@ -93,8 +94,13 @@ final class ButtonSignalClassifier
             return true;
         }
 
-        return preg_match('/(?:^|;)\s*background(?:-color)?\s*:\s*[^;]+/', $style) === 1
-            && preg_match('/(?:^|;)\s*background(?:-color)?\s*:\s*(?:transparent|none|inherit|initial|rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\))\s*(?:;|$)/', $style) !== 1;
+        preg_match_all('/(?:^|;)\s*background(?:-color)?\s*:\s*([^;]+)/', $style, $backgrounds);
+        foreach ( $backgrounds[1] as $background ) {
+            if ( CssValueInspector::backgroundPaints($background) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function hasPositiveDimension(string $style, string $property): bool
