@@ -74,8 +74,8 @@ final class SitePlanRun
         $this->listings = new ListingQueryLoops($this->sourceOrigin, $this->chromeIdentityKey(...));
         $this->unitFindings = new UnitFindings();
         $this->postChrome = new PostChrome($this->listings, $this->chromeIdentityKey(...), $this->unitFindings->record(...));
-        $editabilityPolicy = $input->editabilityPolicy;
-        if (!is_array($editabilityPolicy) || EditabilityPolicy::SCHEMA !== ($editabilityPolicy['schema'] ?? null) || 'required' !== ($editabilityPolicy['enforcement'] ?? null) || !in_array($editabilityPolicy['status'] ?? null, array('passed', 'failed'), true)) {
+        $this->editabilityPolicy = $input->editabilityPolicy;
+        if (!is_array($this->editabilityPolicy) || EditabilityPolicy::SCHEMA !== ($this->editabilityPolicy['schema'] ?? null) || 'required' !== ($this->editabilityPolicy['enforcement'] ?? null) || !in_array($this->editabilityPolicy['status'] ?? null, array('passed', 'failed'), true)) {
             throw new InvalidArgumentException('WordPress site plan requires a versioned editability policy.');
         }
         $compiled = $input->compiledSite;
@@ -90,7 +90,7 @@ final class SitePlanRun
             throw new DocumentIdentityException($identityFailures);
         }
 
-        $runtimeEmoji = (bool) array_filter($compiled['pages'], static fn(array $page): bool => 'wordpress' === ($page['document_metadata']['root_attributes'][CaptureEvidence::RUNTIME_EMOJI] ?? null));
+        $this->runtimeEmoji = (bool) array_filter($compiled['pages'], static fn(array $page): bool => 'wordpress' === ($page['document_metadata']['root_attributes'][CaptureEvidence::RUNTIME_EMOJI] ?? null));
         $runtimeDeclarations = $compiled['runtime_declarations'] ?? array();
         $runtimeRecords = RuntimeDeclarations::normalizeRecords($compiled['runtime_records'] ?? array());
         $runtimeDeclarations = RuntimeDeclarations::materialize($runtimeDeclarations, $runtimeRecords);
@@ -116,18 +116,18 @@ final class SitePlanRun
         $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets, DesignSystem::usageBySource($documents));
         $this->timer?->start('compose.site_plan.routes');
         $tokens = $this->tokens($assets);
-        $surfaces = TemplateSurfaces::select($documents);
+        $this->surfaces = TemplateSurfaces::select($documents);
         $documents = array_values(array_filter($documents, static fn(array $document): bool => !isset($document['template_surface'])));
-        $routeTable = new RouteTable();
-        $routeMap = $routeTable->canonical($documents, $input->routes);
+        $this->routeTable = new RouteTable();
+        $this->routeMap = $this->routeTable->canonical($documents, $input->routes);
         // Both native archive kinds use the same listing, template and resource pipeline.
-        $taxonomyProjection = TaxonomyProjection::project($documents, $routeMap, $this->sourceOrigin);
-        $authorProjection = AuthorProjection::project($documents, $routeMap, $this->sourceOrigin);
+        $taxonomyProjection = TaxonomyProjection::project($documents, $this->routeMap, $this->sourceOrigin);
+        $authorProjection = AuthorProjection::project($documents, $this->routeMap, $this->sourceOrigin);
         foreach (array('entities', 'diagnostics') as $key) $taxonomyProjection[$key] = array_merge($taxonomyProjection[$key], $authorProjection[$key]);
         $taxonomyProjection['pagination_source_paths_by_archive'] += $authorProjection['pagination_source_paths_by_archive'];
         $routeSources = array();
         $routeTargets = array();
-        foreach ($routeMap as $route) {
+        foreach ($this->routeMap as $route) {
             $sourcePath = (string) ($route['source_path'] ?? '');
             $targetPath = (string) ($route['target_path'] ?? '');
             if ('' !== $sourcePath && '' !== $targetPath) $routeSources[$sourcePath] = $targetPath;
@@ -135,34 +135,24 @@ final class SitePlanRun
         }
         // Native date archives are document roots, not materialized pages, but
         // their captured file paths still participate in link resolution.
-        $entryRoot = PageRoute::entryRoot($compiled['pages']);
+        $this->entryRoot = PageRoute::entryRoot($compiled['pages']);
         foreach ($compiled['pages'] as $document) {
             if (!ContentDecisions::isDateArchive($document)) continue;
-            $path = $document['metadata']['route_path'] ?? PageRoute::fromSource($document['source_path'], $entryRoot);
+            $path = $document['metadata']['route_path'] ?? PageRoute::fromSource($document['source_path'], $this->entryRoot);
             $target = '/' . trim($path, '/') . '/';
             $routeSources[$document['source_path']] = $target;
             $routeTargets['/' . trim($path, '/')] = $target;
         }
         $this->timer?->start('compose.site_plan.pages');
-        $this->links = new RouteLinks($sourceUrl, $this->sourceOrigin, $routeSources, $routeTargets, $this->presetBinding, $documents, $routeMap);
+        $this->links = new RouteLinks($sourceUrl, $this->sourceOrigin, $routeSources, $routeTargets, $this->presetBinding, $documents, $this->routeMap);
         $this->shellExtraction = new ShellExtraction($this->links);
         $this->heads = new DocumentHeads($this->links, $this->unitFindings->record(...));
-        $entityBindings = new EntityBindings($this->links, $this->unitFindings->record(...));
+        $this->entityBindings = new EntityBindings($this->links, $this->unitFindings->record(...));
         $this->missingMedia = new MissingMediaRecovery($this->strictMissingMedia, array_column($assets, 'target_path'));
-        $missingFonts = new MissingFontSourceRecovery($this->strictMissingMedia);
-        $missingImports = new MissingStylesheetImportRecovery($this->strictMissingMedia);
-        $references = new AssetReferenceCanonicalizer($tokens, PageRoute::entryRoot($documents), $this->missingMedia, $missingFonts, $missingImports);
+        $this->missingFonts = new MissingFontSourceRecovery($this->strictMissingMedia);
+        $this->missingImports = new MissingStylesheetImportRecovery($this->strictMissingMedia);
+        $this->references = new AssetReferenceCanonicalizer($tokens, PageRoute::entryRoot($documents), $this->missingMedia, $this->missingFonts, $this->missingImports);
         $this->compiled = $compiled;
-        $this->editabilityPolicy = $editabilityPolicy;
-        $this->runtimeEmoji = $runtimeEmoji;
-        $this->surfaces = $surfaces;
-        $this->routeTable = $routeTable;
-        $this->routeMap = $routeMap;
-        $this->entryRoot = $entryRoot;
-        $this->entityBindings = $entityBindings;
-        $this->missingFonts = $missingFonts;
-        $this->missingImports = $missingImports;
-        $this->references = $references;
         $this->initialDocuments = $documents;
         $this->initialAssets = $assets;
         $this->initialTokens = $tokens;
