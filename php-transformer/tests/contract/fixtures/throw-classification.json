@@ -1469,6 +1469,80 @@
         "count": 1
       }
     },
+    "src/WordPressSitePlan/ArchiveEntities.php": {
+      "InvalidArgumentException('WordPress site plan author entity count or list is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan author entity is structurally invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan author archive is structurally invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan author membership list is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan author membership must be sorted.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan author membership must name a canonical post.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan author evidence is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan taxonomy entity count exceeds its bound.')": {
+        "class": "operational",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan taxonomy entity is structurally invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan taxonomy archive is structurally invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan taxonomy slug does not match its archive route.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan taxonomy parent is structurally invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan taxonomy parent is not a proven immediate ancestor.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan hierarchical category lacks its parent.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan section must be an unparented category.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan taxonomy membership list is structurally invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan taxonomy membership does not name a canonical post.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan taxonomy evidence is incomplete.')": {
+        "class": "integrity",
+        "count": 1
+      }
+    },
     "src/WordPressSitePlan/AssetPublications.php": {
       "InvalidArgumentException('Asset publication references an undeclared asset.')": {
         "class": "integrity",
@@ -1932,34 +2006,6 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('WordPress site plan author archive is structurally invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan author entity count or list is invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan author entity is structurally invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan author evidence is invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan author membership list is invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan author membership must be sorted.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan author membership must name a canonical post.')": {
-        "class": "integrity",
-        "count": 1
-      },
       "InvalidArgumentException('WordPress site plan binary write cannot carry a resolution projection.')": {
         "class": "integrity",
         "count": 1
@@ -2033,10 +2079,6 @@
         "count": 1
       },
       "InvalidArgumentException('WordPress site plan has an unsupported schema.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan hierarchical category lacks its parent.')": {
         "class": "integrity",
         "count": 1
       },
@@ -2185,46 +2227,6 @@
         "count": 1
       },
       "InvalidArgumentException('WordPress site plan synthetic parent must have a materialized child.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan taxonomy archive is structurally invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan taxonomy entity count exceeds its bound.')": {
-        "class": "operational",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan taxonomy entity is structurally invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan section must be an unparented category.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan taxonomy evidence is incomplete.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan taxonomy membership does not name a canonical post.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan taxonomy membership list is structurally invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan taxonomy parent is not a proven immediate ancestor.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan taxonomy parent is structurally invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan taxonomy slug does not match its archive route.')": {
         "class": "integrity",
         "count": 1
       },
@@ -2399,15 +2401,7 @@
         "finding": "wordpress_site_plan_colliding_asset_target",
         "test": "tests/contract/colliding-asset-targets.php"
       },
-      "unique($claimed,$source,'post author membership')": {
-        "class": "integrity",
-        "count": 1
-      },
       "unique($documentIdentities,$page['reconciliation_identity'],'page reconciliation identity')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "unique($memberSet,$sourcePath,'taxonomy membership')": {
         "class": "integrity",
         "count": 1
       },
@@ -2420,14 +2414,6 @@
         "count": 1
       },
       "unique($routeSources,$route['source_path'],'route source')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "unique($seen,$entity['taxonomy'].':'.$entity['slug'],'taxonomy term')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "unique($slugs,$entity['slug'],'author nicename')": {
         "class": "integrity",
         "count": 1
       },

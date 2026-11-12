@@ -846,8 +846,8 @@ final class WordPressSitePlan
             if (!isset($sourceCatalog[$source]) || isset($pagesBySource[$source])) throw new InvalidArgumentException('WordPress site plan native archive must name a captured source without a materialized page.');
             $archiveDocuments[$source] = array('source_path' => $source, 'post_type' => 'page', 'route' => array('path' => $route), 'reconciliation_identity' => self::identity('page', $source, $route));
         }
-        self::assertTaxonomyEntities($plan['taxonomy_entities'], $pagesBySource);
-        self::assertAuthorEntities($plan['author_entities'], $pagesBySource);
+        ArchiveEntities::assertTerms($plan['taxonomy_entities'], $pagesBySource);
+        ArchiveEntities::assertAuthors($plan['author_entities'], $pagesBySource);
         $expectedCandidatePages = WholePageCandidates::attach(array_map(static function (array $page): array { unset($page['whole_page_candidates']); return $page; }, $plan['pages']), RuntimeDeclarations::materialize($plan['runtime_declarations'], $runtimeRecords), $records);
         foreach ($plan['pages'] as $index => $page) if (($expectedCandidatePages[$index]['whole_page_candidates'] ?? null) !== ($page['whole_page_candidates'] ?? null)) throw new InvalidArgumentException('Whole-page candidates are stale, duplicated, or detached from their canonical source pages.');
         $documentsBySource = self::assetOwnerDocuments($plan['pages'], $plan['theme']['document_roots'] ?? array());
@@ -1608,7 +1608,7 @@ final class WordPressSitePlan
     /** @param array<string,string> $tokens */
     private static function assertTokens(string $content, array $tokens): void { if (preg_match_all('/\{\{wordpress-site-plan:asset:([^}]+)\}\}/', $content, $matches)) foreach ($matches[1] as $token) if (!isset($tokens[$token])) throw new InvalidArgumentException('WordPress site plan contains an undeclared reference token.'); }
     /** @param array<string,string> $values */
-    private static function unique(array &$values, string $value, string $kind, string $source = ''): void
+    public static function unique(array &$values, string $value, string $kind, string $source = ''): void
     {
         $key = strtolower($value);
         if (isset($values[$key])) {
@@ -1636,78 +1636,6 @@ final class WordPressSitePlan
     /** @param array<string,mixed> $source */
     private static function assertSource(array $source): void { if ('blocks-engine/php-transformer/compiled-site/v1' !== ($source['schema'] ?? null) || !is_string($source['source_hash'] ?? null) || !preg_match('/^[a-f0-9]{64}$/', $source['source_hash']) || !is_string($source['entry_path'] ?? null) || !is_array($source['provenance'] ?? null) || (isset($source['source_documents']) && (!is_array($source['source_documents']) || !array_is_list($source['source_documents']) || count($source['source_documents']) > 5000))) throw new InvalidArgumentException('WordPress site plan source identity is invalid.'); }
 
-    private static function assertAuthorEntities(array $entities, array $pagesBySource): void
-    {
-        if (!array_is_list($entities) || count($entities) > 256) throw new InvalidArgumentException('WordPress site plan author entity count or list is invalid.');
-        $slugs = array();
-        $claimed = array();
-        foreach ($entities as $entity) {
-            if (!is_array($entity) || 'author' !== ($entity['kind'] ?? null) || !is_string($entity['slug'] ?? null) || !preg_match('/^[a-z0-9][a-z0-9-]{0,49}$/', $entity['slug']) || !is_string($entity['name'] ?? null) || '' === trim($entity['name'])) throw new InvalidArgumentException('WordPress site plan author entity is structurally invalid.');
-            self::unique($slugs, $entity['slug'], 'author nicename');
-            $archive = $entity['archive'] ?? null;
-            if (!is_array($archive) || !self::safePath($archive['source_path'] ?? null) || ($archive['source_route'] ?? null) !== '/author/' . $entity['slug'] || ($archive['query'] ?? null) !== array('post_type' => 'post', 'author' => $entity['slug']) || !self::validArchivePresentation($archive)) throw new InvalidArgumentException('WordPress site plan author archive is structurally invalid.');
-            $members = $entity['membership_source_paths'] ?? null;
-            if (!is_array($members) || !array_is_list($members) || array() === $members || count($members) > 10000) throw new InvalidArgumentException('WordPress site plan author membership list is invalid.');
-            $sorted = $members;
-            sort($sorted, SORT_STRING);
-            if ($members !== $sorted) throw new InvalidArgumentException('WordPress site plan author membership must be sorted.');
-            foreach ($members as $source) {
-                if (!is_string($source) || 'post' !== ($pagesBySource[$source]['post_type'] ?? null)) throw new InvalidArgumentException('WordPress site plan author membership must name a canonical post.');
-                self::unique($claimed, $source, 'post author membership');
-            }
-            if (($entity['evidence'] ?? null) !== array('membership' => true, 'name' => true, 'archive' => true)) throw new InvalidArgumentException('WordPress site plan author evidence is invalid.');
-        }
-    }
-
-    /** Presentation may retain captured static blocks or an inherited archive query. */
-    private static function validArchivePresentation(array $archive): bool
-    {
-        if (!array_key_exists('presentation_markup', $archive)) return true;
-        $markup = $archive['presentation_markup'];
-        return is_string($markup) && '' !== trim($markup) && strlen($markup) <= 1000000
-            && (!str_contains($markup, '<!-- wp:query ') || (
-                str_contains($markup, '"inherit":true')
-                && str_contains($markup, '<!-- wp:query-pagination ')
-                && str_contains($markup, '<!-- wp:query-no-results -->')
-            ));
-    }
-
-    private static function assertTaxonomyEntities(array $entities, array $pagesBySource): void
-    {
-        $seen = array();
-        $byTerm = array();
-        foreach ($entities as $entity) if (is_array($entity) && is_string($entity['taxonomy'] ?? null) && is_string($entity['slug'] ?? null)) $byTerm[$entity['taxonomy'] . ':' . $entity['slug']] = $entity;
-        if (count($entities) > 256) throw new InvalidArgumentException('WordPress site plan taxonomy entity count exceeds its bound.');
-        foreach ($entities as $entity) {
-            if (!is_array($entity) || 'taxonomy_term' !== ($entity['kind'] ?? null) || !in_array($entity['taxonomy'] ?? null, array('category', 'post_tag'), true) || !is_string($entity['slug'] ?? null) || !preg_match('/^[a-z0-9][a-z0-9-]{0,199}$/', $entity['slug']) || !is_string($entity['name'] ?? null) || '' === trim($entity['name'])) throw new InvalidArgumentException('WordPress site plan taxonomy entity is structurally invalid.');
-            self::unique($seen, $entity['taxonomy'] . ':' . $entity['slug'], 'taxonomy term');
-            $archive = $entity['archive'] ?? null;
-            if (array_key_exists('archive', $entity)) {
-            if (!is_array($archive) || !self::safePath($archive['source_path'] ?? null) || !is_string($archive['source_route'] ?? null) || !preg_match('~^/[a-z0-9-]+(?:/[a-z0-9-]+)*$~', $archive['source_route']) || !self::validArchivePresentation($archive) || ($archive['query'] ?? null) !== array('post_type' => 'post', 'taxonomy' => $entity['taxonomy'], 'term' => $entity['slug'])) throw new InvalidArgumentException('WordPress site plan taxonomy archive is structurally invalid.');
-            if (basename($archive['source_route']) !== $entity['slug']) throw new InvalidArgumentException('WordPress site plan taxonomy slug does not match its archive route.');
-            if (array_key_exists('parent', $entity)) {
-                $parent = $entity['parent'];
-                if ('category' !== $entity['taxonomy'] || !is_string($parent) || !preg_match('/^[a-z0-9][a-z0-9-]{0,199}$/', $parent) || $parent === $entity['slug']) throw new InvalidArgumentException('WordPress site plan taxonomy parent is structurally invalid.');
-                $parentEntity = $byTerm[$entity['taxonomy'] . ':' . $parent] ?? null;
-                if (!is_array($parentEntity) || ($parentEntity['archive']['source_route'] ?? null) !== dirname($archive['source_route'])) throw new InvalidArgumentException('WordPress site plan taxonomy parent is not a proven immediate ancestor.');
-            } elseif ('category' === $entity['taxonomy'] && preg_match('~(?:^|/)category/[^/]+/[^/]+~', $archive['source_route'])) {
-                throw new InvalidArgumentException('WordPress site plan hierarchical category lacks its parent.');
-            }
-            } elseif ('category' !== $entity['taxonomy'] || isset($entity['parent'])) {
-                throw new InvalidArgumentException('WordPress site plan section must be an unparented category.');
-            }
-            $members = $entity['membership_source_paths'] ?? null;
-            if (!is_array($members) || !array_is_list($members) || count($members) > 10000) throw new InvalidArgumentException('WordPress site plan taxonomy membership list is structurally invalid.');
-            $memberSet = array();
-            foreach ($members as $sourcePath) {
-                if (!is_string($sourcePath) || !isset($pagesBySource[$sourcePath]) || 'post' !== ($pagesBySource[$sourcePath]['post_type'] ?? null)) throw new InvalidArgumentException('WordPress site plan taxonomy membership does not name a canonical post.');
-                self::unique($memberSet, $sourcePath, 'taxonomy membership');
-            }
-            $evidence = array('membership' => true, 'name' => true);
-            if (array_key_exists('archive', $entity)) $evidence['archive'] = true;
-            if (($entity['evidence'] ?? null) !== $evidence) throw new InvalidArgumentException('WordPress site plan taxonomy evidence is incomplete.');
-        }
-    }
     private static function assertRows(array $rows, string $kind, array $fields, array $optional = array()): void { foreach ($rows as $row) { if (!is_array($row)) throw new InvalidArgumentException("WordPress site plan {$kind} must be an array."); foreach ($fields as $field) if (!array_key_exists($field, $row) || (!is_string($row[$field]) && !is_int($row[$field]))) throw new InvalidArgumentException("WordPress site plan {$kind} lacks {$field}."); foreach ($optional as $field) if (array_key_exists($field, $row) && !is_string($row[$field])) throw new InvalidArgumentException("WordPress site plan {$kind} has invalid {$field}."); } }
     /** @param array<string,mixed> $data */
     public static function value(array $data, string $key, string $default = ''): string { return is_string($data[$key] ?? null) ? $data[$key] : $default; }
