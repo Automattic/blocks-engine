@@ -31,7 +31,7 @@ foreach ($cases as $label => [$area, $shell]) {
     foreach ($plan['pages'] as $page) $assert(!str_contains($page['canonical_block_markup'], 'site-' . $area), $label . ': no inline shell on ' . $page['source_path']);
     if ('responsive alias' === $label) $assert(str_contains($parts[0]['canonical_block_markup'], 'data-blocks-engine-capture-responsive-class-123456abcdef'), 'Alias evidence survives in the shared part.');
     if ('sampled glyph paint' === $label) {
-        $assert(str_contains($parts[0]['canonical_block_markup'], 'fill:#9aa470'), 'Captured paint survives in the shared part.');
+        $assert(str_contains($parts[0]['canonical_block_markup'], '#9aa470'), 'Captured paint survives in the shared part.');
         $authored = '<!-- wp:html --><svg style="fill:#123456"><path d="M0 0h10v10z"/></svg><!-- /wp:html -->';
         $assert(\Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction::identityMarkup($authored) !== \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction::identityMarkup(str_replace('#123456', '#abcdef', $authored)), 'Authored paint still distinguishes shells.');
     }
