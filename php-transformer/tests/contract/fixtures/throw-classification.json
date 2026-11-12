@@ -1996,6 +1996,30 @@
       }
     },
     "src/WordPressSitePlan/StylesheetScopes.php": {
+      "InvalidArgumentException('WordPress site plan asset scopes must be a nonempty array.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan asset scope is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('A global asset scope cannot declare page fields.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('An archive asset scope is structurally invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('A page asset scope is structurally invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('An asset scope does not match its canonical document.')": {
+        "class": "integrity",
+        "count": 1
+      },
       "InvalidArgumentException('A document-owned compiled asset must resolve to a canonical document.')": {
         "class": "integrity",
         "count": 1
@@ -2137,22 +2161,6 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('A global asset scope cannot declare page fields.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('An archive asset scope is structurally invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('An asset scope does not match its canonical document.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('A page asset scope is structurally invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
       "InvalidArgumentException('Asset consumers or destination are stale.')": {
         "class": "integrity",
         "count": 1
@@ -2194,14 +2202,6 @@
         "count": 1
       },
       "InvalidArgumentException('WordPress site plan writes an unreferenced asset.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan asset scope is invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan asset scopes must be a nonempty array.')": {
         "class": "integrity",
         "count": 1
       },

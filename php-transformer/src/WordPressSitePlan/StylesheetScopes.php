@@ -18,6 +18,50 @@ use InvalidArgumentException;
  */
 final class StylesheetScopes
 {
+    /**
+     * The documents a stylesheet scope can name, by source path: canonical
+     * pages, then root documents that are not pages.
+     *
+     * @param array<int,array<string,mixed>> $pages @param array<int,array<string,mixed>> $rootDocuments @return array<string,array<string,mixed>>
+     */
+    public static function documentsBySource(array $pages, array $rootDocuments): array
+    {
+        return array_column($pages, null, 'source_path') + array_column($rootDocuments, null, 'source_path');
+    }
+
+    /** A stylesheet's scopes: a nonempty list of global, page, post or archive scopes, each with exactly its kind's fields. */
+    public static function assertValid(mixed $scopes): void
+    {
+        if (!is_array($scopes) || array() === $scopes) throw new InvalidArgumentException('WordPress site plan asset scopes must be a nonempty array.');
+        foreach ($scopes as $scope) {
+            if (!is_array($scope) || !in_array($scope['kind'] ?? null, array('global', 'page', 'post', 'archive'), true)) throw new InvalidArgumentException('WordPress site plan asset scope is invalid.');
+            if ('global' === $scope['kind']) {
+                if (array('kind') !== array_keys($scope)) throw new InvalidArgumentException('A global asset scope cannot declare page fields.');
+                continue;
+            }
+            if ('archive' === $scope['kind']) {
+                if (array('kind', 'source_path', 'route_path') !== array_keys($scope) || !WordPressSitePlan::safePath($scope['source_path']) || !is_string($scope['route_path'])) throw new InvalidArgumentException('An archive asset scope is structurally invalid.');
+                continue;
+            }
+            if (array('kind', 'source_path', 'route_path', 'reconciliation_identity', 'front_page') !== array_keys($scope) || !WordPressSitePlan::safePath($scope['source_path']) || !is_string($scope['route_path']) || !WordPressSitePlan::hash($scope['reconciliation_identity']) || !is_bool($scope['front_page'])) throw new InvalidArgumentException('A page asset scope is structurally invalid.');
+        }
+    }
+
+    /**
+     * Every non-global scope names a canonical document and equals that
+     * document's scope, so a stylesheet cannot be delivered to a route it was
+     * not compiled for.
+     *
+     * @param array<int,array<string,mixed>> $assets @param array<string,array<string,mixed>> $documentsBySource
+     */
+    public static function assertOwned(array $assets, array $documentsBySource): void
+    {
+        foreach ($assets as $asset) foreach ($asset['scopes'] ?? array() as $scope) if ('global' !== $scope['kind']) {
+            $document = $documentsBySource[$scope['source_path']] ?? null;
+            if (!is_array($document) || $scope != PageStylesheets::documentScope($document)) throw new InvalidArgumentException('An asset scope does not match its canonical document.');
+        }
+    }
+
     /** @param array<int,array<string,mixed>> $assets @param array<string,array<string,mixed>> $documentsBySource @return array<int,array<string,mixed>> */
     public static function assign(array $assets, array $documentsBySource): array
     {
