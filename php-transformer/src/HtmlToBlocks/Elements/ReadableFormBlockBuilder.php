@@ -57,6 +57,9 @@ final class ReadableFormBlockBuilder
 
     private ?DOMElement $form = null;
 
+    /** @var list<DOMElement> */
+    private array $controlElements = array();
+
     /** @var array<string, true> Node paths of the labels that name a control. */
     private array $controlLabels = array();
 
@@ -125,7 +128,8 @@ final class ReadableFormBlockBuilder
         $this->fieldBoxes = array();
         $this->controlBoxes = array();
         $this->form = $form;
-        foreach ( FormControlClassifier::controlElements($form) as $index => $control ) {
+        $this->controlElements = FormWorkflowControlInventory::elements($form, $this->metadataBuilder, $this->session);
+        foreach ( $this->controlElements as $index => $control ) {
             $this->controlIndices[(string) $control->getNodePath()] = $index;
             $presenter = FormControlClassifier::presentingElement($control);
             $this->presentedControls[(string) $presenter->getNodePath()] = $control;
@@ -199,7 +203,7 @@ final class ReadableFormBlockBuilder
     private function groupedContentBlocks(DOMElement $form, array &$fallbacks): array
     {
         $structure = array();
-        $this->layoutGraph = (new FormLayoutGraphBuilder())->build(
+        $this->layoutGraph = (new FormLayoutGraphBuilder($this->controlElements))->build(
             $form,
             $this->session->authorStyleAnalysis()->stylesheetAssets(),
             $this->session->sourceStyleResolutionState()->formLayoutCss(),
@@ -603,7 +607,7 @@ final class ReadableFormBlockBuilder
         $own = array();
         $path = $control;
         for ($node = $control->parentNode; $node instanceof DOMElement && ! $node->isSameNode($this->form); $node = $node->parentNode) {
-            if ('fieldset' === strtolower($node->tagName) || 1 !== count(FormControlClassifier::controlElements($node))) {
+            if ('fieldset' === strtolower($node->tagName) || 1 !== count(array_filter($this->controlElements, fn (DOMElement $element): bool => $this->contains($node, $element)))) {
                 break;
             }
             // A label's own children are its caption; a wrapper's must be the path or the label.
