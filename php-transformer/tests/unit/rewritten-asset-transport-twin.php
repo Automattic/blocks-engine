@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\CompiledAssets;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
 $assert = static function (bool $condition, string $message): void {
@@ -37,7 +38,7 @@ foreach ($assets as $asset) {
 }
 
 // The helper itself keeps every content field consistent.
-$rewritten = WordPressSitePlan::withRewrittenTextContent(array('content' => 'a{}', 'content_base64' => base64_encode('a{}'), 'transport_sha256' => 'x', 'hash' => 'y', 'bytes' => 3, 'content_hash' => 'z'), 'b{color:red}');
+$rewritten = CompiledAssets::withRewrittenTextContent(array('content' => 'a{}', 'content_base64' => base64_encode('a{}'), 'transport_sha256' => 'x', 'hash' => 'y', 'bytes' => 3, 'content_hash' => 'z'), 'b{color:red}');
 $assert(array('content' => 'b{color:red}', 'hash' => hash('sha256', 'b{color:red}'), 'bytes' => 12, 'content_hash' => hash('sha256', 'b{color:red}')) == $rewritten, 'withRewrittenTextContent sets content, bytes and hashes and drops the transport twin: ' . json_encode($rewritten));
 
 echo "Rewritten asset transport twin: ok\n";

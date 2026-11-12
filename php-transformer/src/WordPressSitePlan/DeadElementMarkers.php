@@ -48,7 +48,7 @@ final class DeadElementMarkers
                 }
             );
             if ($content === $asset['content']) continue;
-            $asset = WordPressSitePlan::withRewrittenTextContent($asset, $content);
+            $asset = CompiledAssets::withRewrittenTextContent($asset, $content);
         }
         unset($asset);
         return $assets;
