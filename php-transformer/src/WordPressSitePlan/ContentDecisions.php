@@ -164,7 +164,7 @@ final class ContentDecisions
         // Keep the capture in the source catalog, but out of content, route and
         // taxonomy inference entirely (including listing-card date inference).
         $documents = array_values(array_filter($documents, static fn(mixed $document): bool => !is_array($document) || !self::isDateArchive($document)));
-        $entryRoot = WordPressSitePlan::entryRootFromDocuments($documents);
+        $entryRoot = PageRoute::entryRoot($documents);
         $routes = array();
         $evidenceByIndex = array();
         $localTimesByIndex = array();
@@ -452,7 +452,7 @@ final class ContentDecisions
         foreach (($document['document_metadata']['meta'] ?? array()) as $meta) if (is_array($meta) && is_string($meta['content'] ?? null) && in_array(strtolower((string) ($meta['property'] ?? $meta['name'] ?? '')), array('article:published_time', 'article:published', 'pubdate', 'publishdate', 'date', 'dc.date.issued', 'dc.date', 'parsely-pub-date', 'releasedate'), true)) if (null !== ($date = $timestamp($meta['content']))) $add($evidence, 'meta:' . strtolower((string) ($meta['property'] ?? $meta['name'])), $date);
         foreach (HtmlMarkupParser::htmlMarkupNodes($html) as $node) if ('tag' === ($node['kind'] ?? null)) { $attributes = $node['attributes']; if ('time' === ($node['name'] ?? null) && is_string($attributes['datetime'] ?? null)) $timestamp(html_entity_decode($attributes['datetime'], ENT_QUOTES | ENT_HTML5, 'UTF-8')); if (preg_match('~\b(?:Article|BlogPosting)\b~', (string) ($attributes['itemtype'] ?? ''))) $add($evidence, 'microdata:itemtype'); if ('datePublished' === ($attributes['itemprop'] ?? null)) foreach (array('datetime', 'content') as $key) if (is_string($attributes[$key] ?? null) && null !== ($date = $timestamp(html_entity_decode($attributes[$key], ENT_QUOTES | ENT_HTML5, 'UTF-8')))) { $add($evidence, 'microdata:datePublished', $date); break; } }
         foreach (HtmlMarkupParser::htmlMarkupNodes($html) as $node) if ('rawtext' === ($node['kind'] ?? null) && 'script' === ($node['name'] ?? null) && 'application/ld+json' === strtolower(trim((string) ($node['attributes']['type'] ?? '')))) foreach (self::jsonLdPublicationEvidence(json_decode($node['content'], true), $timestamp) as $row) $add($evidence, $row['source'], $row['publication_timestamp'] ?? null);
-        $route = is_string($document['metadata']['route_path'] ?? null) ? $document['metadata']['route_path'] : PageRoute::fromSource((string) $document['source_path'], WordPressSitePlan::entryRootFromDocuments(array($document)));
+        $route = is_string($document['metadata']['route_path'] ?? null) ? $document['metadata']['route_path'] : PageRoute::fromSource((string) $document['source_path'], PageRoute::entryRoot(array($document)));
         if (preg_match('~/(?:[0-9]{4})/(?:0[1-9]|1[0-2])(?:/|$)~', $route)) $add($evidence, 'route:dated');
         foreach (self::visiblePublicationEvidence($html, $timestamp, $dateSlots) as $row) {
             $add($evidence, $row['source'], $row['publication_timestamp'] ?? null);

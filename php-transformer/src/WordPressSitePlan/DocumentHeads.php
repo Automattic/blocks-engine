@@ -170,7 +170,7 @@ final class DocumentHeads
     {
         $reference = $references->reference($url, $sourcePath);
         if (null !== $reference) return $reference;
-        $entryRoot = WordPressSitePlan::entryRootFromDocuments($routes);
+        $entryRoot = PageRoute::entryRoot($routes);
         if ('' === $entryRoot) return null;
         $rooted = ArtifactPath::resolveRelativePath(ltrim($url, '/'), $entryRoot . '/index.html');
         $reference = '' === $rooted ? null : $references->reference('/' . $rooted, $sourcePath);
