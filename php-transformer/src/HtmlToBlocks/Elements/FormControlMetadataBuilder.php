@@ -500,6 +500,8 @@ final class FormControlMetadataBuilder
                     if ( '' !== $labelMarker ) {
                         $metadata['label_marker'] = $labelMarker;
                     }
+                } elseif ( array() !== ($parts = $this->buttonLabelParts($control, $text)) ) {
+                    $metadata['label_parts'] = $parts;
                 }
             }
             if ( null !== $this->presentation ) {
@@ -1344,6 +1346,36 @@ final class FormControlMetadataBuilder
             return null;
         }
         return $labelElement;
+    }
+
+    /**
+     * A caption the source composes from sibling text spans (a date chip's
+     * month, weekday and day number) keeps each span, so the rules that
+     * stack and size those spans still reach them.
+     *
+     * @return list<array{classes: string, text: string, marker?: string}>
+     */
+    private function buttonLabelParts(DOMElement $control, string $text): array
+    {
+        $parts = array();
+        foreach ( $control->childNodes as $child ) {
+            if ( $child instanceof DOMText && '' === trim($child->textContent) ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement || 'span' !== strtolower($child->tagName) || $child->getElementsByTagName('*')->length > 0 || count($parts) >= 8 ) {
+                return array();
+            }
+            $part = array( 'classes' => $this->classNames($child), 'text' => trim(preg_replace('/\s+/', ' ', $child->textContent ?? '') ?? '') );
+            $marker = SourceDom::attr($child, 'data-blocks-engine-richtext-marker');
+            if ( '' !== $marker ) {
+                $part['marker'] = $marker;
+            }
+            $parts[] = $part;
+        }
+        if ( count($parts) < 2 || preg_replace('/\s+/', '', implode('', array_column($parts, 'text'))) !== preg_replace('/\s+/', '', $text) ) {
+            return array();
+        }
+        return $parts;
     }
 
     private function buttonText(DOMElement $control): string
