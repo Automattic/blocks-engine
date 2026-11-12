@@ -39,4 +39,10 @@ final class UnitFindings
 
     /** @return array<int,array<string,mixed>> */
     public function diagnostics(): array { return array_values($this->findings); }
+
+    /** A plan that carries warning findings is at best `success_with_warnings`. @param array<int,array<string,mixed>> $findings */
+    public static function status(string $status, array $findings): string
+    {
+        return 'success' === $status && array() !== $findings ? 'success_with_warnings' : $status;
+    }
 }
