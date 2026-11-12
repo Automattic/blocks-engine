@@ -5,7 +5,7 @@ require_once __DIR__ . '/../../vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysis;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ChromeIdentity;
 
 $passes = 0;
 $failures = 0;
@@ -31,9 +31,9 @@ foreach ( $kinds as $kind ) {
     $second = $chrome('ba9876543210');
     $assert(EngineMarker::matchesAny($first), "grammar recognizes a document-scoped {$kind} marker");
     $assert(
-        ShellExtraction::identityMarkup($first) === ShellExtraction::identityMarkup($second),
+        ChromeIdentity::markup($first) === ChromeIdentity::markup($second),
         "shell identity ignores the document seed of a {$kind} marker",
-        ShellExtraction::identityMarkup($first)
+        ChromeIdentity::markup($first)
     );
 }
 

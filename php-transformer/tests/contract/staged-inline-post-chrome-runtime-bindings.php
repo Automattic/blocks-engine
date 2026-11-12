@@ -8,7 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ListingQueryLoops;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\PostChrome;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ChromeIdentity;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
 $assert = static function (bool $condition, string $message): void {
@@ -169,7 +169,7 @@ foreach ($unitPosts as $post) {
     $assert(null !== $index, 'The bound form block resolves to one emitted block position.');
     $boundEntities[] = array('bindings' => array(array('role' => 'form', 'source_path' => $post['source_path'], 'search_block_markup' => $form, 'occurrence' => 1, 'position' => array('schema' => 'blocks-engine/runtime-binding-position/v1', 'block_index' => $index, 'offset' => $offset, 'length' => strlen($form)))));
 }
-$identity = static fn(string $markup): string => ShellExtraction::identityMarkup($markup);
+$identity = static fn(string $markup): string => ChromeIdentity::markup($markup);
 $chrome = new PostChrome(new ListingQueryLoops('', $identity), $identity, static function (array $finding): void {});
 
 // Manifest-backed records: a bound form whose entity lives in a manifest

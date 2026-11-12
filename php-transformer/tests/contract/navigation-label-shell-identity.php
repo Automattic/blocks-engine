@@ -5,7 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RouteStateProjector;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ChromeIdentity;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ChromeStackingIdentity;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\NavigationAnchorRuntime;
 
@@ -13,8 +13,8 @@ $assert = static function (bool $condition, string $message): void { if (!$condi
 $block = static function (string $id): string {
     return '<!-- wp:group ' . json_encode(array('metadata' => array('source' => array('id' => $id)), 'anchor' => $id)) . ' --><div id="' . $id . '" data-element-id="' . $id . '"></div><!-- /wp:group -->';
 };
-$assert(ShellExtraction::identityMarkup($block('id1793815975744')) === ShellExtraction::identityMarkup($block('id1793816196670')), 'Render ids in nested block metadata and anchors do not split identity.');
-$assert(ShellExtraction::identityMarkup($block('authored-one')) !== ShellExtraction::identityMarkup($block('authored-two')), 'Authored ids retain identity.');
+$assert(ChromeIdentity::markup($block('id1793815975744')) === ChromeIdentity::markup($block('id1793816196670')), 'Render ids in nested block metadata and anchors do not split identity.');
+$assert(ChromeIdentity::markup($block('authored-one')) !== ChromeIdentity::markup($block('authored-two')), 'Authored ids retain identity.');
 $reactHeader = static function (string $a, string $b): array {
     $files = array();
     foreach (array('index.html' => 'Home', 'about/index.html' => 'About', 'contact/index.html' => 'Contact') as $path => $title) {
@@ -28,9 +28,9 @@ foreach (array(array('_r_1_', '_r_2_', 1), array(':r1:', ':r2:', 1), array('«r1
     $assert($expected === $headers($reactHeader($a, $b)), "Header ids {$a}/{$b} yield {$expected} header part(s).");
 }
 $labelBlock = static fn(string $id, string $title = 'Home', string $url = '/'): string => '<!-- wp:navigation-link ' . json_encode(array('label' => '<span id="' . $id . '" data-element-id="' . $id . '">' . $title . '</span>', 'url' => $url)) . ' /-->';
-$assert(ShellExtraction::identityMarkup($labelBlock('id1793815975744')) === ShellExtraction::identityMarkup($labelBlock('id1793816196670')), 'Label HTML uses the same render-id normalization.');
-$assert(ShellExtraction::identityMarkup($labelBlock('id1793815975744')) !== ShellExtraction::identityMarkup($labelBlock('id1793815975744', 'Changed')), 'Real link labels retain identity.');
-$assert(ShellExtraction::identityMarkup($labelBlock('id1793815975744')) !== ShellExtraction::identityMarkup($labelBlock('id1793815975744', 'Home', '/changed/')), 'Real URLs retain identity.');
+$assert(ChromeIdentity::markup($labelBlock('id1793815975744')) === ChromeIdentity::markup($labelBlock('id1793816196670')), 'Label HTML uses the same render-id normalization.');
+$assert(ChromeIdentity::markup($labelBlock('id1793815975744')) !== ChromeIdentity::markup($labelBlock('id1793815975744', 'Changed')), 'Real link labels retain identity.');
+$assert(ChromeIdentity::markup($labelBlock('id1793815975744')) !== ChromeIdentity::markup($labelBlock('id1793815975744', 'Home', '/changed/')), 'Real URLs retain identity.');
 $stack = static fn(string $a, string $b): string => '<div><span style="position:relative;z-index:' . $a . '">A</span><span style="position:relative;z-index:' . $b . '">B</span></div>';
 $assert(ChromeStackingIdentity::normalize($stack('1', '6')) === ChromeStackingIdentity::normalize($stack('2', '14')), 'Sibling rank ignores counter magnitude.');
 $assert(ChromeStackingIdentity::normalize($stack('1', '6')) !== ChromeStackingIdentity::normalize($stack('14', '2')), 'Sibling reorder retains identity.');

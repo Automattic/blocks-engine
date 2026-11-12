@@ -3641,7 +3641,7 @@ PHP;
 
     private function chromeIdentityKey(string $markup): string
     {
-        return $this->chromeIdentityKeys[hash('xxh128', $markup)] ??= ('' === ($identity = ShellExtraction::identityMarkup($markup)) ? '' : hash('xxh128', $identity));
+        return $this->chromeIdentityKeys[hash('xxh128', $markup)] ??= ('' === ($identity = ChromeIdentity::markup($markup)) ? '' : hash('xxh128', $identity));
     }
 
     /**

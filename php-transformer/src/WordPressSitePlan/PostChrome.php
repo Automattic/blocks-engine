@@ -142,7 +142,7 @@ final class PostChrome
                 // Compare the same non-semantic per-document capture identity
                 // as shell extraction, but retain the desktop payload verbatim
                 // so its authored blocks and generated geometry keep their CSS.
-                $identities = array_map(array(ShellExtraction::class, 'documentChromeIdentity'), $articles);
+                $identities = array_map(ChromeIdentity::document(...), $articles);
                 $pages[$index]['canonical_block_markup'] = 1 === count(array_unique($identities)) ? $articles[0] : implode("\n", $bodies);
                 $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($pages[$index]['canonical_block_markup']);
                 continue;
@@ -243,7 +243,7 @@ final class PostChrome
                     unset($attrs['url']);
                     return '<!-- wp:social-link ' . BlockAttributes::encode($attrs) . ' /-->';
                 }, $identityMarkup) ?? $identityMarkup;
-                $identity = ShellExtraction::identityMarkup($identityMarkup);
+                $identity = ChromeIdentity::markup($identityMarkup);
                 $groups[$identity][$index] = $post;
             }
             foreach ($groups as $identity => $group) {
