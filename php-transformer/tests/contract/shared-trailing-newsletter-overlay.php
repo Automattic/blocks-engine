@@ -6,6 +6,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\BindingAnchors;
 use Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ChromeIdentity;
 
@@ -61,7 +62,7 @@ foreach ($plan['runtime_declarations'] as $declaration) {
 $assert(1 === count($forms), 'There is one runtime form, not one per route.');
 $binding = $forms[0]['bindings'][0];
 $assert($footer['source_path'] === $binding['source_path'] && $footer['source_path'] === $forms[0]['source_path'], 'Entity and binding are part-owned.');
-$assert(WordPressSitePlan::bindingPosition($binding['position'], new BlockMarkupIndex($footer['canonical_block_markup']), $binding['search_block_markup']), 'The form binding resolves exactly in the footer.');
+$assert(BindingAnchors::positionMatches($binding['position'], new BlockMarkupIndex($footer['canonical_block_markup']), $binding['search_block_markup']), 'The form binding resolves exactly in the footer.');
 $assert(3 === count($forms[0]['replaced_fallback_identities'] ?? array()), 'One form reconciles all three source fallbacks.');
 WordPressSitePlan::assertValid($plan);
 preg_match('/blocks-engine-responsive-typography-[a-f0-9]+/', $footer['canonical_block_markup'], $movedClass);

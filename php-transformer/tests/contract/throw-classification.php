@@ -38,8 +38,10 @@ const THROW_CLASSIFICATION_UNITS = array('item', 'binding', 'block', 'asset', 'p
  * disappears or when a new `: never` method appears outside this list.
  */
 const THROW_CLASSIFICATION_HELPERS = array(
-    'src/WordPressSitePlan/WordPressSitePlan.php' => array(
+    'src/WordPressSitePlan/PlanDocuments.php' => array(
         'invalidDeclaration' => 'ValidationException',
+    ),
+    'src/WordPressSitePlan/WordPressSitePlan.php' => array(
         'unique' => 'InvalidArgumentException',
     ),
 );

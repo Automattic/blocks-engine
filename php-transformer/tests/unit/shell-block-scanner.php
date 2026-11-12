@@ -40,9 +40,9 @@ $children = $index->children($top[0]);
 $assert(2 === count($children), 'direct children are found under an attribute carrying a raw >', json_encode($children));
 $binding = array('schema' => 'blocks-engine/runtime-binding-position/v1', 'block_index' => 1, 'offset' => $children[0]['offset'], 'length' => $children[0]['length']);
 $search = substr($page, $children[0]['offset'], $children[0]['length']);
-$assert(Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::bindingPosition($binding, $index, $search), 'binding validation consumes the held document index');
+$assert(Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\BindingAnchors::positionMatches($binding, $index, $search), 'binding validation consumes the held document index');
 $binding['offset']++;
-$assert(!Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::bindingPosition($binding, $index, $search), 'binding validation rejects stale byte positions');
+$assert(!Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\BindingAnchors::positionMatches($binding, $index, $search), 'binding validation rejects stale byte positions');
 $assert(str_starts_with(substr($header, $children[0]['offset'], $children[0]['length']), '<!-- wp:navigation-link'), 'the first child is the self-closing navigation link');
 $assert(str_ends_with(substr($header, $children[1]['offset'], $children[1]['length']), '<!-- /wp:group -->'), 'the second child is the nested group, closed');
 

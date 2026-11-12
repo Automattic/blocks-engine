@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ContentConservation;
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
@@ -25,7 +26,7 @@ foreach ($plan['pages'] as &$planned) {
     $planned['content_hash'] = WordPressSitePlan::contentHash($planned['canonical_block_markup']);
 }
 unset($planned);
-$lossy = WordPressSitePlan::withContentConservation($plan, $result['source_reports']['compiled_site']['pages']);
+$lossy = ContentConservation::check($plan, $result['source_reports']['compiled_site']['pages']);
 $found = $losses($lossy);
 $assert(1 === $lossy['quality']['metrics']['content_loss_count'] && 1 === count($found), 'One page lost text, so one content-loss finding');
 $assert('about.html' === $found[0]['source_path'] && array('Only on About') === $found[0]['lost_text'] && 'content_loss' === $found[0]['loss_class'], 'The finding names the page and the lost text');
@@ -55,7 +56,7 @@ foreach (array('Cape Cod<!---->, <!---->Osterville', 'Cape Cod, Osterville', 'Ca
 $checkMarkup = static function (string $source, string $markup) use ($plan): array {
     $plan['pages'][0]['canonical_block_markup'] = $markup;
     $plan['pages'][0]['content_hash'] = WordPressSitePlan::contentHash($markup);
-    return WordPressSitePlan::withContentConservation($plan, array(array('source_path' => $plan['pages'][0]['source_path'], 'block_markup' => $source)));
+    return ContentConservation::check($plan, array(array('source_path' => $plan['pages'][0]['source_path'], 'block_markup' => $source)));
 };
 $assert(0 === $checkMarkup('<p>Searchable label</p>', '<!-- wp:navigation-link {"label":"Searchable label"} /-->')['quality']['metrics']['content_loss_count'], 'Block delimiter attribute text stays searchable');
 $hidden = $checkMarkup('<p>Missing label</p>', '<!-- Missing label -->');

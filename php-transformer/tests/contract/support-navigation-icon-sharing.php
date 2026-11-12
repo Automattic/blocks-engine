@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\StylesheetScopes;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap;
 
 $assert = static function (bool $condition, string $message): void {
@@ -37,7 +38,7 @@ foreach (array_keys($files) as $index => $source) {
     $assert($loads === ($index < 2), 'Only routes owning the icon load its shared resource.');
 }
 // Exercise the allocator's URL boundary independently of icon lowering.
-$allocate = new ReflectionMethod(WordPressSitePlan::class, 'allocateDocumentSupport');
+$allocate = new ReflectionMethod(StylesheetScopes::class, 'allocateSupport');
 foreach (array('url("data:image/svg+xml,%3Csvg/%3E")', "url('data:image/svg+xml,%3Csvg/%3E')", 'url(data:image/svg+xml,%3Csvg/%3E)', 'url(../images/icon.svg)', 'url("#icon")') as $url) {
     $assets = array();
     foreach (array('index.html', 'about.html') as $source) {

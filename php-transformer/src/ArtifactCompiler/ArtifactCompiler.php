@@ -46,6 +46,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\StylesheetActivation;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentIdentityException;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ValidationException;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentIdentity;
 use DOMDocument;
 use DOMElement;
 use DOMXPath;
@@ -627,8 +628,8 @@ final class ArtifactCompiler
         $compiledSite['source_css_bytes'] = $normalized['source_css_bytes'];
         $compiledSite['runtime_entity_records'] = $runtimeEntityRecords;
         $sourceReports['compiled_site'] = $compiledSite;
-        $identityFailures = WordPressSitePlan::compiledSiteIdentityFailures($compiledSite);
-        foreach ( WordPressSitePlan::documentIdentityDiagnostics($identityFailures) as $identityDiagnostic ) {
+        $identityFailures = DocumentIdentity::compiledSiteFailures($compiledSite);
+        foreach ( DocumentIdentity::diagnostics($identityFailures) as $identityDiagnostic ) {
             $diagnostics[] = array_merge($identityDiagnostic, array('source' => self::class));
         }
         $fileMetadata = array_column($normalized['files'], null, 'path');

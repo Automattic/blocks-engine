@@ -6,6 +6,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\BindingAnchors;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanResolver;
 
 $assert = static function (bool $condition, string $message): void {
@@ -58,9 +59,9 @@ $assert(1 === count($forms), 'Only the canonical surface has an active form bind
 $template = array_column($plan['templates'], null, 'slug')['archive-updates'];
 $binding = $forms[0]['bindings'][0];
 $assert('updates/index.html' === $binding['source_path'] && 'templates/archive-updates.html' === ($binding['target_path'] ?? null), 'The selected source binding names the template target.');
-$assert(WordPressSitePlan::bindingPosition($binding['position'], new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($template['canonical_block_markup']), $binding['search_block_markup']), 'The form anchors on canonical template markup.');
+$assert(BindingAnchors::positionMatches($binding['position'], new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($template['canonical_block_markup']), $binding['search_block_markup']), 'The form anchors on canonical template markup.');
 $templateWrite = array_column($plan['writes'], null, 'target_path')[$binding['target_path']];
-$assert(WordPressSitePlan::bindingPosition($binding['position'], new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($templateWrite['payload']['data']), $binding['search_block_markup']), 'The consumer can patch the exact fragment in the emitted template write.');
+$assert(BindingAnchors::positionMatches($binding['position'], new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($templateWrite['payload']['data']), $binding['search_block_markup']), 'The consumer can patch the exact fragment in the emitted template write.');
 $identities = array_values(array_filter(array_column(array_filter($result['fallbacks'], static fn(array $row): bool => 'html_form_fallback' === ($row['diagnostic_code'] ?? null)), 'fallback_identity')));
 sort($identities);
 $assert(2 === count($identities) && $identities === ($forms[0]['replaced_fallback_identities'] ?? null), 'The canonical entity accounts for both source fallback identities.');
@@ -68,7 +69,7 @@ WordPressSitePlan::assertValid($plan);
 $resolved = (new WordPressSitePlanResolver())->resolve($plan, array('theme_uri' => 'https://example.test/theme'));
 $resolvedTemplate = array_column($resolved['templates'], null, 'slug')['archive-updates'];
 $resolvedBinding = $formsOf($resolved)[0]['bindings'][0];
-$assert(WordPressSitePlan::bindingPosition($resolvedBinding['position'], new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($resolvedTemplate['resolved_block_markup']), $resolvedBinding['search_block_markup']), 'The binding rebases onto resolved template markup.');
+$assert(BindingAnchors::positionMatches($resolvedBinding['position'], new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($resolvedTemplate['resolved_block_markup']), $resolvedBinding['search_block_markup']), 'The binding rebases onto resolved template markup.');
 // Different visible controls, non-self actions and form selectors fail closed.
 foreach (array('controls', 'action', 'selector', 'source_path') as $field) {
     $input = $result;

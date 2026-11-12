@@ -9,6 +9,8 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\BindingAnchors;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentIdentity;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeTemplates;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanInput;
@@ -1523,7 +1525,7 @@ $boundListingPages = array_column($boundListingPlan['pages'] ?? array(), null, '
 $boundListingMarkup = $boundListingPages['journal/index.html']['canonical_block_markup'] ?? '';
 $boundListingBindings = array();
 foreach ($boundListingPlan['runtime_declarations'] ?? array() as $declaration) foreach ($declaration['payload']['entities'] ?? array() as $entity) foreach ($entity['bindings'] ?? array() as $binding) if ('journal/index.html' === ($binding['source_path'] ?? null)) $boundListingBindings[] = $binding;
-$assert('failed' !== ($boundListing['status'] ?? null) && str_contains($boundListingMarkup, '<!-- wp:query') && 1 === count($boundListingBindings) && WordPressSitePlan::bindingPosition($boundListingBindings[0]['position'] ?? null, new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($boundListingMarkup), $boundListingBindings[0]['search_block_markup'] ?? ''), 'A page-owned form after converted listing cards keeps its exact block position after Query Loop replacement: ' . json_encode(array('status' => $boundListing['status'], 'query' => str_contains($boundListingMarkup, '<!-- wp:query'), 'bindings' => count($boundListingBindings), 'diagnostics' => $boundListing['source_reports']['wordpress_site_plan_diagnostics'] ?? array())));
+$assert('failed' !== ($boundListing['status'] ?? null) && str_contains($boundListingMarkup, '<!-- wp:query') && 1 === count($boundListingBindings) && BindingAnchors::positionMatches($boundListingBindings[0]['position'] ?? null, new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($boundListingMarkup), $boundListingBindings[0]['search_block_markup'] ?? ''), 'A page-owned form after converted listing cards keeps its exact block position after Query Loop replacement: ' . json_encode(array('status' => $boundListing['status'], 'query' => str_contains($boundListingMarkup, '<!-- wp:query'), 'bindings' => count($boundListingBindings), 'diagnostics' => $boundListing['source_reports']['wordpress_site_plan_diagnostics'] ?? array())));
 $escapedVisibleDate = $listedJournal;
 foreach ($escapedVisibleDate['source_reports']['compiled_site']['pages'] as &$page) {
     if ('journal/first/index.html' !== ($page['source_path'] ?? null)) {
@@ -1645,7 +1647,7 @@ try {
 }
 $boundedIdentityInput = $first;
 $boundedIdentityPages = array();
-for ($boundedPage = 0; $boundedPage < WordPressSitePlan::MAX_DOCUMENT_IDENTITY_DIAGNOSTICS + 10; ++$boundedPage) {
+for ($boundedPage = 0; $boundedPage < DocumentIdentity::MAX_DIAGNOSTICS + 10; ++$boundedPage) {
     $boundedIdentityPages[] = array('source_path' => 'page-' . $boundedPage . '.html', 'block_markup' => '', 'slug' => 'page-' . $boundedPage, 'title' => 'Page ' . $boundedPage);
 }
 $boundedIdentityInput['source_reports']['compiled_site']['pages'] = $boundedIdentityPages;
@@ -1657,7 +1659,7 @@ try {
     $boundedIdentityDiagnostics = $boundedIdentityException->diagnostics();
     $boundedRetained = array_values(array_filter($boundedIdentityDiagnostics, static fn(array $diagnostic): bool => 'truncated' !== ($diagnostic['reason'] ?? null)));
     $boundedTruncation = array_values(array_filter($boundedIdentityDiagnostics, static fn(array $diagnostic): bool => 'truncated' === ($diagnostic['reason'] ?? null)));
-    $assert(WordPressSitePlan::MAX_DOCUMENT_IDENTITY_DIAGNOSTICS === count($boundedRetained) && 1 === count($boundedTruncation) && (WordPressSitePlan::MAX_DOCUMENT_IDENTITY_DIAGNOSTICS + 10) === ($boundedTruncation[0]['document_count'] ?? null) && 10 === ($boundedTruncation[0]['omitted_count'] ?? null) && !isset($boundedIdentityDiagnostics[0]['block_markup']), 'Identity diagnostics stay bounded by document count and omit compiled markup payloads.');
+    $assert(DocumentIdentity::MAX_DIAGNOSTICS === count($boundedRetained) && 1 === count($boundedTruncation) && (DocumentIdentity::MAX_DIAGNOSTICS + 10) === ($boundedTruncation[0]['document_count'] ?? null) && 10 === ($boundedTruncation[0]['omitted_count'] ?? null) && !isset($boundedIdentityDiagnostics[0]['block_markup']), 'Identity diagnostics stay bounded by document count and omit compiled markup payloads.');
 }
 $encodedRoute = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main>Home</main>', 'nested%2fabout.html' => '<main>Encoded</main>')))->toArray();
 $assert(isset($encodedRoute['source_reports']['wordpress_site_plan_diagnostics']), 'Encoded source paths fail closed before they can become ambiguous page routes.');
