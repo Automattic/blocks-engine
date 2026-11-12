@@ -23,6 +23,28 @@ final class ListingFieldProjection
         foreach ($metadata['post_meta'] as $key => $value) if (!is_string($key) || '' === $key || !is_string($value)) throw new InvalidArgumentException('Source-backed post metadata must be a string map.');
     }
 
+    /**
+     * Name each featured-image handoff by its declared theme write, so the
+     * consumer attaches the same file the plan materializes.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<int,array{token:string,source_path:string,target_path:string}> $tokens
+     * @return array<int,array<string,mixed>>
+     */
+    public static function resolveFeaturedImageTargets(array $pages, array $tokens): array
+    {
+        $targets = array_column($tokens, 'target_path', 'token');
+        foreach ($pages as &$page) {
+            $image = $page['metadata']['featured_image'] ?? null;
+            if (!is_array($image)) continue;
+            $target = $targets[$image['asset_token'] ?? ''] ?? null;
+            if (is_string($target)) $page['metadata']['featured_image']['target_path'] = $target;
+            else unset($page['metadata']['featured_image']);
+        }
+        unset($page);
+        return $pages;
+    }
+
     public static function isLinkedMetadata(string $markup): bool
     {
         if (str_contains($markup, WordPressSitePlan::TOKEN_PREFIX) || preg_match('/<(?:img|svg|video|audio|iframe|input|button|select|textarea)\b/i', $markup)) return false;
