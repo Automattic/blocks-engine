@@ -94,6 +94,11 @@ final class FallbackBindingFinalizer
             $blockIndex = is_int($provenanceId) ? ($provenanceIndexes[$provenanceId] ?? null) : null;
             $anchorSelector = $binding['_binding_anchor_selector'] ?? null;
             if ( ! is_int($blockIndex) && is_string($anchorSelector) ) $blockIndex = $anchorIndexes[$anchorSelector] ?? null;
+            // Cart links address the control, not its layout-only buttons
+            // wrapper, which shell extraction may merge or remove.
+            if ( 'commerce_cart_link' === ($binding['role'] ?? null) && is_int($blockIndex) && isset($ranges[$blockIndex + 1]) && str_starts_with(substr($markup, $ranges[$blockIndex]['offset']), '<!-- wp:buttons ') ) {
+                ++$blockIndex;
+            }
             $range = is_int($blockIndex) ? ($ranges[$blockIndex] ?? null) : null;
             if (is_array($range)) {
                 $search = substr($markup, $range['offset'], $range['length']);
