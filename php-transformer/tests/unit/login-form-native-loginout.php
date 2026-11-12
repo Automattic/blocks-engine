@@ -42,7 +42,9 @@ $cases = array(
     'terms checkbox' => array( $username . $password . '<label><input type="checkbox" name="terms">Accept terms</label>' . $submit, false ),
     'no submit' => array( $username . $password, false ),
     'two submits' => array( $username . $password . $submit . $submit, false ),
-    'secondary buttons' => array( $username . $password . $remember . $submit . '<span>Or</span><button type="button" id="guest-signin">Sign in as a Guest</button><button type="button"><span>Other access options</span></button>', true, null, array( 'Sign in as a Guest', 'Other access options' ) ),
+    'secondary buttons' => array( $username . $password . $remember . $submit . '<span>Or</span><button type="button" id="guest-signin">Sign in as a Guest</button><button type="button"><span>Other access options</span></button>', true, null, array( 'Sign in as a Guest', 'Other access options' ), array( 'core/loginout', 'core/paragraph', 'core/buttons', 'core/buttons' ), array( 'Or' ) ),
+    'nested secondary prose' => array( $username . $password . $submit . '<div><label>Credential label</label><fieldset><legend>Credential legend</legend><span>Or &amp; more</span><button type="button">Guest</button> Then <button type="button">Other</button></fieldset></div>', true, null, array( 'Guest', 'Other' ), array( 'core/loginout', 'core/paragraph', 'core/buttons', 'core/paragraph', 'core/buttons' ), array( 'Or &amp; more', 'Then' ) ),
+    'hidden secondary prose' => array( $username . $password . $submit . '<span hidden>Hidden</span><div style="display: none"><span>Hidden descendant</span></div><span style="visibility: hidden !important">Invisible</span><span aria-hidden="true">Hidden accessible text</span><button type="button">Guest</button>', true, null, array( 'Guest' ) ),
     'secondary inline handler' => array( $username . $password . $submit . '<button type="button" onclick="guest()">Guest access</button>', false ),
 );
 
@@ -66,6 +68,8 @@ foreach ( $cases as $label => $case ) {
     [$controls, $converted] = $case;
     $registrationText = $case[2] ?? null;
     $secondaryLabels = $case[3] ?? array();
+    $expectedChildren = $case[4] ?? null;
+    $prose = $case[5] ?? array();
     $result = ( new HtmlTransformer() )->transform('<h2>Member access</h2><form name="loginform" id="loginform" action="/Auth/Register" method="post">' . $controls . '</form><p>After the form</p>')->toArray();
     $blocks = $flatten($result['blocks'] ?? array());
     $named = static fn (string $name): array => array_values(array_filter($blocks, static fn (array $block): bool => $name === ($block['blockName'] ?? '')));
@@ -87,8 +91,9 @@ foreach ( $cases as $label => $case ) {
         }
         if ( array() !== $expected ) {
             $children = $named('core/group')[0]['innerBlocks'] ?? array();
-            $assert(array_merge(array( 'core/loginout' ), array_fill(0, count($expected), 'core/buttons')) === array_column($children, 'blockName'), "{$label}: login then buttons");
-            $assert(! str_contains($serialized, '>Or<'), "{$label}: interleaved separator not carried");
+            $assert(($expectedChildren ?? array_merge(array( 'core/loginout' ), array_fill(0, count($expected), 'core/buttons'))) === array_column($children, 'blockName'), "{$label}: login, prose and buttons in source order");
+            $paragraphs = array_values(array_filter($children, static fn (array $block): bool => 'core/paragraph' === $block['blockName']));
+            $assert($prose === array_column(array_column($paragraphs, 'attrs'), 'content'), "{$label}: editable interleaved prose only");
         }
         foreach ( array( '/Auth/Register', 'source-secret', 'firstName', 'redirect_to', 'rememberme', 'user_pass', 'capture-native-control-state' ) as $dropped ) {
             $assert(! str_contains($serialized, $dropped), "{$label}: drops {$dropped}");
