@@ -116,7 +116,7 @@ final class WordPressSitePlan
      */
     public function fromCompilerInput(array $data, WordPressSitePlanInput $input): array
     {
-        $sourceUrl = $this->sourceUrlFromProvenance($data['provenance'] ?? array());
+        $sourceUrl = RouteLinks::sourceUrl($data['provenance'] ?? array());
         $this->chromeIdentityKeys = array();
         $this->sourceOrigin = RouteLinks::origin($sourceUrl);
         $this->listings = new ListingQueryLoops($this->sourceOrigin, $this->chromeIdentityKey(...));
@@ -1006,18 +1006,6 @@ final class WordPressSitePlan
     /** @internal Shared artifact-root semantics for document-head asset resolution. */
     public static function entryRootFromDocuments(array $documents): string { foreach ($documents as $document) { if (is_array($document) && (!empty($document['entrypoint']) || 'entrypoint' === ($document['source_relation'] ?? null)) && is_string($document['source_path'] ?? null)) { $dir = str_replace('\\', '/', dirname($document['source_path'])); return in_array($dir, array('.', '/', ''), true) ? '' : $dir; } } return ''; }
 
-
-    /** @param array<int,mixed> $provenance */
-    private function sourceUrlFromProvenance(array $provenance): string
-    {
-        foreach ($provenance as $entry) {
-            if (!is_array($entry) || !is_string($entry['source_url'] ?? null)) continue;
-            $url = trim($entry['source_url']);
-            $parts = parse_url($url);
-            if (is_array($parts) && in_array(strtolower((string) ($parts['scheme'] ?? '')), array( 'http', 'https' ), true) && '' !== (string) ($parts['host'] ?? '') && !isset($parts['user'], $parts['pass'])) return $url;
-        }
-        return '';
-    }
     /** @internal Exposed for ShellExtraction, which resolves shell links through the run's route table. */
     public function links(): RouteLinks
     {
