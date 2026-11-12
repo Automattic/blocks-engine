@@ -63,7 +63,8 @@ $negative['translations/lampe.html'] = $page($product('/translations/lampe'), $p
 $negative['index.html'] = $page($product('/', 'home'), $purchase);
 $negative['many.html'] = $page(array('@graph' => array($product('/many', 'one'), $product('/other', 'two'))), $purchase);
 $negative['catalog.html'] = $page(array('@type' => 'ItemList', 'itemListElement' => array(array('@type' => 'ListItem', 'item' => $product('/products/lamp')), array('@type' => 'ListItem', 'item' => $product('/other', 'two')))), $purchase);
-$assert($claims === $candidates($planOf($compile($negative))), 'Home, multi-product listing and translated duplicates stay page-owned.');
+$negativeClaims = $candidates($planOf($compile($negative)));
+$assert(array('many.html', 'products/lamp.html') === array_keys($negativeClaims), 'A single self-routed product claims its page despite related schema; home, listings and translated duplicates stay page-owned.');
 $noBinding = $files;
 $noBinding['products/lamp.html'] = $page($product('/products/lamp'));
 $assert(array() === $candidates($planOf($compile($noBinding))), 'Schema alone cannot authorize a page handoff.');
@@ -102,10 +103,10 @@ $assert($claims === $candidates($resolved) && $compactPlan['plan_identity'] === 
 $rooted = array();
 foreach ($negative as $path => $content) $rooted['website/' . $path] = $content;
 $rootedResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => $rooted))->toArray();
-$assert(array('website/products/lamp.html') === array_keys($candidates($planOf($rootedResult))), 'An entry-rooted detail page keeps its candidate.');
+$assert(array('website/many.html', 'website/products/lamp.html') === array_keys($candidates($planOf($rootedResult))), 'An entry-rooted detail page keeps its candidate.');
 foreach ($rootedResult['source_reports']['compiled_site']['runtime_declarations'] as $declaration) {
     if ('products' !== ($declaration['type'] ?? null)) continue;
-    foreach ($declaration['payload']['entities'] as $row) $assert(isset($row['whole_page_candidate']) ? '/products/lamp' === ($row['source_route'] ?? null) : !isset($row['source_route']), 'Only claimed rows carry a source route: ' . $row['slug']);
+    foreach ($declaration['payload']['entities'] as $row) $assert(isset($row['whole_page_candidate']) ? in_array($row['source_route'] ?? null, array('/products/lamp', '/many'), true) : !isset($row['source_route']), 'Only claimed rows carry a source route: ' . $row['slug']);
 }
 // Bare Products use the entry-relative page route even without an explicit URL.
 $bareProduct = array('@context' => 'https://schema.org', '@type' => 'Product', 'name' => 'Widget', 'image' => 'https://example.test/widget.jpg', 'offers' => array('@type' => 'AggregateOffer', 'lowPrice' => '30.00', 'highPrice' => '30.00', 'priceCurrency' => 'USD', 'offerCount' => 1));
