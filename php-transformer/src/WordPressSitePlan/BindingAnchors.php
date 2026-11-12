@@ -86,7 +86,8 @@ final class BindingAnchors
         return null !== $range && $range['offset'] === $position['offset'] && $range['length'] === $position['length'] && $search === substr($markup, $range['offset'], $range['length']);
     }
 
-    private static function occurrenceOffset(string $markup, string $search, int $occurrence): ?int
+    /** Byte offset of the `$occurrence`th (1-based) `$search` in `$markup`, or null when absent. */
+    public static function occurrenceOffset(string $markup, string $search, int $occurrence): ?int
     {
         if ('' === $search || $occurrence < 1) return null;
         $cursor = 0;
