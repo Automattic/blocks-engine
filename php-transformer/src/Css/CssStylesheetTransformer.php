@@ -132,8 +132,9 @@ final class CssStylesheetTransformer
     /**
      * The stylesheet without rules a later identical rule in the same
      * conditional groups repeats: the later copy wins wherever the earlier
-     * one would, so the cascade is unchanged. Malformed input is returned
-     * unchanged.
+     * one would, so the cascade is unchanged. Adjacent rules in the same
+     * conditional groups with identical declarations become one rule whose
+     * selector list joins theirs. Malformed input is returned unchanged.
      */
     public function compactStylesheet(string $css): string
     {
@@ -142,7 +143,89 @@ final class CssStylesheetTransformer
         }
         $units = array();
         $this->collectRuleUnits($css, array(), $units);
-        return $this->serializeRuleUnits($this->withoutEarlierDuplicates(array($units)));
+        return $this->serializeRuleUnits(self::withAdjacentEqualBodiesMerged($this->withoutEarlierDuplicates(array($units))));
+    }
+
+    /**
+     * Join each run of adjacent style rules that share conditional groups and
+     * declarations into one rule. Each arm keeps its own specificity, and
+     * the joined rule sits where the run did, so every element resolves the
+     * same declarations at the same cascade position. Rules a browser could
+     * drop on its own stay apart: an unsupported arm would invalidate the
+     * whole joined list, so vendor-prefixed pseudo-classes and pseudo-elements
+     * are never joined.
+     *
+     * @param list<array{context: list<string>, text: string, dedupable: bool}> $units
+     * @return list<array{context: list<string>, text: string, dedupable: bool}>
+     */
+    private static function withAdjacentEqualBodiesMerged(array $units): array
+    {
+        $merged = array();
+        $previous = null;
+        foreach ( $units as $unit ) {
+            $rule = self::joinableStyleRule($unit);
+            $last = count($merged) - 1;
+            if ( null !== $rule && null !== $previous && $previous['context'] === $unit['context'] && $previous['body'] === $rule['body'] ) {
+                $previous['arms'] += $rule['arms'];
+                $merged[ $last ]['text'] = implode(',', array_keys($previous['arms'])) . '{' . $previous['declarations'] . '}';
+                continue;
+            }
+            $merged[] = $unit;
+            $previous = null === $rule ? null : $rule + array( 'context' => $unit['context'] );
+        }
+        return $merged;
+    }
+
+    /**
+     * A plain style rule's arms and declarations, or null for anything else.
+     *
+     * @param array{context: list<string>, text: string, dedupable: bool} $unit
+     * @return array{arms: array<string, true>, declarations: string, body: string}|null
+     */
+    private static function joinableStyleRule(array $unit): ?array
+    {
+        $text = trim($unit['text']);
+        if ( ! $unit['dedupable'] || '' === $text || '@' === $text[0] || str_contains($text, '/*') || ! str_ends_with($text, '}') ) {
+            return null;
+        }
+        $open = self::firstTopLevelBrace($text);
+        if ( null === $open || CssSyntaxScanner::matchingBrace($text, $open) !== strlen($text) - 1 ) {
+            return null;
+        }
+        $prelude = substr($text, 0, $open);
+        $declarations = substr($text, $open + 1, -1);
+        if ( null !== self::firstTopLevelBrace($declarations) || preg_match('/:-[a-z]/i', $prelude) ) {
+            return null;
+        }
+        $arms = self::splitSelectorList($prelude);
+        if ( null === $arms ) {
+            return null;
+        }
+        $set = array();
+        foreach ( $arms as $arm ) {
+            $arm = trim($arm);
+            if ( '' === $arm ) {
+                return null;
+            }
+            $set[ $arm ] = true;
+        }
+        return array( 'arms' => $set, 'declarations' => $declarations, 'body' => self::normalizedCss($declarations) );
+    }
+
+    /** Offset of the first `{` outside strings, comments and functions. */
+    private static function firstTopLevelBrace(string $css): ?int
+    {
+        $length = strlen($css);
+        $state = CssSyntaxScanner::state();
+        for ( $offset = 0; $offset < $length; ) {
+            $offset = CssSyntaxScanner::inertEnd($css, $offset, $state, '{');
+            if ( $offset >= $length ) break;
+            if ( '{' === $css[ $offset ] && CssSyntaxScanner::isTopLevel($state) ) {
+                return $offset;
+            }
+            $offset = CssSyntaxScanner::consume($css, $offset, $state) ?? ( $offset + 1 );
+        }
+        return null;
     }
 
     /**
