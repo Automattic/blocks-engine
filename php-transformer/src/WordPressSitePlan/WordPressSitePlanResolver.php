@@ -252,7 +252,7 @@ final class WordPressSitePlanResolver
                     $canonical = $page['canonical_block_markup']; $resolved = $page['resolved_block_markup'];
                     $canonicalIndex = $canonicalIndexes[$binding['source_path']] ??= new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($canonical);
                     $resolvedIndex = $resolvedIndexes[$binding['source_path']] ??= new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($resolved);
-                    $canonicalOffset = self::occurrenceOffset($canonical, $binding['search_block_markup'], $binding['occurrence']);
+                    $canonicalOffset = BindingAnchors::occurrenceOffset($canonical, $binding['search_block_markup'], $binding['occurrence']);
                     $blockIndex = null;
                     foreach ($canonicalIndex->ranges() as $index => $range) if ($range['offset'] === $canonicalOffset && $binding['search_block_markup'] === substr($canonical, $range['offset'], $range['length'])) { $blockIndex = $index; break; }
                     if (!is_int($blockIndex)) throw new InvalidArgumentException('WordPress site plan runtime binding cannot be resolved from its canonical source document anchor.');
@@ -287,12 +287,6 @@ final class WordPressSitePlanResolver
             $resolved[] = array('reconciliation_identity' => $declaration['reconciliation_identity'], 'kind' => $declaration['kind'], 'type' => $declaration['type'] ?? null, 'entity_schema' => $payload['entity_schema'], 'entities' => $expanded[0]['payload']['entities']);
         }
         return $resolved;
-    }
-    private static function occurrenceOffset(string $markup, string $search, int $occurrence): ?int
-    {
-        if ('' === $search || $occurrence < 1) return null;
-        $offset = 0; for ($index = 0; $index < $occurrence; ++$index) { $offset = strpos($markup, $search, $offset); if (false === $offset) return null; if ($index + 1 < $occurrence) $offset += strlen($search); }
-        return $offset;
     }
     public static function normalizeThemeUri(mixed $value): string
     {
