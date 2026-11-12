@@ -1654,6 +1654,16 @@
         "count": 1
       }
     },
+    "src/WordPressSitePlan/ThemeTemplates.php": {
+      "InvalidArgumentException('A declared template surface collides with a generated template.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('A native archive template collides with a declared template.')": {
+        "class": "integrity",
+        "count": 1
+      }
+    },
     "src/WordPressSitePlan/WordPressSitePlan.php": {
       "DocumentIdentityException($failures)": {
         "class": "integrity",
@@ -1683,15 +1693,7 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('A declared template surface collides with a generated template.')": {
-        "class": "integrity",
-        "count": 1
-      },
       "InvalidArgumentException('A global asset scope cannot declare page fields.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('A native archive template collides with a declared template.')": {
         "class": "integrity",
         "count": 1
       },

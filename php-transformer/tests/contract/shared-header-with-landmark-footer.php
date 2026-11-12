@@ -4,7 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeTemplates;
 
 $assert = static function (bool $condition, string $message): void { if (! $condition) throw new RuntimeException($message); };
 
@@ -43,7 +43,7 @@ $menus = array_values(array_filter($plan['menus'], static fn(array $menu): bool 
 $assert(1 === count($menus), 'The four pages share one navigation entity, got ' . count($menus));
 // The header reference sits in the page or, once its layout frame is hoisted,
 // in the route template that renders the page.
-$templates = WordPressSitePlan::renderedTemplates($plan);
+$templates = ThemeTemplates::rendered($plan);
 foreach ($plan['pages'] as $document) {
     $markup = (string) ($document['canonical_block_markup'] ?? '');
     $template = !empty($document['entrypoint']) ? 'front-page' : (isset($templates['page-' . $document['slug']]) ? 'page-' . $document['slug'] : 'page');

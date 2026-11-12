@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeTemplates;
 
 $assert = static function (bool $condition, string $message): void { if (!$condition) throw new RuntimeException($message); };
 
@@ -17,7 +18,7 @@ $html = <<<'HTML'
 HTML;
 $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'shell.html', 'files' => array('shell.html' => $html)))->toArray()['source_reports']['wordpress_site_plan'];
 WordPressSitePlan::assertValid($plan);
-$templates = WordPressSitePlan::renderedTemplates($plan);
+$templates = ThemeTemplates::rendered($plan);
 foreach (array('front-page', 'page', 'single', 'index', 'archive', 'search', '404') as $slug) {
     $markup = $templates[$slug] ?? '';
     $assert(1 === substr_count($markup, '"slug":"header"') && 1 === substr_count($markup, '"slug":"footer"'), "{$slug} references the shared header and footer exactly once.");

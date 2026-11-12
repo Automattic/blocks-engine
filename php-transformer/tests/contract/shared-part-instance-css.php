@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeTemplates;
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
@@ -52,7 +53,7 @@ foreach ($branches as $branch) {
 }
 $editor = (string) strstr($bootstrap, "add_action( 'enqueue_block_editor_assets'");
 $assert(str_contains($editor, $editorTarget), 'Editor enqueues the shared instance stylesheet.');
-$templates = WordPressSitePlan::renderedTemplates($plan);
+$templates = ThemeTemplates::rendered($plan);
 foreach (array('front-page', 'page') as $slug) {
     $assert(str_contains($templates[$slug], 'wp:template-part {"slug":"header",'), 'Every route template adopts the shared header.');
 }

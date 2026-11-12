@@ -4,7 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeTemplates;
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
@@ -22,7 +22,7 @@ foreach (array('Post footer B', '', 'variant') as $case) {
         $expected[$path] = $footer;
     }
     $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray()['source_reports']['wordpress_site_plan'];
-    $templates = WordPressSitePlan::renderedTemplates($plan);
+    $templates = ThemeTemplates::rendered($plan);
     $parts = array_column($plan['template_parts'], 'canonical_block_markup', 'slug');
     foreach ($templates as $slug => $markup) {
         preg_match_all('/<!-- wp:template-part (\{.*?\}) \/-->/', $markup, $matches);
@@ -67,7 +67,7 @@ foreach (array('index', 'about', 'nested/about') as $name) {
 }
 $files['notes/essay.html'] = '<meta property="article:published_time" content="2024-03-02T10:30:00Z"><main><article>Essay</article></main>';
 $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray()['source_reports']['wordpress_site_plan'];
-$templates = WordPressSitePlan::renderedTemplates($plan);
+$templates = ThemeTemplates::rendered($plan);
 $parts = array_column($plan['template_parts'], 'canonical_block_markup', 'slug');
 foreach (array('front-page', 'page') as $slug) {
     foreach (array('header', 'footer') as $area) {

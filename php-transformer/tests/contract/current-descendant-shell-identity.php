@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeTemplates;
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
@@ -27,7 +28,7 @@ $assert(!str_contains($headers[0]['canonical_block_markup'], 'item--isCurrentPag
 foreach ($plan['pages'] as $page) {
     $markup = $page['canonical_block_markup'];
     $templateSlug = $page['entrypoint'] ? 'front-page' : 'page';
-    $template = WordPressSitePlan::renderedTemplates($plan)[$templateSlug] ?? '';
+    $template = ThemeTemplates::rendered($plan)[$templateSlug] ?? '';
     $assert(str_contains($template . $markup, 'wp:template-part {"slug":"' . $headers[0]['slug'] . '"'), $page['source_path'] . ' binds the shared header part.');
     $assert(!str_contains($markup, '<header') && !str_contains($markup, '<!-- wp:navigation '), $page['source_path'] . ' has no inline header navigation.');
 }

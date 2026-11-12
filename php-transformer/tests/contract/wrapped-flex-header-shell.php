@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeTemplates;
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
@@ -31,7 +32,7 @@ foreach (array(false, true) as $wrapped) {
     $parts[$variant] = $part['canonical_block_markup'];
     if ($wrapped) $assert(2 === count($part['placement']['source_paths'] ?? array()), 'Both routes share the nested header');
     $assert(str_contains($parts[$variant], '"type":"flex"') && !str_contains($parts[$variant], 'blocks-engine-css-owned-layout'), $variant . ': the header retains native flex layout');
-    $templates = WordPressSitePlan::renderedTemplates($plan);
+    $templates = ThemeTemplates::rendered($plan);
     foreach (array('front-page', 'page', 'index', 'archive', 'search', '404', 'single') as $slug) {
         $assert(1 === substr_count($templates[$slug] ?? '', '"slug":"' . $part['slug'] . '"'), $variant . ': ' . $slug . ' references the shared header once');
     }

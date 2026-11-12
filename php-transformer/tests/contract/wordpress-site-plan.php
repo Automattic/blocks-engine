@@ -9,6 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeTemplates;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanInput;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanResolver;
@@ -264,7 +265,7 @@ $responsiveTypographyWrites = $writeMap($responsiveTypographyPlan['writes'] ?? a
 $responsiveTypographyTheme = json_decode((string) ($responsiveTypographyWrites['theme.json']['payload']['data'] ?? ''), true);
 $responsiveTypographyCss = implode("\n", array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), $responsiveTypographyPlan['assets'] ?? array()));
 $assert(!isset($responsiveTypographyTheme['styles']['elements']['h1']['typography']['fontSize']) && 'var:preset|color|contrast' === ($responsiveTypographyTheme['styles']['elements']['h1']['color']['text'] ?? null) && str_contains($responsiveTypographyCss, 'h1{font-size:var(--wp--preset--font-size--medium,3.5rem);color:var(--wp--preset--color--contrast,#123456)}') && str_contains($responsiveTypographyCss, '@media (max-width:768px){h1{font-size:2.2rem}}'), 'Global Styles leave properties with conditional source overrides in authored CSS so responsive selectors retain their cascade while unaffected properties remain projected.');
-$frontPageTemplate = WordPressSitePlan::renderedTemplates($plan)['front-page'];
+$frontPageTemplate = ThemeTemplates::rendered($plan)['front-page'];
 $indexTemplate = (string) $writes['templates/index.html']['payload']['data'];
 $assert(str_contains($frontPageTemplate, '"slug":"header"') && str_contains($frontPageTemplate, '"slug":"footer"') && strpos($frontPageTemplate, '"slug":"header"') < strpos($frontPageTemplate, 'wp:post-content') && strpos($frontPageTemplate, 'wp:post-content') < strpos($frontPageTemplate, '"slug":"footer"'), 'Front-page template wraps post content between extracted header and footer parts.');
 $assert(str_contains($indexTemplate, '"slug":"header"') && str_contains($indexTemplate, '"slug":"footer"') && strpos($indexTemplate, '"slug":"header"') < strpos($indexTemplate, 'wp:query') && strpos($indexTemplate, 'wp:query') < strpos($indexTemplate, '"slug":"footer"') && str_contains($indexTemplate, '"perPage":10') && str_contains($indexTemplate, '"inherit":true') && str_contains($indexTemplate, 'wp:post-template') && str_contains($indexTemplate, 'wp:post-title') && str_contains($indexTemplate, 'wp:post-excerpt') && str_contains($indexTemplate, 'wp:post-date') && str_contains($indexTemplate, 'wp:query-pagination') && str_contains($indexTemplate, 'wp:query-no-results') && !str_contains($indexTemplate, 'wp:post-content'), 'Index template is a bounded inherited native Query Loop with post cards, pagination, and no-results behavior.');
@@ -1380,7 +1381,7 @@ $assert(str_contains($dateArchivePages['index.html']['canonical_block_markup'], 
 $assert(2 === count(array_filter($dateArchivePages, static fn(array $page): bool => 'post' === $page['post_type'])) && !isset($dateArchivePages['2023/04/02/index.html']), 'A WordPress date archive is never materialized as a page or post beside its two dated posts.');
 $assert(array() === $dateArchivePlan['taxonomy_entities'], 'Date route segments must not invent taxonomy terms.');
 $assert(!in_array('2023/04/02/index.html', array_column($dateArchivePlan['routes'], 'source_path'), true), 'The native date archive route has no imported route override or redirect.');
-$assert(str_contains(WordPressSitePlan::renderedTemplates($dateArchivePlan)['date'], '"inherit":true'), 'Core date archives render the native query listing.');
+$assert(str_contains(ThemeTemplates::rendered($dateArchivePlan)['date'], '"inherit":true'), 'Core date archives render the native query listing.');
 $assert(in_array('2023/04/02/index.html', array_column($dateArchivePlan['source']['source_documents'], 'source_path'), true), 'The omitted date archive retains its captured source provenance.');
 foreach ($dateArchiveResult['source_reports']['compiled_site']['pages'] as &$dateArchiveDocument) unset($dateArchiveDocument['html']);
 unset($dateArchiveDocument);

@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeTemplates;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 
 $files = array();
@@ -26,7 +27,7 @@ $assert(1 === count(array_diff(array_keys($templates), WordPressSitePlan::NATIVE
 $registrations = array_values(array_filter($custom, static fn(array $row): bool => $row['name'] === $shared));
 $assert(1 === count($registrations) && 'Page (shared layout)' === $registrations[0]['title'] && array('page') === $registrations[0]['postTypes'], 'shared template is registered once with a short group title for pages');
 $entry = current(array_filter($plan['pages'], static fn(array $page): bool => !empty($page['entrypoint'])));
-$assert(isset(WordPressSitePlan::renderedTemplates($plan)['front-page']) && !isset($entry['metadata']['post_meta']['_wp_page_template']), 'front-page handling is unchanged');
+$assert(isset(ThemeTemplates::rendered($plan)['front-page']) && !isset($entry['metadata']['post_meta']['_wp_page_template']), 'front-page handling is unchanged');
 if (is_string($shared) && isset($templates[$shared])) {
     $footer = current(array_filter($plan['template_parts'], static fn(array $part): bool => 'footer' === $part['area'] && str_contains($part['canonical_block_markup'], 'Products')));
     $assert(is_array($footer) && str_contains($templates[$shared]['canonical_block_markup'], '"slug":"' . $footer['slug'] . '"'), 'shared override references the Products footer');
