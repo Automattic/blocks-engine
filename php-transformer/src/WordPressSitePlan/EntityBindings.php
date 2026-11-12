@@ -335,7 +335,7 @@ final class EntityBindings
             if (!$this->links->isSameOrigin($action)) return false;
             $action = (string) (parse_url($action, PHP_URL_PATH) ?: '/');
         }
-        $root = WordPressSitePlan::entryRootFromDocuments($routes);
+        $root = PageRoute::entryRoot($routes);
         $path = str_starts_with($action, '/') ? ('' === $root ? ltrim($action, '/') : $root . '/' . ltrim($action, '/')) : RouteLinks::resolveSource($source, $action);
         if (null === $path) return false;
         $document = static fn(string $path): string => preg_replace('~(?:^|/)index\.html?$~', '', rtrim($path, '/'));

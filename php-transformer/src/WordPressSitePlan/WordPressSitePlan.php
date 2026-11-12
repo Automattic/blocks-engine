@@ -183,7 +183,7 @@ final class WordPressSitePlan
         }
         // Native date archives are document roots, not materialized pages, but
         // their captured file paths still participate in link resolution.
-        $entryRoot = self::entryRootFromDocuments($compiled['pages']);
+        $entryRoot = PageRoute::entryRoot($compiled['pages']);
         foreach ($compiled['pages'] as $document) {
             if (!ContentDecisions::isDateArchive($document)) continue;
             $path = $document['metadata']['route_path'] ?? PageRoute::fromSource($document['source_path'], $entryRoot);
@@ -198,7 +198,7 @@ final class WordPressSitePlan
         $this->missingMedia = new MissingMediaRecovery($this->strictMissingMedia, array_column($assets, 'target_path'));
         $missingFonts = new MissingFontSourceRecovery($this->strictMissingMedia);
         $missingImports = new MissingStylesheetImportRecovery($this->strictMissingMedia);
-        $references = new AssetReferenceCanonicalizer($tokens, self::entryRootFromDocuments($documents), $this->missingMedia, $missingFonts, $missingImports);
+        $references = new AssetReferenceCanonicalizer($tokens, PageRoute::entryRoot($documents), $this->missingMedia, $missingFonts, $missingImports);
         $pages = $this->documents($documents, false, $tokens, $references, $routeMap);
         // Probe presentation with the final plan's canonical listing projection.
         // Entity ownership is already proven independently and must survive a
@@ -341,7 +341,7 @@ final class WordPressSitePlan
         $nativeArchiveSources = array_fill_keys(array_column(array_column($taxonomyProjection['entities'], 'archive'), 'source_path'), true);
         $assetPages = array_values(array_filter($pages, static fn(array $page): bool => !isset($nativeArchiveSources[$page['source_path']])));
         $pageSources = array_fill_keys(array_column($assetPages, 'source_path'), true);
-        $entryRoot = self::entryRootFromDocuments($compiled['pages']);
+        $entryRoot = PageRoute::entryRoot($compiled['pages']);
         foreach ($compiled['pages'] as $document) {
             if (isset($pageSources[$document['source_path']]) || isset($paginationOwners[$document['source_path']]) || isset($paginationSources[$document['source_path']])) continue;
             $path = $routeBySource[$document['source_path']] ?? $document['metadata']['route_path'] ?? PageRoute::fromSource($document['source_path'], $entryRoot);
@@ -813,7 +813,7 @@ final class WordPressSitePlan
             self::unique($partSlugs, $part['slug'], 'template part slug');
         }
         $pagePaths = array(); $pagesBySource = array(); $documentIdentities = array(); $routePaths = array();
-        $entryRoot = self::entryRootFromDocuments($plan['pages']);
+        $entryRoot = PageRoute::entryRoot($plan['pages']);
         foreach ( $plan['pages'] as $page ) {
             PlanDocuments::assertValid($page, 'page', false, $tokens);
             if ($page['content_hash'] !== self::contentHash($page['canonical_block_markup'])) throw new InvalidArgumentException('WordPress site plan page has a stale content hash.');
@@ -1003,8 +1003,6 @@ final class WordPressSitePlan
     // maps to `/` and its siblings map to top-level routes (`/contact`, `/music`).
     // Resolve the site root directory from the entrypoint document/page so route
     // derivation and validation agree on the same web root without shared state.
-    /** @internal Shared artifact-root semantics for document-head asset resolution. */
-    public static function entryRootFromDocuments(array $documents): string { foreach ($documents as $document) { if (is_array($document) && (!empty($document['entrypoint']) || 'entrypoint' === ($document['source_relation'] ?? null)) && is_string($document['source_path'] ?? null)) { $dir = str_replace('\\', '/', dirname($document['source_path'])); return in_array($dir, array('.', '/', ''), true) ? '' : $dir; } } return ''; }
 
     /** @internal Exposed for ShellExtraction, which resolves shell links through the run's route table. */
     public function links(): RouteLinks
