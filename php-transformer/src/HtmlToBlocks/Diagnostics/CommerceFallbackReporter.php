@@ -34,6 +34,62 @@ final class CommerceFallbackReporter
     private const MAX_CANDIDATES = 100;
 
     /**
+     * Non-gating evidence, resolved separately from unsupported fallbacks.
+     * A badge remains inline in the opener block; its source selector is the
+     * child hook, not a claim that the span has a block of its own.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function cartOpenerDeclarations(DOMElement $root): array
+    {
+        $findings = array();
+        foreach ( $root->getElementsByTagName('*') as $element ) {
+            if ( ! $this->recognizer->isCartOpener($element) ) {
+                continue;
+            }
+            $finding = array(
+                'code' => 'commerce_cart_link_detected',
+                'severity' => 'info',
+                'message' => 'A cart opener can be connected by a shop runtime provider.',
+                'selector' => SourceDom::elementSelector($element),
+                'binding' => $this->blockBindings->binding(array(), 'commerce_cart_link', array(), $element),
+            );
+            foreach ( $element->getElementsByTagName('*') as $child ) {
+                $identity = $child->getAttribute('id') . ' ' . $child->getAttribute('class');
+                foreach ( $child->attributes as $attribute ) {
+                    if ( str_starts_with($attribute->name, 'data-') ) {
+                        $identity .= ' ' . $attribute->name;
+                    }
+                }
+                if ( 1 === preg_match('/(?<![\p{L}\p{N}])count(?![\p{L}\p{N}])/iu', $identity) ) {
+                    $selector = '';
+                    foreach ( $child->attributes as $attribute ) {
+                        if ( 1 === preg_match('/^data-[a-z0-9_-]*count[a-z0-9_-]*$/i', $attribute->name) ) {
+                            $selector = '[' . $attribute->name . ']';
+                            break;
+                        }
+                    }
+                    if ( '' === $selector ) {
+                        foreach ( SourceDom::tokens($child->getAttribute('class')) as $class ) {
+                            if ( 1 === preg_match('/^[a-z_-][a-z0-9_-]*count[a-z0-9_-]*$/i', $class) ) {
+                                $selector = '.' . $class;
+                                break;
+                            }
+                        }
+                    }
+                    $finding['count_badge'] = array('source_selector' => SourceDom::elementSelector($child), 'selector' => '' !== $selector ? $selector : strtolower($child->tagName));
+                    break;
+                }
+            }
+            $findings[] = $finding;
+            if ( count($findings) >= self::MAX_CANDIDATES ) {
+                break;
+            }
+        }
+        return $findings;
+    }
+
+    /**
      * When every qualifying card in a grid was admitted only through the
      * weaker image-corroborated catalog path (no schema.org evidence and no
      * cart control anywhere in the grid) and has no listing controls, require

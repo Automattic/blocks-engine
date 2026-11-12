@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\DeclaredContent;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlMarkupParser;
@@ -170,9 +171,11 @@ final class ContentDecisions
         $structuredTypes = array();
         $pageEvidenceByIndex = array();
         $dateSlotsByIndex = array();
+        $declaredByIndex = array();
         foreach ($documents as $index => $document) {
             if (!is_array($document) || !WordPressSitePlan::safePath($document['source_path'] ?? null)) throw new InvalidArgumentException('Compiled site document is invalid.');
             $metadata = ArrayField::array($document, 'metadata');
+            $declaredByIndex[$index] = DeclaredContent::sanitize($metadata['declared_content'] ?? null);
             $path = is_string($metadata['route_path'] ?? null) && '' !== $metadata['route_path'] ? $metadata['route_path'] : PageRoute::fromSource((string) $document['source_path'], $entryRoot);
             $routes[$index] = '/' === $path ? '/' : '/' . trim($path, '/');
             $structuredTypes[$index] = self::structuredPageTypes($document);
@@ -181,7 +184,7 @@ final class ContentDecisions
             // Repeated article metadata on pagination, and the listed entries'
             // dates on a category or tag archive, are not an independent
             // publication and must not vote in listing or dated-site inference.
-            $evidenceByIndex[$index] = null === PageRoute::paginationParent($routes[$index]) && !TaxonomyProjection::isTermRoute($routes[$index]) ? self::publicationEvidence($document, $localTimesByIndex[$index], $dateSlotsByIndex[$index]) : array();
+            $evidenceByIndex[$index] = null === PageRoute::paginationParent($routes[$index]) && !TaxonomyProjection::isTermRoute($routes[$index]) && !isset($declaredByIndex[$index]['term_archive']) ? self::publicationEvidence($document, $localTimesByIndex[$index], $dateSlotsByIndex[$index]) : array();
             $pageTypes = array_intersect(array('WebPage', 'AboutPage', 'ContactPage', 'CollectionPage'), $structuredTypes[$index]);
             if (!array_intersect(array('Article', 'BlogPosting', 'NewsArticle'), $structuredTypes[$index]) && $pageTypes) {
                 $evidenceByIndex[$index] = array();
@@ -214,7 +217,7 @@ final class ContentDecisions
         // visible date dates the children that carry no evidence themselves.
         foreach ($documents as $listingIndex => $listingDocument) {
             $listingRoute = $routes[$listingIndex];
-            if ('/' === $listingRoute || null !== PageRoute::paginationParent($listingRoute) || TaxonomyProjection::isTermRoute($listingRoute)) continue;
+            if ('/' === $listingRoute || null !== PageRoute::paginationParent($listingRoute) || TaxonomyProjection::isTermRoute($listingRoute) || isset($declaredByIndex[$listingIndex]['term_archive'])) continue;
             $children = array();
             foreach ($routes as $childIndex => $childRoute) if ($listingRoute === PageRoute::parent($childRoute) && array() === $evidenceByIndex[$childIndex] && empty($documents[$childIndex]['entrypoint']) && !isset($pageEvidenceByIndex[$childIndex])) $children[$childRoute] = $childIndex;
             $cardDates = self::listingCardDates($listingDocument, $listingRoute, array_fill_keys(array_keys($children), true));
@@ -242,7 +245,20 @@ final class ContentDecisions
             $frontmatter = ArrayField::array($metadata, 'frontmatter');
             $explicit = null;
             $provenance = null;
+            // A declared content record (a content index entry) is the
+            // source's own statement of type, slug and dates. A declared term
+            // archive is a listing, never content of its own.
+            $declared = $declaredByIndex[$index];
+            if (null !== $declared) {
+                $declaredType = isset($declared['term_archive']) ? 'page' : (is_string($metadata['post_type'] ?? null) && preg_match('/^[a-z0-9_-]{1,20}$/', strtolower($metadata['post_type'])) ? strtolower($metadata['post_type']) : null);
+                if (null !== $declaredType) {
+                    $explicit = $declaredType;
+                    $provenance = DeclaredContent::PROVENANCE;
+                }
+                $metadata['declared_content'] = $declared;
+            }
             foreach (array('post_type', 'type') as $key) {
+                if (null !== $explicit) break;
                 if (is_string($frontmatter[$key] ?? null) && in_array(strtolower($frontmatter[$key]), array('page', 'post'), true)) {
                     $explicit = strtolower($frontmatter[$key]);
                     $provenance = 'frontmatter:' . $key;
@@ -291,6 +307,15 @@ final class ContentDecisions
             // Attach it after that inference so consumers can honour the page decision.
             $pageEvidence = $pageEvidenceByIndex[$index] ?? array();
             if (array() !== $pageEvidence) $evidence = $pageEvidence;
+            if (isset($declared['term_archive'])) {
+                $evidence = array();
+            } elseif (isset($declared['published']) && null !== ($declaredTimestamp = PublicationDate::normalize($declared['published'], $declaredLocalTime))) {
+                $evidence = array(array('source' => DeclaredContent::PROVENANCE, 'publication_timestamp' => $declaredTimestamp));
+                if (null !== $declaredLocalTime) $localTimesByIndex[$index][$declaredTimestamp] = $declaredLocalTime;
+            }
+            if (isset($declared['slug'])) $document['slug'] = $declared['slug'];
+            if (isset($declared['updated']) && null !== ($modified = PublicationDate::normalize($declared['updated']))) $document['modified_timestamp'] = $modified;
+            if (isset($declared['author'])) $document['author_name'] = $declared['author'];
             $postType = $explicit ?? ((!empty($document['entrypoint']) || array() !== $pageEvidence || array() === $evidence) ? 'page' : 'post');
             if (null === $explicit && 'post' === $postType && null === PageRoute::paginationParent($route)) {
                 // Meta-only documents are the ambiguous candidates, not votes

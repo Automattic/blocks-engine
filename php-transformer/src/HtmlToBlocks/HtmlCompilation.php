@@ -1328,6 +1328,27 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->fallbackBindings->anchorPurchaseControlRuns($blocks, $fallbacks);
         $serializedBlocks = $this->runtime->serializeBlocks(DefaultCommentAttributes::strip($blocks));
         $this->fallbackBindings->finalize($fallbacks, $blocks, $serializedBlocks);
+        $cartLinks = $this->commerceReporter->cartOpenerDeclarations($body);
+        // Chrome may serialize differently from its page copy. Resolve each
+        // opener against the exact captured part, preserving that identity.
+        $resolvedCartLinks = array();
+        foreach ( $shellArtifacts as &$shellArtifact ) {
+            $partLinks = 'artifact-shared-shell' === ($options['source_scope'] ?? '')
+                ? array_values(array_filter($cartLinks, static fn (array $link): bool => str_starts_with($link['selector'], $shellArtifact['_binding_source_selector'] . ' > ')))
+                : array();
+            $this->fallbackBindings->finalize($partLinks, $shellArtifact['_binding_blocks'], $shellArtifact['block_markup']);
+            foreach ( $partLinks as $link ) {
+                if ( empty($link['binding']) ) continue;
+                $link['binding']['source_path'] = $shellArtifact['source_path'];
+                $link['_binding_owner_markup'] = $shellArtifact['block_markup'];
+                $resolvedCartLinks[] = $link;
+                $cartLinks = array_values(array_filter($cartLinks, static fn (array $candidate): bool => $candidate['selector'] !== $link['selector']));
+            }
+            unset($shellArtifact['_binding_blocks'], $shellArtifact['_binding_source_selector']);
+        }
+        unset($shellArtifact);
+        $this->fallbackBindings->finalize($cartLinks, $blocks, $serializedBlocks);
+        $resolvedCartLinks = array_merge($resolvedCartLinks, array_values(array_filter($cartLinks, static fn (array $link): bool => ! empty($link['binding']))));
         $reusableComponentRecognition = $this->session->reusableComponentState()->report($this->session->assetMaterializationState()->assets());
         // Resolve against emitted blocks while the existing source provenance
         // IDs are still attached. Declaration-addressed classes are rewritten below.
@@ -1388,6 +1409,12 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $classReplacements += $classIdentity->assetPathReplacements($assets, $classReplacements);
         $blocks = $classIdentity->rewrite($blocks, $classReplacements);
         $fallbacks = $classIdentity->rewriteBindings($fallbacks, $serializedBlocks, $classReplacements);
+        foreach ( $resolvedCartLinks as $link ) {
+            $ownerMarkup = $link['_binding_owner_markup'] ?? $serializedBlocks;
+            unset($link['_binding_owner_markup']);
+            $link = $classIdentity->rewriteBindings($link, $ownerMarkup, $classReplacements);
+            $this->session->transformationEvidenceState()->recordConversionDiagnostic($link);
+        }
         $serializedBlocks = $classIdentity->rewrite($serializedBlocks, $classReplacements);
         $sourceProvenance = $classIdentity->rewrite($sourceProvenance, $classReplacements);
         $shellArtifacts = $classIdentity->rewrite($shellArtifacts, $classReplacements);
