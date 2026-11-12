@@ -1,0 +1,112 @@
+name: Static Site Importer consumer
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+    paths:
+      - 'php-transformer/**'
+      - '.github/workflows/static-site-importer.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ssi-consumer-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  downstream-consumer:
+    name: SSI main PHP tests against candidate engine (PHP 8.4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      WORDPRESS_VERSION: '7.1.2'
+      HOMEBOY_VERSION: v0.454.3
+      HOMEBOY_SHA256: 66602c37885bd76824066ee33cd8d5393f8620429a6619af17082ee60c6dc784
+      HOMEBOY_EXTENSIONS_REF: 7c3784ac6818a554ecabef7704504cbce7490564
+    defaults:
+      run:
+        shell: bash
+        working-directory: static-site-importer
+    steps:
+      - name: Checkout fresh SSI main
+        uses: actions/checkout@v4
+        with:
+          repository: Automattic/static-site-importer
+          ref: main
+          path: static-site-importer
+          persist-credentials: false
+
+      - name: Checkout candidate engine (PR head, not merge ref)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: blocks-engine
+          persist-credentials: false
+
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.4'
+          extensions: gd, exif, zip
+          coverage: none
+          tools: composer:v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # SSI test.yml does not expose workflow_call. Mirror its PHP test setup;
+      # candidate installation follows SSI solved-site-promotion.yml.
+      - name: Install SSI with the candidate transformer
+        run: |
+          git rev-parse HEAD
+          git -C ../blocks-engine rev-parse HEAD
+          npm ci
+          composer install --no-interaction --prefer-dist --no-progress
+          # shellcheck disable=SC2016
+          TRANSFORMER_VERSION=$(composer show automattic/blocks-engine-php-transformer --format=json | php -r '$package = json_decode(stream_get_contents(STDIN), true, 512, JSON_THROW_ON_ERROR); echo ltrim($package["versions"][0], "v");')
+          composer config --json repositories.blocks-engine-candidate "{\"type\":\"path\",\"url\":\"../blocks-engine/php-transformer\",\"options\":{\"symlink\":false,\"versions\":{\"automattic/blocks-engine-php-transformer\":\"${TRANSFORMER_VERSION}\"}}}"
+          composer update automattic/blocks-engine-php-transformer --with-dependencies --no-interaction --prefer-dist --no-progress
+          # Fail closed if Composer ever falls back to the released package.
+          mkdir -p "$RUNNER_TEMP/candidate-transformer"
+          git -C ../blocks-engine archive HEAD:php-transformer | tar -x -C "$RUNNER_TEMP/candidate-transformer"
+          diff --brief --recursive "$RUNNER_TEMP/candidate-transformer" vendor/automattic/blocks-engine-php-transformer
+
+      - name: Provision core HTML API for content-policy regressions
+        run: curl -fsSL "https://wordpress.org/wordpress-${WORDPRESS_VERSION}.tar.gz" | tar -xz -C "$RUNNER_TEMP"
+
+      # Same pinned CLI/extensions as SSI's reusable promotion workflow.
+      - name: Install Homeboy test runner
+        run: |
+          mkdir -p "$RUNNER_TEMP/homeboy"
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/homeboy.tar.xz" "https://github.com/Extra-Chill/homeboy/releases/download/${HOMEBOY_VERSION}/homeboy-x86_64-unknown-linux-gnu.tar.xz"
+          echo "${HOMEBOY_SHA256}  $RUNNER_TEMP/homeboy.tar.xz" | sha256sum --check --status
+          tar -xJf "$RUNNER_TEMP/homeboy.tar.xz" -C "$RUNNER_TEMP/homeboy" --strip-components=1
+          chmod +x "$RUNNER_TEMP/homeboy/homeboy"
+          "$RUNNER_TEMP/homeboy/homeboy" extension install https://github.com/Extra-Chill/homeboy --id wordpress --ref "$HOMEBOY_EXTENSIONS_REF"
+          echo "$RUNNER_TEMP/homeboy" >> "$GITHUB_PATH"
+
+      - name: Install WP Codebox runtime (SSI promotion pin)
+        run: |
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/wp-codebox.tgz" https://github.com/Automattic/wp-codebox/releases/download/v0.33.2/wp-codebox-workspace-0.33.2.tgz
+          echo "244674ee07718768a6710f31ba36489fac1157fb1991afa405723e4b581860df  $RUNNER_TEMP/wp-codebox.tgz" | sha256sum --check --status
+          npm install --global --prefix "$RUNNER_TEMP/wp-codebox" "$RUNNER_TEMP/wp-codebox.tgz"
+          echo "HOMEBOY_WP_CODEBOX_BIN=$RUNNER_TEMP/wp-codebox/bin/wp-codebox" >> "$GITHUB_ENV"
+
+      - name: Run SSI PHP suite (failures name the broken SSI tests)
+        env:
+          STATIC_SITE_IMPORTER_WP_ROOT: ${{ runner.temp }}/wordpress
+        run: |
+          set -o pipefail
+          homeboy review test --placement local static-site-importer --path . 2>&1 | tee "$RUNNER_TEMP/ssi-php-tests.log"
+
+      - name: Retain named test failures and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ssi-consumer-php-tests
+          path: ${{ runner.temp }}/ssi-php-tests.log
+          if-no-files-found: ignore
+          retention-days: 14
