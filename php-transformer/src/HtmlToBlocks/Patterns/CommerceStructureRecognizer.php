@@ -20,6 +20,17 @@ use SplObjectStorage;
  */
 final class CommerceStructureRecognizer
 {
+    /** Commerce words grouped by their recognition role, shared by controls and identity checks. */
+    private const COMMERCE_WORDS = array(
+        'cart' => array( 'cart', 'carrito', 'cesta', 'carrinho', 'cesto', 'panier', 'warenkorb', 'carrello', 'winkelwagen', 'winkelmand' ),
+        'container' => array( 'bag', 'basket' ),
+        'add' => array( 'add', 'agregar', 'añadir', 'adicionar', 'adiciona', 'ajouter', 'ajoutez', 'hinzufügen', 'aggiungi', 'aggiungere', 'toevoegen' ),
+        'buy' => array( 'buy', 'purchase', 'comprar', 'compra', 'compre', 'acheter', 'achetez', 'kaufen', 'kaufe', 'acquista', 'acquistare', 'kopen', 'koop' ),
+        'checkout' => array( 'checkout' ),
+        'order' => array( 'order' ),
+        'compact' => array( 'addtocart', 'add-to-cart' ),
+    );
+
     /** @var SplObjectStorage<DOMElement, array<string, mixed>|null> Retains wrappers for stable native identity during this compilation. */
     private SplObjectStorage $singleProductCards;
 
@@ -333,7 +344,6 @@ final class CommerceStructureRecognizer
 
     public function cartControlElement(DOMElement $card, bool $includeNavigation = false): ?DOMElement
     {
-        $tokens = array( 'cart', 'buy', 'purchase', 'checkout', 'order', 'addtocart', 'add-to-cart' );
         foreach ( $card->getElementsByTagName('*') as $descendant ) {
             if ( ! $descendant instanceof DOMElement ) {
                 continue;
@@ -364,28 +374,48 @@ final class CommerceStructureRecognizer
             // A link that navigates to a cart or checkout page ("view cart") is
             // navigation unless it also names a purchase action.
             $navigates = 'a' === $tagName && 'button' !== $role && $this->navigatesAway(SourceDom::attr($descendant, 'href'));
-            if ( $includeNavigation && $this->isInCardNavigation($descendant, $card)
-                && ! $this->classifier->hasTokenBoundary($haystack, 'cart')
-                && ! $this->classifier->hasTokenBoundary($haystack, 'checkout') ) {
+            $hasCart = self::hasCommerceWord($haystack, array( 'cart' ));
+            $hasCheckout = self::hasCommerceWord($haystack, array( 'checkout' ));
+            $hasAdd = self::hasCommerceWord($haystack, array( 'add' ));
+            $hasBuy = self::hasCommerceWord($haystack, array( 'buy' ));
+            if ( $includeNavigation && $this->isInCardNavigation($descendant, $card) && ! $hasCart && ! $hasCheckout ) {
                 continue;
             }
-            foreach ( $tokens as $token ) {
-                if ( ! $includeNavigation && $navigates && in_array($token, array( 'cart', 'checkout', 'order' ), true) && ! preg_match('/\b(?:add|buy|purchase)\b/', $haystack) ) {
-                    continue;
-                }
-                if ( $this->classifier->hasTokenBoundary($haystack, $token) ) {
-                    return $descendant;
-                }
+            // Cart/checkout/order labels alone are navigation on links that leave
+            // the page. An explicit add or buy action retains the English rule.
+            if ( ( $includeNavigation || ! $navigates || $hasAdd || $hasBuy )
+                && ( $hasCart || $hasCheckout || self::hasCommerceWord($haystack, array( 'order' )) ) ) {
+                return $descendant;
+            }
+            if ( $hasBuy || self::hasCommerceWord($haystack, array( 'compact' )) ) {
+                return $descendant;
             }
 
-            // "add" alone is ambiguous, so require it to co-occur with a commerce
-            // context word ("cart"/"bag"/"basket") to count as a cart control.
-            if ( preg_match('/\badd\b/', $haystack) && preg_match('/\b(?:cart|bag|basket)\b/', $haystack) ) {
+            // An add verb alone is ambiguous: require a cart/bag/basket noun.
+            if ( $hasAdd && self::hasCommerceWord($haystack, array( 'cart', 'container' )) ) {
                 return $descendant;
             }
         }
 
         return null;
+    }
+
+    /** @param array<int, string> $groups */
+    private static function hasCommerceWord(string $text, array $groups): bool
+    {
+        $words = array_merge(...array_map(static fn (string $group): array => self::COMMERCE_WORDS[$group], $groups));
+        return 1 === preg_match('/(?<![\p{L}\p{N}])(?:' . implode('|', array_map(static fn (string $word): string => preg_quote($word, '/'), $words)) . ')(?![\p{L}\p{N}])/iu', $text);
+    }
+
+    /** Identity attributes only: do not mistake product prose for a control. */
+    private function hasCommerceIdentity(DOMElement $element, array $groups): bool
+    {
+        foreach ( array( 'class', 'id', 'itemprop' ) as $attribute ) {
+            if ( self::hasCommerceWord(SourceDom::authorIdentityAttribute($element, $attribute), $groups) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -553,7 +583,8 @@ final class CommerceStructureRecognizer
         }
         foreach ( SourceDom::subtreeElements($element) as $node ) {
             if ( $this->isPriceElement($node)
-                || $this->classifier->hasCommerceToken($node, array( 'badge', 'badges', 'cart', 'buy', 'purchase', 'quickview', 'quick', 'controls' ))
+                || $this->classifier->hasCommerceToken($node, array( 'badge', 'badges', 'quickview', 'quick', 'controls' ))
+                || $this->hasCommerceIdentity($node, array( 'cart', 'buy' ))
                 || in_array(strtolower($node->tagName), array( 'button', 'input', 'select', 'textarea' ), true)
                 || 'button' === strtolower(SourceDom::attr($node, 'role')) ) {
                 return false;
@@ -781,7 +812,7 @@ final class CommerceStructureRecognizer
             return false;
         }
 
-        return $this->classifier->hasTokenBoundary($this->vocabulary($element), 'checkout');
+        return self::hasCommerceWord($this->vocabulary($element), array( 'checkout' ));
     }
 
     /**
@@ -1069,7 +1100,8 @@ final class CommerceStructureRecognizer
                 || SourceDom::isAriaHidden($node)
                 || in_array(strtolower($node->tagName), array('button', 'input', 'select', 'textarea'), true)
                 || in_array(strtolower(SourceDom::attr($node, 'role')), array('button', 'checkbox', 'switch'), true)
-                || $this->classifier->hasCommerceToken($node, array('cart', 'wishlist', 'quickview'))
+                || $this->classifier->hasCommerceToken($node, array('wishlist', 'quickview'))
+                || $this->hasCommerceIdentity($node, array( 'cart' ))
                 || preg_match('/(?:display\s*:\s*none|visibility\s*:\s*hidden)/i', SourceDom::attr($node, 'style'))
             ) {
                 return false;
