@@ -273,25 +273,7 @@ final class WordPressSitePlan
         }
         unset($fallback);
         $pages = $routeTable->hierarchy($pages, $routeMap);
-        $templateOwners = array();
-        foreach ($pages as $page) if (empty($page['entrypoint'])) $templateOwners[TemplateSlugs::forPage($page)][] = $page['source_path'];
-        // Colliding terminal slugs get a readable route-qualified template
-        // (`page-north-about`), as an editor would name it; a short route hash
-        // disambiguates only when the readable key is itself taken.
-        $claimedTemplates = $templateOwners;
-        foreach ($pages as &$page) {
-            $key = TemplateSlugs::forPage($page);
-            if (empty($page['entrypoint']) && 1 < count($templateOwners[$key] ?? array())) {
-                $prefix = 'page' === ($page['post_type'] ?? null) ? 'page-' : 'single-' . $page['post_type'] . '-';
-                $routeSlug = trim((string) preg_replace('/[^a-z0-9]+/', '-', strtolower(trim((string) $page['route']['path'], '/'))), '-');
-                $template = $prefix . ('' === $routeSlug ? $page['slug'] : $routeSlug);
-                if ($template === $key || isset($claimedTemplates[$template])) $template .= '-' . substr(hash('sha256', (string) $page['route']['path']), 0, 8);
-                $claimedTemplates[$template] = true;
-                $page['route_template'] = $template;
-                $page['metadata']['post_meta']['_wp_page_template'] = $template;
-            }
-        }
-        unset($page);
+        $pages = TemplateSlugs::qualifyColliding($pages);
         $surfaceSources = array_fill_keys(array_column($surfaces, 'source_path'), true);
         foreach ($assets as &$asset) {
             if ('page' === ($asset['compilation']['scope'] ?? null) && isset($surfaceSources[$asset['compilation']['id'] ?? ''])) $asset['compilation'] = array('scope' => 'shared');
