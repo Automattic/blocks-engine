@@ -929,26 +929,7 @@ final class WordPressSitePlan
             if ( ! is_array($write) || 'theme_template_part' !== ($write['kind'] ?? null) || $write['payload']['data'] !== $expected ) {
                 throw new InvalidArgumentException('WordPress site plan template part lacks its canonical write.');
             }
-            $boundTemplates = in_array($part['placement']['kind'] ?? null, array('entry_shell', 'shared_shell'), true) ? $part['placement']['template_slugs'] : array();
-            if (in_array($part['placement']['kind'] ?? null, array('entry_shell', 'shared_shell'), true)) foreach (array_keys($overrideTemplateSlugs) as $slug) if (TemplateSlugs::partAppliesToOverride($part, $slug)) $boundTemplates[] = $slug;
-            if (in_array('archive', $part['placement']['template_slugs'] ?? array(), true)) foreach (array_merge($plan['taxonomy_entities'], $plan['author_entities']) as $entity) {
-                if (!isset($entity['archive'])) continue;
-                $boundTemplates[] = TemplateSlugs::forArchive($entity);
-                if ('author' === $entity['kind']) $boundTemplates[] = 'author';
-            }
-            if ('inline_shared_shell' === ($part['placement']['kind'] ?? null)) foreach ($plan['templates'] as $template) if (in_array($part['slug'], $template['shell_frame'] ?? array(), true)) $boundTemplates[] = $template['slug'];
-            if ('inline_shared_shell' === ($part['placement']['kind'] ?? null)) foreach (array_merge($plan['taxonomy_entities'], $plan['author_entities']) as $entity) if (isset($entity['archive']) && in_array($entity['archive']['source_path'], $part['placement']['source_paths'] ?? array(), true)) foreach ($plan['templates'] as $template) if ((TemplateSlugs::forArchive($entity) === ($template['slug'] ?? null) || ('author' === $entity['kind'] && 'author' === ($template['slug'] ?? null) && $template['source_path'] === $entity['archive']['source_path'])) && str_contains($template['canonical_block_markup'], '"slug":"' . $part['slug'] . '"')) $boundTemplates[] = $template['slug'];
-            foreach ( $plan['templates'] as $template ) {
-                $references = substr_count($template['canonical_block_markup'], '"slug":"' . $part['slug'] . '"');
-                // An inline shell is bound where it sits, so a template that
-                // keeps every captured document copy binds it once per copy.
-                $allowed = 'inline_shared_shell' === ($part['placement']['kind'] ?? null) ? self::documentCopyCount($template['canonical_block_markup']) : 1;
-                $contentOwnsChrome = ThemeTemplates::contentCarriesChrome($template['canonical_block_markup'], $part['area']);
-                foreach ($plan['pages'] as $page) if (TemplateSlugs::forPage($page) === $template['slug'] && ThemeTemplates::contentCarriesChrome($page['canonical_block_markup'], $part['area'])) $contentOwnsChrome = true;
-                if (0 === $references && $contentOwnsChrome) continue;
-                if (in_array($template['slug'], $boundTemplates, true) && ($references < 1 || $references > $allowed)) throw new InvalidArgumentException('WordPress site plan template part binding is invalid.');
-                if (!in_array($template['slug'], $boundTemplates, true) && 0 !== $references) throw new InvalidArgumentException('WordPress site plan has an unproven template part binding.');
-            }
+            ThemeTemplates::assertPartBound($part, $plan, $overrideTemplateSlugs);
         }
         // Resolution rewrites tokens to URLs, so a resolved plan keeps the
         // unresolved plan's proof for unwritten assets.
@@ -1119,19 +1100,6 @@ final class WordPressSitePlan
         return $positive;
     }
 
-    /** Rendered elements rooting a captured document copy; at least one. */
-    private static function documentCopyCount(string $markup): int
-    {
-        $html = (string) preg_replace('/<!--.*?-->/s', '', $markup);
-        $copies = 0;
-        if (preg_match_all('/<[a-z][a-z0-9-]*\\s[^>]*?\\bclass="([^"]*)"/i', $html, $matches)) {
-            foreach ($matches[1] as $classes) {
-                if (array_filter(preg_split('/\\s+/', $classes) ?: array(), ShellExtraction::isResponsiveVariantClass(...))) ++$copies;
-            }
-        }
-
-        return max(1, $copies);
-    }
 
     /** @param array<int,array<string,mixed>> $assets @return array<int,array<string,string>> */
     private function tokens(array $assets): array { return array_map(static fn(array $asset): array => array('token' => $asset['token'], 'source_path' => $asset['source_path'], 'target_path' => $asset['target_path']), $assets); }

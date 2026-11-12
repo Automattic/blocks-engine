@@ -2096,6 +2096,14 @@
       "InvalidArgumentException('A native archive template collides with a declared template.')": {
         "class": "integrity",
         "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan template part binding is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan has an unproven template part binding.')": {
+        "class": "integrity",
+        "count": 1
       }
     },
     "src/WordPressSitePlan/WholePageCandidates.php": {
@@ -2225,10 +2233,6 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('WordPress site plan has an unproven template part binding.')": {
-        "class": "integrity",
-        "count": 1
-      },
       "InvalidArgumentException('WordPress site plan has an unsupported schema.')": {
         "class": "integrity",
         "count": 1
@@ -2326,10 +2330,6 @@
         "count": 1
       },
       "InvalidArgumentException('WordPress site plan template lacks its canonical write.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan template part binding is invalid.')": {
         "class": "integrity",
         "count": 1
       },
