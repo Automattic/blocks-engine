@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
-use Automattic\BlocksEngine\PhpTransformer\Support\ArtifactPath;
+use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Closure;
 
 /**
