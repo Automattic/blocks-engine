@@ -692,7 +692,7 @@ final class WordPressSitePlan
         foreach ($plan['assets'] as &$asset) {
             $asset['consumers'] = $consumers[$asset['token']] ?? array();
             $asset['destination'] = AssetConsumers::destination($asset['consumers'], $asset, $unreferenced, $fontEmbeddingSvgs);
-            $asset['theme_write_reasons'] = self::themeWriteReasons($asset['consumers'], $asset['destination']);
+            $asset['theme_write_reasons'] = AssetConsumers::themeWriteReasons($asset['consumers'], $asset['destination']);
             if ('none' === $asset['destination']) $unwritten[$asset['target_path']] = true;
         }
         unset($asset);
@@ -937,7 +937,7 @@ final class WordPressSitePlan
         $fontEmbeddingSvgs = AssetConsumers::fontEmbeddingSvgs($plan);
         foreach ( $plan['assets'] as $asset ) {
             $expectedConsumers = $asset['consumers'] ?? array();
-            if (($asset['consumers'] ?? null) !== $expectedConsumers || ($asset['destination'] ?? null) !== AssetConsumers::destination($expectedConsumers, $asset, $unreferenced, $fontEmbeddingSvgs) || ($asset['theme_write_reasons'] ?? null) !== self::themeWriteReasons($expectedConsumers, $asset['destination'])) throw new InvalidArgumentException('Asset consumers or destination are stale.');
+            if (($asset['consumers'] ?? null) !== $expectedConsumers || ($asset['destination'] ?? null) !== AssetConsumers::destination($expectedConsumers, $asset, $unreferenced, $fontEmbeddingSvgs) || ($asset['theme_write_reasons'] ?? null) !== AssetConsumers::themeWriteReasons($expectedConsumers, $asset['destination'])) throw new InvalidArgumentException('Asset consumers or destination are stale.');
             $target = $asset['target_path'];
             if ('none' === $asset['destination']) {
                 if (isset($writesByTarget[$target])) throw new InvalidArgumentException('WordPress site plan writes an unreferenced asset.');
@@ -966,15 +966,6 @@ final class WordPressSitePlan
         // Bound retention for long-lived processes without an eviction index.
         if (count($validated) >= 4096) $validated = array();
         $validated[$contentHash] = true;
-    }
-
-    /** Explicit counted fallback: uploads have no portable relative CSS URL. */
-    private static function themeWriteReasons(array $consumers, string $destination): array
-    {
-        if ('media_library' !== $destination) return array();
-        $reasons = array();
-        foreach ($consumers as $consumer) if ('stylesheet' === $consumer['kind']) $reasons[] = array('reason' => 'attachment_url_required', 'target_path' => $consumer['target_path'], 'count' => $consumer['count']);
-        return $reasons;
     }
 
     /** @param array<string,mixed> $theme @param array<int,array<string,mixed>> $assets @param array<string,array<string,mixed>> $writesByTarget */
