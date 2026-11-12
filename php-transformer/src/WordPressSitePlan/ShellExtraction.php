@@ -1999,14 +1999,16 @@ final class ShellExtraction
             $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $partSlug, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => 'div', 'placement' => array_filter(array('kind' => $placement, 'source_path' => $sourcePath, 'source_paths' => $inlineShell ? array_values(array_map(static fn(int $index): string => $pages[$index]['source_path'], $cluster['indexes'])) : null, 'template_slugs' => $templateSlugs, 'excluded_template_slugs' => $excludedTemplateSlugs, 'container' => $inlineShell ? null : $container, 'template_wrappers' => !$singlePage && !$inlineShell ? $templateWrappers : array()), static fn(mixed $value): bool => array() !== $value && null !== $value), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', is_array($absorbed) ? 'responsive_variant_partition' : (!empty($first['route_edge']) ? 'route_edge' : 'canonical'), array_intersect_key($candidates, array_flip($cluster['indexes'])), $identity), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $partSlug . '.html'), 'content_hash' => WordPressSitePlan::contentHash($partMarkup)) + (is_array($ancestorContext) ? array('ancestor_context' => $ancestorContext) : array());
             $diagnostics[] = array('code' => $singlePage ? 'wordpress_site_plan_shell_entry_extracted' : 'wordpress_site_plan_shell_extracted', 'severity' => 'info', 'message' => $singlePage ? "Extracted the entry {$area} shell for the front-page template." : "Extracted the dominant semantically equivalent {$area} shell cluster.", 'area' => $area, 'page_count' => count($cluster['indexes']), 'applicable_page_count' => count($applicable), 'exclusions' => array_map(static fn(int $index, string $reason): array => array('source_path' => $pages[$index]['source_path'], 'reason' => $reason), array_keys($excluded), $excluded));
         }
-        // A navigation dialog identifies document chrome even when its route
-        // variants cannot share a part. Do not apply this ownership fallback
-        // to arbitrary retained landmarks (including article headers).
+        // Responsive captures can compile the same navigation shell differently
+        // on each route. Preserve those private presentations in theme parts.
+        $responsiveCapture = false;
+        foreach ($pages as $page) $responsiveCapture = $responsiveCapture || str_contains($page['canonical_block_markup'], \Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence::MOBILE_ONLY_CLASS);
         foreach ($pages as $index => $page) {
             if (!empty($page['synthetic'])) continue;
             foreach ($page['shell_candidates'] ?? array() as $candidate) {
                 $area = $candidate['area'];
-                if ('header' !== $area || !str_contains($candidate['markup'] ?? '', '"blocksEngineDialog":')) continue;
+                if ('header' !== $area || (!$responsiveCapture && !str_contains($candidate['markup'] ?? '', '"blocksEngineDialog":'))) continue;
+                if (!self::containsNavigation($candidate['markup'] ?? '') && !str_contains($candidate['markup'] ?? '', '"blocksEngineDialog":')) continue;
                 if (!isset($candidate['offset'], $candidate['length']) || !empty($candidate['additional_ranges'])) continue;
                 $markup = $pages[$index]['canonical_block_markup'];
                 if (substr($markup, $candidate['offset'], $candidate['length']) !== $candidate['markup']) continue;

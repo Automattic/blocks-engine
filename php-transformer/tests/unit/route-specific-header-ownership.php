@@ -6,7 +6,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
-// Non-equivalent navigation-dialog headers retain their route presentation,
+// Non-equivalent responsive navigation headers retain their route presentation,
 // but belong to theme chrome rather than editable page content.
 $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
     'index.html' => '<main><h1>Home</h1></main>',
@@ -17,9 +17,9 @@ foreach ($result['source_reports']['compiled_site']['pages'] as &$page) {
     $page['block_markup'] = '<!-- wp:group --><div class="wp-block-group">'
         . '<!-- wp:group {"tagName":"header"} --><header class="wp-block-group">'
         . '<!-- wp:paragraph --><p>' . $label . '</p><!-- /wp:paragraph -->'
-        . '<!-- wp:group {"blocksEngineDialog":{"schema":"blocks-engine/dialog/v1"}} --><div class="wp-block-group data-blocks-engine-captured-dialog"><!-- wp:paragraph --><p>Menu</p><!-- /wp:paragraph --></div><!-- /wp:group -->'
+        . '<!-- wp:navigation {"overlayMenu":"never"} --><!-- wp:navigation-link {"label":"Menu","url":"/about/"} /--><!-- /wp:navigation -->'
         . '</header><!-- /wp:group -->'
-        . '<!-- wp:paragraph --><p>Route content</p><!-- /wp:paragraph -->'
+        . '<!-- wp:paragraph {"className":"data-blocks-engine-capture-mobile-only"} --><p class="data-blocks-engine-capture-mobile-only">Route content</p><!-- /wp:paragraph -->'
         . '</div><!-- /wp:group -->';
 }
 unset($page);

@@ -62,4 +62,16 @@ foreach (array('taxonomy_entities', 'author_entities') as $kind) {
     } catch (InvalidArgumentException) {
     }
 }
+// Each archive proof rejects the one fact it owns.
+$withoutTemplate = static function (array $plan, string $slug): array { $plan['templates'] = array_values(array_filter($plan['templates'], static fn (array $template): bool => $slug !== $template['slug'])); return $plan; };
+$archiveCases = array(
+    'WordPress site plan native archive must name a captured source without a materialized page.' => static function (array $plan): array { $plan['author_entities'][0]['archive']['source_path'] = 'first.html'; return $plan; },
+    'WordPress site plan native archive entity lacks its source-owned archive template.' => static fn (array $plan): array => $withoutTemplate($plan, 'author-adam'),
+    'WordPress site plan fallback archive must not have a per-entity template.' => static function (array $plan): array { unset($plan['author_entities'][0]['archive']['presentation_markup']); return $plan; },
+);
+foreach ($archiveCases as $expected => $break) {
+    $error = null;
+    try { WordPressSitePlan::assertValid($break($plan)); } catch (InvalidArgumentException $caught) { $error = $caught->getMessage(); }
+    $assert($expected === $error, 'Expected "' . $expected . '", got ' . var_export($error, true));
+}
 echo "unproven-archive-presentation-keeps-entity: passed\n";

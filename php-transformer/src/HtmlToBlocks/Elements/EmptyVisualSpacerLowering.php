@@ -77,6 +77,18 @@ final class EmptyVisualSpacerLowering
         $mainAxisSizeProperties = $isColumnAxis
             ? array( 'height', 'min-height', 'max-height', 'flex', 'flex-basis' )
             : array( 'width', 'min-width', 'max-width', 'flex', 'flex-basis' );
+        // An authored main-axis size counts at any viewport: page builders
+        // commonly state a column's width only inside a media-scoped rule
+        // (for example `@media (min-width:768px){#col{width:48%}}`), so the
+        // unconditional cascade alone misreads a sized, painted column as
+        // sizeless and the compatibility box crushes it at every viewport.
+        foreach ( $this->styleResolver->authorDeclaredValuesAtAnyViewport($element, $mainAxisSizeProperties) as $values ) {
+            foreach ( $values as $value ) {
+                if ( '' !== trim($value) && 'auto' !== strtolower(trim($value)) ) {
+                    return $attrs;
+                }
+            }
+        }
         foreach ( $mainAxisSizeProperties as $property ) {
             if ( isset($declarations[$property]) && '' !== trim($declarations[$property]) && 'auto' !== strtolower(trim($declarations[$property])) ) {
                 return $attrs;
