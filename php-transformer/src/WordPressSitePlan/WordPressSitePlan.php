@@ -95,58 +95,6 @@ final class WordPressSitePlan
         return self::planIdentity($plan)['hash'];
     }
 
-    /**
-     * Project opt-in entity evidence onto its canonical page. This is a hint to
-     * consumers, never an instruction to omit create_page or claim a route.
-     * Works for both inline entities and content-addressed entity manifests.
-     *
-     * @param array<int,array<string,mixed>> $pages
-     * @param array<int,array<string,mixed>> $declarations
-     * @param array<int,array<string,mixed>> $records
-     * @return array<int,array<string,mixed>>
-     */
-    private static function attachWholePageCandidates(array $pages, array $declarations, array $records): array
-    {
-        $bySource = array_column($pages, null, 'source_path');
-        $candidates = array();
-        foreach ($declarations as $declaration) {
-            $payload = $declaration['payload'] ?? array();
-            $entities = RuntimeEntityManifest::SCHEMA === ($payload['schema'] ?? null)
-                ? RuntimeEntityManifest::resolve($payload, $records) : ($payload['entities'] ?? array());
-            if (!is_array($entities)) continue;
-            foreach ($entities as $entity) {
-                if (!is_array($entity) || !array_key_exists('whole_page_candidate', $entity)) continue;
-                $source = $entity['source_path'] ?? null;
-                $page = is_string($source) ? ($bySource[$source] ?? null) : null;
-                $id = $entity['id'] ?? null;
-                $route = $entity['source_route'] ?? null;
-                if ('blocks-engine/whole-page-candidate/v1' !== $entity['whole_page_candidate']
-                    || 'entity_collection' !== ($declaration['kind'] ?? null)
-                    || !is_string($id) || '' === $id || strlen($id) > 256
-                    || !is_array($page) || !empty($page['synthetic']) || 'page' !== ($page['post_type'] ?? null)
-                    || !is_string($route) || $route !== $page['route']['path']) {
-                    throw new InvalidArgumentException('Whole-page candidate must name one canonical source page and producer entity row.');
-                }
-                // One fixed-size candidate per canonical page: the page set bounds the candidate set.
-                if (isset($candidates[$source])) throw new InvalidArgumentException('Whole-page candidates must be unique by source page.');
-                $candidates[$source][] = array(
-                    'schema' => 'blocks-engine/whole-page-candidate/v1',
-                    'source_path' => $source,
-                    'source_route' => $page['route']['path'],
-                    'page_reconciliation_identity' => $page['reconciliation_identity'],
-                    'declaration_reconciliation_identity' => $declaration['reconciliation_identity'],
-                    'entity_id' => $id,
-                );
-            }
-        }
-        foreach ($pages as &$page) {
-            if (!isset($candidates[$page['source_path']])) continue;
-            $page['whole_page_candidates'] = $candidates[$page['source_path']];
-        }
-        unset($page);
-        return $pages;
-    }
-
     /** @return array<string,mixed> */
     public function fromResult(TransformerResult|array $result): array
     {
@@ -535,7 +483,7 @@ final class WordPressSitePlan
          // and synced patterns take shared panel content (and its bindings) out
          // of the page. Rebase retained runtime anchors on the final documents.
          $runtimeDeclarations = $entityBindings->canonical($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages, array_merge($parts, $bindingTemplates), $paginationOwners);
-         $pages = self::attachWholePageCandidates($pages, $runtimeDeclarations, $runtimeEntityRecords);
+         $pages = WholePageCandidates::attach($pages, $runtimeDeclarations, $runtimeEntityRecords);
          foreach ($pages as &$page) unset($page['_projected_source_block_markup'], $page['_synced_pattern_source']); unset($page);
          self::assertEntityBindingsAnchored($runtimeDeclarations, $pages, array_merge($parts, $syncedPatterns, $bindingTemplates), $assets);
          $projectedTaxonomyEntities = array();
@@ -673,7 +621,7 @@ final class WordPressSitePlan
         if (array() !== $factoredRuntimeDeclarations['entity_records']) $runtimeEntityRecords = RuntimeEntityManifest::normalizeRecords(array_values(array_column(array_merge($runtimeEntityRecords, $factoredRuntimeDeclarations['entity_records']), null, 'content_hash')));
         if (array() !== $droppedDeclarations) {
             $runtimeEntityRecords = self::referencedEntityRecords(RuntimeDeclarations::materialize($runtimeDeclarations, $runtimeRecords), $runtimeEntityRecords);
-            $pages = self::attachWholePageCandidates(array_map(static function (array $page): array { unset($page['whole_page_candidates']); return $page; }, $pages), RuntimeDeclarations::materialize($runtimeDeclarations, $runtimeRecords), $runtimeEntityRecords);
+            $pages = WholePageCandidates::attach(array_map(static function (array $page): array { unset($page['whole_page_candidates']); return $page; }, $pages), RuntimeDeclarations::materialize($runtimeDeclarations, $runtimeRecords), $runtimeEntityRecords);
             $unitFindings = array_merge($unitFindings, $droppedDeclarations);
             $recoveryDiagnostics = array_merge($recoveryDiagnostics, $droppedDeclarations);
         }
@@ -963,7 +911,7 @@ final class WordPressSitePlan
         }
         self::assertTaxonomyEntities($plan['taxonomy_entities'], $pagesBySource);
         self::assertAuthorEntities($plan['author_entities'], $pagesBySource);
-        $expectedCandidatePages = self::attachWholePageCandidates(array_map(static function (array $page): array { unset($page['whole_page_candidates']); return $page; }, $plan['pages']), RuntimeDeclarations::materialize($plan['runtime_declarations'], $runtimeRecords), $records);
+        $expectedCandidatePages = WholePageCandidates::attach(array_map(static function (array $page): array { unset($page['whole_page_candidates']); return $page; }, $plan['pages']), RuntimeDeclarations::materialize($plan['runtime_declarations'], $runtimeRecords), $records);
         foreach ($plan['pages'] as $index => $page) if (($expectedCandidatePages[$index]['whole_page_candidates'] ?? null) !== ($page['whole_page_candidates'] ?? null)) throw new InvalidArgumentException('Whole-page candidates are stale, duplicated, or detached from their canonical source pages.');
         $documentsBySource = self::assetOwnerDocuments($plan['pages'], $plan['theme']['document_roots'] ?? array());
         foreach ($plan['assets'] as $asset) foreach ($asset['scopes'] ?? array() as $scope) if ('global' !== $scope['kind']) {
