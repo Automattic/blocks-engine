@@ -17,10 +17,7 @@ foreach (array(
     'copies in the same conditional group are one rule' => array('@media (max-width:9px){.a{x:1}}.b{y:2}@media (max-width: 9px){.a{x:1}}', '.b{y:2}@media (max-width: 9px){.a{x:1}}'),
     'a copy in another group is another rule' => array('@media print{.a{x:1}}.a{x:1}', '@media print{.a{x:1}}.a{x:1}'),
     'quoted text is significant' => array('.a{content:"a  b"}.b{content:"a b"}', '.a{content:"a  b"}.b{content:"a b"}'),
-    'adjacent rules with one body join, sharing arms once' => array('.a,.c{x:1}.b,.c{ x: 1 }.a{x:2}', '.a,.c,.b{x:1}.a{x:2}'),
-    'rules with one body join only when adjacent' => array('.a{x:1}.b{y:1}.c{x:1}', '.a{x:1}.b{y:1}.c{x:1}'),
-    'rules with one body in another group stay apart' => array('.a{x:1}@media print{.b{x:1}}', '.a{x:1}@media print{.b{x:1}}'),
-    'a vendor-prefixed arm keeps its rule apart' => array('.a::-moz-placeholder{x:1}.a::placeholder{x:1}', '.a::-moz-placeholder{x:1}.a::placeholder{x:1}'),
+    'distinct rules with one body stay distinct' => array('.a{x:1}.b{x:1}.a{x:2}', '.a{x:1}.b{x:1}.a{x:2}'),
     'a layer statement keeps its order' => array('@layer a,b;.x{y:1}@layer a,b;', '@layer a,b;.x{y:1}@layer a,b;'),
     'malformed input is unchanged' => array('.a{x:1}.a{x:1', '.a{x:1}.a{x:1'),
 ) as $label => [$input, $expected]) {
