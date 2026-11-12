@@ -30,7 +30,7 @@ $files = static fn (array $evidence): array => array(
 );
 $projected = (new CapturedCollectionProjector())->project($files($evidence));
 $baseline = (new HtmlTransformer())->transform($source)->toArray();
-$assert(str_contains($baseline['serialized_blocks'], 'wp:html'), 'an unproven bare source field retains its unsupported state rather than inventing local search');
+$assert(!str_contains($baseline['serialized_blocks'], 'wp:html') && !str_contains($baseline['serialized_blocks'], 'wp:search') && !str_contains($baseline['serialized_blocks'], 'wp:custom/collection-filter'), 'an unproven bare source field remains readable without inventing local or global search');
 $assert(1 === $projected['projected_count'], 'verified source transitions establish one canonical collection: ' . json_encode($projected['diagnostics']));
 $html = $projected['files'][0]['content'];
 $result = (new HtmlTransformer())->transform($html, array('static_css' => '.scope{max-width:640px}.card{background:white}.active{background:black;color:white}.inactive{background:white;color:black}'))->toArray();
