@@ -19,11 +19,11 @@ final class ThemeScaffold
     /** @param array<int,array<string,mixed>> $assets @param array<int,array<string,string>> $templates @param array<int,array<string,mixed>> $parts @param array<int,array<string,mixed>> $pages @param array<int,array<string,mixed>> $menus @return array<int,array<string,mixed>> */
     public static function writes(array $assets, array $templates, array $parts, array $scripts, array $theme, array $tokens, array $pages = array(), array $menus = array(), bool $runtimeEmoji = false, array $rootDocuments = array()): array
     {
-        $writes = array(WordPressSitePlan::write('theme_scaffold', 'style.css', "/*\nTheme Name: Blocks Engine Site\nText Domain: blocks-engine-site\n*/\n"), WordPressSitePlan::write('theme_scaffold', 'theme.json', json_encode($theme, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n"));
-        $writes[] = WordPressSitePlan::write('theme_bootstrap', 'functions.php', ThemeBootstrap::functionsPhp($assets, $scripts, $parts, $tokens, $templates, $pages, $menus, $runtimeEmoji, $rootDocuments));
-        if (DocumentRootContext::needsCanvas(array_merge($pages, $rootDocuments))) $writes[] = WordPressSitePlan::write('theme_scaffold', 'document-canvas.php', DocumentRootContext::canvas());
-        foreach ( $templates as $template ) $writes[] = WordPressSitePlan::write('theme_template', $template['target_path'], $template['canonical_block_markup']);
-        foreach ( $parts as $part ) $writes[] = WordPressSitePlan::write('theme_template_part', 'parts/' . $part['slug'] . '.html', $part['canonical_block_markup']);
+        $writes = array(PlanWrites::inline('theme_scaffold', 'style.css', "/*\nTheme Name: Blocks Engine Site\nText Domain: blocks-engine-site\n*/\n"), PlanWrites::inline('theme_scaffold', 'theme.json', json_encode($theme, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n"));
+        $writes[] = PlanWrites::inline('theme_bootstrap', 'functions.php', ThemeBootstrap::functionsPhp($assets, $scripts, $parts, $tokens, $templates, $pages, $menus, $runtimeEmoji, $rootDocuments));
+        if (DocumentRootContext::needsCanvas(array_merge($pages, $rootDocuments))) $writes[] = PlanWrites::inline('theme_scaffold', 'document-canvas.php', DocumentRootContext::canvas());
+        foreach ( $templates as $template ) $writes[] = PlanWrites::inline('theme_template', $template['target_path'], $template['canonical_block_markup']);
+        foreach ( $parts as $part ) $writes[] = PlanWrites::inline('theme_template_part', 'parts/' . $part['slug'] . '.html', $part['canonical_block_markup']);
         return $writes;
     }
 
