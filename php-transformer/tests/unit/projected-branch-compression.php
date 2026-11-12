@@ -16,8 +16,8 @@ $assert = static function (bool $condition, string $message): void {
  * Each unit contributes an exact two-wrapper projected branch chain: a
  * single-child outer group holding a branch group with two children (a
  * paragraph and the next unit). Each pair has the same safe representation
- * regardless of unrelated document depth, so every unit compresses to one
- * layout shell. No layout-geometry proof accompanies the artifact.
+ * while normalization preserves native descendants once their saved depth
+ * and wrapper budgets permit it. No layout-geometry proof accompanies the artifact.
  */
 $units = 12;
 $deepMarkup = '<h3>Depth leaf heading</h3><p>Depth leaf paragraph</p>';
@@ -53,7 +53,7 @@ $assert('failed' !== ($deepResult['status'] ?? null), 'A proof-free page over th
 $assert(true === ($deepQuality['pass'] ?? null) && 'failed' !== ($deepQuality['status'] ?? null), 'The canonical plan quality gate passes without layout-geometry proofs.');
 $assert('passed' === ($deepQuality['editability_policy']['status'] ?? null), 'The plan editability policy verdict is passed, not failed.');
 $assert(is_int($deepMetrics['max_nesting_depth'] ?? null) && 20 >= $deepMetrics['max_nesting_depth'], 'Deterministic branch compression brings the measured nesting depth within the editability maximum.');
-$assert($units === substr_count($deepBlocks, '<!-- wp:custom/layout-shell'), 'Every two-wrapper projected branch becomes a layout shell.');
+$assert(6 === substr_count($deepBlocks, '<!-- wp:custom/layout-shell'), 'Only over-budget projected branches become shells; descendants use their saved depth.');
 $assert(str_contains($deepBlocks, '>Depth leaf heading<') && str_contains($deepBlocks, '>Depth leaf paragraph<') && str_contains($deepBlocks, '>Depth unit 2 content<'), 'Compressed output preserves the deep editable content.');
 $assert(str_contains($deepBlocks, 'id="dp-outer-1"') && str_contains($deepBlocks, 'id="dp-branch-' . $units . '"'), 'Compressed layout shells retain the source wrapper identities.');
 

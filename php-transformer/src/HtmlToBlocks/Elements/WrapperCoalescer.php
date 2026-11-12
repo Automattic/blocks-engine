@@ -107,7 +107,12 @@ final class WrapperCoalescer
         }
         $terminalIsShell = $this->sourceElementClassifier->isLayoutShellBlock($terminal);
         if (!$nativeGroupTree && (2 <= count($chain) || (array() !== $chain && $terminalIsShell))) {
-            return $this->foldWrapperChain($chain, $terminal);
+            // Decide the parent's saved shape before normalizing descendants.
+            // The chain becomes one level; using its old depth can needlessly
+            // turn otherwise native descendants into generated shells.
+            $folded = $this->foldWrapperChain($chain, $terminal);
+            $folded['innerBlocks'] = $this->compressProjectedGroupChains($folded['innerBlocks'] ?? array(), $depth + 1);
+            return $folded;
         }
 
         if (array() !== $chain) {
@@ -115,7 +120,9 @@ final class WrapperCoalescer
         } elseif (null !== $candidate['boundary']) {
             $block['_wrapper_normalization_boundary'] = $candidate['boundary'];
         }
-        if (is_array($block['innerBlocks'] ?? null)) $block['innerBlocks'] = $this->compressProjectedGroupChains($block['innerBlocks'], $depth + 1);
+        // Freeform is a conversion fragment, not a saved block level. Its
+        // children serialize in place, just as nativeBlockHeight accounts for.
+        if (is_array($block['innerBlocks'] ?? null)) $block['innerBlocks'] = $this->compressProjectedGroupChains($block['innerBlocks'], $depth + ('core/freeform' === ($block['blockName'] ?? null) ? 0 : 1));
         return $block;
     }
 
@@ -148,12 +155,12 @@ final class WrapperCoalescer
             $chain[] = array('block' => $cursor, 'descriptor' => $descriptor);
             $terminal = array(
                 'blockName' => 'core/freeform',
-                'innerBlocks' => $this->compressProjectedGroupChains(ArrayField::array($cursor, 'innerBlocks'), $depth + count($chain)),
+                'innerBlocks' => ArrayField::array($cursor, 'innerBlocks'),
             );
             return array('chain' => $chain, 'terminal' => $terminal, 'boundary' => null);
         }
         if (array() === $chain) return array('chain' => array(), 'terminal' => $cursor, 'boundary' => $this->wrapperBoundaryReason($cursor));
-        return array('chain' => $chain, 'terminal' => $this->normalizeWrapperChain($cursor, $depth + count($chain)), 'boundary' => $this->wrapperBoundaryReason($cursor));
+        return array('chain' => $chain, 'terminal' => $cursor, 'boundary' => $this->wrapperBoundaryReason($cursor));
     }
 
     /** @param array<string,mixed> $block */
