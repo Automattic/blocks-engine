@@ -39,12 +39,17 @@ foreach (array(
 ) as $name => [$css, $expected]) {
     $result = (new HtmlTransformer())->transform('<style>' . $baseCss . $css . '</style>' . $markup)->toArray();
     $block = $find($result['blocks']);
+    $css = implode("\n", array_map(
+        static fn(array $asset): string => 'after-author' === ($asset['stylesheet_placement'] ?? '') ? (string) ($asset['content'] ?? '') : '',
+        array_filter($result['assets'] ?? array(), 'is_array')
+    ));
     $assert(null !== $block, $name . ': carousel detected');
     $attrs = $block['attrs'];
     $assert($expected === ($attrs['thumbnailsHiddenBelow'] ?? null), $name . ': breakpoint');
     if (null === $expected) {
         $assert(!array_key_exists('thumbnailsHiddenBelow', $attrs), $name . ': attribute absent');
         $assert(!str_contains($block['innerHTML'], 'data-carousel-thumbnails-hidden-below'), $name . ': no visibility output');
+        $assert(!str_contains($css, 'data-carousel-thumbnails-hidden-below'), $name . ': no visibility rule');
         $without = $attrs;
         unset($without['thumbnailsHiddenBelow']);
         $assert($generator->shell($attrs) === $generator->shell($without), $name . ': shell byte-identical');
@@ -52,13 +57,17 @@ foreach (array(
         if ('always hidden' === $name) $assert($baseline === $block['innerHTML'], 'always hidden: output unchanged');
     } else {
         $assert(is_int($attrs['thumbnailsHiddenBelow']), $name . ': integer pixels');
-        foreach (array('@media(max-width:767px)', 'data-carousel-thumbnails-hidden-below="768"', 'grid-column:1/-1!important', 'display:none!important', '--blocks-engine-carousel-stage-width:100%') as $fragment) {
-            $assert(str_contains($block['innerHTML'], $fragment), $name . ': rendered ' . $fragment);
+        $assert(str_contains($block['innerHTML'], 'data-carousel-thumbnails-hidden-below="768"'), $name . ': root carries breakpoint');
+        $assert(!str_contains($block['innerHTML'], '<style'), $name . ': no inline style element in saved markup');
+        $root = '.blocks-engine-authored-carousel[data-carousel-thumbnails-hidden-below="768"]';
+        foreach (array('@media (max-width:767px){' . $root . '{', $root . '>.blocks-engine-authored-carousel__thumbnails{display:none!important}', 'grid-column:1/-1!important', '--blocks-engine-carousel-stage-width:100%') as $fragment) {
+            $assert(str_contains($css, $fragment), $name . ': generated stylesheet has ' . $fragment);
         }
         $assert('3/4' === $attrs['stageAspectRatio'], $name . ': stage ratio preserved');
     }
 }
 $definition = $generator->definition('custom');
 $assert('integer' === $definition['block_json']['attributes']['thumbnailsHiddenBelow']['type'], 'typed schema');
-$assert(str_contains($definition['assets']['index.js'], 'thumbnailVisibilityStyle( props.attributes )'), 'editor save emits scoped rule');
+$assert(str_contains($definition['assets']['index.js'], "props[ 'data-carousel-thumbnails-hidden-below' ]"), 'editor save carries breakpoint attribute');
+$assert(!str_contains($definition['assets']['index.js'], "createElement( 'style'"), 'editor save emits no style element');
 echo "Responsive carousel thumbnails regression passed\n";
