@@ -396,46 +396,7 @@ final class SitePlanRun
          foreach ($pages as &$page) unset($page['_projected_source_block_markup'], $page['_synced_pattern_source']); unset($page);
          BindingAnchors::assertAnchored($runtimeDeclarations, $pages, array_merge($parts, $syncedPatterns, $bindingTemplates), $assets);
         $taxonomyProjection = TaxonomyProjection::withSettledPresentation($taxonomyProjection, $pages);
-        // Archive documents remain working inputs until their presentation is
-        // settled, but native archive routes must never materialize pages.
-        $archiveSources = array_fill_keys(array_column(array_column($taxonomyProjection['entities'], 'archive'), 'source_path'), true);
-        $workingPages = array_column($pages, null, 'source_path');
-        $pages = array_values(array_filter($pages, static fn(array $page): bool => !isset($archiveSources[$page['source_path']])));
-        foreach ($pages as &$page) {
-            while (isset($archiveSources[$page['parent_source_path']])) {
-                $page['parent_source_path'] = $workingPages[$page['parent_source_path']]['parent_source_path'];
-            }
-        }
-        unset($page);
-        // Prune from the leaves: removing an unused synthetic parent can make
-        // its own synthetic ancestor unused as well. Real documents stay put.
-        do {
-            $count = count($pages);
-            $parents = array_fill_keys(array_column($pages, 'parent_source_path'), true);
-            $pages = array_values(array_filter($pages, static fn(array $page): bool => empty($page['synthetic']) || isset($parents[$page['source_path']])));
-        } while (count($pages) !== $count);
-        // Asset projections already saw the working hierarchy. Drop every
-        // occurrence owned by a removed synthetic document at this boundary;
-        // routes, operations, head metadata and reporting are derived below
-        // from the surviving pages. Native archive resources remain owned by
-        // their archive documents and must not be removed with working pages.
-        $prunedSources = array_diff_key(array_filter($workingPages, static fn(array $page): bool => !empty($page['synthetic'])), array_column($pages, null, 'source_path'));
-        foreach ($assets as &$asset) {
-            foreach (array('stylesheet_instances', 'scopes', 'references') as $key) {
-                if (!isset($asset[$key])) continue;
-                $asset[$key] = array_values(array_filter($asset[$key], static fn(array $row): bool => !isset($prunedSources[$row['source_path'] ?? ''])));
-            }
-        }
-        unset($asset);
-        // Shell extraction needed the archive documents, but route overrides
-        // belong only to documents that actually materialize in WordPress.
-        foreach (TaxonomyProjection::sections($pages, $taxonomyProjection['entities'], $this->sourceOrigin) as $entity) if (!isset($entity['archive'])) $taxonomyProjection['entities'][] = $entity;
-        // Declared terms without a captured archive keep only surviving posts.
-        $postSources = array_fill_keys(array_column(array_filter($pages, static fn(array $page): bool => 'post' === ($page['post_type'] ?? null)), 'source_path'), true);
-        foreach ($taxonomyProjection['declared_entities'] ?? array() as $entity) {
-            $entity['membership_source_paths'] = array_values(array_filter($entity['membership_source_paths'], static fn(string $source): bool => isset($postSources[$source])));
-            if (array() !== $entity['membership_source_paths']) $taxonomyProjection['entities'][] = $entity;
-        }
+        ['pages' => $pages, 'assets' => $assets, 'taxonomy' => $taxonomyProjection, 'archive_sources' => $archiveSources] = $this->materializedPages($pages, $assets, $taxonomyProjection);
         $templates = ThemeTemplates::build($this->links, $pages, $parts, $this->surfaces, $tokens, $this->references, $this->routeMap, $singleContent, $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome['chrome'], $blockThemeChrome['templates']);
         foreach ($templates as &$template) {
             $chrome = $blockThemeChrome['templates'][$template['slug']] ?? null;
@@ -470,27 +431,7 @@ final class SitePlanRun
         $emittedMarkup = implode("\n", self::markups(array_merge($pages, $parts, $templates, $syncedPatterns)));
         $menus = array_values(array_filter($menus, static fn(array $menu): bool => !isset($menu['token']) || str_contains($emittedMarkup, WordPressSitePlan::NAVIGATION_TOKEN_PREFIX . $menu['token'] . '}}')));
         $operations = PageOperations::plan($pages);
-        $assets = CompiledAssets::withVariantScopedIdSelectors($assets);
-        // Stylesheet values equal to a token follow it too: links inside
-        // text, navigation items and states have no block attribute to bind.
-        if (null !== $this->presetBinding) foreach ($assets as &$asset) {
-            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || isset($asset['payload_reference'])) continue;
-            $content = $this->presetBinding->bindStylesheet($asset['content']);
-            if ($content === $asset['content']) continue;
-            $asset = CompiledAssets::withRewrittenTextContent($asset, $content);
-        }
-        unset($asset);
-        // Asset payloads are the last canonicalization pass, so the placeholder
-        // backing recovered media is declared once every reference is known.
-        // Every emitted stylesheet is serialized once, at its smallest
-        // cascade-equivalent size.
-        $compactor = new CssStylesheetTransformer();
-        foreach ($assets as &$asset) {
-            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
-            $compacted = $compactor->compactStylesheet($asset['content']);
-            if ($compacted !== $asset['content']) $asset = CompiledAssets::withRewrittenTextContent($asset, $compacted);
-        }
-        unset($asset);
+        $assets = $this->finalStylesheets($assets);
         $themeAssetWrites = new ThemeAssetWrites();
         $assetWrites = $themeAssetWrites->writes($assets, $this->references);
         foreach ($assets as &$asset) unset($asset['reference_origin']); unset($asset);
@@ -585,24 +526,98 @@ final class SitePlanRun
             $plan['reference_semantics']['synced_patterns'] = SyncedPatternProjection::REFERENCE_CONTRACT;
         }
         $this->timer?->start('compose.site_plan.asset_consumers');
-        $consumers = AssetConsumers::inventory($plan);
-        $unreferenced = array_merge(AssetConsumers::unreferencedImages($plan) ?? array(), DocumentScripts::unreferencedInline($plan));
-        $fontEmbeddingSvgs = AssetConsumers::fontEmbeddingSvgs($plan);
-        $unwritten = array();
-        foreach ($plan['assets'] as &$asset) {
-            $asset['consumers'] = $consumers[$asset['token']] ?? array();
-            $asset['destination'] = AssetConsumers::destination($asset['consumers'], $asset, $unreferenced, $fontEmbeddingSvgs);
-            $asset['theme_write_reasons'] = AssetConsumers::themeWriteReasons($asset['consumers'], $asset['destination']);
-            if ('none' === $asset['destination']) $unwritten[$asset['target_path']] = true;
-        }
-        unset($asset);
-        // An image nothing references is not materialized; its row and token
-        // remain so the plan still reports what the source carried.
-        if (array() !== $unwritten) $plan['writes'] = array_values(array_filter($plan['writes'], static fn(array $write): bool => !isset($unwritten[$write['target_path']])));
+        $plan = AssetConsumers::assign($plan);
         $plan = ContentConservation::check($plan, $this->compiled['pages']);
         $plan['plan_identity'] = WordPressSitePlan::planIdentity($plan);
         WordPressSitePlan::assertValid($plan);
         return $plan;
+    }
+    /**
+     * Archive documents and unused synthetic parents were working inputs to
+     * shell extraction and presentation. Only documents that materialize in
+     * WordPress remain pages; the assets they owned and the taxonomy
+     * membership follow.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<int,array<string,mixed>> $assets
+     * @param array<string,mixed> $taxonomyProjection
+     * @return array{pages:array<int,array<string,mixed>>,assets:array<int,array<string,mixed>>,taxonomy:array<string,mixed>,archive_sources:array<string,true>}
+     */
+    private function materializedPages(array $pages, array $assets, array $taxonomyProjection): array
+    {
+        // Archive documents remain working inputs until their presentation is
+        // settled, but native archive routes must never materialize pages.
+        $archiveSources = array_fill_keys(array_column(array_column($taxonomyProjection['entities'], 'archive'), 'source_path'), true);
+        $workingPages = array_column($pages, null, 'source_path');
+        $pages = array_values(array_filter($pages, static fn(array $page): bool => !isset($archiveSources[$page['source_path']])));
+        foreach ($pages as &$page) {
+            while (isset($archiveSources[$page['parent_source_path']])) {
+                $page['parent_source_path'] = $workingPages[$page['parent_source_path']]['parent_source_path'];
+            }
+        }
+        unset($page);
+        // Prune from the leaves: removing an unused synthetic parent can make
+        // its own synthetic ancestor unused as well. Real documents stay put.
+        do {
+            $count = count($pages);
+            $parents = array_fill_keys(array_column($pages, 'parent_source_path'), true);
+            $pages = array_values(array_filter($pages, static fn(array $page): bool => empty($page['synthetic']) || isset($parents[$page['source_path']])));
+        } while (count($pages) !== $count);
+        // Asset projections already saw the working hierarchy. Drop every
+        // occurrence owned by a removed synthetic document at this boundary;
+        // routes, operations, head metadata and reporting are derived below
+        // from the surviving pages. Native archive resources remain owned by
+        // their archive documents and must not be removed with working pages.
+        $prunedSources = array_diff_key(array_filter($workingPages, static fn(array $page): bool => !empty($page['synthetic'])), array_column($pages, null, 'source_path'));
+        foreach ($assets as &$asset) {
+            foreach (array('stylesheet_instances', 'scopes', 'references') as $key) {
+                if (!isset($asset[$key])) continue;
+                $asset[$key] = array_values(array_filter($asset[$key], static fn(array $row): bool => !isset($prunedSources[$row['source_path'] ?? ''])));
+            }
+        }
+        unset($asset);
+        // Shell extraction needed the archive documents, but route overrides
+        // belong only to documents that actually materialize in WordPress.
+        foreach (TaxonomyProjection::sections($pages, $taxonomyProjection['entities'], $this->sourceOrigin) as $entity) if (!isset($entity['archive'])) $taxonomyProjection['entities'][] = $entity;
+        // Declared terms without a captured archive keep only surviving posts.
+        $postSources = array_fill_keys(array_column(array_filter($pages, static fn(array $page): bool => 'post' === ($page['post_type'] ?? null)), 'source_path'), true);
+        foreach ($taxonomyProjection['declared_entities'] ?? array() as $entity) {
+            $entity['membership_source_paths'] = array_values(array_filter($entity['membership_source_paths'], static fn(string $source): bool => isset($postSources[$source])));
+            if (array() !== $entity['membership_source_paths']) $taxonomyProjection['entities'][] = $entity;
+        }
+        return array('pages' => $pages, 'assets' => $assets, 'taxonomy' => $taxonomyProjection, 'archive_sources' => $archiveSources);
+    }
+    /**
+     * Stylesheets take their final form: variant-scoped id selectors, preset
+     * bindings for values equal to a token, and one compaction each.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @return array<int,array<string,mixed>>
+     */
+    private function finalStylesheets(array $assets): array
+    {
+        $assets = CompiledAssets::withVariantScopedIdSelectors($assets);
+        // Stylesheet values equal to a token follow it too: links inside
+        // text, navigation items and states have no block attribute to bind.
+        if (null !== $this->presetBinding) foreach ($assets as &$asset) {
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || isset($asset['payload_reference'])) continue;
+            $content = $this->presetBinding->bindStylesheet($asset['content']);
+            if ($content === $asset['content']) continue;
+            $asset = CompiledAssets::withRewrittenTextContent($asset, $content);
+        }
+        unset($asset);
+        // Asset payloads are the last canonicalization pass, so the placeholder
+        // backing recovered media is declared once every reference is known.
+        // Every emitted stylesheet is serialized once, at its smallest
+        // cascade-equivalent size.
+        $compactor = new CssStylesheetTransformer();
+        foreach ($assets as &$asset) {
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
+            $compacted = $compactor->compactStylesheet($asset['content']);
+            if ($compacted !== $asset['content']) $asset = CompiledAssets::withRewrittenTextContent($asset, $compacted);
+        }
+        unset($asset);
+        return $assets;
     }
     /** @param mixed $documents @param array<int,array<string,string>> $tokens @return array<int,array<string,mixed>> */
     private function documents(mixed $documents, bool $part, array $tokens, AssetReferenceCanonicalizer $references, array $routes): array

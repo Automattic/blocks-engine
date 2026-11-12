@@ -160,4 +160,29 @@ final class AssetConsumers
         if (false === preg_match_all('/"(?=([^"]*)")/', $text, $quoted)) return null;
         return array('tokens' => $tokens, 'quoted' => array_intersect_key(array_fill_keys($quoted[1], true), $wanted['quoted']));
     }
+
+    /**
+     * Records every asset's consumers, destination and theme-write reasons on
+     * the finished plan. An image nothing references is not materialized; its
+     * row and token remain so the plan still reports what the source carried.
+     *
+     * @param array<string,mixed> $plan
+     * @return array<string,mixed>
+     */
+    public static function assign(array $plan): array
+    {
+        $consumers = self::inventory($plan);
+        $unreferenced = array_merge(self::unreferencedImages($plan) ?? array(), DocumentScripts::unreferencedInline($plan));
+        $fontEmbeddingSvgs = self::fontEmbeddingSvgs($plan);
+        $unwritten = array();
+        foreach ($plan['assets'] as &$asset) {
+            $asset['consumers'] = $consumers[$asset['token']] ?? array();
+            $asset['destination'] = self::destination($asset['consumers'], $asset, $unreferenced, $fontEmbeddingSvgs);
+            $asset['theme_write_reasons'] = self::themeWriteReasons($asset['consumers'], $asset['destination']);
+            if ('none' === $asset['destination']) $unwritten[$asset['target_path']] = true;
+        }
+        unset($asset);
+        if (array() !== $unwritten) $plan['writes'] = array_values(array_filter($plan['writes'], static fn(array $write): bool => !isset($unwritten[$write['target_path']])));
+        return $plan;
+    }
 }
