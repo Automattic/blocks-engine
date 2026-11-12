@@ -54,4 +54,34 @@ final class TemplateSlugs
     {
         return ('author' === $entity['kind'] ? 'author-' : ('post_tag' === ($entity['taxonomy'] ?? null) ? 'tag-' : 'category-')) . $entity['slug'];
     }
+
+    /**
+     * Pages whose terminal slugs collide get a readable route-qualified
+     * template (`page-north-about`), as an editor would name it; a short
+     * route hash disambiguates only when the readable key is itself taken.
+     * The front page is never qualified.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     * @return array<int,array<string,mixed>>
+     */
+    public static function qualifyColliding(array $pages): array
+    {
+        $templateOwners = array();
+        foreach ($pages as $page) if (empty($page['entrypoint'])) $templateOwners[self::forPage($page)][] = $page['source_path'];
+        $claimedTemplates = $templateOwners;
+        foreach ($pages as &$page) {
+            $key = self::forPage($page);
+            if (empty($page['entrypoint']) && 1 < count($templateOwners[$key] ?? array())) {
+                $prefix = 'page' === ($page['post_type'] ?? null) ? 'page-' : 'single-' . $page['post_type'] . '-';
+                $routeSlug = trim((string) preg_replace('/[^a-z0-9]+/', '-', strtolower(trim((string) $page['route']['path'], '/'))), '-');
+                $template = $prefix . ('' === $routeSlug ? $page['slug'] : $routeSlug);
+                if ($template === $key || isset($claimedTemplates[$template])) $template .= '-' . substr(hash('sha256', (string) $page['route']['path']), 0, 8);
+                $claimedTemplates[$template] = true;
+                $page['route_template'] = $template;
+                $page['metadata']['post_meta']['_wp_page_template'] = $template;
+            }
+        }
+        unset($page);
+        return $pages;
+    }
 }
