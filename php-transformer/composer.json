@@ -52,6 +52,7 @@
     "visual:empty-inline-painted-box": "node tools/visual-parity/tests/empty-inline-painted-box.mjs",
     "visual:conditional-empty-boundary": "node tools/visual-parity/tests/conditional-empty-visual-boundary.mjs",
     "visual:conditional-positioned-fill": "node tools/visual-parity/tests/conditional-positioned-percentage-fill.mjs",
+    "visual:conditional-inline-positioning": "node tools/visual-parity/tests/conditional-inline-positioning.mjs",
     "visual:inline-flex-svg-label": "node tools/visual-parity/tests/inline-flex-svg-label.mjs",
     "visual:synthetic-inline-image-percentage": "node tools/visual-parity/tests/synthetic-inline-image-percentage.mjs",
     "visual:image-transform-reference-box": "node tools/visual-parity/tests/image-transform-reference-box.mjs",
