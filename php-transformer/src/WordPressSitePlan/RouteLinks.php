@@ -356,6 +356,23 @@ final class RouteLinks
         return '' !== $this->sourceOrigin && $this->sourceOrigin === self::origin($url);
     }
 
+    /**
+     * The first absolute http(s) source URL in the capture provenance, without
+     * credentials, or an empty string.
+     *
+     * @param array<int,mixed> $provenance
+     */
+    public static function sourceUrl(array $provenance): string
+    {
+        foreach ($provenance as $entry) {
+            if (!is_array($entry) || !is_string($entry['source_url'] ?? null)) continue;
+            $url = trim($entry['source_url']);
+            $parts = parse_url($url);
+            if (is_array($parts) && in_array(strtolower((string) ($parts['scheme'] ?? '')), array( 'http', 'https' ), true) && '' !== (string) ($parts['host'] ?? '') && !isset($parts['user'], $parts['pass'])) return $url;
+        }
+        return '';
+    }
+
     public static function origin(string $url): string
     {
         $parts = '' !== $url ? parse_url($url) : false;

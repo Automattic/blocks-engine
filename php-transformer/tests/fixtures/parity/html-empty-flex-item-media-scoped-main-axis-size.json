@@ -1,0 +1,59 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-empty-flex-item-media-scoped-main-axis-size",
+  "description": "A childless, background-painted flex item whose main-axis size is authored only inside a media-scoped rule keeps its source box. The empty-flex-item escape hatch read only the unconditional cascade, so a photo column sized `width:48%` under `@media (min-width:768px)` was classed as sizeless and the zero-collapse compatibility box (`flex:0 0 0!important`) crushed the column to its min-width at every viewport.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-empty-flex-item-media-scoped-main-axis-size.json",
+    "notes": "Product-neutral fixture: fluid page builders state column widths only in breakpoint-scoped rules and paint photos as group backgrounds."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<style>.row{display:flex;align-items:center;column-gap:4%;min-height:320px}.photo{background-image:url(/media/photo.webp);background-size:cover;background-position:50% 50%;align-self:stretch}@media (min-width:768px){.photo{width:48%}}</style><main><div class=\"row\"><div class=\"photo\"></div><div class=\"copy\"><h3>Heading</h3><p>Body copy.</p></div></div></main>"
+  },
+  "expect": [
+    {
+      "path": "status",
+      "assert": "equals",
+      "value": "success"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "contains",
+      "value": "<div class=\"wp-block-group photo blocks-engine-empty-visual-group\"></div>"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "not_contains",
+      "value": "blocks-engine-empty-flex-item"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "not_contains",
+      "value": "blocks-engine-empty-flex-column-item"
+    },
+    {
+      "path": "source_reports.author_stylesheet_projections.0.content",
+      "assert": "contains",
+      "value": "@media (min-width:768px){.photo{width:48%}}"
+    }
+  ],
+  "expected_blocks": [
+    {
+      "path": "blocks.0",
+      "name": "core/group"
+    },
+    {
+      "path": "blocks.0.innerBlocks.0",
+      "name": "core/group"
+    },
+    {
+      "path": "blocks.0.innerBlocks.1",
+      "name": "core/group"
+    }
+  ]
+}
