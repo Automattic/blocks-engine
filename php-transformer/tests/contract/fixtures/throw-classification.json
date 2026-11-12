@@ -2041,6 +2041,10 @@
       "InvalidArgumentException('WordPress site plan synthetic route source collides with a document.')": {
         "class": "integrity",
         "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan page route is invalid.')": {
+        "class": "integrity",
+        "count": 1
       }
     },
     "src/WordPressSitePlan/StylesheetScopes.php": {
@@ -2286,10 +2290,6 @@
         "count": 1
       },
       "InvalidArgumentException('WordPress site plan page override must resolve to a materialized page.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan page route is invalid.')": {
         "class": "integrity",
         "count": 1
       },

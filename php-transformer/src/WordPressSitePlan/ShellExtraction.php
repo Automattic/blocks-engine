@@ -3527,7 +3527,7 @@ final class ShellExtraction
         $properties = array('color', 'text-decoration', 'text-decoration-line', 'font-size', 'font-family', 'font-style', 'font-weight', 'letter-spacing', 'line-height', 'text-transform');
         $analysis = (new \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer())->analyze(
             array_values(array_filter($assets, static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null))),
-            '', $properties, 4000000, 50000, 100000, 16
+            '', array_merge($properties, array('display')), 4000000, 50000, 100000, 16
         );
         if ($analysis['truncated']) return $pages;
         $entry = null;
@@ -3576,6 +3576,17 @@ final class ShellExtraction
                                 // typography is compared through the resolved presentation.
                                 if ('' !== $style && !preg_match('/^(?:color|text-decoration(?:-line)?|font-size|font-family|font-style|font-weight|letter-spacing|line-height|text-transform)\s*:/', $style) && !preg_match('/^margin-(?:top|right|bottom|left):0$/', $style)) $styles[$style] = true;
                             }
+                            // A device-specific label is not the site's single live
+                            // title. Keep its native text/link host: replacing it also
+                            // discards selector identity carried by the inner anchor.
+                            foreach (\Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex::entries($element, $subjectIndex) as $subjectEntry) {
+                                $rule = $subjectEntry['rule'];
+                                if (null === $rule['condition'] || !\Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::matches($element, $rule['parsed_selector'])['matches']) continue;
+                                foreach ($rule['declarations'] as $declaration) {
+                                    if ('display' === $declaration['name'] && preg_match('/^none(?:\s*!important)?$/i', trim($declaration['value']))) { $valid = false; break 2; }
+                                }
+                            }
+                            if (!$valid) break;
                             $presentation = self::wordmarkPresentation($element, $presentation, $subjectIndex, $properties);
                             if ('a' === $element->tagName) $links[] = html_entity_decode($element->getAttribute('href'));
                         }

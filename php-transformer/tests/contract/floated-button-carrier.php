@@ -27,7 +27,7 @@ foreach ($result['assets'] as $asset) {
     foreach ($rules as $rule) {
         foreach (CssStylesheetTransformer::splitSelectorList(trim($rule[1])) ?? array() as $selector) {
             $parsed = CssSelectorMatcher::parse($selector);
-            foreach (array('float' => 'right!important', 'clear' => 'both', 'width' => 'max-content') as $property => $value) {
+            foreach (array('float' => 'right!important', 'clear' => 'both', 'width' => 'fit-content') as $property => $value) {
                 if (! str_contains($rule[2], $property . ':' . $value)) continue;
                 $assert($parsed['supported'], 'Carrier selector is testable: ' . $selector);
                 foreach (array($wrapper, $button, $link) as $index => $element) {

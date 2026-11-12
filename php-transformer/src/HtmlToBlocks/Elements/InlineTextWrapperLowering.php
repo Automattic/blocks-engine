@@ -211,6 +211,16 @@ final class InlineTextWrapperLowering
             );
         }
 
+        // Beside standalone line-break runs, retain the source container box:
+        // changing its tag to p can lose type-selector sizing and display, so
+        // even correctly counted spacers would no longer preserve the rhythm.
+        foreach ( array( 'previousSibling', 'nextSibling' ) as $direction ) {
+            $sibling = $element->$direction;
+            while ( null !== $sibling && ( XML_COMMENT_NODE === $sibling->nodeType || ( XML_TEXT_NODE === $sibling->nodeType && '' === trim($sibling->textContent ?? '') ) ) ) $sibling = $sibling->$direction;
+            if ( $sibling instanceof DOMElement && 'br' === strtolower($sibling->tagName)
+                && $this->styleResolver->hasNonZeroStructuralDeclaration($element, self::BOX_MODEL_WRAPPER_PROPERTIES) ) return null;
+        }
+
         $attrs = $this->styleResolver->presentationAttributes($element);
         // The paragraph is this block-level wrapper's own box (it carries the
         // wrapper's identity and classes), so it must not become transparent.
