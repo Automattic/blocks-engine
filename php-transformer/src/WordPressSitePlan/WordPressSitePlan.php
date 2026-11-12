@@ -15,8 +15,6 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
-use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
-use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Path\RouteSlug;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
@@ -998,11 +996,11 @@ final class WordPressSitePlan
         }
         foreach ($plan['menus'] as $menu) if (is_string($menu['block_markup'] ?? null)) {
             self::assertTokens($menu['block_markup'], $tokens);
-            self::assertNoLocalBrowserReferences($menu['block_markup']);
+            LocalBrowserReferences::assertNone($menu['block_markup']);
         }
         foreach ($plan['synced_patterns'] ?? array() as $pattern) {
             self::assertTokens($pattern['canonical_block_markup'], $tokens);
-            self::assertNoLocalBrowserReferences($pattern['canonical_block_markup'], $pattern['source_path']);
+            LocalBrowserReferences::assertNone($pattern['canonical_block_markup'], $pattern['source_path']);
         }
         $partSlugs = array();
         $overrideTemplateSlugs = TemplateSlugs::overrides($plan['template_parts'], array_column(array_filter($plan['templates'], static fn(array $template): bool => array_key_exists('shell_frame', $template)), 'slug'));
@@ -1078,7 +1076,7 @@ final class WordPressSitePlan
             if (str_starts_with($template['slug'], 'page-') && !isset($pageTemplateKeys[$template['slug']])) throw new InvalidArgumentException('WordPress site plan page override must resolve to a materialized page.');
             self::unique($templateTargets, $template['target_path'], 'template target');
             self::assertTokens($template['canonical_block_markup'], $tokens);
-            self::assertNoLocalBrowserReferences($template['canonical_block_markup']);
+            LocalBrowserReferences::assertNone($template['canonical_block_markup']);
         }
         foreach (array_merge($plan['taxonomy_entities'], $plan['author_entities']) as $entity) {
             if (!isset($entity['archive'])) continue;
@@ -2037,12 +2035,6 @@ final class WordPressSitePlan
         return $writes;
     }
 
-    /** Document navigation relationships are routes; subresource links are assets. */
-    private static function isRouteLink(array $attributes): bool
-    {
-        $relations = preg_split('/\s+/', strtolower(trim($attributes['rel'] ?? ''))) ?: array();
-        return array() !== $relations && array() === array_diff($relations, array('canonical', 'alternate', 'next', 'prev', 'author', 'license', 'help')) && !isset($attributes['as']) && !in_array(strtolower($attributes['type'] ?? ''), array('text/css', 'text/javascript'), true);
-    }
     // A file-system path and a URL path are different encodings of the same
     // name: browsers request exactly what the bootstrap emits and the server
     // URL-decodes the request path before touching the filesystem, so a
@@ -2233,100 +2225,6 @@ final class WordPressSitePlan
         }
         if (count($created) !== count($pages) || $reading !== (array() === array_filter($pages, static fn(array $page): bool => !empty($page['entrypoint'])) ? 0 : 1)) throw new InvalidArgumentException('WordPress site plan operations are incomplete.');
     }
-    /**
-     * Validates a text write in the grammar its target declares. A JSON data
-     * file is not markup: quotes inside its strings are JSON-escaped, so reading
-     * the raw file as HTML turns `href=\"https://…\"` into a bogus local
-     * reference. Decode it and validate each markup-bearing string instead.
-     * A generated PHP write (functions.php) carries markup only inside
-     * var_export() string literals, which escape `\` and `'`. Read raw, a
-     * head style's `url('…')` is `url(\'…\')` and its token reads as a
-     * quoted value. Undo those two escapes so the markup is read as written.
-     * (Tokenizing would be exact but costs ~10x the file in memory.)
-     */
-    public static function assertNoLocalBrowserReferencesInWrite(string $targetPath, string $payload, string $sourcePath, ?callable $report = null): void
-    {
-        $target = strtolower($targetPath);
-        if (str_ends_with($target, '.php')) {
-            self::assertNoLocalBrowserReferences(strtr($payload, array('\\\\' => '\\', "\\'" => "'")), $sourcePath, 'write:php', $report);
-            return;
-        }
-        $decoded = str_ends_with($target, '.json') ? json_decode($payload, true) : null;
-        if (!is_array($decoded)) {
-            self::assertNoLocalBrowserReferences(str_ends_with($target, '.css') ? '<style>' . $payload . '</style>' : $payload, $sourcePath, 'write', $report);
-            return;
-        }
-        array_walk_recursive($decoded, static function (mixed $value) use ($sourcePath, $report): void {
-            if (is_string($value) && str_contains($value, '<')) self::assertNoLocalBrowserReferences($value, $sourcePath, 'write:json', $report);
-        });
-    }
-    /**
-     * A captured script or JSON data file is published byte for byte apart from
-     * declared asset tokens. Markup it builds at runtime is not page markup the
-     * plan can rewrite, so its local strings are findings, not plan failures.
-     */
-    public static function isVerbatimRuntimeWrite(string $kind, string $targetPath): bool
-    {
-        return 'theme_asset' === $kind && 1 === preg_match('/\.(?:m?js|cjs|json)$/i', $targetPath);
-    }
-    private static function assertNoLocalBrowserReferences(string $content, string $sourcePath = '', string $context = 'markup', ?callable $report = null): void
-    {
-        $assertReference = static function (string $candidate, string $attribute, string $element = '', bool $documentLink = false) use ($sourcePath, $context, $report): void { $url = trim(preg_split('/\s+/', trim(html_entity_decode($candidate, ENT_QUOTES | ENT_HTML5, 'UTF-8')))[0] ?? ''); $route = str_starts_with($url, '/') && (str_starts_with($attribute, 'json:route_') || RouteLinks::isNavigationAttribute($element, $attribute) || ('href' === $attribute && $documentLink)); if ('' !== $url && !str_starts_with($url, self::TOKEN_PREFIX) && !$route && !preg_match('~^(?:[a-z][a-z0-9+.-]*:|//|#|\?)~i', $url)) { if (null !== $report) { $report($url, $attribute); return; } throw new ValidationException(sprintf('WordPress site plan contains unresolved local browser reference %s.', $url), array('source_path' => $sourcePath, 'document_kind' => $context, 'declaration_kind' => 'browser_reference', 'declaration_index' => 0, 'reason' => 'unresolved_local_browser_reference', 'fields' => array('context' => $context, 'attribute' => $attribute, 'value' => $url))); } };
-        $assertCss = static function (string $css, string $cssContext) use ($assertReference): void { \Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter::rewrite(html_entity_decode($css, ENT_QUOTES | ENT_HTML5, 'UTF-8'), static function (string $url) use ($assertReference, $cssContext): string { $assertReference($url, $cssContext . ':url'); return $url; }); if (preg_match_all('/@import\s+(?:url\(\s*)?(?:"([^"]*)"|\'([^\']*)\'|([^\s\)"\';]+))/i', \Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner::withoutComments(html_entity_decode($css, ENT_QUOTES | ENT_HTML5, 'UTF-8')), $matches, PREG_SET_ORDER)) foreach ($matches as $match) $assertReference((string) (($match[1] ?? '') ?: ($match[2] ?? '') ?: ($match[3] ?? '')), $cssContext . ':@import'); };
-        $assertJsonAttributes = null;
-        $assertJsonAttributes = static function (array $attributes, bool $route) use (&$assertJsonAttributes, $assertReference, $sourcePath, $context, $report): void {
-            foreach ($attributes as $name => $value) {
-                if (is_array($value)) { $assertJsonAttributes($value, $route); continue; }
-                // Dynamic companion blocks carry editable markup in a string
-                // attribute. Validate its browser references just as strictly as
-                // native saved markup instead of treating it as opaque JSON.
-                if ('content' === strtolower((string) $name) && is_string($value) && str_contains($value, '<')) {
-                    self::assertNoLocalBrowserReferences($value, $sourcePath, $context . ':companion_content', $report);
-                    continue;
-                }
-                if (CaptureEvidence::GALLERY_SEQUENCE === strtolower((string) $name) && is_string($value)) {
-                    AssetReferenceCanonicalizer::gallerySequence($value, static function (string $reference) use ($assertReference): string {
-                        $assertReference($reference, CaptureEvidence::GALLERY_SEQUENCE);
-                        return $reference;
-                    });
-                    continue;
-                }
-                if (!is_string($name) || !is_string($value) || !in_array(strtolower($name), array('url', 'src', 'href', 'poster', 'action', 'srcset'), true)) continue;
-                $routeField = $route && 'url' === strtolower($name) ? 'route_url' : (in_array(strtolower($name), array('href', 'action'), true) ? 'route_' . strtolower($name) : strtolower($name));
-                foreach ('srcset' === strtolower($name) ? SrcsetParser::urls($value) : array($value) as $candidate) $assertReference($candidate, 'json:' . $routeField);
-            }
-        };
-        foreach (HtmlMarkupParser::htmlMarkupNodes($content) as $node) {
-            if ('tag' === $node['kind']) foreach ($node['attributes'] as $name => $value) {
-                if (CaptureEvidence::GALLERY_SEQUENCE === $name) {
-                    AssetReferenceCanonicalizer::gallerySequence($value, static function (string $reference) use ($assertReference, $name, $node): string {
-                        $assertReference($reference, $name, $node['name']);
-                        return $reference;
-                    });
-                    continue;
-                }
-                if (!in_array($name, array('xlink:href', 'srcset', 'src', 'href', 'poster', 'action', 'style'), true)) continue;
-                if ('action' === $name && 'form' !== $node['name']) continue;
-                if ('style' === $name) { $assertCss($value, 'style_attribute'); continue; }
-                foreach ('srcset' === $name ? SrcsetParser::urls($value) : array($value) as $candidate) $assertReference($candidate, $name, $node['name'], 'link' === $node['name'] && self::isRouteLink($node['attributes']));
-            }
-            if ('style' === $node['kind']) $assertCss($node['css'], 'style_block');
-            if ('comment' === $node['kind'] && preg_match('~^\s*wp:~i', $node['content'])) {
-                $attributes = BlockAttributes::decodeComment($node['content']);
-                if (is_array($attributes)) {
-                    $assertJsonAttributes($attributes, self::jsonUrlIsRoute($node['content']));
-                } elseif (preg_match_all('~(?:"|\\\\u0022)(url|src|href|poster|action|srcset)(?:"|\\\\u0022)\s*:\s*(?:"|\\\\u0022)(.*?)(?:"|\\\\u0022)~is', $node['content'], $fields, PREG_SET_ORDER)) {
-                    $route = self::jsonUrlIsRoute($node['content']);
-                    foreach ($fields as $field) {
-                        $name = strtolower($field[1]);
-                        $routeField = $route && 'url' === $name ? 'route_url' : (in_array($name, array('href', 'action'), true) ? 'route_' . $name : $name);
-                        foreach ('srcset' === $name ? SrcsetParser::urls($field[2]) : array($field[2]) as $candidate) $assertReference(str_replace('\\/', '/', (string) $candidate), 'json:' . $routeField);
-                    }
-                }
-            }
-        }
-    }
-    private static function jsonUrlIsRoute(string $comment): bool { if (!preg_match('~^\s*wp:([^\s{]+)~i', $comment, $block)) return false; return in_array(strtolower($block[1]), self::ROUTE_URL_BLOCKS, true); }
     /** @param array<string,bool> $tokens @param array<string,array<string,mixed>> $writes */
     private static function assertResolution(array $plan, array $tokens, array $writes): void
     {
@@ -2347,7 +2245,7 @@ final class WordPressSitePlan
         foreach ($writes as $write) {
             if ('utf8' !== ($write['payload']['encoding'] ?? null)) { if (isset($write['canonical_payload'], $write['canonical_payload_hash'])) throw new InvalidArgumentException('WordPress site plan binary write cannot carry a resolution projection.'); continue; }
             if (!is_string($write['canonical_payload'] ?? null) || !self::hash($write['canonical_payload_hash'] ?? null) || $write['canonical_payload_hash'] !== self::contentHash($write['canonical_payload']) || WordPressSitePlanResolver::resolveWritePayload($write['canonical_payload'], $plan['reference_tokens'], $resolution['theme_uri'], $write['target_path'], $attachments) !== $write['payload']['data']) throw new InvalidArgumentException('WordPress site plan resolved write payload is not canonical.');
-            if (!self::isVerbatimRuntimeWrite($write['kind'], $write['target_path'])) self::assertNoLocalBrowserReferencesInWrite($write['target_path'], $write['canonical_payload'], $write['source_path']);
+            if (!LocalBrowserReferences::isVerbatimWrite($write['kind'], $write['target_path'])) LocalBrowserReferences::assertNoneInWrite($write['target_path'], $write['canonical_payload'], $write['source_path']);
         }
         self::assertResolvedMetadata($plan, $references);
     }
@@ -2365,7 +2263,7 @@ final class WordPressSitePlan
     }
     private static function assertRoute(array $page, string $entryRoot = ''): void { $route = $page['route'] ?? null; $expected = is_string($page['metadata']['route_path'] ?? null) && '' !== $page['metadata']['route_path'] ? PageRoute::canonical($page['metadata']['route_path']) : PageRoute::fromSource($page['source_path'], $entryRoot); if (!is_array($route) || !is_string($route['path'] ?? null) || !preg_match('~^/(?:[a-z0-9_-]+(?:/[a-z0-9_-]+)*)?$~', $route['path']) || !is_string($route['parent_path'] ?? null) || !is_string($route['slug'] ?? null) || PageRoute::parent($route['path']) !== $route['parent_path'] || PageRoute::slug($route['path']) !== $route['slug'] || (!isset($page['synthetic']) && !PageRoute::isDerived($route['path'], $expected)) || (isset($page['synthetic']) && (true !== $page['synthetic'] || !str_starts_with((string) ($page['source_path'] ?? ''), 'wordpress-site-plan/routes/')))) throw new InvalidArgumentException('WordPress site plan page route is invalid.'); }
     /** @param array<string,string> $tokens */
-    private static function assertDocument(mixed $document, string $kind, bool $part, array $tokens): void { if(!is_array($document)||!self::safePath($document['source_path']??null)||!is_string($document['slug']??null)||!is_string($document['title']??null)||!is_string($document['post_type']??null)||!is_string($document['parent_source_path']??null)||!is_bool($document['entrypoint']??null)||!is_string($document['canonical_block_markup']??null)||''===trim($document['canonical_block_markup'])||!is_array($document['metadata']??null)||!is_array($document['document_metadata']??null)||!is_array($document['provenance']??null)||!self::hash($document['reconciliation_identity']??null)||!self::hash($document['content_hash']??null)||($part&&(!is_string($document['area']??null)||''===$document['area']||!is_array($document['placement']??null)))||(!$part&&(null!==($document['area']??null)||null!==($document['placement']??null))))throw new InvalidArgumentException("WordPress site plan {$kind} is structurally invalid.");if($part&&$document['reconciliation_identity']!==self::identity('template-part',$document['source_path'],'parts/'.$document['slug'].'.html'))throw new InvalidArgumentException('WordPress site plan template part identity is invalid.');if($part&&in_array($document['placement']['kind']??null,array('entry_shell','shared_shell'),true)&&(!is_string($document['placement']['source_path']??null)||!is_array($document['placement']['template_slugs']??null)||array()=== $document['placement']['template_slugs']))throw new InvalidArgumentException('WordPress site plan template part placement is invalid.');if(!$part)self::assertContentDecision($document);self::assertDocumentMetadata($document['document_metadata'],$tokens,$document['source_path'],$kind);self::assertTokens($document['canonical_block_markup'],$tokens);self::assertNoLocalBrowserReferences($document['canonical_block_markup'],$document['source_path'],$kind); }
+    private static function assertDocument(mixed $document, string $kind, bool $part, array $tokens): void { if(!is_array($document)||!self::safePath($document['source_path']??null)||!is_string($document['slug']??null)||!is_string($document['title']??null)||!is_string($document['post_type']??null)||!is_string($document['parent_source_path']??null)||!is_bool($document['entrypoint']??null)||!is_string($document['canonical_block_markup']??null)||''===trim($document['canonical_block_markup'])||!is_array($document['metadata']??null)||!is_array($document['document_metadata']??null)||!is_array($document['provenance']??null)||!self::hash($document['reconciliation_identity']??null)||!self::hash($document['content_hash']??null)||($part&&(!is_string($document['area']??null)||''===$document['area']||!is_array($document['placement']??null)))||(!$part&&(null!==($document['area']??null)||null!==($document['placement']??null))))throw new InvalidArgumentException("WordPress site plan {$kind} is structurally invalid.");if($part&&$document['reconciliation_identity']!==self::identity('template-part',$document['source_path'],'parts/'.$document['slug'].'.html'))throw new InvalidArgumentException('WordPress site plan template part identity is invalid.');if($part&&in_array($document['placement']['kind']??null,array('entry_shell','shared_shell'),true)&&(!is_string($document['placement']['source_path']??null)||!is_array($document['placement']['template_slugs']??null)||array()=== $document['placement']['template_slugs']))throw new InvalidArgumentException('WordPress site plan template part placement is invalid.');if(!$part)self::assertContentDecision($document);self::assertDocumentMetadata($document['document_metadata'],$tokens,$document['source_path'],$kind);self::assertTokens($document['canonical_block_markup'],$tokens);LocalBrowserReferences::assertNone($document['canonical_block_markup'],$document['source_path'],$kind); }
     /** @param array<string,mixed> $document */
     private static function assertContentDecision(array $document): void
     {
@@ -2434,7 +2332,7 @@ final class WordPressSitePlan
     /** @param array<string,mixed> $reporting @param array<string,bool> $pagePaths @param array<string,bool> $tokens */
     private static function assertReporting(array $reporting, array $sourcePaths, array $tokens, array $diagnostics): void { if(!is_array($reporting['source_documents']??null)||!is_array($reporting['metrics']??null)||!is_array($reporting['core_html_fallback_evidence']??null)||!is_array($reporting['diagnostic_codes']??null))throw new InvalidArgumentException('WordPress site plan reporting summary is invalid.');$sources=array();foreach($reporting['source_documents'] as $document){if(!is_array($document)||!self::safePath($document['source_path']??null)||!is_string($document['kind']??null)||!is_string($document['body_format']??null)||!is_bool($document['block_document']??null)||!is_array($document['provenance']??null))throw new InvalidArgumentException('WordPress site plan source document summary is invalid.');self::unique($sources,$document['source_path'],'source document');}if(count($sources)!==count($sourcePaths)||array_keys($sources)!==array_keys($sourcePaths))throw new InvalidArgumentException('WordPress site plan source document summaries do not match materialized documents.');foreach(array('source_document_count','block_document_count','native_block_count','fallback_count') as $key)if(!is_int($reporting['metrics'][$key]??null))throw new InvalidArgumentException('WordPress site plan reporting metric is invalid.');$linked=array_fill_keys($reporting['diagnostic_codes'],true);foreach($reporting['diagnostic_codes'] as $code)if(!is_string($code)||''===$code)throw new InvalidArgumentException('WordPress site plan diagnostic linkage is invalid.');foreach($diagnostics as $diagnostic)if(is_array($diagnostic)&&is_string($diagnostic['code']??null)&&!isset($linked[$diagnostic['code']]))throw new InvalidArgumentException('WordPress site plan diagnostics are not linked to reporting.');}
     /** @param array<string,string> $tokens */
-    private static function assertWrite(mixed $write, array $tokens, bool $browserReferences): void { if (!is_array($write) || !is_string($write['kind'] ?? null) || !self::safePath($write['source_path'] ?? null) || !self::safePath($write['target_path'] ?? null) || !self::hash($write['reconciliation_identity'] ?? null) || !self::hash($write['payload_hash'] ?? null) || !is_array($write['payload'] ?? null) || !in_array($write['payload']['encoding'] ?? null, array('utf8','base64','reference'), true) || $write['reconciliation_identity'] !== self::identity('write', $write['source_path'], $write['target_path'])) throw new InvalidArgumentException('WordPress site plan write has a stale payload hash or invalid structure.'); if ('reference' === $write['payload']['encoding']) { $reference = self::payloadReference($write['payload']['reference'] ?? null); if (!is_array($reference) || ($write['raw_sha256'] ?? null) !== $reference['sha256'] || $write['payload_hash'] !== self::contentHash(RuntimeDeclarations::canonicalJson($reference))) throw new InvalidArgumentException('WordPress site plan write has an invalid payload reference.'); return; } if (!is_string($write['payload']['data'] ?? null) || $write['payload_hash'] !== self::contentHash($write['payload']['data'])) throw new InvalidArgumentException('WordPress site plan write has a stale payload hash or invalid structure.'); if ('base64' === $write['payload']['encoding'] && false === base64_decode($write['payload']['data'], true)) throw new InvalidArgumentException('WordPress site plan write has invalid base64 payload.'); if ('utf8' === $write['payload']['encoding']) { self::assertTokens($write['payload']['data'], $tokens); if ($browserReferences && !self::isVerbatimRuntimeWrite($write['kind'], $write['target_path'])) self::assertNoLocalBrowserReferencesInWrite($write['target_path'], $write['payload']['data'], $write['source_path']); } }
+    private static function assertWrite(mixed $write, array $tokens, bool $browserReferences): void { if (!is_array($write) || !is_string($write['kind'] ?? null) || !self::safePath($write['source_path'] ?? null) || !self::safePath($write['target_path'] ?? null) || !self::hash($write['reconciliation_identity'] ?? null) || !self::hash($write['payload_hash'] ?? null) || !is_array($write['payload'] ?? null) || !in_array($write['payload']['encoding'] ?? null, array('utf8','base64','reference'), true) || $write['reconciliation_identity'] !== self::identity('write', $write['source_path'], $write['target_path'])) throw new InvalidArgumentException('WordPress site plan write has a stale payload hash or invalid structure.'); if ('reference' === $write['payload']['encoding']) { $reference = self::payloadReference($write['payload']['reference'] ?? null); if (!is_array($reference) || ($write['raw_sha256'] ?? null) !== $reference['sha256'] || $write['payload_hash'] !== self::contentHash(RuntimeDeclarations::canonicalJson($reference))) throw new InvalidArgumentException('WordPress site plan write has an invalid payload reference.'); return; } if (!is_string($write['payload']['data'] ?? null) || $write['payload_hash'] !== self::contentHash($write['payload']['data'])) throw new InvalidArgumentException('WordPress site plan write has a stale payload hash or invalid structure.'); if ('base64' === $write['payload']['encoding'] && false === base64_decode($write['payload']['data'], true)) throw new InvalidArgumentException('WordPress site plan write has invalid base64 payload.'); if ('utf8' === $write['payload']['encoding']) { self::assertTokens($write['payload']['data'], $tokens); if ($browserReferences && !LocalBrowserReferences::isVerbatimWrite($write['kind'], $write['target_path'])) LocalBrowserReferences::assertNoneInWrite($write['target_path'], $write['payload']['data'], $write['source_path']); } }
     /** @return array{schema:string,id:string,bytes:int,sha256:string}|null */
     private static function payloadReference(mixed $reference): ?array { if (!is_array($reference) || 'blocks-engine/payload-reference/v1' !== ($reference['schema'] ?? null) || !is_string($reference['id'] ?? null) || '' === $reference['id'] || !is_int($reference['bytes'] ?? null) || $reference['bytes'] < 0 || !self::hash($reference['sha256'] ?? null)) return null; return array('schema' => $reference['schema'], 'id' => $reference['id'], 'bytes' => $reference['bytes'], 'sha256' => $reference['sha256']); }
     /** @param array<string,string> $tokens */
