@@ -4,6 +4,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\TemplateSlugs;
 
 $assert = static function (bool $ok, string $message): void { if (!$ok) throw new RuntimeException($message); };
 $files = array();
@@ -47,13 +48,13 @@ foreach (array(false, true) as $retainEmbeds) {
     $templates = WordPressSitePlan::renderedTemplates($plan);
     $episodes = array_column(array_values(array_filter($plan['pages'], static fn(array $page): bool => str_contains($page['source_path'], '/'))), null, 'source_path');
     $assert($episodes['podcast/a.html']['slug'] === $episodes['podcasts-fr/a.html']['slug'], 'Episode routes share a terminal slug.');
-    $assert(WordPressSitePlan::routeTemplateKey($episodes['podcast/a.html']) === WordPressSitePlan::routeTemplateKey($episodes['podcast/b.html']), 'Identical episode frames share a template within EN.');
-    $assert(WordPressSitePlan::routeTemplateKey($episodes['podcasts-fr/a.html']) === WordPressSitePlan::routeTemplateKey($episodes['podcasts-fr/b.html']), 'Identical episode frames share a template within FR.');
-    $assert(WordPressSitePlan::routeTemplateKey($episodes['podcast/a.html']) !== WordPressSitePlan::routeTemplateKey($episodes['podcasts-fr/a.html']), 'Shared templates are partitioned by header cluster.');
+    $assert(TemplateSlugs::forPage($episodes['podcast/a.html']) === TemplateSlugs::forPage($episodes['podcast/b.html']), 'Identical episode frames share a template within EN.');
+    $assert(TemplateSlugs::forPage($episodes['podcasts-fr/a.html']) === TemplateSlugs::forPage($episodes['podcasts-fr/b.html']), 'Identical episode frames share a template within FR.');
+    $assert(TemplateSlugs::forPage($episodes['podcast/a.html']) !== TemplateSlugs::forPage($episodes['podcasts-fr/a.html']), 'Shared templates are partitioned by header cluster.');
     foreach ($plan['pages'] as $page) {
         $markup = $page['canonical_block_markup'];
         $assert(!str_contains($markup, 'wp:template-part') && str_contains($markup, 'Body ' . $page['title']), 'Content stays route-owned; parts belong to templates: ' . $page['source_path']);
-        $template = $templates[WordPressSitePlan::routeTemplateKey($page)] ?? $templates[$page['entrypoint'] ? 'front-page' : ('post' === $page['post_type'] ? 'single' : 'page')] ?? '';
+        $template = $templates[TemplateSlugs::forPage($page)] ?? $templates[$page['entrypoint'] ? 'front-page' : ('post' === $page['post_type'] ? 'single' : 'page')] ?? '';
         foreach ($headers as $header) $assert(in_array($page['source_path'], $header['placement']['source_paths'] ?? array_keys($header['provenance']['sources'] ?? array()), true) === str_contains($template, '"slug":"' . $header['slug'] . '"'), 'Template uses only its cluster: ' . $page['source_path']);
         if (str_contains($page['source_path'], '-hero')) $assert(str_contains($markup, 'Episode ' . $page['title']) && str_contains($markup, 'Date ' . $page['title']), 'Hero remains content.');
     }
@@ -72,7 +73,7 @@ WordPressSitePlan::assertValid($plan);
 $templates = WordPressSitePlan::renderedTemplates($plan);
 $bindings = array();
 foreach ($plan['pages'] as $page) {
-    $key = WordPressSitePlan::routeTemplateKey($page);
+    $key = TemplateSlugs::forPage($page);
     $key = isset($templates[$key]) ? $key : ($page['entrypoint'] ? 'front-page' : ('post' === $page['post_type'] ? 'single' : 'page'));
     $bindings[$page['source_path']] = $key;
 }

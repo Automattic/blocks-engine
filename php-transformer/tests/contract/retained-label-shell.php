@@ -6,6 +6,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\NavigationAnchorRuntime;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\TemplateSlugs;
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
@@ -151,7 +152,7 @@ $assert(1 === count(array_unique($keys)), 'Routes retaining their unique headers
 $dominant = current(array_filter($headers($collisionPlan), static fn(array $part): bool => 'header' === $part['slug']));
 
 foreach ($collisionPlan['templates'] as $template) if (in_array($template['slug'], $keys, true)) $assert(!str_contains($template['canonical_block_markup'], '"slug":"header"'), 'Excluded routes do not inherit the dominant header.');
-$assert('page-work' === WordPressSitePlan::routeTemplateKey(current(array_filter($collisionPlan['pages'], static fn(array $page): bool => 'work.html' === $page['source_path']))), 'Non-colliding routes retain page-slug behavior.');
+$assert('page-work' === TemplateSlugs::forPage(current(array_filter($collisionPlan['pages'], static fn(array $page): bool => 'work.html' === $page['source_path']))), 'Non-colliding routes retain page-slug behavior.');
 
 // Unbound varying URLs remain authored content, not route-state differences.
 $links = array();

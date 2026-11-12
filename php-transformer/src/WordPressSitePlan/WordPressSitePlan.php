@@ -389,13 +389,13 @@ final class WordPressSitePlan
         unset($fallback);
         $pages = $routeTable->hierarchy($pages, $routeMap);
         $templateOwners = array();
-        foreach ($pages as $page) if (empty($page['entrypoint'])) $templateOwners[self::routeTemplateKey($page)][] = $page['source_path'];
+        foreach ($pages as $page) if (empty($page['entrypoint'])) $templateOwners[TemplateSlugs::forPage($page)][] = $page['source_path'];
         // Colliding terminal slugs get a readable route-qualified template
         // (`page-north-about`), as an editor would name it; a short route hash
         // disambiguates only when the readable key is itself taken.
         $claimedTemplates = $templateOwners;
         foreach ($pages as &$page) {
-            $key = self::routeTemplateKey($page);
+            $key = TemplateSlugs::forPage($page);
             if (empty($page['entrypoint']) && 1 < count($templateOwners[$key] ?? array())) {
                 $prefix = 'page' === ($page['post_type'] ?? null) ? 'page-' : 'single-' . $page['post_type'] . '-';
                 $routeSlug = trim((string) preg_replace('/[^a-z0-9]+/', '-', strtolower(trim((string) $page['route']['path'], '/'))), '-');
@@ -629,7 +629,7 @@ final class WordPressSitePlan
             $registeredTemplates[$page['route_template']] = true;
             $themeProjection['theme']['customTemplates'][] = array('name' => $page['route_template'], 'title' => $sharedTemplateTitles[$page['route_template']] ?? $page['title'], 'postTypes' => array($page['post_type']));
         }
-        foreach ($taxonomyProjection['entities'] as &$taxonomyEntity) foreach ($templates as $template) if (isset($taxonomyEntity['archive']) && self::archiveTemplateSlug($taxonomyEntity) === ($template['slug'] ?? null)) {
+        foreach ($taxonomyProjection['entities'] as &$taxonomyEntity) foreach ($templates as $template) if (isset($taxonomyEntity['archive']) && TemplateSlugs::forArchive($taxonomyEntity) === ($template['slug'] ?? null)) {
             $taxonomyEntity['archive']['presentation_markup'] = $template['canonical_block_markup'];
             continue 2;
         }
@@ -1020,7 +1020,7 @@ final class WordPressSitePlan
             self::assertNoLocalBrowserReferences($pattern['canonical_block_markup'], $pattern['source_path']);
         }
         $partSlugs = array();
-        $overrideTemplateSlugs = self::overrideTemplateSlugs($plan['template_parts'], array_column(array_filter($plan['templates'], static fn(array $template): bool => array_key_exists('shell_frame', $template)), 'slug'));
+        $overrideTemplateSlugs = TemplateSlugs::overrides($plan['template_parts'], array_column(array_filter($plan['templates'], static fn(array $template): bool => array_key_exists('shell_frame', $template)), 'slug'));
         foreach ($plan['pages'] as $page) if (isset($page['route_template'])) $overrideTemplateSlugs[$page['route_template']] = true;
         foreach ( $plan['template_parts'] as $part ) {
             self::assertDocument($part, 'template part', true, $tokens);
@@ -1042,7 +1042,7 @@ final class WordPressSitePlan
             $pagesBySource[$page['source_path']] = $page;
         }
         $pageParents = array_fill_keys(array_column($plan['pages'], 'parent_source_path'), true);
-        $pageTemplateKeys = array_fill_keys(array_map(self::routeTemplateKey(...), $plan['pages']), true);
+        $pageTemplateKeys = array_fill_keys(array_map(TemplateSlugs::forPage(...), $plan['pages']), true);
         foreach ($plan['pages'] as $page) if (!empty($page['synthetic']) && !isset($pageParents[$page['source_path']])) throw new InvalidArgumentException('WordPress site plan synthetic parent must have a materialized child.');
         $archiveDocuments = array();
         foreach (array_merge($plan['taxonomy_entities'], $plan['author_entities']) as $entity) {
@@ -1097,7 +1097,7 @@ final class WordPressSitePlan
         }
         foreach (array_merge($plan['taxonomy_entities'], $plan['author_entities']) as $entity) {
             if (!isset($entity['archive'])) continue;
-            $templateSlug = self::archiveTemplateSlug($entity);
+            $templateSlug = TemplateSlugs::forArchive($entity);
             $archiveTemplates = array_values(array_filter($plan['templates'], static fn(array $template): bool => $templateSlug === ($template['slug'] ?? null)));
             if (!array_key_exists('presentation_markup', $entity['archive'])) {
                 if (array() !== $archiveTemplates) throw new InvalidArgumentException('WordPress site plan fallback archive must not have a per-entity template.');
@@ -1130,21 +1130,21 @@ final class WordPressSitePlan
                 throw new InvalidArgumentException('WordPress site plan template part lacks its canonical write.');
             }
             $boundTemplates = in_array($part['placement']['kind'] ?? null, array('entry_shell', 'shared_shell'), true) ? $part['placement']['template_slugs'] : array();
-            if (in_array($part['placement']['kind'] ?? null, array('entry_shell', 'shared_shell'), true)) foreach (array_keys($overrideTemplateSlugs) as $slug) if (self::shellPartAppliesToOverride($part, $slug)) $boundTemplates[] = $slug;
+            if (in_array($part['placement']['kind'] ?? null, array('entry_shell', 'shared_shell'), true)) foreach (array_keys($overrideTemplateSlugs) as $slug) if (TemplateSlugs::partAppliesToOverride($part, $slug)) $boundTemplates[] = $slug;
             if (in_array('archive', $part['placement']['template_slugs'] ?? array(), true)) foreach (array_merge($plan['taxonomy_entities'], $plan['author_entities']) as $entity) {
                 if (!isset($entity['archive'])) continue;
-                $boundTemplates[] = self::archiveTemplateSlug($entity);
+                $boundTemplates[] = TemplateSlugs::forArchive($entity);
                 if ('author' === $entity['kind']) $boundTemplates[] = 'author';
             }
             if ('inline_shared_shell' === ($part['placement']['kind'] ?? null)) foreach ($plan['templates'] as $template) if (in_array($part['slug'], $template['shell_frame'] ?? array(), true)) $boundTemplates[] = $template['slug'];
-            if ('inline_shared_shell' === ($part['placement']['kind'] ?? null)) foreach (array_merge($plan['taxonomy_entities'], $plan['author_entities']) as $entity) if (isset($entity['archive']) && in_array($entity['archive']['source_path'], $part['placement']['source_paths'] ?? array(), true)) foreach ($plan['templates'] as $template) if ((self::archiveTemplateSlug($entity) === ($template['slug'] ?? null) || ('author' === $entity['kind'] && 'author' === ($template['slug'] ?? null) && $template['source_path'] === $entity['archive']['source_path'])) && str_contains($template['canonical_block_markup'], '"slug":"' . $part['slug'] . '"')) $boundTemplates[] = $template['slug'];
+            if ('inline_shared_shell' === ($part['placement']['kind'] ?? null)) foreach (array_merge($plan['taxonomy_entities'], $plan['author_entities']) as $entity) if (isset($entity['archive']) && in_array($entity['archive']['source_path'], $part['placement']['source_paths'] ?? array(), true)) foreach ($plan['templates'] as $template) if ((TemplateSlugs::forArchive($entity) === ($template['slug'] ?? null) || ('author' === $entity['kind'] && 'author' === ($template['slug'] ?? null) && $template['source_path'] === $entity['archive']['source_path'])) && str_contains($template['canonical_block_markup'], '"slug":"' . $part['slug'] . '"')) $boundTemplates[] = $template['slug'];
             foreach ( $plan['templates'] as $template ) {
                 $references = substr_count($template['canonical_block_markup'], '"slug":"' . $part['slug'] . '"');
                 // An inline shell is bound where it sits, so a template that
                 // keeps every captured document copy binds it once per copy.
                 $allowed = 'inline_shared_shell' === ($part['placement']['kind'] ?? null) ? self::documentCopyCount($template['canonical_block_markup']) : 1;
                 $contentOwnsChrome = self::contentCarriesChrome($template['canonical_block_markup'], $part['area']);
-                foreach ($plan['pages'] as $page) if (self::routeTemplateKey($page) === $template['slug'] && self::contentCarriesChrome($page['canonical_block_markup'], $part['area'])) $contentOwnsChrome = true;
+                foreach ($plan['pages'] as $page) if (TemplateSlugs::forPage($page) === $template['slug'] && self::contentCarriesChrome($page['canonical_block_markup'], $part['area'])) $contentOwnsChrome = true;
                 if (0 === $references && $contentOwnsChrome) continue;
                 if (in_array($template['slug'], $boundTemplates, true) && ($references < 1 || $references > $allowed)) throw new InvalidArgumentException('WordPress site plan template part binding is invalid.');
                 if (!in_array($template['slug'], $boundTemplates, true) && 0 !== $references) throw new InvalidArgumentException('WordPress site plan has an unproven template part binding.');
@@ -2254,15 +2254,9 @@ final class WordPressSitePlan
         return $rendered;
     }
 
-    /** One key for placement, exclusions, template registration and assignment. */
-    public static function routeTemplateKey(array $page): string
-    {
-        return $page['route_template'] ?? (!empty($page['entrypoint']) ? 'front-page' : ('page' === ($page['post_type'] ?? null) ? 'page-' . $page['slug'] : 'single-' . $page['post_type'] . '-' . $page['slug']));
-    }
-
     /**
      * Share generated route overrides only after their final markup is known.
-     * Keep placement keys aligned with routeTemplateKey for binding validation.
+     * Keep placement keys aligned with TemplateSlugs::forPage() for binding validation.
      *
      * @param array<int,array<string,mixed>> $pages
      * @param array<int,array<string,mixed>> $parts
@@ -2274,7 +2268,7 @@ final class WordPressSitePlan
         $bySlug = array_column($templates, null, 'slug');
         $groups = array();
         foreach ($pages as $index => $page) {
-            $key = self::routeTemplateKey($page);
+            $key = TemplateSlugs::forPage($page);
             $template = $bySlug[$key] ?? null;
             if ('single' === $key || !empty($page['entrypoint']) || !is_array($template) || isset($template['source_path'])) continue;
             $groups[$page['post_type'] . "\0" . $template['canonical_block_markup']][] = $index;
@@ -2283,12 +2277,12 @@ final class WordPressSitePlan
         foreach ($groups as $indexes) {
             if (count($indexes) < 2) continue;
             $page = $pages[$indexes[0]];
-            $key = self::routeTemplateKey($page);
+            $key = TemplateSlugs::forPage($page);
             $prefix = 'page' === $page['post_type'] ? 'page-' : 'single-' . $page['post_type'] . '-';
             $slug = $prefix . 'shared-' . substr(hash('sha256', $page['post_type'] . "\0" . $bySlug[$key]['canonical_block_markup']), 0, 12);
             while (isset($bySlug[$slug]) || isset($titles[$slug])) $slug .= '-shared';
             foreach ($indexes as $index) {
-                $renames[self::routeTemplateKey($pages[$index])] = $slug;
+                $renames[TemplateSlugs::forPage($pages[$index])] = $slug;
                 $pages[$index]['route_template'] = $slug;
                 $pages[$index]['metadata']['post_meta']['_wp_page_template'] = $slug;
             }
@@ -2318,36 +2312,6 @@ final class WordPressSitePlan
         }
         unset($part);
         return $titles;
-    }
-
-    /** @param array<string,mixed> $part */
-    private static function shellPartAppliesToOverride(array $part, string $slug): bool
-    {
-        if (!preg_match('/^(?:page|single)-[a-z0-9_-]+$/', $slug) || in_array($slug, $part['placement']['excluded_template_slugs'] ?? array(), true)) return false;
-        $types = $part['placement']['post_types'] ?? (isset($part['placement']['post_type']) ? array($part['placement']['post_type']) : null);
-        if (null === $types) return true;
-        foreach ($types as $type) {
-            if (str_starts_with($slug, 'page' === $type ? 'page-' : 'single-' . $type . '-')) return true;
-        }
-        return false;
-    }
-
-    /**
-     * Per-route override templates: slugs a part is excluded from, wrapper
-     * templates, and frame templates. Excluded slugs are kept as given; the
-     * other sources count only page-* and single-* slugs.
-     *
-     * @param array<int,array<string,mixed>> $parts @param array<int,mixed> $frameSlugs @return array<string,bool>
-     */
-    private static function overrideTemplateSlugs(array $parts, array $frameSlugs): array
-    {
-        $slugs = array();
-        foreach ($parts as $part) {
-            foreach ($part['placement']['excluded_template_slugs'] ?? array() as $slug) if (is_string($slug)) $slugs[$slug] = true;
-            foreach (array_keys($part['placement']['template_wrappers'] ?? array()) as $slug) if (preg_match('/^(?:page|single)-[a-z0-9_-]+$/', $slug)) $slugs[$slug] = true;
-        }
-        foreach ($frameSlugs as $slug) if (is_string($slug) && preg_match('/^(?:page|single)-[a-z0-9_-]+$/', $slug)) $slugs[$slug] = true;
-        return $slugs;
     }
 
     /** Captured landmarks remain content-owned until shell extraction removes them. */
@@ -2383,12 +2347,12 @@ final class WordPressSitePlan
          $markup = static function (string $templateSlug) use ($bound, $singleContent, $hasCapturedPosts, $frames, $hasCommentForm, $postTemplates, $pages): string {
              $before = ''; $after = '';
              $container = null;
-             foreach ($bound as $part) if (in_array($templateSlug, $part['placement']['template_slugs'] ?? array(), true) || self::shellPartAppliesToOverride($part, $templateSlug)
+             foreach ($bound as $part) if (in_array($templateSlug, $part['placement']['template_slugs'] ?? array(), true) || TemplateSlugs::partAppliesToOverride($part, $templateSlug)
                  || ('archive' === $templateSlug && 'header' === $part['area'] && in_array('index', $part['placement']['template_slugs'] ?? array(), true) && !in_array($part['slug'], $frames['archive']['shells'] ?? array(), true))) {
                  // A lifecycle may bind chrome only after its captured content
                  // relinquishes that area, including responsive document copies.
                  $retainsChrome = false;
-                 foreach ($pages as $page) if (self::routeTemplateKey($page) === $templateSlug && self::contentCarriesChrome($page['canonical_block_markup'], $part['area'])) $retainsChrome = true;
+                 foreach ($pages as $page) if (TemplateSlugs::forPage($page) === $templateSlug && self::contentCarriesChrome($page['canonical_block_markup'], $part['area'])) $retainsChrome = true;
                  if ($retainsChrome) continue;
                  if (is_array($part['placement']['container'] ?? null)) $container = $part['placement']['container'];
                  $reference = '<!-- wp:template-part {"slug":"' . $part['slug'] . '","area":"' . $part['area'] . '","tagName":"' . $part['tag_name'] . '","className":"blocks-engine-shell-transport"} /-->' . "\n";
@@ -2429,9 +2393,9 @@ final class WordPressSitePlan
          $templates[] = $make('404', 'templates/404.html', $markup('404'));
         if ( array() !== $pages ) $templates[] = $make('page', 'templates/page.html', $markup('page'));
         foreach ( $pages as $page ) if ( ! empty($page['entrypoint']) ) { $templates[] = $make('front-page', 'templates/front-page.html', $markup('front-page')); break; }
-        $overrides = array_filter(self::overrideTemplateSlugs($bound, array_keys($frames)), static fn(int|string $slug): bool => 1 === preg_match('/^(?:page|single)-[a-z0-9_-]+$/', (string) $slug), ARRAY_FILTER_USE_KEY);
+        $overrides = array_filter(TemplateSlugs::overrides($bound, array_keys($frames)), static fn(int|string $slug): bool => 1 === preg_match('/^(?:page|single)-[a-z0-9_-]+$/', (string) $slug), ARRAY_FILTER_USE_KEY);
         foreach ($pages as $page) if (isset($page['route_template']) && 'single' !== $page['route_template']) $overrides[$page['route_template']] = true;
-        $liveOverrides = array_fill_keys(array_map(self::routeTemplateKey(...), $pages), true);
+        $liveOverrides = array_fill_keys(array_map(TemplateSlugs::forPage(...), $pages), true);
         $overrides = array_intersect_key($overrides, $liveOverrides);
         foreach (array_keys($overrides) as $slug) $templates[] = $make($slug, 'templates/' . $slug . '.html', $markup($slug));
         foreach ($templates as &$template) {
@@ -2458,7 +2422,7 @@ final class WordPressSitePlan
          }
          foreach ($taxonomyEntities as $entity) {
              if (!isset($entity['archive']) || !array_key_exists('presentation_markup', $entity['archive'])) continue;
-             $slug = self::archiveTemplateSlug($entity);
+             $slug = TemplateSlugs::forArchive($entity);
              $target = 'templates/' . $slug . '.html';
              if (array_filter($templates, static fn(array $template): bool => $template['slug'] === $slug)) throw new InvalidArgumentException('A native archive template collides with a declared template.');
              $content = (string) $entity['archive']['presentation_markup'];
@@ -3086,11 +3050,6 @@ final class WordPressSitePlan
     }
     /** @param array<string,mixed> $source */
     private static function assertSource(array $source): void { if ('blocks-engine/php-transformer/compiled-site/v1' !== ($source['schema'] ?? null) || !is_string($source['source_hash'] ?? null) || !preg_match('/^[a-f0-9]{64}$/', $source['source_hash']) || !is_string($source['entry_path'] ?? null) || !is_array($source['provenance'] ?? null) || (isset($source['source_documents']) && (!is_array($source['source_documents']) || !array_is_list($source['source_documents']) || count($source['source_documents']) > 5000))) throw new InvalidArgumentException('WordPress site plan source identity is invalid.'); }
-    /** Source-owned native templates share the taxonomy presentation path. */
-    private static function archiveTemplateSlug(array $entity): string
-    {
-        return ('author' === $entity['kind'] ? 'author-' : ('post_tag' === ($entity['taxonomy'] ?? null) ? 'tag-' : 'category-')) . $entity['slug'];
-    }
 
     private static function assertAuthorEntities(array $entities, array $pagesBySource): void
     {
