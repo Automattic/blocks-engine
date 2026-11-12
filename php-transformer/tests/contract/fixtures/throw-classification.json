@@ -1793,6 +1793,24 @@
         "count": 1
       }
     },
+    "src/WordPressSitePlan/PageOperations.php": {
+      "InvalidArgumentException('WordPress site plan operation is invalid.')": {
+        "class": "integrity",
+        "count": 2
+      },
+      "InvalidArgumentException('WordPress site plan create_page operation is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan operation references an invalid front page.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan operations are incomplete.')": {
+        "class": "integrity",
+        "count": 1
+      }
+    },
     "src/WordPressSitePlan/PageRoute.php": {
       "InvalidArgumentException('WordPress site plan has an unsafe explicit page route.')": {
         "class": "integrity",
@@ -2181,10 +2199,6 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('WordPress site plan create_page operation is invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
       "InvalidArgumentException('WordPress site plan declared template surface is structurally invalid.')": {
         "class": "integrity",
         "count": 1
@@ -2238,18 +2252,6 @@
         "count": 1
       },
       "InvalidArgumentException('WordPress site plan native archive must name a captured source without a materialized page.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan operation is invalid.')": {
-        "class": "integrity",
-        "count": 2
-      },
-      "InvalidArgumentException('WordPress site plan operation references an invalid front page.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan operations are incomplete.')": {
         "class": "integrity",
         "count": 1
       },

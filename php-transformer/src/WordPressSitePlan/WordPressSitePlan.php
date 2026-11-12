@@ -563,7 +563,7 @@ final class WordPressSitePlan
         $routes = RouteTable::forPages($pages);
         $emittedMarkup = implode("\n", self::markups(array_merge($pages, $parts, $templates, $syncedPatterns)));
         $menus = array_values(array_filter($menus, static fn(array $menu): bool => !isset($menu['token']) || str_contains($emittedMarkup, self::NAVIGATION_TOKEN_PREFIX . $menu['token'] . '}}')));
-        $operations = $this->operations($pages);
+        $operations = PageOperations::plan($pages);
         $assets = self::withVariantScopedIdSelectors($assets);
         // Stylesheet values equal to a token follow it too: links inside
         // text, navigation items and states have no block attribute to bind.
@@ -876,7 +876,7 @@ final class WordPressSitePlan
         if (count($routeSources) !== count($pagePaths)) throw new InvalidArgumentException('WordPress site plan must export every canonical page route.');
         // Source identities compare case-insensitively, as unique() keys them.
         self::assertReporting($plan['reporting'], array_merge($pagePaths, array_change_key_case(array_fill_keys(array_filter(array_column($plan['templates'], 'source_path'), 'is_string'), true), CASE_LOWER)), $tokens, $plan['diagnostics']);
-        self::assertOperations($plan['operations'], $plan['pages']);
+        PageOperations::assertValid($plan['operations'], $plan['pages']);
         $templateTargets = array();
         foreach ( $plan['templates'] as $template ) {
             $sourcePath = is_array($template) && is_string($template['source_path'] ?? null) ? $template['source_path'] : 'wordpress-site-plan/' . ($template['target_path'] ?? '');
@@ -1267,15 +1267,6 @@ final class WordPressSitePlan
         return $pages;
     }
 
-    /** @param array<int,array<string,mixed>> $pages @return array<int,array<string,mixed>> */
-    private function operations(array $pages): array
-    {
-        $operations = array();
-        foreach ($pages as $page) $operations[] = array('kind' => 'create_page', 'order' => count($operations), 'source_path' => $page['source_path'], 'reconciliation_identity' => $page['reconciliation_identity'], 'post_type' => $page['post_type'], 'slug' => $page['slug'], 'route_path' => $page['route']['path'], 'parent_source_path' => $page['parent_source_path'], 'synthetic' => !empty($page['synthetic']));
-        foreach ($pages as $page) if (!empty($page['entrypoint'])) { $operations[] = array('kind' => 'site_reading', 'order' => count($operations), 'show_on_front' => 'page', 'front_page_source_path' => $page['source_path'], 'front_page_reconciliation_identity' => $page['reconciliation_identity']); break; }
-        return $operations;
-    }
-
     // A dynamic reference is a URL the script builds or assigns: an import, an
     // injected script, a `src` it sets, a URL it constructs. Inserting a node
     // (`appendChild`, `insertBefore`) names no URL: a copy button's scratch
@@ -1379,19 +1370,6 @@ final class WordPressSitePlan
         return $this->links;
     }
 
-    /** @param array<int,array<string,mixed>> $operations @param array<int,array<string,mixed>> $pages */
-    private static function assertOperations(array $operations, array $pages): void
-    {
-        $pagesBySource = array(); foreach ($pages as $page) $pagesBySource[$page['source_path']] = $page;
-        $created = array(); $reading = 0;
-        foreach ($operations as $index => $operation) {
-            if (!is_array($operation) || $index !== ($operation['order'] ?? null)) throw new InvalidArgumentException('WordPress site plan operation is invalid.');
-            if ('create_page' === ($operation['kind'] ?? null)) { $page = $pagesBySource[$operation['source_path'] ?? ''] ?? null; if (!is_array($page) || $page['reconciliation_identity'] !== ($operation['reconciliation_identity'] ?? null) || (isset($operation['post_type']) && $page['post_type'] !== $operation['post_type']) || $page['route']['path'] !== ($operation['route_path'] ?? null) || $page['slug'] !== ($operation['slug'] ?? null) || $page['parent_source_path'] !== ($operation['parent_source_path'] ?? null) || !is_bool($operation['synthetic'] ?? null) || ('' !== $page['parent_source_path'] && !isset($created[$page['parent_source_path']]))) throw new InvalidArgumentException('WordPress site plan create_page operation is invalid.'); $created[$page['source_path']] = true; continue; }
-            if ('site_reading' !== ($operation['kind'] ?? null) || ++$reading > 1 || 'page' !== ($operation['show_on_front'] ?? null) || !is_string($operation['front_page_source_path'] ?? null) || !is_string($operation['front_page_reconciliation_identity'] ?? null)) throw new InvalidArgumentException('WordPress site plan operation is invalid.');
-            $page = $pagesBySource[$operation['front_page_source_path']] ?? null; if (!is_array($page) || empty($page['entrypoint']) || $page['reconciliation_identity'] !== $operation['front_page_reconciliation_identity'] || !isset($created[$page['source_path']])) throw new InvalidArgumentException('WordPress site plan operation references an invalid front page.');
-        }
-        if (count($created) !== count($pages) || $reading !== (array() === array_filter($pages, static fn(array $page): bool => !empty($page['entrypoint'])) ? 0 : 1)) throw new InvalidArgumentException('WordPress site plan operations are incomplete.');
-    }
     /** @param array<string,bool> $tokens @param array<string,array<string,mixed>> $writes */
     private static function assertResolution(array $plan, array $tokens, array $writes): void
     {
