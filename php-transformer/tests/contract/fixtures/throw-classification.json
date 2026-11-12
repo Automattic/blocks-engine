@@ -1695,6 +1695,14 @@
       "InvalidArgumentException('WordPress site plan payload references are limited to non-SVG binary assets.')": {
         "class": "integrity",
         "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan font materialization is structurally invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan webfont SVG consumer is detached from canonical assets or writes.')": {
+        "class": "integrity",
+        "count": 1
       }
     },
     "src/WordPressSitePlan/ContentDecisions.php": {
@@ -1835,6 +1843,20 @@
         "count": 1
       },
       "InvalidArgumentException('WordPress site plan page routes reject encoded path separators and dot segments.')": {
+        "class": "integrity",
+        "count": 1
+      }
+    },
+    "src/WordPressSitePlan/PageStylesheets.php": {
+      "InvalidArgumentException('Only stylesheet resources may declare ordered instances.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Stylesheet instance must identify a canonical document, order and conditions.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Two stylesheet instances claim one document position.')": {
         "class": "integrity",
         "count": 1
       }
@@ -1996,6 +2018,30 @@
       }
     },
     "src/WordPressSitePlan/StylesheetScopes.php": {
+      "InvalidArgumentException('WordPress site plan asset scopes must be a nonempty array.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan asset scope is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('A global asset scope cannot declare page fields.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('An archive asset scope is structurally invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('A page asset scope is structurally invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('An asset scope does not match its canonical document.')": {
+        "class": "integrity",
+        "count": 1
+      },
       "InvalidArgumentException('A document-owned compiled asset must resolve to a canonical document.')": {
         "class": "integrity",
         "count": 1
@@ -2060,6 +2106,18 @@
         "unit": "asset",
         "finding": "wordpress_site_plan_missing_local_media",
         "pending": true
+      },
+      "InvalidArgumentException('WordPress site plan writes an unreferenced asset.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan asset lacks a write.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan reference asset and write do not match.')": {
+        "class": "integrity",
+        "count": 1
       }
     },
     "src/WordPressSitePlan/ThemeScaffold.php": {
@@ -2096,6 +2154,14 @@
       "InvalidArgumentException('A native archive template collides with a declared template.')": {
         "class": "integrity",
         "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan template part binding is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan has an unproven template part binding.')": {
+        "class": "integrity",
+        "count": 1
       }
     },
     "src/WordPressSitePlan/WholePageCandidates.php": {
@@ -2129,22 +2195,6 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('A global asset scope cannot declare page fields.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('An archive asset scope is structurally invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('An asset scope does not match its canonical document.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('A page asset scope is structurally invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
       "InvalidArgumentException('Asset consumers or destination are stale.')": {
         "class": "integrity",
         "count": 1
@@ -2157,19 +2207,7 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('Only stylesheet resources may declare ordered instances.')": {
-        "class": "integrity",
-        "count": 1
-      },
       "InvalidArgumentException('Stylesheet assets must declare a supported target.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Stylesheet instance must identify a canonical document, order and conditions.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Two stylesheet instances claim one document position.')": {
         "class": "integrity",
         "count": 1
       },
@@ -2178,22 +2216,6 @@
         "count": 1
       },
       "InvalidArgumentException('WordPress site plan asset is structurally invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan asset lacks a write.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan writes an unreferenced asset.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan asset scope is invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan asset scopes must be a nonempty array.')": {
         "class": "integrity",
         "count": 1
       },
@@ -2217,15 +2239,7 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('WordPress site plan font materialization is structurally invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
       "InvalidArgumentException('WordPress site plan has an invalid reference token declaration.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan has an unproven template part binding.')": {
         "class": "integrity",
         "count": 1
       },
@@ -2266,10 +2280,6 @@
         "count": 1
       },
       "InvalidArgumentException('WordPress site plan quality is structurally invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan reference asset and write do not match.')": {
         "class": "integrity",
         "count": 1
       },
@@ -2329,10 +2339,6 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('WordPress site plan template part binding is invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
       "InvalidArgumentException('WordPress site plan template part has a stale content hash.')": {
         "class": "integrity",
         "count": 1
@@ -2342,10 +2348,6 @@
         "count": 1
       },
       "InvalidArgumentException('WordPress site plan theme is structurally invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan webfont SVG consumer is detached from canonical assets or writes.')": {
         "class": "integrity",
         "count": 1
       },

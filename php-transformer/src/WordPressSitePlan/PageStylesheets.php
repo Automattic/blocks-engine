@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
+use InvalidArgumentException;
 
 /**
  * Where page stylesheets load: the instances each document carries, in the
@@ -112,6 +113,34 @@ final class PageStylesheets
         foreach ($slots as $position => $slot) $assets[$slot] = $orderedAssets[$position];
 
         return array_values($assets);
+    }
+
+
+    /**
+     * Every stylesheet instance names a canonical document, an order and its
+     * load conditions, and only stylesheet resources carry instances. A
+     * document position holds exactly one stylesheet instance, across every
+     * resource, so each route replays one unambiguous sequence.
+     *
+     * @param array<int,array<string,mixed>> $assets @param array<string,array<string,mixed>> $documentsBySource
+     */
+    public static function assertInstances(array $assets, array $documentsBySource): void
+    {
+        $identities = array();
+        foreach ($assets as $asset) {
+            if (isset($asset['stylesheet_instances']) && ('css' !== $asset['kind'] || !is_array($asset['stylesheet_instances']))) throw new InvalidArgumentException('Only stylesheet resources may declare ordered instances.');
+            foreach ($asset['stylesheet_instances'] ?? array() as $instance) {
+                if (!is_array($instance) || array('source_path', 'order', 'media', 'type') !== array_keys(array_diff_key($instance, array_flip(array(CaptureEvidence::DEVICE_STYLE, CaptureEvidence::SOURCE_MEDIA)))) || !isset($documentsBySource[$instance['source_path'] ?? '']) || !is_int($instance['order'] ?? null) || $instance['order'] < 0 || !is_string($instance['media'] ?? null) || !is_string($instance['type'] ?? null) || array_filter(self::deviceAttributes($instance), static fn(mixed $value): bool => !is_string($value))) throw new InvalidArgumentException('Stylesheet instance must identify a canonical document, order and conditions.');
+                // A frontend-only and an editor-only copy share their position:
+                // each context still replays exactly one resource there.
+                foreach (array('frontend', 'editor') as $context) {
+                    if (!in_array($asset['stylesheet_target'] ?? 'both', array('both', $context), true)) continue;
+                    $identity = $instance['source_path'] . "\0" . $instance['order'] . "\0" . $context;
+                    if (isset($identities[$identity])) throw new InvalidArgumentException('Two stylesheet instances claim one document position.');
+                    $identities[$identity] = true;
+                }
+            }
+        }
     }
 
     /**
