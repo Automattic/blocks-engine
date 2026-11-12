@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
@@ -418,11 +419,16 @@ final class SourceBlockAttributeProjector
 
     public function sourceProjectionClassName(DOMElement $element, SourceBlockAttributeProjectionContext $context, string $className = ''): string
     {
+        $hostClassIdentities = array();
         if ( '' !== $context->authorStyles->combinedCss() ) {
             // The stylesheet projector rewrites every authored class selector
             // to its marker, whatever the token's length or position, so every
             // class on the element must carry its marker too.
             foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class')), -1, PREG_SPLIT_NO_EMPTY) ?: array() as $class ) {
+                if ( $context->authorStyles->isHostRenderedClass($class) && in_array($class, SourceDom::tokens($className), true) ) {
+                    $hostClassIdentities[] = EngineMarker::subjectClassClass($class);
+                    $context->selectorProjections->recordHostClassCarrier($element->getNodePath() ?? '');
+                }
                 $marker = $context->authorStyles->sourceClassMarker($class);
                 if ( '' !== $marker ) {
                     $className = SourceDom::mergeClassNames($className, $marker);
@@ -437,7 +443,7 @@ final class SourceBlockAttributeProjector
         if ( array() !== $semanticMarkers ) {
             $className = SourceDom::mergeClassNames($className, ...$semanticMarkers);
         }
-        return $className;
+        return SourceDom::mergeClassNames($className, ...$hostClassIdentities);
     }
 
     /** Modifiers are shared by native lowering and safe core/html reduction. */

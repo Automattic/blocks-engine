@@ -10,6 +10,23 @@ use DOMElement;
 /** Selects the editable, compositional, or preserved representation of a form. */
 final class FormDispatcher
 {
+    /**
+     * Classes added by the contact-form materialization contract, not inherited
+     * from source. Declare before lowering so earlier source siblings can carry
+     * identity too. Preference-only forms are runtime islands, not provider slots.
+     *
+     * @return list<string>
+     */
+    public static function hostRenderedClasses(DOMElement $element): array
+    {
+        if ( 'form' !== strtolower($element->tagName)
+            || in_array(FormRuntimeRequirementAnalyzer::formIntent($element), array('preference', 'search', 'filter', 'login'), true)
+            || ! FormControlClassifier::hasDataEntryControls($element) ) {
+            return array();
+        }
+        return array('contact-form', 'commentsblock', 'jetpack-contact-form__form', 'wp-block-jetpack-contact-form');
+    }
+
     /** @param \Closure(DOMElement): ?array<string, mixed>|null $cardPurchaseBlock */
     public function __construct(private readonly FormDispatchContext $context, private readonly SourceBlockCreator $createBlock, private readonly ?\Closure $cardPurchaseBlock = null)
     {

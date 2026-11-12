@@ -108,6 +108,9 @@ final class AuthorStyleAnalysis
                 continue;
             }
             $this->sourceElements[] = $element;
+            foreach ( \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormDispatcher::hostRenderedClasses($element) as $class ) {
+                $this->hostRenderedClasses[$class] = true;
+            }
             $this->recordSelectorSignals($element);
             $this->sourceElementsByTag[strtolower($element->tagName)][] = $element;
             $id = $element->getAttribute('id');
@@ -140,6 +143,14 @@ final class AuthorStyleAnalysis
     public function specificityShim(): string { return $this->specificityShim; }
     public function classSpecificityShim(): string { return $this->classSpecificityShim; }
     public function idSpecificityShim(): string { return $this->idSpecificityShim; }
+    /** @var array<string, true> Classes introduced by a materializable host on this page. */
+    private array $hostRenderedClasses = array();
+
+    public function isHostRenderedClass(string $class): bool
+    {
+        return isset($this->hostRenderedClasses[$class]);
+    }
+
     /** A source-only identity for a class that Core can synthesize independently. */
     public function sourceClassMarker(string $class): string
     {
