@@ -242,10 +242,10 @@ foreach ($borderGroups[1] as $json) {
 }
 foreach (array('top' => array('#3e559b', '7px'), 'bottom' => array('#d56741', '4px')) as $side => [$color, $width]) {
     $slug = array_search($color, $borderPalette, true);
-    $expected = false === $slug ? 'var(--accent)' : 'var:preset|color|' . $slug;
-    $assert($expected === ($border[$side]['color'] ?? null), "border tokens: $side binds only when its resolved color is in the palette");
+    $expected = false === $slug ? $color : 'var:preset|color|' . $slug;
+    $assert($expected === ($border[$side]['color'] ?? null), "border tokens: $side binds to a preset when its resolved color is in the palette, else carries that color");
     $assert($width === ($border[$side]['width'] ?? null) && 'solid' === ($border[$side]['style'] ?? null), "border tokens: $side retains width and style");
-    $cssColor = false === $slug ? 'var(--accent)' : 'var(--wp--preset--color--' . $slug . ')';
+    $cssColor = false === $slug ? $color : 'var(--wp--preset--color--' . $slug . ')';
     $assert(str_contains($borderMarkup, 'border-' . $side . '-color:' . $cssColor), "border tokens: $side saved HTML agrees with the attribute");
 }
 
