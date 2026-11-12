@@ -741,7 +741,14 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $readableFormBlockBuilder->build(...),
             $formRuntimeRequirementAnalyzer->requiresPreservation(...),
             $pseudoFormAnalyzer->isProviderPseudoForm(...)
-        ), $this);
+        ), $this, function (DOMElement $form): ?array {
+            $control = $this->createCommercePattern()->cartControlForCardForm($form);
+            if ( null === $control ) {
+                return null;
+            }
+            $button = $this->authoredFormControlBlockConverter->button($control, true);
+            return null !== $button ? $this->createBlock($button['blockName'], $button['attrs'], array(), $control) : null;
+        });
         $buttonLinkDispatcher = new ButtonLinkDispatcher($this->sourceElementClassifier, $this->createButtonLinkDispatchContext());
         $buttonConverter = new ButtonElementConverter($this->sourceElementClassifier, $this, $this->styleResolver, new ButtonElementContext(
             $searchBlockConverter->isReplacedSearchClusterControl(...),

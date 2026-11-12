@@ -740,6 +740,31 @@ final class CommerceStructureRecognizer
         return '';
     }
 
+    /** A card's purchase form is superseded by its provider-owned cart control. */
+    public function cartControlForCardForm(DOMElement $form): ?DOMElement
+    {
+        // Only purchase options belong to the card provider; never swallow a
+        // contact/customization form merely because it shares a product card.
+        if ( $form->getElementsByTagName('textarea')->length > 0 ) {
+            return null;
+        }
+        foreach ( $form->getElementsByTagName('input') as $input ) {
+            $type = strtolower(SourceDom::attr($input, 'type'));
+            if ( ! in_array($type, array( 'hidden', 'submit', 'button', 'image', 'number', 'radio', 'checkbox' ), true) ) {
+                return null;
+            }
+        }
+        for ( $card = $form->parentNode; $card instanceof DOMElement; $card = $card->parentNode ) {
+            $container = $card->parentNode;
+            if ( ! $container instanceof DOMElement || ! $this->isProductGridContainer($container) || null === $this->productCardData($card) ) {
+                continue;
+            }
+            $control = $this->cartControlElement($card);
+            return null !== $control && SourceDom::elementContains($form, $control) ? $control : null;
+        }
+        return null;
+    }
+
     private function hasCartControl(DOMElement $card): bool
     {
         return null !== $this->cartControlElement($card);
