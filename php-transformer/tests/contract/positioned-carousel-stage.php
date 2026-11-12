@@ -26,12 +26,15 @@ $artwork = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html',
     'index.html' => $source,
     'logo.webp' => $logo,
 )))->toArray();
+if (!str_contains($artwork['serialized_blocks'], 'blocks-engine-authored-carousel--positioned-stage')) {
+    throw new RuntimeException('The absolute percentage-height track must opt into scoped stage sizing.');
+}
 $definition = (new AuthoredCarouselBlockGenerator())->definition('custom');
 $css = $definition['assets']['style.css'] . "\n" . implode("\n", array_column($artwork['assets'], 'content'));
 $directory = '/tmp/positioned-carousel-' . bin2hex(random_bytes(6));
 mkdir($directory);
 try {
-    foreach (array(1440, 390) as $width) {
+    foreach (array(1440, 768, 390) as $width) {
         foreach (array('source' => $source, 'projected' => '<style>' . $css . '</style>' . $artwork['serialized_blocks']) as $kind => $markup) {
             $markup = preg_replace('/src="[^"]*"/', 'src="data:image/webp;base64,' . base64_encode($logo) . '"', $markup);
             $document = '<!doctype html><style>body{width:' . $width . 'px}</style>' . $markup . '<script>
