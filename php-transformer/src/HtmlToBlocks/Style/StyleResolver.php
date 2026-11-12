@@ -4999,6 +4999,23 @@ final class StyleResolver implements ElementPresentationResolver
         return true;
     }
 
+    /** First displayed pixel after a responsive narrow-screen display:none. */
+    public function displayHiddenBelow(DOMElement $element): ?int
+    {
+        $display = fn (float $width): string => CssValueInspector::comparable((string) (
+            $this->cssDeclarations($this->resolvedCascadeStyle($element, 'static-conditional', $width))['display'] ?? ''
+        ));
+        $breakpoint = null;
+        foreach ( $this->propertyViewportWidths($element, array('display')) as $width ) {
+            $pixel = (int) ceil($width);
+            if ( $pixel > 1 && 'none' === $display($pixel - 1) && 'none' !== $display($pixel) ) {
+                $breakpoint = max($breakpoint ?? 0, $pixel);
+            }
+        }
+
+        return $breakpoint;
+    }
+
     /** @param list<string> $properties
      * @return list<float>
      */

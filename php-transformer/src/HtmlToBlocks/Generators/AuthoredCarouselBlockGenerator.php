@@ -30,6 +30,18 @@ final class AuthoredCarouselBlockGenerator
     private SplObjectStorage $recognitions;
 
     public const LOCAL_NAME = 'authored-carousel';
+    /**
+     * Below a recorded breakpoint the rail is hidden and the stage spans the
+     * carousel. The root attribute scopes each rule to opted-in instances.
+     * Keys are selector suffixes after the root; values are declarations.
+     */
+    private const THUMBNAIL_VISIBILITY_RULES = array(
+        '' => 'grid-template-columns:minmax(0,1fr)!important;grid-template-rows:auto!important;gap:0!important;--blocks-engine-carousel-stage-width:100%!important;--blocks-engine-carousel-height:auto!important;--blocks-engine-carousel-stage-min-height:0!important',
+        '>.blocks-engine-authored-carousel__thumbnails' => 'display:none!important',
+        '>.blocks-engine-authored-carousel__source-stage' => 'grid-column:1/-1!important;grid-row:1!important;width:100%;max-width:none',
+        ' .blocks-engine-authored-carousel__previous' => 'left:1rem',
+        ' .blocks-engine-authored-carousel__next' => 'right:1rem',
+    );
     private const ROOT_GEOMETRY_PROPERTIES = array('margin', 'margin-bottom', 'margin-top', 'margin-inline', 'margin-left', 'margin-right');
     private const SLIDE_INDEX_ATTRIBUTES = array('data-slide', 'data-slide-index', 'data-carousel-index', 'data-slideshow-item', 'data-uk-slideshow-item');
     private const GEOMETRY_VALUE_PATTERN = '^[0-9a-zA-Z.%()+*/,_ -]+(?:\\s*!important)?$';
@@ -95,6 +107,7 @@ final class AuthoredCarouselBlockGenerator
             'fullBleed' => array('type' => 'boolean', 'default' => false),
             'thumbnails' => array('type' => 'array', 'default' => array()),
             'thumbnailPosition' => array('type' => 'string', 'default' => 'right'),
+            'thumbnailsHiddenBelow' => array('type' => 'integer'),
             'thumbnailWidth' => array('type' => 'string', 'default' => ''),
             'thumbnailGap' => array('type' => 'string', 'default' => ''),
             'stageGap' => array('type' => 'string', 'default' => ''),
@@ -155,6 +168,7 @@ final class AuthoredCarouselBlockGenerator
         var carouselClasses = 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' + items + ' blocks-engine-authored-carousel--' + presentation + ( attributes.fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '' ) + thumbnailModifier + ( aspect ? ' blocks-engine-authored-carousel--stage-aspect' : '' ) + ' blocks-engine-authored-carousel--transition-' + normalizedTransition( attributes.transitionStyle );
         if ( 'src-swap' === presentation ) carouselClasses = 'blocks-engine-authored-carousel--src-swap';
         var props = { className: carouselClasses + ( attributes.sourcePresentationClasses ? ' ' + attributes.sourcePresentationClasses : '' ), style: style, role: 'region', 'aria-label': attributes.ariaLabel || 'Carousel', 'aria-roledescription': 'carousel', 'data-wrap': false === attributes.wrap ? 'false' : 'true', 'data-wp-interactive': 'blocks-engine/carousel', 'data-wp-context': JSON.stringify( { index: initial, wrap: false !== attributes.wrap, count: 0, visible: items, presentation: presentation, autoplayInterval: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ), paused: false, playing: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ) > 0 } ), 'data-wp-init': 'callbacks.init', 'data-wp-on--mouseenter': 'actions.pause', 'data-wp-on--mouseleave': 'actions.resume', 'data-wp-on--focusin': 'actions.pause', 'data-wp-on--focusout': 'actions.resume' };
+        if ( attributes.thumbnailsHiddenBelow > 0 ) props[ 'data-carousel-thumbnails-hidden-below' ] = String( Math.round( attributes.thumbnailsHiddenBelow ) );
         if ( false === attributes.showArrows ) props[ 'data-carousel-arrows' ] = 'false';
         if ( false === attributes.keyboard ) props[ 'data-carousel-keyboard' ] = 'false';
         if ( attributes.swipe ) props[ 'data-carousel-swipe' ] = 'true';
@@ -763,6 +777,7 @@ JS;
                 . ( 0 < $autoplayInterval ? 'Pause' : 'Play' ) . '</button>'
             : '';
         $rail = '';
+        $hiddenBelow = max(0, (int) ($attributes['thumbnailsHiddenBelow'] ?? 0));
         if ( 1 < count($thumbnails) ) {
             $rail = '<div class="blocks-engine-authored-carousel__thumbnails" role="group" aria-label="Choose slide">';
             foreach ( $thumbnails as $index => $thumbnail ) {
@@ -772,7 +787,7 @@ JS;
             $rail .= '</div>';
         }
 
-        $identityAttributes = '';
+        $identityAttributes = $hiddenBelow > 0 ? ' data-carousel-thumbnails-hidden-below="' . $hiddenBelow . '"' : '';
         foreach (array('showArrows' => 'arrows', 'keyboard' => 'keyboard', 'swipe' => 'swipe') as $key => $name) {
             if ('swipe' === $key ? !empty($attributes[$key]) : false === ($attributes[$key] ?? true)) $identityAttributes .= ' data-carousel-' . $name . '="' . ('swipe' === $key ? 'true' : 'false') . '"';
         }
@@ -1335,6 +1350,23 @@ JS;
 
         $status = $this->slideStatus($list);
         $registry->register(self::class, $this->definition($registry->namespace()));
+        if ( array() !== $thumbnails ) {
+            for ( $node = $this->commonAncestor($pagerItems); $node instanceof DOMElement && ! $node->isSameNode($element); $node = $node->parentNode ) {
+                $breakpoint = $styleResolver->displayHiddenBelow($node);
+                if ( null !== $breakpoint ) {
+                    $thumbnailGeometry['thumbnailsHiddenBelow'] = max($thumbnailGeometry['thumbnailsHiddenBelow'] ?? 0, $breakpoint);
+                }
+            }
+        }
+        if ( 0 < ($thumbnailGeometry['thumbnailsHiddenBelow'] ?? 0) ) {
+            // Saved markup carries only the breakpoint attribute; the rule goes
+            // through the generated stylesheet, which both canvases load.
+            $hiddenBelow = (int) $thumbnailGeometry['thumbnailsHiddenBelow'];
+            $root = '.blocks-engine-authored-carousel[data-carousel-thumbnails-hidden-below="' . $hiddenBelow . '"]';
+            foreach ( self::THUMBNAIL_VISIBILITY_RULES as $suffix => $declarations ) {
+                $session->sourceTargetProjectionState()->record(SourceDom::elementSelector($element), $root . $suffix, $declarations, array('@media (max-width:' . ($hiddenBelow - 1) . 'px)'));
+            }
+        }
         $attributes = $thumbnailGeometry + array(
             'ariaLabel' => trim(SourceDom::attr($element, 'aria-label')) ?: 'Carousel',
             'sourceControlTopology' => $controlsTopology,
