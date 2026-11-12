@@ -273,7 +273,9 @@ final class PresetBinding
         foreach (array('body', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6') as $tag) {
             $value = 'body' === $tag ? ($styles['typography']['fontFamily'] ?? null)
                 : ($styles['elements'][$tag]['typography']['fontFamily'] ?? $styles['elements']['heading']['typography']['fontFamily'] ?? null);
-            if (!is_string($value)) continue;
+            // Inheritance exposes an editable element default but does not
+            // own a concrete font: scoped author declarations must survive.
+            if (!is_string($value) || in_array(strtolower(trim($value)), array('inherit', 'initial', 'unset', 'revert', 'revert-layer'), true)) continue;
             $this->fontDefaults[$tag] = $families[str_replace('var:preset|font-family|', '', $value)] ?? $value;
         }
     }
