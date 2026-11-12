@@ -63,7 +63,7 @@ foreach ($owners as $owner) {
     }
 }
 preg_match("/add_action\( 'wp_enqueue_scripts', static function \(\): void \{(.*?)\n\}, 1 \);/s", $bootstrap, $callback);
-$assert(1 === substr_count($callback[1] ?? '', WordPressSitePlan::DOCUMENT_ID_EXPRESSION), 'Styles resolve the current document exactly once.');
+$assert(1 === substr_count($callback[1] ?? '', ThemeBootstrap::DOCUMENT_ID_EXPRESSION), 'Styles resolve the current document exactly once.');
 $realisticFiles = require __DIR__ . '/support-owner-set-realistic-fixture.php';
 $realistic = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $realisticFiles))->toArray()['source_reports']['wordpress_site_plan'];
 WordPressSitePlan::assertValid($realistic);

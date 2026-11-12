@@ -31,7 +31,7 @@ class WP_HTML_Tag_Processor
     public function get_updated_html(): string { return $this->dom->saveHTML($this->dom->getElementsByTagName('body')->item(0)); }
 }
 function add_filter(string $name, callable $callback, int $priority, int $arguments): void { $GLOBALS['imageSelectionRenderer'] = $callback; }
-eval(Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::IMAGE_SELECTION_RENDERER);
+eval(Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap::IMAGE_SELECTION_RENDERER);
 
 $image = static function (string $name, bool $responsive, bool $hidden = false): string {
     return '<img class="image-' . $name . '" src="https://example.com/' . $name . '.jpg"'

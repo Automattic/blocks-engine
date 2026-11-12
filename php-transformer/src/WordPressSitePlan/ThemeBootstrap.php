@@ -22,13 +22,13 @@ use Automattic\BlocksEngine\PhpTransformer\Support\StylesheetActivation;
  */
 final class ThemeBootstrap
 {
-    private const EDITOR_CORE_IMAGE_INTERACTION_CSS = ':root .block-editor-block-list__block.wp-block-image img{pointer-events:auto!important}';
+    public const EDITOR_CORE_IMAGE_INTERACTION_CSS = ':root .block-editor-block-list__block.wp-block-image img{pointer-events:auto!important}';
 
-    private const EDITOR_POST_TITLE_INTERACTION_CSS = ':root .editor-post-title{position:relative;z-index:100000;pointer-events:auto!important}';
+    public const EDITOR_POST_TITLE_INTERACTION_CSS = ':root .editor-post-title{position:relative;z-index:100000;pointer-events:auto!important}';
 
-    private const EDITOR_LINK_INTERACTION_CSS = ':root .editor-styles-wrapper a[href]{pointer-events:none!important}';
+    public const EDITOR_LINK_INTERACTION_CSS = ':root .editor-styles-wrapper a[href]{pointer-events:none!important}';
 
-    private const LISTING_QUERY_CSS = '.wp-block-query.blocks-engine-listing-query,.wp-block-query.blocks-engine-listing-query .wp-block-post-template,.wp-block-query.blocks-engine-listing-query .wp-block-post,.wp-block-query.blocks-engine-listing-query .wp-block-post-content{display:contents;list-style:none;margin:0;padding:0}.blocks-engine-listing-query .blocks-engine-authored-excerpt>p{margin:0}.blocks-engine-listing-overlay{width:auto}.blocks-engine-listing-card{position:relative}.blocks-engine-listing-card>.blocks-engine-listing-overlay{position:absolute;inset:0;z-index:2}.blocks-engine-listing-card>.blocks-engine-listing-background{position:absolute;inset:0;margin:0;pointer-events:none;z-index:0}.blocks-engine-listing-background img{width:100%;height:100%;object-fit:cover}.blocks-engine-listing-card>:not(.blocks-engine-listing-background):not(.blocks-engine-listing-overlay){position:relative;z-index:1}';
+    public const LISTING_QUERY_CSS = '.wp-block-query.blocks-engine-listing-query,.wp-block-query.blocks-engine-listing-query .wp-block-post-template,.wp-block-query.blocks-engine-listing-query .wp-block-post,.wp-block-query.blocks-engine-listing-query .wp-block-post-content{display:contents;list-style:none;margin:0;padding:0}.blocks-engine-listing-query .blocks-engine-authored-excerpt>p{margin:0}.blocks-engine-listing-overlay{width:auto}.blocks-engine-listing-card{position:relative}.blocks-engine-listing-card>.blocks-engine-listing-overlay{position:absolute;inset:0;z-index:2}.blocks-engine-listing-card>.blocks-engine-listing-background{position:absolute;inset:0;margin:0;pointer-events:none;z-index:0}.blocks-engine-listing-background img{width:100%;height:100%;object-fit:cover}.blocks-engine-listing-card>:not(.blocks-engine-listing-background):not(.blocks-engine-listing-overlay){position:relative;z-index:1}';
 
     /**
      * A generated theme reproduces captured text, so WordPress typographic
@@ -37,12 +37,12 @@ final class ThemeBootstrap
      * dynamic block decodes and prints is rewritten, so the guarantee belongs to
      * the theme rather than to any one block.
      */
-    private const SOURCE_TEXT_TYPOGRAPHY = <<<'PHP'
+    public const SOURCE_TEXT_TYPOGRAPHY = <<<'PHP'
 add_filter( 'run_wptexturize', '__return_false' );
 PHP;
 
     /** Keep native emoji unless capture proves the source used core's runtime. */
-    private const SOURCE_NATIVE_EMOJI = <<<'PHP'
+    public const SOURCE_NATIVE_EMOJI = <<<'PHP'
 remove_action( 'wp_head', 'print_emoji_detection_script', 7 );
 remove_action( 'embed_head', 'print_emoji_detection_script' );
 add_action( 'admin_init', static function (): void { remove_action( 'admin_print_scripts', 'print_emoji_detection_script' ); } );
@@ -56,7 +56,7 @@ PHP;
      * page paints the actual vector. Metadata is author-editable post content,
      * so the markup is sanitized to passive SVG on every render.
      */
-    private const ACCORDION_ICON_RENDERER = <<<'PHP'
+    public const ACCORDION_ICON_RENDERER = <<<'PHP'
 add_filter( 'render_block_core/accordion-heading', static function ( string $content, array $block ): string {
     $svg = $block['attrs']['metadata']['blocksEngineIcon'] ?? '';
     if ( ! is_string( $svg ) || '' === $svg ) return $content;
@@ -83,7 +83,7 @@ PHP;
      * loading in core/image metadata. They describe the source `src`; once
      * the image is replaced, the new attachment's own candidates apply.
      */
-    private const IMAGE_SELECTION_RENDERER = <<<'PHP'
+    public const IMAGE_SELECTION_RENDERER = <<<'PHP'
 add_filter( 'render_block_core/image', static function ( string $content, array $block ): string {
     $selection = $block['attrs']['metadata']['blocksEngineImageSelection'] ?? null;
     if ( ! is_array( $selection ) || ! is_string( $selection['src'] ?? null ) || ! is_string( $selection['srcset'] ?? null ) || '' === $selection['srcset'] ) return $content;
@@ -105,7 +105,7 @@ PHP;
      * route styles, document attributes, head, and current-navigation state
      * follow it there.
      */
-    private const DOCUMENT_ID_EXPRESSION = "(int) apply_filters( 'blocks_engine_document_id', is_singular() ? get_queried_object_id() : 0 )";
+    public const DOCUMENT_ID_EXPRESSION = "(int) apply_filters( 'blocks_engine_document_id', is_singular() ? get_queried_object_id() : 0 )";
 
     /**
      * Served route of each source document a navigation item records as

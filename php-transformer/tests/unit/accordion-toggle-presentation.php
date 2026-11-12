@@ -199,7 +199,7 @@ $assert(! str_contains($renderedIcon, 'data-blocks-engine-capture-') && ! str_co
 $assert(str_contains($iconCss, '[aria-expanded]>.wp-block-accordion-heading__toggle-icon:has(>svg){background-image:none;transform:none'), 'a rendered vector replaces the background artwork and the slot stops transforming', $iconCss);
 $assert(str_contains($iconCss, '[aria-expanded="true"]>.wp-block-accordion-heading__toggle-icon>svg{transform:none;rotate:180deg}'), 'the rendered vector owns the observed expanded transform', $iconCss);
 $assert('pass' === ($iconResult['source_reports']['wp_block_validity']['status'] ?? null), 'icon metadata keeps canonical Core block validity');
-$assert(str_contains(Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::ACCORDION_ICON_RENDERER, "render_block_core/accordion-heading") && str_contains(Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::ACCORDION_ICON_RENDERER, 'wp_kses('), 'the theme renders metadata artwork only through sanitized passive SVG');
+$assert(str_contains(Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap::ACCORDION_ICON_RENDERER, "render_block_core/accordion-heading") && str_contains(Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap::ACCORDION_ICON_RENDERER, 'wp_kses('), 'the theme renders metadata artwork only through sanitized passive SVG');
 
 $variableIcon = $transform('<style>.scope{--shift:0px;--angle:0deg}.expanded-mark{--angle:180deg;transform:translateX(var(--shift)) rotate(var(--angle))}</style><main class="scope"><section>'
     . $iconItem('Scoped one') . $iconItem('Scoped two') . '</section></main>');
