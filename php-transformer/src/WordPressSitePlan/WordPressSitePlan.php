@@ -36,8 +36,7 @@ final class WordPressSitePlan
     public const LISTING_QUERY_CLASS = 'blocks-engine-listing-query';
     private string $sourceOrigin = '';
     public const MAX_UNRESOLVED_NAVIGATION_DIAGNOSTICS = 50;
-    /** @var array<string,array<string,mixed>> Dropped or rewritten units, keyed by their identity fields. */
-    private array $unitFindings = array();
+    private UnitFindings $unitFindings;
     private readonly ShellExtraction $shellExtraction;
     private ListingQueryLoops $listings;
     private PostChrome $postChrome;
@@ -59,7 +58,8 @@ final class WordPressSitePlan
     {
         $this->shellExtraction = new ShellExtraction($this);
         $this->listings = new ListingQueryLoops('', $this->chromeIdentityKey(...));
-        $this->postChrome = new PostChrome($this->listings, $this->chromeIdentityKey(...), $this->recordUnitFinding(...));
+        $this->unitFindings = new UnitFindings();
+        $this->postChrome = new PostChrome($this->listings, $this->chromeIdentityKey(...), $this->unitFindings->record(...));
         $this->missingMedia = new MissingMediaRecovery($strictMissingMedia);
     }
 
@@ -120,8 +120,8 @@ final class WordPressSitePlan
         $this->chromeIdentityKeys = array();
         $this->sourceOrigin = RouteLinks::origin($sourceUrl);
         $this->listings = new ListingQueryLoops($this->sourceOrigin, $this->chromeIdentityKey(...));
-        $this->postChrome = new PostChrome($this->listings, $this->chromeIdentityKey(...), $this->recordUnitFinding(...));
-        $this->unitFindings = array();
+        $this->unitFindings = new UnitFindings();
+        $this->postChrome = new PostChrome($this->listings, $this->chromeIdentityKey(...), $this->unitFindings->record(...));
         $editabilityPolicy = $input->editabilityPolicy;
         if (!is_array($editabilityPolicy) || EditabilityPolicy::SCHEMA !== ($editabilityPolicy['schema'] ?? null) || 'required' !== ($editabilityPolicy['enforcement'] ?? null) || !in_array($editabilityPolicy['status'] ?? null, array('passed', 'failed'), true)) {
             throw new InvalidArgumentException('WordPress site plan requires a versioned editability policy.');
@@ -147,7 +147,7 @@ final class WordPressSitePlan
         $documents = DocumentScripts::withoutOwned(ContentDecisions::documents($compiled['pages'] ?? null), $runtimeScriptOwnership['documents']);
         $documentScriptAssets = DocumentScripts::assets($documents);
         $assets = array_values(array_filter(
-            CompiledAssets::rows($compiled['assets'] ?? null, $this->recordUnitFinding(...)),
+            CompiledAssets::rows($compiled['assets'] ?? null, $this->unitFindings->record(...)),
             static fn(array $asset): bool => !isset($runtimeScriptOwnership['assets'][(string) ($asset['source_path'] ?? '')]) || isset($documentScriptAssets[(string) ($asset['source_path'] ?? '')])
         ));
         $retainedSources = array_fill_keys(array_column($documents, 'source_path'), true);
@@ -183,7 +183,7 @@ final class WordPressSitePlan
         }
         // Native date archives are document roots, not materialized pages, but
         // their captured file paths still participate in link resolution.
-        $entryRoot = self::entryRootFromDocuments($compiled['pages']);
+        $entryRoot = PageRoute::entryRoot($compiled['pages']);
         foreach ($compiled['pages'] as $document) {
             if (!ContentDecisions::isDateArchive($document)) continue;
             $path = $document['metadata']['route_path'] ?? PageRoute::fromSource($document['source_path'], $entryRoot);
@@ -193,12 +193,12 @@ final class WordPressSitePlan
         }
         $this->timer?->start('compose.site_plan.pages');
         $this->links = new RouteLinks($sourceUrl, $this->sourceOrigin, $routeSources, $routeTargets, $this->presetBinding, $documents, $routeMap);
-        $this->heads = new DocumentHeads($this->links, $this->recordUnitFinding(...));
-        $entityBindings = new EntityBindings($this->links, $this->recordUnitFinding(...));
+        $this->heads = new DocumentHeads($this->links, $this->unitFindings->record(...));
+        $entityBindings = new EntityBindings($this->links, $this->unitFindings->record(...));
         $this->missingMedia = new MissingMediaRecovery($this->strictMissingMedia, array_column($assets, 'target_path'));
         $missingFonts = new MissingFontSourceRecovery($this->strictMissingMedia);
         $missingImports = new MissingStylesheetImportRecovery($this->strictMissingMedia);
-        $references = new AssetReferenceCanonicalizer($tokens, self::entryRootFromDocuments($documents), $this->missingMedia, $missingFonts, $missingImports);
+        $references = new AssetReferenceCanonicalizer($tokens, PageRoute::entryRoot($documents), $this->missingMedia, $missingFonts, $missingImports);
         $pages = $this->documents($documents, false, $tokens, $references, $routeMap);
         // Probe presentation with the final plan's canonical listing projection.
         // Entity ownership is already proven independently and must survive a
@@ -341,7 +341,7 @@ final class WordPressSitePlan
         $nativeArchiveSources = array_fill_keys(array_column(array_column($taxonomyProjection['entities'], 'archive'), 'source_path'), true);
         $assetPages = array_values(array_filter($pages, static fn(array $page): bool => !isset($nativeArchiveSources[$page['source_path']])));
         $pageSources = array_fill_keys(array_column($assetPages, 'source_path'), true);
-        $entryRoot = self::entryRootFromDocuments($compiled['pages']);
+        $entryRoot = PageRoute::entryRoot($compiled['pages']);
         foreach ($compiled['pages'] as $document) {
             if (isset($pageSources[$document['source_path']]) || isset($paginationOwners[$document['source_path']]) || isset($paginationSources[$document['source_path']])) continue;
             $path = $routeBySource[$document['source_path']] ?? $document['metadata']['route_path'] ?? PageRoute::fromSource($document['source_path'], $entryRoot);
@@ -429,7 +429,7 @@ final class WordPressSitePlan
         $assets = DeadElementMarkers::withoutDeadSelectors($assets, $liveElementMarkers);
         // Removing dead selectors can consume a generated sheet's last rule.
         $assets = array_values(array_filter($assets, static fn(array $asset): bool => !in_array($asset['source'] ?? '', array('engine-support', 'editor-static-state', 'wordpress-compat'), true) || !is_string($asset['content'] ?? null) || '' !== trim($asset['content'])));
-        foreach ($assetTargetCollisions as $collision) $this->recordUnitFinding(array(
+        foreach ($assetTargetCollisions as $collision) $this->unitFindings->record(array(
             'code' => 'wordpress_site_plan_colliding_asset_target',
             'unit' => 'asset',
             'message' => 'Two assets resolved to one target with different content; the later one was given a suffixed target.',
@@ -592,7 +592,7 @@ final class WordPressSitePlan
         $themeAssetWrites = new ThemeAssetWrites();
         $assetWrites = $themeAssetWrites->writes($assets, $references);
         foreach ($assets as &$asset) unset($asset['reference_origin']); unset($asset);
-        $placeholderAssets = CompiledAssets::rows($this->missingMedia->assets(), $this->recordUnitFinding(...));
+        $placeholderAssets = CompiledAssets::rows($this->missingMedia->assets(), $this->unitFindings->record(...));
         if (array() !== $placeholderAssets) {
             $assets = array_merge($assets, $placeholderAssets);
             $tokens = array_merge($tokens, $this->tokens($placeholderAssets));
@@ -605,7 +605,7 @@ final class WordPressSitePlan
         $parts = $integrity->documents($parts);
         $scriptLoading = DocumentScripts::loading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
         $writes = array_merge(ThemeScaffold::writes($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens, $pages, $menus, $runtimeEmoji, $rootDocuments), $assetWrites);
-        $unitFindings = array_merge($this->unitFindingDiagnostics(), NavigationInstanceDiagnostics::collect($assets, $emittedMarkup . "\n" . implode("\n", self::markups($menus))));
+        $unitFindings = array_merge($this->unitFindings->diagnostics(), NavigationInstanceDiagnostics::collect($assets, $emittedMarkup . "\n" . implode("\n", self::markups($menus))));
         $recoveryDiagnostics = array_merge($routeTable->diagnostics(), $this->links->diagnostics(), $themeAssetWrites->diagnostics(), $this->heads->diagnostics(), $unitFindings, $this->missingMedia->diagnostics(), $missingFonts->diagnostics(), $missingImports->diagnostics(), $eventDiagnostics, $paginationDiagnostics);
         // All shell, navigation, listing and script binding projection is now
         // complete. Only the public plan needs the bounded record form.
@@ -813,7 +813,7 @@ final class WordPressSitePlan
             self::unique($partSlugs, $part['slug'], 'template part slug');
         }
         $pagePaths = array(); $pagesBySource = array(); $documentIdentities = array(); $routePaths = array();
-        $entryRoot = self::entryRootFromDocuments($plan['pages']);
+        $entryRoot = PageRoute::entryRoot($plan['pages']);
         foreach ( $plan['pages'] as $page ) {
             PlanDocuments::assertValid($page, 'page', false, $tokens);
             if ($page['content_hash'] !== self::contentHash($page['canonical_block_markup'])) throw new InvalidArgumentException('WordPress site plan page has a stale content hash.');
@@ -938,30 +938,6 @@ final class WordPressSitePlan
     private function tokens(array $assets): array { return array_map(static fn(array $asset): array => array('token' => $asset['token'], 'source_path' => $asset['source_path'], 'target_path' => $asset['target_path']), $assets); }
 
     /**
-     * Clips one diagnostic field to its budget without splitting a UTF-8
-     * sequence. A byte-wise cut can leave an invalid string, and planIdentity()
-     * json_encode()s every diagnostic under JSON_THROW_ON_ERROR, so a split
-     * sequence would discard the whole plan -- the failure this omission exists
-     * to avoid, one layer up.
-     */
-    public static function clipDiagnosticField(string $value): string { return mb_strcut($value, 0, 256, 'UTF-8'); }
-    /**
-     * Records one unit the plan dropped or rewrote instead of failing. Findings
-     * with the same fields are one row whose `omitted_count` counts them.
-     *
-     * @param array<string,mixed> $finding code, unit, source_path, reason_code, message, metrics and unit identity fields.
-     */
-    private function recordUnitFinding(array $finding): void
-    {
-        $finding = array_map(static fn(mixed $value): mixed => is_string($value) ? self::clipDiagnosticField($value) : $value, $finding);
-        $key = json_encode($finding, JSON_THROW_ON_ERROR);
-        if (isset($this->unitFindings[$key])) { ++$this->unitFindings[$key]['omitted_count']; return; }
-        $this->unitFindings[$key] = array('code' => $finding['code'], 'severity' => 'warning') + $finding + array('omitted_count' => 1);
-    }
-    /** @return array<int,array<string,mixed>> */
-    private function unitFindingDiagnostics(): array { return array_values($this->unitFindings); }
-
-    /**
      * Post-chrome matching normalizes every nested range of every post, and
      * the same ranges are matched again while factoring and placing slots.
      * Keyed by content hash, each distinct range is normalized once per plan.
@@ -1000,8 +976,6 @@ final class WordPressSitePlan
     // maps to `/` and its siblings map to top-level routes (`/contact`, `/music`).
     // Resolve the site root directory from the entrypoint document/page so route
     // derivation and validation agree on the same web root without shared state.
-    /** @internal Shared artifact-root semantics for document-head asset resolution. */
-    public static function entryRootFromDocuments(array $documents): string { foreach ($documents as $document) { if (is_array($document) && (!empty($document['entrypoint']) || 'entrypoint' === ($document['source_relation'] ?? null)) && is_string($document['source_path'] ?? null)) { $dir = str_replace('\\', '/', dirname($document['source_path'])); return in_array($dir, array('.', '/', ''), true) ? '' : $dir; } } return ''; }
 
     /** @internal Exposed for ShellExtraction, which resolves shell links through the run's route table. */
     public function links(): RouteLinks

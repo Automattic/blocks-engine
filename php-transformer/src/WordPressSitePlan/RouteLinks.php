@@ -218,7 +218,7 @@ final class RouteLinks
         $source = '' !== $this->sourceUrl ? parse_url($this->sourceUrl) : false;
         if (!is_array($source) || str_contains($path, '\\')) return null;
         $entry = ''; foreach ($routes as $route) if (is_array($route) && !empty($route['entrypoint']) && is_string($route['source_path'] ?? null)) { $entry = $route['source_path']; break; }
-        $entryRoot = WordPressSitePlan::entryRootFromDocuments($routes);
+        $entryRoot = PageRoute::entryRoot($routes);
         if ('' !== $entryRoot && !str_starts_with($origin, $entryRoot . '/')) return null;
         $basePath = (string) ($source['path'] ?? '/');
         // The source URL names the entrypoint; an index entry is served as its directory.
@@ -326,7 +326,7 @@ final class RouteLinks
         // which is the entrypoint's packaging directory. Resolve it against that
         // root so it matches the document source path (website/contact.html)
         // rather than a bare top-level path the artifact never contains.
-        $entryRoot = WordPressSitePlan::entryRootFromDocuments($routes);
+        $entryRoot = PageRoute::entryRoot($routes);
         $path = str_starts_with($value, '/') ? ('' === $entryRoot ? ltrim($value, '/') : $entryRoot . '/' . ltrim($value, '/')) : self::resolveSource($origin, $value);
         if (null === $path) return null;
         $resolved = $this->sourceDocument($path);
