@@ -46,9 +46,12 @@ final class FormPresentationGraphBuilder
     private const PAINT_PROPERTIES = array(
         'color', 'background', 'background-color', 'background-image', 'background-position', 'background-repeat', 'background-size',
     );
-    /** The longhands a winning `background` shorthand resets on the same element. */
-    private const BACKGROUND_LONGHANDS = array(
-        'background-color', 'background-image', 'background-position', 'background-repeat', 'background-size',
+    /** The longhands each winning shorthand resets on the same element. */
+    private const SHORTHAND_LONGHANDS = array(
+        'background' => array( 'background-color', 'background-image', 'background-position', 'background-repeat', 'background-size' ),
+        'font' => array( 'font-family', 'font-size', 'font-style', 'font-variant', 'font-weight', 'line-height' ),
+        'margin' => array( 'margin-top', 'margin-right', 'margin-bottom', 'margin-left' ),
+        'padding' => array( 'padding-top', 'padding-right', 'padding-bottom', 'padding-left' ),
     );
     /**
      * The box a button's caption carrier paints behind the caption: a sliding-door
@@ -632,8 +635,17 @@ final class FormPresentationGraphBuilder
                         $conditional[$encoded] ??= array();
                     }
                 }
+                if ( in_array($role, array( 'label', 'required_marker' ), true) ) {
+                    $layoutElement = 'label' === $role ? $element : $element->parentNode;
+                    if ( $layoutElement instanceof DOMElement ) {
+                        $layout = $this->matched($layoutElement, $analysis['rules'], true);
+                        foreach ( $this->effectiveConditional($layout['conditional'], $layout['base']) as $encoded => $facts ) {
+                            $conditional[$encoded] ??= array();
+                        }
+                    }
+                }
                 if ( 'label' === $role ) {
-                    $this->carryLabelColumnGap($styles, $provenance, $element, $analysis['rules']);
+                    $this->carryLabelColumnGap($styles, $provenance, $element, $analysis['rules'], $customPropertyAnalysis['rules']);
                 }
                 if ( 'required_marker' === $role ) {
                     $this->carryMarkerGap($styles, $provenance, $element, $analysis['rules'], $customPropertyAnalysis['rules']);
@@ -665,9 +677,15 @@ final class FormPresentationGraphBuilder
                     $facts = array_diff_key($facts, array_flip(array_map(static fn (string $key): string => str_replace('_', '-', $key), array_keys($carrierPatch['styles'] ?? array()))));
                     $patch = $this->styles($facts, $element, $condition, $customPropertyAnalysis['rules']);
                     $patch = array_merge($patch, $carrierPatch['styles'] ?? array());
+                    $variantProvenance = array_merge($this->provenance($facts, $condition), $carrierPatch['provenance'] ?? array());
+                    if ( 'label' === $role ) {
+                        $this->carryLabelColumnGap($patch, $variantProvenance, $element, $analysis['rules'], $customPropertyAnalysis['rules'], $condition);
+                    }
+                    if ( 'required_marker' === $role ) {
+                        $this->carryMarkerGap($patch, $variantProvenance, $element, $analysis['rules'], $customPropertyAnalysis['rules'], $condition);
+                    }
                     ksort($patch);
                     if ( array() !== $patch ) {
-                        $variantProvenance = array_merge($this->provenance($facts, $condition), $carrierPatch['provenance'] ?? array());
                         if ( count($variantProvenance) > self::MAX_PROVENANCE ) {
                             $variantProvenance = array_slice($variantProvenance, 0, self::MAX_PROVENANCE);
                             $this->truncated = true;
@@ -1552,38 +1570,25 @@ final class FormPresentationGraphBuilder
                 }
             }
         }
-        $base = $this->backgroundCascade($this->fontCascade($base));
-        foreach ($conditional as &$facts) $facts = $this->backgroundCascade($this->fontCascade($facts, $base), $base);
+        $base = $this->shorthandCascade($base);
+        foreach ($conditional as &$facts) $facts = $this->shorthandCascade($facts, $base);
         unset($facts);
         return array( 'base' => $base, 'conditional' => $conditional );
     }
 
-    /** A winning background shorthand resets weaker longhands on the same source element. */
-    private function backgroundCascade(array $facts, array $base = array()): array
+    /** A winning shorthand resets weaker longhands on the same source element. */
+    private function shorthandCascade(array $facts, array $base = array()): array
     {
-        $background = $facts['background'] ?? $base['background'] ?? null;
-        if (!is_array($background)) return $facts;
-        if (isset($base['background']) && !CssCascade::wins($background, $base['background'])) $background = $base['background'];
-        foreach (self::BACKGROUND_LONGHANDS as $property) {
-            if (!isset($facts[$property]) || !CssCascade::wins($background, $facts[$property])) continue;
-            // A same-rule longhand authored after the shorthand overrides it.
-            if (CssCascade::wins($facts[$property], $background) && ($background['declaration_order'] ?? 0) < ($facts[$property]['declaration_order'] ?? 0)) continue;
-            unset($facts[$property]);
-        }
-        return $facts;
-    }
-
-    /** A winning font shorthand resets weaker longhands on the same source element. */
-    private function fontCascade(array $facts, array $base = array()): array
-    {
-        $font = $facts['font'] ?? $base['font'] ?? null;
-        if (!is_array($font)) return $facts;
-        if (isset($base['font']) && !CssCascade::wins($font, $base['font'])) $font = $base['font'];
-        foreach (array('font-family', 'font-size', 'font-style', 'font-variant', 'font-weight', 'line-height') as $property) {
-            if (!isset($facts[$property]) || !CssCascade::wins($font, $facts[$property])) continue;
-            // A same-rule longhand authored after the shorthand overrides it.
-            if (CssCascade::wins($facts[$property], $font) && ($font['declaration_order'] ?? 0) < ($facts[$property]['declaration_order'] ?? 0)) continue;
-            unset($facts[$property]);
+        foreach (self::SHORTHAND_LONGHANDS as $shorthand => $longhands) {
+            $winner = $facts[$shorthand] ?? $base[$shorthand] ?? null;
+            if (!is_array($winner)) continue;
+            if (isset($base[$shorthand]) && !CssCascade::wins($winner, $base[$shorthand])) $winner = $base[$shorthand];
+            foreach ($longhands as $property) {
+                if (!isset($facts[$property]) || !CssCascade::wins($winner, $facts[$property])) continue;
+                // A same-rule longhand authored after the shorthand overrides it.
+                if (CssCascade::wins($facts[$property], $winner) && ($winner['declaration_order'] ?? 0) < ($facts[$property]['declaration_order'] ?? 0)) continue;
+                unset($facts[$property]);
+            }
         }
         return $facts;
     }
@@ -1666,34 +1671,49 @@ final class FormPresentationGraphBuilder
      * shared vocabulary keeps `column-gap` row-only, so the label states it
      * through the equivalent `gap: <row-gap> <column-gap>` shorthand.
      */
-    private function carryLabelColumnGap(array &$styles, array &$provenance, DOMElement $label, array $rules): void
+    private function carryLabelColumnGap(array &$styles, array &$provenance, DOMElement $label, array $rules, array $customRules, ?array $condition = null): void
     {
-        $base = $this->matched($label, $rules, true)['base'];
+        $base = $this->layoutFacts($label, $rules, $condition);
+        $resolved = $this->styles($base, $label, $condition, $customRules, null === $condition);
         $column = $base['column-gap'] ?? null;
-        if ( ! is_array($column) || ! in_array($styles['display'] ?? '', array( 'flex', 'inline-flex' ), true)
+        if ( ! is_array($column) || ! in_array($resolved['display'] ?? '', array( 'flex', 'inline-flex' ), true)
             || ( isset($base['gap']) && CssCascade::wins($base['gap'], $column) ) ) {
             return;
         }
-        $row = isset($base['gap']) ? (CssValueSplitter::splitTopLevelWhitespace($base['gap']['value'])[0] ?? 'normal') : 'normal';
-        $styles['gap'] = $row . ' ' . $column['value'];
-        $provenance = array_merge($provenance, $this->provenance(array( 'gap' => $column ), null));
+        $row = isset($base['gap']) ? (CssValueSplitter::splitTopLevelWhitespace($resolved['gap'])[0] ?? 'normal') : 'normal';
+        $styles['gap'] = $row . ' ' . $resolved['column_gap'];
+        $provenance = array_merge($provenance, $this->provenance(array( 'gap' => $column ), $condition));
     }
 
     /** Carry a horizontal flex gap across the flattened caption/marker boundary. */
-    private function carryMarkerGap(array &$styles, array &$provenance, DOMElement $marker, array $rules, array $customRules): void
+    private function carryMarkerGap(array &$styles, array &$provenance, DOMElement $marker, array $rules, array $customRules, ?array $condition = null): void
     {
         $container = $marker->parentNode;
-        if ( ! $container instanceof DOMElement || ! $marker->previousElementSibling ) {
+        if ( ! $container instanceof DOMElement ) {
             return;
         }
-        $matched = $this->matched($container, $rules, true);
-        $containerStyles = $this->styles($matched['base'], $container, null, $customRules, true);
-        if ( ! in_array($containerStyles['display'] ?? '', array( 'flex', 'inline-flex' ), true)
+        $base = $this->layoutFacts($container, $rules, $condition);
+        $containerStyles = $this->styles($base, $container, $condition, $customRules, null === $condition);
+        if ( in_array($containerStyles['display'] ?? '', array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
+            // The source parent blockifies this item; that outer display does
+            // not describe the inline marker after the caption is flattened.
+            unset($styles['display']);
+            foreach ( $provenance as &$source ) {
+                $source['properties'] = array_values(array_diff($source['properties'], array( 'display' )));
+            }
+            unset($source);
+            $provenance = array_values(array_filter($provenance, static fn (array $source): bool => array() !== $source['properties']));
+            if ( null !== $condition ) {
+                // A variant restates the inline display its conditional facts named.
+                $styles['display'] = 'inline';
+            }
+        }
+        if ( ! $this->followsCaption($marker) || ! in_array($containerStyles['display'] ?? '', array( 'flex', 'inline-flex' ), true)
             || 'row' !== ($containerStyles['flex_direction'] ?? 'row')
         ) {
             return;
         }
-        $property = isset($matched['base']['column-gap']) ? 'column-gap' : 'gap';
+        $property = isset($base['column-gap']) && (! isset($base['gap']) || CssCascade::wins($base['column-gap'], $base['gap'])) ? 'column-gap' : 'gap';
         $gap = $containerStyles[self::key($property)] ?? '';
         $parts = CssValueSplitter::splitTopLevelWhitespace($gap);
         $gap = $parts[1] ?? $parts[0] ?? '';
@@ -1703,8 +1723,8 @@ final class FormPresentationGraphBuilder
         // Font-relative lengths must use the gap container's font, not the
         // smaller indicator's. Scale ex/ch without guessing font metrics.
         if ( 1 === preg_match('/^([0-9.]+)(em|ex|ch)$/D', $gap, $length) ) {
-            $containerFont = $this->fontPixels($container, $rules, $customRules);
-            $markerFont = $this->fontPixels($marker, $rules, $customRules);
+            $containerFont = $this->fontPixels($container, $rules, $customRules, $condition);
+            $markerFont = $this->fontPixels($marker, $rules, $customRules, $condition);
             if ( 'em' === $length[2] ) {
                 $gap = CssLength::format((float) $length[1] * $containerFont);
             } elseif ( $markerFont > 0 && $containerFont !== $markerFont ) {
@@ -1712,12 +1732,33 @@ final class FormPresentationGraphBuilder
                 $gap = 'calc(' . $gap . ' * ' . $ratio . ')';
             }
         }
-        $styles['margin_left'] = isset($styles['margin_left']) ? 'calc(' . $styles['margin_left'] . ' + ' . $gap . ')' : $gap;
-        $provenance = array_merge($provenance, $this->provenance(array( 'margin-left' => $matched['base'][$property] ), null));
+        $markerStyles = $this->styles($this->layoutFacts($marker, $rules, $condition), $marker, $condition, $customRules, null === $condition);
+        $margin = $markerStyles['margin_left'] ?? null;
+        $styles['margin_left'] = null !== $margin ? 'calc(' . $margin . ' + ' . $gap . ')' : $gap;
+        $provenance = array_merge($provenance, $this->provenance(array( 'margin-left' => $base[$property] ), $condition));
+    }
+
+    /** A bare caption text node is an anonymous flex item, so the gap still separates it from the marker. */
+    private function followsCaption(DOMElement $marker): bool
+    {
+        for ( $node = $marker->previousSibling; null !== $node; $node = $node->previousSibling ) {
+            if ( $node instanceof DOMElement || '' !== trim($node->textContent) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Effective layout facts in the same condition as the carried gap. */
+    private function layoutFacts(DOMElement $element, array $rules, ?array $condition): array
+    {
+        $matched = $this->matched($element, $rules, true);
+        $conditional = $this->effectiveConditional($matched['conditional'], $matched['base']);
+        return array_merge($matched['base'], null === $condition ? array() : ($conditional[json_encode($condition)] ?? array()));
     }
 
     /** Resolve inherited font sizes against their own parent, not the marker. */
-    private function fontPixels(DOMElement $element, array $rules, array $customRules): float
+    private function fontPixels(DOMElement $element, array $rules, array $customRules, ?array $condition = null): float
     {
         $chain = array();
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
@@ -1726,8 +1767,8 @@ final class FormPresentationGraphBuilder
         $font = 16.0;
         $root = 16.0;
         foreach ( array_reverse($chain) as $index => $node ) {
-            $matched = $this->matched($node, $rules);
-            $styles = $this->styles(array_intersect_key($matched['base'], array( 'font-size' => true )), $node, null, $customRules, true);
+            $facts = $this->layoutFacts($node, $rules, $condition);
+            $styles = $this->styles(array_intersect_key($facts, array( 'font-size' => true )), $node, $condition, $customRules, null === $condition);
             $value = $styles['font_size'] ?? '';
             $font = str_ends_with($value, '%') ? $font * (float) $value / 100 : (CssLength::FONT_SIZE_KEYWORDS[$value] ?? CssLength::toPx($value, $root, $font) ?? $font);
             if ( 0 === $index ) {
