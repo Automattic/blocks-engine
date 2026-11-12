@@ -190,6 +190,19 @@ $cascadeDropped = array_column($findings($cascadePlan['diagnostics'], 'runtime_d
 $assert(array() === $cascadePlan['runtime_declarations'] && array('configuration:catalog' => 'runtime_declaration_exceeds_byte_limit', 'entity_collection:events' => 'runtime_declaration_requirement_dropped') == $cascadeDropped, 'The collection that requires the oversized declaration is dropped with it: ' . json_encode($cascadeDropped));
 $assert(!isset(array_column($cascadePlan['pages'], null, 'source_path')['gathering.html']['whole_page_candidates']), 'The dropped collection leaves no whole-page candidate behind.');
 $assertStatic($cascadePlan);
+// A compiled entity manifest that is dropped takes its records with it. The
+// records arrive with the compiled site, so only the reference check removes them.
+$rows = array($eventRow);
+for ($i = 2; $i <= 3000; ++$i) $rows[] = array('id' => 'event-' . $i, 'title' => 'Event ' . $i, 'description' => str_repeat('d', 2048));
+$manifestPlan = $composePlan(array(array_merge($events, array('payload' => array('schema' => 'generic/events/v1', 'entities' => $rows)))));
+$manifest = $manifestPlan['runtime_declarations'][0];
+$assert(RuntimeEntityManifest::SCHEMA === $manifest['payload']['schema'] && 3000 === count($manifestPlan['runtime_entity_records']), 'An events collection over the payload limit is a manifest of records.');
+$orphanInput = $siteInput;
+$orphanInput['source_reports']['compiled_site']['runtime_declarations'] = RuntimeDeclarations::normalizeForComposition(array($manifest, $requiredCatalog));
+$orphanInput['source_reports']['compiled_site']['runtime_entity_records'] = $manifestPlan['runtime_entity_records'];
+$orphanPlan = (new WordPressSitePlan())->fromCompilerResult($orphanInput);
+WordPressSitePlan::assertValid($orphanPlan);
+$assert(array() === $orphanPlan['runtime_declarations'] && array() === $orphanPlan['runtime_entity_records'], 'A dropped manifest takes its entity records with it.');
 
 // (b) Declarations that each fit but together exceed the aggregate limit:
 // the largest is dropped until the set fits, one finding each.
