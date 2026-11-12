@@ -68,7 +68,9 @@ final class CommerceStructureRecognizer
             return true;
         }
 
-        return $this->isGridLike($element);
+        return $this->isGridLike($element)
+            || ((bool) preg_match('/(?:^|;)\s*display\s*:\s*flex\b/i', SourceDom::attr($element, 'style'))
+                && count($this->productCardsForContainer($element)) >= 2);
     }
 
     public function isPriceElement(DOMElement $element): bool

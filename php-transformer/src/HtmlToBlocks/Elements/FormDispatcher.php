@@ -64,6 +64,15 @@ final class FormDispatcher
             return $searchBlock;
         }
 
+        // Listing bounds keep a form intent finding and listing-control anchors.
+        if ( (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ListingControlsRecognizer())->hasNumericBoundsForForm($element) ) {
+            $readable = $this->context->buildReadableFormBlock($element, true, $fallbacks);
+            if ( null !== $readable ) {
+                $fallbacks[] = $this->context->buildFallbackFinding($element, $readable);
+                $this->context->recordForm($element, $readable);
+                return $readable;
+            }
+        }
         $nativeGetForm = $this->context->nativeGetFormBlock($element, $fallbacks);
         if ( null !== $nativeGetForm ) {
             return $nativeGetForm;
