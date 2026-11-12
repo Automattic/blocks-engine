@@ -294,12 +294,12 @@ JS;
         // that trigger. Anything else keeps the modal contract.
         var dropdown = 'dropdown' === dialog.getAttribute( 'data-blocks-engine-presentation' );
         var opener = null;
-        // A dropdown adopted in place from an existing source panel wraps that
-        // panel. Closed, the panel keeps its resting class and style, so
-        // authored CSS decides whether it shows; open, it takes the class and
-        // style the source gave it open, as the capture runtime did.
+        // A dropdown adopted in place from an existing source panel is that
+        // panel. Closed, it keeps its resting class and style, so authored
+        // CSS decides whether it shows; open, it takes the class and style
+        // the source gave it open, as the capture runtime did.
         var resting = JSON.parse( dialog.getAttribute( 'data-blocks-engine-resting-state' ) || 'null' );
-        var panel = resting && resting.closed && resting.opened ? dialog.firstElementChild : null;
+        var panel = resting && resting.closed && resting.opened ? dialog : null;
         // Core navigation repeats the source wrapper classes and anchor on its
         // inner list. Each copy is subject to the same authored closed rule.
         var panels = panel ? [ panel ] : [];
@@ -366,7 +366,7 @@ JS;
         // clicks are not given a meaning the capture did not observe.
         dialog.addEventListener( 'click', function( event ) { if ( ( ! dropdown && event.target === dialog ) || closeControl( event.target, dialog ) ) close(); } );
     }
-    function mountAll() { document.querySelectorAll( 'dialog[data-blocks-engine-triggers],div[data-blocks-engine-presentation="dropdown"][data-blocks-engine-triggers]' ).forEach( mount ); }
+    function mountAll() { document.querySelectorAll( 'dialog[data-blocks-engine-triggers],[data-blocks-engine-presentation="dropdown"][data-blocks-engine-triggers]' ).forEach( mount ); }
     if ( 'loading' === document.readyState ) document.addEventListener( 'DOMContentLoaded', mountAll ); else mountAll();
 } )();
 JS;
@@ -380,8 +380,8 @@ JS;
         // rules have no specificity, so the source classes still win.
         // A dropdown kept at its observed source place flows there like the
         // source panel did: only the user agent's dialog box is reset.
-        // A dropdown adopted in place around an existing source panel adds no
-        // box of its own. One that rested without `hidden` stays out of the
+        // A dropdown adopted in place from an existing source panel is that
+        // panel. One that rested without `hidden` stays out of the
         // closed rule: the panel's own resting class and authored CSS decide
         // where it shows while closed (a desktop nav whose phone toggle
         // opens it, or a class-hidden menu that shows only once opened).
@@ -390,10 +390,9 @@ JS;
         // margins, insets and size caps) is reset under its rules. Canvas
         // paint stays as the backdrop for panel layers that paint over it.
         $style = 'dialog[data-blocks-engine-triggers]:not([open]){display:none!important}'
-            . 'div[data-blocks-engine-presentation="dropdown"][data-blocks-engine-triggers]:not([open]):not([data-blocks-engine-resting="authored"]){display:none!important}'
-            . ':where(div[data-blocks-engine-resting]){display:contents}'
-            . '[data-blocks-engine-resting]:not([open]) > * > .captured-dialog-open-content,[data-blocks-engine-resting][open] > * > .captured-dialog-closed-content{display:none!important}'
-            . '[data-blocks-engine-resting] > * > :is(.captured-dialog-open-content,.captured-dialog-closed-content){display:contents}'
+            . ':not(dialog)[data-blocks-engine-presentation="dropdown"][data-blocks-engine-triggers]:not([open]):not([data-blocks-engine-resting="authored"]){display:none!important}'
+            . '[data-blocks-engine-resting]:not([open]) > .captured-dialog-open-content,[data-blocks-engine-resting][open] > .captured-dialog-closed-content{display:none!important}'
+            . '[data-blocks-engine-resting] > :is(.captured-dialog-open-content,.captured-dialog-closed-content){display:contents}'
             . ':where(dialog[data-blocks-engine-presentation="dropdown"][data-blocks-engine-placement="under-header"]){position:fixed;top:var(--blocks-engine-dropdown-top,0px);left:0;box-sizing:border-box;width:100%;max-width:none;max-height:calc(100vh - var(--blocks-engine-dropdown-top,0px));margin:0;overflow-y:auto;z-index:var(--blocks-engine-dropdown-layer,auto);background-color:var(--blocks-engine-dropdown-background,Canvas);-webkit-backdrop-filter:var(--blocks-engine-dropdown-backdrop,none);backdrop-filter:var(--blocks-engine-dropdown-backdrop,none);color:inherit}'
             . ':where(dialog[data-blocks-engine-presentation="dropdown"][data-blocks-engine-placement="in-place"]){position:static;inset:auto;width:auto;height:auto;max-width:none;max-height:none;margin:0;padding:0;border-width:0;background-color:transparent;color:inherit;overflow:visible}'
             . ':where(dialog:not([data-blocks-engine-presentation])[data-blocks-engine-placement="source"]){inset:auto;max-width:none;max-height:none;margin:0;padding:0;border-width:0}';

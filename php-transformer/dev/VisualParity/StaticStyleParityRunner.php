@@ -146,10 +146,17 @@ final class StaticStyleParityRunner
             static function (array $match) use (&$groupTags): string {
                 if (str_starts_with($match[0], '</')) {
                     $tag = array_pop($groupTags);
+                    if ('' === $tag) return '<!-- /wp:group -->';
                     return null === $tag ? $match[0] : '</' . $tag . '><!-- /wp:group -->';
                 }
                 $attrs = json_decode($match[1] ?? '{}', true);
                 $shell = $attrs['metadata']['blocksEngineDialog'] ?? null;
+                // An adopted panel's shell renders no element; its bindings
+                // join the panel's own opening tag (resolved below).
+                if (is_array($shell) && !empty($shell['adopt'])) {
+                    $groupTags[] = '';
+                    return '<!--blocks-engine-adopt:' . base64_encode((string) json_encode($shell['attributes'] ?? array())) . '-->';
+                }
                 $tag = is_array($shell) ? ($shell['tagName'] ?? null) : null;
                 $groupTags[] = $tag;
                 if (null === $tag) return $match[0];
@@ -230,6 +237,19 @@ final class StaticStyleParityRunner
             $serializedBlocks
         ) ?? $serializedBlocks;
 
-        return preg_replace('/<!--\s*\/?wp:[^>]*-->/', '', $serializedBlocks) ?? $serializedBlocks;
+        $serializedBlocks = preg_replace_callback(
+            '/<!--blocks-engine-adopt:([A-Za-z0-9+\/=]*)-->((?:\s|<!--(?:(?!-->).)*-->)*)<([a-z][a-z0-9-]*)\b([^>]*?)(\/?)>/s',
+            static function (array $match): string {
+                $added = '';
+                foreach (json_decode((string) base64_decode($match[1]), true) ?: array() as $name => $value) {
+                    if (!is_string($value) || 1 === preg_match('/\s' . preg_quote((string) $name, '/') . '\s*=/i', $match[4])) continue;
+                    $added .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+                }
+                return $match[2] . '<' . $match[3] . $match[4] . $added . $match[5] . '>';
+            },
+            $serializedBlocks
+        ) ?? $serializedBlocks;
+
+        return preg_replace('/<!--\s*\/?wp:[^>]*-->|<!--blocks-engine-adopt:[^>]*-->/', '', $serializedBlocks) ?? $serializedBlocks;
     }
 }

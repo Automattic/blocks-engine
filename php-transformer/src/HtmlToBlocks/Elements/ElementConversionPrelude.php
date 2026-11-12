@@ -318,6 +318,12 @@ final class ElementConversionPrelude implements ElementConverter
         return $this->projectedNavigation->responsiveNavigationToggleMarker($navigation);
     }
 
+    /** @param array<int, array<string, mixed>> $fallbacks */
+    public function adoptedDialogPanel(DOMElement $element, array &$fallbacks): ConversionOutcome
+    {
+        return $this->capturedDialog->convertAdoptedPanel($element, $fallbacks);
+    }
+
     /**
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>
