@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Closure;
 use InvalidArgumentException;
@@ -103,4 +104,32 @@ final class CompiledAssets
 
     /** @return array{schema:string,id:string,bytes:int,sha256:string}|null */
     public static function payloadReference(mixed $reference): ?array { if (!is_array($reference) || 'blocks-engine/payload-reference/v1' !== ($reference['schema'] ?? null) || !is_string($reference['id'] ?? null) || '' === $reference['id'] || !is_int($reference['bytes'] ?? null) || $reference['bytes'] < 0 || !WordPressSitePlan::hash($reference['sha256'] ?? null)) return null; return array('schema' => $reference['schema'], 'id' => $reference['id'], 'bytes' => $reference['bytes'], 'sha256' => $reference['sha256']); }
+
+    /**
+     * The theme's font materialization plan still proves against the plan's
+     * own assets: each plan row maps back to the compiled asset it came from,
+     * with the `assets/` prefix removed, and every webfont SVG consumer names
+     * one of those assets and its write.
+     *
+     * @param array<string,mixed> $theme @param array<int,array<string,mixed>> $assets @param array<string,array<string,mixed>> $writesByTarget
+     */
+    public static function assertFontMaterialization(array $theme, array $assets, array $writesByTarget): void
+    {
+        if (!array_key_exists('font_materialization', $theme)) return;
+        $fontMaterialization = $theme['font_materialization'];
+        if (!is_array($fontMaterialization)) throw new InvalidArgumentException('WordPress site plan font materialization is structurally invalid.');
+        $assetsBySource = array_column($assets, null, 'source_path');
+        $fontAssets = array();
+        foreach ($assets as $asset) {
+            $targetPath = (string) ($asset['target_path'] ?? '');
+            $fontAssets[] = array('source' => $asset['source'] ?? null, 'path' => $asset['source_path'] ?? null, 'target_path' => str_starts_with($targetPath, 'assets/') ? substr($targetPath, 7) : $targetPath, 'mime_type' => $asset['mime_type'] ?? null, 'content' => $asset['content'] ?? null);
+        }
+        foreach (($fontMaterialization['webfont_contract']['svg_consumers'] ?? array()) as $consumer) {
+            $asset = is_array($consumer) ? ($assetsBySource[$consumer['source_path'] ?? ''] ?? null) : null;
+            $targetPath = is_array($asset) ? (string) ($asset['target_path'] ?? '') : '';
+            $writePath = str_starts_with($targetPath, 'assets/') ? substr($targetPath, 7) : $targetPath;
+            if (!is_array($asset) || $writePath !== ($consumer['write_path'] ?? null) || !isset($writesByTarget[$targetPath])) throw new InvalidArgumentException('WordPress site plan webfont SVG consumer is detached from canonical assets or writes.');
+        }
+        FontMaterializationPlanBuilder::assertPlan($fontMaterialization, $fontAssets);
+    }
 }
