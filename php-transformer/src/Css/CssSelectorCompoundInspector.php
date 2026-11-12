@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\Css;
 
-/** Shared inspection helpers for parsed selector compounds. */
+/** Shared inspection helpers for selectors and their parsed compounds. */
 final class CssSelectorCompoundInspector
 {
     /**
@@ -108,5 +108,27 @@ final class CssSelectorCompoundInspector
             }
         }
         return false;
+    }
+
+    /** The selector with every `:not(...)` removed: what it targets, not what it excludes. */
+    public static function positiveSelector(string $selector): string
+    {
+        $positive = '';
+        $depth = 0;
+        $length = strlen($selector);
+        for ($i = 0; $i < $length; ++$i) {
+            if (0 === $depth && 0 === strncasecmp(substr($selector, $i, 5), ':not(', 5)) {
+                $depth = 1;
+                $i += 4;
+                continue;
+            }
+            if ($depth > 0) {
+                if ('(' === $selector[$i]) ++$depth;
+                elseif (')' === $selector[$i]) --$depth;
+                continue;
+            }
+            $positive .= $selector[$i];
+        }
+        return $positive;
     }
 }

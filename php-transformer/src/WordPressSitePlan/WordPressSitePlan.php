@@ -1014,28 +1014,6 @@ final class WordPressSitePlan
         return $prior;
     }
 
-    /** The selector with every `:not(...)` removed: what it targets, not what it excludes. */
-    public static function positiveSelector(string $selector): string
-    {
-        $positive = '';
-        $depth = 0;
-        $length = strlen($selector);
-        for ($i = 0; $i < $length; ++$i) {
-            if (0 === $depth && 0 === strncasecmp(substr($selector, $i, 5), ':not(', 5)) {
-                $depth = 1;
-                $i += 4;
-                continue;
-            }
-            if ($depth > 0) {
-                if ('(' === $selector[$i]) ++$depth;
-                elseif (')' === $selector[$i]) --$depth;
-                continue;
-            }
-            $positive .= $selector[$i];
-        }
-        return $positive;
-    }
-
 
     /** @param array<int,array<string,mixed>> $assets @return array<int,array<string,string>> */
     private function tokens(array $assets): array { return array_map(static fn(array $asset): array => array('token' => $asset['token'], 'source_path' => $asset['source_path'], 'target_path' => $asset['target_path']), $assets); }
