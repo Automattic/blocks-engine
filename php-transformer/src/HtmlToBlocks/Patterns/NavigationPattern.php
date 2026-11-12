@@ -199,6 +199,54 @@ final class NavigationPattern implements PatternRecognizerInterface
         return false;
     }
 
+    /**
+     * A menu can keep a hidden "More" item for links a script moves there when
+     * the row runs out of room. With no label of its own and only destinations
+     * its visible siblings already have, it holds nothing for native navigation.
+     */
+    private function isHiddenNavigationOverflowCopy(DOMElement $item, DOMElement $list, ?NavigationPatternContext $navigationContext): bool
+    {
+        if ( 'li' !== strtolower($item->tagName) ) {
+            return false;
+        }
+        $style = strtolower(preg_replace('/\s+/', '', SourceDom::attr($item, 'style')) ?? '');
+        if ( ! $item->hasAttribute('hidden') && ! str_contains($style, 'display:none')
+            && ! ( $navigationContext?->isHiddenAtReferenceViewport($item) ?? false ) ) {
+            return false;
+        }
+        $visible = array();
+        foreach ( $list->childNodes as $sibling ) {
+            if ( $sibling instanceof DOMElement && ! $sibling->isSameNode($item) ) {
+                foreach ( $sibling->getElementsByTagName('a') as $anchor ) {
+                    $visible[SourceDom::attr($anchor, 'href')] = true;
+                }
+            }
+        }
+        $copies = 0;
+        foreach ( $item->getElementsByTagName('a') as $anchor ) {
+            // The script's "More" button opens the copies and goes nowhere itself.
+            if ( ! $this->hasListAncestor($anchor, $item) && $this->isPlaceholderMenuOpener($anchor) ) {
+                continue;
+            }
+            if ( ! $this->hasListAncestor($anchor, $item) || ! isset($visible[SourceDom::attr($anchor, 'href')]) ) {
+                return false;
+            }
+            $copies++;
+        }
+        return 0 < $copies;
+    }
+
+    /** A link that declares itself a menu control, with no destination of its own. */
+    private function isPlaceholderMenuOpener(DOMElement $anchor): bool
+    {
+        $href = trim(SourceDom::attr($anchor, 'href'));
+        $popup = strtolower(trim(SourceDom::attr($anchor, 'aria-haspopup')));
+        return in_array($href, array( '', '#' ), true)
+            && ( 'button' === strtolower(trim(SourceDom::attr($anchor, 'role')))
+                || $anchor->hasAttribute('aria-expanded')
+                || ! in_array($popup, array( '', 'false' ), true) );
+    }
+
     /** Collapsed menu content is handled by the ordinary submenu recognizer. */
     private function isWithinOwnedSubmenu(DOMElement $element, DOMElement $landmark): bool
     {
@@ -2943,7 +2991,8 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
 
             if ( $item instanceof DOMElement && ( $this->isNavigationChromeElement($item)
-                || $this->isHiddenNavigationOverflowControl($item) ) ) {
+                || $this->isHiddenNavigationOverflowControl($item)
+                || $this->isHiddenNavigationOverflowCopy($item, $list, $navigationContext) ) ) {
                 continue;
             }
 
