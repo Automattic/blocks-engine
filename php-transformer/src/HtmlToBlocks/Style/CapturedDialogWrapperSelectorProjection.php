@@ -19,6 +19,7 @@ use DOMXPath;
  * as page content. Each child combinator whose parent side names a wrapper's
  * parent gains an alternative that steps through the wrapper. `:where()` keeps
  * the authored specificity; the original arm stays for unwrapped subjects.
+ * Wrapping the panel does not break descendant combinators, which still reach it.
  */
 final class CapturedDialogWrapperSelectorProjection
 {
@@ -43,6 +44,10 @@ final class CapturedDialogWrapperSelectorProjection
                 if ( ! $tokens['supported'] ) continue;
                 foreach ( $tokens['combinators'] as $index => $combinator ) {
                     if ( '>' !== $combinator ) continue;
+                    // The panel is the wrapper's only child, so sibling-indexed
+                    // pseudo-classes on the stepped-into compound would read
+                    // different siblings than in the source.
+                    if ( 1 === preg_match('/:(?:first|last|only|nth)-/i', (string) $tokens['compounds'][$index + 1]) ) continue;
                     $prefix = substr($arm, 0, (int) $tokens['compound_spans'][$index]['end']);
                     $parsed = CssSelectorMatcher::parse(trim($prefix));
                     foreach ( $parents as $parent ) {
