@@ -1783,6 +1783,13 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     {
         $tagName = strtolower($element->tagName);
 
+        // An adopted dialog panel's bindings belong to the panel before any
+        // converter claims it; its shell then converts it as ordinary content.
+        $adopted = $this->elementPrelude->adoptedDialogPanel($element, $fallbacks);
+        if ( $adopted->handled ) {
+            return $adopted->block;
+        }
+
         // A boxless host is not a cohesive component: keep its selector identity
         // on a native Group, without folding its child (the actual grid/flex
         // item) into that Group. Author projection carries display:contents and

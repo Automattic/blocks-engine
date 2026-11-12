@@ -1,0 +1,54 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-empty-flex-item-parent-axis-specificity",
+  "description": "A childless, painted flex item reads its parent's main axis from the cascade winner, not the last matching rule. `div.row{flex-direction:row}` outranks a later `.row{flex-direction:column}` on specificity, so the browser lays the row out horizontally and the sizeless (width-less) divider keeps the row-axis zero-collapse box. Resolving the parent's declarations in source order read `column`, treated the divider's cross-axis `height` as a main-axis size, and dropped the compatibility class.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-empty-flex-item-parent-axis-specificity.json",
+    "notes": "Product-neutral fixture: theme stylesheets often pair an element-qualified layout rule with a later, less specific utility override."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<style>div.row{display:flex;flex-direction:row;align-items:center;gap:16px}.row{flex-direction:column}.rule{background-color:#c33;height:4px}</style><main><div class=\"row\"><div class=\"rule\"></div><p>Label text.</p></div></main>"
+  },
+  "expect": [
+    {
+      "path": "status",
+      "assert": "equals",
+      "value": "success"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "contains",
+      "value": "<div class=\"wp-block-group rule blocks-engine-empty-flex-item blocks-engine-empty-visual-group"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "not_contains",
+      "value": "blocks-engine-empty-flex-column-item"
+    },
+    {
+      "path": "source_reports.author_stylesheet_projections.0.content",
+      "assert": "contains",
+      "value": ".row{flex-direction:column}"
+    }
+  ],
+  "expected_blocks": [
+    {
+      "path": "blocks.0",
+      "name": "core/group"
+    },
+    {
+      "path": "blocks.0.innerBlocks.0",
+      "name": "core/group"
+    },
+    {
+      "path": "blocks.0.innerBlocks.1",
+      "name": "core/paragraph"
+    }
+  ]
+}

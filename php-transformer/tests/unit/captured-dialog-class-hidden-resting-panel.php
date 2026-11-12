@@ -64,8 +64,8 @@ if ($dialog instanceof DOMElement && $button instanceof DOMElement) {
     $assert('dropdown' === $dialog->getAttribute('data-blocks-engine-presentation') && 'in-place' === $dialog->getAttribute('data-blocks-engine-placement'), 'the dialog is a dropdown kept at its source place', $projected);
     $assert('header' === strtolower($dialog->parentNode->nodeName), 'the dialog stays in the header', $projected);
     $assert(! $dialog->hasAttribute('open'), 'the dialog is closed', $projected);
-    $panel = $dialog->firstElementChild;
-    $assert($panel instanceof DOMElement && 'menuPanel' === $panel->getAttribute('id') && 'hidden lg:hidden' === $panel->getAttribute('class') && ! $panel->hasAttribute('style') && ! $panel->hasAttribute('hidden'), 'the dialog holds the panel at its resting presentation', $projected);
+    // The adopted panel is itself the dialog, at its resting presentation.
+    $assert('menuPanel' === $dialog->getAttribute('id') && 'hidden lg:hidden' === $dialog->getAttribute('class') && ! $dialog->hasAttribute('style') && ! $dialog->hasAttribute('hidden'), 'the dialog is the panel at its resting presentation', $projected);
 }
 
 $assert(! str_contains($projected, '<script'), 'the current disclosure body is recognized and retired');
@@ -95,13 +95,14 @@ $assert(! str_contains($markup, 'data-blocks-engine-capture'), 'no capture-only 
 // The resting class sits only on the panel the dialog toggles: closed it is
 // `hidden lg:hidden`, open the dialog swaps it for the opened class.
 $assert(! str_contains(str_replace($match[0] ?? '', '', $markup), 'hidden lg:hidden'), 'the resting class appears on no element outside the dialog', $markup);
-$assert(1 === preg_match('/^<!-- wp:group \{"anchor":"menuPanel","className":"hidden lg:hidden[^"]*"/', $match[3] ?? ''), 'the resting class is on the panel inside the dialog', $match[3] ?? $markup);
+$assert(1 === preg_match('/^<!-- wp:group \{"anchor":"menuPanel","className":"hidden lg:hidden[^"]*"/', $match[3] ?? ''), 'the resting class is on the adopted panel block', $match[3] ?? $markup);
+$assert(1 === count($panel['innerBlocks'] ?? array()) && ! isset($panel['attrs']['anchor']) && ! empty($panel['attrs']['metadata']['blocksEngineDialog']['adopt']), 'the dialog shell adopts the panel and renders no element of its own', $match[0] ?? $markup);
 $resting = is_array($attrs) ? ($attrs['restingState'] ?? null) : null;
 $assert('hidden lg:hidden' === ($resting['closed']['class'] ?? null) && 'lg:hidden' === ($resting['opened']['class'] ?? null) && 'authored' === ($attrs['resting'] ?? null), 'the dialog opens the panel by replacing its resting class', json_encode($attrs));
 
 $definition = (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CapturedDialogBlockGenerator())->definition('custom/captured-dialog');
 $assert(str_contains($markup, 'captured-dialog-closed-content') && str_contains($markup, 'Closed content') && str_contains($markup, 'captured-dialog-open-content'), 'both observed content states remain editable after conversion', $markup);
-$assert(str_contains($definition['assets']['style.css'], ':not([open]) > * > .captured-dialog-open-content') && str_contains($definition['assets']['style.css'], '[open] > * > .captured-dialog-closed-content'), 'native open state selects the matching content without destroying either editable copy');
+$assert(str_contains($definition['assets']['style.css'], ':not([open]) > .captured-dialog-open-content') && str_contains($definition['assets']['style.css'], '[open] > .captured-dialog-closed-content'), 'native open state selects the matching content without destroying either editable copy');
 file_put_contents(sys_get_temp_dir() . '/captured-dialog-resting-content.json', json_encode(array(
     'source' => $html,
     'markup' => \Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($markup),

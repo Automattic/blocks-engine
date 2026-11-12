@@ -665,11 +665,33 @@ final class CapturedDialogProjector
     private function appendProjectedDialog(DOMDocument $document, array $fragment, array $triggers, array $triggerIds, string $identity, bool $dropdown, ?DOMElement $sourcePlace = null, bool $scopedPanel = false, array $resting = array()): DOMElement
     {
         $dialogId = 'blocks-engine-dialog-' . $identity;
+        // A panel adopted with its resting presentation becomes the dialog
+        // itself, in its source place: the sanitized panel, at rest, carries
+        // the dialog bindings. No element is added around it, so its parent,
+        // siblings and the author selectors that rest it closed stay the
+        // source's (`.menus > .panel`).
+        $adoptedPanel = array() !== $resting && $sourcePlace instanceof DOMElement && 1 === count($fragment['nodes']) && $fragment['nodes'][0] instanceof DOMElement ? $fragment['nodes'][0] : null;
+        $dialogElement = $adoptedPanel instanceof DOMElement ? $document->importNode($adoptedPanel, true) : null;
+        if ($dialogElement instanceof DOMElement && $sourcePlace instanceof DOMElement) {
+            // The panel keeps its source id; one without an id takes the
+            // dialog's, so its triggers still name what they control.
+            if ('' === trim($dialogElement->getAttribute('id'))) $dialogElement->setAttribute('id', $dialogId);
+            $dialogId = $dialogElement->getAttribute('id');
+            foreach ($triggers as $trigger) if ($trigger->hasAttribute('aria-controls')) $trigger->setAttribute('aria-controls', $dialogId);
+            $dialogElement->setAttribute('data-blocks-engine-captured-dialog', 'true');
+            $dialogElement->setAttribute('data-blocks-engine-triggers', implode(' ', $triggerIds));
+            $dialogElement->setAttribute('data-blocks-engine-presentation', 'dropdown');
+            $dialogElement->setAttribute('data-blocks-engine-placement', 'in-place');
+            $dialogElement->setAttribute('data-blocks-engine-resting', ! empty($resting['hidden']) ? 'hidden' : 'authored');
+            $dialogElement->setAttribute('data-blocks-engine-resting-state', json_encode(array('closed' => $resting['closed'] ?? null, 'opened' => $resting['opened'] ?? null), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
+            $ancestorState = $this->triggerAncestorState($triggers);
+            if (array() !== $ancestorState) $dialogElement->setAttribute('data-blocks-engine-ancestor-state', json_encode($ancestorState, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
+            $sourcePlace->parentNode?->replaceChild($dialogElement, $sourcePlace);
+            return $dialogElement;
+        }
         // A scoped nonmodal panel retains its source mount slot. This
         // keeps type/child selectors and the source containing block intact.
-        // A panel adopted with its resting presentation is wrapped whole, so
-        // the wrapper is a box-less div rather than a dialog.
-        $dialogElement = $document->createElement($scopedPanel || array() !== $resting ? 'div' : 'dialog');
+        $dialogElement = $document->createElement($scopedPanel ? 'div' : 'dialog');
         if ($scopedPanel && $sourcePlace instanceof DOMElement) {
             $ids = (new DOMXPath($document))->query('//*[@id=' . $this->xpathLiteral($sourcePlace->getAttribute('id')) . ']');
             if ($ids && 1 === $ids->length) $dialogId = $sourcePlace->getAttribute('id');
@@ -699,10 +721,6 @@ final class CapturedDialogProjector
         if ($dropdown) {
             $dialogElement->setAttribute('data-blocks-engine-presentation', 'dropdown');
             $dialogElement->setAttribute('data-blocks-engine-placement', $sourcePlace instanceof DOMElement ? 'in-place' : ($fragment['self_positioned'] ? 'source' : 'under-header'));
-        }
-        if (array() !== $resting) {
-            $dialogElement->setAttribute('data-blocks-engine-resting', $resting['hidden'] ? 'hidden' : 'authored');
-            $dialogElement->setAttribute('data-blocks-engine-resting-state', json_encode(array('closed' => $resting['closed'], 'opened' => $resting['opened']), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
         }
         $ancestorState = $this->triggerAncestorState($triggers);
         if (array() !== $ancestorState) $dialogElement->setAttribute('data-blocks-engine-ancestor-state', json_encode($ancestorState, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
@@ -824,9 +842,10 @@ final class CapturedDialogProjector
                 }
                 $resting = $this->restingPresentation($panel);
                 // A panel with a resting snapshot is adopted whole: the panel
-                // itself, at its resting presentation, is the dialog content.
+                // itself, at its resting presentation, becomes the dialog.
                 $fragment = array() !== $resting ? $this->safeDialogFragment('<div>' . $this->restPanel($document, $panel, $resting, $triggers[0]) . '</div>') : $this->safeDialogFragment($html, (string) $key);
                 if (null === $fragment) continue;
+                if (array() !== $resting && (1 !== count($fragment['nodes']) || ! $fragment['nodes'][0] instanceof DOMElement)) continue;
                 $identity = self::dialogIdentity($key . "\n" . $scopeIndex . "\n" . self::identityHtml($html));
                 $triggerIds = array();
                 $menu = false;

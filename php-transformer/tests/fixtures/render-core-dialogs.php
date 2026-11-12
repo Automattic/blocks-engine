@@ -32,7 +32,14 @@ function render_core_dialogs(string $markup): string
                 $content .= null === $chunk ? $render(array($block['innerBlocks'][$index++])) : $chunk;
             }
             $shell = $block['attrs']['metadata']['blocksEngineDialog'] ?? null;
-            if (is_array($shell)) {
+            if (is_array($shell) && !empty($shell['adopt'])) {
+                // An adopted panel is the dialog: its bindings join its own tag.
+                $content = preg_replace_callback('/^<div\b[^>]*>\s*<([a-z][a-z0-9-]*)\b([^>]*?)>(.*)<\/div>$/s', static function (array $match) use ($shell): string {
+                    $added = '';
+                    foreach ($shell['attributes'] as $name => $value) if (1 !== preg_match('/\s' . preg_quote($name, '/') . '\s*=/i', $match[2])) $added .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+                    return '<' . $match[1] . $match[2] . $added . '>' . $match[3];
+                }, $content) ?? $content;
+            } elseif (is_array($shell)) {
                 $opening = '<' . $shell['tagName'];
                 foreach ($shell['attributes'] as $name => $value) $opening .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
                 $opening .= '>';
