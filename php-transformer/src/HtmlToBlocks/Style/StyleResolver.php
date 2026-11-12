@@ -28,6 +28,8 @@ final class StyleResolver implements ElementPresentationResolver
 
     /** @var list<array<string, mixed>> */
     private array $viewportAuthorRuleSource = array();
+    /** @var list<array<string, mixed>>|null The source rules without capture-only disclosure rules. */
+    private ?array $restingViewportAuthorRules = null;
     /** @var array<string, array{rules: list<array<string, mixed>>, parsed: array<string, array<string, mixed>>, declaring: array<string, list<array<string, mixed>>>}> */
     private array $viewportAuthorRules = array();
     /** Viewport the desktop cascade is evaluated at: the capture's desktop reference. */
@@ -987,12 +989,9 @@ final class StyleResolver implements ElementPresentationResolver
     private function authorDeclarationsAtViewport(DOMElement $element, array $properties, float $viewportWidth, bool $excludeCaptureDisclosure = false): array
     {
         $authorStyles = $this->session->authorStyleAnalysis();
-        $styleRules = $authorStyles->styleRules();
-        if ( $excludeCaptureDisclosure ) {
-            $styleRules = array_values(array_filter($styleRules, static fn (array $rule): bool => empty($rule['capture_only'])));
-        }
-        ['parsed' => $parsedBySelector] = $this->viewportAuthorRules($styleRules, $viewportWidth);
-        $rules = $this->viewportAuthorRulesDeclaring($viewportWidth, $properties);
+        $key = ( $excludeCaptureDisclosure ? 'resting:' : 'all:' ) . $viewportWidth;
+        ['parsed' => $parsedBySelector] = $this->viewportAuthorRules($authorStyles->styleRules(), $viewportWidth, $excludeCaptureDisclosure, $key);
+        $rules = $this->viewportAuthorRulesDeclaring($key, $properties);
         $selectorCache = $authorStyles->selectorMatchCache();
         $matches = static function (string $selector) use ($element, $selectorCache, $parsedBySelector): bool {
             $match = $selectorCache->matches($element, $selector, $parsedBySelector[ $selector ] ?? array());
@@ -1011,18 +1010,25 @@ final class StyleResolver implements ElementPresentationResolver
      * set and viewport instead of once per element. Conditions are already
      * evaluated here, so each kept rule carries none.
      *
+     * The cache is keyed by the full source rule list, so resting lookups
+     * (capture-only disclosure rules excluded) and full lookups share it
+     * instead of evicting each other.
+     *
      * @param list<array<string, mixed>> $styleRules
      * @return array{rules: list<array{selectors: list<string>, declarations: array<string, string>, conditions: list<string>, layer: mixed}>, parsed: array<string, array<string, mixed>>}
      */
-    private function viewportAuthorRules(array $styleRules, float $viewportWidth): array
+    private function viewportAuthorRules(array $styleRules, float $viewportWidth, bool $excludeCaptureDisclosure, string $key): array
     {
         if ( $styleRules !== $this->viewportAuthorRuleSource ) {
             $this->viewportAuthorRuleSource = $styleRules;
             $this->viewportAuthorRules = array();
+            $this->restingViewportAuthorRules = null;
         }
-        $key = (string) $viewportWidth;
         if ( isset($this->viewportAuthorRules[ $key ]) ) {
             return $this->viewportAuthorRules[ $key ];
+        }
+        if ( $excludeCaptureDisclosure ) {
+            $styleRules = $this->restingViewportAuthorRules ??= array_values(array_filter($styleRules, static fn (array $rule): bool => empty($rule['capture_only'])));
         }
 
         $rules = array();
@@ -1075,9 +1081,8 @@ final class StyleResolver implements ElementPresentationResolver
      * @param list<string> $properties
      * @return list<array<string, mixed>>
      */
-    private function viewportAuthorRulesDeclaring(float $viewportWidth, array $properties): array
+    private function viewportAuthorRulesDeclaring(string $key, array $properties): array
     {
-        $key = (string) $viewportWidth;
         $set = implode("\0", $properties);
         if ( isset($this->viewportAuthorRules[ $key ]['declaring'][ $set ]) ) {
             return $this->viewportAuthorRules[ $key ]['declaring'][ $set ];
