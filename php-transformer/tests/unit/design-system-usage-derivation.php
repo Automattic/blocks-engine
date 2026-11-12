@@ -216,6 +216,27 @@ foreach ($unusedFamilies as $fixture => $unusedFamily) {
     $plans[$fixture] = array($plan, $theme);
 }
 
+// Reduced border-token page: inspect real compiler delimiters and saved HTML.
+[$borderPlan, $borderTheme] = $compile(require dirname(__DIR__) . '/fixtures/design-system/border-tokens.php');
+$borderPalette = array_column($borderTheme['settings']['color']['palette'], 'color', 'slug');
+$assert(in_array('#3e559b', $borderPalette, true), 'border tokens: the heading color supplies a matching palette entry');
+$borderMarkup = implode('', array_column($borderPlan['pages'], 'canonical_block_markup'));
+foreach ($borderPlan['template_parts'] ?? array() as $part) $borderMarkup .= $part['canonical_block_markup'] ?? '';
+preg_match_all('/<!-- wp:group (\{.*?\}) -->/s', $borderMarkup, $borderGroups);
+$border = array();
+foreach ($borderGroups[1] as $json) {
+    $attrs = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+    if (isset($attrs['style']['border']['top'])) $border = $attrs['style']['border'];
+}
+foreach (array('top' => array('#3e559b', '7px'), 'bottom' => array('#d56741', '4px')) as $side => [$color, $width]) {
+    $slug = array_search($color, $borderPalette, true);
+    $expected = false === $slug ? 'var(--accent)' : 'var:preset|color|' . $slug;
+    $assert($expected === ($border[$side]['color'] ?? null), "border tokens: $side binds only when its resolved color is in the palette");
+    $assert($width === ($border[$side]['width'] ?? null) && 'solid' === ($border[$side]['style'] ?? null), "border tokens: $side retains width and style");
+    $cssColor = false === $slug ? 'var(--accent)' : 'var(--wp--preset--color--' . $slug . ')';
+    $assert(str_contains($borderMarkup, 'border-' . $side . '-color:' . $cssColor), "border tokens: $side saved HTML agrees with the attribute");
+}
+
 // Compiled Tailwind: values set only by author classes are bound to presets.
 foreach (array('tailwind-v3', 'tailwind-v4') as $fixture) {
     [$plan, $theme] = $plans[$fixture];

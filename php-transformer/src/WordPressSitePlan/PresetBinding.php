@@ -854,6 +854,17 @@ final class PresetBinding
             } else $this->refuse($reason);
         }
 
+        // Border sides have no preset class: keep their declarations in place,
+        // just as inline text presets do when a class would change the cascade.
+        foreach (array('', 'top', 'right', 'bottom', 'left') as $side) {
+            $group = '' === $side ? ($style->border ?? null) : ($style->border->{$side} ?? null);
+            $literal = $group->color ?? null;
+            if (!is_string($literal) || str_starts_with($literal, 'var:')) continue;
+            $property = '' === $side ? 'border-color' : 'border-' . $side . '-color';
+            $slug = $this->presetSlug('color', $literal, null);
+            if (null !== $slug && $this->inlinePreset($group, 'color', 'color', $slug, $declarations, $property, $literal)) ++$bound;
+        }
+
         $typography = array(
             'fontSize' => array('fontSize', 'font-size', 'has-%s-font-size'),
             'fontFamily' => array('fontFamily', 'font-family', 'has-%s-font-family'),
@@ -2199,7 +2210,7 @@ final class PresetBinding
      */
     private function inlinePreset(\stdClass $group, string $key, string $kind, string $slug, array &$declarations, string $property, string $literal): bool
     {
-        if ('color' === $kind && null === CssColor::parse($literal)) return false;
+        if ('color' === $kind && null === CssColor::parse($this->resolve($literal))) return false;
         $type = 'color' === $kind ? 'color' : $kind;
         if (!self::replaceDeclaration($declarations, $property, $literal, 'var(--wp--preset--' . $type . '--' . $slug . ')')) return false;
         $group->{$key} = 'var:preset|' . $type . '|' . $slug;
