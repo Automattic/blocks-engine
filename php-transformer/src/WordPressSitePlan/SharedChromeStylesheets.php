@@ -16,6 +16,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Support\RenderEquivalentMarkup;
 use Automattic\BlocksEngine\PhpTransformer\Support\StylesheetActivation;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
 
 /**
  * Projects the author CSS that shared chrome needs into the stylesheets that
@@ -177,7 +178,7 @@ final class SharedChromeStylesheets
             if (!isset($compounds[$index + 1]) || in_array($compounds[$index + 1], array('>', '+', '~'), true)) break;
             // The compound's positive hooks, including those the engine moved
             // into `:where()`/`:is()` when it rewrote an id for editor parity.
-            $hooks = str_replace(array(':where(', ':is(', ')'), '', WordPressSitePlan::positiveSelector($compound));
+            $hooks = str_replace(array(':where(', ':is(', ')'), '', CssSelectorCompoundInspector::positiveSelector($compound));
             if (!preg_match('/^(?:[#.][_a-zA-Z][\w-]*)+$/', $hooks)) break;
             preg_match_all('/([#.])([\w-]+)/', $hooks, $tokens, PREG_SET_ORDER);
             $named = false;
@@ -210,7 +211,7 @@ final class SharedChromeStylesheets
 
     private static function responsiveVariantScopeClasses(string $compound): ?array
     {
-        $hooks = str_replace(array(':where(', ':is(', ')'), '', WordPressSitePlan::positiveSelector($compound));
+        $hooks = str_replace(array(':where(', ':is(', ')'), '', CssSelectorCompoundInspector::positiveSelector($compound));
         if (!preg_match('/^(?:\.[_a-zA-Z][\w-]*)+$/', $hooks)) return null;
         $classes = explode('.', ltrim($hooks, '.'));
         foreach ($classes as $class) if (!ShellExtraction::isResponsiveVariantClass($class)) return null;
@@ -244,7 +245,7 @@ final class SharedChromeStylesheets
             $routes = array() === $routes ? array_keys($allRoutes) : array_values(array_unique(array_map('strval', $routes)));
             $media = (string) ($asset['media'] ?? '');
             (new CssStylesheetTransformer())->visitStyleRules($asset['content'], static function (string $prelude, string $body, array $ancestors) use ($authored, $routes, $media, &$declared, &$hooks): void {
-                if (!preg_match_all('/([.#])(-?[_a-zA-Z][\w-]*)/', WordPressSitePlan::positiveSelector($prelude), $matches, PREG_SET_ORDER)) return;
+                if (!preg_match_all('/([.#])(-?[_a-zA-Z][\w-]*)/', CssSelectorCompoundInspector::positiveSelector($prelude), $matches, PREG_SET_ORDER)) return;
                 $named = array();
                 foreach ($matches as $match) {
                     $hook = self::selectorHook($match[1], $match[2]);
@@ -282,7 +283,7 @@ final class SharedChromeStylesheets
      */
     private static function selectorTargetsAuthoredChrome(string $selector, array $authored, array $context): bool
     {
-        $positive = WordPressSitePlan::positiveSelector($selector);
+        $positive = CssSelectorCompoundInspector::positiveSelector($selector);
         if (str_contains($positive, '\\')) return false;
         if (!preg_match_all('/([.#])(-?[_a-zA-Z][\w-]*)/', $positive, $matches, PREG_SET_ORDER)) return false;
         $owned = false;
@@ -347,7 +348,7 @@ final class SharedChromeStylesheets
             if (null === $alternatives) return $chrome ? $selector : null;
             $kept = array();
             foreach ($alternatives as $alternative) {
-                $generated = 1 === preg_match(self::GENERATED_CLASS_PATTERN, WordPressSitePlan::positiveSelector($alternative));
+                $generated = 1 === preg_match(self::GENERATED_CLASS_PATTERN, CssSelectorCompoundInspector::positiveSelector($alternative));
                 $carried = $generated && self::selectorTargetsGeneratedClass($alternative, $matcher);
                 if ($generated && !$carried) $routeAlternatives = true;
                 if (!$generated || $carried === $chrome) $kept[] = trim($alternative);
@@ -362,7 +363,7 @@ final class SharedChromeStylesheets
 
     private static function selectorTargetsGeneratedClass(string $selector, array $matcher): bool
     {
-        $positive = WordPressSitePlan::positiveSelector($selector);
+        $positive = CssSelectorCompoundInspector::positiveSelector($selector);
         foreach ($matcher['patterns'] as $pattern) {
             if (1 === preg_match($pattern, $positive)) return true;
         }
@@ -375,7 +376,7 @@ final class SharedChromeStylesheets
     /** Projected native menu state survives even when no captured item is current. */
     private static function selectorTargetsRuntimeNavigationState(string $selector): bool
     {
-        $positive = WordPressSitePlan::positiveSelector($selector);
+        $positive = CssSelectorCompoundInspector::positiveSelector($selector);
         return 1 === preg_match('/\\.wp-block-navigation(?![\\w-])/', $positive)
             && 1 === preg_match('/\\[\\s*aria-current\\b|\\.current-menu-item(?![\\w-])/', $positive);
     }

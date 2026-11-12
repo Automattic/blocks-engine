@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
 
 /**
  * Reports author-selector projections whose binding identities appear in no
@@ -164,7 +165,7 @@ final class DeadProjectedSelectorReporter
      */
     private function selectorIsBound(string $selector, string $haystack): ?bool
     {
-        $positive = $this->stripNotSelectors($selector);
+        $positive = CssSelectorCompoundInspector::positiveSelector($selector);
         $markers = $this->hashedEngineMarkers($positive);
         if ( array() !== $markers ) {
             foreach ( $markers as $marker ) {
@@ -199,32 +200,6 @@ final class DeadProjectedSelectorReporter
         }
 
         return null;
-    }
-
-    private function stripNotSelectors(string $selector): string
-    {
-        $out = '';
-        $length = strlen($selector);
-        for ( $index = 0; $index < $length; ) {
-            if ( 0 === substr_compare($selector, ':not(', $index, 5, true) ) {
-                $index += 5;
-                $depth = 1;
-                while ( $index < $length && $depth > 0 ) {
-                    $character = $selector[$index];
-                    if ( '(' === $character ) {
-                        ++$depth;
-                    } elseif ( ')' === $character ) {
-                        --$depth;
-                    }
-                    ++$index;
-                }
-                continue;
-            }
-            $out .= $selector[$index];
-            ++$index;
-        }
-
-        return $out;
     }
 
     /** @return list<string> */
