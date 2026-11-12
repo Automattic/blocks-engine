@@ -77,9 +77,9 @@ $assert(
     json_encode($dimensionBorderColor)
 );
 $assert(
-    'var(--border-color,#123456)' === ($resolvedVariableBorderColor['style']['border']['color'] ?? '')
+    '#123456' === ($resolvedVariableBorderColor['style']['border']['color'] ?? '')
         && ! isset($resolvedVariableBorderColor['leftover']['border-color']),
-    '8d: a color-resolving custom property retains its authored token in border color support',
+    '8d: a color-resolving custom property carries its computed colour in border support',
     json_encode($resolvedVariableBorderColor)
 );
 
@@ -422,8 +422,8 @@ $compoundPaintBlock = $compoundPaintResult['blocks'][0]['innerBlocks'][0] ?? arr
 $compoundPaintMarkup = (string) ($compoundPaintResult['serialized_blocks'] ?? '');
 $compoundPaintCssAsset = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $compoundPaintResult['assets'] ?? array()));
 
-$assert('var(--card-overlay)' === ($compoundPaintBlock['attrs']['style']['color']['background'] ?? ''), '59: inherited CSS variable used by inline background-color remains the only mapped paint override', json_encode($compoundPaintBlock));
-$assert(! isset($compoundPaintBlock['attrs']['style']['color']['gradient']) && str_contains($compoundPaintMarkup, 'has-background') && str_contains($compoundPaintMarkup, 'background-color:var(--card-overlay)'), '60: inline background-color support does not consume class-owned layers', $compoundPaintMarkup);
+$assert('#203040' === ($compoundPaintBlock['attrs']['style']['color']['background'] ?? ''), '59: inherited CSS variable resolves to the only mapped background paint override', json_encode($compoundPaintBlock));
+$assert(! isset($compoundPaintBlock['attrs']['style']['color']['gradient']) && str_contains($compoundPaintMarkup, 'has-background') && str_contains($compoundPaintMarkup, 'background-color:#203040'), '60: inline background-color support does not consume class-owned layers', $compoundPaintMarkup);
 $assert(str_contains($compoundPaintCssAsset, '.gallery{--card-overlay:#203040;--card-start:#ff5c8a;--card-end:#583c87}') && str_contains($compoundPaintCssAsset, 'artist-card') && str_contains($compoundPaintCssAsset, 'background:radial-gradient(circle at 20% 10%,rgba(255,255,255,.8),transparent 40%),linear-gradient(135deg,var(--card-start),var(--card-end))') && str_contains($compoundPaintCssAsset, 'background-position:center top') && str_contains($compoundPaintCssAsset, 'background-size:120% 80%,100% 100%') && str_contains($compoundPaintCssAsset, 'background-repeat:no-repeat'), '61: projected compound selector preserves inherited variables and layered background shorthand', $compoundPaintCssAsset);
 
 $compoundSourceProbe = ( new StaticStyleParityProbe() )->extract($compoundPaintHtml, $compoundPaintCss);
@@ -448,7 +448,7 @@ $assert(
     json_encode($amberQuote)
 );
 $assert(
-    array( 'width' => '2px', 'style' => 'solid', 'color' => 'var(--secondary)' ) === $amberQuoteLeftBorder
+    array( 'width' => '2px', 'style' => 'solid', 'color' => '#f0ac22' ) === $amberQuoteLeftBorder
         || (
             str_contains($amberQuoteCss, 'border-left-color:var(--secondary) !important')
             && str_contains($amberQuoteCss, 'border-left-style:solid !important')
@@ -563,9 +563,9 @@ $nativeBorderGroupAttrs = is_array($nativeBorderGroup['attrs'] ?? null) ? $nativ
 $nativeBorderGroupMarkup = (string) ($nativeBorderGroupResult['serialized_blocks'] ?? '');
 $assert(
     'core/group' === ($nativeBorderGroup['blockName'] ?? '')
-        && array( 'width' => '2px', 'style' => 'solid', 'color' => 'var(--secondary)' ) === ($nativeBorderGroupAttrs['style']['border']['left'] ?? array())
+        && array( 'width' => '2px', 'style' => 'solid', 'color' => '#f0ac22' ) === ($nativeBorderGroupAttrs['style']['border']['left'] ?? array())
         && ! str_contains((string) ($nativeBorderGroupAttrs['className'] ?? ''), 'be-inline-geometry-')
-        && str_contains($nativeBorderGroupMarkup, 'border-left-color:var(--secondary)')
+        && str_contains($nativeBorderGroupMarkup, 'border-left-color:#f0ac22')
         && str_contains($nativeBorderGroupMarkup, 'border-left-style:solid')
         && str_contains($nativeBorderGroupMarkup, 'border-left-width:2px'),
     'N2: a border-supporting Group serializes the native per-side border',
@@ -608,7 +608,7 @@ $assert(
 );
 
 $assert(
-    array( 'width' => '2px', 'style' => 'solid', 'color' => 'var(--secondary)' ) === $amberQuoteLeftBorder
+    array( 'width' => '2px', 'style' => 'solid', 'color' => '#f0ac22' ) === $amberQuoteLeftBorder
         && ! str_contains((string) ($amberQuoteAttrs['className'] ?? ''), 'be-inline-geometry-')
         && ! str_contains($amberQuoteCss, 'border-left-color:var(--secondary) !important'),
     'N4: WordPress 7.1 Quote border support uses the native attribute without a duplicate carrier',
