@@ -209,9 +209,9 @@ $shellSignals = array_values(array_filter(
     static fn(array $signal): bool => 'layout_shell' === ($signal['kind'] ?? '')
 ));
 $assert(
-    3 === count($shellSignals)
+    2 === count($shellSignals)
         && array() === array_filter($shellSignals, static fn(array $signal): bool => !empty($signal['runtime_owned']) || !empty($signal['visual_owned']))
-        && 2 === ($shellSignals[2]['wrapper_count'] ?? null),
+        && 2 === ($shellSignals[1]['wrapper_count'] ?? null),
     '6: responsive counterpart metadata survives neutral semantic wrapper folding without absorbing owned structure',
     json_encode($shellSignals)
 );
